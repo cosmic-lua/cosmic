@@ -37,41 +37,25 @@ stands on another checkout's pass.
 
 - `--all` (`COSMIC_TEST_ALL=1`) runs every test.
 - `--no-shared` (`COSMIC_TEST_NO_SHARED=1`) stands on no shared verdict.
-- `COSMIC_GRAMMAR=new` asks for the new checker ([`build.grammar_mode`]): the
-  tree is read, checked against its ceilings and written by [`build.pipeline`]
-  in place of the fork's compiler. It builds any tree. A project outside
-  cosmic's own has no ceilings and no fork to fall back to: its globals are
-  the declarations of the standard library the tool carries
-  ([`build.checker_declarations`]), and a form only the fork reads is refused
-  with the new checker's words and fix. `bin/zig build boot` with the variable
-  boots a tool that carries the Lua the new generator wrote, and records that
-  in its `compiled_by`: a run without the variable, or with the other mode,
-  finds it unsettled and builds it again ([`build.reboot`]'s `settled_by`).
-  A lone file run (`cosmic --standalone`, `cosmic sandbox`) and a file run (`cosmic <file>`) are built by it too.
-  `cosmic build` compiles the project with it, and refuses one that has a module it refuses. The Teal a template compiles
-  to is written in the new grammar then ([`cosmic.template`]'s `Options`); the examples `fix --check` compiles as shown are
-  compiled by it as files alone ([`build.example_checks`]); `cosmic sandbox --closure` takes a script's requires from its
-  syntax tree; and the coverage of a project counts the lines of the text it read, so a project written in the new
-  grammar (`mut`, a class, `T?`) runs `cosmic test` with coverage. `cosmic docs` and `cosmic uses` build the project
-  with it before they answer ([`build.rebuild`]), so a symbol declared with `mut` or `name?: T` is found, and a call
-  through a value of a record nested in its module, of the record a module returns, or of a class or record declared at the
-  top of a module's file is a use of the method it calls, as is a class's method read through the class (`Counter.add(c, 1)`),
+- The new checker is the tool's only one: [`build.pipeline`] reads the tree, checks it against its ceilings and writes
+  the Lua. `COSMIC_GRAMMAR` takes `new` or nothing ([`build.grammar_mode`]); `teal`, the grammar of the fork that was
+  deleted, is refused, naming `cosmic migrate`, which rewrites a project to the new one. A project outside cosmic's own
+  has no ceilings: every error refuses, its globals are the declarations of the standard library the tool carries
+  ([`build.checker_declarations`]), and a form of the old grammar is refused with the new checker's words and fix. A
+  lone file run (`cosmic --standalone`, `cosmic sandbox`) and a file run (`cosmic <file>`) are built by it too. `cosmic
+  build` compiles the project with it, and refuses one that has a module it refuses. The Teal a template compiles to is
+  written in the new grammar ([`cosmic.template`]'s `Options`); the examples `fix --check` compiles as shown are compiled
+  as files alone ([`build.example_checks`]); `cosmic sandbox --closure` takes a script's requires from its syntax tree; and
+  the coverage of a project counts the lines of the text it read. `cosmic docs` and `cosmic uses` build the project before
+  they answer ([`build.rebuild`]), so a symbol declared with `mut` or `name?: T` is found, and a call through a value of
+  a record nested in its module, of the record a module returns, or of a class or record declared at the top of a
+  module's file is a use of the method it calls, as is a class's method read through the class (`Counter.add(c, 1)`),
   under the class's own name where it defines the method (a value of no known type is a use of nothing); `cosmic db` and
-  `cosmic sql` read the rows that build wrote. The fork finds the first two and not the third. A module it refuses leaves the
-  last build as it was, and the lookup says why, as a build the fork stops does. A mistyped value is refused by `docs` and
-  `uses` as by `test`. In the tree's own Teal the rows are numbered in the text the translation wrote, which moves the
-  lines after a class, so the line `uses` and `docs` name there is a few off until the switch writes the tree in the new
-  grammar (doc/plans/strict-teal.md, "the switch"); a signature shows the translation's spelling (`mut {string}`,
-  `string?`).
-  The compiles, the parses and the
-  verdicts of such a run are keyed apart from the fork's, and by the code that
-  reads (the checker and its readers, as the binary carries them). A module the
-  new checker refuses, or cannot read, does not stop the run: it runs no tests,
-  nor does a module that requires it, and each is a failure of the run; a run
-  that names tests (`cosmic test one_test.tl`) fails for the refusals of the
-  files it names alone, and a named test module that requires a refused one is
-  refused itself. The build directory holds one mode's rows, so a run or a lookup in the other mode reads the
-  tree again, and a projection the other mode wrote is left out by the lookups until a build of this mode writes it. A pool is refused with it, and `--check-types` checks the facts
+  `cosmic sql` read the rows that build wrote. A module the build refuses leaves the last build as it was, and the lookup
+  says why. A mistyped value is refused by `docs` and `uses` as by `test`. A module the checker refuses, or cannot
+  read, does not stop a run: it runs no tests, nor does a module that requires it, and each is a failure of the run; a run
+  that names tests (`cosmic test one_test.tl`) fails for the refusals of the files it names alone, and a named test
+  module that requires a refused one is refused itself. A pool is refused with `--check-types`, which checks the facts
   alone (below).
 - `COSMIC_VERDICT_CACHE` names another cache file. `0` means none.
 
@@ -317,33 +301,16 @@ and keeps no verdict of it. A held run fails it.
 
 ## run-time type checks
 
-`cosmic test --check-types` (`COSMIC_TEST_CHECK_TYPES=1`) shows where a
-value breaks the type declared for it. It compiles the tree with a check
-at each annotated parameter, declared return value and write to a record
-field, and runs every test, whatever verdict stands, since only a worker
-reports.
-
-A violation is a value whose Lua kind the declared type does not admit:
-nil or a missing return value for a type that admits no nil, a float for
-an integer, a string for a record. `any` and a type variable are not
-checked. These checks report and fail nothing: the checker accepts nil for
-any type, so they list code it allows. The checks of narrowing (below) are
-the one kind that fails.
+`cosmic test --check-types` (`COSMIC_TEST_CHECK_TYPES=1`) shows where the checker's conclusion from a test is false at
+run time. It compiles the tree with a check at each read of a place a test narrowed (below) and runs every test,
+whatever verdict stands, since only a worker reports. The new checker keeps nil out of every declared type itself and
+writes no check of a parameter, a returned value or a field write, so the run reports rows of kind `fact` and no other.
+The compile is keyed apart from an unchecked one ([`importer.checked_tool`]).
 
 Three tests compare the bytecode of a module with the binary's
 ([`build/harness_epoch_test.tl`], [`cosmic/store_seal_test.tl`],
 [`build/rebuild_lock_tool_test.tl`]) and skip in a checked run, whose
 modules carry checks.
-
-Not checked: a `return f(x)`, a tail call, which a check would end; a
-vararg parameter or return; and a write to a field a record inherits or a
-generic record declares.
-
-With `COSMIC_GRAMMAR=new` the run compiles with the new checker, which
-writes the checks of narrowing alone (below): no parameter, return value or
-field write is checked, so the run reports rows of kind `fact` and no other.
-It is keyed apart from the fork's checked compile and from an unchecked one
-([`importer.checked_tool`]).
 
 The run ends with the count, the distinct violations and the commonest
 ten, each with the line that sent the value: the caller for a parameter,
@@ -377,7 +344,7 @@ program that shows it.
   checks' to report.
 - It checks nothing of a place narrowed by the type of a value assigned or
   declared with (`x = f() or g()`), which holds nil where the checker's type
-  does not say so (checker/tl.tl's TODO at the read of a variable).
+  does not say so (the TODO of [`lang.fact_wraps`] names it).
 - A place that is not a local (a field, a global, `a.b.c`, `t[k]`) is not
   checked, as the narrowing does not hold one.
 - The check is a call of the hook per narrowed read, which costs. A fuzz
@@ -395,8 +362,8 @@ enum strings, the classes and the tag of: a false conclusion raises as above and
 `type_violations` of kind `fact` (the read as `<file>:<line>:<column>`, the place as written, what the checker proved,
 what the value was), which survives a test that catches the error. A chunk with wraps begins by defining a `__fact` that
 answers its value where there is none ([`lang.codegen`]), so a wrapped read in a `cosmic` that such a test starts, in a relay
-or in a library the worker loads before it installs its hook answers its value, as the fork's `(__cosmic_tc or select)` does. [`build.compile_grammar`]'s `compile`
-writes the wraps given `facts` (no flag of `cosmic compile` asks for them), and `COSMIC_GRAMMAR=new cosmic test
+or in a library the worker loads before it installs its hook answers its value. [`build.compile_grammar`]'s `compile`
+writes the wraps given `facts` (no flag of `cosmic compile` asks for them), and `cosmic test
 --check-types` has the build write them for the tree ([`build.pipeline`]'s `generate`), so a read the checker narrowed
 wrongly is a failing test and a row of `type_violations` of a real run ([`build/fact_hook_tool_test.tl`] plants one).
 
@@ -537,7 +504,6 @@ Other rules:
 [`build.host_names`]: ../build/host_names.tl
 [`build.paths`]: ../build/paths.tl
 [`build.pipeline`]: ../build/pipeline.tl
-[`build.reboot`]: ../build/reboot.tl
 [`build.rebuild`]: ../build/rebuild.tl
 [`build.sandboxed_verdicts_test`]: ../build/sandboxed_verdicts_test.tl
 [`build.test_sandbox_probe`]: ../build/test_sandbox_probe.tl

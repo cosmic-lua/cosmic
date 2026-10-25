@@ -25,7 +25,8 @@ only falls, and a new violation is refused ([a count the tree cannot yet
 bring to zero is a ceiling]). the new checker replaces the fork once it
 is at least as sound as the fork, not once every ceiling is zero ([the
 switch]). the rewrites that bring each ceiling to zero come after, in the
-new grammar ([the rewrites to zero]).
+new grammar ([the rewrites to zero]). the switch is done ([the switch]); the sections that speak of the fork describe the
+state before it.
 
 once a step merges its section is marked done, and
 [design.md](../design.md)'s teal section states each rule as it lands.
@@ -1093,6 +1094,7 @@ its builder in a page, not the whole plan.
 - checked narrowing and the program shapes narrowing bugs lived in
   (#3077, #3078).
 - the row-accessor pin move (#3051, #3056).
+- [the switch]: the new checker replaced the fork, and the tree is written in the new grammar.
 
 ### narrowing by construction
 
@@ -1237,134 +1239,58 @@ relations. a sketch, not a design:
 
 ### the switch
 
-the new checker replaces the fork once it is at least as sound as the
-fork, not once every ceiling is zero. the aim is lower cost, accepting
-harder transitions while keeping a high bar for soundness and
-correctness. the gate:
+done. the new checker replaced the fork in one change, on the branch `the-switch`, after it met the gate below, and the
+tree is written in the new grammar. the fork is gone from the tree: `checker/`, the forked checker's modules
+(`build.teal`, `build.ast`, `build.analyzer`, `build.compilation` and what read them), its formatter, the refusal gate
+and the worker that compared the two. what the change did, and what it decided:
 
-- every program pinned in build/teal_test.tl (translated) is refused by
-  a rule of this plan, or is accepted because a sound rule of this plan
-  admits it: such a program is a row of [`testdata/gate/retired.json`] with
-  the code of that rule, a near-twin that the same rule refuses, and a run
-  of the accepted program. a pin is retired only by a rule the plan
-  states, never to make the count agree;
-- every verdict it gives differently from the fork, file by file, is a
-  row in the verdict tables tied to a named rule;
-- the fuzz soundness property and checked narrowing run against it;
-- the C bindings are typed. the fork enforces the contract rules
-  (build/contracts.tl) on calls into [`cosmic.sys`] and the raw C
-  modules, about 740 call sites in the tree: an ignored [`sys.unlink`]
-  result, a [`sys.stat`] result used unchecked, `:find` on a sys error
-  reason, a bare-boolean wrapper. the new checker leaves a C binding
-  untyped, so its port of the contracts sees none of these, and one rule
-  exists only for them. "as sound as the fork" therefore needs the
-  bindings typed, from the `.d.tl` declarations the build already derives,
-  before the switch and not after it;
-- every call the contracts judge has a callee, or is named. in the files
-  the contracts judge, 3,654 of 40,874 calls have no callee the checker
-  recorded: C bindings, and receivers left `invalid` by a pinned error. a
-  breach on such a call goes unseen. each file's count is held under an
-  `[untyped]` ceiling in [`build/ceilings.txt`]. the switch does not wait
-  for them to reach zero: every one of these calls follows from a pinned
-  `[checked]` error (a value the checker refused, or `setmetatable_call`),
-  none is a binding of C (a triage of all 591 untyped calls found this),
-  so the count is bookkeeping of those pins and no gap of its own. the
-  pins hold the counts, and each later pull request lowers its row with
-  the `[checked]` rows it removes.
+- **the gate.** the new checker was at least as sound as the fork, not at every ceiling zero. every program pinned in
+  the fork's corpus was refused by a rule of this plan or accepted because a sound rule of this plan admits it (a row of
+  [`testdata/gate/retired.json`] with the rule's code); every verdict it gave differently was a row of the verdict tables
+  tied to a named rule; the fuzz soundness properties and checked narrowing ran against it; the C bindings are typed from
+  the `.d.tl` declarations the build derives, so the error-slot rules see the calls into [`cosmic.sys`]; and the calls
+  the contracts judge have a callee or are counted under the `[untyped]` ceilings of [`build/ceilings.txt`], which
+  follow from the pinned `[checked]` errors and fall with them. the gate's evidence stays in the tree: the verdict
+  tables, the retired pins, [`lang/check_flow_fuzz_test.tl`], [`lang/check_total_fuzz_test.tl`],
+  [`lang/check_assigned_fuzz_test.tl`] and [`bin/gate-sweep`], whose result is [`testdata/gate/sweep.txt`]. the fork's
+  answers to the programs the tests compared are kept as text beside the cases ([`lang/forked.tl`]).
+- **one grammar.** the tool reads the new grammar and no other. `COSMIC_GRAMMAR` takes `new` or nothing; `teal` and
+  `cosmic compile --grammar teal` are refused, naming `cosmic migrate`, which translates a project and is kept for one
+  release as a user-facing verb and then goes. a project outside the tree is a hard cutover: it compiles with the
+  new checker, with no fork to fall back to, against the declarations of the standard library the tool carries
+  ([`lang/stdlib.d.tl`], [`lang/prelude.d.tl`]), and has no ceilings, so every error refuses. a form of the old grammar
+  that it meets carries the new checker's fix ([`build/error_catalog.tl`], [`build/removed_fix.tl`]).
+- **the tree.** the translated tree was committed: every file is in the new grammar, and the ceilings were derived again
+  over it (`[checked]`, `[declared]`, `[scoped]`, `[untyped]` and `[examples]`), so a new violation is refused and the
+  rewrites that bring each ceiling to zero are free of the fork's grammar. the islands (`ci/`, the bootstrap scripts
+  of `build/` and `bin/`) are read by the pinned release in the new grammar ([`bin/cosmic-bootstrap`] and the CI driver's
+  wrapper set `COSMIC_GRAMMAR=new`), and what they cannot yet spell waits on the pin (`bin/cosmic todos
+  '"cosmic-driver.pin"'`).
+- **the boot.** the bridge compiles the files of [`build/seed.txt`] with the pinned release as the seed, compiles them
+  again from the tree, and builds the tool with the second; `lang/SEED_DIFFERS` names the files a generator change
+  ahead of the pin makes differ. no stage reads the fork.
+- **the readers.** `cosmic fix`, the tree checks, the language server, the doc and link readers, coverage, the
+  sandbox's closure and the template compiler read the syntax tree of the new grammar. `cosmic fix` reads and checks
+  and has no layout for the new grammar: the owner's decision is to delete the fork's formatter with it and to write
+  one over the new tree later (a `TODO:` in [`build/fix/init.tl`]), so `cosmic fix --check` cannot tell a badly laid-out
+  file until then.
+- **a declaration beside its source** (`foo.d.tl` and `foo.tl`) is one module, as in a build: a `require` reads the
+  declaration and the source is compiled as its implementation. two sources or two declarations for one module are
+  refused (`cosmic compile` names both).
+- **a `#!` first line** is refused by the lexer (the owner's decision).
+- **the rehearsal is gone.** the CI job that booted a second tool with the new checker, ran the suite on it and held its
+  failures to `testdata/gate/rehearsal.txt` was deleted with that list, its phases of the CI driver and the cancel job's
+  exemption for it: the suite runs on the tool itself, on every leg. the projects it built (`testdata/projects/`) are
+  fixtures of the tool tests.
+- **the bill of materials** keeps tl for the standard library's declarations, which were written from tl's.
+- **found by the port.** running the new checker over the whole suite's fixtures showed a real defect, fixed: the
+  analyzer split lines at LF alone where the lexer breaks at CR and CRLF too, which crashed `analysis_of` on a file with
+  a lone CR (`lines_of`, and the language server's columns, now follow the lexer's breaks). the rest were fixtures
+  written in forms only the fork read, ported to the new grammar with the new checker's words asserted.
 
-the evidence is in the tree: the verdict tables ([the verdict harness is
-tables]), the pins retired by a rule ([a pin the new rules retire is a row,
-not a refusal]), the soundness property of narrowing and its corpus
-([`lang/check_flow_fuzz_test.tl`]), the totality property
-([`lang/check_total_fuzz_test.tl`]) and the oracle of definite assignment
-([`lang/check_assigned_fuzz_test.tl`]), each against the new checker.
-checked narrowing covers a fact in a read of a place a test narrowed: the
-kinds of value taken, a string outside an enum's members, a table of
-another class, and a tag outside a union's. the test worker defines the
-`__fact` hook and the code generator writes the call of it, so the fuzz
-properties run under it. it does not yet check an integer against a
-float, a `thread`, the `==` narrowing of an enum or a string, or `true`
-against `false`, so a run misses a false conclusion of these. nor does it
-check the kinds of parameters, returns and field writes. a test's child
-process answers the value of a wrapped read and checks nothing. all of
-these wait on the tool's wiring: `cosmic test --check-types` compiles with the fork until
-the switch (the TODOs of [`lang/check_flow_fuzz_test.tl`], [`lang/check.tl`]
-and [`lang/fact_wraps.tl`]). the full
-sweep of the properties, many draws from several seeds, is
-[`bin/gate-sweep`], which writes its result to
-[`testdata/gate/sweep.txt`]; the nightly fuzz workflow draws them from a seed
-of its own.
-
-the switch is a hard cutover for a project outside the tree. from the
-change that makes the tool compile with the new checker, every project
-compiles with it, with no fork to fall back to, and a project's globals are
-the new checker's declarations of the standard library
-([`lang/stdlib.d.tl`] and [`lang/prelude.d.tl`]), not the carried
-fork's. a project written in a form only the fork reads breaks, and the error
-it meets carries the new checker's fix ([`build/error_catalog.tl`],
-[`build/removed_fix.tl`]) that says how to write it. a project gets the
-full checker, the error-slot rules of build/contracts.tl included: the
-fork holds only cosmic's own tree to them, and the new pipeline holds every
-project to them, so a project that passes the fork can meet them at the
-switch. a project has no ceilings, so every error refuses, and a project
-that writes into an array it made meets `view_written`, whose fix (`mut`) the
-fork's tools cannot read: the switch makes coverage, `fix` and the other
-readers of a project's source read the syntax tree first, since a project
-written in the new grammar cannot run `cosmic test` before. CI's rehearsal job
-(`COSMIC_GRAMMAR=new`) boots a second tool with the new checker, runs the whole suite
-on it ([`build/pipeline.tl`]), builds a fixture project and one written in forms
-only the fork reads, and proves `lang/` against the pinned seed, so that
-this path is exercised before the switch. it is informational until the
-switch, where it becomes required.
-
-then one change commits the translated tree and deletes `checker/`, the
-translator and the comparisons with the fork's readers. each rule's
-existing violations are pinned as ceilings per file and code, and a new
-violation is refused, so code written after the switch meets the full
-rules. the rewrites that bring each ceiling to
-zero happen after it, in the new grammar, so they are no longer
-constrained to Teal the fork also accepts.
-
-- the comparisons with the fork are temporary and costly. the `[read]`
-  and `[typed]` checks of [`build/tree_checks.tl`] compare the ports with
-  the fork's readers, and together add about four to five minutes to a
-  cold `cosmic fix --check .`. the switch deletes them with the fork.
-  until then their cost is cut before more are added: they read the
-  fork's rows from the working database instead of deriving them again.
-- the islands, which stay Teal until the pin moves past the switch, are
-  `ci/` and the bootstrap scripts [`build/zig.tl`], [`build/vendor.tl`],
-  [`build/verify_codesign.tl`], [`build/perf.tl`] and [`build/paths.tl`]
-  ([`ci/islands.txt`] lists them, and the CI driver's `check-islands`
-  type-checks them on the pinned release); the new checker's own source is not
-  one, since the pin moves before the switch to a release whose
-  `cosmic compile --grammar new` reads the new grammar (option A), and
-  `lang/` is translated with the rest. `ci/` is read by the pinned
-  release alone, since nothing outside it requires it. the scripts of
-  `build/` are also modules the tool requires (`build/paths.tl` by about
-  twenty), so the new parser reads them too: they are written in the
-  subset both grammars read, and `T | nil` (45 sites) and `metamethod
-  __close` (1) have no common spelling. the switch decides how the tool
-  reads those, by translating them on read while the pin runs their Teal,
-  or by compiling them with the pinned release's `compile`; the count of
-  each form, which only falls, is `blocked` in `build/islands.tl`.
-- the pin move to that release follows the change that adds the flag,
-  and waits for the release main publishes from it. it has moved: the
-  pin names `next-8a4d0e65`, whose `compile --grammar new` writes, for
-  the translation `build/lang_proof.tl` makes of `lang/`, the Lua the
-  tool's own writes. what waits is the translated tree: the switch has
-  build.zig's `seedCompiler` run it over `lang/`.
-- the switch change rewrites, in lang/ and in [`build/tree_checks.tl`],
-  every test `x is Ast.Local` or `x is Types.Named` of a record that a
-  `where` clause told apart (about 900) to a tag test or a `match`, and
-  does not pin them as ceilings: the code generator reads one file and
-  writes such a test as one for a table once the clause is gone, so the
-  Lua is a different program (`cosmic compile --grammar new` refuses the
-  test, as `is_on_record`). the `where` clauses of lang/ast.tl and
-  lang/types.tl become tags in the same change. `build/lang_proof.tl`
-  does these steps mechanically on the translation, compiles it with the
-  seed and runs the tests of `lang/` against the Lua (`bin/cosmic
-  build/lang_proof_main.tl prove <dir>`): 65 files and 41 test modules
-  pass. the switch reruns it before and after the hand edits.
+what remains of the switch is bookkeeping with a home of its own: the `where` clauses of [`lang/ast.tl`] and
+[`lang/types.tl`] become tags (about 900 tests of a node kind, a `TODO:` in each file); `cosmic migrate` goes in the
+release after this one; and the TODOs that wait on the pin move are listed by `bin/cosmic todos '"cosmic-driver.pin"'`.
 
 ### the rewrites that bring each ceiling to zero
 
@@ -1529,6 +1455,11 @@ since the seed's Lua runs on the tree's VM.
 [`build/removed_fix.tl`]: ../../build/removed_fix.tl
 [`lang/stdlib.d.tl`]: ../../lang/stdlib.d.tl
 [`lang/prelude.d.tl`]: ../../lang/prelude.d.tl
+[`lang/ast.tl`]: ../../lang/ast.tl
+[`lang/types.tl`]: ../../lang/types.tl
+[`lang/forked.tl`]: ../../lang/forked.tl
+[`build/seed.txt`]: ../../build/seed.txt
+[`build/fix/init.tl`]: ../../build/fix/init.tl
 [`build/paths.tl`]: ../../build/paths.tl
 [`build/perf.tl`]: ../../build/perf.tl
 [`build/vendor.tl`]: ../../build/vendor.tl
@@ -1560,9 +1491,7 @@ since the seed's Lua runs on the tree's VM.
 [`Json.array`]: ../../cosmic/json.tl
 [`Sqlite.rows`]: ../../cosmic/sqlite.tl
 
-[`build/tree_checks.tl`]: ../../build/tree_checks.tl
+[`bin/cosmic-bootstrap`]: ../../bin/cosmic-bootstrap
 [`Child.Handle`]: ../../cosmic/child.tl
 [`cosmic.json.array`]: ../../cosmic/json.tl
-[`sys.stat`]: ../../core/syscalls.h
-[`sys.unlink`]: ../../core/syscalls.h
 [`testdata/gate/retired.json`]: ../../testdata/gate/retired.json

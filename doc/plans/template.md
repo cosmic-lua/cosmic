@@ -145,7 +145,7 @@ something reads columns (a plain comment in `codegen.tl`).
 As [`test/visibility_test.tl`] and [`cosmic/fs_kind_test.tl`] do, a test
 writes a small project (a `page.tmpl` and its data module) into its
 temporary directory, stages it, and compiles it with [`build.work`],
-[`build.importer`] and build.teal, asserting either a clean compile or
+[`build.importer`] and build.pipeline, asserting either a clean compile or
 a refusal naming `page.tmpl:<line>` and the Safe type.
 
 ## The sequence
