@@ -53,16 +53,40 @@ function Local.calls(): Local.Calls
   return current
 end
 
---- The private copy of the core a dropped user runs: its directory and the descriptor that names it.
-local record Runtime
+--- The private copy of the core a dropped user runs: its directory and the descriptor that names it. A `<close>` local of
+--- it closes the descriptor, then removes the directory, however its block ends.
+local class Runtime
   mut path: string
   mut fd: integer
+
+  function __close(self)
+    if self.fd >= 0 then
+      local _, _ = Fs.close(self.fd)
+      self.fd = -1
+    end
+    if self.path ~= "" then
+      local _, _ = Fs.remove_tree(self.path)
+      self.path = ""
+    end
+  end
 end
 
---- What [`execute`] leaves open or made, which [`Local.run`] lets go of when `execute` ends, however it ends.
-local record Held
-  runtime: Runtime
-  open: mut {integer}
+--- A descriptor [`execute`] opened. A `<close>` local of it closes the descriptor however its block ends, unless
+--- [`Opened.close`] has.
+local class Opened
+  mut fd: integer
+
+  --- Closes the descriptor now, as [`Fs.close`] does; a second close does nothing.
+  function close(self): boolean, string
+    local fd = self.fd
+    if fd < 0 then return true, "" end
+    self.fd = -1
+    return Fs.close(fd)
+  end
+
+  function __close(self)
+    local _, _ = self:close()
+  end
 end
 
 --- What [`execute`] answered, kept where the function that runs it under `pcall` can read it.
@@ -73,48 +97,6 @@ end
 --- What the snapshot of the checkout is, kept where the function that makes it under `pcall` can read it.
 local record Snapshot
   mut commit: string
-end
-
---- Registers the descriptor `fd` with `held`, to be closed by [`close_held`] or, if `execute` ends first, by
---- [`release`]. Answers `fd`.
-local function hold(held: Held, fd: integer): integer
-  held.open[#held.open + 1] = fd
-  return fd
-end
-
---- Forgets the descriptor `fd` [`hold`] registered, and closes it.
-local function close_held(held: Held, fd: integer): boolean, string
-  for at, each in ipairs(held.open) do
-    if each == fd then
-      table.remove(held.open, at)
-      break
-    end
-  end
-  return Fs.close(fd)
-end
-
--- TODO: make [`Runtime`] and a descriptor classes with `function __close(self)`, hold them in `<close>` locals and
--- drop [`Held`] and this function, once ci/cosmic-driver.pin names a release that reads a class with
--- `function __close(self)` in the islands: the new grammar has no `setmetatable`, and a `<close>` local of a record is
--- refused (`close_not_closable`).
-
---- Closes what `held` still holds: the descriptors, then the runtime's descriptor and directory.
-local function release(held: Held)
-  while #held.open > 0 do
-    local fd = table.remove(held.open)
-    if fd ~= nil then
-      local _, _ = Fs.close(fd)
-    end
-  end
-  local runtime = held.runtime
-  if runtime.fd >= 0 then
-    local _, _ = Fs.close(runtime.fd)
-    runtime.fd = -1
-  end
-  if runtime.path ~= "" then
-    local _, _ = Fs.remove_tree(runtime.path)
-    runtime.path = ""
-  end
 end
 
 local function fallback_value(values: {string:string}, name: string, fallback: string): string
@@ -175,7 +157,7 @@ local function owned_root(path: string)
     path .. ": owned root must be a directory, never a symbolic link: " .. tostring(why))
 end
 
-local function execute(argv: {string}, program: string, held: Held): integer
+local function execute(argv: {string}, program: string): integer
   local root = Fs.dirname(Fs.dirname((assert(Fs.absolute(program)))))
   local caller_env = current.env_all()
   local relaunch = assert(Proc.relaunch())
@@ -252,34 +234,32 @@ local function execute(argv: {string}, program: string, held: Held): integer
   -- Grant one nonwritable copy for this run without changing that cache.
   -- Its retained descriptor must name the executing copy: startup checks
   -- both its digest against the artifact and its physical inode.
-  local runtime: Runtime = held.runtime
+  local runtime <close>: Runtime = { path = "", fd = -1 }
   local core_slot: integer? = nil
   if credentials then
     runtime.path = assert(current.sys_mkdtemp("/tmp/cosmic-local-runtime.XXXXXX"))
-    local source: integer? = nil
+    local source <close>: Opened = { fd = -1 }
     local from: integer
     if relaunch.env["COSMIC_PORTABLE_CORE_FD"] then
       core_slot = assert(math.tointeger(tonumber(relaunch.env["COSMIC_PORTABLE_CORE_FD"])))
       from = assert(relaunch.fds[core_slot], "relaunch names no core descriptor")
     else
       local core_path = assert(relaunch.argv[1], "relaunch names no program")
-      from = hold(held, (assert(Fs.open_read(core_path))))
-      source = from
+      source.fd = assert(Fs.open_read(core_path))
+      from = source.fd
     end
     local native = runtime.path .. "/core"
-    local output = hold(held, (assert(sys.open(native, sys.O_WRONLY | sys.O_CREAT | sys.O_EXCL, 0x180))))
+    local output <close>: Opened = { fd = assert(sys.open(native, sys.O_WRONLY | sys.O_CREAT | sys.O_EXCL, 0x180)) }
     local offset = 0
     while true do
       local bytes = assert(current.sys_pread(from, 65536, offset))
       if #bytes == 0 then break end
-      assert(current.fs_put(output, bytes))
+      assert(current.fs_put(output.fd, bytes))
       offset = offset + #bytes
     end
     assert(Fs.chmod(native, 0x16d))
-    assert(close_held(held, output))
-    if source ~= nil then
-      local _, _ = close_held(held, source)
-    end
+    assert(output:close())
+    local _, _ = source:close()
     runtime.fd = assert(Fs.open_read(native))
     -- Nor can it reach root's build directory, its user's alone (0700):
     -- it runs a copy of the tool beside the core.
@@ -465,7 +445,7 @@ local function execute(argv: {string}, program: string, held: Held): integer
         string.format("%q", state .. "/logs") .. "))", env), "phase directories")
     local path = state .. "/logs/" .. phase .. ".log"
     local fd, open_why = sys.open(path, sys.O_WRONLY | sys.O_CREAT | sys.O_TRUNC | sys.O_NOFOLLOW, 0x1a4)
-    local log = hold(held, (assert(fd, path .. ": " .. tostring(open_why))))
+    local log <close>: Opened = { fd = assert(fd, path .. ": " .. tostring(open_why)) }
     local values: mut {string:string} = {}
     fill(values, env)
     values["GITHUB_WORKSPACE"], values["RUNNER_TEMP"] = candidate, state .. "/runner"
@@ -474,8 +454,8 @@ local function execute(argv: {string}, program: string, held: Held): integer
     values["COSMIC_ZIG_CACHE_FROM"], values["COSMIC_ZIG_GLOBAL_CACHE"] = seed, zig_global
     local start = Clock.monotonic_ns()
     local result, why = current.child_run({ cosmic, "cosmic_ci/driver.tl", "platform", phase, "success" },
-      { cwd = project, env = values, credentials = credentials, stdout = log, stderr = log })
-    local closed, close_why = close_held(held, log)
+      { cwd = project, env = values, credentials = credentials, stdout = log.fd, stderr = log.fd })
+    local closed, close_why = log:close()
     assert(result, why)
     assert(closed, close_why)
     local status = Child.shell_status(result)
@@ -486,7 +466,7 @@ local function execute(argv: {string}, program: string, held: Held): integer
       -- build/fuzzer log in memory. Stop at an overlong line as well.
       local opened, read_why = Fs.open_read(path)
       if opened then
-        hold(held, opened)
+        local reading <close>: Opened = { fd = opened }
         local reader = Stream.lines(Stream.from_fd(opened), 65536)
         local lines = 0
         while lines < 20 do
@@ -502,7 +482,7 @@ local function execute(argv: {string}, program: string, held: Held): integer
             lines = lines + 1
           end
         end
-        local _, _ = close_held(held, opened)
+        local _, _ = reading:close()
       else
         say("cannot read phase log: " .. read_why)
       end
@@ -519,12 +499,10 @@ function Local.run(argv: {string}, program: string): integer
   -- TODO: hold the guard in a `<close>` local again, once ci/cosmic-driver.pin names a release that declares
   -- [`Signal.Guard`] as a class: a `<close>` local must be one.
   local guard = assert(current.signal_guard())
-  local held: Held = { runtime = { path = "", fd = -1 }, open = {} }
   local ended: Ended = { status = 0 }
   local ok, answer = pcall(function()
-    ended.status = execute(argv, program, held)
+    ended.status = execute(argv, program)
   end)
-  release(held)
   local status = ended.status
   if not ok then
     say(tostring(answer))
