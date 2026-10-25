@@ -943,6 +943,12 @@ local restricted: {string: Restriction} = {
       "cannot check what it is about skips or declares `requires`, and one that checks " ..
       "asserts",
   },
+  ["build.load_module load"] = {
+    files = { "build/dispatch.tl", "build/test_worker.tl", "build/load_module_test.tl" },
+    why = "only the tool's entry and the test worker load a module by a name they get at run " ..
+      "time, which is no edge of the build: any other module requires what it needs by a " ..
+      "literal name, `require(\"cosmic.fs\")`, or picks from a table of such requires",
+  },
   ["build.confine sandbox_platform"] = {
     files = { "build/confine.tl", "build/host_requires.tl",
       "build/test_sandbox_probe.tl" },

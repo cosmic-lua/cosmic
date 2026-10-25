@@ -46,15 +46,12 @@ local record Catalog
   message: function(name: string, field?: string): string
 end
 
---- The module this quotes, named by a constant rather than a literal so that no parse records a `require` of it: the
---- catalog decides only what an error says, so it is no part of the compiler's identity.
-local catalog_module <const> = "cosmic.removed"
-
---- [`cosmic.removed`], or nil where it cannot be loaded (a test that does not require it).
+--- [`cosmic.removed`] where the process has loaded it, else nil (a test that does not require it). This reads what
+--- `package.loaded` holds and requires nothing by any name: the catalog decides only what an error says, so it is no part
+--- of the compiler's identity. The tool's entry loads it ([`build.dispatch`]); a test that reads what it says requires it.
 local function catalog(): Catalog?
-  local lookup: function(string): any = require -- TRIAL-D6.1: stands in for the owner's decision on a require of a name computed at run time
-  local ok, loaded = pcall(lookup, catalog_module)
-  if not ok or not (loaded is {string: any}) then
+  local loaded = package.loaded["cosmic.removed"]
+  if not (loaded is {string: any}) then
     return nil
   end
   local names, members, arguments, message = loaded["names"], loaded["members"], loaded["arguments"], loaded["message"]

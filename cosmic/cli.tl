@@ -728,7 +728,8 @@ local record Cli
   ---
   ---     cosmic sandbox --closure -- cosmic run.tl IN OUT
   ---
-  --- A `pcall(require, "<name>")` is followed as a `require` is; a name
+  --- A `pcall(require, "<name>")` is followed as a `require` is, so a name
+  --- no store holds is refused for it too; a name
   --- computed at run time is refused when the script is compiled. A
   --- `require` of a module outside this program's store
   --- (a project module beside the script) is refused before anything

@@ -1342,8 +1342,9 @@ end
 --- Records a call of `require` with one literal string, or of `pcall(require, "m")`, for the chunk's list. A
 --- `pcall(require, "m")` probes a module that may be absent and is a dependency all the same: it is carried and keyed
 --- as a `require("m")` is. A name that is no literal is an error ([`report_computed_require`]).
--- TODO: refuse a `require` bound to another name or handed on as a value (`local r = require`, `xpcall(require, h, name)`),
--- which this reads as no call, once the scope builder reports a use of the global `require` that is no call
+-- TODO: refuse a `require` reached any way but a call by the bare name (`local r = require`, `_G.require(name)`,
+-- `(require)(name)`, `xpcall(require, h, name)`), which this reads as no call, and a `require` that a local shadows,
+-- which it reads as the global, once the scope builder reports a use of the global `require` that is no call
 -- (lang/scopes.tl): until then `cosmic test` refuses such a name when it runs.
 local function note_require(call: Ast.Call)
   local callee, args = call.callee, call.args

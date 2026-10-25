@@ -26,6 +26,7 @@ local Test = require("cosmic.test")
 local raw_errors = require("cosmic.internal.errors")
 local Assertions = require("build.assertions")
 local confine = require("build.confine")
+local load_module = require("build.load_module")
 local key_parts = require("build.key_parts")
 local test_inputs = require("build.test_inputs")
 
@@ -257,7 +258,7 @@ local SECOND_NS <const> = 1000 * 1000 * 1000
 --- table, which follows `local type` requires Teal erases and requires
 --- inside functions no worker calls.
 worker.loads = {
-  "build.assertions", "build.cache_names", "build.confine", "build.key_parts",
+  "build.assertions", "build.cache_names", "build.confine", "build.key_parts", "build.load_module",
   "build.test_inputs",
   "build.test_worker", "build.this_program", "cmd.cosmic.main", "cosmic.coverage",
   "cosmic.env", "cosmic.fs", "cosmic.proc", "cosmic.test",
@@ -1394,8 +1395,7 @@ function worker.run(argv: {string}): integer
   -- Each under a stand-in for `spawn` ([`confine.call`]), which holds what
   -- the test starts.
   local loading = confine.call(function(): any
-    local run_module: function(string): any = require -- TRIAL-D6.1: stands in for the owner's decision on a require of a name computed at run time
-    return held(function(): any return run_module(module_path) end)
+    return held(function(): any return load_module.load(module_path) end)
   end, nil, own, sandboxed)
   local loaded, produced = loading.ok, loading.produced
   runner.loaded = true

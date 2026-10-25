@@ -483,8 +483,8 @@ local function run(file: string, argv: {string}): integer
   -- The file's top level, which `require` hands its own name and loader
   -- data as `...`, finds its words in `arg`, as `lua file a b` gives them.
   rawset(_G as {string:any}, "arg", arguments)
-  local run_module: function(string): any = require -- TRIAL-D6.1: stands in for the owner's decision on a require of a name computed at run time
-  local entry = standalone.entry(run_module(name))
+  local load_module = require("build.load_module")
+  local entry = standalone.entry(load_module.load(name))
   if entry ~= nil then
     return exit_status.of(file, entry(arguments))
   end
@@ -718,6 +718,13 @@ end
 
 help_source.provide(help_texts)
 
+--- Loads [`cosmic.removed`], which [`build.removed_fix`] reads from `package.loaded` and requires by no name: the catalog
+--- decides only what an error says, so it is no part of the compiler's identity, and this module is outside it. Where the
+--- module is not in the store the tool is given, the load fails and no fix is offered.
+local function load_removed_catalog()
+  local _, _ = pcall(require, "cosmic.removed")
+end
+
 --- Runs the command line and answers its exit code.
 --- @param argv the command line, the verb at slot 1
 function Dispatch.main(argv: {string}): integer
@@ -731,6 +738,7 @@ function Dispatch.main(argv: {string}): integer
     -- the release that published it records.
     return version(argv)
   end
+  load_removed_catalog()
   if word == "--standalone" then
     -- One file against this binary's own standard library: no tree is
     -- staged or built and no staleness is checked -- see

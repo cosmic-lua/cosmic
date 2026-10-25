@@ -231,7 +231,7 @@ end
 local function test_an_unnamed_reader_of_the_compiler_is_refused(dir: string)
   local db = fixture.database(dir, {
     ["build/reader.tl"] = source(
-      "local Store = require(\"cosmic.store\")",
+      "local Store = require(\"build.load_module\")",
       "local tool = Store.meta" .. "(\"compiler\")",
       "return { tool = tool }"),
   })
@@ -377,6 +377,37 @@ local function test_a_restricted_member_used_outside_its_files_is_refused(dir: s
   rules["build.probe has"].files = { "build/asker.tl", "build/other_test.tl" }
   found = tree_checks.restricted(db, rules)
   assert(#found == 0, table.concat(found, "\n"))
+end
+
+--- The loader of a module by a name computed at run time is kept to the tool's entry and the test worker: a call from
+--- any other file is refused, with what to write instead.
+local function test_a_load_by_a_computed_name_outside_the_entry_and_the_worker_is_refused(dir: string)
+  local db = fixture.database(dir, {
+    ["build/load_module.tl"] = source(
+      "local record store",
+      "end",
+      "--- Loads a module by a name got at run time.",
+      "function store.load(name: string): any return name end",
+      "return store"),
+    ["build/dispatch.tl"] = source(
+      'local store = require("build.load_module")',
+      "local record dispatch",
+      "end",
+      "function dispatch.run(): any return store.load(\"x\") end",
+      "return dispatch"),
+    ["build/plugin.tl"] = source(
+      'local store = require("build.load_module")',
+      "local record plugin",
+      "end",
+      "function plugin.run(): any return store.load(\"x\") end",
+      "return plugin"),
+  })
+  local found = tree_checks.restricted(db)
+  assert(#found == 1, table.concat(found, "\n"))
+  local line = assert(found[1])
+  assert(line:find("^build/plugin%.tl:%d+: build%.load_module load is used outside build/dispatch%.tl, build/test_worker%.tl, build/load_module_test%.tl: ") ~= nil,
+    line)
+  assert(line:find("require(\"cosmic.fs\")", 1, true) ~= nil, line)
 end
 
 --- A declaration that requires only declarations passes; one that requires a module is refused.
