@@ -47,21 +47,29 @@ end
 
 -- Assembly always supplies prebuilt cores and all input paths.
 local record RuntimeSetup
+  --- The file packed as `build/artifact.tl` in the tool tree, by the file of the checkout that stands for it: a project's
+  --- row of a module the runtime carries is compiled whole, and the checkout's takes the raw store as its loader's argument.
+  mut artifact_row: {string:string}
 end
+
+RuntimeSetup.artifact_row = { ["build/artifact.tl"] = "ci/testdata/portable/artifact_row.tl" }
 
 --- The files of the tree at `root`, relative to it and sorted, that the
 --- module at `entry` (relative too) requires by a literal name, and
 --- theirs in turn, `entry` among them: `a.b` is `a/b.tl`, or
 --- `a/b/init.tl`. A `cosmic.*` module is the runtime's own, carried in
 --- its database, and a name with no file in the tree is none of the
---- tree's, so neither is followed.
-function RuntimeSetup.closure(root: string, entry: string): {string}
+--- tree's, so neither is followed. A file `stood_for` names is listed
+--- and not read: [`RuntimeSetup.pack`] packs the file it maps to in its
+--- place, which requires nothing of the tree.
+function RuntimeSetup.closure(root: string, entry: string, stood_for?: {string:string}): {string}
   local seen: mut {string:boolean} = {}
   local out: mut {string} = {}
   local function visit(relative: string)
     if seen[relative] == true then return end
     seen[relative] = true
     out[#out + 1] = relative
+    if stood_for ~= nil and stood_for[relative] ~= nil then return end
     for name in Fixture.read(root .. "/" .. relative):gmatch("require%(%s*\"([%w_%.]+)\"%s*%)") do
       if name ~= "cosmic" and name:sub(1, 7) ~= "cosmic." then
         local base = name:gsub("%.", "/")
@@ -84,13 +92,16 @@ end
 --- `deterministic`, so every time is written as 0 and the same files make
 --- the same bytes wherever and whenever the checkout was made, and a
 --- fixture that declares the tar ([`Test.policy`]'s host grant) is keyed by what
---- it holds alone.
-function RuntimeSetup.pack(root: string, files: {string}, out: string)
+--- it holds alone. A file `stood_for` names is packed under its own name from
+--- the file it maps to.
+function RuntimeSetup.pack(root: string, files: {string}, out: string, stood_for?: {string:string})
   local collected = Stream.collect()
   local writer = Tar.writer(collected, { deterministic = true })
   for _, relative in ipairs(files) do
-    local st = assert(Fs.stat(root .. "/" .. relative))
-    assert(writer:add_file(relative, Fixture.read(root .. "/" .. relative),
+    local standing = if stood_for ~= nil then stood_for[relative] else nil end
+    local source = root .. "/" .. (standing or relative)
+    local st = assert(Fs.stat(source))
+    assert(writer:add_file(relative, Fixture.read(source),
       { mode = st.mode & 0x1ff, mtime = st.mtime }))
   end
   assert(writer:close())
@@ -214,12 +225,15 @@ function RuntimeSetup.build(root: string, prebuilt: string, writer: string,
 
   -- What the fixtures would otherwise read of the candidate's tree, which
   -- a sandboxed fixture is given none of (ci/fixtures/*_test.tl's
-  -- [`Test.policy`]): test/portable/tool.tl with the modules of the tree it
-  -- requires. It is one file, a tar a fixture unpacks where it writes
+  -- [`Test.policy`]): test/portable/probe.tl with the modules of the tree it
+  -- requires, and a row of `build.artifact` that stands for the checkout's
+  -- (which the runtime carries itself, and which no rule of the checker
+  -- admits as a row of a project: it takes the raw store as its loader's
+  -- argument). It is one file, a tar a fixture unpacks where it writes
   -- ([`Fixture.unpack`]), so its declaration names one path whatever the
   -- closure holds, and its key moves only with what the tar holds.
-  RuntimeSetup.pack(root, RuntimeSetup.closure(root, "test/portable/tool.tl"),
-    out .. "/tool.tar")
+  RuntimeSetup.pack(root, RuntimeSetup.closure(root, "test/portable/probe.tl", RuntimeSetup.artifact_row),
+    out .. "/tool.tar", RuntimeSetup.artifact_row)
 
   -- Normalize every finished artifact to an executable mode. Some helpers set
   -- it already, but callers should not depend on which helper produced a file.

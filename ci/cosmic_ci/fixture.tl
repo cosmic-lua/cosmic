@@ -140,9 +140,9 @@ function Fixture.unpack(tar: string, destination: string): string
   return destination
 end
 
---- The runtime setup's copy of test/portable/tool.tl and the modules of
+--- The runtime setup's copy of test/portable/probe.tl and the modules of
 --- the tree it requires (its `tool.tar`), unpacked beneath `work` once:
---- the directory a tool.tl run starts in, where it resolves its
+--- the directory a probe.tl run starts in, where it resolves its
 --- `require`s and writes what it builds (its o/).
 function Fixture.tool_tree(fixture_dir: string, work: string): string
   local tree = work .. "/tool-tree"

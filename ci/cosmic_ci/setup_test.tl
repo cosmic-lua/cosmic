@@ -115,3 +115,23 @@ local function test_the_runtime_setup_packs_a_closure_the_same_each_time(tmp: st
   end
   assert(assert(Fs.stat(out .. "/build/a.tl")).mode & 0x1ff == 0x1ed, "a mode was not kept")
 end
+
+--- A file the closure is told another stands for is listed and not read, so
+--- what it requires is not followed, and the tar holds the other's bytes under
+--- its name.
+local function test_the_runtime_setup_packs_a_stand_in_for_a_row_of_the_runtime(tmp: string)
+  local root = tmp .. "/root"
+  assert(Fs.mkdirs(root .. "/test/portable") and Fs.mkdirs(root .. "/build") and Fs.mkdirs(root .. "/stand"))
+  assert(Fs.write(root .. "/test/portable/probe.tl", 'local a = require("build.artifact")\n'))
+  assert(Fs.write(root .. "/build/artifact.tl", 'local b = require("build.b")\n'))
+  assert(Fs.write(root .. "/build/b.tl", "return {}\n"))
+  assert(Fs.write(root .. "/stand/row.tl", "return {}\n"))
+  local stood_for = { ["build/artifact.tl"] = "stand/row.tl" }
+  local closure = RuntimeSetup.closure(root, "test/portable/probe.tl", stood_for)
+  assert(table.concat(closure, " ") == "build/artifact.tl test/portable/probe.tl", table.concat(closure, " "))
+  RuntimeSetup.pack(root, closure, tmp .. "/stand.tar", stood_for)
+  local out = Fixture.unpack(tmp .. "/stand.tar", tmp .. "/out")
+  assert(Fs.read(out .. "/build/artifact.tl") == "return {}\n")
+  local missing, _ = Fs.stat(out .. "/build/b.tl")
+  assert(missing == nil, "a module the stand-in replaced was packed")
+end

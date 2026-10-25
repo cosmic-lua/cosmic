@@ -19,7 +19,7 @@ local record fixture
   end
 
   record Artifact
-    bytes: string
+    mut bytes: string
     prefix_length: integer
     manifest_offset: integer
     entries: {Entry}
@@ -77,7 +77,7 @@ function fixture.read(path: string): fixture.Artifact?, string
     prefix_length = prefix_length,
     manifest_offset = manifest_offset,
     entries = entries,
-  }
+  }, ""
 end
 
 function fixture.entry(artifact: fixture.Artifact, target: integer,

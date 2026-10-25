@@ -185,10 +185,10 @@ local function run_sanitized(fixture_dir: string, tool: string,
     "/cosmic-core"
 
   local entry_cache = work .. "/entry-cache"
-  -- tool.tl's own require("build.artifact") and require("test.portable")
+  -- probe.tl's own require("build.artifact") and require("test.portable")
   -- resolve relative to the process cwd, so this runs from `tool`.
   local entry_out = Fixture.run("sanitized-entry",
-    { fixture_dir .. "/runtime.old", tool .. "/test/portable/tool.tl",
+    { fixture_dir .. "/runtime.old", tool .. "/test/portable/probe.tl",
       "entry", artifact, target_id, "2" }, tool, diagnostics,
     { COSMIC_PORTABLE_CACHE = entry_cache })
   local offset, length, digest = Fixture.small(entry_out.out, 256):match(
@@ -371,12 +371,12 @@ local function test_identity_primary(tmp: string)
   -- A project database is searched ahead of the binary after attachment. Its
   -- rows must not override validated portable context or the binary's
   -- basis.
-  -- Both tool.tl calls below run from `tool`, not `project`: tool.tl's
+  -- Both probe.tl calls below run from `tool`, not `project`: probe.tl's
   -- require("build.artifact") and require("test.portable") resolve
   -- relative to the process cwd, and `project` has no build/ or test/
   -- tree for them to find.
   Fixture.run("spoof-database", { fixture_dir .. "/runtime.old",
-    tool .. "/test/portable/tool.tl", "spoof-database",
+    tool .. "/test/portable/probe.tl", "spoof-database",
     Fixture.built(project) .. "/cosmic.db" }, tool, diagnostics,
     { COSMIC_PORTABLE_CACHE = cache })
 
@@ -386,7 +386,7 @@ local function test_identity_primary(tmp: string)
     diagnostics), 1, 0)
 
   Fixture.run("verify-verdicts", { fixture_dir .. "/runtime.old",
-    tool .. "/test/portable/tool.tl", "verify-verdicts",
+    tool .. "/test/portable/probe.tl", "verify-verdicts",
     Fixture.built(project) .. "/build.db", counter }, tool, diagnostics,
     { COSMIC_PORTABLE_CACHE = cache })
 
