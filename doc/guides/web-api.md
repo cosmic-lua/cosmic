@@ -78,15 +78,20 @@ local function require_token(token: string): Web.Middleware
   end
 end
 
+--- A note as JSON can say it: a record is none of the arms of [`Json.Value`].
+local function view(note: Api.Note): {string: Json.Value}
+  return { id = note.id, title = note.title }
+end
+
 --- The API under `/api`, with its own notes.
 function Api.mount(opts: Api.Options): Web.Route
-  local notes: {Api.Note} = {}
+  local notes: mut {Api.Note} = {}
 
   local function list(_req: Web.Request, _p: Web.None, q: Page, _b: Web.None): Web.Response
-    local out: mut {Api.Note} = {}
+    local out: mut {Json.Value} = {}
     local limit = q.limit
     for _, note in ipairs(notes) do
-      if limit == nil or #out < limit then out[#out + 1] = note end
+      if limit == nil or #out < limit then out[#out + 1] = view(note) end
     end
     return Web.json({ notes = Json.array(out) })
   end
@@ -94,13 +99,13 @@ function Api.mount(opts: Api.Options): Web.Route
   local function create(req: Web.Request, _p: Web.None, _q: Web.None, b: NewNote): Web.Response
     local note: Api.Note = { id = #notes + 1, title = b.title }
     notes[#notes + 1] = note
-    return Web.json(note, { status = 201, headers = { Location = assert(req:url_for("api:show", { id = note.id })) } })
+    return Web.json(view(note), { status = 201, headers = { Location = assert(req:url_for("api:show", { id = note.id })) } })
   end
 
   local function show(_req: Web.Request, p: NotePath, _q: Web.None, _b: Web.None): Web.Response
     local note = notes[p.id]
     if note == nil then return Web.abort(404, "no such note") end
-    return Web.json(note)
+    return Web.json(view(note))
   end
 
   return Web.mount("/api", {
@@ -235,11 +240,11 @@ end
 
 local function test_cors_admits_only_the_listed_origin()
   local c = client()
-  local ask = { Origin = ORIGIN, ["Access-Control-Request-Method"] = "POST",
+  local ask: mut {string: string} = { ["Origin"] = ORIGIN, ["Access-Control-Request-Method"] = "POST",
     ["Access-Control-Request-Headers"] = "authorization" }
   local preflight = c:options("/api/notes", { headers = ask })
   assert(preflight.status == 204 and preflight.headers["access-control-allow-origin"] == ORIGIN)
-  ask.Origin = "https://evil.example"
+  ask["Origin"] = "https://evil.example"
   assert(c:options("/api/notes", { headers = ask }).headers["access-control-allow-origin"] == nil)
   local read = c:get("/api/notes", { headers = { Origin = ORIGIN } })
   assert(read.headers["access-control-allow-origin"] == ORIGIN)

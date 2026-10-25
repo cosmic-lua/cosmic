@@ -617,10 +617,10 @@ local record Types
     --- and an event stream never ends.
     grace_ns?: integer
     --- As [`Server.ServeSpec.on_ready`].
-    on_ready: function({Net.Address}, Net.Server)
+    on_ready?: function({Net.Address}, Net.Server)
     --- Called when the server begins to stop, after `app:stopping()` is
     --- true and the functions of `app:on_stop` have run.
-    on_stop: function(Net.Server)
+    on_stop?: function(Net.Server)
   end
 
   --- What a constructor takes beside its body.

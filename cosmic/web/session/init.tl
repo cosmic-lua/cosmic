@@ -136,7 +136,7 @@ local record Session
     --- The cookie's `Secure`; nil follows the request's scheme.
     secure?: boolean
     --- The time in seconds since the epoch, for a test.
-    now: function(): integer
+    now?: function(): integer
   end
 
   --- A request's session. Its methods are called with ":".

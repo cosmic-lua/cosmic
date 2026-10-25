@@ -210,7 +210,7 @@ local record Net
     --- server, to stop it by. It may spawn tasks of its own there, which
     --- [`Net.serve`] waits for too. What it raises, [`Net.serve`] raises,
     --- having closed every listener.
-    on_ready: function(addresses: {Address}, server: Server)
+    on_ready?: function(addresses: {Address}, server: Server)
     --- Called once, as the server begins to stop -- at [`Server.stop`],
     --- or at a SIGINT or SIGTERM its guard caught -- in a task of the
     --- server's run, with the server, once every listener is closed;

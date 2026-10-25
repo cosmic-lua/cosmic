@@ -24,7 +24,9 @@ server.
 ```teal file=cmd/hello/main.tl
 local app = require("app")
 
-return app
+return function(): integer
+  return app()
+end
 ```
 
 ## static files and fingerprints
@@ -92,17 +94,19 @@ function Config.read(env: {string:string}): Config.Settings?, string
   if keys == nil then return nil, why end
   local listen = env["HELLO_LISTEN"] or "127.0.0.1:8080"
   local host, text = listen:match("^(.+):(%d+)$")
-  local port = text ~= nil and math.tointeger(tonumber(text)) or nil
+  local port: integer? = nil
+  if text ~= nil then port = math.tointeger(tonumber(text)) end
   if host == nil or port == nil or port > 65535 then
     return nil, "HELLO_LISTEN: want host:port, such as 127.0.0.1:8080"
   end
   local hosts: {string}? = nil
-  if env["HELLO_HOSTS"] ~= nil then hosts = String.split(env["HELLO_HOSTS"], ",") end
+  local listed = env["HELLO_HOSTS"]
+  if listed ~= nil then hosts = String.split(listed, ",") end
   return {
     keys = keys, host = host, port = port, hosts = hosts,
     behind_proxy = env["HELLO_BEHIND_PROXY"] == "1",
     https = env["HELLO_HTTPS"] == "1",
-  }
+  }, ""
 end
 
 return Config
@@ -152,7 +156,7 @@ end
 --- The app.
 function Hello.app(opts: Hello.Options): Web.App
   local headers: Headers.Options = {}
-  if opts.https then headers.hsts = { max_age = 31536000 } end
+  if opts.https == true then headers = { hsts = { max_age = 31536000 } } end
   return Web.app{
     routes = {
       Web.get("/", function(req: Web.Request): Web.Response
@@ -161,13 +165,13 @@ function Hello.app(opts: Hello.Options): Web.App
       end),
       Web.get("/whoami", function(req: Web.Request): Web.Response
         local client = req.client
-        return Web.text(req.scheme .. " " .. (client ~= nil and client.host or "?"))
+        return Web.text(req.scheme .. " " .. (if client ~= nil then client.host else "?" end))
       end),
       StaticFiles.mount("/static", { source = opts.assets }),
     },
     middleware = {
       Headers.middleware(headers),
-      Session.middleware{ store = SessionCookie.store{ keys = opts.keys }, secure = opts.https or nil },
+      Session.middleware{ store = SessionCookie.store{ keys = opts.keys }, secure = if opts.https == true then true else nil end },
     },
     trusted_proxy = opts.behind_proxy,
     trusted_hosts = opts.hosts,
@@ -246,9 +250,15 @@ local Hello = require("hello")
 local Secret = require("cosmic.web.secret")
 local Web = require("cosmic.web")
 
---- The options of an app with a fresh key, to change before making it.
-local function options(): Hello.Options
-  return { keys = { Secret.generate() }, assets = Assets.memory({ ["app.css"] = "body { margin: 0 }" }) }
+--- The options of an app with a fresh key, with the settings of a deployment as given.
+local function options(behind_proxy?: boolean, hosts?: {string}, https?: boolean): Hello.Options
+  return {
+    keys = { Secret.generate() },
+    assets = Assets.memory({ ["app.css"] = "body { margin: 0 }" }),
+    behind_proxy = behind_proxy,
+    hosts = hosts,
+    https = https,
+  }
 end
 
 local function test_a_page_links_the_fingerprinted_stylesheet()
@@ -256,7 +266,7 @@ local function test_a_page_links_the_fingerprinted_stylesheet()
   local url = client:get("/"):text()
   assert(url:find("^/static/app%.%x%x%x%x%x%x%x%x%x%x%.css$"), url)
   local fetched = client:get(url)
-  assert(fetched.status == 200 and fetched.headers["cache-control"]:find("immutable", 1, true))
+  assert(fetched.status == 200 and (fetched.headers["cache-control"] or ""):find("immutable", 1, true) ~= nil)
   assert(client:get("/static/app.css").status == 200, "the plain name still works")
   assert(client:get("/static/app.0000000000.css").status == 404, "a stale fingerprint is a 404")
 end
@@ -276,30 +286,24 @@ end
 
 local function test_a_proxy_is_believed_only_when_named()
   local seen = { ["X-Forwarded-Proto"] = "https", ["X-Forwarded-For"] = "203.0.113.9" }
-  local behind = options()
-  behind.behind_proxy = true
-  assert(Web.test_client(Hello.app(behind)):get("/whoami", { headers = seen }):text() == "https 203.0.113.9")
+  assert(Web.test_client(Hello.app(options(true))):get("/whoami", { headers = seen }):text() == "https 203.0.113.9")
   local alone = Web.test_client(Hello.app(options())):get("/whoami", { headers = seen }):text()
   assert(alone:find("^http "), "a header nobody vouched for is ignored")
 end
 
 local function test_only_the_named_hosts_are_answered()
-  local named = options()
-  named.hosts = { "hello.example.com" }
-  local client = Web.test_client(Hello.app(named))
+  local client = Web.test_client(Hello.app(options(nil, { "hello.example.com" })))
   assert(client:get("/", { headers = { Host = "hello.example.com" } }).status == 200)
   assert(client:get("/", { headers = { Host = "evil.example" } }).status == 400)
 end
 
 local function test_https_for_good_turns_on_hsts_and_the_host_cookie()
   local plain = Web.test_client(Hello.app(options())):get("/")
-  assert(plain.headers["set-cookie"]:find("^session="))
-  local secure = options()
-  secure.behind_proxy, secure.https = true, true
-  local client = Web.test_client(Hello.app(secure))
+  assert((plain.headers["set-cookie"] or ""):find("^session=") ~= nil)
+  local client = Web.test_client(Hello.app(options(true, nil, true)))
   local reply = client:get("/", { headers = { ["X-Forwarded-Proto"] = "https" } })
   assert(reply.headers["strict-transport-security"] == "max-age=31536000")
-  assert(reply.headers["set-cookie"]:find("^__Host%-session="))
+  assert((reply.headers["set-cookie"] or ""):find("^__Host%-session=") ~= nil)
 end
 ```
 

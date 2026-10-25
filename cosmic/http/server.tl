@@ -165,7 +165,7 @@ local record Server
     --- uploads past what 30 seconds carry raises it.
     body_ns?: integer
     --- As [`Net.ServeSpec.on_ready`].
-    on_ready: function(addresses: {Net.Address}, server: Net.Server)
+    on_ready?: function(addresses: {Net.Address}, server: Net.Server)
     --- As [`Net.ServeSpec.on_stop`]: called once, as the server begins
     --- to stop, in a task of its run. The server has by then marked
     --- itself stopping (a reply in flight is sent with `Connection:

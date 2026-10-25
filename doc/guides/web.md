@@ -533,10 +533,13 @@ end
 
 --- The app. In development mode (`COSMIC_WEB_DEV=1`) it reloads pages.
 function Tasks.app(opts: Tasks.Options): Web.App
-  local csp = Csp.htmx_default()
-  csp.directives["script-src"] = { "'self'", "{nonce}" }
+  local directives: mut {string: {string}} = {}
+  for name, sources in pairs(Csp.htmx_default().directives) do directives[name] = sources end
+  directives["script-src"] = { "'self'", "{nonce}" }
+  local csp: Csp.Policy = { directives = directives }
 
-  local routes = Site.routes(Store.new())
+  local routes: mut {Web.Route} = {}
+  for _, route in ipairs(Site.routes(Store.new())) do routes[#routes + 1] = route end
   if opts.assets ~= nil then
     routes[#routes + 1] = StaticFiles.mount("/static", { source = opts.assets })
   else
@@ -596,7 +599,9 @@ end
 ```teal file=cmd/tasks/main.tl
 local app = require("app")
 
-return app
+return function(): integer
+  return app()
+end
 ```
 
 ## the development loop
@@ -682,7 +687,7 @@ end
 local function test_page_and_fragment()
   local client = Web.test_client(app())
   local page = client:get("/")
-  assert(page.status == 200 and page.body:find("<h1>tasks</h1>", 1, true))
+  assert(page.status == 200 and page.body:find("<h1>tasks</h1>", 1, true) ~= nil)
   assert(page.body:find("/_web/htmx-", 1, true), "the page loads htmx")
   assert(page.body:find("&#47;static&#47;app&#46;%x+&#46;css"), "and the stylesheet by its fingerprint")
   local fragment = client:get("/", { headers = { ["HX-Request"] = "true" } })
@@ -693,10 +698,10 @@ local function test_adding_a_task()
   local client = Web.test_client(app())
   local token = csrf_of(client)
   local added = client:post("/tasks", { form = { title = "write the guide" }, headers = htmx(token) })
-  assert(added.status == 201 and added.body:find("write the guide", 1, true))
+  assert(added.status == 201 and added.body:find("write the guide", 1, true) ~= nil)
   assert(client:get("/").body:find("write the guide", 1, true))
   local done = client:post("/tasks/1/toggle", { headers = htmx(token) })
-  assert(done.status == 200 and done.body:find('class="done"', 1, true))
+  assert(done.status == 200 and done.body:find('class="done"', 1, true) ~= nil)
   local gone = client:delete("/tasks/1", { headers = htmx(token) })
   assert(gone.status == 200 and gone.body == "")
   assert(client:delete("/tasks/1", { headers = htmx(token) }).status == 404)
@@ -705,7 +710,7 @@ end
 local function test_a_blank_title_is_refused_with_its_message()
   local client = Web.test_client(app())
   local refused = client:post("/tasks", { form = { title = "  " }, headers = htmx(csrf_of(client)) })
-  assert(refused.status == 422 and refused.body:find("give the task a name", 1, true))
+  assert(refused.status == 422 and refused.body:find("give the task a name", 1, true) ~= nil)
 end
 
 local function test_a_post_without_the_token_is_refused()
