@@ -23,6 +23,8 @@ Test.policy{
     { path = "ci/cosmic_ci/run_names.json", letters = "r" },
     { path = "ci/darwin-tests.txt", letters = "r" },
     { path = "ci/strict-files.txt", letters = "r" },
+    { path = "ci/cosmic_ci/islands.tl", letters = "r" },
+    { path = "ci/cosmic_ci/runtime_setup.tl", letters = "r" },
     { path = "ci/testdata/portable/", letters = "r" },
   },
 }
@@ -207,14 +209,69 @@ local function test_the_files_the_portable_probe_reaches_are_listed()
   assert(seen["build/artifact.tl"] == true, "the probe no longer reaches build.artifact: update this test and the list")
 end
 
---- A script of test/terminal is run by the product from ci/fixtures/self_driven_test.tl.
-local function test_every_script_of_the_terminal_directory_is_listed()
+--- Every `.tl` file under `directory` (a directory of the checkout) is listed in ci/strict-files.txt, `why` saying what
+--- runs it: the guard walks the directory, so a file added there cannot be left off the list.
+local function assert_directory_listed(directory: string, why: string)
   local listed: mut {string:boolean} = {}
   for _, file in ipairs(strict_files()) do listed[file] = true end
-  local names = assert(Fs.walk("test/terminal"))
+  local names = assert(Fs.walk(directory))
+  local count = 0
   for _, name in ipairs(names) do
     if name:match("%.tl$") then
-      assert(listed["test/terminal/" .. name], "test/terminal/" .. name .. " is not in ci/strict-files.txt")
+      count = count + 1
+      assert(listed[directory .. "/" .. name], directory .. "/" .. name .. " is not in ci/strict-files.txt (" .. why .. ")")
     end
+  end
+  assert(count > 0, directory .. " holds no Teal file: update this test and the list")
+end
+
+--- A script of test/terminal is run by the product from ci/fixtures/self_driven_test.tl.
+local function test_every_script_of_the_terminal_directory_is_listed()
+  assert_directory_listed("test/terminal", "run by path from ci/fixtures/self_driven_test.tl")
+end
+
+--- The portable fixtures' sources, the `cmd/*/main.tl` programs among them, are the product's to compile.
+local function test_every_portable_fixture_source_is_listed()
+  assert_directory_listed("ci/testdata/portable", "a portable fixture's source")
+end
+
+--- The helper the fixtures run by path from the checkout has no pin, and is listed to keep it so.
+local function test_the_portable_tool_is_listed()
+  local listed: mut {string:boolean} = {}
+  for _, file in ipairs(strict_files()) do listed[file] = true end
+  assert(listed["test/portable/tool.tl"], "test/portable/tool.tl is not in ci/strict-files.txt")
+end
+
+--- The strings of `path` that `pattern` captures, from `opening` to the `}` that closes the list: the lists are
+--- ci/cosmic_ci's, which no module of build/ may require, so they are read as text.
+local function strings_of(path: string, opening: string, pattern: string): {string}
+  local text = (assert(Fs.read(path)))
+  local from = assert(text:find(opening, 1, true), path .. " no longer has " .. opening)
+  local to = assert(text:find("}", from, true))
+  local out: mut {string} = {}
+  for found in text:sub(from, to):gmatch(pattern) do out[#out + 1] = found end
+  return out
+end
+
+--- A script `check-islands` runs standalone (`Islands.scripts`) is listed: the list repeats islands.tl's, and this
+--- holds the two together.
+local function test_every_script_check_islands_runs_is_listed()
+  local listed: mut {string:boolean} = {}
+  for _, file in ipairs(strict_files()) do listed[file] = true end
+  local scripts = strings_of("ci/cosmic_ci/islands.tl", "Islands.scripts = {", '"([%w_/%.%-]+%.tl)"')
+  assert(#scripts > 0, "Islands.scripts names no script")
+  for _, script in ipairs(scripts) do
+    assert(listed[script], script .. " is in Islands.scripts and not in ci/strict-files.txt")
+  end
+end
+
+--- The file that stands for a module of the tree in the probe's packed tree (`RuntimeSetup.artifact_row`) is listed.
+local function test_the_file_standing_for_a_packed_module_is_listed()
+  local listed: mut {string:boolean} = {}
+  for _, file in ipairs(strict_files()) do listed[file] = true end
+  local stand_ins = strings_of("ci/cosmic_ci/runtime_setup.tl", "RuntimeSetup.artifact_row = {", '= "([^"]+)"')
+  assert(#stand_ins > 0, "RuntimeSetup.artifact_row names no file")
+  for _, file in ipairs(stand_ins) do
+    assert(listed[file], file .. " stands for a module in RuntimeSetup.artifact_row and is not in ci/strict-files.txt")
   end
 end
