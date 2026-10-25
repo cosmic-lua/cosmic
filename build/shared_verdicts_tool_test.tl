@@ -109,7 +109,7 @@ local function test_reads_flavour()
 end
 
 local function test_reads_everything()
-  assert(Env.all().FLAVOUR ~= nil)
+  assert(Env.all()["FLAVOUR"] ~= nil)
 end
 
 local function test_plain()
@@ -301,7 +301,8 @@ local function test_reads_a_database()
   local db = assert(Sqlite.open("suite/data.db"))
   local rows = assert(Sqlite.text_rows(db, "SELECT v FROM t"))
   assert(db:close())
-  assert(rows[1]:text(1) == "one", rows[1]:text(1))
+  local row = assert(rows[1])
+  assert(row:text(1) == "one", row:text(1))
 end
 ]]))
   end

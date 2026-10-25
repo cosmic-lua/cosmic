@@ -44,7 +44,7 @@ local Fs = require("cosmic.fs")
 local greet = require("greet")
 
 return function(argv: {string}): integer
-  Fs.put(Fs.stdout, greet.hello(argv[1] or "world") .. "\n")
+  local _, _ = Fs.put(Fs.stdout, greet.hello(argv[1] or "world") .. "\n")
   return #argv
 end
 ]]
@@ -163,7 +163,7 @@ local function test_the_carried_database_leaves_tests_and_examples_out(tmp: stri
   write_project(tmp)
   assert(Fs.write(tmp .. "/greet_test.tl", table.concat({
     'local greet = require("greet")',
-    "local function checked(name: string): string | nil, string",
+    "local function checked(name: string): (string?, string)",
     '  if greet.hello(name) ~= "hello, " .. name then',
     '    return nil, "greet_test: hello said something else"',
     "  end",
@@ -229,7 +229,11 @@ local function test_a_test_or_example_the_program_requires_is_carried(tmp: strin
     "",
   }, "\n")))
   assert(Fs.write(tmp .. "/fixture_test.tl", table.concat({
-    'return { greeting = "hi" }',
+    "local record fixture",
+    "  greeting: string",
+    "end",
+    'local f: fixture = { greeting = "hi" }',
+    "return f",
     "",
   }, "\n")))
   assert(embed.tree(tmp, true))
@@ -253,8 +257,9 @@ local Proc = require("cosmic.proc")
 local Store = require("cosmic.store")
 
 return function(): integer
+  local executable, _ = Proc.executable()
   print(Store.meta("runtime_context"), Store.meta("host_image"),
-    Store.meta("runtime"), (Proc.executable()))
+    Store.meta("runtime"), executable)
   return 0
 end
 ]]
@@ -362,7 +367,8 @@ local function test_an_uncaught_error_that_is_no_string_says_it_failed(tmp: stri
   assert(Fs.mkdirs(tmp .. "/cmd/boom"))
   assert(Fs.write(tmp .. "/cmd/boom/main.tl", [[
 return function(): integer
-  error({})
+  local failure: mut {string: string} = {}
+  error(failure)
 end
 ]]))
   local names, trouble = embed.tree(tmp, true)
@@ -426,8 +432,9 @@ local Child = require("cosmic.child")
 local Proc = require("cosmic.proc")
 
 return function(argv: {string}): integer
-  local started, why = Child.start({ assert(Proc.executable()), "x" },
-    { policy = { database = { path = argv[1] } } })
+  local executable = assert(Proc.executable())
+  local started, why = Child.start({ executable, "x" },
+    { policy = { database = { path = argv[1] or "", sha256 = nil } } })
   print(started == nil, why)
   return 0
 end
@@ -544,21 +551,28 @@ return function(): integer
   local roots, why = Http.default_roots()
   print(roots or why)
   local _, refused = Http.open("https://cosmic.test/", { script = { flight } })
-  if refused:find("Common Name", 1, true) ~= nil and refused:find("not correctly signed", 1, true) == nil then
-    print("trusted")
-  else
-    print("refused")
-  end
+  print((refused:gsub("\n", " ")))
   return 0
 end
 ]]
+
+--- What the program `roots_source` printed: its first line, and then "trusted" where it was refused for the name it
+--- presents and not for who signed it, else "refused".
+local function trust_of(printed: string): string
+  local first, second = printed:match("^([^\n]*)\n([^\n]*)\n$")
+  assert(first ~= nil and second ~= nil, printed)
+  if second:find("Common Name", 1, true) ~= nil and second:find("not correctly signed", 1, true) == nil then
+    return first .. "\ntrusted\n"
+  end
+  return first .. "\nrefused\n"
+end
 
 --- What the program at `path` printed, run with `env`.
 local function run_with(path: string, env: {string:string}): string
   local r = assert(Child.run({ path }, { env = env,
     stdout = "capture", stderr = "capture", timeout_ns = Time.seconds(30) }))
   assert(r.ok, tostring(r.stderr))
-  return assert(r.stdout)
+  return trust_of(assert(r.stdout))
 end
 
 --- An executable carries every root and trusts the minimal ones by
