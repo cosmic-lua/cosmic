@@ -746,6 +746,11 @@ the fork refused the declaration, since it can tell the members of a union
 apart only by `type()`, which answers "string" for all of them; `is` on an
 enum tests the membership of the string, which does.
 
+a method call on a value of an enum, of a union of enums, or of enums and
+`string` resolves in `string` (`k:upper()` is a `string`, never the enum),
+while the read of a member as a value (`k.upper`), a field (`k.x`), an index
+and a write to a member stay refused.
+
 ### literals of the string library are read
 
 a restriction. the pattern of `find`, `match`, `gmatch` and `gsub`, the
@@ -1295,7 +1300,8 @@ and the worker that compared the two. what the change did, and what it decided:
 - **a declaration beside its source** (`foo.d.tl` and `foo.tl`) is one module, as in a build: a `require` reads the
   declaration and the source is compiled as its implementation. two sources or two declarations for one module are
   refused (`cosmic compile` names both).
-- **a `#!` first line** is refused by the lexer (the owner's decision).
+- **a `#!` first line** is accepted by the lexer and skipped, as Lua skips it:
+  it is no token and no comment, so every later token keeps its line.
 - **the rehearsal is gone.** the CI job that booted a second tool with the new checker, ran the suite on it and held its
   failures to `testdata/gate/rehearsal.txt` was deleted with that list, its phases of the CI driver and the cancel job's
   exemption for it: the suite runs on the tool itself, on every leg. the projects it built (`testdata/projects/`) are
@@ -1309,6 +1315,63 @@ and the worker that compared the two. what the change did, and what it decided:
 what remains of the switch is bookkeeping with a home of its own: the `where` clauses of [`lang/ast.tl`] and
 [`lang/types.tl`] become tags (about 900 tests of a node kind, a `TODO:` in each file); `cosmic migrate` goes in the
 release after this one; and the TODOs that wait on the pin move are listed by `bin/cosmic todos '"cosmic-driver.pin"'`.
+
+#### owner decisions
+
+decided; the code follows in the changes that name them, and a gap that remains carries a `TODO:` in the code.
+
+- **the error-handling contract rules hold for every project, not only
+  cosmic's own tree.** the rules of the error-slot discipline
+  ([`build/syntax_contracts.tl`], the third principle of
+  [design.md](../design.md)) are part of the language the tool checks, not a
+  house rule of the tree: a project that the tool compiles, tests or checks is
+  held to them by default, with the same words and the same fix. a project has
+  no ceilings ([the switch]), so every breach refuses. the exemptions of
+  [`build/contract_rules.tl`] name functions of cosmic's own files and give a
+  project none: a project has no exemption, and fixes the code. the same
+  holds for `ci/`, which [`build/contract_rules.tl`] leaves out.
+- **`cosmic fix` checks and does not reformat until the formatter lands.**
+  see "the readers" above. the language server offers no formatting either
+  ([`build/lsp/session.tl`]), and no stand-in layout is written, so no file is
+  laid out twice. the formatter is written over the syntax tree
+  ([`build.syntax_node`]).
+- **the formatter.**
+  - it keeps the tree's style exactly.
+  - a block is written on one line only if it ends by column 100; nothing else
+    is wrapped.
+  - the author's spacing inside a type is kept.
+  - an if-expression authored flat stays flat; otherwise its `elseif` and
+    `else` go on continuation lines. match arms are laid out like if arms.
+    class members are indented like record members.
+  - the redundant parentheses of `(x.kind == "K")` that the translator wrote
+    are stripped in a separate rewrite that changes no layout.
+  - line endings are `\n` and a run of blank lines is capped at one.
+  - the change that lays the tree out is a single PR, named in
+    `.git-blame-ignore-revs`, under a short merge freeze. right after it
+    `cosmic fix --check` fails a file whose layout differs; before it, it only
+    notes it.
+- **tagged unions.** the tag enum of a member may have several values,
+  provided no value is in two members ([`Types.Atom`] is one such member). the
+  wording of the rule is with the change that implements it.
+- **tag aliases.** an alias of a tag (`local kind = n.kind`) and a dispatch
+  table keyed by one are written as direct compares. nothing narrows through
+  an alias.
+- **enum methods.** a method call on a value of an enum, or of a union of
+  enums, resolves in `string`. a `.` read of a string function, an index and a
+  write stay refused.
+- **boundary checks.** `--check-types` checks declared parameters, returns and
+  field writes as a report that fails nothing, first, to count the real
+  violations over the suite. the level set after that is the strictest that is
+  honest: zero tolerance everywhere if the count is small; otherwise a ratchet
+  that fails above a ceiling per file, with zero for `cosmic/` and for a new
+  file, driven to zero. the tests of declared boundaries skip until the checks
+  are compiled in ([`build/type_watch.tl`]).
+- **the docs pointer.** the pointer to the documentation on an argument's type
+  error applies to a call of any function, not only of the standard library's.
+- **`pcall(require, "<literal>")`.** it is a dependency edge, followed as a
+  `require` is. a `require` of a computed name of a project module is refused
+  at build time, with an error that says what to write (the `TODO:` in
+  [`build/embed.tl`]).
 
 ### the rewrites that bring each ceiling to zero
 
@@ -1510,6 +1573,13 @@ since the seed's Lua runs on the tree's VM.
 [`Sqlite.rows`]: ../../cosmic/sqlite.tl
 
 [`bin/cosmic-bootstrap`]: ../../bin/cosmic-bootstrap
+[`build.syntax_node`]: ../../build/syntax_node.tl
+[`build/contract_rules.tl`]: ../../build/contract_rules.tl
+[`build/embed.tl`]: ../../build/embed.tl
+[`build/lsp/session.tl`]: ../../build/lsp/session.tl
+[`build/syntax_contracts.tl`]: ../../build/syntax_contracts.tl
+[`build/type_watch.tl`]: ../../build/type_watch.tl
 [`Child.Handle`]: ../../cosmic/child.tl
 [`cosmic.json.array`]: ../../cosmic/json.tl
 [`testdata/gate/retired.json`]: ../../testdata/gate/retired.json
+[`Types.Atom`]: ../../lang/types.tl

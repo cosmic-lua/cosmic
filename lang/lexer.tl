@@ -8,12 +8,13 @@
 --- several problems. An unterminated short string ends at the end of its
 --- line; an unterminated long string or long comment runs to the end of the
 --- file, as in Lua, so it is the last problem the run finds. A form the
---- grammar cuts (a label, a `;`, a long comment, a `#!` line, a `_` in a
+--- grammar cuts (a label, a `;`, a long comment, a `_` in a
 --- number, a hexadecimal float) is refused the same way. A cut form that has
 --- a token of its own meaning (a long comment, a number) keeps that token and
---- gains an error. A cut form that has none (a label, a `;`, a `#!` line) is
---- an `$ERR$` token. A `goto` is a `keyword` token like any reserved word,
---- and [`lang.parser`] refuses the statement.
+--- gains an error. A cut form that has none (a label, a `;`) is
+--- an `$ERR$` token. A `#!` first line is skipped, as Lua skips it: it is
+--- no token and no error. A `goto` is a `keyword` token like any reserved
+--- word, and [`lang.parser`] refuses the statement.
 ---
 --- The tokens and the comments between them hold every byte of the source
 --- but whitespace: a token's `offset` and length and a comment's say where
@@ -640,6 +641,10 @@ function Lexer.lex(source: string, name: string): Lexer.Lexed
   if sub(source, 1, 2) == "#!" then
     pos = (find(source, "[\r\n]", 3) or len + 1)
   end
+  -- A byte order mark is refused (`stray_byte`) and is a token of its own, as anywhere; where a `#!` line follows it,
+  -- that line is skipped too, as Lua's loader skips a mark and then the line, so the one error is not followed by a
+  -- cascade for the line's bytes. `shebang_after` is the offset the mark's token ends before.
+  local shebang_after = if sub(source, 1, 5) == "\239\187\191#!" then 4 else 0 end
 
   -- Each branch that reads a token gives its `kind`, its `text` and the offset `e` of its last byte, and the foot of
   -- the loop makes the token. What only some tokens carry is entered here, under the number of the token to come.
@@ -899,6 +904,9 @@ function Lexer.lex(source: string, name: string): Lexer.Lexed
         pending = nil
       end
       pos = e + 1
+      if pos == shebang_after then
+        pos = (find(source, "[\r\n]", pos + 2) or len + 1)
+      end
     end
   end
 

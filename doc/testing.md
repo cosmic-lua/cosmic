@@ -306,6 +306,8 @@ run time. It compiles the tree with a check at each read of a place a test narro
 whatever verdict stands, since only a worker reports. The new checker keeps nil out of every declared type itself and
 writes no check of a parameter, a returned value or a field write, so the run reports rows of kind `fact` and no other.
 The compile is keyed apart from an unchecked one ([`importer.checked_tool`]).
+The tests of declared boundaries (`*_declared_types_test.tl`, through [`build/type_watch.tl`]) skip in every run until a
+compile writes those checks: a pass would check nothing.
 
 Three tests compare the bytecode of a module with the binary's
 ([`build/harness_epoch_test.tl`], [`cosmic/store_seal_test.tl`],
@@ -525,6 +527,7 @@ Other rules:
 [`build/test.tl`]: ../build/test.tl
 [`build/test_key.tl`]: ../build/test_key.tl
 [`build/test_state.tl`]: ../build/test_state.tl
+[`build/type_watch.tl`]: ../build/type_watch.tl
 [`Check.Checked.narrowed`]: ../lang/check.tl
 [`ci/cosmic_ci/capabilities.json`]: ../ci/cosmic_ci/capabilities.json
 [`ci/README.md`]: ../ci/README.md

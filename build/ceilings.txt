@@ -276,8 +276,6 @@ build/syntax_contracts.tl 1
 
 build/syntax_link_text.tl 2
 
-build/syntax_match.tl 1
-
 build/syntax_rewrite.tl 4
 
 build/term_filter.tl 1
@@ -1314,7 +1312,7 @@ cosmic/shape_test.tl nil_not_allowed 1
 
 cosmic/signal.tl nil_not_allowed 1
 
-cosmic/sqlite.tl nil_not_allowed 7
+cosmic/sqlite.tl nil_not_allowed 6
 
 cosmic/store.tl nil_not_allowed 14
 
@@ -1322,7 +1320,7 @@ cosmic/store_handles_test.tl nil_not_allowed 5
 
 cosmic/store_seal_test.tl nil_not_allowed 18
 
-cosmic/stream.tl nil_not_allowed 10
+cosmic/stream.tl nil_not_allowed 9
 
 cosmic/stream_fd_test.tl nil_not_allowed 1
 
@@ -2239,7 +2237,7 @@ lang/ast.tl index_may_be_nil 4
 
 lang/ast_dump.tl index_may_be_nil 3
 
-lang/check.tl index_may_be_nil 42
+lang/check.tl index_may_be_nil 39
 
 lang/check_flow_fuzz_test.tl index_may_be_nil 4
 
@@ -2525,8 +2523,6 @@ build/sandbox_probe.tl view_written 2
 build/sandbox_seal_tool_test.tl view_written 1
 
 build/sealed_nests_worker_test.tl view_written 1
-
-build/seed.tl view_written 3
 
 build/shared_compiles.tl view_written 5
 
@@ -3541,7 +3537,7 @@ build/syntax_globals.tl field_unknown 2
 
 build/syntax_link_text.tl field_unknown 35
 
-build/syntax_match.tl field_unknown 6
+build/syntax_match.tl field_unknown 5
 
 build/syntax_match_test.tl field_unknown 2
 
@@ -7967,7 +7963,7 @@ eval/round_test.tl concat_type 1
 
 eval/summarize.tl concat_type 1
 
-lang/check.tl concat_type 23
+lang/check.tl concat_type 22
 
 lang/check_flow_fuzz_test.tl concat_type 2
 

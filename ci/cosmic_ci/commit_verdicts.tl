@@ -90,10 +90,6 @@ local record Comparison
 end
 local COMPARISON <const> = Shape.record_of("Comparison")
 
--- TODO: go back to [`Shape.record_of`] below, once ci/cosmic-driver.pin names a release whose Shape.record_of reads
--- optional fields: the pinned release's reads `f?: any` as a required field. It is spelled out with [`Shape.record`] and
--- [`Shape.optional`] until then, the call [`Shape.record_of`] would be given.
-
 --- One entry of the cache's listing, whose fields the API's schema types
 --- and the lookups below test for what they need.
 local record CacheEntry
@@ -105,10 +101,7 @@ end
 local record CachePage
   actions_caches: {CacheEntry}
 end
-local CACHE_PAGE <const> = Shape.record_of("CachePage", Shape.record({
-  ["actions_caches"] = Shape.list(Shape.record({
-    ["created_at"] = Shape.optional(Shape.any), ["id"] = Shape.optional(Shape.any), ["key"] = Shape.optional(Shape.any) })) }),
-  function(): CachePage error("witness") end)
+local CACHE_PAGE <const> = Shape.record_of("CachePage")
 
 --- A whole number of `name` in `env`, `default` where it names none, nil
 --- and why where it is no whole number.

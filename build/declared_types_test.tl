@@ -7,6 +7,7 @@
 --- tests skip. The C rules, the importer and the spawn stand-in are in
 --- build/c/declared_types_test.tl, build/importer_declared_types_test.tl
 --- and build/confine_declared_types_test.tl, which declare what they read.
+--- Until a compile writes the boundary checks (build/type_watch.tl), they skip in a checked run too.
 
 local Clock = require("cosmic.clock")
 local Sqlite = require("cosmic.sqlite")

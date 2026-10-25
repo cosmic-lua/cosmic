@@ -88,6 +88,7 @@ local type Code = Codes.Code
 
 local record Check
   type Error = Codes.Error
+  type Argument = Codes.Argument
 
   --
   -- TODO: record in [`Narrowed`] the facts it leaves out, and have [`lang.fact_wraps`] pass them: a number that a test took
@@ -291,6 +292,14 @@ local record Ctx
   --- The locals the assignment being checked assigns, whose function literals name them while they are unset.
   mut assigning: {integer: boolean}
   mut quiet: integer
+  --- The module that declares the callee of the call being dispatched, "" where the walk does not know it.
+  mut callee_module: string
+  --- The module of the declaration the last member read took its member from, "" where it had none.
+  mut member_module: string
+  --- The expression that read it.
+  mut member_node: Ast.Node?
+  --- The call argument being checked: [`report`] gives it to the error it files.
+  mut argument: Codes.Argument?
   --- The loops being walked, innermost last.
   mut loops: mut {Loop}
   --- The key of each local's place, by id.
@@ -436,7 +445,7 @@ local function report(ctx: Ctx, code: Code, node: Ast.Node, msg: string, fix: st
   ctx.errors[#ctx.errors + 1] = {
     filename = ctx.filename, code = code, msg = msg, fix = fix, y = Lexer.y(tokens, first), x = Lexer.x(tokens, first),
     offset = Lexer.offset(tokens, first), length = math.max(0, Lexer.stop(tokens, last) - Lexer.offset(tokens, first)),
-    other = other, types = shown or {},
+    other = other, types = shown or {}, argument = ctx.argument,
   }
 end
 
@@ -1886,13 +1895,9 @@ local function field_unknown(ctx: Ctx, node: Ast.Node, t: Type, name: string)
   end
   local owner = (t.tag == "named") and quoted(t.decl.name) or tq(ctx, t)
   if is_enum(t) then
-    -- TODO: let a value of an enum call the functions of `string` (`k:upper()`), as the fork did, once it is decided whether
-    -- an enum is a string for its methods and not only where a string is wanted: the member `upper` is on `string`, not in
-    -- the enum, so a value of it has no methods today.
-    report(ctx, "field_unknown", node, owner .. " is an enum, whose values have no fields or methods: " .. quoted(name) ..
-        " is not one",
-      "make it a string first, `tostring(v):" .. name .. "(...)` or `string." .. name .. "(tostring(v), ...)`, or compare it " ..
-        "with `==` to a member", { show(ctx, t) })
+    -- A method call on an enum is served by `string` and never gets here: this reads a field, or a function as a value.
+    report(ctx, "field_unknown", node, owner .. " is an enum, whose values have no fields: " .. quoted(name) .. " is not one",
+      "call a function of `string` on it, `v:" .. name .. "(...)`, or compare it with `==` to a member", { show(ctx, t) })
     return
   end
   local names: {string} = {}
@@ -1910,8 +1915,12 @@ end
 --- expression that reads it; it holds the overloads of the field in `ctx.cands` when it has several.
 local function member_read(ctx: Ctx, node: Ast.Node, t: Type, name: string): Type
   local store = ctx.store
-  if (t.tag == "named") then
+  ctx.member_module, ctx.member_node = "", node
+  -- A method call on an enum value is a call in `string`, which each enum is below; the read of a member as a value is not.
+  local called = (node.kind == "MethodCall")
+  if (t.tag == "named") and not (is_enum(t) and called) then
     local decl = t.decl
+    ctx.member_module = decl.module
     local waiting = ctx.pending[decl]
     local as_declared = t.value or decl.kind == "class" or decl.kind == "interface"
     if waiting ~= nil and waiting[name] == true and as_declared then
@@ -1934,7 +1943,7 @@ local function member_read(ctx: Ctx, node: Ast.Node, t: Type, name: string): Typ
       return ctx.invalid
     end
     local first = assert(list[1])
-    if t.decl.kind == "interface" and not ((node.kind == "MethodCall")) and not first.method and ctx.probes[node.id] ~= true and
+    if t.decl.kind == "interface" and not called and not first.method and ctx.probes[node.id] ~= true and
         takes_receiver(ctx, t.decl, first.type) then
       -- The implementation depends on the receiver, which agreement fixes to the implementing type: read as a value, it
       -- would be called with another implementer.
@@ -1970,6 +1979,12 @@ local function member_read(ctx: Ctx, node: Ast.Node, t: Type, name: string): Typ
     for _, m in ipairs(t.members) do
       if (m.tag == "named") and member_types(ctx, m, name) ~= nil then
         types[#types + 1] = member_read(ctx, node, m, name)
+      elseif is_enum(m) then
+        report(ctx, "field_unknown", node, quoted(name) .. " is not a field of " .. tq(ctx, m) ..
+            ", an enum and a member of " .. tq(ctx, t),
+          "call a function of `string` on it, `v:" .. name .. "(...)`, or narrow the value to the member that has it " ..
+            "(`x is T`)", { show(ctx, t) })
+        return ctx.invalid
       else
         report(ctx, "field_unknown", node, quoted(name) .. " is not a field of " .. tq(ctx, m) ..
             ", a member of " .. tq(ctx, t),
@@ -1993,7 +2008,8 @@ local function member_read(ctx: Ctx, node: Ast.Node, t: Type, name: string): Typ
     local index = decl ~= nil and members_index(ctx, decl, false) or nil
     local list = index ~= nil and index.by_name[name] or nil
     if list == nil then
-      report(ctx, "field_unknown", node, "a string has no field " .. quoted(name),
+      report(ctx, "field_unknown", node, (if is_enum(t) then tq(ctx, t) .. " is an enum, a string with no method " else
+          "a string has no field " end) .. quoted(name),
         "call a function of `string` on it: `s:upper()`, `s:sub(i, j)`", { show(ctx, t) })
       return ctx.invalid
     end
@@ -2032,8 +2048,10 @@ local function union_method(ctx: Ctx, node: Ast.MethodCall, u: Union): Type?, {T
   local store = ctx.store
   local common: {Type}? = nil
   local first: Type? = nil
+  local first_declared: Type = ctx.invalid
   for _, m in ipairs(u.members) do
-    if not ((m.tag == "named")) or member_types(ctx, m, node.name) == nil then
+    -- A member that is text (an enum or `string`) has the functions of `string`, which only a call reaches.
+    if not is_text(m) and (not ((m.tag == "named")) or member_types(ctx, m, node.name) == nil) then
       report(ctx, "field_unknown", node, quoted(node.name) .. " is not a field of " .. tq(ctx, m) .. ", a member of " ..
           tq(ctx, u),
         "narrow the value to the member that has it (`x.kind == \"...\"` or `x is T`), or declare " .. quoted(node.name) ..
@@ -2053,7 +2071,7 @@ local function union_method(ctx: Ctx, node: Ast.MethodCall, u: Union): Type?, {T
     local replaced: mut {Type} = {}
     for i, each in ipairs(declared) do
       local f = each
-      if (f.tag == "fn") and f.params[1] ~= nil and f.params[1].type == m then
+      if (f.tag == "fn") and f.params[1] ~= nil and f.params[1].type == m and not is_text(m) then
         local params: mut {Types.Param} = {}
         for j, p in ipairs(f.params) do
           params[j] = p
@@ -2067,6 +2085,7 @@ local function union_method(ctx: Ctx, node: Ast.MethodCall, u: Union): Type?, {T
     if held == nil then
       common = replaced
       first = m
+      first_declared = declared[1] or read
     else
       local agree = #held == #replaced
       for i = 1, if agree then #held else 0 end do
@@ -2076,9 +2095,10 @@ local function union_method(ctx: Ctx, node: Ast.MethodCall, u: Union): Type?, {T
         local other = first
         report(ctx, "not_callable", node, subject(ctx, node) .. " calls the method " .. quoted(node.name) .. " of each member " ..
             "of " .. tq(ctx, u) .. ", and " .. tq(ctx, other ~= nil and other or m) .. " and " .. tq(ctx, m) ..
-            " declare it differently: " .. quoted(show(ctx, held[1])) .. " and " .. quoted(show(ctx, replaced[1])),
+            " declare it differently: " .. quoted(show(ctx, first_declared)) .. " and " ..
+            quoted(show(ctx, declared[1] or read)),
           "narrow the value to one member first (`x.kind == \"...\"` or `x is T`), or declare " .. quoted(node.name) ..
-            " the same in every member", { show(ctx, held[1]), show(ctx, replaced[1]) })
+            " the same in every member", { show(ctx, first_declared), show(ctx, declared[1] or read) })
         return nil
       end
     end
@@ -3902,6 +3922,19 @@ local record Calls
   literal_arguments: function(ctx: Ctx, call: Literals.Call, node: Ast.Node, args: {Ast.Exp}, recv_node: Ast.Node?)
   gsub_key: function(ctx: Ctx, c: Fn, args: {Ast.Exp}, off: integer, key: string)
   method_dot: function(ctx: Ctx, n: Ast.Call, callee: Type, object: Type)
+  expect_argument: function(ctx: Ctx, node: Ast.Node, got: Type, want: Type, callee: string, position: integer, named?: string):
+    boolean
+  dispatch: function(ctx: Ctx, node: Ast.Node, callee_node: Ast.Node, callee: string, ft: Type, cands: {Type}?,
+                     args: {Ast.Exp}, recv: Type?, recv_node: Ast.Node?, expected: Type?): {Alt}
+end
+
+--- [`expect_argument`] for argument `position` of a call of `callee`: an error it reports says so ([`Codes.Argument`]).
+function Calls.expect_argument(ctx: Ctx, node: Ast.Node, got: Type, want: Type, callee: string, position: integer,
+                               named?: string): boolean
+  ctx.argument = { callee = callee, module = ctx.callee_module, position = position }
+  local ok = expect_argument(ctx, node, got, want, " as argument " .. position .. " of " .. quoted(callee), named)
+  ctx.argument = nil
+  return ok
 end
 
 --- Types the arguments of a call that are not literals, and notes the literals. `wants` are the types a position expects
@@ -4001,7 +4034,7 @@ local function apply_function(ctx: Ctx, node: Ast.Node, callee: string, f: Fn, a
       if original ~= nil and declared ~= nil and names_invalid(want) then
         named = Calls.shown(ctx, declared, original)
       end
-      local _ = expect_argument(ctx, at, t, want, " as argument " .. i .. " of " .. quoted(callee), named)
+      local _ = Calls.expect_argument(ctx, at, t, want, callee, i, named)
     end
   end
   if why == "too few" or (why == "too many" and not reported) then
@@ -4022,7 +4055,9 @@ local function apply_function(ctx: Ctx, node: Ast.Node, callee: string, f: Fn, a
             ", so argument " .. pos .. " of " .. quoted(callee) .. " may be missing, where " .. tq(ctx, want) .. " is wanted",
           fix, { show(ctx, ctx.store:optional(tail)), show(ctx, want) })
       else
+        ctx.argument = { callee = callee, module = ctx.callee_module, position = pos }
         local _ = expect(ctx, last, tail, want, " as argument " .. pos .. " of " .. quoted(callee))
+        ctx.argument = nil
       end
     end
   end
@@ -4394,7 +4429,7 @@ local function apply_overloads(ctx: Ctx, node: Ast.Node, callee: string, cands: 
             local want = parameter_at(c, off, i)
             local t = expr(ctx, a, want)
             if want ~= nil then
-              local _ = expect_argument(ctx, a, t, want, " as argument " .. i .. " of " .. quoted(callee))
+              local _ = Calls.expect_argument(ctx, a, t, want, callee, i)
             end
           end
         end
@@ -4451,7 +4486,9 @@ local function apply_overloads(ctx: Ctx, node: Ast.Node, callee: string, cands: 
         local other = known[j]
         if j ~= i and other ~= nil and holds_values_of(other, held.decl) then
           local why: Relation.Refusal = { code = "declaration_value", path = {}, sub = held, super = other }
+          ctx.argument = { callee = callee, module = ctx.callee_module, position = i }
           refused(ctx, given, held, other, why, " as argument " .. tostring(i) .. " of " .. quoted(callee), held.decl.name)
+          ctx.argument = nil
           return unknown_lists(ctx)
         end
       end
@@ -4697,8 +4734,8 @@ end
 
 --- The lists a call answers, where the callee has type `ft` (and the overloads `cands`, if it has several). `expected`
 --- is the type the call is expected to answer, which solves a type parameter no argument does.
-local function dispatch_call(ctx: Ctx, node: Ast.Node, callee_node: Ast.Node, callee: string, ft: Type, cands: {Type}?,
-                             args: {Ast.Exp}, recv: Type?, recv_node: Ast.Node?, expected: Type?): {Alt}
+function Calls.dispatch(ctx: Ctx, node: Ast.Node, callee_node: Ast.Node, callee: string, ft: Type, cands: {Type}?,
+                        args: {Ast.Exp}, recv: Type?, recv_node: Ast.Node?, expected: Type?): {Alt}
   local list = cands or { ft }
   local first = list[1]
   if first.tag == "invalid" then
@@ -4794,6 +4831,17 @@ local function after_call(ctx: Ctx, node: Ast.Node, callee: Ast.Exp?, alts: {Alt
   end
 end
 
+--- [`Calls.dispatch`], with the `module` that declares its callee ("" where the walk did not read one) known to the
+--- argument errors it files, and the module of the call around it restored after.
+local function dispatch_call(ctx: Ctx, node: Ast.Node, callee_node: Ast.Node, callee: string, module: string, ft: Type,
+                             cands: {Type}?, args: {Ast.Exp}, recv: Type?, recv_node: Ast.Node?, expected: Type?): {Alt}
+  local outer = ctx.callee_module
+  ctx.callee_module = module
+  local alts = Calls.dispatch(ctx, node, callee_node, callee, ft, cands, args, recv, recv_node, expected)
+  ctx.callee_module = outer
+  return alts
+end
+
 --- A call `callee(args)` whose callee has type `ft`.
 local function apply_call(ctx: Ctx, node: Ast.Call, ft: Type, expected: Type?): {Alt}
   local callee = node.callee
@@ -4802,6 +4850,8 @@ local function apply_call(ctx: Ctx, node: Ast.Call, ft: Type, expected: Type?): 
     cands = ctx.cands
   end
   ctx.cands, ctx.cand_node = nil, nil
+  -- The read of a field callee was the last member read, and left its declaration's module.
+  local module = if ctx.member_node == callee then ctx.member_module else "" end
   local callee_text = text_of(ctx, callee)
   if (callee.kind == "Name") and callee.binding == nil then
     if callee.text == "setmetatable" then
@@ -4818,7 +4868,7 @@ local function apply_call(ctx: Ctx, node: Ast.Call, ft: Type, expected: Type?): 
       end
     end
   end
-  return dispatch_call(ctx, node, callee, callee_text, ft, cands, node.args, nil, nil, expected)
+  return dispatch_call(ctx, node, callee, callee_text, module, ft, cands, node.args, nil, nil, expected)
 end
 
 --- A method call `object:name(args)` whose object has type `object`.
@@ -4832,6 +4882,7 @@ local function apply_method(ctx: Ctx, node: Ast.MethodCall, object: Type, expect
   ctx.cands, ctx.cand_node = nil, nil
   local ft: Type
   local cands: {Type}? = nil
+  local module = ""
   if (t.tag == "union") then
     local common, overloads = union_method(ctx, node, t)
     if common == nil then
@@ -4841,6 +4892,7 @@ local function apply_method(ctx: Ctx, node: Ast.MethodCall, object: Type, expect
     ft, cands = common, overloads
   else
     ft = member_read(ctx, node, t, node.name)
+    module = ctx.member_module
     if ctx.cand_node == node then
       cands = ctx.cands
     end
@@ -4856,7 +4908,7 @@ local function apply_method(ctx: Ctx, node: Ast.MethodCall, object: Type, expect
       end
     end
   end
-  return dispatch_call(ctx, node, node, text, ft, cands, node.args, t, node.object, expected)
+  return dispatch_call(ctx, node, node, text, module, ft, cands, node.args, t, node.object, expected)
 end
 
 -- Expressions: the spine --------------------------------------------------------------------
@@ -6342,7 +6394,7 @@ function Check.check(program: Declarations.Program, input: Declarations.Input, l
       return false
     end, function(_node: Ast.Node, _spelled: string, _found: LoadOrder.Found) end),
     literals = {}, declared = {}, union_fields = {}, spine = {},
-    top = 0, ternaries = {}, invalid = store.invalid, nil_type = store:atom("nil"), flow = Flow.start(), unfixed_now = {}, assigning = {}, quiet = 0,
+    top = 0, ternaries = {}, invalid = store.invalid, nil_type = store:atom("nil"), flow = Flow.start(), unfixed_now = {}, assigning = {}, quiet = 0, callee_module = "", member_module = "",
     loops = {}, keys = {}, edges = {}, guards = {}, reads = {}, unfixed = {}, narrowed = {}, types = {}, callees = {}, consts = {}, library = {}, typed = typed ~= false, warnings = {},
     unite = function(a: Type, b: Type): Type
       return store:union({ a, b })
