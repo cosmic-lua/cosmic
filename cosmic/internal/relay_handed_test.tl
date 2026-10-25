@@ -250,6 +250,7 @@ end
 --- looked up). Prints each answer's status line, a line each.
 local SCRIPT <const> = [[
 local Clock = require("cosmic.clock")
+local Config = require("cosmic.internal.relay_config")
 local Connector = require("cosmic.internal.connector")
 local Fs = require("cosmic.fs")
 local Net = require("cosmic.net")
@@ -280,20 +281,21 @@ return function(argv: {string}): integer
     end)
     -- As the starter does: the upstream's host resolved once, through a
     -- connector of the name servers.
-    local plan = assert(SandboxRelay.plan({}, { https_proxy = "http://proxy.test:" .. assert(proxy.address.port),
+    local plan = assert(SandboxRelay.plan({}, { https_proxy = "http://proxy.test:" .. tostring(assert(proxy.address.port)),
       no_proxy = "direct.test" }))
     local up = assert(plan.upstream)
     local name_servers = assert(SandboxRelay.name_servers({ servers = { { host = "127.0.0.1", port = dns_port } } }))
     local dns = assert(Connector.start(name_servers.servers, name_servers.wait_ns // 1000000))
     local resolved = assert(SandboxRelay.upstream_addresses(up, { fd = dns.fd, name_servers = name_servers }, ""))
-    up.addresses = resolved
+    local pinned: Config.Upstream = { host = up.host, port = up.port, authorization = up.authorization,
+      no_proxy = up.no_proxy, addresses = resolved }
     assert(dns:close())
     lines[#lines + 1] = "upstream " .. table.concat(resolved, ",")
     local resolve_connector = assert(Net.connector(servers, { timeout_ns = name_servers.wait_ns }))
     local resolve: Net.ResolveOptions = { servers = servers, connector = resolve_connector }
     local http = assert(Net.listen(Net.tcp("127.0.0.1", 0)))
     local relay = Relay.start({
-      http = http, grants = { "api.test:443", "direct.test:443" }, upstream = up, resolve = resolve,
+      http = http, grants = { "api.test:443", "direct.test:443" }, upstream = pinned, resolve = resolve,
       log = function(_: string) end,
       connector = function(address: string, port: integer, timeout_ns: integer): Net.Conn?, string
         return Net.connect(Net.tcp(address, port), { timeout_ns = timeout_ns })
@@ -320,7 +322,7 @@ return function(argv: {string}): integer
     assert(http:close())
     assert(proxy:close())
   end)
-  Fs.put(Fs.stdout, table.concat(lines, "\n"))
+  local _, _ = Fs.put(Fs.stdout, table.concat(lines, "\n"))
   return 0
 end
 ]]
