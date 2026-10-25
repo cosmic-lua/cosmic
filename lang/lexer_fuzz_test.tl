@@ -6,40 +6,13 @@
 local Cover = require("lang.lexer_cover")
 local Fuzz = require("build.fuzz")
 local Lexer = require("lang.lexer")
-
---- Pieces of source that reach every branch of the lexer, well and ill
---- formed, with the bytes around them that decide where they end.
-local PIECES <const>: {string} = {
-  "local", "function", "end", "goto", "continue", "match", "mut", "as", "is", "record", "x", "_y1", "Z9",
-  "0", "12", "0xFF", "1e3", "2.5", ".5", "5.", "0x1p4", "1_000", "3x", "0x", "1e", "1..2", "9223372036854775808",
-  "'a'", "\"b\"", "'", "\"", "'\\n'", "\"\\x41\"", "'\\u{20AC}'", "\"\\q\"", "'\\z  \n  x'", "'a\\\nb'", "'\\256'",
-  "[[long]]", "[==[a]]b]==]", "[[", "[=[", "[=x", "[", "]", "]]",
-  "-- note", "--[[ c ]]", "--[==[ c\n]==]", "--[[ c", "--[=", "---", "--#pragma",
-  "+", "-", "*", "/", "//", "%", "^", "#", "&", "~", "~=", "|", "<<", ">>", "<", "<=", ">", ">=", "=", "==",
-  "..", "...", ".", ":", "::", "::lbl::", ",", ";", "?", "(", ")", "{", "}",
-  "@", "!", "!=", "`", "\\", "$", "\195\169", "\239\187\191", "\1", "\0",
-  " ", "  ", "\t", "\n", "\n\n", "\r\n", "\r", "\v", "\f",
-}
-
-local function gen_source(src: Fuzz.Source): string
-  if src:int(0, 3) == 0 then
-    return Fuzz.bytes(src, 120)
-  end
-  local out: mut {string} = {}
-  if src:int(0, 15) == 0 then
-    out[1] = "#!/bin/cosmic\n"
-  end
-  while Fuzz.more(src, #out, 40) do
-    out[#out + 1] = PIECES[src:int(1, #PIECES)]
-  end
-  return table.concat(out)
-end
+local Sources = require("build.lexer_sources")
 
 local function test_the_tokens_tile_the_source_and_every_error_says_how_to_fix_it(tmp: string)
   Fuzz.run({
     name = "lexer tiles any source",
     dir = tmp,
-    gen = gen_source,
+    gen = Sources.source,
     check = function(input: string): boolean, string
       local lexed = Lexer.lex(input, "f.tl")
       local ok, why = Cover.check(input, lexed)
