@@ -36,8 +36,8 @@ end
 --- line, as "a\n" gives "a" and then "", and "" has one empty line. A "\r"
 --- before the "\n" stays on its line.
 --- @param text string The text to read
---- @return function(): string The next line, or nil after the last
-function String.lines(text: string): function(): string
+--- @return function(): string? The next line, or nil after the last
+function String.lines(text: string): function(): string?
   return (text .. "\n"):gmatch("([^\n]*)\n")
 end
 
