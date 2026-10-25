@@ -4,6 +4,7 @@
 --- a typed boundary under build/ as a kind its type does not admit; in
 --- any other run the test skips. It declares a loopback address, as
 --- build/test_own_scratch_test.tl does, so the socket is made.
+--- Until a compile writes the boundary checks (build/type_watch.tl), they skip in a checked run too.
 
 local Test = require("cosmic.test")
 local TypeWatch = require("build.type_watch")
