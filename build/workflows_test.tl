@@ -2553,7 +2553,7 @@ local function test_a_branch_restores_the_verdicts_of_its_base()
 end
 
 --- Only five jobs save a cache every run restores: the platform legs,
---- the checked job and the rehearsal, where COSMIC_CI_SAVES (main's push
+--- and the checked job, where COSMIC_CI_SAVES (main's push
 --- and the scheduled run), the format check, whose memo only the scheduled
 --- run saves, and `seed`, which runs only on a push to main
 --- that found the queue's run.
@@ -2562,7 +2562,7 @@ local function test_only_the_legs_and_their_seed_save()
   for name, job in pairs(ci.jobs as {string: {string: any}}) do
     local saves = 0
     for _ in pairs(saves_of(job.steps as {{string: any}} or {})) do saves = saves + 1 end
-    assert(saves == 0 or name == "platform" or name == "checked" or name == "rehearsal" or name == "format" or
+    assert(saves == 0 or name == "platform" or name == "checked" or name == "format" or
         name == "seed", "job " .. name .. " saves a cache")
   end
 end
@@ -2694,10 +2694,7 @@ local SKIPPED_ON_A_BRANCH <const>: {string: boolean} = {
   [DIR .. "/ci.yml prune"] = true,
   [DIR .. "/ci.yml invalidate"] = true,
   [DIR .. "/ci.yml cancel"] = true,
-  -- A rehearsal of a full run only: a branch push has no suite to run on it, and starting a runner to skip every step costs
-  -- as much as the job's boot.
-  [DIR .. "/ci.yml rehearsal"] = true,
-  -- The checked suite's shares and the checked narrowing run, of a full run only like the rehearsal: a branch push runs no
+  -- The checked suite's shares and the checked narrowing run, of a full run only: a branch push runs no
   -- checked suite, and the job's boot costs what a runner's start does.
   [DIR .. "/ci.yml checked-shard"] = true,
   [DIR .. "/ci.yml checked-narrowing"] = true,
@@ -2782,90 +2779,17 @@ local function test_the_scope_is_decided_once()
   assert(reading >= 6, "too few jobs read the scope: " .. tostring(reading))
 end
 
---- The rehearsal boots the tree a second time with the new checker and runs the whole suite on that tool, a project outside
---- the tree and the proof of lang/ against the pinned seed, in a job of its own, beside the legs and the checked job, on
---- linux-x86_64's host under a name of its own. It is informational: it is a full run's only, it fails nothing it
---- belongs to, and no job that gates a merge or prunes a cache waits on it. Its verdicts are the one cache it saves.
-local function test_the_rehearsal_is_a_full_runs_job_that_gates_nothing_and_keeps_verdicts_of_its_own()
-  local jobs = assert(decoded_workflows()[DIR .. "/ci.yml"])
-  local rehearsal, shard = object_at(jobs, { "jobs", "rehearsal" }), object_at(jobs, { "jobs", "checked-shard" })
-  assert(rehearsal["continue-on-error"] == true, "the rehearsal fails the run")
-  assert(Json.encode_any(rehearsal["needs"]) == Json.encode_any(shard["needs"]) and rehearsal["runs-on"] == shard["runs-on"],
-    "the rehearsal runs elsewhere")
-  local condition = text_at(rehearsal, "if")
-  assert(condition:find("needs.reuse.outputs.run == ''", 1, true) ~= nil and
-      condition:find(FULL_RUN, 1, true) ~= nil,
-    "the rehearsal runs other than on a full run that found no queue run: " .. condition)
-  local name = text_at(rehearsal, "name")
-  assert(name == "linux-x86_64-new-grammar" and text_at(object_at(rehearsal, { "env" }), "COSMIC_WORKER") == name, name)
-  -- no job waits on it, whether `needs` is a list or one name
-  for other in pairs(object_at(jobs, { "jobs" })) do
-    local needs = Json.encode_any((Json.get(jobs, { "jobs", other, "needs" }))) or ""
-    assert(needs:find('"rehearsal"', 1, true) == nil, other .. " waits on the rehearsal")
-  end
-  local phases = ""
-  local conditions = ""
-  local named = false
-  local saved = ""
-  for index = 1, length_at(rehearsal, { "steps" }) do
-    local step = object_at(rehearsal, { "steps", index })
-    local run = text_at(step, "run")
-    local phase = run:match("driver%.tl platform ([%w-]+)$")
-    if phase ~= nil then
-      phases = phases .. phase .. " "
-      conditions = conditions .. phase .. ": " .. text_at(step, "if") .. "\n"
-    end
-    named = named or run:find('leg-host-id "linux-x86_64-new-grammar" ', 1, true) ~= nil
-    if text_at(step, "uses"):find("actions/cache/save@", 1, true) ~= nil then
-      local with = object_at(step, { "with" })
-      saved = saved .. text_at(with, "path") .. " " .. text_at(with, "key") .. "\n"
-    end
-  end
-  assert(phases == "boot rehearsal-examples rehearsal-boot rehearsal rehearsal-project rehearsal-seed ", "the rehearsal runs the phases " .. phases)
-  -- an example that regresses fails its own step and skips none of the rehearsal's: every step after the boot runs on the boot
-  assert(conditions == "boot: \n" ..
-      "rehearsal-examples: \n" ..
-      "rehearsal-boot: always() && steps.boot.outcome == 'success'\n" ..
-      "rehearsal: always() && steps.rehearsal-boot.outcome == 'success'\n" ..
-      "rehearsal-project: always() && steps.rehearsal-boot.outcome == 'success'\n" ..
-      "rehearsal-seed: always() && steps.rehearsal-boot.outcome == 'success'\n", "the rehearsal's steps run on " .. conditions)
-  assert(named, "the rehearsal's verdicts are named by another host")
-  assert(saved == "${{ runner.temp }}/verdicts ${{ steps.host-id.outputs.verdicts }}" ..
-      "${{ steps.verdicts-trim.outputs.digest }}\n", "the rehearsal saves " .. saved)
-end
-
---- A job that gates nothing (`continue-on-error`) cannot block or cancel the queue: no job waits on it, and the job that cancels the
---- run on a failed leg is told its name to pass over. The rehearsal's failure cancelled a queue run, and with it the legs `ci`
---- waits on.
-local function test_a_job_that_gates_nothing_neither_blocks_nor_cancels_the_run()
+--- Every job of the run gates it: none continues on error, so the job that cancels the run on a failed leg has no failure to
+--- pass over, and the script names no exemption. A job that gates nothing needs the exemption back, with a test of its own.
+local function test_every_job_gates_the_run_and_the_cancel_job_passes_over_none()
   local jobs = object_at(assert(decoded_workflows()[DIR .. "/ci.yml"]), { "jobs" })
-  local exempt = text_at(object_at(jobs, { "cancel", "steps", 2, "env" }), "EXEMPT")
-  local listed = "," .. exempt .. ","
-  local informational = 0
   for id in pairs(jobs) do
     local job = object_at(jobs, { id })
-    if Json.get(job, { "continue-on-error" }) == true then
-      informational = informational + 1
-      local name = text_at(job, "name")
-      assert(listed:find("," .. name .. ",", 1, true) ~= nil, id .. " (" .. name .. ") fails without gating, and the cancel job does not pass over it")
-      for other in pairs(jobs) do
-        local needs = Json.encode_any((Json.get(jobs, { other, "needs" }))) or ""
-        assert(needs:find('"' .. id .. '"', 1, true) == nil, other .. " waits on " .. id .. ", which gates nothing")
-      end
-    end
+    assert(Json.get(job, { "continue-on-error" }) ~= true, id .. " fails without gating, and the cancel job does not pass over it")
   end
-  assert(informational >= 1, "no job gates nothing: the rehearsal is gone, or no longer continues on error")
-  for name in exempt:gmatch("[^,]+") do
-    local found = false
-    for id in pairs(jobs) do
-      found = found or text_at(object_at(jobs, { id }), "name") == name
-    end
-    assert(found, "the cancel job passes over " .. name .. ", which no job is called")
-  end
-  -- the script reads the list, and compares whole names (a leg called `linux-x86_64` is no part of `linux-x86_64-new-grammar`)
+  assert(Json.get(object_at(jobs, { "cancel", "steps", 2, "env" }), { "EXEMPT" }) == nil, "the cancel job passes over a job")
   local script = assert(Fs.read(".github/scripts/cancel-on-failure.sh"))
-  assert(script:find('--arg exempt "${EXEMPT:-}"', 1, true) ~= nil and script:find("any(.[]; . == $n)", 1, true) ~= nil,
-    "cancel-on-failure.sh does not skip the exempt names exactly")
+  assert(script:find("EXEMPT", 1, true) == nil, "cancel-on-failure.sh still reads an exemption")
 end
 
 local function test_a_branch_push_starts_no_job_it_skips()
