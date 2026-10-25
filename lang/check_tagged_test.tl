@@ -281,3 +281,58 @@ local function test_the_narrowed_read_of_a_member_with_several_tag_values_carrie
   end
   assert(found, "no read of the tag with both values")
 end
+
+--- Two records, the first with the tag values "a" and "b" and the second with "c".
+local PAIR <const> = [[
+local enum K1 "a" "b" end
+local enum K2 "c" end
+local record A
+  kind: K1
+  x: integer
+end
+local record B
+  kind: K2
+  y: integer
+end
+local function pair(): A | B
+  local a: A = { kind = "b", x = 7 }
+  return a
+end
+local function other(): A | B
+  local b: B = { kind = "c", y = 9 }
+  return b
+end
+]]
+
+local function test_a_chain_of_tests_over_every_value_of_a_member_leaves_the_rest_and_ends_a_function()
+  stands("local function h(u: A | B): integer\n  if u.kind == \"a\" then\n    return u.x\n  elseif u.kind == \"b\" then\n    return u.x\n  else\n" ..
+      "    return u.y\n  end\nend\nprint(h(pair()), h(other()))\n", "7\t9", PAIR)
+  stands("local function h(u: A | B): integer\n  if u.kind ~= \"a\" and u.kind ~= \"b\" then\n    return u.y\n  end\n  return u.x\nend\n" ..
+      "print(h(pair()), h(other()))\n", "7\t9", PAIR)
+  stands("local function h(u: A | B): integer\n  if u.kind == \"a\" or u.kind == \"b\" then\n    return u.x\n  end\n  return u.y\nend\n" ..
+      "print(h(pair()), h(other()))\n", "7\t9", PAIR)
+  -- The chain ends the function when it covers every value of every member, and not when one is left.
+  local all = "local function size(f: Figure): integer\n  if f.kind == \"circle\" then\n    return f.radius\n  elseif f.kind == \"oval\" then\n" ..
+      "    return f.radius + 1\n  elseif f.kind == \"square\" or f.kind == \"rect\" or f.kind == \"tri\" then\n    return f.side\n" ..
+      "  elseif f.kind == \"line\" then\n    return f.length\n  end\nend\n"
+  stands(all .. "print(size(curved(\"oval\")), size(angular(\"tri\")), size(line()))\n", "4\t4\t5", MANY)
+  refused("local function size(f: Figure): integer\n  if f.kind == \"circle\" then\n    return f.radius\n  elseif f.kind == \"square\" or f.kind == \"rect\" or " ..
+      "f.kind == \"tri\" then\n    return f.side\n  elseif f.kind == \"line\" then\n    return f.length\n  end\nend\n", "missing_return", MANY)
+  has_type("local f = line()\nif f.kind == \"circle\" or f.kind == \"oval\" then\n  return\nend\nlocal rest = f\n", "rest", MANY, "Angular | Line")
+end
+
+local function test_a_member_stays_while_a_value_of_it_is_not_ruled_out_on_every_path()
+  -- Partial coverage keeps the member: `A` may still be "b".
+  refused("local function h(u: A | B): integer\n  if u.kind == \"a\" then\n    return u.x\n  else\n    return u.y\n  end\nend\n", "field_unknown", PAIR)
+  refused("local function h(u: A | B): integer\n  if u.kind ~= \"a\" then\n    return u.y\n  end\n  return u.x\nend\n", "field_unknown", PAIR)
+  -- A test on one path only rules nothing out where the paths meet.
+  has_type("local f = line()\nif f.kind == \"circle\" then\n  print(1)\nend\nif f.kind == \"oval\" then\n  return\nend\nlocal rest = f\n", "rest", MANY,
+    "Angular | Curved | Line")
+  refused("local function h(u: A | B, flag: boolean): integer\n  if flag then\n    if u.kind == \"a\" then\n      return 0\n    end\n  end\n" ..
+      "  if u.kind == \"b\" then\n    return 1\n  end\n  return u.y\nend\n", "field_unknown", PAIR)
+  -- An assignment to the place forgets what was ruled out.
+  refused("local function h(u: A | B): integer\n  if u.kind == \"a\" then\n    return 0\n  end\n  u = pair()\n  if u.kind == \"b\" then\n    return 1\n  end\n" ..
+      "  return u.y\nend\n", "field_unknown", PAIR)
+  -- Values ruled out in one test are not the values of another member.
+  refused("local function h(u: A | B): integer\n  if u.kind == \"c\" then\n    return 0\n  end\n  return u.y\nend\n", "field_unknown", PAIR)
+end

@@ -2561,12 +2561,15 @@ function Tests.kinds_of(ctx: Ctx, t: Type): {string: boolean}?
   return out
 end
 
---- The values of the enum a field of `m` is declared with, or nil where `m` has no such field.
+--- The values of the enum a field of `m` is declared with, or nil where `m` has no such field or the field is `mut`.
 function Tests.tag_values(ctx: Ctx, m: Type, name: string): {string}?
   if not ((m.tag == "named")) or m.value or (m.decl.kind ~= "record" and m.decl.kind ~= "class") then
     return nil
   end
   local field = plain_field(ctx, m, name)
+  if field ~= nil and field.mut == true then
+    return nil
+  end
   local t = field ~= nil and field.type or nil
   local body = t ~= nil and (t.tag == "named") and t.decl.kind == "enum" and t.decl.body or nil
   return body ~= nil and body.values or nil
@@ -2813,40 +2816,62 @@ function Tests.by_kind(ctx: Ctx, cur: Type, kind: string, keep: boolean): Type
 end
 
 --- The edges of `field == "lit"` for a field that tells the members of a union of records apart. The true edge keeps
---- the members whose tag enum has the value, each with all its values. The false edge drops a member only where the
---- value is the one it has, since a member with other values may hold one of them.
---
--- TODO: drop a member with several tag values once tests have excluded every one of them (`t.tag ~= "a" and t.tag ~= "b"`
--- for a member of `"a" | "b"`), once a narrowed type can say which values of an enum remain: the false edge of each test
--- keeps the member today, so a chain over every value of a member does not end a function that must return.
+--- the members whose tag enum still has the value, each with all its values. The false edge notes that the tag is not
+--- the value, and drops a member once every value of its enum has been noted on the path, so that a chain of tests
+--- over the values of a member leaves the rest.
 local function tag_edges(ctx: Ctx, f: Flow.State, field: Ast.Field, lit: string): Flow.State, Flow.State
   local p = place_of(ctx, f, field.object)
   if p == nil then
     return f, f
   end
   local store = ctx.store
+  -- The key of the fact that a test showed the tag of the place is not `value` while it is the member `m` (told by its place among the members of the declared type). The fact is a
+  -- path from the place, so an assignment to the place or to what it is read from takes it away, and a join keeps it
+  -- only where both paths have it.
+  local whole = members_of(store, store:non_nil(p.declared))
+  local function tag_key(m: Type, value: string): string
+    local at = 0
+    for i, member in ipairs(whole) do
+      if member == m then
+        at = i
+      end
+    end
+    return p.key .. ".#" .. tostring(at) .. "." .. value
+  end
   local members = members_of(store, store:non_nil(current(f, p)))
   local yes: mut {Type} = {}
   local no: mut {Type} = {}
+  local noted: mut {Type} = {}
   for _, m in ipairs(members) do
     local values = Tests.tag_values(ctx, m, field.name)
     if values == nil then
       yes[#yes + 1] = m
       no[#no + 1] = m
     else
+      local left = 0
       local has = false
       for _, v in ipairs(values) do
-        has = has or v == lit
+        if f.facts[tag_key(m, v)] == nil then
+          left = left + 1
+          has = has or v == lit
+        end
       end
       if has then
         yes[#yes + 1] = m
       end
-      if not (has and #values == 1) then
+      if not has or left > 1 then
         no[#no + 1] = m
+      end
+      if has and left > 1 then
+        noted[#noted + 1] = m
       end
     end
   end
-  return when_true(f, p, store:union(yes)), narrowed_flow(f, p, store:union(no))
+  local after = narrowed_flow(f, p, store:union(no))
+  for _, m in ipairs(noted) do
+    after = Flow.narrow(after, tag_key(m, lit), store.boolean, store.integer)
+  end
+  return when_true(f, p, store:union(yes)), after
 end
 
 --- The edges of `type(x) == "kind"`.

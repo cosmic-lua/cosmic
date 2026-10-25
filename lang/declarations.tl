@@ -2442,6 +2442,31 @@ local function check_union(ctx: Ctx, site: UnionSite): boolean
       return false
     end
   end
+  -- The members are told in the order their declarations were made, which is the order they are written in a module.
+  local position: mut {Decl: integer} = {}
+  for i, d in ipairs(ctx.store.list) do
+    position[d] = i
+  end
+  table.sort(records, function(a: Named, b: Named): boolean
+    local pa, pb = position[a.decl] or 0, position[b.decl] or 0
+    if pa ~= pb then
+      return pa < pb
+    end
+    return Types.display(a, site.names) < Types.display(b, site.names)
+  end)
+  local function own_names(r: Named): {string}
+    local out: mut {string} = {}
+    local body = r.decl.body
+    if body ~= nil then
+      for _, tp in ipairs(body.tparams) do
+        out[#out + 1] = tp.name
+      end
+    end
+    return out
+  end
+  local function shown_of(r: Named): string
+    return quoted(Types.display(r, site.names))
+  end
   local first_body = records[1].decl.body
   if first_body == nil then
     return true
@@ -2467,7 +2492,7 @@ local function check_union(ctx: Ctx, site: UnionSite): boolean
       local f = body ~= nil and field_named(body, candidate.name) or nil
       if f == nil then
         good = false
-        why = quoted(r.decl.name) .. " has no field " .. quoted(candidate.name)
+        why = shown_of(r) .. " has no field " .. quoted(candidate.name)
         break
       end
       local own, waiting = tag_values(f)
@@ -2476,14 +2501,16 @@ local function check_union(ctx: Ctx, site: UnionSite): boolean
       end
       if own == nil then
         good = false
-        why = quoted(r.decl.name .. "." .. candidate.name) .. " is not a fixed field of an enum with a value"
+        why = "the field " .. quoted(candidate.name) .. " of " .. shown_of(r) .. " is " ..
+          (if f.mut == true then "`mut`" elseif f.omittable == true then "omittable" else "typed " .. quoted(Types.display(f.type, { own_names(r) })) end) ..
+          ", and a tag is a fixed field typed by one named enum"
         break
       end
       for _, value in ipairs(own) do
         local other = values[value]
         if other ~= nil and other ~= r then
           good = false
-          why = "both " .. quoted(other.decl.name) .. " and " .. quoted(r.decl.name) .. " have " ..
+          why = "both " .. shown_of(other) .. " and " .. shown_of(r) .. " have " ..
             quoted(candidate.name) .. " = " .. string.format("%q", value)
           break
         end
@@ -2508,14 +2535,14 @@ local function check_union(ctx: Ctx, site: UnionSite): boolean
   end
   local listed: mut {string} = {}
   for i, r in ipairs(records) do
-    listed[i] = quoted(r.decl.name)
+    listed[i] = shown_of(r)
   end
   local shown = Types.display(site.type, site.names)
   local reason = if failure ~= "" and shared then "; the closest, " .. quoted(blamed) .. ", fails because " .. failure else
     "; they share no field" end
   report_at(ctx, "untagged_union", site.node, "the union " .. quoted(shown) .. " holds " .. #records ..
       " records that have no tag" .. reason,
-    "give " .. table.concat(listed, ", ") .. " a fixed field of the same name whose type is an enum, with values " ..
+    "give " .. table.concat(listed, ", ") .. " a fixed field of the same name whose type is one named enum, with values " ..
       "different in each, so that `x.kind == \"...\"` tells them apart",
     { shown })
   return true

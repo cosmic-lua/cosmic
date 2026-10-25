@@ -717,15 +717,17 @@ an extension. a union of records is legal when each member has the same
 fixed field typed by an enum, and no value of any member's enum is in
 another member's: a member's tag may have several values. comparing that
 field with a literal narrows the union: `==` selects the member whose enum
-has the value, and the member keeps all its values; `~=` removes a member
-only where the value is the one it has, since a member of `"a" | "b"` may
-still be `"b"`. a value in two members is `untagged_union`, and the error
-names both members and the value. `assert(x.kind == "a")` narrows as the
-test does. a chain of tests that covers every member leaves `never` in its
-final branch, so a function that must return can end there; a test of one
-value never takes away a member that has several, so a chain over the values
-of such a member does not end a function yet (a `TODO:` in
-[`lang/check.tl`]). `is` applies to primitive types, enums, `nil`, function and
+has the value, and the member keeps all its values; `~=` (and the false
+branch of `==`) rules the value out for the member on that path, and removes the
+member once every value of its enum has been ruled out, so a member of
+`"a" | "b"` stays after a test of `"a"`, and a chain of tests over both values
+leaves the rest and ends a function that must return. what is ruled out is
+kept for the place until it is assigned, and where two paths meet only what both
+ruled out remains. a value in two members is `untagged_union`, and the error
+names both members, in declaration order, and the value. `assert(x.kind == "a")`
+narrows as the test does. a chain of tests that covers every member leaves
+`never` in its final branch, so a function that must return can end there.
+`is` applies to primitive types, enums, `nil`, function and
 table kinds, and classes; `v is R` for a record `R` that is not a class is
 refused, since Lua erases the record, and the error names a tag field or
 a [`cosmic.shape`] validator. `is` on a parenthesized name or field is
