@@ -10,7 +10,8 @@
 --- (the last byte of a token may be one of a line break). The line table
 --- holds the offset of each line of the source.
 --- Between two of them lies whitespace and nothing else; before the first lies
---- whitespace, or a `#!` first line, which is no token and no comment. The `$EOF$` token
+--- whitespace, or a `#!` first line, which is no token and no comment; so too is a `#!` line right after a byte order
+--- mark that is the first token. The `$EOF$` token
 --- is empty and at the end. An error lies within the source and carries its
 --- code, its message and its fix.
 local Lexer = require("lang.lexer")
@@ -135,6 +136,10 @@ function Cover.check(source: string, lexed: Lexer.Lexed): boolean, string
       end
     end
     cursor = offset + length
+    -- A `#!` line directly after a leading byte order mark (the mark is the first token) is skipped as a first line is.
+    if i == 1 and cursor == 4 and source:sub(1, 5) == "\239\187\191#!" then
+      cursor = find(source, "[\r\n]", 6) or #source + 1
+    end
   end
   if count == 0 or tokens.kind[count] ~= "$EOF$" or Lexer.length(tokens, count) ~= 0 or tokens.offset[count] ~= #source + 1 then
     return false, "the tokens do not end in an empty $EOF$ at the end of the source"
