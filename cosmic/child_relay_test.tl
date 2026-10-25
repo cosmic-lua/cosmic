@@ -377,18 +377,20 @@ local Proc = require("cosmic.proc")
 local sys = require("cosmic.sys")
 return function(argv: {string}): integer
   local started, why = Child.start({ assert(Proc.executable()), "wait" }, { policy = {
-    database = { path = argv[1] }, connect = { "127.0.0.2:9" } }, stdout = "null", stderr = "null" })
+    database = { path = (argv[1] or ""), sha256 = nil }, connect = { "127.0.0.2:9" } }, stdout = "null", stderr = "null" })
   local pid = sys.getpid()
-  local running: {string} = {}
-  for child in (Fs.read("/proc/" .. pid .. "/task/" .. pid .. "/children") or ""):gmatch("%d+") do
-    local state = (Fs.read("/proc/" .. child .. "/stat") or ""):match("%) (%a)")
+  local running: mut {string} = {}
+  local children, _ = Fs.read("/proc/" .. tostring(pid) .. "/task/" .. tostring(pid) .. "/children")
+  for child in (children or ""):gmatch("%d+") do
+    local stat, _ = Fs.read("/proc/" .. child .. "/stat")
+    local state = (stat or ""):match("%) (%a)")
     if state ~= "Z" then running[#running + 1] = child .. ":" .. tostring(state) end
   end
-  local left: {string} = {}
+  local left: mut {string} = {}
   for _, name in ipairs((assert(Fs.list(sys.getenv("TMPDIR") or "/tmp")))) do
     if name:find("^cosmic%-relay%-") then left[#left + 1] = name end
   end
-  Fs.put(Fs.stdout, (started == nil and "refused: " .. why or "started") .. "\nrunning: " ..
+  local _, _ = Fs.put(Fs.stdout, (if started == nil then "refused: " .. why else "started" end) .. "\nrunning: " ..
     table.concat(running, ",") .. "\ndirectories: " .. table.concat(left, ","))
   return 0
 end
@@ -441,12 +443,12 @@ local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")
 local Proc = require("cosmic.proc")
 return function(argv: {string}): integer
-  local log: Child.RelayLog = argv[4] == "inherit" and "inherit" or "null"
-  local result, why = Child.run({ assert(Proc.executable()), "flows", argv[2], argv[3] }, {
-    policy = { database = { path = argv[1] }, connect = { "127.0.0.2:" .. argv[2] } },
+  local log: Child.RelayLog = if argv[4] == "inherit" then "inherit" else "null" end
+  local result, why = Child.run({ assert(Proc.executable()), "flows", (argv[2] or ""), (argv[3] or "") }, {
+    policy = { database = { path = (argv[1] or ""), sha256 = nil }, connect = { "127.0.0.2:" .. (argv[2] or "") } },
     stdout = "capture", stderr = "capture", relay_log = log })
   assert(result, why)
-  Fs.put(Fs.stdout, assert(result.stdout))
+  local _, _ = Fs.put(Fs.stdout, assert(result.stdout))
   return 0
 end
 ]==]
