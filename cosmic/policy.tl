@@ -64,11 +64,16 @@ local POLICY_SPEC <const> = Shape.strict_record({
   database = Shape.optional(DATABASE_SPEC),
 })
 
+-- TODO: name the field by its path in Sandbox.check's messages too, once a
+-- change bumps the harness epoch for it: cosmic.sandbox is a harness module
+-- (build/harness_epoch.tl).
 --- The policy `json` holds. Strict: a key this module does not know, a
 --- value of the wrong type, an `isolate` or a promise it does not name,
 --- a profile it has not, and a grant whose `letters` are not in the order
---- of "rwxcu", each once, are refused, naming the field by its JSON
---- Pointer (`pointer "/grants/0/letters": ...`, arrays counted from 0).
+--- of "rwxcu", each once, are refused. The field is named by its path
+--- where a value's shape is wrong (`$.limits.open_files: want integer,
+--- got string`) and by its JSON Pointer where its content is
+--- (`pointer "/grants/0/letters": ...`), arrays counted from 0 in both.
 --- A hand-built [`Sandbox.Policy`] is judged by [`Sandbox.merge`]
 --- instead, which takes any order of letters and writes them in this one.
 --- A `database` is `{"path": ..., "sha256": ...}`: the file must be there

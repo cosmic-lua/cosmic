@@ -75,6 +75,20 @@ local function test_release_text_is_the_shell_scripts()
       "hashes before publication.\n")
 end
 
+-- TODO: once ci/cosmic-driver.pin names a release whose Shape failures read
+-- `$.a[0].b: want string, got integer`, match that form only.
+--- Whether `said` holds the Shape failure at JSON Pointer `at` that wants `expected`
+--- (`string, got integer`), in the form of the release running the test or the tree's.
+local function shape_failure(said: string, at: string, expected: string): boolean
+  if said:find('pointer "' .. at .. '": expected ' .. expected, 1, true) then return true end
+  local path = "$"
+  for segment in at:gmatch("/([^/]*)") do
+    path = path .. (if segment:find("^%d+$") then "[" .. segment .. "]" else "." .. segment end)
+  end
+  local rest = if expected:find(", got nothing$") then "missing" else "want " .. expected end
+  return said:find(path .. ": " .. rest, 1, true) ~= nil
+end
+
 local function test_source_valid()
   local digest = string.rep("ab", 32)
   local function valid(text: string): boolean
@@ -104,7 +118,7 @@ local function test_source_valid()
     local accepted, trouble = Prerelease.source_valid(text, commit, digest, run_prefix)
     assert(not accepted, text)
     assert(trouble:find("source.json is no source record: ", 1, true) and
-        trouble:find('pointer "' .. at .. '": expected ' .. expected, 1, true), trouble)
+        shape_failure(trouble, at, expected), trouble)
   end
   unshaped('{"commit":"' .. commit .. '","digest":"' .. digest .. '","run_url":1}',
     "/run_url", "string, got integer")

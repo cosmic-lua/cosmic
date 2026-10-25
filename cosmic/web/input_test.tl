@@ -584,7 +584,7 @@ end
 local function test_a_json_body_reports_where_it_failed()
   local e = json_error('{"title":"t","qty":"x"}')
   assert(e.source == "body" and e.field == "qty" and e.pointer == "/qty" and e.code == "integer")
-  assert(e.message == 'expected integer, got string', e.message)
+  assert(e.message == 'want integer, got string', e.message)
   e = json_error('{"title":"t","qty":1,"address":{"city":5}}')
   assert(e.field == "address.city" and e.pointer == "/address/city" and e.code == "type", e.field)
   e = json_error('{"title":"t","qty":1,"tags":["a",2]}')
@@ -601,7 +601,7 @@ end
 
 local function test_a_json_pointer_with_escapes_is_one_dotted_field()
   local spec = Shape.record({ ["a/b"] = Shape.record({ ["c~d"] = Shape.integer }) })
-  local typed: Shape.Typed<{string:any}> = { spec = spec,
+  local typed: Shape.Typed<{string:any}> = { name = "Escapes", spec = spec,
     into = function(_self: Shape.Typed<{string:any}>, _v: any): {string:any}?, string
       return nil, ""
     end,

@@ -4,12 +4,24 @@ local Json = require("cosmic.json")
 local Sandbox = require("cosmic.sandbox")
 local PolicyJson = require("cosmic.policy")
 
---- Why `json` is refused, asserting that it is, and names `field`.
+--- `pointer` as the path `$.grants[0].letters` that a Shape failure names.
+local function path_of(pointer: string): string
+  local path = "$"
+  for segment in pointer:gmatch("/([^/]*)") do
+    path = path .. (if segment:find("^%d+$") then "[" .. segment .. "]" else "." .. segment end)
+  end
+  return path
+end
+
+--- Why `json` is refused, asserting that it is, and names `field`, a JSON
+--- Pointer: as a pointer where Sandbox.check refuses it, as a path where
+--- Shape does.
 local function refused(json: string, field: string): string
   local policy, why = PolicyJson.decode(json)
   assert(policy == nil, json .. " was taken")
   assert(why:find("^sandbox: "), why)
-  assert(why:find(field, 1, true), json .. " refused without naming " .. field .. ": " .. why)
+  assert(why:find(field, 1, true) or why:find(path_of(field), 1, true),
+    json .. " refused without naming " .. field .. ": " .. why)
   return why
 end
 
@@ -86,7 +98,7 @@ local function test_decode_refusals_name_the_field()
     { '{"limits": {"processes": 0}}', "/limits/processes" },
     { '{"limits": {"open_files": "many"}}', "/limits/open_files" },
     { '{"limits": {"bogus": 1}}', "/limits/bogus" },
-    { '[]', "expected record" },
+    { '[]', "want record" },
     { 'not json', "json" },
   }
   for _, case in ipairs(cases) do refused(case[1], case[2]) end
@@ -183,7 +195,7 @@ local function test_user_and_group_round_trip_and_are_integers()
   text = PolicyJson.encode((assert(Sandbox.merge({ user = 1000, group = 100 }))))
   assert(text == '{"group":100,"user":1000}', text)
   local none, why = PolicyJson.decode('{"user":"me"}')
-  assert(none == nil and why:find("/user", 1, true), why)
+  assert(none == nil and why:find("$.user", 1, true), why)
   none, why = PolicyJson.decode('{"user":0}')
   assert(none == nil and why:find("never root", 1, true), why)
 end
