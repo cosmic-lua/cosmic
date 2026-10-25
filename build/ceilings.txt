@@ -662,8 +662,6 @@ build/coverage/syntax_lines.tl nil_not_allowed 2
 
 build/coverage/syntax_lines_test.tl nil_not_allowed 1
 
-build/credentials_proof.tl nil_not_allowed 9
-
 build/database_start_fixture.tl nil_not_allowed 1
 
 build/databases.tl nil_not_allowed 6
