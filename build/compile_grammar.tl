@@ -251,6 +251,12 @@ function compile_grammar.compile(sources: {compile_grammar.Source}, facts?: bool
   local names: mut {string} = {}
   local by_module: mut {string: Driver.Source} = {}
   local provided: mut {string: boolean} = {}
+  -- The modules a declaration is given for: a source of the same name is their implementation, as in a build
+  -- ([`Driver.implementation`]), and a require reads the declaration.
+  local declared: mut {string: boolean} = {}
+  for _, source in ipairs(sources) do
+    if source.declaration then declared[Declarations.module_of(source.relative)] = true end
+  end
   for index, source in ipairs(sources) do
     local module = Declarations.module_of(source.relative)
     provided[module] = true
@@ -259,6 +265,7 @@ function compile_grammar.compile(sources: {compile_grammar.Source}, facts?: bool
       made = Driver.declarations(module, source.relative, source.text, {})
       globals[#globals + 1] = made
     else
+      if declared[module] == true then module = Driver.implementation(module) end
       made = Driver.source(module, source.relative, source.text, "tl")
     end
     given[index] = made

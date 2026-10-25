@@ -198,8 +198,8 @@ function verb.run(argv: {string}, streams?: verb.Io): integer
     end
     local name = require("build.compile_grammar").module_of(relative)
     local declaration = base_of(path):match("%.d%.tl$") ~= nil
-    -- The program has one file for a module.
-    local kind = name .. "\0t"
+    -- The program has one file for a module, but for a declaration beside its source, as in a build.
+    local kind = name .. (if declaration then "\0d" else "\0t" end)
     if holders[kind] ~= nil then
       complain(path .. " and " .. holders[kind] .. " are both the module " .. name ..
           ": a require could mean only one; name one of them, or compile them in two runs")
