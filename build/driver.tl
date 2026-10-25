@@ -92,7 +92,7 @@ local record Driver
     offset: integer
     --- Whether the fix is what to write instead of a name cosmic removed ([`build.removed_fix`]), in place of the checker's own.
     removed: boolean
-    --- The call whose argument the checker refused, for a `not_assignable` of a value given to a parameter ([`Check.Argument`]); nil
+    --- The call whose argument the checker refused, for an error filed for a value given to a parameter ([`Check.Argument`]); nil
     --- for any other problem.
     argument?: Check.Argument
   end

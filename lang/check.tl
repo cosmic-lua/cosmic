@@ -3870,7 +3870,7 @@ end
 
 --- [`expect_argument`] for argument `position` of a call of `callee`: an error it reports says so ([`Codes.Argument`]).
 function Calls.expect_argument(ctx: Ctx, node: Ast.Node, got: Type, want: Type, callee: string, position: integer,
-                                  named?: string): boolean
+                               named?: string): boolean
   ctx.argument = { callee = callee, module = ctx.callee_module, position = position }
   local ok = expect_argument(ctx, node, got, want, " as argument " .. position .. " of " .. quoted(callee), named)
   ctx.argument = nil
@@ -4675,7 +4675,7 @@ end
 --- The lists a call answers, where the callee has type `ft` (and the overloads `cands`, if it has several). `expected`
 --- is the type the call is expected to answer, which solves a type parameter no argument does.
 function Calls.dispatch(ctx: Ctx, node: Ast.Node, callee_node: Ast.Node, callee: string, ft: Type, cands: {Type}?,
-                                 args: {Ast.Exp}, recv: Type?, recv_node: Ast.Node?, expected: Type?): {Alt}
+                        args: {Ast.Exp}, recv: Type?, recv_node: Ast.Node?, expected: Type?): {Alt}
   local list = cands or { ft }
   local first = list[1]
   if first.tag == "invalid" then
@@ -4771,8 +4771,8 @@ local function after_call(ctx: Ctx, node: Ast.Node, callee: Ast.Exp?, alts: {Alt
   end
 end
 
---- [`Calls.dispatch`], with the `module` that declares its callee ("" where the walk did not read one) known to the argument errors it files and the one of the call
---- around it restored after.
+--- [`Calls.dispatch`], with the `module` that declares its callee ("" where the walk did not read one) known to the
+--- argument errors it files, and the module of the call around it restored after.
 local function dispatch_call(ctx: Ctx, node: Ast.Node, callee_node: Ast.Node, callee: string, module: string, ft: Type,
                              cands: {Type}?, args: {Ast.Exp}, recv: Type?, recv_node: Ast.Node?, expected: Type?): {Alt}
   local outer = ctx.callee_module

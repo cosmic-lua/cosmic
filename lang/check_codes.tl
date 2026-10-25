@@ -170,8 +170,8 @@ local record Codes
     "unchecked_binding"
   end
 
-  --- The call whose argument an error is about: set on a `not_assignable` of a value given to a parameter, so that a
-  --- reader of the error need not parse its message to know it is an argument's.
+  --- The call whose argument an error is about: set on an error filed for a value given to a parameter (a refusal by
+  --- the parameter's type, in any code), so that a reader need not parse its message to know it is an argument's.
   record Argument
     --- The callee as the program writes it ([`Fs.read`], `f`, `obj:method`).
     callee: string
@@ -198,7 +198,7 @@ local record Codes
     other?: Scopes.Place
     --- The types it is about, as the program spells them (`string?`, never `string | nil`).
     types: {string}
-    --- Set when the error is a value refused by a parameter of a call.
+    --- Set when the error is a value refused by a parameter of a call; nil for any other.
     argument?: Argument
   end
 

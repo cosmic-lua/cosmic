@@ -12,9 +12,10 @@
 --- A fix repeated word for word in one file (the same advice for several unused functions) is printed on the first line
 --- that has it, with how many more lines it holds for, and those lines carry the message and the code alone.
 ---
---- A name the checker could not resolve is followed by what `cosmic docs` answers for it (`-- see also in docs: cosmic.fs`), and
---- a call, an argument's type or a field the checker refused by the worked example that teaches the form (`-- see also:
---- cosmic docs records_interfaces_methods`), when the databases the caller hands over hold them.
+--- A name the checker could not resolve is followed by what `cosmic docs` answers for it (`-- see also in docs:
+--- cosmic.fs`), and a call, a value a parameter's type refused (`not_assignable`) or a field the checker refused by the
+--- worked example that teaches the form (`-- see also: cosmic docs records_interfaces_methods`), when the databases the
+--- caller hands over hold them.
 ---
 --- The build prints the errors of a compile through [`ErrorRender.line`] ([`build.pipeline`]).
 --
@@ -45,8 +46,8 @@ local record ErrorRender
   line: function(file: string, problem: Driver.Problem): string
 
   --- What `hints` points a reader of `problem` to, to append to its line: ` -- see also in docs: <names>` for a name the
-  --- checker could not resolve that `cosmic docs` answers, ` -- see also: cosmic docs <example>` for a call, an argument's
-  --- type or a field it refused that a worked example teaches; "" for any other problem.
+  --- checker could not resolve that `cosmic docs` answers, ` -- see also: cosmic docs <example>` for a call, a value a
+  --- parameter's type refused (`not_assignable`) or a field it refused that a worked example teaches; "" for any other problem.
   pointers: function(result: Driver.Outcome, problem: Driver.Problem, hints: Hints): string
 
   --- The lines for the errors and then the warnings of `result`, with the pointers `hints` finds when it is given.

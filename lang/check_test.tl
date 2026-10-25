@@ -1390,6 +1390,24 @@ local z = C.make("s")
   assert(b.callee:find("sub", 1, true) ~= nil and b.module ~= a.module, b.module)
 end
 
+local function test_an_argument_of_a_call_inside_an_argument_keeps_the_module_of_its_own_call()
+  local r = Programs.run([[
+local class C
+  n: integer
+end
+function C.make(n: integer, m: integer): integer
+  return n
+end
+local function id(n: integer): integer
+  return n
+end
+local x = C.make(id(1), "s")
+]])
+  assert(#r.errors == 1, Programs.codes(r))
+  local argument = assert(r.errors[1]).argument
+  assert(argument ~= nil and argument.callee == "C.make" and argument.module ~= "" and argument.position == 2, Programs.codes(r))
+end
+
 local function test_the_marker_of_an_argument_does_not_outlast_the_call_it_belongs_to()
   local r = Programs.run([[
 local function id(n: integer): integer
