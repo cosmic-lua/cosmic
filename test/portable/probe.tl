@@ -32,7 +32,7 @@ local function entry(argv: {string}): integer
   local configuration = math.tointeger(tonumber(argv[3]))
   local source = argv[1]
   assert(source ~= nil and target ~= nil and configuration ~= nil,
-    "usage: tool.tl entry ARTIFACT TARGET CONFIGURATION")
+    "usage: probe.tl entry ARTIFACT TARGET CONFIGURATION")
   local read_artifact = assert(fixture.read(source))
   local found = assert(fixture.entry(read_artifact, target, configuration),
     "identity fixture: selected manifest entry is missing")
@@ -45,7 +45,7 @@ local function corrupt_ranges(argv: {string}): integer
   local source, out = argv[1], argv[2]
   local selected = math.tointeger(tonumber(argv[3]))
   assert(source ~= nil and out ~= nil and selected ~= nil,
-    "usage: tool.tl corrupt-ranges ARTIFACT OUT SELECTED_OFFSET")
+    "usage: probe.tl corrupt-ranges ARTIFACT OUT SELECTED_OFFSET")
   local read_artifact = assert(fixture.read(source))
   local listing: mut {string} = {}
   for index, one in ipairs(read_artifact.entries) do
@@ -61,7 +61,7 @@ end
 
 --- Adds hostile project metadata used to prove portable context wins.
 local function spoof_database(argv: {string}): integer
-  local path = assert(argv[1], "usage: tool.tl spoof-database DATABASE")
+  local path = assert(argv[1], "usage: probe.tl spoof-database DATABASE")
   local db = assert(Sqlite.open(path, { writable = true }))
   local values: {string:string} = {
     host = "spoofed",
@@ -89,7 +89,7 @@ end
 local function verify_verdicts(argv: {string}): integer
   local database, counter = argv[1], argv[2]
   assert(database ~= nil and counter ~= nil,
-    "usage: tool.tl verify-verdicts DATABASE COUNTER")
+    "usage: probe.tl verify-verdicts DATABASE COUNTER")
   local db = assert(Sqlite.open(database))
   local keys = assert(Sqlite.text_rows(db,
     "SELECT key FROM verdicts ORDER BY key"))
