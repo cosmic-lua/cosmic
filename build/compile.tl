@@ -84,12 +84,7 @@ end
 
 local spec = Cli.verbs.compile.spec or {}
 
-local usage = "cosmic compile [--grammar teal|new] [--errors] [--root <dir>] [-o <dir>] <file.tl>..."
-
--- TODO: at the switch (doc/plans/strict-teal.md, "the switch"): have build.zig's `seedCompiler` run `compile --grammar new`
--- over the files of build/seed.txt in place of `checker/*.tl` (no declaration file is needed: the Lua does not depend on
--- them; the pinned release's `compile` reads the grammar, and writes for the translated tree, which is committed, the
--- Lua this verb writes). `seedCompiler` runs `compile` over `checker/*.tl` until that step is made.
+local usage = "cosmic compile [--grammar new] [--errors] [--root <dir>] [-o <dir>] <file.tl>..."
 
 --- What a command line asks for.
 local record Request
@@ -99,7 +94,7 @@ local record Request
   errors: boolean
   --- The directory module names are relative to, nil for the working directory.
   root: string?
-  --- The grammar of every file: "teal" or "new".
+  --- The grammar of every file: "new".
   grammar: string
 end
 
@@ -117,10 +112,12 @@ local function arguments(argv: {string}): Request?, string
     directory = parsed.values["-o"],
     errors = parsed.set["--errors"] or false,
     root = parsed.values["--root"],
-    grammar = parsed.values["--grammar"] or "teal",
+    grammar = parsed.values["--grammar"] or "new",
   }
-  if request.grammar ~= "teal" and request.grammar ~= "new" then
-    return nil, "--grammar names teal or new, not " .. request.grammar
+  if request.grammar == "teal" then
+    return nil, "--grammar teal: the fork's grammar is gone; `cosmic migrate` rewrites a project to the new one"
+  elseif request.grammar ~= "new" then
+    return nil, "--grammar names new, not " .. request.grammar
   end
   if request.root == "" then
     return nil, "--root needs a directory"

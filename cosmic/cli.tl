@@ -401,16 +401,15 @@ local record Cli
   --- malformed line among them) or a write to standard output it cannot
   --- use, with `cosmic: hash: ...` on standard error
   hash: string
-  --- `cosmic compile [--grammar teal|new] [--errors] [--root dir] [-o dir] file.tl...`: the Lua
+  --- `cosmic compile [--grammar new] [--errors] [--root dir] [-o dir] file.tl...`: the Lua
   --- source of each `.tl` file, one text per file, written by this binary's
-  --- own carried compiler for the tree's Lua (compat targets off), as it
-  --- writes the tree's own modules. It reads the files named and the
+  --- own new checker for the tree's Lua, as it writes the tree's own modules. It reads the files named and the
   --- `cosmic.*` modules the binary carries, never the tree around them, so
   --- any release runs it in any directory. One file's Lua goes to standard
   --- output; several need `-o dir`, which gets `<name>.lua` for each (two
   --- files of one name are refused: compile them in two runs). A file is
   --- checked as the module its path below `--root` (the working directory)
-  --- names, [`checker/flow.tl`] as `checker.flow`, and a `require` of
+  --- names, [`lang/flow.tl`] as `lang.flow`, and a `require` of
   --- another named file is answered with its text; a path outside the
   --- root is refused. A `.d.tl` file is skipped with a note, and types a
   --- `require` of it. The Lua is raw: no wrapper, nothing joining files.
@@ -419,10 +418,9 @@ local record Cli
   --- `file:line:column: message`. Only a syntax error refuses: each is
   --- named as `file:line:column: message`, no file is written, and the
   --- exit is 2, as for a command line or a file it cannot use. The files
-  --- are Teal unless `--grammar new` says they are written in the new
-  --- checker's grammar ([`doc/plans/new-checker-grammar.md`]), whose files
-  --- keep the `.tl` extension: the grammar is never guessed from a file.
-  --- Then the files named are the whole program, the globals are those the
+  --- are written in the new checker's grammar ([`doc/plans/new-checker-grammar.md`]),
+  --- which is the only one (`--grammar teal` is refused, naming `cosmic migrate`).
+  --- The files named are the whole program, the globals are those the
   --- `.d.tl` files named declare, and a `cosmic.*` module no file named
   --- is the module of is typed `invalid` and reported. After a
   --- non-zero exit do not use the `-o` directory: it may hold files of an
@@ -1132,7 +1130,7 @@ local module: Module = {
         ["-o"] = { value = "dir", about = "write <name>.lua for each file in this directory" },
         ["--errors"] = { about = "list each type error, not only the count" },
         ["--root"] = { value = "dir", about = "the directory module names are relative to (default: here)" },
-        ["--grammar"] = { value = "teal|new", about = "the grammar of the files: Teal (default) or the new checker's" },
+        ["--grammar"] = { value = "new", about = "the grammar of the files: the new checker's, the only one (default)" },
       },
     },
     help = {
