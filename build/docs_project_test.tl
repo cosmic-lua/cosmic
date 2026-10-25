@@ -113,7 +113,7 @@ local function test_uses_lists_a_projects_links_to_the_standard_library(tmp: str
     "local Fs = require(\"cosmic.fs\")\n\n" ..
       "--- Reads its greeting with [`Fs.read`].\nlocal record greet\nend\n\n" ..
       "--- Says hello.\nfunction greet.hello(): string\n" ..
-      "  return (Fs.read(\"hello\")) or \"hello\"\nend\n\nreturn greet\n"))
+      "  local text, why = Fs.read(\"hello\") if text == nil then return why end return text\nend\n\nreturn greet\n"))
   assert(Fs.write(project .. "/README.md", "# Greet\n\nIt reads with [`cosmic.fs.read`].\n"))
   local built = cosmic(project, { "build", "--host" })
   assert(built.code == 0, built.stdout .. built.stderr)
@@ -141,7 +141,7 @@ local function test_a_lookup_waits_for_no_run_holding_the_database(tmp: string)
   assert(Fs.mkdirs(project))
   local function module(word: string): string
     return "local Fs = require(\"cosmic.fs\")\n\n--- " .. word .. " words.\nlocal record thing\nend\n\n" ..
-      "--- Reads.\nfunction thing.read(): string\n  return (Fs.read(\"x\")) or \"\"\nend\n\nreturn thing\n"
+      "--- Reads.\nfunction thing.read(): string\n  local text, why = Fs.read(\"x\") if text == nil then return why end return text\nend\n\nreturn thing\n"
   end
   assert(Fs.write(project .. "/thing.tl", module("First")))
   local built = cosmic(project, { "build", "--host" })

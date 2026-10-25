@@ -645,7 +645,8 @@ local function generated_of(m: Module, built: Pipeline.Built, facts?: boolean, j
   if #lines > 0 then
     return nil, m.file .. ": the compiler refused it\n" .. table.concat(lines, "\n")
   end
-  local emitted = CompileGrammar.emit(build, result, facts, true, true)
+  -- The module that holds the hook the wraps call is written without them: a wrapped read in the hook would call the hook.
+  local emitted = CompileGrammar.emit(build, result, facts == true and m.path ~= "build.test_worker", true, true)
   local code = emitted.code
   -- TODO: a module paired with a declaration (`foo.tl` beside `foo.d.tl`, as doc/design.md describes) writes no Lua here, since
   -- the declaration stands in for the module; once the pipeline builds the implementation of a paired module, the two tests in

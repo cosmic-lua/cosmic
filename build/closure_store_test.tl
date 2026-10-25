@@ -330,7 +330,8 @@ local function test_a_closure_store_answers_for_its_closure_s_links(tmp: string)
   assert(Fs.write(root .. "/other.tl", table.concat({
     'local greet = require("greet")',
     "-- Wraps [`greet.hello`].",
-    "return greet.hello",
+    "local other: function(): string = greet.hello",
+    "return other",
     "",
   }, "\n")))
   local handle = build_and_write(root, "world", tmp .. "/whole.db")
@@ -359,7 +360,7 @@ local function test_a_declaration_moves_only_the_stores_that_hold_it(tmp: string
   local function raw(parameter: string)
     assert(Fs.write(root .. "/raw.d.tl", table.concat({
       "local record raw",
-      "  meta: function(" .. parameter .. ": string): string | nil",
+      "  meta: function(" .. parameter .. ": string): string?",
       "end",
       "return raw",
       "",
@@ -367,7 +368,7 @@ local function test_a_declaration_moves_only_the_stores_that_hold_it(tmp: string
   end
   raw("key")
   assert(Fs.write(root .. "/wrap.tl", table.concat({
-    'local type raw_store = require("raw")',
+    'local raw_store = require("raw")',
     "local record wrap",
     "  raw: raw_store",
     "end",
@@ -377,7 +378,7 @@ local function test_a_declaration_moves_only_the_stores_that_hold_it(tmp: string
   assert(Fs.write(root .. "/wrap_test.tl", table.concat({
     'local wrap = require("wrap")',
     "local function test_wrap()",
-    "  assert(wrap ~= nil)",
+    "  assert(type(wrap) == \"table\")",
     "end",
     "",
   }, "\n")))

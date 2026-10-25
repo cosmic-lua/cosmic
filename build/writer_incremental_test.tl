@@ -10,6 +10,10 @@ local Sqlite = require("cosmic.sqlite")
 local importer = require("build.importer")
 local work = require("build.work")
 local writer = require("build.writer")
+local Test = require("cosmic.test")
+
+Test.policy{ grants = { { path = "core", letters = "r" }, { path = "lang/prelude.d.tl", letters = "r" },
+  { path = "lang/stdlib.d.tl", letters = "r" } } }
 
 
 --- One module of the tree: the variants of each part that an edit moves, so
@@ -324,8 +328,8 @@ end
 --- Stages and compiles the tree under the handle's root, writes it to `out`
 --- and then as a whole to `whole` (a path nothing stands at), and returns
 --- how many modules the first took from what stood at `out`.
-local function write_both(handle: work.Handle, out: string, whole: string, tool: string): integer
-  assert(work.stage(handle, false))
+local function write_both(handle: work.Handle, out: string, whole: string, tool: string, own?: boolean): integer
+  assert(work.stage(handle, own == true))
   local result = assert(importer.compile(handle, tool))
   assert(handle.db:exec("DROP TABLE IF EXISTS temp.reused"))
   assert(writer.write_result(handle, out, result))
@@ -480,43 +484,48 @@ local function test_the_ca_tables_stand_or_move_with_their_files(tmp: string)
     assert(Fs.mkdirs(root .. "/vendor/cacert"))
     assert(Fs.mkdirs(root .. "/vendor/onecrl"))
     assert(Fs.write(root .. "/build/importer.tl", "local record importer\nend\nreturn importer\n"))
+    -- A tree that is cosmic's own is checked against the declarations of the standard library it holds.
+    assert(Fs.mkdirs(root .. "/lang"))
+    assert(Fs.write(root .. "/lang/prelude.d.tl", (assert(Fs.read("lang/prelude.d.tl")))))
+    assert(Fs.write(root .. "/lang/stdlib.d.tl", (assert(Fs.read("lang/stdlib.d.tl")))))
+    assert(Fs.write(root .. "/build/ceilings.txt", "[checked]\n"))
   end
   put(initial)
   assert(Fs.write(root .. "/vendor/cacert/certdata.txt", block("one") .. block("two")))
   assert(Fs.write(root .. "/vendor/onecrl/onecrl.json", changeset("issuer", "7")))
   local handle = assert(work.open(root))
-  write_both(handle, out, whole, "writer-test")
+  write_both(handle, out, whole, "writer-test", true)
   same_bytes(out, whole, "start")
   assert(marked(out) == 0)
 
   put(changed(initial, "b2", function(spec: Spec): Spec return with_body(spec, 4) end))
-  assert(write_both(handle, out, whole, "writer-test") > 0, "no module came from the base")
+  assert(write_both(handle, out, whole, "writer-test", true) > 0, "no module came from the base")
   same_bytes(out, whole, "a module's body")
 
   -- Nothing but a module moved: the marked rows are the base's, carried.
   mark(out)
   put(changed(initial, "b2", function(spec: Spec): Spec return with_body(spec, 5) end))
-  assert(write_both(handle, out, whole, "writer-test") > 0, "no module came from the base")
+  assert(write_both(handle, out, whole, "writer-test", true) > 0, "no module came from the base")
   assert(marked(out) == 3, "the CA tables were made again, not carried: " .. tostring(marked(out)))
 
   -- A change to either file comes with a pin's in the tree, which moves
   -- the signature as an edit to a module does.
   put(changed(initial, "a1", function(spec: Spec): Spec return with_body(spec, 5) end))
   assert(Fs.write(root .. "/vendor/cacert/certdata.txt", block("one") .. block("three")))
-  assert(write_both(handle, out, whole, "writer-test") > 0, "no module came from the base")
+  assert(write_both(handle, out, whole, "writer-test", true) > 0, "no module came from the base")
   assert(marked(out) == 0, "a moved bundle was not parsed")
   same_bytes(out, whole, "the bundle")
 
   mark(out)
   put(changed(initial, "a1", function(spec: Spec): Spec return with_body(spec, 6) end))
   assert(Fs.write(root .. "/vendor/onecrl/onecrl.json", changeset("issuer", "8")))
-  assert(write_both(handle, out, whole, "writer-test") > 0, "no module came from the base")
+  assert(write_both(handle, out, whole, "writer-test", true) > 0, "no module came from the base")
   assert(marked(out) == 0, "a moved snapshot was not parsed")
   same_bytes(out, whole, "the snapshot")
 
   put(changed(initial, "a1", function(spec: Spec): Spec return with_body(spec, 7) end))
   assert(Fs.remove(root .. "/vendor/onecrl/onecrl.json"))
-  assert(write_both(handle, out, whole, "writer-test") > 0, "no module came from the base")
+  assert(write_both(handle, out, whole, "writer-test", true) > 0, "no module came from the base")
   same_bytes(out, whole, "the snapshot gone")
   assert(work.close(handle))
 end

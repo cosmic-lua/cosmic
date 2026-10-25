@@ -402,6 +402,60 @@ local function forget_stale_analysis(handle: work.Handle): boolean?, string
   return true, ""
 end
 
+--- The identity of the code that finds the record-field uses and judges the discipline beside the checker
+--- ([`build.syntax_receivers`], [`build.syntax_contracts`]): a boot names them by the tree's source, a built tool by the
+--- source it carries.
+local function receivers_identity(db: Sqlite.Handle): string?, string
+  local booting = Store.meta("boot_hash") == nil
+  local parts: mut {string} = {}
+  for _, name in ipairs({ "build.syntax_receivers", "build.syntax_contracts" }) do
+    local source: string? = nil
+    if booting then
+      local rows, trouble = Sqlite.text_rows(db, "SELECT source FROM inputs WHERE path = ?1", { text(name) })
+      if rows == nil then
+        return nil, trouble
+      end
+      local first = rows[1]
+      if first ~= nil then
+        source = first:text(1)
+      end
+    else
+      local carried, _ = Store.source(name)
+      source = carried
+    end
+    if source == nil then
+      return "binary " .. (Store.meta("boot_hash") or ""), ""
+    end
+    parts[#parts + 1] = source
+  end
+  return Hash.hex_sha256(table.concat(parts, "\n\0\n")), ""
+end
+
+--- Forgets every compile, and the record-field uses found with it, when the code that finds those uses has changed since:
+--- a compile whose key stands is never checked again, so a `typed_refs` row is only as right as the readers that ran
+--- beside the checker.
+local function forget_stale_receivers(db: Sqlite.Handle): boolean, string
+  local identity, identity_trouble = receivers_identity(db)
+  if identity == nil then
+    return false, identity_trouble
+  end
+  local last, last_trouble = Sqlite.text_rows(db, "SELECT value FROM meta WHERE key = 'receivers'")
+  if last == nil then
+    return false, last_trouble
+  end
+  local recorded = last[1]
+  if recorded ~= nil and recorded:text(1) == identity then
+    return true, ""
+  end
+  for _, statement in ipairs({ "DELETE FROM compiled", "DELETE FROM typed_refs" }) do
+    local ok, trouble = db:exec(statement)
+    if not ok then
+      return false, trouble
+    end
+  end
+  return Sqlite.run(db, "INSERT OR REPLACE INTO meta (key, value) VALUES ('receivers', ?1)", { text(identity) })
+end
+
 --- What a boot names its analyzer ([`running_analyzer`]) with `guessed`,
 --- by hash, written as `requires` rows for the while, then taken back.
 local function named_over(handle: work.Handle, guessed: {string:{string}}): string?, string
@@ -1126,6 +1180,10 @@ local function compile_derived(handle: work.Handle, tool: string,
     local cleared, clear_trouble = db:exec("DELETE FROM plan")
     if not cleared then
       return false, clear_trouble
+    end
+    local forgotten, forget_trouble = forget_stale_receivers(db)
+    if not forgotten then
+      return false, forget_trouble
     end
     local judged = not unjudged
     local cache, prepare_trouble = prepare_cache(handle, tool)

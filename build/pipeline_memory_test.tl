@@ -54,7 +54,7 @@ local function text_of(i: integer, shaped: boolean): string
     lines[#lines + 1] = ("local Prev = require(\"m_%d\")"):format(i - 1)
   end
   lines[#lines + 1] = "local record Box"
-  lines[#lines + 1] = "  n: integer"
+  lines[#lines + 1] = "  mut n: integer"
   lines[#lines + 1] = "end"
   local calls: mut {string} = {}
   for f = 1, FUNCTIONS do

@@ -421,11 +421,11 @@ local function test_a_doc_comment_sees_its_declarations_scope()
   })
 end
 
---- A function a global holds scopes its parameters and locals as any
+--- A function a local holds scopes its parameters and locals as any
 --- other does.
-local function test_a_globals_function_scopes_its_names()
+local function test_a_local_functions_value_scopes_its_names()
   local source = lines(
-    "global gfn = function(gp: integer): integer",
+    "local gfn = function(gp: integer): integer",
     "  local gl = gp",
     "  -- [`gp`] and [`gl`].",
     "  return gl",
@@ -725,12 +725,6 @@ end
 local function test_a_url_is_not_checked()
   same(checked(world({}), "/p/a.md", "markdown",
     "[a](https://example.com/x) [b](http://x) [c](mailto:a@b)\n"), {})
-end
-
---- A long comment holds code set aside, not prose: none of it is read.
-local function test_a_long_comment_is_not_read()
-  local source = lines("--[[ see [`nothing`]", "]]", "--[==[ [`nor`] ]==]", "local x = 1", "return x")
-  same(checked(world({}), "/p/a.tl", "teal", source), {})
 end
 
 local function test_code_is_not_comment()

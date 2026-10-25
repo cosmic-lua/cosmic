@@ -162,7 +162,7 @@ local function test_the_carried_database_leaves_the_tree_s_tests_out(tmp: string
   assert(Fs.mkdirs(root))
   assert(Fs.write(root .. "/greet_test.tl", table.concat({
     'local greet = require("greet")',
-    "local function greeting(): string | nil, string",
+    "local function greeting(): string?, string",
     '  if greet.hello() ~= "hello, world" then',
     '    return nil, "greet_test: the greeting changed"',
     "  end",
@@ -195,7 +195,7 @@ local function test_the_carried_database_leaves_the_tree_s_tests_out(tmp: string
     "return shared",
     "",
   }, "\n")))
-  assert(Fs.write(root .. "/fixture_test.tl", 'return { name = "x" }\n'))
+  assert(Fs.write(root .. "/fixture_test.tl", 'local record Fixture\n  name: string\nend\nlocal fixture: Fixture = { name = "x" }\nreturn fixture\n'))
   local handle = build_and_write(root, "world", tmp .. "/whole.db")
   assert(work.close(handle))
   -- A bill of materials, as cosmic's own tree's projection holds one.
@@ -613,13 +613,12 @@ local function test_paired_declaration_projects_each_source_in_its_role(tmp: str
     ["decl_dep.tl"] = "local record Dep\n  declared: integer\nend\nreturn Dep\n",
     ["impl_dep.tl"] = "local record Dep\n  executed: integer\nend\nreturn Dep\n",
     ["foo.d.tl"] = 'local Dep = require("decl_dep")\n' ..
-      "--- Public interface.\n--- See [`Dep.declared`].\nlocal record Foo\n  answer: integer\nend\n" ..
-      'local x = Dep.declared\nfunction Foo.fail(): nil, string\n' ..
-      '  return nil, "declaration error"\nend\nreturn Foo\n',
+      "--- Public interface.\n--- See [`Dep.declared`].\nlocal record Foo\n  answer: integer\n" ..
+      "  fail: function(): nil, string\nend\nreturn Foo\n",
     ["foo.tl"] = 'local Dep = require("impl_dep")\n' ..
       "--- Private implementation.\n--- See [`Dep.executed`].\nlocal record Foo\n  answer: integer\nend\n" ..
       'local x = Dep.executed\nfunction Foo.fail(): nil, string\n' ..
-      '  return nil, "implementation error"\nend\nreturn {answer = 42} as Foo\n',
+      '  return nil, "implementation error"\nend\nlocal value: Foo = { answer = 42 }\nreturn value\n',
     ["only.d.tl"] = "--- Declaration alone.\nlocal record Only\nend\nreturn Only\n",
   })
   local function rows(sql: string): Sqlite.Rows

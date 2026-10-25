@@ -60,7 +60,7 @@ local HAND_WRITTEN <const> = Shape.record({
   by_key = Shape.map(ADDRESS),
   weights = Shape.map(Shape.number),
   level = Shape.one_of("debug", "info", "warn"),
-  anything = Shape.any,
+  anything = Shape.optional(Shape.any),
   inner = Shape.record({ deep = Shape.map(Shape.list(Shape.integer)) }),
 })
 

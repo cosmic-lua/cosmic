@@ -7,6 +7,7 @@
 local Fs = require("cosmic.fs")
 local Test = require("cosmic.test")
 local importer = require("build.importer")
+local pipeline = require("build.pipeline")
 local shared_compiles = require("build.shared_compiles")
 local work = require("build.work")
 
@@ -16,8 +17,11 @@ Test.policy{ grants = { { path = "core", letters = "r" } } }
 local library = table.concat({
   "local record Lib",
   "end",
-  "function Lib.double(n: integer): integer",
-  "  return n * 2",
+  "function Lib.double(n: integer?): integer",
+  "  if n ~= nil then",
+  "    return n * 2",
+  "  end",
+  "  return 0",
   "end",
   "return Lib",
   "",
@@ -53,7 +57,7 @@ local function lib(result: importer.Result): importer.Module
 end
 
 local function checks_in(m: importer.Module): boolean
-  return (m.lua or ""):find("__cosmic_tc", 1, true) ~= nil
+  return (m.lua or ""):find("__fact", 1, true) ~= nil
 end
 
 --- The compiler a checked compile is keyed by is not the one it is
@@ -92,7 +96,7 @@ local function test_no_cache_entry_is_shared_between_the_two(tmp: string)
   local second = lib(checked)
   assert(checks_in(second), "a checked compile carries no check")
   assert(first.key ~= second.key, "one key for a module with and without checks")
-  assert(checked.tool == importer.checked_tool("keys-test") and plain.tool == "keys-test")
+  assert(checked.tool == importer.checked_tool(pipeline.coded("keys-test"), true) and plain.tool == pipeline.coded("keys-test"))
 
   -- Each kind then stands on the entry of its own.
   local plain_again = compile(tmp .. "/plain-again", cache, false)
@@ -134,7 +138,8 @@ local function test_the_module_holding_the_hook_is_compiled_without_checks(tmp: 
   assert(Fs.write(root .. "/build/test_worker.tl", library))
   local handle = assert(work.open(root))
   assert(work.stage(handle, false))
-  local result, trouble = importer.compile(handle, "keys-test", false, nil, true)
+  -- Unjudged: the discipline holds this file to the exemptions the tree's own module of the name has.
+  local result, trouble = importer.compile(handle, "keys-test", true, nil, true)
   work.close(handle)
   assert(result ~= nil, trouble)
   local seen: mut {string:boolean} = {}

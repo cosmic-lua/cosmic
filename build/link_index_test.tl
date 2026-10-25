@@ -12,7 +12,8 @@ local writer = require("build.writer")
 local build_paths = require("build.paths")
 
 --- The docs fixture and the projects here build with the tree's own code.
-Test.policy{ grants = { { path = "core", letters = "r" } } }
+Test.policy{ grants = { { path = "core", letters = "r" }, { path = "lang/prelude.d.tl", letters = "r" },
+  { path = "lang/stdlib.d.tl", letters = "r" } } }
 
 --- `root`'s build directory ([`build.paths`]), made, with `root` made
 --- first where it is not there yet.
@@ -56,7 +57,7 @@ local function linking_tree(dir: string): Sqlite.Handle
       "",
       "--- The whole of a file; [`Fs.write`] writes one, as",
       "--- [the rule](../doc/meta.md#every-example-runs) shows.",
-      "function Fs.read(path: string): string | nil, string",
+      "function Fs.read(path: string): string?, string",
       "  return nil, path",
       "end",
       "",
@@ -192,7 +193,8 @@ local function write_project(root: string, target: string, bye: string)
   assert(Fs.write(root .. "/wave.tl", source(
     "local greet = require(\"greet\")",
     "-- Waves as [`greet.bye`] does.",
-    "return greet.hello")))
+    "local wave: function(): string = greet.hello",
+    "return wave")))
 end
 
 --- Builds the project `handle` holds into `out`, its links naming no
@@ -562,7 +564,8 @@ local function test_the_rows_kept_are_copied_only_where_nothing_they_follow_move
   assert(Fs.write(root .. "/wave.tl", source(
     "local greet = require(\"greet\")",
     "-- Waves as [`greet.ciao`] does.",
-    "return greet.hello")))
+    "local wave: function(): string = greet.hello",
+    "return wave")))
   local renamed = build_links(handle, out)
   assert(texts() ~= "poison", "kept rows were served after a symbol moved")
   same(renamed, { "greet.tl:1 symbol hello #", "greet.tl:1 anchor  notes.md#usage", "wave.tl:2 symbol ciao #" })
@@ -573,7 +576,8 @@ local function test_the_rows_kept_are_copied_only_where_nothing_they_follow_move
   assert(Fs.write(root .. "/wave.tl", source(
     "local greet = require(\"greet\")",
     "-- Waves as [`greet.hello`] does.",
-    "return greet.hello")))
+    "local wave: function(): string = greet.hello",
+    "return wave")))
   local moved = build_links(handle, out)
   assert(texts() ~= "poison", "kept rows were served after a link moved")
   same(moved, { "greet.tl:1 symbol hello #", "greet.tl:1 anchor  notes.md#usage", "wave.tl:2 symbol hello #" })
@@ -787,6 +791,13 @@ local function test_a_projects_links_through_required_modules_are_rows(tmp: stri
     "local record greet",
     "  --- An entry it greets.",
     "  record Entry is S.ArchiveEntry",
+    "    path: string",
+    "    kind: S.EntryKind",
+    "    mode: integer",
+    "    size: integer",
+    "    mtime: integer",
+    "    linkpath: string",
+    "    open: function(Entry): S.Reader?, string",
     "  end",
     "end",
     "",
@@ -863,6 +874,10 @@ local function test_cosmics_own_tree_reads_no_library(tmp: string)
   assert(Fs.mkdirs(root .. "/core"))
   assert(Fs.mkdirs(root .. "/build"))
   assert(Fs.write(root .. "/build/importer.tl", source("return {}")))
+  assert(Fs.mkdirs(root .. "/lang"))
+  assert(Fs.write(root .. "/lang/prelude.d.tl", (assert(Fs.read("lang/prelude.d.tl")))))
+  assert(Fs.write(root .. "/lang/stdlib.d.tl", (assert(Fs.read("lang/stdlib.d.tl")))))
+  assert(Fs.write(root .. "/build/ceilings.txt", "[checked]\n"))
   local handle = assert(work.open(root))
   assert(work.stage(handle, true))
   local result = assert(importer.compile(handle, "link-index-test"))
