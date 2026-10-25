@@ -98,7 +98,7 @@ local record Module
   -- can say: an integer is an integer.
   -- TODO: key cosmic.log's Logger `verdict` (a program's outcome is its
   -- exit status; `say` writes what it found and `complain` what went
-  -- wrong) once build/teal.tl's `replacement` reads a nested record's
+  -- wrong) once the hint of build/removed_fix.tl reads a nested record's
   -- subject: the checker names [`Log.Logger`], a dotted subject it skips.
   -- Likewise for the calls whose parameters changed shape: `Proc.exec(path,
   -- argv, environment)` is `Proc.exec(argv, { env = environment })`, argv[1]

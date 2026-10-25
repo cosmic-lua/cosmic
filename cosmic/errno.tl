@@ -30,7 +30,7 @@ local record Errno
 end
 
 -- TODO: an uncaught error whose message matches one of these finds no
--- guidance: build/analyzer.tl's `catalog_of` records a module's
+-- guidance: build/syntax_analyzer.tl records a module's
 -- literal failures, not these fields, so no catalog row holds them.
 -- Have it record each field's value as a row joined to its doc
 -- comment; [`Errors.guidance`] would then find it beneath an uncaught

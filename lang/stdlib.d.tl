@@ -1,5 +1,5 @@
 -- The Lua standard library's declarations, as the new checker reads them: the trust boundary of the type layer, the typing
--- the checker takes without proof. The fork's own copy is checker/stdlib.d.tl, which it reads until the switch deletes it.
+-- the checker takes without proof.
 -- Auditing or changing a declaration is an edit of this file.
 --
 -- A function that answers nil where Lua does says so (`string.find`, `tonumber`, `math.tointeger`), one that changes a

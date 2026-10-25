@@ -223,12 +223,17 @@ local record Driver
   --- path ([`Declarations.module_of`]), checked. A module is also
   --- answered to by the name of its path below each directory, since a project inside the tree (`ci/`, a fixture
   --- directory) names its modules from its own root. `skip` says which paths are left out. Where a module is given as
-  --- `.tl` and `.d.tl` the declaration is the one answered, under every name. A `*_test.tl` is a test module
+  --- `.tl` and `.d.tl` the declaration is the one answered, under every name, and the source is the module
+  --- [`Driver.implementation`] names. A `*_test.tl` is a test module
   --- ([`Driver.Source.tests`]). An entry may give a third word, the module it is, and a fourth, the name its ceilings
   --- are kept under ([`Driver.Source.pinned`]), for a source the build writes from another file, whose path says
   --- neither: the entry's path is then the name of the text, and `.d.tl` still marks a declaration. `extras` says of a file
   --- what its name does not: a test module ([`Driver.Source.tests`]).
   index: function(entries: {{string}}, skip: function(path: string): boolean, extras?: Extras): Index
+
+  --- The name a build holds the implementation of `module` under where a declaration file is written for it too: requirers
+  --- of `module` get the declaration, and the implementation is checked and written as a module of its own, that name.
+  implementation: function(module: string): string
 
   --- The provider of `index`.
   files: function(index: Index): Provider
@@ -314,6 +319,14 @@ end
 
 function Driver.index(entries: {{string}}, skip: function(path: string): boolean, extras?: Driver.Extras): Driver.Index
   local index: Driver.Index = { sources = {}, by_module = {} }
+  -- The modules a declaration file is written for: a source of the same name is their implementation.
+  local declared: mut {string: boolean} = {}
+  for _, entry in ipairs(entries) do
+    local file = entry[1]
+    if file ~= nil and entry[2] ~= nil and not skip(file) and file:match("%.d%.tl$") ~= nil then
+      declared[entry[3] or Declarations.module_of(file)] = true
+    end
+  end
   for _, entry in ipairs(entries) do
     local file = entry[1]
     local text = entry[2]
@@ -326,11 +339,16 @@ function Driver.index(entries: {{string}}, skip: function(path: string): boolean
       if extras ~= nil then
         extra = extras(file, text)
       end
-      local source = make(entry[3] or Declarations.module_of(file), file, text, dialect, true, {},
+      local module = entry[3] or Declarations.module_of(file)
+      local implementing = dialect == "tl" and declared[module] == true
+      if implementing then
+        module = Driver.implementation(module)
+      end
+      local source = make(module, file, text, dialect, true, {},
         extra.tests or file:match("_test%.tl$") ~= nil, entry[4] or "")
       index.sources[#index.sources + 1] = source
       local held = index.by_module[source.module]
-      -- A declaration is read ahead of a source of the same name.
+      -- A declaration is read ahead of a source of the same name; the source is the module of the name beside it.
       if held == nil or dialect == "decl" then
         index.by_module[source.module] = source
       end
@@ -352,6 +370,10 @@ function Driver.index(entries: {{string}}, skip: function(path: string): boolean
     end
   end
   return index
+end
+
+function Driver.implementation(module: string): string
+  return module .. "~impl"
 end
 
 function Driver.files(index: Driver.Index): Driver.Provider

@@ -594,23 +594,34 @@ local function stub_trouble(m: Module, built: Pipeline.Built, result: Driver.Out
   return ""
 end
 
+--- The name the build holds the module `m` under: its own, or where a declaration file is written for the module too, the one
+--- its implementation is held under ([`Driver.implementation`]).
+local function built_name(m: Module, built: Pipeline.Built): string
+  local implementation = Driver.implementation(m.path)
+  if built.index.by_module[implementation] ~= nil then
+    return implementation
+  end
+  return m.path
+end
+
 --- [`Pipeline.generate`]'s work. With `kept` the build is one the caller keeps across modules ([`Pipeline.review`]): the
 --- calls of [`Shape.record_of`] are resolved already, and the module is checked and not written as bytecode.
 local function generated_of(m: Module, built: Pipeline.Built, facts?: boolean, judged?: boolean, hints?: ErrorRender.Hints,
                             kept?: boolean): Plans.Generated?, string
   local build = built.build
+  local named = built_name(m, built)
   if kept ~= true then
-    if build:retired(m.path) then
+    if build:retired(named) then
       return nil, m.file .. ": this build has written the module already: a build writes each module once"
     end
     -- The calls of [`Shape.record_of`] are resolved in the text the checker reads, and the module is read again with them.
-    local spliced, spec_trouble = TreeProgram.splice(build, m.path, m.file)
+    local spliced, spec_trouble = TreeProgram.splice(build, named, m.file)
     if spliced == nil then
       return nil, spec_trouble
     end
   end
-  build:lower({ m.path })
-  local result = build:result(m.path, true)
+  build:lower({ named })
+  local result = build:result(named, true)
   if result == nil then
     return nil, m.file .. ": the new checker's build has no module " .. m.path
   end
@@ -648,9 +659,6 @@ local function generated_of(m: Module, built: Pipeline.Built, facts?: boolean, j
   -- The module that holds the hook the wraps call is written without them: a wrapped read in the hook would call the hook.
   local emitted = CompileGrammar.emit(build, result, facts == true and m.path ~= "build.test_worker", true, true)
   local code = emitted.code
-  -- TODO: a module paired with a declaration (`foo.tl` beside `foo.d.tl`, as doc/design.md describes) writes no Lua here, since
-  -- the declaration stands in for the module; once the pipeline builds the implementation of a paired module, the two tests in
-  -- build/importer_test.tl that edit a declaration beside its implementation pass.
   if code == nil then
     return nil, m.file .. ": the generator wrote no Lua: " .. emitted.trouble
   end
@@ -725,7 +733,7 @@ function Pipeline.generate(m: Module, built: Pipeline.Built, facts?: boolean, ju
     collectgarbage("generational")
   end
   local made, why = generated_of(m, built, facts, judged, hints)
-  built.build:retire(m.path)
+  built.build:retire(built_name(m, built))
   written.modules = written.modules + 1
   if written.modules % 100 == 0 then
     Memprobe.mark(("pipeline: wrote %d"):format(written.modules))

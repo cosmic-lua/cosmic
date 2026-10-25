@@ -7,7 +7,6 @@ local Programs = require("lang.check_programs")
 local Removed = require("cosmic.removed")
 local Sqlite = require("cosmic.sqlite")
 local Test = require("cosmic.test")
-local importer = require("build.importer")
 local schema = require("build.schema")
 
 Test.policy{}
@@ -225,6 +224,6 @@ local function test_a_line_is_its_place_message_code_and_fix()
 end
 
 local function test_the_examples_a_diagnostic_points_to_are_the_ones_the_build_has_always_pointed_to()
-  assert(ErrorRender.queries.arguments == importer.diagnostic_queries["arguments"])
-  assert(ErrorRender.queries.record_key == importer.diagnostic_queries["record_key"])
+  assert(ErrorRender.queries.arguments == "generics_functions_returns")
+  assert(ErrorRender.queries.record_key == "records_interfaces_methods")
 end

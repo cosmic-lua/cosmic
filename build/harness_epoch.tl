@@ -91,7 +91,7 @@ harness_epoch.acknowledged = {
 
   ["build.cache_formats"] = "0f32a7868d0e9b00d1170380e8ca7ba93d449b66cebf9b3a182c8218a993b122",
 
-  ["build.cache_names"] = "4b4f3b1df38b24007ea926f54a8abf937f1358b96a868356504c3580e650052c",
+  ["build.cache_names"] = "a416d209911afb76606b770c9076dd2d61aa8f2625b733ad46b24c177774b946",
 
   ["build.caches"] = "969bfed82c44d6623119afcedbecd265a1bbbd43805e43dc1c96462dfeee98d8",
 
@@ -99,7 +99,7 @@ harness_epoch.acknowledged = {
 
   ["build.core_image"] = "18daf88c3c58f62a222472eaa52b99218cd1e5b7ccafde6a0beded46c8f3382b",
 
-  ["build.declared_key"] = "43c55f7eb8663f29ed749f4be23a4e97da89e27aab39d9d75def0fdf0305487e",
+  ["build.declared_key"] = "ca2e87fa086110c7b7d7ab9da2e970c48aca6f2dc7ce5611a75361f9b8402419",
 
   ["build.digest"] = "63588bce17aabb935b044ae8a4af8cea78d1dca19822a36e72efe62d4a877355",
 
@@ -119,15 +119,15 @@ harness_epoch.acknowledged = {
 
   ["build.shared_verdicts"] = "8d1755865073aabf737be7f5c9aafe036b97a38a06139447118a44a2ddeb1fd9",
 
-  ["build.test_inputs"] = "13f27d986b012d31553cc11efd8e5ea3981b1be1512f7ecfcc0ea3929534b9bd",
+  ["build.test_inputs"] = "a1c8aa5a8905d712f576c843749adf8a4ce16702c7e377c56c77864ec36c1c37",
 
-  ["build.test_key"] = "72d860d1ce265c5145faba0bde245e1aad6d94fab03ed1e990a162bdf6277983",
+  ["build.test_key"] = "c9e60f0c3fd39bfc3e074ee5b1d6810eb6554d7c7d5eb171707305b459387605",
 
   ["build.test_policy"] = "6f9e3fabca11585b186a5cad1b41a9eaf068b43c28f5ad56bee77a680dc6ad01",
 
   ["build.test_sandbox"] = "e1339de6c480185265165dcf809188758b4d96012c15d75731adff2aaabed4f7",
 
-  ["build.test_worker"] = "a1803f0923f7f57da2cd9a0ea87d24ce86d001b8af661f573ad122b04fa75d80",
+  ["build.test_worker"] = "0e412717c6a27d88ef24e4dcd0662c3043d95070687a43f6d922e476a2e17a96",
 
   ["build.this_program"] = "fda119e6dda378526fc10aa2d080860ac1a4a85a84bead050144b07e6ba07d5e",
 
@@ -155,7 +155,7 @@ harness_epoch.acknowledged = {
 
   ["cosmic.sandbox.policy"] = "c2a3a0de39d0bde94b20b3113aa7a1cc7d22b23c8e212fe1e073ab619af514a1",
 
-  ["cosmic.sqlite"] = "d8d6976eb63748b8d1379491f5e5ba60bd2347215cc056921552accfb4981d6c",
+  ["cosmic.sqlite"] = "fcb8bbb5d903eff574f22678dd5ac43bad67ed1c071251ee194b3b88380a0071",
 
   ["cosmic.string"] = "2ec8d1742171f64be2083383cd876c1c93a0e4eab3f05ec10855998911e257e1",
 

@@ -11,11 +11,13 @@ local Test = require("cosmic.test")
 local analysis_schema = require("build.analysis_schema")
 local identity = require("build.identity")
 local importer = require("build.importer")
+local pipeline = require("build.pipeline")
 local work = require("build.work")
 local writer = require("build.writer")
 local build_paths = require("build.paths")
 
-Test.policy{ grants = { { path = "core", letters = "r" }, { path = "o/cosmic.db", letters = "r" } } }
+Test.policy{ grants = { { path = "core", letters = "r" }, { path = "o/cosmic.db", letters = "r" },
+  { path = "lang/prelude.d.tl", letters = "r" }, { path = "lang/stdlib.d.tl", letters = "r" } } }
 
 --- `root`'s build directory ([`build.paths`]), made, with `root` made
 --- first where it is not there yet.
@@ -46,7 +48,7 @@ local function test_a_boot_names_its_analyzer_as_the_tool_it_writes()
     for _, used in ipairs(uses) do
       lines[#lines + 1] = "local " .. used .. " = require(\"build." .. used .. "\")"
     end
-    lines[#lines + 1] = "local record " .. name .. "\n  n: integer\nend"
+    lines[#lines + 1] = "local record " .. name .. "\n  mut n: integer\nend"
     lines[#lines + 1] = name .. ".n = 0"
     for _, used in ipairs(uses) do
       lines[#lines + 1] = name .. ".n = " .. name .. ".n + " .. used .. ".n"
@@ -57,7 +59,7 @@ local function test_a_boot_names_its_analyzer_as_the_tool_it_writes()
   local files: {string:string} = {
     ["build/helper.tl"] = module_of("helper", {}),
     ["build/importer.tl"] = module_of("importer", { "helper" }),
-    ["build/analyzer.tl"] = module_of("analyzer", { "ast", "thing" }),
+    ["build/derivation.tl"] = module_of("derivation", { "ast", "thing" }),
     ["build/ast.tl"] = module_of("ast", { "raw" }),
     ["build/thing.tl"] = module_of("thing", {}),
     ["build/raw.d.tl"] = "local record raw\n  n: integer\nend\nreturn raw\n",
@@ -66,6 +68,11 @@ local function test_a_boot_names_its_analyzer_as_the_tool_it_writes()
   for name, source in pairs(files) do
     assert(Fs.write(root .. "/" .. name, source))
   end
+  -- A tree that is cosmic's own is checked against the declarations of the standard library it holds.
+  assert(Fs.mkdirs(root .. "/lang"))
+  assert(Fs.write(root .. "/lang/prelude.d.tl", (assert(Fs.read("lang/prelude.d.tl")))))
+  assert(Fs.write(root .. "/lang/stdlib.d.tl", (assert(Fs.read("lang/stdlib.d.tl")))))
+  assert(Fs.write(root .. "/build/ceilings.txt", "[checked]\n"))
 
   -- The tool: what a build of the tree writes, read as the binary reads
   -- its own database (core/store.c's `requires` and `source`).
@@ -102,7 +109,7 @@ local function test_a_boot_names_its_analyzer_as_the_tool_it_writes()
     end,
   }
   local modules = assert(importer.analyzer_modules(binary))
-  assert(table.concat(modules, " ") == "build.analyzer build.ast build.thing",
+  assert(table.concat(modules, " ") == "build.ast build.derivation build.thing",
     table.concat(modules, " "))
   local tool = importer.analyzer_identity(binary)
   assert(not tool:find("^binary "), tool)
@@ -145,14 +152,14 @@ local function test_a_boot_names_its_analyzer_as_the_tool_it_writes()
   local before, after, recorded, kept = boot()
   assert(before == tool, "a boot names the analyzer otherwise than the tool it wrote")
   assert(after == tool, "a boot's parse moved the analyzer's name")
-  assert(recorded == tool, "a boot recorded another name than the tool's")
+  assert(recorded == pipeline.coded(tool), "a boot recorded another name than the tool's")
   assert(not kept, "rows another analyzer derived were kept")
   before, after, recorded, kept = boot()
-  assert(recorded == tool and kept, "a boot forgot what a boot of the same tree derived")
+  assert(recorded == pipeline.coded(tool) and kept, "a boot forgot what a boot of the same tree derived")
 
   assert(Fs.write(root .. "/build/other.tl", files["build/other.tl"] .. "-- edited\n"))
   before, after, recorded, kept = boot()
-  assert(before == tool and after == tool and recorded == tool,
+  assert(before == tool and after == tool and recorded == pipeline.coded(tool),
     "an edit outside the analyzer moved its name")
   -- A new require of an analyzer module is found only by the parse: the
   -- edit alone moves the name, the parse settles it, and the boot
@@ -161,10 +168,10 @@ local function test_a_boot_names_its_analyzer_as_the_tool_it_writes()
   before, after, recorded, kept = boot()
   assert(before ~= tool and after ~= tool and after ~= before,
     "an edit to an analyzer module did not move its name")
-  assert(recorded == after, "a boot recorded the name before its parse")
+  assert(recorded == pipeline.coded(after), "a boot recorded the name before its parse")
   local settled = after
   before, after, recorded, kept = boot()
-  assert(before == settled and recorded == settled and kept,
+  assert(before == settled and recorded == pipeline.coded(settled) and kept,
     "a boot forgot what the boot before it derived of the same tree")
   -- Rows that are not the whole of a parse -- build.ast's missing, and
   -- the analyzer named by what is left -- move the name when the parse
@@ -177,9 +184,9 @@ local function test_a_boot_names_its_analyzer_as_the_tool_it_writes()
     end
     assert(Sqlite.run(cut.db,
       "INSERT OR REPLACE INTO meta (key, value) VALUES ('analyzer', ?1)",
-      { { text = importer.analyzer_identity((assert(importer.tree_code(cut)))) } }))
+      { { text = pipeline.coded(importer.analyzer_identity((assert(importer.tree_code(cut))))) } }))
   end)
-  assert(before ~= settled and after == settled and recorded == settled,
+  assert(before ~= settled and after == settled and recorded == pipeline.coded(settled),
     "a cut parse was named otherwise than the whole one")
   assert(not kept, "rows a cut parse left were kept under the mended name")
   assert(out:close())

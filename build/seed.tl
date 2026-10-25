@@ -76,7 +76,7 @@ end
 
 function Seed.program(root: string, declared: {string: string}): Seed.Program
   -- TODO: give the build the globals adjustment of [`build.tree_program`]'s `globals` (the names the runtime withholds taken
-  -- away, `_G` added) once the switch deletes build/teal.tl, whose `withheld` it reads: the build here declares every name of
+  -- away, `_G` added) once build/withheld.tl, which it reads, is in the seed list (build/seed.txt): the build here declares every name of
   -- the standard library's declarations, so a use of a withheld one is not reported. The Lua is the same either way.
   local build = Driver.new({
     globals = { declaration(root, PRELUDE), declaration(root, STDLIB) }, adjust = nil, external = {}, types = false,

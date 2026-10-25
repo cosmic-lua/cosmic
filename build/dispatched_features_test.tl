@@ -114,7 +114,7 @@ local SITES <const>: {string:Site} = {
   -- to: no feature.
   ["core/syscalls.c"] = { lines = "d4945a6faa1d47ab", reads = {} },
   ["core/syscalls.h"] = { lines = "07f5fc6fd89b1e76", reads = {} },
-  ["core/syscalls_test.tl"] = { lines = "06265a36a78315f4", reads = {} },
+  ["core/syscalls_test.tl"] = { lines = "8e89471955981f9c", reads = {} },
   -- The processor count on Apple (sysctlbyname("hw.ncpu")): no feature.
   ["vendor/sqlite/sqlite3.c"] = { lines = "7b27815aae63deac", reads = {} },
 }

@@ -36,8 +36,7 @@
 -- (doc/design.md, third principle): until then the usual `T?, string` pair is the only function the rules hold.
 --
 -- TODO: follow a reason by the binding the scope builder resolves a name to ([`Scopes.Scoped.resolved`]) in place of the
--- name's text and position, and drop the notes of rule 6's gaps in build/contracts.tl, once the fork's contracts are
--- deleted at the switch (doc/plans/strict-teal.md, "the switch").
+-- name's text and position, which closes the gaps of rule 6 noted below (a reason stored in a field, in an inner block).
 local Ast = require("lang.ast")
 local Lexer = require("lang.lexer")
 local Rules = require("build.contract_rules")

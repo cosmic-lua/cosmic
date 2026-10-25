@@ -35,9 +35,6 @@
 --- The parser keeps its state in a table of its own, so it is not re-entrant:
 --- it runs one parse at a time, as the one thread of a cosmic program does.
 
--- TODO: add the codes to the `ErrorCode` of build/compiler.d.tl and have
--- build/teal.tl show `fix`, once the new checker replaces the fork's
--- compiler in the tree (doc/plans/new-checker-grammar.md, "the interface").
 local Ast = require("lang.ast")
 local Lexer = require("lang.lexer")
 

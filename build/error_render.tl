@@ -16,16 +16,11 @@
 --- a call or a field the checker refused by the worked example that teaches the form (`-- see also: cosmic docs
 --- records_interfaces_methods`), when the databases the caller hands over hold them.
 ---
---- The build prints the errors of a compile with the new checker through [`ErrorRender.line`] ([`build.pipeline`]); the fork's
---- go through [`build.importer`]'s `complain`.
+--- The build prints the errors of a compile through [`ErrorRender.line`] ([`build.pipeline`]).
 --
 -- TODO: list the fields a record declares in the fix of `field_unknown` where none is near (`R's fields: y`, which the
--- fork's hint says and the checker's fix does not), once lang/check.tl's fix names them; this prints the checker's fix as
+-- checker's fix does not say), once lang/check.tl's fix names them; this prints the checker's fix as
 -- it is.
---
--- TODO: print every module's problems through this, and delete `complain`, `with_hint` and teal.replacement of the fork,
--- once the build compiles with the new checker alone (doc/plans/strict-teal.md, "the switch"); [`build.tree_checks`] then
--- reads the queries of [`ErrorRender.queries`] in place of [`importer.diagnostic_queries`].
 local Driver = require("build.driver")
 local RemovedFix = require("build.removed_fix")
 local Sqlite = require("cosmic.sqlite")

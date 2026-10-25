@@ -138,19 +138,9 @@ local record importer
   --- The statement that drops the record-field uses of every compile
   --- `compiled` no longer holds, run at the end of each compile.
   prune_references: string
-
-  --- The worked examples a checker diagnostic points its reader to
-  --- (`cosmic docs <name>`), by the kind of diagnostic:
-  --- [`build.tree_checks`] holds the tree to answering each.
-  diagnostic_queries: {string: string}
 end
 
 local type Hints = importer.Hints
-
-importer.diagnostic_queries = {
-  arguments = "generics_functions_returns",
-  record_key = "records_interfaces_methods",
-}
 
 -- `NOT IN (SELECT key FROM compiled)` leads SQLite to probe
 -- `compiled`'s primary key once per `typed_refs` row ("USING INDEX

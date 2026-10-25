@@ -30,11 +30,8 @@
 ---
 --- Every error has a `code`, a `msg` that says what is wrong and a `fix`
 --- that says how to put it right in the program's own terms. [`Code`]
---- catalogues the codes. They are not yet in build/compiler.d.tl's
---- `ErrorCode`: that enum belongs to the fork. Once the new checker
---- replaces the fork, the enum is [`Code`] with the parser's and
---- the checker's codes beside it, and a hint in build/teal.tl reads
---- `fix` as it reads the fork's `msg` today.
+--- catalogues the codes, with the parser's and the checker's beside it
+--- ([`build.error_catalog`]).
 ---
 --- The core never calls `setlocale`, so `%w` in the patterns below is ASCII.
 local find, byte, sub, capture, concat = string.find, string.byte, string.sub, string.match, table.concat
@@ -69,10 +66,6 @@ local record Lexer
     "$ERR$"
     "$EOF$"
   end
-
-  -- TODO: add these codes to the `ErrorCode` of build/compiler.d.tl and have
-  -- build/teal.tl show `fix`, once the new checker replaces the fork's
-  -- compiler in the tree (doc/plans/new-checker-grammar.md, "the interface").
 
   --- What an error is, so that a reader does not parse its `msg`. Every code
   --- is a lexical error and sets the fields of [`Error`].

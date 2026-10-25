@@ -38,6 +38,7 @@ local ContractRules = require("build.contract_rules")
 local declared_key = require("build.declared_key")
 local docs = require("build.docs")
 local docs_checks = require("build.docs_checks")
+local ErrorRender = require("build.error_render")
 local GrammarMode = require("build.grammar_mode")
 local Pipeline = require("build.pipeline")
 local link_text = require("build.link_text")
@@ -100,9 +101,8 @@ allowed["cosmic.http.default_roots"] = "public API: the roots a request naming n
 allowed["cosmic.http.minimal_roots"] = "public API: the roots `opts.roots = \"minimal\"` names, for a " ..
   "program to read or start a list of its own from"
 
--- TODO: drop these allowances as build.analyzer, build.link_text, build.links, build.receivers, build.contracts,
--- build/fix and build/lsp are rewritten to the new syntax tree and call the readers that the tree's checks and tests
--- alone call now (doc/plans/strict-teal.md, "the switch").
+-- TODO: drop these allowances as build.link_text, build.links, build/fix and build/lsp are rewritten to the new syntax
+-- tree and call the readers that the tree's checks and tests alone call now (doc/plans/strict-teal.md, "the switch").
 local function allow(names: {string}, why: string)
   for _, name in ipairs(names) do
     allowed[name] = why
@@ -115,11 +115,11 @@ allow({
 }, "a reader of the new syntax tree (build/syntax_*.tl) that the rewrites of the readers of the fork's tree call; " ..
     "tested directly until they do")
 
--- TODO: drop these allowances as the build prints every error through the new checker's reporting and the fork's
--- `complain`, `with_hint` and teal.replacement go (doc/plans/strict-teal.md, "the switch").
+-- TODO: drop these allowances as the build prints every module's problems through the new checker's reporting
+-- ([`build.error_render`]) and the tree's checks call what they test directly (doc/plans/strict-teal.md, "the switch").
 allow({
   "build.error_catalog.rows", "build.error_catalog.check", "build.error_catalog.problems",
-  "build.error_catalog.text", "build.error_catalog.emitted", "build.error_render.queries", "build.error_render.lines",
+  "build.error_catalog.text", "build.error_catalog.emitted", "build.error_render.lines",
   "build.error_render.complain",
 }, "the new checker's error reporting (build/error_catalog.tl, build/error_render.tl), which the compile with the new " ..
     "checker prints and writes through `insert` and `line`, and the fork's does not yet; tested directly until then")
@@ -348,9 +348,8 @@ allowed["build.writer.signature"] = "tested directly: the test signs a database 
 -- can tell a binding the Teal layer wraps from one nothing reaches.
 -- TODO: hold a private build/ function's optional parameter to the same
 -- standard -- one no call passes, tests included, is dropped -- once
--- `refs` records how many arguments each call passes; build/ast/node.tl's
--- `lang?`, build/c/rules.tl's `declared?` and build/artifact.tl's
--- `selected_configuration?` on `test_prefix` were found by hand.
+-- `refs` records how many arguments each call passes; build/c/rules.tl's
+-- `declared?` and build/artifact.tl's `selected_configuration?` on `test_prefix` were found by hand.
 local function unearned(db: Sqlite.Handle): {string}?, string
   local rows, trouble = Sqlite.text_rows(db,
     "SELECT d.file || ':' || d.line || ': ' || d.module || '.' || d.symbol " ..
@@ -868,12 +867,13 @@ function tree_checks.stand_ins(db: Sqlite.Handle, cases?: {{string}}): {string}
 end
 
 --- The worked examples a reader is pointed to or expected to find by a
---- compile's failure: every one [`build.importer`] advertises, and the
+--- compile's failure: every one [`build.error_render`] advertises, and the
 --- guide to a type's shape, which no hint names but a malformed type's
 --- diagnostic leaves its reader to look up.
 local function queries_expected(): {string}
   local out: mut {string} = {}
-  for _, query in pairs(importer.diagnostic_queries) do out[#out + 1] = query end
+  out[#out + 1] = ErrorRender.queries.arguments
+  out[#out + 1] = ErrorRender.queries.record_key
   out[#out + 1] = "enums_arrays_maps_tuples"
   table.sort(out)
   return out

@@ -60,9 +60,11 @@ local function chunk(name: string, source: string): string
   return head .. "local record Example end " .. rest .. "\nExample." .. name .. "()\n"
 end
 
---- The name a finding says is unknown (`` `X` is not declared (unknown_variable)``), or nil.
+--- The name a finding says is unknown (`` `X` is not declared (unknown_variable)``, or `` `X` is used before the record `X`
+--- that is declared at 5:14 (unknown_variable)``), or nil.
 local function unknown_name(finding: string): string?
-  return finding:match("`([%w_]+)` is not declared %(unknown_[a-z]+%)")
+  return finding:match("`([%w_]+)` is not declared %(unknown_[a-z]+%)") or
+    finding:match("`([%w_]+)` is used before [^%(]*%(unknown_[a-z]+%)")
 end
 
 --- The names a top-level line of an example file declares as a helper

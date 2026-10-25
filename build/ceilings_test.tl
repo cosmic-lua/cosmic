@@ -58,7 +58,7 @@ local function test_the_file_of_the_tree_parses_and_names_only_the_stages_the_ch
       counted = counted + 1
     end
   end
-  assert(counted > 6000, "the checked ceilings alone are thousands: " .. tostring(counted))
+  assert(counted > 4000, "the ceilings of the tree are thousands: " .. tostring(counted))
 end
 
 local function finding(code: string, y: integer): Ceilings.Finding

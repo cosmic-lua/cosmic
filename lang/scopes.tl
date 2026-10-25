@@ -52,10 +52,6 @@
 --- operand of `..` and `^`) recurses as deep as the parser lets it (200).
 --- The builder keeps its state in a table of its own, so it is not re-entrant.
 
--- TODO: have build/analyzer.tl, build/link_text.tl and build/globals.tl read these bindings in
--- place of build/scopes.tl's (its `member` calls, the names a doc comment above a statement
--- sees), and delete that module, once they are rewritten to the new tree
--- (doc/plans/new-checker-grammar.md, "the order the grammar lands in").
 local Ast = require("lang.ast")
 local Lexer = require("lang.lexer")
 

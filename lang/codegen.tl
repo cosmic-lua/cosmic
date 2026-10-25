@@ -4,7 +4,7 @@
 ---
 --- The Lua is the fork's. A statement on source line N lands on line N, types
 --- are erased, and for every construct the plan classes as a respelling the
---- bytes are the ones `checker/tl.tl`'s `generate` writes for the Teal the
+--- bytes are the ones the fork's generator wrote ([`lang/forked.tl`] holds them) for the Teal the
 --- translator ([`lang.translate`]) started from: the same indent, the same
 --- `; ` between statements on a line, a trailing `,` in a table that spans
 --- lines, `type(x) == "string"` for `x is string`. A node is placed at the line

@@ -3176,7 +3176,7 @@ build/host_features_test.tl field_fixed 1
 
 build/host_names.tl field_fixed 1
 
-build/importer.tl field_fixed 11
+build/importer.tl field_fixed 10
 
 build/importer_boot_test.tl field_fixed 2
 
@@ -5581,7 +5581,7 @@ lang/translate.tl is_on_record 3
 test/sqlite_result_test.tl is_on_record 2
 
 # an `is` of a type the value cannot have: the position captures of `string.match` (`source:match("^%s*():", at)`),
-# which the standard library declares as strings (a TODO in checker/stdlib.d.tl)
+# which the standard library declares as strings
 cosmic/http/server.tl is_disjoint 1
 
 # a `<close>` local that holds neither nil nor a class that declares `__close`: a record or an interface that

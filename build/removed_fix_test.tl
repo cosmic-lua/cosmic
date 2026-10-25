@@ -1,5 +1,5 @@
 --- Tests of [`build.removed_fix`]: the new checker's error for each name [`cosmic.removed`] lists carries what to write
---- instead as its fix, the same words the fork's hint (build.teal's `replacement`) says, and an error about any other
+--- instead as its fix, and an error about any other
 --- name keeps the checker's own fix.
 local Driver = require("build.driver")
 local Programs = require("lang.check_programs")
