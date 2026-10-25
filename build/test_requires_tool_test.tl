@@ -37,9 +37,9 @@ end
 local function module(root: string, name: string, file: string, extra?: string)
   assert(Fs.write(root .. "/" .. name .. "_test.tl", 'local Test = require("cosmic.test")\n' ..
       'Test.policy { grants = { { path = "' .. file .. '", letters = "r" } }, ' ..
-      'requires = { "path:' .. file .. '" } }\n' .. (extra or "") ..
+      'requires = { "path:' .. file .. '" } }\n' ..
       "local function test_passes() assert(true) end\n" ..
-      "local function test_passes_too() assert(true) end\n"))
+      "local function test_passes_too() assert(true) end\n" .. (extra or "")))
 end
 
 --- What `cosmic test` in `root` printed and its status, run unsandboxed
@@ -104,9 +104,9 @@ local function test_a_requirement_the_platform_lacks_is_not_applicable(tmp: stri
   assert(Fs.write(root .. "/artifact_test.tl", [[
 local Test = require("cosmic.test")
 Test.policy { requires = { "portable" } }
-error("a module that is not applicable must not load")
 local function test_a() assert(true) end
 local function test_b() assert(true) end
+error("a module that is not applicable must not load")
 ]]))
   assert(Fs.write(root .. "/plain_test.tl", [[
 local function test_c() assert(true) end
@@ -177,9 +177,9 @@ local function test_a_held_run_fails_what_its_leg_promised_and_lacks(tmp: string
   assert(Fs.write(root .. "/linux_test.tl", [[
 local Test = require("cosmic.test")
 Test.policy { requires = { "nest", "proc" } }
-error("a module with an absent requirement must not load")
 local function test_a() assert(true) end
 local function test_b() assert(true) end
+error("a module with an absent requirement must not load")
 ]]))
   assert(Fs.write(root .. "/plain_test.tl", "local function test_c() assert(true) end\n"))
   local modes: {{string:string}} = { { COSMIC_SANDBOX = "must" }, { COSMIC_CI_REQUIRE_SANDBOX = "1" } }

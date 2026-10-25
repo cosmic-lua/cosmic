@@ -212,7 +212,7 @@ local function test_child_reads()
     "cat suite/data.txt; cat suite/later.txt || print |absent" },
     { stdout = "capture" }))
   local out = r.stdout or ""
-  assert(r.ok and out:find("|absent", 1, true), out)
+  assert(r.ok and out:find("|absent", 1, true) ~= nil, out)
 end
 ]]))
   assert(Fs.write(root .. "/suite/unstored_test.tl", [[
