@@ -114,7 +114,8 @@ function TreeProgram.splice(build: Driver.Build, module: string, file: string): 
   return true
 end
 
---- `modules` in an order in which each comes after the modules among them that its text requires by a literal name, and
+--- `modules` in an order in which each comes after the modules among them that its text requires by a literal name (as
+--- `require("m")` or `pcall(require, "m")`), and
 --- otherwise as they stand. A module the index lacks keeps its place, and a cycle of requires is broken where it is met. The
 --- requires are found in the text by their pattern, so one in a comment or a string counts too: that costs a module being
 --- retired later than it could be, and never a verdict. Only the modules asked for are ordered, so a chain through a module
@@ -133,7 +134,7 @@ local function ordered(index: Driver.Index, modules: {string}): {string}
     state[module] = true
     local source = index.by_module[module]
     if source ~= nil then
-      for _, name in source.text:gmatch("require%s*%(?%s*([\"'])([%w_%.%-]+)%1") do
+      for _, name in source.text:gmatch("require%s*[%(,]?%s*([\"'])([%w_%.%-]+)%1") do
         local required = index.by_module[name]
         if required ~= nil then
           visit(required.module)

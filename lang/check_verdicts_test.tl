@@ -95,9 +95,9 @@ local function test_the_counts_of_the_table_are_the_gates()
   assert(#list == 970, tostring(#list))
   assert(count(list, "refused", "refused") == 700, "refused by both: " .. tostring(count(list, "refused", "refused")))
   assert(count(list, "refused", "accepted") == 36, "retired or open: " .. tostring(count(list, "refused", "accepted")))
-  assert(count(list, "accepted", "refused") == 116,
+  assert(count(list, "accepted", "refused") == 118,
     "refused only by the new checker: " .. tostring(count(list, "accepted", "refused")))
-  assert(count(list, "accepted", "accepted") == 118, "accepted by both: " .. tostring(count(list, "accepted", "accepted")))
+  assert(count(list, "accepted", "accepted") == 116, "accepted by both: " .. tostring(count(list, "accepted", "accepted")))
   assert(#retired() == 36)
   -- what the fork refuses and the new checker takes is either explained by a rule or open, and nothing is both
   assert(#retired() + #open_programs() == count(list, "refused", "accepted"))

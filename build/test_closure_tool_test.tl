@@ -53,21 +53,42 @@ local function test_a_project_test_requiring_outside_its_closure_fails(tmp: stri
     "end",
   }, "\n") .. "\n"))
   assert(Fs.write(root .. "/suite/dynamic_test.tl", table.concat({
-    'local name = "suite." .. "helper"',
+    "local function dynamic(name: string): any",
+    "  local chunk = assert(load(\"return require((...))\", \"=dynamic\"))",
+    "  local value: any = chunk(name)",
+    "  return value",
+    "end",
     "local function test_dynamic()",
-    "  local helper: any = require(name)",
+    '  local helper: any = dynamic("suite." .. "helper")',
     "  assert(helper ~= nil)",
     "end",
     "local function test_standard_library()",
-    '  local json: any = require("cosmic." .. "json")',
+    '  local json: any = dynamic("cosmic." .. "json")',
     "  assert(json ~= nil)",
     "end",
   }, "\n") .. "\n"))
   local ok, text = run(root, tmp .. "/run.out")
   assert(not ok, text)
-  assert(text:find("test: FAIL  suite.dynamic_test test_dynamic: suite.dynamic_test:3: " ..
+  assert(text:find("test: FAIL  suite.dynamic_test test_dynamic: dynamic:1: " ..
       "module 'suite.helper' is outside the import closure of suite.dynamic_test", 1, true), text)
   assert(text:find("1 of 3 tests failed", 1, true), text)
+end
+
+--- In a project of its own, a test that probes its helper with `pcall(require, "<name>")` finds it: the probe is an import
+--- as a `require` is, so the helper is in the test's closure and its worker is given it.
+local function test_a_project_test_probing_a_module_with_pcall_has_it_in_its_closure(tmp: string)
+  local root = tmp .. "/project"
+  assert(Fs.mkdirs(root .. "/suite"))
+  assert(Fs.write(root .. "/suite/helper.tl", HELPER))
+  assert(Fs.write(root .. "/suite/probe_test.tl", table.concat({
+    "local function test_probe()",
+    '  local found, helper = pcall(require, "suite.helper")',
+    "  assert(found, tostring(helper))",
+    '  assert(type(helper) == "table")',
+    "end",
+  }, "\n") .. "\n"))
+  local ok, text = run(root, tmp .. "/run.out")
+  assert(ok, text)
 end
 
 --- In a project of its own, a test that reads its helper through the

@@ -117,17 +117,59 @@ local function test_a_module_is_listed_once()
   assert(required("local a = require(\"m\")\nlocal b = require(\"m\")\nreturn a, b\n") == "m")
 end
 
-local function test_a_require_that_names_no_literal_or_sits_in_text_is_no_dependency()
+local function test_a_require_that_sits_in_text_is_no_dependency()
   local source = table.concat({
-    "local name = \"x\"",
-    "local a = require(name)",
-    "local b = require(\"p\" .. name)",
     "local text = 'require(\"in.string\")'",
     "-- require(\"in.comment\")",
-    "return a, b, text",
+    "-- pcall(require, \"in.comment\")",
+    "return text",
     "",
   }, "\n")
   assert(required(source) == "", required(source))
+end
+
+local function test_a_pcall_of_require_with_a_literal_name_is_a_dependency_at_the_string_that_names_it()
+  local source = table.concat({
+    "local a = require(\"a.first\")",
+    "local function probe(): boolean",
+    "  local ok, _ = pcall(require, \"b.optional\")",
+    "  return ok",
+    "end",
+    "local again, _ = pcall(require, 'a.first')",
+    "return a, probe, again",
+    "",
+  }, "\n")
+  assert(required(source) == "a.first b.optional", required(source))
+  local sites: mut {string} = {}
+  for _, site in ipairs(Node.require_sites(parsed(source))) do
+    sites[#sites + 1] = ("%s@%d:%d"):format(site.name, site.y, site.x)
+  end
+  local got = table.concat(sites, " ")
+  assert(got == "a.first@1:19 b.optional@3:32", got)
+end
+
+--- A source with a computed name and what its refusal says.
+local record Refused
+  source: string
+  says: string
+end
+
+--- Each refusal names the require and quotes the expression that computes its name.
+local function test_a_require_whose_name_is_computed_is_refused_naming_it_and_what_to_write()
+  local cases: {Refused} = {
+    { source = "local name = \"x\"\nlocal a = require(name)\n", says = "`require(name)` names its module by an expression" },
+    { source = "local a = require(\"p\" .. \"q\")\n", says = "`require(\"p\" .. \"q\")` names its module" },
+    { source = "local ok, a = pcall(require, mod)\n", says = "`pcall(require, mod)` names its module" },
+    { source = "local ok, a = pcall(require, \"p.\" .. kind)\n", says = "`pcall(require, \"p.\" .. kind)` names its module" },
+    { source = "local a = require(f())\n", says = "`require(f())` names its module" },
+  }
+  for _, case in ipairs(cases) do
+    local chunk, why = Node.parse(case.source, "t.tl")
+    assert(chunk == nil and why:find(case.says, 1, true) ~= nil and
+      why:find("(computed_require): write the module's name as a string", 1, true) ~= nil, case.source .. " -> " .. why)
+  end
+  local declaration, trouble = Node.parse("local type T = require(\"m\")\nreturn T\n", "t.d.tl")
+  assert(declaration ~= nil, trouble)
 end
 
 local function test_a_require_site_is_where_the_string_naming_its_module_stands()

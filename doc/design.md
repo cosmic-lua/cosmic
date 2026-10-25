@@ -1005,6 +1005,15 @@ compile could stand after the module that declares it changed. everything a modu
 the key covers. a Lua runtime trick the checker cannot see, `local _ENV = ...`, is refused, and a file run by `cosmic
 --standalone` is checked and refused on a type error, cached by content hash like any compile.
 
+the same holds for what a `require` names. the build reads a module's dependencies from the literal names handed to
+`require("m")` and to `pcall(require, "m")` (the probe for a module that may be absent), anywhere in the file, and a
+dependency is carried into a built program, held in a test's closure and covered by its key. a `require` whose name is
+computed, `require(name)` or `pcall(require, name)`, names no module the build can see, so the parser refuses it
+(`computed_require`); to choose between modules, require each by its literal name and pick from a table. this holds for
+`cosmic.*` and C modules as for a project's: a literal name that no database holds is no edge, and a probe of it
+answers false when it runs. a `.d.tl` file imports only with `local type T = require("m")`, whose name is a literal
+already.
+
 `: never` is a flag on a function type, declared by a helper that only raises or exits (`error`, [`Proc.exit`], a module's
 `spec_error`): a call of one ends its block, so code below an `if x == nil then fail() end` guard sees `x` narrowed. nothing
 infers it from a body, and a declaration that returns anyway is a bug in the declaration.

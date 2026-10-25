@@ -1560,7 +1560,7 @@ lang/literals.tl nil_not_allowed 3
 
 lang/literals_test.tl nil_not_allowed 8
 
-lang/parser.tl nil_not_allowed 65
+lang/parser.tl nil_not_allowed 64
 
 lang/parser_cover.tl nil_not_allowed 1
 
@@ -3601,7 +3601,7 @@ lang/generics.tl field_unknown 84
 
 lang/load_order.tl field_unknown 6
 
-lang/parser.tl field_unknown 58
+lang/parser.tl field_unknown 54
 
 lang/parser_cover.tl field_unknown 13
 

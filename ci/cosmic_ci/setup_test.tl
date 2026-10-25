@@ -79,7 +79,7 @@ end
 
 --- A sandboxed fixture reads what the runtime setup packs for it as one
 --- file whose bytes key its verdict (runtime_setup.tl's `pack`): the
---- closure of the module it names, followed through the tree's modules
+--- closure of the module it names (a `pcall(require, "<name>")` is followed as a `require` is), followed through the tree's modules
 --- but not the runtime's own, and the same files packed twice make the
 --- same bytes, which unpack to what they were.
 local function test_the_runtime_setup_packs_a_closure_the_same_each_time(tmp: string)
@@ -88,14 +88,16 @@ local function test_the_runtime_setup_packs_a_closure_the_same_each_time(tmp: st
       Fs.mkdirs(root .. "/cosmic"))
   assert(Fs.write(root .. "/test/portable/tool.tl",
     'local Fs = require("cosmic.fs")\nlocal fixture = require("test.portable")\n' ..
-      'local a = require( "build.a" )\nlocal gone = require("build.gone")\n'))
+      'local a = require( "build.a" )\nlocal gone = require("build.gone")\n' ..
+      'local found = pcall(require, "build.c")\n'))
   assert(Fs.write(root .. "/test/portable/init.tl", 'local a = require("build.a")\n'))
   assert(Fs.write(root .. "/build/a.tl", 'local b = require("build.b")\n', 0x1ed))
   assert(Fs.write(root .. "/build/b.tl", "return {}\n"))
+  assert(Fs.write(root .. "/build/c.tl", "return {}\n"))
   assert(Fs.write(root .. "/cosmic/fs.tl", "return {}\n"))
   local closure = RuntimeSetup.closure(root, "test/portable/tool.tl")
   assert(table.concat(closure, " ") ==
-      "build/a.tl build/b.tl test/portable/init.tl test/portable/tool.tl",
+      "build/a.tl build/b.tl build/c.tl test/portable/init.tl test/portable/tool.tl",
     table.concat(closure, " "))
   -- The files' times move between the two packs, as a checkout's do
   -- from one run to the next: the tars must not.

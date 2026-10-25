@@ -2127,11 +2127,11 @@ local record DeclareFile
   key: string
 end
 
---- The modules a source requires by a literal name.
+--- The modules a source requires by a literal name, as `require("m")` or `pcall(require, "m")`.
 local function required_modules(source: string): {string}
   local out: mut {string} = {}
   local seen: mut {string: boolean} = {}
-  for _, name in source:gmatch("require%s*%(?%s*([\"'])([%w_%.%-]+)%1") do
+  for _, name in source:gmatch("require%s*[%(,]?%s*([\"'])([%w_%.%-]+)%1") do
     if not seen[name] then
       seen[name] = true
       out[#out + 1] = name

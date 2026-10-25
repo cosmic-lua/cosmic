@@ -55,8 +55,8 @@ end
 RuntimeSetup.artifact_row = { ["build/artifact.tl"] = "ci/testdata/portable/artifact_row.tl" }
 
 --- The files of the tree at `root`, relative to it and sorted, that the
---- module at `entry` (relative too) requires by a literal name, and
---- theirs in turn, `entry` among them: `a.b` is `a/b.tl`, or
+--- module at `entry` (relative too) requires by a literal name, as
+--- `require("a.b")` or `pcall(require, "a.b")`, and theirs in turn, `entry` among them: `a.b` is `a/b.tl`, or
 --- `a/b/init.tl`. A `cosmic.*` module is the runtime's own, carried in
 --- its database, and a name with no file in the tree is none of the
 --- tree's, so neither is followed. A file `stood_for` names is listed
@@ -70,13 +70,16 @@ function RuntimeSetup.closure(root: string, entry: string, stood_for?: {string:s
     seen[relative] = true
     out[#out + 1] = relative
     if stood_for ~= nil and stood_for[relative] ~= nil then return end
-    for name in Fixture.read(root .. "/" .. relative):gmatch("require%(%s*\"([%w_%.]+)\"%s*%)") do
-      if name ~= "cosmic" and name:sub(1, 7) ~= "cosmic." then
-        local base = name:gsub("%.", "/")
-        for _, candidate in ipairs({ base .. ".tl", base .. "/init.tl" }) do
-          if Predicate.exists(root .. "/" .. candidate) then
-            visit(candidate)
-            break
+    local text = Fixture.read(root .. "/" .. relative)
+    for _, pattern in ipairs({ "require%(%s*\"([%w_%.]+)\"%s*%)", "pcall%(%s*require%s*,%s*\"([%w_%.]+)\"%s*%)" }) do
+      for name in text:gmatch(pattern) do
+        if name ~= "cosmic" and name:sub(1, 7) ~= "cosmic." then
+          local base = name:gsub("%.", "/")
+          for _, candidate in ipairs({ base .. ".tl", base .. "/init.tl" }) do
+            if Predicate.exists(root .. "/" .. candidate) then
+              visit(candidate)
+              break
+            end
           end
         end
       end

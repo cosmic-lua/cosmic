@@ -7,6 +7,7 @@
   {"code":"bare_function_type","rule":"what the grammar leaves out","why":"`function` alone says nothing of its parameters or results, so a caller could not be checked"},
   {"code":"captured_assigned","rule":"captures are read-only","why":"a function that assigns a local of the code around it makes a narrowing of that local unsound while the function is suspended, so the closure may read but not assign"},
   {"code":"close_repeated","rule":"the syntactic grammar","why":"a declaration of several locals holds at most one `<close>`, as Lua 5.4 reads it: the Lua written for two would not load"},
+  {"code":"computed_require","rule":"what the grammar leaves out","why":"the build reads a module's dependencies from the literal names handed to `require` and to `pcall(require, ...)`, so a name computed at run time is a module that no key, closure or sealed program holds"},
   {"code":"const_assigned","rule":"read-only","why":"an assignment to a `<const>` or `<close>` variable or a loop's control variable is refused by Lua 5.5, and the checker says why before the compiler does"},
   {"code":"continue_skips_local","rule":"the syntactic grammar","why":"Lua cannot jump into the scope of a local, and the `until` of a `repeat` is inside the scope of the locals of its body, so a `continue` that skips a local the `until` reads has no place to go"},
   {"code":"digit_separator","rule":"what the grammar leaves out","why":"a `_` between digits is another spelling of the same number, which Lua does not read"},

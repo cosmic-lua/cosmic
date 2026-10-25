@@ -894,10 +894,10 @@ local function refusal(name: string, module_path: string, closure: {string:boole
                        tree: {string:boolean}): string?
   if closure[name] or not tree[name] then return nil end
   return string.format("module '%s' is outside the import closure of %s: the build " ..
-      "follows a require only when it is called directly on a literal name, so neither a " ..
-      "computed name nor pcall(require, ...) is followed, and a change to %s would not run " ..
-      "%s's tests again. Require it so at the top level of the module this is raised in, " ..
-      "or of %s itself: local _ = require(%q)",
+      "follows a require only when it is called directly on a literal name, or through " ..
+      "pcall(require, \"<name>\"), so a name computed at run time is not followed, and a change to %s " ..
+      "would not run %s's tests again. Require it so at the top level of the module this is " ..
+      "raised in, or of %s itself: local _ = require(%q)",
     name, module_path, name, module_path, module_path, name)
 end
 
@@ -1394,7 +1394,8 @@ function worker.run(argv: {string}): integer
   -- Each under a stand-in for `spawn` ([`confine.call`]), which holds what
   -- the test starts.
   local loading = confine.call(function(): any
-    return held(function(): any return require(module_path) end)
+    local run_module: function(string): any = require -- TRIAL-D6.1: stands in for the owner's decision on a require of a name computed at run time
+    return held(function(): any return run_module(module_path) end)
   end, nil, own, sandboxed)
   local loaded, produced = loading.ok, loading.produced
   runner.loaded = true

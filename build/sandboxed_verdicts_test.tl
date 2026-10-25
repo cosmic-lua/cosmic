@@ -723,15 +723,22 @@ local lib = require("suite.lib")
 
 Test.policy { env = { "ADDED" } }
 
+-- A `require` of a name made at run time, from a chunk of Lua: the parser refuses it in a typed file.
+local function dynamic(name: string): any
+  local chunk = assert(load("return require('suite.' .. ...)", "=dynamic"))
+  local value: any = chunk(name)
+  return value
+end
+
 local function test_closed()
   assert(lib.value == 1)
   assert(Store.bytecode("suite.lib") ~= nil, "the closure is not in the store")
   local bytes, _ = Store.bytecode("suite.other")
   assert(bytes == nil, "a module outside the closure is in the store")
-  local ok, why = pcall(require, ("suite." .. "other"))
+  local ok, why = pcall(dynamic, "other")
   assert(not ok and tostring(why):find("outside the import closure", 1, true) ~= nil, tostring(why))
   if Env.get("ADDED") == "1" then
-    local added, added_why = pcall(require, ("suite." .. "added"))
+    local added, added_why = pcall(dynamic, "added")
     assert(not added and tostring(added_why):find("outside the import closure", 1, true) ~= nil,
       tostring(added_why))
   end

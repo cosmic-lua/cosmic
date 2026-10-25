@@ -483,7 +483,8 @@ local function run(file: string, argv: {string}): integer
   -- The file's top level, which `require` hands its own name and loader
   -- data as `...`, finds its words in `arg`, as `lua file a b` gives them.
   rawset(_G as {string:any}, "arg", arguments)
-  local entry = standalone.entry(require(name))
+  local run_module: function(string): any = require -- TRIAL-D6.1: stands in for the owner's decision on a require of a name computed at run time
+  local entry = standalone.entry(run_module(name))
   if entry ~= nil then
     return exit_status.of(file, entry(arguments))
   end

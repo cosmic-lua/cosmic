@@ -102,6 +102,8 @@ local record Parser
     "nested_in_interface" "old_type_declaration" "narrowing_return"
     -- blocks, expressions or types nested past `MAX_NESTING`
     "too_deep"
+    -- `require(name)` or `pcall(require, name)` with a name that is no string literal
+    "computed_require"
   end
 
   --- A syntax error, or the lexer's error carried over. `y`, `x`, `offset`
@@ -1291,15 +1293,77 @@ local function parse_primary(): Ast.Exp
   return error_node(first)
 end
 
---- Records a call of `require` with one literal string, for the chunk's list.
+--- Whether `e` is the name `text`, written as a single token.
+local function is_name(e: Ast.Exp, text: string): boolean
+  local base = base_of(e)
+  return base.kind == "Name" and S.texts[base.first] == text
+end
+
+--- Whether the `i`th of `list` is the name `text`.
+local function arg_is_name(list: {Ast.Exp}, i: integer, text: string): boolean
+  local e = list[i]
+  return e ~= nil and is_name(e, text)
+end
+
+--- The contents of the `i`th of `list` where it is a string literal, nil where it is anything else.
+local function literal_at(list: {Ast.Exp}, i: integer): string?
+  local e = list[i]
+  if e == nil then
+    return nil
+  end
+  local base = base_of(e)
+  if base.kind ~= "String" then
+    return nil
+  end
+  local contents = S.tokens.value[base.first]
+  return contents
+end
+
+--- Reports the `i`th of `args`, the name that a `require` is given, written `how` (`require` or `pcall`) and that is
+--- no string literal: the build reads a module's dependencies from literal names alone.
+local function report_computed_require(args: {Ast.Exp}, i: integer, how: string)
+  local e = args[i]
+  if e == nil then
+    return
+  end
+  local base = base_of(e)
+  local text = quoted_text(base.first, base.last)
+  local call = if how == "pcall" then "pcall(require, " .. text .. ")" else "require(" .. text .. ")" end
+  local literal = if how == "pcall" then "pcall(require, \"cosmic.fs\")" else "require(\"cosmic.fs\")" end
+  report("computed_require", base.first,
+    "`" .. call .. "` names its module by an expression, and the build follows a require by a literal name alone, so " ..
+      "it cannot tell which module this one needs: a change to that module would not run this one's tests again, " ..
+      "a program sealed or built from this one would not carry it, and `cosmic test` refuses the call when it runs",
+    "write the module's name as a string: `" .. literal .. "`; to choose between modules, require each by its " ..
+      "literal name and pick from a table: `local by_name = { csv = require(\"cosmic.csv\"), json = " ..
+      "require(\"cosmic.json\") }`, then `by_name[" .. text .. "]`")
+end
+
+--- Records a call of `require` with one literal string, or of `pcall(require, "m")`, for the chunk's list. A
+--- `pcall(require, "m")` probes a module that may be absent and is a dependency all the same: it is carried and keyed
+--- as a `require("m")` is. A name that is no literal is an error ([`report_computed_require`]).
+-- TODO: refuse a `require` bound to another name or handed on as a value (`local r = require`, `xpcall(require, h, name)`),
+-- which this reads as no call, once the scope builder reports a use of the global `require` that is no call
+-- (lang/scopes.tl): until then `cosmic test` refuses such a name when it runs.
 local function note_require(call: Ast.Call)
   local callee, args = call.callee, call.args
-  if (callee.kind == "Name") and callee.text == "require" and #args == 1 then
-    local literal = args[1]
-    if (literal.kind == "String") then
-      S.requires[#S.requires + 1] = { module = literal.value, node = 0 }
-      S.require_nodes[#S.require_nodes + 1] = call
-    end
+  local at = 0
+  local how = "require"
+  if is_name(callee, "require") then
+    at = 1
+  elseif is_name(callee, "pcall") and arg_is_name(args, 1, "require") then
+    at = 2
+    how = "pcall"
+  end
+  if at == 0 or #args < at then
+    return
+  end
+  local module = literal_at(args, at)
+  if module ~= nil then
+    S.requires[#S.requires + 1] = { module = module, node = 0 }
+    S.require_nodes[#S.require_nodes + 1] = call
+  else
+    report_computed_require(args, at, how)
   end
 end
 
@@ -2618,7 +2682,7 @@ Parser.codes = {
   "generic_function_literal", "bad_attribute", "if_needs_else", "match_needs_call", "method_needs_self",
   "method_path", "close_repeated", "trailing_comma", "arm_on_same_line", "unreachable_arm", "duplicate_binding", "reserved_method",
   "suffix_needs_parens", "nested_in_interface",
-  "old_type_declaration", "narrowing_return", "too_deep",
+  "old_type_declaration", "narrowing_return", "too_deep", "computed_require",
 }
 
 return Parser

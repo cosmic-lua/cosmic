@@ -728,8 +728,9 @@ local record Cli
   ---
   ---     cosmic sandbox --closure -- cosmic run.tl IN OUT
   ---
-  --- A `pcall(require, ...)` or a computed name is not followed, and fails
-  --- when it runs; a `require` of a module outside this program's store
+  --- A `pcall(require, "<name>")` is followed as a `require` is; a name
+  --- computed at run time is refused when the script is compiled. A
+  --- `require` of a module outside this program's store
   --- (a project module beside the script) is refused before anything
   --- starts. The database is written in a directory of the run's own, that
   --- the program's user can search, and removed when the run ends. The

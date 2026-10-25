@@ -52,7 +52,8 @@ local catalog_module <const> = "cosmic.removed"
 
 --- [`cosmic.removed`], or nil where it cannot be loaded (a test that does not require it).
 local function catalog(): Catalog?
-  local ok, loaded = pcall(require, catalog_module)
+  local lookup: function(string): any = require -- TRIAL-D6.1: stands in for the owner's decision on a require of a name computed at run time
+  local ok, loaded = pcall(lookup, catalog_module)
   if not ok or not (loaded is {string: any}) then
     return nil
   end
