@@ -3348,8 +3348,13 @@ local function test_a_script_that_takes_the_pinned_releases_path_sets_the_gramma
       local text = assert(Fs.read(SCRIPTS .. "/" .. name))
       if text:find("cosmic-bootstrap)", 1, true) then
         taking[#taking + 1] = name
-        assert(text:find("COSMIC_GRAMMAR=new", 1, true),
-          name .. " runs the path bin/cosmic-bootstrap printed without COSMIC_GRAMMAR=new")
+        local sets = false
+        for line in text:gmatch("[^\n]+") do
+          if not line:match("^%s*#") and line:find("env COSMIC_GRAMMAR=new ", 1, true) ~= nil then
+            sets = true
+          end
+        end
+        assert(sets, name .. " runs the path bin/cosmic-bootstrap printed without `env COSMIC_GRAMMAR=new` outside a comment")
       end
     end
   end
