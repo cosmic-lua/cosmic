@@ -2237,7 +2237,7 @@ lang/ast.tl index_may_be_nil 4
 
 lang/ast_dump.tl index_may_be_nil 3
 
-lang/check.tl index_may_be_nil 39
+lang/check.tl index_may_be_nil 38
 
 lang/check_flow_fuzz_test.tl index_may_be_nil 4
 
