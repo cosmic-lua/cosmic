@@ -647,3 +647,15 @@ local function test_a_standard_library_module_is_read_as_written_and_a_declarati
   assert(sys ~= nil and sys.dialect == "decl" and sys.filename == "cosmic/sys.d.tl" and not sys.checked)
   assert(box ~= nil and box.dialect == "tl")
 end
+
+local function test_a_problem_of_an_argument_keeps_the_call_the_checker_named_and_another_problem_keeps_none()
+  local build = build_of({
+    { "m.tl", "local function put(n: integer): integer\n  return n\nend\nlocal a = put(\"s\")\nlocal b: integer = \"t\"\nlocal record M\n  n: integer\nend\nreturn M\n" },
+  })
+  local result = assert(build:result("m", true))
+  assert(codes_of(result.errors) == "not_assignable not_assignable", codes_of(result.errors))
+  local call, assignment = assert(result.errors[1]), assert(result.errors[2])
+  local argument = call.argument
+  assert(argument ~= nil and argument.callee == "put" and argument.position == 1, codes_of(result.errors))
+  assert(assignment.argument == nil)
+end
