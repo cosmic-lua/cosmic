@@ -74,7 +74,12 @@ function SyntaxLinks.facts(chunk: Ast.Chunk, scoped: Scopes.Scoped, source: stri
     blocks = blocks,
     known = {
       at = function(line: integer): LinkText.Declared
-        return settled[line] or nothing
+        local seen = settled[line]
+        if seen == nil then
+          error("line " .. tostring(line) .. " is outside every comment block, whose lines alone have their scope settled " ..
+            "(build/links.tl asks only for a line a link or a code span stands on)")
+        end
+        return seen
       end,
       module_level = found.module_level,
       parsed = true,

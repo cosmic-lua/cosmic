@@ -156,6 +156,23 @@ local function test_a_facts_value_read_once_answers_check_and_rewrite()
   assert(facts.known.module_level["helper"] == true and facts.known.module_level["Box"] == true)
 end
 
+--- Only the lines of comment blocks have a scope settled; a line outside every block is a fault in the caller and is
+--- refused, not answered as if nothing were declared there.
+local function test_a_line_outside_every_comment_block_is_refused()
+  local source = lines("local record Box", "  n: integer", "end", "--- Holds [`Box`].", "local function f() end")
+  local chunk = assert(Node.parse(source, "/p/a.tl"))
+  local facts = SyntaxLinks.facts(chunk, Node.scope(chunk, "/p/a.tl"), source)
+  assert(#facts.blocks == 1 and assert(facts.blocks[1]).line == 4)
+  assert(facts.known.at(4).names["Box"] == true)
+  local block = assert(facts.blocks[1])
+  local _, breaks = block.text:gsub("\n", "")
+  assert(facts.known.at(block.line + breaks).names["Box"] == true)
+  local ok, why = pcall(facts.known.at, 5)
+  assert(not ok and tostring(why):find("line 5 is outside every comment block", 1, true) ~= nil, tostring(why))
+  local before, _ = pcall(facts.known.at, 1)
+  assert(not before)
+end
+
 --- The comments of a source are read from the tokens, where each starts in the file.
 local function test_the_comments_of_a_source_say_where_their_text_starts()
   local source = lines("local x = 1 -- trail", "--- [`x`] doc", "return x")

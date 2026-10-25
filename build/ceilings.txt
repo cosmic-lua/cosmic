@@ -2526,8 +2526,6 @@ build/sandbox_seal_tool_test.tl view_written 1
 
 build/sealed_nests_worker_test.tl view_written 1
 
-build/seed.tl view_written 3
-
 build/shared_compiles.tl view_written 5
 
 build/sql.tl view_written 2
