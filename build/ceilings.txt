@@ -617,8 +617,6 @@ build/checker_verdicts.tl 2
 
 build/confine.tl 1
 
-build/contract_rules.tl 1
-
 build/contracts.tl 1
 
 build/declared_key.tl 3
@@ -3076,8 +3074,6 @@ build/confine.tl view_written 9
 
 build/confine_tool_test.tl view_written 2
 
-build/contract_rules.tl view_written 2
-
 build/contracts.tl view_written 27
 
 build/contracts_test.tl view_written 1
@@ -3372,7 +3368,7 @@ build/todos_test.tl view_written 1
 
 build/tree_checks.tl view_written 16
 
-build/tree_checks_test.tl view_written 8
+build/tree_checks_test.tl view_written 7
 
 build/tree_program.tl view_written 3
 
@@ -5400,8 +5396,6 @@ build/checker_fuzz_test.tl overload_none 2
 build/checker_verdicts.tl overload_none 2
 
 build/confine.tl overload_none 1
-
-build/contract_rules.tl overload_none 1
 
 build/contracts.tl overload_none 1
 
