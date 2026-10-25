@@ -52,14 +52,12 @@ function CheckerDeclarations.stdlib_file(): string
   return STDLIB
 end
 
--- TODO: name the rows `lang.prelude` and `lang.stdlib` for the files they come from, once the switch deletes `checker/`:
--- ci/cosmic_ci/orchestration.tl reads them by the names they have.
 function CheckerDeclarations.prelude_module(): string
-  return "checker.prelude"
+  return "lang.prelude"
 end
 
 function CheckerDeclarations.stdlib_module(): string
-  return "checker.stdlib"
+  return "lang.stdlib"
 end
 
 --- The text of `file` below `root`, held to `hash`.

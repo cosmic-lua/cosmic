@@ -353,7 +353,7 @@ local function test_the_options_of_a_project_are_the_texts_it_is_given_and_no_ce
   assert(next(project.ceilings.stages) == nil, "a project has no ceilings")
   assert(#project.globals.sources == 2)
   local stdlib = assert(project.globals.sources[2])
-  assert(stdlib.filename == "lang/stdlib.d.tl" and stdlib.module == "checker.stdlib")
+  assert(stdlib.filename == "lang/stdlib.d.tl" and stdlib.module == "lang.stdlib")
 end
 
 local function test_a_lone_file_takes_the_declarations_the_tool_carries_and_no_ceiling()
@@ -465,13 +465,13 @@ local function test_the_code_that_reads_is_named_from_the_staged_tree(tmp: strin
   assert(work.stage(handle, false))
   local unparsed, why = Pipeline.coded_of("tool", handle.db)
   assert(unparsed == nil and why:find("is not parsed yet", 1, true) ~= nil, tostring(why))
-  assert(importer.derive(handle, false, built, nil, nil, nil, nil))
+  assert(importer.derive(handle, false))
   local first = assert(Pipeline.coded_of("tool", handle.db))
   assert(#first == 64 and Pipeline.coded_of("another tool", handle.db) ~= first, "the tool is no part of the identity")
   local function again(path: string, text: string): string
     write(path, text)
     assert(work.stage(handle, false))
-    assert(importer.derive(handle, false, built, nil, nil, nil, nil))
+    assert(importer.derive(handle, false))
     return (assert(Pipeline.coded_of("tool", handle.db)))
   end
   -- a module the pipeline does not reach moves nothing; one it reaches, directly or not, moves it
@@ -531,7 +531,7 @@ local function test_a_staged_project_is_built_from_its_inputs_and_compiles_to_wh
   assert(Fs.write(root .. "/doc/guides/g.md", "# g\n\n```teal\nlocal x = 1\nassert(x == 1)\n```\n"))
   local handle = assert(work.open(root))
   assert(work.stage(handle, false))
-  assert(importer.derive(handle, false, built))
+  assert(importer.derive(handle, false))
   local pipeline = assert(Pipeline.build(handle.db, options("")))
   local modules = assert(compilation.collect(handle.db))
   local seen: mut {string: boolean} = {}

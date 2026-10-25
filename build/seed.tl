@@ -1,7 +1,7 @@
 --- The entry of the tool's seed: the one module the pinned release compiles, with the files it requires
 --- ([`build/seed.txt`]), so that a boot can compile the tool's own build code without a checker carried from
---- elsewhere. Nothing boots from it yet: the bridge ([`core/bridge_new.lua`]) and [`build/seed_proof.tl`] use it, and the
---- switch to the new checker (doc/plans/strict-teal.md, "the switch") makes it the seed of every boot.
+--- elsewhere. Every boot starts from it: the bridge ([`core/bridge.lua`]) loads the Lua the pinned release wrote for it, and
+--- then the Lua the tree's own generator writes.
 ---
 --- It exposes the two things a boot needs of the new checker:
 ---
@@ -19,9 +19,8 @@
 --- and a type import that is never read as a value is not loaded (`served`). The type errors of a module are not
 --- refused (the code of the tool is held to its ceilings by the checks of the tree, not by a boot); a syntax error is,
 --- and so is a construct the generator does not write.
--- TODO: lower the `view_written` pins of build/seed.tl, build/seed_proof.tl and build/seed_test.tl (40 writes to a local the
--- checker takes for a view: each list and map these files build) by declaring those locals `mut` once the files are read in the
--- new grammar alone, which `cosmic migrate` writes (doc/plans/strict-teal.md, "the switch"): the fork's Teal has no spelling of it.
+-- TODO: lower the `view_written` pins of build/seed.tl and build/seed_test.tl (writes to a local the checker takes for a
+-- view: each list and map these files build) by declaring those locals `mut`, which `cosmic migrate` writes.
 
 local CompileGrammar = require("build.compile_grammar")
 local Driver = require("build.driver")

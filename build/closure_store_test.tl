@@ -10,13 +10,11 @@ local closure_store = require("build.closure_store")
 local declared_key = require("build.declared_key")
 local docs = require("build.docs")
 local importer = require("build.importer")
-local teal = require("build.teal")
 local test_inputs = require("build.test_inputs")
 local work = require("build.work")
 local writer = require("build.writer")
 local Clock = require("cosmic.clock")
 
-local built = assert(teal.load())
 
 --- Writes a minimal one-module project at `root`, greeting `whom`: the
 --- one build/writer_test.tl projects, restated here since a test module
@@ -49,7 +47,7 @@ local function build_and_write(root: string, whom: string, out: string,
   write_project(root, whom)
   local handle = assert(work.open(root))
   assert(work.stage(handle, false))
-  local result = assert(importer.compile(handle, built, tool or "closure-store-test"))
+  local result = assert(importer.compile(handle, tool or "closure-store-test"))
   assert(writer.write_result(handle, out, result))
   return handle
 end
@@ -394,7 +392,7 @@ local function test_a_declaration_moves_only_the_stores_that_hold_it(tmp: string
     write_project(root, "world")
     local handle = assert(work.open(root))
     assert(work.stage(handle, false))
-    local result = assert(importer.compile(handle, built, "closure-store-test"))
+    local result = assert(importer.compile(handle, "closure-store-test"))
     assert(writer.write_result(handle, tmp .. "/whole.db", result))
     local by_path: mut {string:importer.Module} = {}
     for _, m in ipairs(result.modules) do by_path[m.path] = m end

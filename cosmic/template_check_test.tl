@@ -17,12 +17,10 @@ local Html = require("cosmic.html")
 local GrammarMode = require("build.grammar_mode")
 local Test = require("cosmic.test")
 local importer = require("build.importer")
-local teal = require("build.teal")
 local work = require("build.work")
 
 Test.policy{ env = { "COSMIC_GRAMMAR" }, profiles = { "cosmic" }, grants = { { path = "o/bin", letters = "rx" } } }
 
-local built = assert(teal.load())
 local grammar = assert(GrammarMode.mode())
 
 local DATA <const> = [[
@@ -190,7 +188,7 @@ local function build(tmp: string, case: string, files: {string: string}, mode?: 
     local _, _ = work.close(handle)
     return nil, stage_trouble
   end
-  local result, trouble = importer.compile(handle, built, GrammarMode.tool("template-check-test", mode or grammar), false, nil, nil, nil, mode or grammar)
+  local result, trouble = importer.compile(handle, GrammarMode.tool("template-check-test", mode or grammar), false)
   local _, _ = work.close(handle)
   if result == nil then
     return nil, trouble

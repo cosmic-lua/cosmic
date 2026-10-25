@@ -33,20 +33,16 @@ local Store = require("cosmic.store")
 local sys = require("cosmic.sys")
 local identity = require("build.identity")
 local artifact = require("build.artifact")
-local derivation = require("build.derivation")
 local GrammarMode = require("build.grammar_mode")
 local importer = require("build.importer")
 local plural = require("build.plural")
 local rebuild_lock = require("build.rebuild_lock")
 local stale_reason = require("build.stale_reason")
 local shared_compiles = require("build.shared_compiles")
-local teal = require("build.teal")
 local tree = require("build.tree")
 local work = require("build.work")
-local workers = require("build.workers")
 local writer = require("build.writer")
 local log = require("build.logger").log
-local type compiler = require("build.compiler")
 
 local record reboot
   --- How the tree stands against the running binary.
@@ -55,14 +51,6 @@ local record reboot
     "teal"
     "core"
   end
-
-  --- The `compiled_by` a tool settled for the mode `word` names (what `COSMIC_GRAMMAR` holds, nil for none) carries, given the
-  --- identity of its compiler: that identity for the fork's, which is every default run, and for `new` the tool string that
-  --- mode keys its compiles by, over the code of the checker the binary carries ([`build.pipeline`]'s `coded`). A tool the
-  --- new checker built records the second, so a run that asks for the fork's finds it unsettled and builds it again, as a run
-  --- that asks for the new checker finds a tool the fork built. A word that names no mode is the fork's: the verb itself
-  --- refuses it where it reads it.
-  settled_by: function(compiler: string, word: string?): string
 
   --- How a test has [`reboot.stale_exit`] see the running tool, where it
   --- cannot run the tree's own: the path it runs as ([`reboot.own_tool`]'s
@@ -94,34 +82,21 @@ local function meta_of(key: string, seen?: reboot.Seen): string?
   return Store.meta(key)
 end
 
-function reboot.settled_by(identity_of_compiler: string, word: string?): string
-  local mode, _ = GrammarMode.of(word)
-  if mode ~= "new" then
-    return identity_of_compiler
-  end
-  local pipeline = require("build.pipeline")
-  return pipeline.coded(GrammarMode.tool(identity_of_compiler, "new"))
-end
-
 --- Whether the running binary's database was compiled or written by
 --- code other than the compiler and writer it carries
 --- ([`identity.Identities`]). A rebuild uses the stale tool's compiler and
 --- writer, so the rebuilt tool compiles and writes its database once
 --- more itself; then it matches what a boot writes. A database that
 --- records neither identity is unsettled too. What it was compiled by
---- is held to the mode the run asks for ([`reboot.settled_by`]).
+--- is the tool string the new checker keys its compiles by, over the code of the checker the binary carries
+--- ([`build.pipeline`]'s `coded`).
 local function unsettled(seen?: reboot.Seen): boolean
   local written_by = meta_of("written_by", seen)
   local compiled_by = meta_of("compiled_by", seen)
   local carried = meta_of("compiler", seen)
-  local word: string?
-  if seen ~= nil then
-    word = seen.environment["COSMIC_GRAMMAR"]
-  else
-    word = sys.getenv("COSMIC_GRAMMAR")
-  end
   return written_by == nil or written_by ~= meta_of("writer", seen) or
-    compiled_by == nil or carried == nil or compiled_by ~= reboot.settled_by(carried, word)
+    compiled_by == nil or carried == nil or
+    compiled_by ~= require("build.pipeline").coded(GrammarMode.tool(carried, "new"))
 end
 
 --- The command that renews a tool that carries every core, or, with
@@ -340,8 +315,7 @@ end
 --- out of a failure. `settle` rebuilds a fresh but `unsettled` tool,
 --- which a rebuild may enter; anything else refuses once a reboot has
 --- entered this process.
-local function into(handle: work.Handle, built: compiler,
-                    argv: {string}, settle: boolean): string, boolean
+local function into(handle: work.Handle, argv: {string}, settle: boolean): string, boolean
   local started = Clock.monotonic_ns()
   local refused = refusal(settle)
   if refused ~= nil then
@@ -356,18 +330,7 @@ local function into(handle: work.Handle, built: compiler,
     return closing(handle, executable_trouble), false
   end
 
-  -- A fresh checkout has no boot-populated compiler row in its working
-  -- database yet. Preserve the exact compiler carried by the trusted running
-  -- artifact so the rebuilt Cosmic remains able to rebuild again.
-  local compiler_source, compiler_trouble = Store.source("vendor.tl")
-  if compiler_source == nil then
-    return closing(handle, "the compiler source is not in this binary: " .. compiler_trouble), false
-  end
-  local kept, keep_trouble = derivation.put_compiler(handle.db, compiler_source)
-  if not kept then
-    return closing(handle, keep_trouble), false
-  end
-  -- And the zones and web assets it carries, which only a boot reads from
+  -- The zones and web assets it carries, which only a boot reads from
   -- the tree.
   local databases = Store.databases()
   local zones, zones_trouble = work.zoneinfo_of(databases[#databases])
@@ -407,17 +370,13 @@ local function into(handle: work.Handle, built: compiler,
   -- may be older than the tree's, so a module it refuses is built
   -- anyway, and the tool built here judges it again, by the tree's own,
   -- when it re-enters the command.
-  -- In the mode the run asks for: a tool rebuilt under `COSMIC_GRAMMAR=new` carries Lua the new checker wrote, in this process
-  -- ([`importer.compile_tree`]), and says so in the tool string it records ([`reboot.settled_by`]).
+  -- The tool carries Lua the new checker wrote, in this process ([`importer.compile_tree`]), and says so in the tool
+  -- string it records.
   local grammar, grammar_trouble = GrammarMode.mode()
   if grammar == nil then
     return closing(handle, grammar_trouble), false
   end
-  local pool: importer.Workers? = nil
-  if grammar ~= "new" then
-    pool = workers.pool(workers.tool_spec())
-  end
-  local result, compile_trouble = importer.compile_tree(handle, built,
+  local result, compile_trouble = importer.compile_tree(handle,
     function(recorded: identity.Identities): string, string
       learned.compiler = recorded.compiler
       local tool = Store.meta("compiler") or ""
@@ -428,7 +387,7 @@ local function into(handle: work.Handle, built: compiler,
         if learned.code then tool = recorded.compiler end
       end
       return GrammarMode.tool(tool, grammar), ""
-    end, true, shared_compiles.for_build(), pool, grammar)
+    end, true, shared_compiles.for_build())
   if result == nil then
     -- The compiler of a tool settling is the tree's: it cannot have moved.
     if settle then
@@ -446,12 +405,10 @@ local function into(handle: work.Handle, built: compiler,
       reboot.compiler_moved(Store.meta("compiler"), learned.compiler)
   end
   -- The new checker goes on past a module it refuses, to tell every refusal; a tool is not written from a tree it refused.
-  if grammar == "new" then
-    local unexpected = require("build.pipeline").unexpected(result.refused)
-    if #unexpected > 0 then
-      return closing(handle, table.concat(unexpected, "\n") .. "\nthe new checker (COSMIC_GRAMMAR=new) refused " ..
-          tostring(#unexpected) .. " of the tree's modules, so no tool is written from it"), false
-    end
+  local unexpected = require("build.pipeline").unexpected(result.refused)
+  if #unexpected > 0 then
+    return closing(handle, table.concat(unexpected, "\n") .. "\nthe new checker refused " ..
+        tostring(#unexpected) .. " of the tree's modules, so no tool is written from it"), false
   end
   local layout = build_paths.resolve(handle.root)
   local database_path = layout.projection
@@ -830,7 +787,7 @@ function reboot.guard(handle: work.Handle, root: string,
       return waited
     end
     log:complain("the tool's database was built by other code than its own; building it again")
-    local trouble, _ = into(handle, teal.lazy(), argv, true)
+    local trouble, _ = into(handle, argv, true)
     log:complain(trouble)
     return 3
   end
@@ -883,12 +840,12 @@ function reboot.guard(handle: work.Handle, root: string,
   end
   if settle then
     log:complain("the tool's database was built by other code than its own; building it again")
-    local trouble, _ = into(handle, teal.lazy(), argv, true)
+    local trouble, _ = into(handle, argv, true)
     log:complain(trouble)
     return 3
   end
   log:complain("the tool is stale; rebuilding it from the tree" .. stale_reason.of(handle))
-  local trouble, moved = into(handle, teal.lazy(), argv, false)
+  local trouble, moved = into(handle, argv, false)
   return reboot.rebuild_failed(root, argv, trouble, moved)
 end
 

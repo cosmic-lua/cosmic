@@ -423,8 +423,11 @@ local unchecked_line <const> = "this tool was not checked against the tree when 
 --- Stages the tree when it is yet to be ([`source.View`]'s `pending`),
 --- then reads what the database lists; otherwise reads it again where a
 --- run made the database again, and whether its stubs are the running
---- analyzer's in any case. `built` parses what is new.
-function source.refresh(src: source.View, built: compiler)
+--- analyzer's in any case.
+---
+--- TODO: drop `_built` and the argument of its callers, once the second part of the switch takes the fork's branches out of
+--- `cosmic lsp` ([`build.lsp.check`]): nothing parses with it any more.
+function source.refresh(src: source.View, _built: compiler)
   local where = src.where
   if where ~= nil and not where.project then
     local directory = where.directory
@@ -458,7 +461,7 @@ function source.refresh(src: source.View, built: compiler)
       return
     end
   end
-  local staged, trouble = rebuild.stage(src.root, built, src.asked)
+  local staged, trouble = rebuild.stage(src.root)
   if staged ~= nil then adopt(src, staged) end
   -- A database of another schema is another tool's, whose rows this
   -- one's code may misread: none of it is read, and no module found in

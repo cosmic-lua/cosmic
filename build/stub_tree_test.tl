@@ -42,7 +42,7 @@ local function own_tree(tmp: string, source?: string): work.Handle, string
   assert(Fs.write(root .. "/cosmic/thing.tl", source or thing))
   local handle = assert(work.open(root))
   assert(work.stage(handle, true))
-  assert(importer.derive(handle, true, built))
+  assert(importer.derive(handle, true))
   local identities = assert(identity.record_identities(handle.db))
   return handle, identities.compiler
 end
@@ -66,7 +66,7 @@ end
 
 local function test_the_tool_carries_each_standard_module_s_stub(tmp: string)
   local handle, tool = own_tree(tmp)
-  local result = assert(importer.compile(handle, built, tool))
+  local result = assert(importer.compile(handle, tool))
   local dir = assert(build_paths.prepare(handle.root))
   assert(writer.write_result(handle, dir .. "/cosmic.db", result))
   assert(work.close(handle))
@@ -84,7 +84,7 @@ end
 local function test_a_stub_that_types_its_module_otherwise_fails_the_build(tmp: string)
   with_a_wrong_stub(function()
     local handle, tool = own_tree(tmp)
-    local result, trouble = importer.compile(handle, built, tool)
+    local result, trouble = importer.compile(handle, tool)
     assert(result == nil and trouble:find("cosmic/thing.tl: the stub", 1, true) ~= nil and
         trouble:find("types it differently", 1, true) ~= nil, trouble)
     assert(work.close(handle))
@@ -96,7 +96,7 @@ end
 local function test_an_unjudged_build_keeps_a_module_whose_stub_it_refuses(tmp: string)
   with_a_wrong_stub(function()
     local handle, tool = own_tree(tmp)
-    local result, trouble = importer.compile(handle, built, tool, true)
+    local result, trouble = importer.compile(handle, tool, true)
     assert(result ~= nil, trouble)
     assert(work.close(handle))
   end)
@@ -104,7 +104,7 @@ end
 
 local function test_a_projection_missing_a_stub_is_refused(tmp: string)
   local handle, tool = own_tree(tmp)
-  local result = assert(importer.compile(handle, built, tool))
+  local result = assert(importer.compile(handle, tool))
   assert(handle.db:exec("DELETE FROM stubs WHERE source_hash IN " ..
       "(SELECT source_hash FROM inputs WHERE path = 'cosmic.thing')"))
   local dir = assert(build_paths.prepare(handle.root))
@@ -120,7 +120,7 @@ end
 --- could not see, so the build refuses it as it does in any module.
 local function test_a_standard_module_declaring_a_global_fails_the_build(tmp: string)
   local handle, tool = own_tree(tmp, "global record G\n  n: integer\nend\n" .. thing)
-  local result, trouble = importer.compile(handle, built, tool)
+  local result, trouble = importer.compile(handle, tool)
   assert(result == nil and trouble:find("cosmic/thing.tl:1:1: a global is not allowed in a cosmic build",
     1, true) ~= nil, trouble)
   assert(work.close(handle))
@@ -131,7 +131,7 @@ end
 --- project's checker would read all of it.
 local function test_a_standard_module_with_no_declaration_only_stub_fails_the_build(tmp: string)
   local handle, tool = own_tree(tmp, "local thing = { n = 1 }\nreturn thing\n")
-  local result, trouble = importer.compile(handle, built, tool)
+  local result, trouble = importer.compile(handle, tool)
   assert(result == nil and trouble:find("cosmic/thing.tl: its stub keeps every statement", 1, true) ~= nil,
     trouble)
   assert(work.close(handle))

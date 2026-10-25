@@ -69,7 +69,7 @@ local function try_build(root: string): boolean, string
     work.close(handle)
     return false, stage_trouble
   end
-  local result, trouble = importer.compile(handle, built, "visibility-test")
+  local result, trouble = importer.compile(handle, "visibility-test")
   work.close(handle)
   if result == nil then
     return false, trouble

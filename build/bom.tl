@@ -199,19 +199,12 @@ local function notice_text(directory: string, notice: bom.Notice): string?, stri
 end
 
 --- The files of the tree that descend whole from a vendored tree, by its
---- name: the binary carries the compile of the checker ([`checker/tl.tl`],
---- [`checker/flow.tl`], [`checker/narrowing.tl`], [`checker/captures.tl`] and [`checker/facts.tl`]) and of the standard
---- library's declarations
---- ([`checker/stdlib.d.tl`]),
---- which descend from tl, not tl's own source. They are listed with the
---- tree's patches, as modified rather than patched. The binary carries the text of the
---- new checker's declarations ([`lang/stdlib.d.tl`], [`lang/prelude.d.tl`]) as rows of `decls`
---- ([`build.checker_declarations`]), for the projects the new checker types.
---
--- TODO: list lang/stdlib.d.tl as a descendant of tl, whose declarations it was written from, once the switch deletes
--- `checker/`: the entry of checker/stdlib.d.tl goes with it.
+--- name: the standard library's declarations the new checker types a program against ([`lang/stdlib.d.tl`]) were
+--- written from tl's, not tl's own source. They are listed with the tree's patches, as modified rather than patched. The
+--- binary carries their text, with [`lang/prelude.d.tl`]'s, as rows of `decls` ([`build.checker_declarations`]), for the
+--- projects the new checker types.
 local descendants: {string:{string}} = {
-  tl = { "checker/tl.tl", "checker/flow.tl", "checker/narrowing.tl", "checker/captures.tl", "checker/facts.tl", "checker/stdlib.d.tl" },
+  tl = { "lang/stdlib.d.tl" },
 }
 
 --- The tree's `descendants`, then the files under `patch/<name>/`, each

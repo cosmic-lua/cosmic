@@ -446,8 +446,8 @@ input to the build, never to the runtime. one database holds:
   its own environment.
 - **decls**: every declaration the tree holds, generated or written,
   so a checker building another tree against this binary can type
-  what it requires. Two rows are no module: `checker.prelude` and
-  `checker.stdlib`, the text of [`lang/prelude.d.tl`] and of
+  what it requires. Two rows are no module: `lang.prelude` and
+  `lang.stdlib`, the text of [`lang/prelude.d.tl`] and of
   [`lang/stdlib.d.tl`], which are the globals the new checker types a
   project against (`COSMIC_GRAMMAR=new`, [`build/checker_declarations.tl`]).
 - **catalog**: the errors a program can meet, one row per literal

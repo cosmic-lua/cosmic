@@ -31,10 +31,8 @@ local importer = require("build.importer")
 local shared_compiles = require("build.shared_compiles")
 local narrow = require("build.narrow")
 local schema = require("build.schema")
-local teal = require("build.teal")
 local tree = require("build.tree")
 local work = require("build.work")
-local workers = require("build.workers")
 local writer = require("build.writer")
 
 local logger = require("build.logger")
@@ -443,32 +441,17 @@ function embed.tree(root: string, host?: boolean, under?: {string}, grammar?: Gr
     local _, _ = work.close(handle)
     return nil, stage_trouble
   end
-  -- TODO: once the switch deletes the fork's compiler (doc/plans/strict-teal.md, "the switch"), stop loading it here: a build
-  -- with the new checker (COSMIC_GRAMMAR=new) hands `built` to a compile that parses and checks with the syntax tree, so the
-  -- load is spent on a compiler nothing asks.
-  local built, load_trouble = teal.load()
-  if built == nil then
-    local _, _ = work.close(handle)
-    return nil, load_trouble
-  end
   local project = build_paths.resolve(root).projection
-  -- The new checker reads the project in this process, so no pool is started for it; its compile is keyed by the mode.
-  local result: importer.Result? = nil
-  local compile_trouble = ""
+  -- The new checker reads the project in this process; its compile is keyed by the mode.
   local tool = GrammarMode.tool(Store.meta("compiler") or "", mode)
-  if mode == "new" then
-    result, compile_trouble = importer.compile(handle, built, tool, false, shared_compiles.for_build(), nil, false, mode)
-  else
-    result, compile_trouble = importer.compile(handle, built, tool, false,
-      shared_compiles.for_build(), workers.pool(workers.tool_spec()))
-  end
+  local result, compile_trouble = importer.compile(handle, tool, false, shared_compiles.for_build())
   if result == nil then
     local _, _ = work.record(handle, clock.elapsed_ms(started), staged, 0, 0, "FAIL")
     local _, _ = work.close(handle)
     return nil, compile_trouble
   end
   -- A compile with the new checker goes on past a module it refuses, to name them all; a program is not made of a tree that has one.
-  if mode == "new" and #result.refused > 0 then
+  if #result.refused > 0 then
     local _, _ = work.record(handle, clock.elapsed_ms(started), staged, result.compiled, result.cached, "FAIL")
     local _, _ = work.close(handle)
     return nil, table.concat(result.refused, "\n")

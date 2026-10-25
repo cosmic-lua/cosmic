@@ -1,8 +1,6 @@
 local gen_syscalls = require("build.gen_syscalls")
-local analyzer = require("build.analyzer")
-local teal = require("build.teal")
+local analyzer = require("build.syntax_analyzer")
 
-local built = assert(teal.load())
 
 local function lines(parts: {string}): string
   return table.concat(parts, "\n") .. "\n"
@@ -46,7 +44,7 @@ local header = lines({
 local function docs(): {string: analyzer.DocEntry}
   local source, trouble = gen_syscalls.declaration(header)
   assert(source ~= nil, trouble)
-  local found, err = analyzer.analyze(built, source, "syscalls.d.tl")
+  local found, err = analyzer.analyze(source, "syscalls.d.tl")
   assert(found ~= nil, "analyze failed: " .. tostring(err))
   local by_symbol: mut {string: analyzer.DocEntry} = {}
   for _, entry in ipairs(found.docs) do
@@ -241,12 +239,12 @@ local function test_a_userdata_class_declares_methods_and_metamethods()
       "  record Owner\n    userdata\n",
       "    fd: function(self: Owner): integer\n",
       "    close: function(self: Owner): boolean, string, integer\n",
-      "    metamethod __close: function(self: Owner)\n",
-      "  make: function(): Owner | nil, string, integer\n",
+      "    __close: function(self: Owner)\n",
+      "  make: function(): Owner?, string, integer\n",
   }) do
     assert(source:find(want, 1, true), want .. " missing from:\n" .. source)
   end
-  local found, err = analyzer.analyze(built, source, "syscalls.d.tl")
+  local found, err = analyzer.analyze(source, "syscalls.d.tl")
   assert(found ~= nil, "analyze failed: " .. tostring(err))
   for _, class in ipairs({ "Owner: table", "Owner userdata" }) do
     local refused, why = gen_syscalls.read(with(class))

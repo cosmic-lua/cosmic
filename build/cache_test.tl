@@ -51,13 +51,13 @@ local function test_bridge_rows_are_trimmed_with_the_compiles(tmp: string)
   local path = tmp .. "/cache.db"
   local db = database(path, formats.compiles)
   for _, statement in ipairs(formats.bridge_statements) do assert(db:exec(statement)) end
-  assert(db:exec("INSERT INTO bridge_v1 VALUES ('old','modules','',x'00','d',1,4)"))
-  assert(db:exec("INSERT INTO bridge_v1 VALUES ('new','modules','',x'00','d',1,6)"))
+  assert(db:exec("INSERT INTO bridge_v2 VALUES ('old','modules','',x'00','d',1,4)"))
+  assert(db:exec("INSERT INTO bridge_v2 VALUES ('new','modules','',x'00','d',1,6)"))
   assert(db:close())
   local result = trim(path, "compiles", 5)
   assert(result.complete, result.report.files[1].reason)
   local file = result.report.files[1]
-  assert(file.removed == 1 and #file.unknown_tables == 0 and count(path, "bridge_v1") == 1)
+  assert(file.removed == 1 and #file.unknown_tables == 0 and count(path, "bridge_v2") == 1)
 end
 
 local function test_equal_cutoff_is_kept_and_fresh_counts_only_compiles(tmp: string)

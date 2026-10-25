@@ -23,10 +23,8 @@
 
 local Fs = require("cosmic.fs")
 local importer = require("build.importer")
-local teal = require("build.teal")
 local work = require("build.work")
 
-local built = assert(teal.load())
 
 --- Compiles `source` as the one module of a fresh fixture project:
 --- true, or false and what the compile refused.
@@ -43,7 +41,7 @@ local function compiles(tmp: string, case: string, source: string): boolean, str
     work.close(handle)
     return false, stage_trouble
   end
-  local result, trouble = importer.compile(handle, built, "context-typing-test")
+  local result, trouble = importer.compile(handle, "context-typing-test")
   work.close(handle)
   if result == nil then
     return false, trouble

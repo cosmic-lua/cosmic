@@ -2,23 +2,19 @@
 --- against: which files are modules, how the standard library's declarations reach the checker, which bindings of C are typed.
 --- The ceilings of [`build.ceilings`] hold for a [`build.driver`] build configured as [`TreeProgram.build`] configures it, so
 --- [`build.tree_checks`], which counts the errors the pins allow, and [`Driver.Build.held`], which refuses what they do not,
---- both configure it here, and read the same program: the same sources, mended by the same steps ([`TreeProgram.index`]) and
+--- both configure it here, and read the same program: the same sources ([`TreeProgram.index`]) and
 --- with the same calls of [`Shape.record_of`] resolved ([`TreeProgram.splice`]), the same globals and bindings. A check of
 --- the whole tree holds them to it: for every module the working database stages, the tree's checks refuse it for a count
 --- over a ceiling exactly when the pipeline does, and the modules the pipeline refuses for more than a count are named
 --- ([`build.pipeline_check`], [`build.pipeline.residue`]).
 ---
 --- The globals are the declarations of the Lua standard library ([`lang/stdlib.d.tl`]) and the prelude ([`lang/prelude.d.tl`]),
---- both in the new grammar, less the names cosmic's runtime withholds ([`teal.withheld`]). A source is the fork's Teal,
---- translated when read ([`lang.translate`]).
+--- both in the new grammar, less the names cosmic's runtime withholds ([`teal.withheld`]). A source is read as written.
 local CheckerDeclarations = require("build.checker_declarations")
 local Driver = require("build.driver")
 local Fs = require("cosmic.fs")
 local Memprobe = require("build.memprobe")
-local LangProof = require("build.lang_proof")
-local NewDeclarations = require("build.new_declarations")
 local Scopes = require("lang.scopes")
-local Translate = require("lang.translate")
 local ShapeSpecs = require("build.syntax_shape_specs")
 local Template = require("cosmic.template")
 local analysis_schema = require("build.analysis_schema")
@@ -34,43 +30,10 @@ local record TreeProgram
   end
 
   --- The sources of `entries`: pairs of a path below the root and its text, or with the module and the name the
-  --- ceilings are kept under as well for a source the build writes from another file ([`Driver.index`]), all in the fork's
-  --- Teal, less the programs of a `testdata/` directory. With `steps`, which cosmic's own tree takes and a project does
-  --- not, [`checker/tl.tl`] and [`checker/stdlib.d.tl`] are left out too and the files that cannot be read in the new grammar once translated
-  --- (lang/ast.tl and lang/types.tl, which use `where`, and cosmic/removed_example.tl) have their `where` clauses blanked, and
-  --- each test of a record those clauses told apart is written as the test of its tag, wherever it is written
-  --- ([`build.lang_proof`]'s steps): the program the pipeline checks. `kinds` says of a file what the working database says
+  --- ceilings are kept under as well for a source the build writes from another file ([`Driver.index`]), all in the new
+  --- grammar, less the programs of a `testdata/` directory. `kinds` says of a file what the working database says
   --- of its input; a `test` has its functions called from outside.
-  index: function(entries: {{string}}, steps: boolean, kinds: {string: string}): Driver.Index
-
-  --- The tags the rewrite of [`build.lang_proof`] needs, read from lang/ast.tl and lang/types.tl among `entries`: none where
-  --- either is missing.
-  tags_of: function(entries: {{string}}): {string: LangProof.Tags}
-
-  --- What the pipeline reads for a file: the text, and the translation it was made from.
-  record Read
-    --- The translation's text with the steps done that the file needs: its `where` clauses blanked, the tests of their records
-    --- written as the tests of their tags, the lines the new checker reads otherwise replaced. [`TreeProgram.index`] hands the
-    --- same steps to the driver as the file's mend.
-    text: string
-    --- The translation, whose `text` is the text before the steps.
-    translation: Translate.Result
-  end
-
-  --- The text the pipeline reads for the file `file` of cosmic's own tree, whose text in the fork's Teal is `text`: its
-  --- translation ([`lang.translate`], or `translator`'s) and then the steps of the program. [`build.tree_writer`] writes this
-  --- text, so what the tree commits is what the pipeline read.
-  read: function(file: string, text: string, tags: {string: LangProof.Tags},
-    translator?: function(source: string, name: string): Translate.Result): TreeProgram.Read
-
-  --- Whether the file `file` of cosmic's own tree uses `where`, which its translation has blanked before it is read
-  --- ([`build.lang_proof`]'s `blank_where`).
-  blanked: function(file: string): boolean
-
-  --- Resolves the calls of [`Shape.record_of`] of the module `module` (the file `file`) of `build` ([`build.syntax_shape_specs`]),
-  --- reading the module in the build's scratch build ([`Driver.Build.scratch`]), and reads the module again with them. nil and
-  --- why where a call cannot be resolved; true where the module was read again and false where it has no such call.
-  splice: function(build: Driver.Build, module: string, file: string): boolean?, string
+  index: function(entries: {{string}}, kinds: {string: string}): Driver.Index
 
   --- `files` and `written` as one list of entries, and which files of it are `written`: the sources the build writes
   --- from other files ([`TreeProgram.derived_of`]) are files of the tree, named for the file each comes from.
@@ -119,101 +82,9 @@ local function skipped(file: string): boolean
   return file:find("^testdata/") ~= nil or file:find("/testdata/", 1, true) ~= nil
 end
 
---- What cosmic's own tree leaves out as well: the fork's checker and its copy of the standard library's declarations,
---- which are no module of the tree it compiles.
-local function skipped_in_own_tree(file: string): boolean
-  return file == "checker/tl.tl" or file == "checker/stdlib.d.tl" or skipped(file)
-end
-
---- The text of the file `file` among `entries`.
-local function text_of(entries: {{string}}, file: string): string?
-  for _, entry in ipairs(entries) do
-    if entry[1] == file then
-      return entry[2]
-    end
-  end
-  return nil
-end
-
---- The files that cannot be read in the new grammar once translated, and need the `where` clauses of their records blanked
---- ([`build.lang_proof`]'s `blank_where`).
-local BLANKED <const>: {string: boolean} = {
-  ["lang/ast.tl"] = true, ["lang/types.tl"] = true, ["cosmic/removed_example.tl"] = true,
-}
-
-function TreeProgram.blanked(file: string): boolean
-  return BLANKED[file] == true
-end
-
---- What is done to the translation of the file `file`, whose text is `text`: its `where` clauses are blanked where it needs
---- it, each test of a record they told apart is written as the tag test they were, and the lines it spells for the fork that
---- the new checker reads otherwise are replaced ([`build.new_declarations`]). nil for a file that needs none.
-local function mended(file: string, text: string, tags: {string: LangProof.Tags}): Driver.Mend?
-  local blank = BLANKED[file] == true
-  local mentions = text:find("lang.ast\"", 1, true) ~= nil or text:find("lang.types\"", 1, true) ~= nil
-  local declared: Driver.Mend? = nil
-  if NewDeclarations.edited(file) then
-    declared = function(translated: string): string
-      return NewDeclarations.apply(file, translated, true)
-    end
-  end
-  if not blank and not mentions then
-    return declared
-  end
-  -- The two modules that hold the clauses are known to the rewrite by the name of their file.
-  local name = file
-  if file == "lang/ast.tl" then
-    name = "ast.tl"
-  elseif file == "lang/types.tl" then
-    name = "types.tl"
-  end
-  return function(translated: string): string
-    local out = translated
-    if blank then
-      out = LangProof.blank_where(out).text
-    end
-    out = LangProof.rewrite(out, name, tags).text
-    if declared ~= nil then
-      out = declared(out)
-    end
-    return out
-  end
-end
-
-function TreeProgram.tags_of(entries: {{string}}): {string: LangProof.Tags}
-  local ast_text, types_text = text_of(entries, "lang/ast.tl"), text_of(entries, "lang/types.tl")
-  if ast_text ~= nil and types_text ~= nil then
-    return LangProof.tags(ast_text, types_text)
-  end
-  return {}
-end
-
-function TreeProgram.read(file: string, text: string, tags: {string: LangProof.Tags},
-                          translator?: function(source: string, name: string): Translate.Result): TreeProgram.Read
-  local translate = translator or Translate.translate
-  local result = translate(text, file)
-  local mend = mended(file, text, tags)
-  if mend == nil then
-    return { text = result.text, translation = result }
-  end
-  return { text = mend(result.text), translation = result }
-end
-
-function TreeProgram.index(entries: {{string}}, steps: boolean, kinds: {string: string}): Driver.Index
-  local tags: {string: LangProof.Tags} = {}
-  if steps then
-    tags = TreeProgram.tags_of(entries)
-  end
-  local skip = skipped
-  if steps then
-    skip = skipped_in_own_tree
-  end
-  return Driver.index(entries, true, skip, function(file: string, text: string): Driver.Extra
-    local mend: Driver.Mend? = nil
-    if steps then
-      mend = mended(file, text, tags)
-    end
-    return { tests = kinds[file] == "test", mend = mend }
+function TreeProgram.index(entries: {{string}}, kinds: {string: string}): Driver.Index
+  return Driver.index(entries, false, skipped, function(file: string, _text: string): Driver.Extra
+    return { tests = kinds[file] == "test", mend = nil }
   end)
 end
 
@@ -412,7 +283,7 @@ function TreeProgram.derived_of(root: string): {{string}}?, string
       if text == nil then
         return nil, why
       end
-      local made, made_why = Template.compile(text, file)
+      local made, made_why = Template.compile(text, file, { dialects = nil, new_grammar = true })
       if made == nil then
         return nil, made_why
       end

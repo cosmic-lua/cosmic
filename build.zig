@@ -751,7 +751,7 @@ pub fn build(b: *std.Build) void {
     }
 
     // The compiler boot starts from: the Lua the pinned release writes for
-    // the checker's source ([`seedCompiler`]).
+    // the seed's files ([`seedCompiler`]).
     const seed = seedCompiler(b);
 
     const cores = b.step("cores", "build the core for every target");
@@ -1044,22 +1044,21 @@ pub fn build(b: *std.Build) void {
     b.getInstallStep().dependOn(cores);
 }
 
-/// What the seed step says when the pinned release refuses the checker's
+/// What the seed step says when the pinned release refuses the seed's
 /// source: its own complaint, `file:line:column: message`, is above it.
 const seed_refused =
-    "build.zig: the pinned release could not compile the checker (see the file:line above). " ++
-    "If it names a syntax error, checker/ uses syntax the release in ci/cosmic-driver.pin " ++
+    "build.zig: the pinned release could not compile the seed (see the file:line above). " ++
+    "If it names a syntax error, a file of build/seed.txt uses syntax the release in ci/cosmic-driver.pin " ++
     "does not parse: move the pin to a release that parses it (doc/contributing.md, " ++
     "\"moving the driver pin\"), or name a cosmic that does with COSMIC_BOOTSTRAP=<path>.";
 
-/// The seed boot compiles the checker from: a directory holding the Lua
-/// the pinned release ([`bin/cosmic-bootstrap`], which `COSMIC_BOOTSTRAP`
-/// can point at another cosmic) writes for `checker/*.tl` with its
-/// `cosmic compile`, and for [`build/checker_wrapper.tl`], the wrapper that
-/// joins the checker's parts. It is raw: the bridge wraps it, loads it as
-/// the first-stage compiler and has that compile the checker again
-/// (core/bridge.lua's `bootstrap`), so what the tool carries never
-/// depends on this release's emitter.
+/// The seed boot builds its compiler from: a directory holding the Lua the
+/// pinned release ([`bin/cosmic-bootstrap`], which `COSMIC_BOOTSTRAP` can
+/// point at another cosmic) writes, with its `cosmic compile --grammar
+/// new`, for the files of [`build/seed.txt`]: [`build/seed.tl`] and what it
+/// requires. It is raw: the bridge loads it as the first-stage compiler and
+/// has that compile the same files again (core/bridge.lua's `bootstrap`),
+/// so what the tool carries never depends on this release's emitter.
 ///
 /// The run is cached by zig: its inputs are the files it is given, the
 /// pin, which names the release, and [`bin/cosmic-bootstrap`]; so it runs
@@ -1069,47 +1068,33 @@ const seed_refused =
 fn seedCompiler(b: *std.Build) std.Build.LazyPath {
     const compile = b.addSystemCommand(&.{
         "sh", "-c",
-        // Quiet unless it fails: a compile of the checker says, on every
-        // run, that it has type errors, which it is meant to. Only a
-        // refusal gets the hint: status 2 is `cosmic compile`'s for a
-        // command line or file it refuses.
+        // Quiet unless it fails: a compile of the seed says, on every
+        // run, that it has type errors, which it is meant to (it is given
+        // no declarations). Only a refusal gets the hint: status 2 is
+        // `cosmic compile`'s for a command line or file it refuses.
         "said=$(\"$@\" 2>&1) || { status=$?; printf '%s\\n' \"$said\" >&2; " ++
             "[ \"$status\" -ne 2 ] || printf '%s\\n' \"$0\" >&2; exit \"$status\"; }",
         seed_refused,
     });
     // The tree is the working directory and so the root the modules are
-    // named from: [`checker/flow.tl`] is `checker.flow`.
+    // named from: [`lang/flow.tl`] is `lang.flow`.
     compile.setCwd(b.path("."));
-    compile.addArgs(&.{ "bin/cosmic-bootstrap", "compile", "-o" });
+    compile.addArgs(&.{ "bin/cosmic-bootstrap", "compile", "--grammar", "new", "-o" });
     const out = compile.addOutputDirectoryArg("seed");
-    // A file added to checker/ is compiled and carried, so the listing is
-    // read by the configuration.
-    b.dependOnDirectoryContents(b.path("checker"));
-    var names: std.ArrayList([]const u8) = .empty;
-    var dir = b.root.root_dir.handle.openDir(b.graph.io, "checker", .{ .iterate = true }) catch |err| {
-        std.debug.print("build.zig: cannot list checker/: {s}\n", .{@errorName(err)});
+    const listing = b.path("build/seed.txt");
+    const at = b.root.joinString(b.allocator, "build/seed.txt") catch @panic("OOM");
+    const text = std.Io.Dir.cwd().readFileAlloc(b.graph.io, at, b.allocator, .limited(1 << 16)) catch |err| {
+        std.debug.print("build.zig: cannot read build/seed.txt: {s}\n", .{@errorName(err)});
         std.process.exit(1);
     };
-    defer dir.close(b.graph.io);
-    var entries = dir.iterate();
-    while (entries.next(b.graph.io) catch |err| {
-        std.debug.print("build.zig: cannot list checker/: {s}\n", .{@errorName(err)});
-        std.process.exit(1);
-    }) |entry| {
-        if (entry.kind != .file or !std.mem.endsWith(u8, entry.name, ".tl")) continue;
-        names.append(b.allocator, b.fmt("checker/{s}", .{entry.name})) catch @panic("OOM");
-    }
-    names.append(b.allocator, "build/checker_wrapper.tl") catch @panic("OOM");
-    // A directory listing has no order.
-    std.mem.sort([]const u8, names.items, {}, struct {
-        fn less(_: void, x: []const u8, y: []const u8) bool {
-            return std.mem.lessThan(u8, x, y);
-        }
-    }.less);
-    for (names.items) |name| {
+    b.dependOnFileContents(listing);
+    var lines = std.mem.splitScalar(u8, text, '\n');
+    while (lines.next()) |name| {
+        if (name.len == 0) continue;
         compile.addArg(name);
         compile.addFileInput(b.path(name));
     }
+    compile.addFileInput(listing);
     compile.addFileInput(b.path("ci/cosmic-driver.pin"));
     compile.addFileInput(b.path("bin/cosmic-bootstrap"));
     if (b.graph.environ_map.get("COSMIC_BOOTSTRAP")) |stand_in| {

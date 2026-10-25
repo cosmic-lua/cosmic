@@ -8,11 +8,9 @@ local Codec = require("cosmic.codec")
 local Fs = require("cosmic.fs")
 local Sqlite = require("cosmic.sqlite")
 local importer = require("build.importer")
-local teal = require("build.teal")
 local work = require("build.work")
 local writer = require("build.writer")
 
-local built = assert(teal.load())
 
 --- One module of the tree: the variants of each part that an edit moves, so
 --- that a step is one change to one record. `dep` is the module it requires,
@@ -328,7 +326,7 @@ end
 --- how many modules the first took from what stood at `out`.
 local function write_both(handle: work.Handle, out: string, whole: string, tool: string): integer
   assert(work.stage(handle, false))
-  local result = assert(importer.compile(handle, built, tool))
+  local result = assert(importer.compile(handle, tool))
   assert(handle.db:exec("DROP TABLE IF EXISTS temp.reused"))
   assert(writer.write_result(handle, out, result))
   local taken = reused(handle)
@@ -574,7 +572,7 @@ local function test_a_base_damaged_past_its_schema_is_written_over(tmp: string)
   ruin(out, page)
   write_tree(root, changed(initial, "b2", function(spec: Spec): Spec return with_body(spec, 5) end), "")
   assert(work.stage(handle, false))
-  local result = assert(importer.compile(handle, built, "writer-test"))
+  local result = assert(importer.compile(handle, "writer-test"))
   local written, _ = writer.write_result(handle, out, result)
   assert(not written, "a write read a damaged base to its end")
   assert(Fs.exists(out) ~= true, "a damaged base was left to fail the next write")

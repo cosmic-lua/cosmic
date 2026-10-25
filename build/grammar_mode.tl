@@ -1,10 +1,14 @@
---- Which checker compiles the tree: the fork's (`teal`, the default) or the new one (`new`), chosen by `COSMIC_GRAMMAR`, the
---- word `cosmic compile --grammar` takes. An unset or empty variable is `teal`; any other word but `new` is refused.
+--- Which checker compiles the tree: the new one, `new`, the word `cosmic compile --grammar` takes and `COSMIC_GRAMMAR` may
+--- name. An unset or empty variable is `new`. The fork's grammar, `teal`, is gone: a project still in it is migrated with
+--- `cosmic migrate`, and any other word is refused too.
 ---
 --- The mode is part of the tool string that every compile key carries ([`GrammarMode.tool`]), as the identity of a compile
 --- with run-time checks is ([`build.importer`]'s `checked_tool`), so a compiled row, a compile the checkouts share and the
---- verdict of a test never stand for the other mode. It is not part of the compiler's identity ([`build.identity`]), which
---- decides when the tool is stale: the tool is the same tool whichever mode a run asks for.
+--- verdict of a test never stand for another compile. It is not part of the compiler's identity ([`build.identity`]), which
+--- decides when the tool is stale.
+---
+--- TODO: drop `teal` from `Mode`, and the readers that compare with it, once the fork's readers are deleted (the second
+--- part of the switch): no function here answers it any more.
 ---
 --- A module of its own, because [`build.test_key`] reads it and a harness module reaches no more of the tree than it must.
 local Env = require("cosmic.env")
@@ -17,26 +21,26 @@ local record GrammarMode
     "new"
   end
 
-  --- The mode `word` names: the fork's for nil and "", nil and why for a word that is none.
+  --- The mode `word` names: `new` for nil, "" and "new", nil and why for any other word (`teal` is refused, naming
+  --- `cosmic migrate`).
   of: function(word: string?): Mode?, string
 
   --- The mode `COSMIC_GRAMMAR` asks for ([`GrammarMode.of`]).
   mode: function(): Mode?, string
 
-  --- The tool string a compile in `mode` is keyed by, given the identity of the compiler `tool`: `tool` itself for the
-  --- fork's mode, so that nothing a default run keys moves, and a digest of the tool and the mode for the new one.
-  --- `wraps` says the compile writes the calls of `__fact` ([`lang.fact_wraps`]) at the reads a test narrowed, whose Lua is
-  --- another program from the one without; the fork writes none, so it is told apart in the new mode alone.
+  --- The tool string a compile in `mode` is keyed by, given the identity of the compiler `tool`: a digest of the tool and
+  --- the mode. `wraps` says the compile writes the calls of `__fact` ([`lang.fact_wraps`]) at the reads a test narrowed,
+  --- whose Lua is another program from the one without.
   tool: function(tool: string, mode: Mode, wraps?: boolean): string
 end
 
 function GrammarMode.of(word: string?): GrammarMode.Mode?, string
-  if word == nil or word == "" or word == "teal" then
-    return "teal"
-  elseif word == "new" then
+  if word == nil or word == "" or word == "new" then
     return "new"
+  elseif word == "teal" then
+    return nil, "COSMIC_GRAMMAR=teal: the fork's grammar is gone; `cosmic migrate` rewrites a project to the new one"
   end
-  return nil, "COSMIC_GRAMMAR=" .. word .. ": the grammars are `teal` (the default) and `new`"
+  return nil, "COSMIC_GRAMMAR=" .. word .. ": the only grammar is `new` (the default)"
 end
 
 function GrammarMode.mode(): GrammarMode.Mode?, string

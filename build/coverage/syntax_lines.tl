@@ -49,10 +49,6 @@ function Lines.executable(source: string, name: string, translated?: boolean): {
   local text_read = source
   if translated == true then
     text_read = Translate.translate(source, name).text
-    -- Three files of cosmic's own tree use `where`, which the build blanks before it reads them ([`build.tree_program`]).
-    if require("build.tree_program").blanked(name) then
-      text_read = require("build.lang_proof").blank_where(text_read).text
-    end
   end
   local chunk, why = Node.parse(text_read, name)
   if chunk == nil then

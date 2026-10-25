@@ -8,12 +8,10 @@ local Fs = require("cosmic.fs")
 local Test = require("cosmic.test")
 local compilation = require("build.compilation")
 local importer = require("build.importer")
-local teal = require("build.teal")
 local work = require("build.work")
 
 Test.policy{ grants = { { path = "core", letters = "r" } } }
 
-local built = assert(teal.load())
 
 --- How many modules the tree can have, and the bit of `edges` that is a module of
 --- the standard library, which each may require beside the others.
@@ -56,7 +54,7 @@ end
 local function differing(root: string, tool: string): string
   local handle = assert(work.open(root))
   assert(work.stage(handle, false))
-  assert(importer.derive(handle, false, built))
+  assert(importer.derive(handle, false))
   local modules = assert(compilation.collect(handle.db))
   local kept = assert(compilation.dependency_keys(handle.db, modules, tool))
   local full = assert(compilation.full_keys(handle.db, modules, tool))
@@ -245,7 +243,7 @@ local function test_the_keys_kept_for_one_compiler_are_not_served_for_another()
   local function key_of(tool: string): string
     local handle = assert(work.open(root))
     assert(work.stage(handle, false))
-    assert(importer.derive(handle, false, built))
+    assert(importer.derive(handle, false))
     local modules = assert(compilation.collect(handle.db))
     local keys = assert(compilation.dependency_keys(handle.db, modules, tool))
     work.close(handle)

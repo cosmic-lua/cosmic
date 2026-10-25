@@ -4,19 +4,16 @@
 --- what [`build.derivation`]'s `parse_fresh` writes, so that [`build.importer`] calls either: the one in the mode
 --- `COSMIC_GRAMMAR=new` chooses.
 ---
---- THE PROGRAM is every module of the staged tree (the `inputs` of the working database), in the fork's Teal, translated when
---- read ([`lang.translate`]), set up as the pins are measured ([`build.tree_program`]); the `cosmic.*` modules the tree does
+--- THE PROGRAM is every module of the staged tree (the `inputs` of the working database), in the new grammar, set up as the
+--- pins are measured ([`build.tree_program`]); the `cosmic.*` modules the tree does
 --- not hold (a project's `require` of the standard library) are the binary's own, each its stub or its source, and the
 --- bindings of C are typed from the declarations the build writes of the headers ([`cosmic.sys`], the raw process and socket
 --- tables), the tree's or the binary's. The globals of every module are the declarations of the Lua standard library: in
---- cosmic's tree the files of its `checker/`, in a project the ones the tool carries ([`build.checker_declarations`]).
+--- cosmic's tree the files [`lang/prelude.d.tl`] and [`lang/stdlib.d.tl`], in a project the ones the tool carries
+--- ([`build.checker_declarations`]).
 ---
---- THERE IS NO FALLBACK TO THE FORK. The mode is for any project, and one written in a form only the fork reads is refused
---- with the new checker's words and fix ([`build.error_catalog`], [`build.error_render`]), as it will be once the new checker
---- replaces the fork. The three modules of the tree that do not read in the new grammar once translated
---- ([`lang/ast.tl`] and [`lang/types.tl`], which use `where`, and [`cosmic/removed_example.tl`]) go through the mechanical
---- steps that [`build.lang_proof`] makes, so that the checker's own tests run on the Lua the new generator writes; a
---- project's modules have none of them.
+--- THERE IS NO FALLBACK TO THE FORK. A project written in a form only the fork reads is refused with the new checker's
+--- words and fix ([`build.error_catalog`], [`build.error_render`]).
 ---
 --- A MODULE IS REFUSED for a count of errors above its ceiling ([`build.ceilings`]), for any warning, for a translation
 --- that does not parse (a pin lets it be counted, not compiled) and for a construct the generator does not write. The
@@ -54,13 +51,10 @@ local SyntaxContracts = require("build.syntax_contracts")
 local SyntaxDerivation = require("build.syntax_derivation")
 local Typed = require("build.syntax_typed")
 local TreeProgram = require("build.tree_program")
-local ast = require("build.ast")
-local fork_stub = require("build.stub")
 local teal = require("build.teal")
 local tree = require("build.tree")
 local type Compilation = require("build.compilation")
 local type Derivation = require("build.derivation")
-local type compiler = require("build.compiler")
 local type receivers = require("build.receivers")
 local type Module = Compilation.Module
 
@@ -84,8 +78,7 @@ local record Pipeline
     --- Answers the `cosmic.*` modules the tree does not hold, each its stub or its source: [`Pipeline.carried`] where
     --- not given.
     standard: Driver.Provider?
-    --- Whether the tree is a project outside cosmic's own: it has none of the mends cosmic's own tree needs
-    --- ([`TreeProgram.index`]'s `steps`), and its checker is its own. Absent for cosmic's tree.
+    --- Whether the tree is a project outside cosmic's own, whose checker is its own. Absent for cosmic's tree.
     project: boolean?
   end
 
@@ -222,8 +215,8 @@ local record Pipeline
   --- into `db` beside the others: through the translation of the fork's Teal ([`lang.translate`]) and the steps that read
   --- the three files that need them ([`build.tree_program`]). A source that does not parse is listed in `broken` when given
   --- and stops the derive otherwise, told in the words of the new checker ([`build.error_render`]).
-  derive: function(db: Sqlite.Handle, built: compiler, fresh: {Derivation.Fresh}, tally: Derivation.Parses,
-                   made: {Derivation.Source}, broken?: {Derivation.Broken}, project?: boolean): boolean, string
+  derive: function(db: Sqlite.Handle, fresh: {Derivation.Fresh}, tally: Derivation.Parses,
+                   made: {Derivation.Source}, broken?: {Derivation.Broken}): boolean, string
 
   --- Writes a row for every code the new checker emits to the `catalog` table of `db` (of the schema `schema`, "" for the
   --- default), as [`ErrorCatalog.insert`] does.
@@ -312,12 +305,12 @@ function Pipeline.carried(): Driver.Provider
       return nil
     end
     return found.text
-  end, true, declared)
+  end, false, declared)
 end
 
 function Pipeline.over(entries: {{string}}, kinds: {string: string}, options: Pipeline.Options, stubs?: {string: string}):
     Pipeline.Built
-  local index = TreeProgram.index(entries, options.project ~= true, kinds)
+  local index = TreeProgram.index(entries, kinds)
   local standard = options.standard or Pipeline.carried()
   return {
     build = TreeProgram.build(index, options.globals, options.types, nil, standard), ceilings = options.ceilings, index = index,
@@ -487,13 +480,13 @@ local function restore_collector(previous: string)
   end
 end
 
-function Pipeline.derive(db: Sqlite.Handle, built: compiler, fresh: {Derivation.Fresh}, tally: Derivation.Parses,
-                         made: mut {Derivation.Source}, broken?: mut {Derivation.Broken}, project?: boolean): boolean, string
+function Pipeline.derive(db: Sqlite.Handle, fresh: {Derivation.Fresh}, tally: Derivation.Parses,
+                         made: mut {Derivation.Source}, broken?: mut {Derivation.Broken}): boolean, string
   local entries, kinds, trouble = entries_of(db)
   if entries == nil then
     return false, trouble
   end
-  local index = TreeProgram.index(entries, project ~= true, kinds)
+  local index = TreeProgram.index(entries, kinds)
   -- A source is found by the name of its file in the database, which for a declaration written from a header is the header's.
   local by_file: mut {string: Driver.Source} = {}
   for _, source in ipairs(index.sources) do
@@ -527,24 +520,11 @@ function Pipeline.derive(db: Sqlite.Handle, built: compiler, fresh: {Derivation.
       end
       broken[#broken + 1] = { source_hash = one.source_hash, file = one.file, message = message }
     else
-      -- A standard-library module's stub is written as the fork writes it, for the tools that read it with the fork (a fixture
-      -- project a test compiles, the checker of a project built with the fork's tool); the new grammar's is made of the tree where
-      -- it is judged.
-      local forked: Stub.Made? = nil
-      -- TODO: drop the fork's stub, and with it the load of the fork's compiler in a build or a lookup of cosmic's own tree, once
-      -- the switch deletes the fork and its readers (doc/plans/strict-teal.md, "the switch").
-      if one.file:sub(1, 7) == "cosmic/" then
-        local parsed, _ = ast.parse(built, one.source, one.file)
-        if parsed ~= nil then
-          local fork = fork_stub.made(parsed)
-          forked = { text = fork.text, pruned = fork.pruned }
-        end
-      end
       -- TODO: number the rows of a Teal source by its own lines, once the switch writes the tree in the new grammar
       -- (doc/plans/strict-teal.md, "the switch"): they are numbered in the translation's text, which moves the lines after a
       -- class (`function R:m` moves into its record), so `cosmic docs` and `cosmic uses` of cosmic's own tree in this mode name
       -- lines a few off in a file the translation made a class of. A source written in the new grammar is unaffected.
-      local put, why = SyntaxDerivation.insert(db, one.source_hash, one.file, read.text, read.chunk, one.mapped, forked)
+      local put, why = SyntaxDerivation.insert(db, one.source_hash, one.file, read.text, read.chunk, one.mapped)
       if not put then
         restore_collector(previous)
         return false, why
@@ -770,7 +750,7 @@ function Pipeline.review(m: Module, built: Pipeline.Built, hints?: ErrorRender.H
 end
 
 function Pipeline.requires(file: string, text: string): {string}?, string
-  local index = Driver.index({ { file, text, "lone" } }, true, function(_: string): boolean
+  local index = Driver.index({ { file, text, "lone" } }, false, function(_: string): boolean
     return false
   end)
   local source = index.sources[1]

@@ -1,20 +1,38 @@
--- The bridge: the only Lua the tree writes by hand rather than compiling from Teal,
--- because it is what makes Teal available. It builds the handful of
--- things a boot needs outside the pure libraries, over the syscall table:
--- the files of the tree it compiles, which it serves to the checker
--- ([`checker/tl.tl`], whose Lua the seed supplies) by name, as the build
--- does from its database. The checker itself reads no file and no
--- variable. The bridge also holds the modules that exist before any file
--- does, the declarations boot derives from a header (the syscall table's
--- and the raw process table's), and serves them to the checker from memory.
+-- The bridge is the only Lua the tree writes by hand rather than compiling from Teal, because it is what makes Teal
+-- available. A boot (`cosmic-core --boot <root> ...`, core/boot.c) loads it from the tree it boots and runs it with that
+-- root. It builds, over the syscall table, the compiler a boot needs in two stages, and then the searcher that answers
+-- `require` for the build's code from that compiler:
 --
--- A boot (`cosmic-core --boot <root> ...`, core/boot.c) loads it from
--- the tree it boots, as it loads the seed's compiler, and runs it with
--- that root; nothing else does. It is part of the core's image
--- fingerprint (build/work.tl), since what it sets the compiler to shapes
--- what a boot compiles. It takes the compiles it needs from the cache
--- every checkout shares where it can, which keeps a boot, and each
--- worker a boot starts, from compiling the same tree again.
+--   * The SEED is a directory holding the Lua the pinned release wrote for the files of [`build/seed.txt`] (build.zig's
+--     `seedCompiler`), each as `<basename>.lua`: build/seed.tl and the files it requires. Stage one loads it, every
+--     module by the name its path gives, in an environment of its own.
+--   * Stage one compiles the same files again, from the tree, to stage two, which the bridge compares with the seed. The
+--     tool never depends on the pin's emitter: it is the tree's own generator applied to the tree's own source. A file
+--     whose Lua stage two writes otherwise than the seed does must be named in `lang/SEED_DIFFERS`, one path a line (a
+--     change to what the generator writes adds it; the move of ci/cosmic-driver.pin to a release carrying the change
+--     removes it).
+--   * Stage two is loaded the same way, as [`build.seed`]: its `program(root, declared)` is a build of the new checker over
+--     the tree, and the searcher answers `build.*` and the rest up to [`build.boot`] with the Lua it writes, a module at
+--     a time. Type errors are not refused (the tree's checks hold the code to its ceilings); a syntax error and a
+--     construct the generator does not write are.
+--
+-- The compiles are kept in the file every checkout shares where the cache is on, in a table of its own, `bridge_v2`
+-- (build/cache_formats.tl lists the tables the file holds):
+--
+--   * `compiler`: stage two's Lua for the seed's files, keyed by the digests of the seed's Lua, of the files' sources,
+--     of the seed list and of this file.
+--   * `modules`: the Lua of every module loaded up to [`build.boot`], keyed by the compiler's key and the digest of
+--     every `.tl` and `.h` under the root (`manifest`). A row is kept only if the tree is, after the load, the tree the
+--     key names.
+--
+-- A row also holds the digest of the declarations it was made with, which `declare` has to reproduce before a module is
+-- taken from it. A row's Lua runs, so the file is trusted only as [`Fs.cache_dir`] and [`shared_compiles.open`] trust
+-- theirs: owned by this user and writable by no one else, as is its directory, and the file never a link. A row whose
+-- digest fails is a miss and is deleted. Every other failure to read or write the file is a miss too, and says nothing.
+--
+-- TODO: keep each module's compile apart, keyed by that module's source and its own closure's, so an edit to one `.tl`
+-- compiles only the modules that reach it: today any change to a `.tl` or `.h` under the root makes every module here
+-- compile again. Waits on the program telling a module's closure before it is compiled.
 local root = ...
 local sys = require('cosmic.sys')
 
@@ -32,65 +50,12 @@ local function read_all(path)
   return table.concat(parts)
 end
 
--- The compiles below are kept in the file every checkout shares,
--- `cache.db` ([`build.shared_compiles`]), in a table of its own,
--- `bridge_v1`. The Teal build keys a compile by its import graph, which
--- a parse of the tree finds, and by the compiler's identity
--- ([`build.compilation`]'s `dependency_keys`): neither exists before the
--- first module is compiled. So a row here is keyed by its inputs
--- themselves, whole or not at all:
---
---   * `compiler`: the Lua that stage one (the seed's) makes of the tree's
---     checker, [`checker/tl.tl`] and each other `checker/*.tl` beside it,
---     keyed by the digests of the seed's Lua, the checker's sources,
---     [`checker/stdlib.d.tl`] and this file.
---   * `modules`: the Lua of every module loaded up to [`build.boot`],
---     keyed by the compiler's key and the digest of every `.tl` and `.h`
---     under the root (`manifest`).
---
--- The manifest is every file a compile here can read. The searcher and
--- `disk_search` resolve a module name to `<stem>.d.tl`, `<stem>/init.d.tl`,
--- `<stem>.tl` or `<stem>/init.tl` under the root, and the declarations
--- of `declare` are made from headers by [`build.gen_syscalls`], itself a
--- `.tl`. A file added, removed, moved or edited moves the key, so a row
--- never stands for a tree it was not made from. A tree the manifest
--- cannot vouch for (a link to a directory, a directory it cannot list) is
--- compiled and keeps nothing.
---
--- The manifest is taken when the first module loads and the modules are
--- read over the seconds after, so a file edited in between would make a
--- row hold code the key does not name. Every file a compile reads is
--- therefore digested as it is read, and the row is kept only if each
--- digest is the manifest's for that path. A file the compile reads that
--- the manifest omits (a `<stem>.lua`, which tl's search opens when
--- nothing else is there, and which a compile of a checked `.tl` never
--- ends up using) keeps the row from being written at all.
---
--- A row also holds the digest of the declarations it was made with,
--- which `declare` has to reproduce before a module is taken from it.
---
--- TODO: keep each module's compile apart, keyed by that module's source
--- and its own closure's, so an edit to one `.tl` compiles only the
--- modules that reach it: today any change to a `.tl` or `.h` under the
--- root makes every module here compile again (some 7 s), for a boot
--- and for the workers it starts. Waits on a way to know a module's
--- closure in plain Lua before compiling it, which the Teal build gets
--- from a parse of the tree ([`build.compilation`]'s `dependency_keys`);
--- recording the files each compile read, and checking their digests at
--- lookup, would give it here.
---
--- A row's Lua runs, so the file is trusted only as [`Fs.cache_dir`] and
--- [`shared_compiles.open`] trust theirs: owned by this user and writable by
--- no one else, as is its directory, and the file never a link. A row
--- whose digest fails is a miss and is deleted. Every other failure to
--- read or write the file is a miss too, and says nothing: the build
--- that follows opens the same file and reports it.
 local hash = require('cosmic.internal.hash')
 local sqlite = require('cosmic.internal.sqlite')
 
 -- Names the row digests and the keys, so a change to what a row holds
 -- or how it is keyed makes every earlier row a miss.
-local format = 'bridge-v1'
+local format = 'bridge-v2'
 
 -- How many rows of each kind the file keeps, the most lately used first:
 -- a few whole states of the tree.
@@ -101,13 +66,14 @@ local kept_rows = 16
 local wait_ns = 2 * 1000000000
 local wal_wait_ns = 3 * 1000000000
 
--- The statements that make the table. build/cache_formats.tl holds the
--- same ones, and build/bridge_cache_test.tl holds the two to each other.
+-- The statements that make the table.
+--
+-- build/cache_formats.tl holds the same statements.
 local schema = {
-  'CREATE TABLE IF NOT EXISTS bridge_v1 (key TEXT PRIMARY KEY, ' ..
+  'CREATE TABLE IF NOT EXISTS bridge_v2 (key TEXT PRIMARY KEY, ' ..
     'kind TEXT NOT NULL, declared TEXT NOT NULL, payload BLOB NOT NULL, ' ..
     'digest TEXT NOT NULL, size INTEGER NOT NULL, used_ns INTEGER NOT NULL)',
-  'CREATE INDEX IF NOT EXISTS bridge_v1_by_use ON bridge_v1 (used_ns)',
+  'CREATE INDEX IF NOT EXISTS bridge_v2_by_use ON bridge_v2 (used_ns)',
 }
 
 local function hex(raw)
@@ -314,7 +280,7 @@ local function look(path, kind, key)
   db:busy_timeout(wait_ns)
   local found
   local statement = db:prepare('SELECT declared, inflate(payload), digest ' ..
-    'FROM bridge_v1 WHERE key = ?1 AND kind = ?2')
+    'FROM bridge_v2 WHERE key = ?1 AND kind = ?2')
   if statement then
     if statement:bind_text(1, key) and statement:bind_text(2, kind) and
         statement:step() == 'row' then
@@ -331,10 +297,10 @@ local function look(path, kind, key)
       -- and not only those lately made; a run that cannot take the
       -- lock at once goes without.
       db:busy_timeout(0)
-      run(db, 'UPDATE bridge_v1 SET used_ns = ?1 WHERE key = ?2',
+      run(db, 'UPDATE bridge_v2 SET used_ns = ?1 WHERE key = ?2',
         clock(sys.CLOCK_REALTIME), key)
     else
-      run(db, 'DELETE FROM bridge_v1 WHERE key = ?1 AND digest = ?2', key, found.digest)
+      run(db, 'DELETE FROM bridge_v2 WHERE key = ?1 AND digest = ?2', key, found.digest)
     end
   end
   db:close()
@@ -355,12 +321,12 @@ local function keep(path, kind, key, declared, payload)
       ready = ready and db:exec(statement)
     end
     if ready and db:exec('BEGIN IMMEDIATE') then
-      kept = run(db, 'INSERT OR REPLACE INTO bridge_v1 (key, kind, declared, payload, ' ..
+      kept = run(db, 'INSERT OR REPLACE INTO bridge_v2 (key, kind, declared, payload, ' ..
           'digest, size, used_ns) VALUES (?1, ?2, ?3, deflate(?4), ?5, ?6, ?7)',
         key, kind, declared, { payload }, row_digest(key, declared, payload), #payload,
         clock(sys.CLOCK_REALTIME)) and
-        run(db, 'DELETE FROM bridge_v1 WHERE kind = ?1 AND key NOT IN (SELECT key ' ..
-          'FROM bridge_v1 WHERE kind = ?1 ORDER BY used_ns DESC, key LIMIT ?2)',
+        run(db, 'DELETE FROM bridge_v2 WHERE kind = ?1 AND key NOT IN (SELECT key ' ..
+          'FROM bridge_v2 WHERE kind = ?1 ORDER BY used_ns DESC, key LIMIT ?2)',
           kind, kept_rows)
       if kept then kept = db:exec('COMMIT') end
       if not kept then db:exec('ROLLBACK') end
@@ -396,135 +362,154 @@ local function unpack_records(payload)
   return nil
 end
 
--- The key of the compiler's row and the base of the modules' rows: the
--- digests of the Lua of the seed (`seed`, by name, `tl` for the entry),
--- of `source` (the checker's `tl.tl`), of each of `parts` (the checker's
--- other files, in name order), of `declarations` (its `stdlib.d.tl`) and
--- of this file, which sets the compiler's defaults and decides what is
--- kept. The seed's Lua is what stage one runs, so the key names the
--- compiler that made the row, not the release it came from.
--- Nil when one cannot be read or when the cache is off.
+
+-- Timing and memory of a boot, when `COSMIC_BRIDGE_TRACE` is set: one line on standard error for each step.
+local tracing = (sys.getenv('COSMIC_BRIDGE_TRACE') or '') ~= ''
+local trace_started = sys.clock_gettime(sys.CLOCK_MONOTONIC) or 0
+
+-- The peak size of the process in MB, where the system says (Linux does, in /proc), else 0.
+local function peak_megabytes()
+  local text = read_all('/proc/self/status')
+  local kilobytes = text and text:match('VmHWM:%s*(%d+)')
+  return kilobytes and tonumber(kilobytes) / 1024 or 0
+end
+
+local function trace(message)
+  if not tracing then return end
+  local now = sys.clock_gettime(sys.CLOCK_MONOTONIC) or 0
+  sys.write(2, string.format('bridge: %6.2f s  heap %7.1f MB  peak %7.1f MB  %s\n',
+    (now - trace_started) / 1e9, collectgarbage('count') / 1024, peak_megabytes(), message))
+end
+
+-- The directory `COSMIC_BRIDGE_DUMP` names, where every module the program compiles is written as `<module>.lua`, for a
+-- comparison with the Lua another compile wrote of the same module.
+local dump_directory = sys.getenv('COSMIC_BRIDGE_DUMP') or ''
+
+local function dump(name, code)
+  if dump_directory == '' then return end
+  local fd = sys.open(dump_directory .. '/' .. name .. '.lua', sys.O_WRONLY | sys.O_CREAT | sys.O_TRUNC, 420)
+  if not fd then return end
+  sys.write(fd, code)
+  sys.close(fd)
+end
+
+-- The file of this bridge below the root, which the keys digest: it decides what is kept and how the stages run.
+local self_file = 'core/bridge.lua'
+
+-- Where the seed list and the declared differences are, below the root.
+local seed_list_file = 'build/seed.txt'
+local seed_differs_file = 'lang/SEED_DIFFERS'
+
+-- The module a path below the root is: [`lang/ast.tl`] is [`lang.ast`], `a/init.tl` is `a`.
+local function module_of(relative)
+  local stem = relative:gsub('%.d%.tl$', ''):gsub('%.tl$', ''):gsub('/init$', '')
+  return (stem:gsub('/', '.'))
+end
+
+-- The lines of the seed list, in order, as paths below the root; or nil and why.
+local function read_seed_list()
+  local path = root .. '/' .. seed_list_file
+  local text, err = read_all(path)
+  if not text then return nil, path .. ': ' .. tostring(err) end
+  local list, seen = {}, {}
+  for line in text:gmatch('[^\n]+') do
+    local relative = line:match('^%s*(.-)%s*$')
+    if relative ~= '' then
+      if not relative:match('%.tl$') or relative:match('%.d%.tl$') or relative:find('^/') or
+          relative:find('%.%.') then
+        return nil, path .. ': ' .. relative .. ' is no .tl file below the root'
+      end
+      local stem = relative:match('([^/]*)%.tl$')
+      if seen[stem] then
+        return nil, path .. ': ' .. relative .. ' and ' .. seen[stem] ..
+          ' are both written as ' .. stem .. '.lua'
+      end
+      seen[stem] = relative
+      list[#list + 1] = relative
+    end
+  end
+  if #list == 0 then return nil, path .. ': it names no file' end
+  return list
+end
+
+-- The files `lang/SEED_DIFFERS` lists, as a set, and whether the file is there. One source path a line.
+local function seed_differs_declared()
+  local declared = {}
+  local text = read_all(root .. '/' .. seed_differs_file)
+  for line in (text or ''):gmatch('[^\n]+') do
+    local name = line:match('^%s*(.-)%s*$')
+    if name ~= '' then declared[name] = true end
+  end
+  return declared, text ~= nil
+end
+
+-- The pure libraries, read straight out of the global table. A name the code does not find is nil, which is what plain
+-- Lua does.
+local function environment_with(require_function)
+  return setmetatable({ require = require_function },
+    { __index = function(_, name) return rawget(_G, name) end })
+end
+
+-- A `require` over `codes`, a table from module name to `{ file, code }`: a module in it is loaded once, in an
+-- environment whose `require` is this one, and any other is the process's own (the bindings of C). The chunk is
+-- called with the module's name and file, as `require` calls one. `label` names whose Lua it is, for a failure.
+local function requirer(codes, label)
+  local loaded = {}
+  local env
+  local function require_module(name)
+    local held = loaded[name]
+    if held ~= nil then return held end
+    local record = codes[name]
+    if not record then return require(name) end
+    local chunk, err = load(record.code, '@' .. record.file, 't', env)
+    if not chunk then error(label .. ': ' .. err, 0) end
+    local result = chunk(name, record.file)
+    if result == nil then result = true end
+    loaded[name] = result
+    return result
+  end
+  env = environment_with(require_module)
+  return require_module
+end
+
+-- The complaint of a compile of one file, a line for each syntax error and for the generator's refusal.
+local function complain(file, result)
+  local lines = {}
+  for _, e in ipairs(result.syntax_errors or {}) do
+    lines[#lines + 1] = string.format('%s:%d:%d: syntax error: %s', file, e.y or 0, e.x or 0, e.msg)
+  end
+  if (result.trouble or '') ~= '' then
+    lines[#lines + 1] = file .. ': the generator wrote no Lua: ' .. result.trouble
+  end
+  return table.concat(lines, '\n')
+end
+
+-- The key of the compiler's row and the base of the modules' rows: the digests of the seed's Lua and of the sources of
+-- each file of `list` (`seed` and `sources`, by path), each with its path and in the order of the list, and of this file. The seed's Lua is what
+-- stage one runs, so the key names the compiler that made the row, not the release it came from. Nil when one cannot
+-- be read or when the cache is off.
 --
--- TODO: digest the text of this file that core/boot.c loaded, not a
--- second read of it: an edit between the two keys rows to a file that is
--- not the one running. Waits on core/boot.c handing the bridge the bytes
--- it loaded (`slurp` already reads them whole).
-local function make_compiler_key(seed, source, parts, declarations, variables)
+-- TODO: digest the text of this file that core/boot.c loaded, not a second read of it: an edit between the two keys
+-- rows to a file that is not the one running. Waits on core/boot.c handing the bridge the bytes it loaded.
+local function make_compiler_key(list, seed, sources, variables)
   if not location(variables) then
     return nil
   end
-  local bridge = file_digest(root .. '/core/bridge.lua')
+  local bridge = file_digest(root .. '/' .. self_file)
   if not bridge then return nil end
-  local seeds = {}
-  for _, name in ipairs({ 'checker_wrapper', 'tl' }) do
-    seeds[#seeds + 1] = sha256(name .. '\0' .. seed[name])
+  local parts = {}
+  for index, relative in ipairs(list) do
+    parts[index] = sha256(relative .. '\0' .. seed[relative]) .. sha256(sources[relative])
   end
-  for _, part in ipairs(parts) do
-    seeds[#seeds + 1] = sha256(part.name .. '\0' .. seed[part.name])
-  end
-  local sources = {}
-  for index, part in ipairs(parts) do
-    sources[index] = sha256(part.name .. '\0' .. part.source)
-  end
-  return hex(sha256(format .. '\ncompiler\n' .. table.concat(seeds) ..
-    sha256(source) .. table.concat(sources) .. sha256(declarations) .. bridge))
+  return hex(sha256(format .. '\ncompiler\n' .. table.concat(parts) .. bridge))
 end
 
 -- Set by `bootstrap` for [`searcher_for`], which keys its modules by it.
 local compiler_key = nil
 
--- The digest of each file under the root that a compile has read, by
--- its path as read, and whether any was read twice as different bytes.
-local reads = {}
-local torn_reads = false
-
--- The paths a compile tried to read and could not. A file the manifest
--- lists that was missing then was there when the key was made, and
--- would have been read, or taken first, had it been there now.
-local failed_reads = {}
-
-local function note_read(path, text)
-  local digest = sha256(text)
-  if reads[path] ~= nil and reads[path] ~= digest then torn_reads = true end
-  reads[path] = digest
-end
-
-local function note_failed(path)
-  failed_reads[#failed_reads + 1] = path
-end
-
--- TODO: this and the defaults of the environments of [`searcher_for`] and
--- of `bootstrap`'s stage one are the last copies of build/teal.tl's
--- `served` and `defaults`; keep one copy. The bridge is Lua run before
--- the tree is compiled, so it cannot require that module. The wrapper
--- that joins the checker's parts is one copy already
--- (build/checker_wrapper.tl, which the bridge loads as the seed compiled
--- it). Waits on the seed step of build.zig (`seedCompiler`) compiling the
--- closure of `cosmic compile` (build/compile.tl, which requires
--- build/teal.tl) beside the checker, so that the bridge's second stage
--- runs through it.
-local function text_handle(text)
-  local h = { is_boot_handle = true }
-  function h:read() return text end
-  function h:close() return true end
-  return h
-end
-
--- What the checker finds a module by: the name it was found under and a
--- handle that reads the whole source and then closes, as it asks of
--- any other (build/compiler.d.tl's `search_module`). A file of the
--- tree is searched by suffix, each as `<root>/<stem>` and then
--- `<root>/<stem>/init`: `.d.tl` then `.tl` then `.lua` when the checker
--- searches all (a `require` of a type), and `.tl` alone when it does not.
--- The `.lua` is the fallback the manifest does not list, so a read of one
--- keeps the row from being kept. Every path tried is noted as read or as
--- failed, for [`searcher_for`]'s key. A name that is not dotted
--- identifiers (a `/`, an empty segment, so a `..`) is refused, since it
--- would name a path outside the root.
-local function disk_search(name, search_all)
-  if name:find('/', 1, true) or name:find('^%.') or name:find('%.%.') or name:find('%.$') then
-    return nil, nil, {}
-  end
-  local slash_name = name:gsub('%.', '/')
-  local suffixes = search_all and { '.d.tl', '.tl', '.lua' } or { '.tl' }
-  for _, suffix in ipairs(suffixes) do
-    for _, pattern in ipairs({ root .. '/' .. slash_name, root .. '/' .. slash_name .. '/init' }) do
-      local path = pattern .. suffix
-      local text = read_all(path)
-      if text then
-        note_read(path, text)
-        return path, text_handle(text)
-      end
-      note_failed(path)
-    end
-  end
-  return nil, nil, {}
-end
-
--- The pure libraries, read straight out of the global table. The
--- hint a removed name raises is for a program someone wrote; the
--- compiler is not one, and a name it does not find is nil, which
--- is what plain Lua does.
-local environment = setmetatable({}, { __index = function(_, name) return rawget(_G, name) end })
-
-local function complain(file, result)
-  local lines = {}
-  local function gather(kind, list)
-    for _, e in ipairs(list or {}) do
-      lines[#lines + 1] = string.format('%s:%d:%d: %s: %s',
-        e.filename or file, e.y or 0, e.x or 0, kind, e.msg)
-    end
-  end
-  gather('syntax error', result and result.syntax_errors)
-  gather('type error', result and result.type_errors)
-  gather('warning', result and result.warnings)
-  return table.concat(lines, '\n')
-end
-
--- Modules handed in as text, never written anywhere: the declarations
--- boot generates with build.gen_syscalls (the syscall table's and the
--- raw process table's) before the bridge checks any module, and which
--- every module that requires one is checked against.
+-- Modules handed in as text, never written anywhere: the declarations boot generates with build.gen_syscalls (the
+-- syscall table's and the raw process table's) before the bridge checks any module, and which every module that
+-- requires one is checked against. The program reads this table when a module is asked for.
 local declared = {}
 local declared_count = 0
 local declared_version = 0
@@ -548,45 +533,185 @@ local function declared_digest()
   return hex((hasher:digest()))
 end
 
--- `variables`, when given, is the variables `COSMIC_BUILD_CACHE`,
--- `XDG_CACHE_HOME` and `HOME` are read from, in place of the
--- process's own.
---
--- Every module loaded is answered from the `modules` row where one
--- stands (see the comment on the cache above), without reading or
--- compiling it. Otherwise it is compiled, and what is compiled up to the
--- loading of [`build.boot`] -- the whole of its closure, which it requires
--- at its top -- is kept as the row. A module loaded after that is
--- compiled and not kept.
-local function searcher_for(tl, variables)
-  tl.search_module = function(name, search_all)
-    local text = declared[name]
-    if text then
-      local stem = name:gsub('%.', '/')
-      return root .. '/' .. stem .. '.d.tl', text_handle(text)
-    end
-    return disk_search(name, search_all)
+-- The names of the files whose Lua differs between `a` and `b`, both by path, in the order of `list`.
+local function differing(list, a, b)
+  local out = {}
+  for _, relative in ipairs(list) do
+    if a[relative] ~= b[relative] then out[#out + 1] = relative end
   end
-  local env = assert(tl.new_env({ defaults = {
-    feat_lax = 'off', gen_compat = 'off', gen_target = '5.4',
-  } }))
+  return out
+end
 
+-- The file names a source path a line ([`lang/codegen.tl`]); build/lang_proof.tl, which holds the same file to the proof of lang/, reads
+-- that spelling and its older bare output names (`codegen.lua`) both.
+
+-- Holds the files whose Lua stage two writes otherwise than the seed does to `lang/SEED_DIFFERS`, both ways. Raises
+-- the complaint, naming the files, for a seed that miscompiles or a change to the generator the file does not declare,
+-- for a file it lists that does not differ, for a name that is no file of the seed list and for an empty file.
+local function hold_to_declared(list, seed, stage_two, seed_dir)
+  local differ = {}
+  for _, relative in ipairs(differing(list, stage_two, seed)) do differ[relative] = true end
+  local listed_files, present = seed_differs_declared()
+  local function joined(set)
+    local names = {}
+    for name in pairs(set) do names[#names + 1] = name end
+    table.sort(names)
+    return table.concat(names, ', ')
+  end
+  local written = {}
+  for _, relative in ipairs(list) do written[relative] = true end
+  for name in pairs(listed_files) do
+    if not written[name] then
+      error(name .. ' names no file of ' .. seed_list_file .. ': list the path of a source, ' ..
+        'e.g. lang/codegen.tl (' .. seed_differs_file .. ')', 0)
+    end
+  end
+  local undeclared, stale = {}, {}
+  for name in pairs(differ) do
+    if not listed_files[name] then undeclared[name] = true end
+  end
+  for name in pairs(listed_files) do
+    if not differ[name] then stale[name] = true end
+  end
+  if next(undeclared) then
+    error('the seed in ' .. seed_dir .. ' differs from the build compiled by itself in ' .. joined(undeclared) ..
+      ': a seed that miscompiles, or a change to what the generator writes, which ' .. seed_differs_file ..
+      ' declares (one source path a line) until ci/cosmic-driver.pin names a release that carries it', 0)
+  elseif next(stale) then
+    error(seed_differs_file .. ' declares that the seed in ' .. seed_dir .. ' differs in ' .. joined(stale) ..
+      ', and it does not: remove that from the file, and the file once it names nothing', 0)
+  elseif present and not next(listed_files) then
+    error(seed_differs_file .. ' names no file: remove it', 0)
+  end
+end
+
+-- The compiler a boot builds the tool with: [`build/seed.tl`], the file at `entry`, and the files it requires, listed in
+-- [`build/seed.txt`], in two stages (see the top of this file). `seed_dir` is the directory of the seed (build.zig's seed
+-- step). Answers the module stage two makes of the entry, which has `compile` and `program` ([`build.seed`]).
+--
+-- Only a syntax error or a refusal of the generator stops stage one. The files do not obey the rules the new checker
+-- holds a program to when they are compiled without the standard library's declarations, which the seed is not given.
+local function bootstrap(seed_dir, entry, variables)
+  local prefix = root .. '/'
+  if entry:sub(1, #prefix) ~= prefix then
+    error(entry .. ' is not below the root ' .. root, 0)
+  end
+  local entry_relative = entry:sub(#prefix + 1)
+  local list, list_err = read_seed_list()
+  if not list then error(list_err, 0) end
+  local listed = false
+  for _, relative in ipairs(list) do listed = listed or relative == entry_relative end
+  if not listed then error(entry_relative .. ' is not in ' .. seed_list_file, 0) end
+  local sources, seed = {}, {}
+  for _, relative in ipairs(list) do
+    local text, err = read_all(root .. '/' .. relative)
+    if not text then error(relative .. ': ' .. tostring(err), 0) end
+    sources[relative] = text
+    local path = seed_dir .. '/' .. relative:match('([^/]*)%.tl$') .. '.lua'
+    local lua, lua_err = read_all(path)
+    if not lua then
+      error(path .. ': ' .. tostring(lua_err) .. ' (the seed step of build.zig writes it)', 0)
+    end
+    seed[relative] = lua
+  end
+  trace('read the seed list: ' .. #list .. ' files')
+
+  compiler_key = make_compiler_key(list, seed, sources, variables)
+  local stage_two
+  if compiler_key then
+    local cached = cache_file(variables, false)
+    local row = cached and look(cached, 'compiler', compiler_key)
+    local records = row and unpack_records(row.payload)
+    if records then
+      stage_two = {}
+      for _, relative in ipairs(list) do
+        stage_two[relative] = records[relative] and records[relative].code
+        if not stage_two[relative] then stage_two = nil; break end
+      end
+    end
+  end
+  if stage_two then
+    trace('stage two: taken from the cache')
+  else
+    -- Stage one: the seed, each file a module by the name its path gives.
+    local codes = {}
+    for _, relative in ipairs(list) do
+      codes[module_of(relative)] = { file = relative, code = seed[relative] }
+    end
+    local stage_one = requirer(codes, 'the seed in ' .. seed_dir)(module_of(entry_relative))
+    if type(stage_one) ~= 'table' or type(stage_one.compile) ~= 'function' then
+      error(entry_relative .. ' in the seed in ' .. seed_dir .. ' has no `compile`', 0)
+    end
+    trace('stage one: loaded')
+    local files = {}
+    for index, relative in ipairs(list) do
+      files[index] = { path = relative, relative = relative, text = sources[relative], declaration = false }
+    end
+    local results = stage_one.compile(files)
+    stage_two = {}
+    local refused = {}
+    for index, relative in ipairs(list) do
+      local result = results[index]
+      if not result or not result.code then
+        refused[#refused + 1] = complain(relative, result or {})
+      else
+        stage_two[relative] = result.code
+      end
+    end
+    if #refused > 0 then
+      error('the new checker, compiled from the seed in ' .. seed_dir .. ', refused its own source\n' ..
+        table.concat(refused, '\n'), 0)
+    end
+    trace('stage two: compiled by stage one')
+    local made = compiler_key and cache_file(variables, true)
+    if made then
+      local records = {}
+      for index, relative in ipairs(list) do
+        records[index] = { name = relative, file = relative, code = stage_two[relative] }
+      end
+      keep(made, 'compiler', compiler_key, '', pack_records(records))
+    end
+  end
+  hold_to_declared(list, seed, stage_two, seed_dir)
+
+  local codes = {}
+  for _, relative in ipairs(list) do
+    codes[module_of(relative)] = { file = relative, code = stage_two[relative] }
+  end
+  local program = requirer(codes, 'the new checker')(module_of(entry_relative))
+  if type(program) ~= 'table' or type(program.program) ~= 'function' then
+    error(entry_relative .. ' compiled by itself has no `program`', 0)
+  end
+  trace('stage two: loaded')
+  return program
+end
+
+-- `stage_two`, the entry that `bootstrap` answered, makes the searcher for `require`: every module loaded is answered
+-- from the `modules` row where one stands (see the top of this file), without reading or compiling it. Otherwise it is
+-- compiled, and what is compiled up to the loading of [`build.boot`] -- the whole of its closure, which it requires at
+-- its top -- is kept as the row. A module loaded after that is compiled and not kept.
+--
+-- `variables`, when given, is the variables `COSMIC_BUILD_CACHE`, `XDG_CACHE_HOME` and `HOME` are read from, in place
+-- of the process's own.
+local function searcher_for(stage_two, variables)
   local looked = false
   local key = nil          -- of the row, when the cache is on for this tree
+  local tree = nil         -- the manifest's digest of the tree the key names
   local from = nil         -- the records of the row hit, by name
   local from_declared = ''
   local rewrite = false    -- the row hit disagreed with `declare`
   local sealed = false
-  local tree_files = nil   -- the manifest's digest of each file, by path
   local made = {}          -- every module answered, in order
+  local program = nil      -- made when a module is not in the row
+  local compiled, compile_ns = 0, 0
 
   local function look_up()
     looked = true
     if not compiler_key then return end
-    local tree, files = manifest(root)
-    if not tree then return end
-    tree_files = files
-    key = hex(sha256(format .. '\nmodules\n' .. compiler_key .. tree))
+    local digest = manifest(root)
+    if not digest then return end
+    tree = digest
+    key = hex(sha256(format .. '\nmodules\n' .. compiler_key .. digest))
     local file = cache_file(variables, false)
     local row = file and look(file, 'modules', key)
     local records = row and unpack_records(row.payload)
@@ -595,9 +720,8 @@ local function searcher_for(tl, variables)
     end
   end
 
-  -- Whether the declarations `declare` has been given are those the row
-  -- was made with. None given yet is a yes: a module loaded before the
-  -- first ([`build.gen_syscalls`]) imports none.
+  -- Whether the declarations `declare` has been given are those the row was made with. None given yet is a yes: a
+  -- module loaded before the first ([`build.gen_syscalls`]) imports none.
   local checked_version, checked = 0, true
   local function declared_agree()
     if declared_version ~= checked_version then
@@ -607,30 +731,12 @@ local function searcher_for(tl, variables)
     return checked
   end
 
-  -- Whether every file the compiles read was, byte for byte, the file
-  -- the key names.
-  local function read_what_the_key_names()
-    if torn_reads then return false end
-    local prefix = root .. '/'
-    for path, digest in pairs(reads) do
-      if path:sub(1, #prefix) ~= prefix or tree_files[path:sub(#prefix + 1)] ~= digest then
-        return false
-      end
-    end
-    for _, path in ipairs(failed_reads) do
-      if path:sub(1, #prefix) == prefix and tree_files[path:sub(#prefix + 1)] ~= nil then
-        return false
-      end
-    end
-    return true
-  end
-
-  -- Writes the row once [`build.boot`] has loaded, unless it was hit or
-  -- some file changed after the key was made.
+  -- Writes the row once [`build.boot`] has loaded, unless it was hit or the tree is no longer the one the key names.
   local function seal()
     if sealed then return end
     sealed = true
-    if key and (not from or rewrite) and read_what_the_key_names() then
+    trace(string.format('build.boot loaded: %d modules compiled in %.2f s', compiled, compile_ns / 1e9))
+    if key and (not from or rewrite) and manifest(root) == tree then
       local file = cache_file(variables, true)
       if file then
         keep(file, 'modules', key, declared_digest(), pack_records(made))
@@ -657,32 +763,23 @@ local function searcher_for(tl, variables)
       file = root .. '/' .. record.file
       remember(name, record.file, record.code)
     else
-      local stem = root .. '/' .. name:gsub('%.', '/')
-      local relative = name:gsub('%.', '/') .. '.tl'
-      file = stem .. '.tl'
-      local source = read_all(file)
-      if not source then note_failed(file) end
-      if not source then
-        local dir_file = stem .. '/init.tl'
-        source = read_all(dir_file)
-        if not source then
-          note_failed(dir_file)
-          return "\n\tno file '" .. file .. "'" ..
-            "\n\tno file '" .. dir_file .. "'"
+      program = program or stage_two.program(root, declared)
+      local started = sys.clock_gettime(sys.CLOCK_MONOTONIC) or 0
+      local module, trouble = program.module(name)
+      compile_ns = compile_ns + ((sys.clock_gettime(sys.CLOCK_MONOTONIC) or 0) - started)
+      if not module then
+        if (trouble or '') ~= '' then
+          error(trouble, 0)
         end
-        file = dir_file
-        relative = name:gsub('%.', '/') .. '/init.tl'
+        return "\n\tno source for '" .. name .. "' below " .. root
       end
-      note_read(file, source)
-      local code, result = tl.gen(source, env, nil, 'tl')
-      local trouble = complain(file, result)
-      if not code or trouble ~= '' then
-        error(file .. ': the compiler refused it\n' .. trouble, 0)
-      end
+      compiled = compiled + 1
+      file = root .. '/' .. module.file
       local err
-      chunk, err = load(code, '@' .. name, 't')
-      if not chunk then error(file .. ': ' .. err, 0) end
-      remember(name, relative, code)
+      chunk, err = load(module.code, '@' .. name, 't')
+      if not chunk then error(module.file .. ': ' .. err, 0) end
+      dump(name, module.code)
+      remember(name, module.file, module.code)
     end
     if name == 'build.boot' then
       local loader = chunk
@@ -696,241 +793,5 @@ local function searcher_for(tl, variables)
   end
 end
 
--- The checker's files other than its entry, `file`: every `<identifier>.tl`
--- beside it (not a declaration file, nor an editor's leftover), in name order, as
--- `{ name, file, source }`, the `name` a `require` in the entry spells
--- (`checker.flow` for [`checker/flow.tl`]) and `file` its path under the root.
--- Answers nil and why when the directory cannot be read.
-local function checker_parts(file)
-  local directory, entry = file:match('^(.*)/([^/]*)$')
-  directory = directory or '.'
-  entry = entry or file
-  local base = directory:match('([^/]*)$')
-  local names, err = sys.readdir(directory)
-  if not names then return nil, directory .. ': ' .. tostring(err) end
-  local list = {}
-  for name in pairs(names) do list[#list + 1] = name end
-  table.sort(list)
-  local parts = {}
-  for _, name in ipairs(list) do
-    if name ~= entry and name:match('^[%a_][%w_]*%.tl$') then
-      local path = directory .. '/' .. name
-      local source, read_err = read_all(path)
-      if not source then return nil, path .. ': ' .. tostring(read_err) end
-      parts[#parts + 1] = { name = base .. '.' .. name:sub(1, -4),
-        file = base .. '/' .. name, path = path, source = source }
-    end
-  end
-  return parts
-end
-
--- What a seed directory holds, read: the Lua `cosmic compile` wrote for
--- the checker's entry and for each of `parts`, by the name `parts` and the
--- bootstrap use (`tl` for the entry), and for [`build/checker_wrapper.tl`],
--- `checker_wrapper`. Answers nil and why when one cannot be read.
-local function read_seed(seed_dir, parts)
-  local seed = {}
-  local names = { { 'tl', 'tl' }, { 'checker_wrapper', 'checker_wrapper' } }
-  for _, part in ipairs(parts) do
-    names[#names + 1] = { part.name, part.name:match('([^.]*)$') }
-  end
-  for _, name in ipairs(names) do
-    local path = seed_dir .. '/' .. name[2] .. '.lua'
-    local text, err = read_all(path)
-    if not text then
-      return nil, path .. ': ' .. tostring(err) .. ' (the seed step of build.zig writes it)'
-    end
-    seed[name[1]] = text
-  end
-  return seed
-end
-
--- The wrapper that joins the checker's parts into the Lua the tool
--- carries: [`build/checker_wrapper.tl`], which the seed compiled to the
--- Lua in `text`. Its `wrapped(code, declarations, modules)` is the one
--- copy of that logic: the first stage is wrapped by it, so is the second,
--- and so is the compiler build/compiler_test.tl builds.
-local function load_wrapper(text)
-  local chunk, load_err = load(text, '@build/checker_wrapper.tl', 't')
-  if not chunk then error('the seed\'s checker_wrapper: ' .. load_err, 0) end
-  local wrapper = chunk()
-  if type(wrapper) ~= 'table' or type(wrapper.wrapped) ~= 'function' then
-    error('the seed\'s checker_wrapper returned no `wrapped`', 0)
-  end
-  return wrapper.wrapped
-end
-
--- The seed's output files that the tree declares differ from what the
--- checker compiles itself to, as a set by file name: the lines of
--- `checker/SEED_DIFFERS`, which a change to what the generator writes adds
--- (naming the files whose Lua it changes) and a move of
--- ci/cosmic-driver.pin to a release carrying that change removes
--- (doc/contributing.md). Empty when the file is absent.
-local function seed_differs_declared()
-  local declared = {}
-  local text = read_all(root .. '/checker/SEED_DIFFERS')
-  for line in (text or ''):gmatch('[^\n]+') do
-    local name = line:match('^%s*(.-)%s*$')
-    if name ~= '' then declared[name] = true end
-  end
-  return declared, text ~= nil
-end
-
--- The compiler the tree is built with and the tool carries: the tree's
--- own checker, the Teal file at `file` (checker/tl.tl) and the Teal files
--- beside it, in two stages. The seed is the Lua that the pinned release
--- wrote for them (`seed_dir`, build.zig's seed step); wrapped as the tool
--- carries it and loaded in the compiler's environment, it is stage one,
--- and stage one compiles the same files again to stage two, which is
--- what the tool carries and runs. Stage two is the tree's own generator
--- applied to the tree's own source, whatever generator wrote the seed,
--- so the carried compiler never depends on the pin's emitter, and the
--- compiler compiles itself to the same Lua (build/compiler_test.tl).
--- Answers the compiler and the Lua it was compiled to.
---
--- Stage one equals stage two when the generator writes what the pinned
--- release's does, which is checked here, since only a boot holds a seed
--- made from the files it compiles: a seed that miscompiles, or a
--- generator changed without `checker/SEED_DIFFERS` saying so, fails the
--- boot naming the files; so does that file once the two agree.
---
--- The entry requires the other files by name (`require("checker.flow")`),
--- which stage one finds as text, never on disk, and each compiles to a
--- chunk of its own with the locals of its own. They ride in the Lua the
--- entry is carried in, where the entry's `require` finds them.
---
--- The Lua standard library's declarations, `stdlib.d.tl` beside `file`,
--- ride in that Lua as well: it starts with `local stdlib = "<their text>"`
--- on its first line, the local the checker's `stdlib` is.
---
--- What stage one makes of the checker is kept in the cache
--- (`compiler_key`); the first line is put in front of it either way.
-local function bootstrap(seed_dir, file, variables)
-  local source, err = read_all(file)
-  if not source then error(file .. ': ' .. tostring(err), 0) end
-  local directory = file:match('^(.*)/[^/]*$') or '.'
-  local declarations_file = directory .. '/stdlib.d.tl'
-  local declarations, declarations_err = read_all(declarations_file)
-  if not declarations then
-    error(declarations_file .. ': ' .. tostring(declarations_err), 0)
-  end
-  local parts, parts_err = checker_parts(file)
-  if not parts then error(parts_err, 0) end
-  local seed, seed_err = read_seed(seed_dir, parts)
-  if not seed then error(seed_err, 0) end
-  local wrapped = load_wrapper(seed.checker_wrapper)
-  local function carried(code)
-    local modules = {}
-    for index, part in ipairs(parts) do
-      modules[index] = { part.name, part.code, part.file }
-    end
-    return wrapped(code, declarations, modules)
-  end
-  compiler_key = make_compiler_key(seed, source, parts, declarations, variables)
-  local code
-  if compiler_key then
-    local cached = cache_file(variables, false)
-    local row = cached and look(cached, 'compiler', compiler_key)
-    local records = row and unpack_records(row.payload)
-    code = records and records.tl and records.tl.code
-    for _, part in ipairs(parts) do
-      part.code = records and records[part.name] and records[part.name].code
-      if not part.code then code = nil end
-    end
-  end
-  if not code then
-    -- Stage one: the seed, wrapped as the tool carries a compiler.
-    for _, part in ipairs(parts) do part.code = seed[part.name] end
-    local first_chunk, first_err = load(carried(seed.tl), '@seed.tl', 't', environment)
-    if not first_chunk then error(seed_dir .. ': ' .. first_err, 0) end
-    local stage1 = first_chunk()
-    stage1.path = ''
-    -- Only a syntax error stops it: the checker's source does not obey
-    -- the rules the checker holds a program to, and build/compiler_test.tl
-    -- pins its type errors.
-    local function compile(path, text)
-      local env = assert(stage1.new_env({ defaults = {
-        feat_lax = 'off', gen_compat = 'off', gen_target = '5.4',
-      } }))
-      local made, result = stage1.gen(text, env, nil, 'tl')
-      local syntax = result and result.syntax_errors or {}
-      if #syntax > 0 or not made then
-        error(path .. ': the checker, compiled from the seed in ' .. seed_dir ..
-          ', refused it\n' .. complain(path, { syntax_errors = syntax }), 0)
-      end
-      return made
-    end
-    -- The entry's `require` of a part is answered with the part's text.
-    local by_name = {}
-    for _, part in ipairs(parts) do by_name[part.name] = part end
-    local disk_search = stage1.search_module
-    stage1.search_module = function(name, search_all)
-      local part = by_name[name]
-      if part then return part.path, text_handle(part.source) end
-      return disk_search(name, search_all)
-    end
-    local compiled, failure = pcall(function()
-      code = compile(file, source)
-      for _, part in ipairs(parts) do part.code = compile(part.path, part.source) end
-    end)
-    stage1.search_module = disk_search
-    if not compiled then error(failure, 0) end
-    local made = compiler_key and cache_file(variables, true)
-    if made then
-      local records = { { name = 'tl', file = 'checker/tl.tl', code = code } }
-      for _, part in ipairs(parts) do
-        records[#records + 1] = { name = part.name, file = part.file, code = part.code }
-      end
-      keep(made, 'compiler', compiler_key, '', pack_records(records))
-    end
-  end
-  local differ = {}
-  if code ~= seed.tl then differ['tl.lua'] = true end
-  for _, part in ipairs(parts) do
-    if part.code ~= seed[part.name] then
-      differ[part.name:match('([^.]*)$') .. '.lua'] = true
-    end
-  end
-  local declared, present = seed_differs_declared()
-  local function listed(set)
-    local names = {}
-    for name in pairs(set) do names[#names + 1] = name end
-    table.sort(names)
-    return table.concat(names, ', ')
-  end
-  -- The names the seed writes: an entry is one of them, bare.
-  local written = { ['tl.lua'] = true }
-  for _, part in ipairs(parts) do written[part.name:match('([^.]*)$') .. '.lua'] = true end
-  for name in pairs(declared) do
-    if not written[name] then
-      error(name .. ' names no file the seed writes: list bare output names, ' ..
-        'e.g. tl.lua (checker/SEED_DIFFERS)', 0)
-    end
-  end
-  local undeclared, stale = {}, {}
-  for name in pairs(differ) do
-    if not declared[name] then undeclared[name] = true end
-  end
-  for name in pairs(declared) do
-    if not differ[name] then stale[name] = true end
-  end
-  if next(undeclared) then
-    error('the seed in ' .. seed_dir .. ' differs from the checker compiled by ' ..
-      'itself in ' .. listed(undeclared) .. ': a seed that miscompiles, or a ' ..
-      'change to what the generator writes, which checker/SEED_DIFFERS declares ' ..
-      '(one file name a line) until ci/cosmic-driver.pin names a release that ' ..
-      'carries it', 0)
-  elseif next(stale) then
-    error('checker/SEED_DIFFERS declares that the seed in ' .. seed_dir ..
-      ' differs in ' .. listed(stale) .. ', and it does not: remove ' ..
-      'that from the file, and the file once it names nothing', 0)
-  elseif present and not next(declared) then
-    error('checker/SEED_DIFFERS names no file: remove it', 0)
-  end
-  local chunk, load_err = load(carried(code), '@vendor.tl', 't', environment)
-  if not chunk then error(file .. ': ' .. load_err, 0) end
-  return chunk(), carried(code)
-end
-
-return { environment = environment, searcher_for = searcher_for,
-         declare = declare, bootstrap = bootstrap, schema = schema }
+return { searcher_for = searcher_for, declare = declare, bootstrap = bootstrap, schema = schema,
+         module_of = module_of }

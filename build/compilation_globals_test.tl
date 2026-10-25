@@ -5,12 +5,10 @@
 local Fs = require("cosmic.fs")
 local Test = require("cosmic.test")
 local importer = require("build.importer")
-local teal = require("build.teal")
 local work = require("build.work")
 
 Test.policy{ grants = { { path = "core", letters = "r" } } }
 
-local built = assert(teal.load())
 
 local REFUSED <const> = ": a global is not allowed in a cosmic build: it reaches other modules by no " ..
   "`require`, which is all a build's cache and its order see -- put the value in a module and " ..
@@ -30,7 +28,7 @@ local function compile_project(tmp: string, case: string,
   end
   local handle = assert(work.open(root))
   assert(work.stage(handle, false))
-  local result, trouble = importer.compile(handle, built, "globals-test")
+  local result, trouble = importer.compile(handle, "globals-test")
   assert(work.close(handle))
   return result, trouble
 end

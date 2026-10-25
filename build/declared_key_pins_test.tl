@@ -10,7 +10,6 @@
 
 local Fs = require("cosmic.fs")
 local importer = require("build.importer")
-local teal = require("build.teal")
 local work = require("build.work")
 
 --- What a failed pin says, beside what moved and where to.
@@ -25,7 +24,6 @@ end
 --- of its own, which the graph holds both of. The fixture requires no
 --- module of the standard library, whose source a graph key holds too.
 local function test_the_graph_key_is_pinned(tmp: string)
-  local built = assert(teal.load())
   local root = tmp .. "/tree"
   assert(Fs.mkdirs(root))
   local files: {string:string} = {
@@ -41,7 +39,7 @@ local function test_the_graph_key_is_pinned(tmp: string)
   for name, text in pairs(files) do assert(Fs.write(root .. "/" .. name, text)) end
   local handle = assert(work.open(root))
   assert(work.stage(handle, false))
-  local result = assert(importer.compile(handle, built, "declared-key-pins-test"))
+  local result = assert(importer.compile(handle, "declared-key-pins-test"))
   assert(work.close(handle))
   local keys: mut {string:string} = {}
   for _, m in ipairs(result.modules) do keys[m.path] = m.graph_key end

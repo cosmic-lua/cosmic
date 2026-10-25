@@ -377,11 +377,9 @@ local function run(file: string, argv: {string}): integer
   local importer = require("build.importer")
   local shared_compiles = require("build.shared_compiles")
   local reboot = require("build.reboot")
-  local teal = require("build.teal")
   local tree = require("build.tree")
   local build_paths = require("build.paths")
   local work = require("build.work")
-  local workers = require("build.workers")
   local writer = require("build.writer")
   local root, trouble = root_of(file)
   if root == nil then
@@ -412,8 +410,6 @@ local function run(file: string, argv: {string}): integer
     return 1
   end
 
-  local built = teal.lazy()
-
   -- A stale tool refuses, or rebuilds itself or has zig boot the core
   -- and re-enters this command line ([`reboot.guard`]).
   if own_tree then
@@ -437,15 +433,7 @@ local function run(file: string, argv: {string}): integer
 
   local database = build_paths.under(handle.dir).projection
 
-  -- The new checker reads the tree in this process, so no pool is started for it.
-  local result: importer.Result? = nil
-  local compile_trouble = ""
-  if grammar == "new" then
-    result, compile_trouble = importer.compile_for(handle, built, tool, name, shared_compiles.for_build(), nil, grammar)
-  else
-    result, compile_trouble = importer.compile_for(handle, built, tool, name,
-      shared_compiles.for_build(), workers.pool(workers.tool_spec()))
-  end
+  local result, compile_trouble = importer.compile_for(handle, tool, name, shared_compiles.for_build())
   if result == nil then
     local _, _ = work.record(handle, clock.elapsed_ms(started), staged, 0, 0, "FAIL")
     local _, _ = work.close(handle)

@@ -13,7 +13,6 @@ local Sqlite = require("cosmic.sqlite")
 local Store = require("cosmic.store")
 local importer = require("build.importer")
 local TypeWatch = require("build.type_watch")
-local teal = require("build.teal")
 local work = require("build.work")
 local writer = require("build.writer")
 local sys = require("cosmic.sys")
@@ -230,7 +229,6 @@ local function test_a_waiting_projection_keeps_its_compiled_snapshot(tmp: string
   if TypeWatch.checked() then
     Test.skip("a checked run's modules carry checks, so their bytecode is not the binary's")
   end
-  local built = assert(teal.load())
   for _, succeeds in ipairs({ false, true }) do
     local root = tmp .. (if succeeds then "/valid" else "/failed" end)
     assert(build_dir(root))
@@ -261,7 +259,7 @@ local function test_a_waiting_projection_keeps_its_compiled_snapshot(tmp: string
         assert(Fs.write(root .. "/main.tl", 'print("replacement")\n'))
         local b = assert(work.open(root))
         assert(work.stage(b, false))
-        local result = assert(importer.compile(b, built, "snapshot-test"))
+        local result = assert(importer.compile(b, "snapshot-test"))
         local alternate = root .. "/b.db"
         assert(writer.write_result(b, alternate, result))
         assert(work.close(b))
@@ -413,7 +411,7 @@ local function test_a_reading_verbs_check_goes_on_with_a_stale_tool_while_the_lo
     local built, trouble = rebuild.here("docs", false, root)
     assert(built, trouble)
     assert(builds_of(root) == before, "a lookup built with a stale tool")
-    local staged = assert(rebuild.stage(root, (assert(teal.load()))))
+    local staged = assert(rebuild.stage(root))
     assert(staged.unchecked, "lsp's stage staged with a stale tool")
   end)
   assert(sys.close(lock))

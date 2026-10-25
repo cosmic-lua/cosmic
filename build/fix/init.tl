@@ -1737,13 +1737,13 @@ end
 --- `COSMIC_GRAMMAR=new` asks for it, saying why when it cannot. The tree checks read the fork's rows, whose counts the
 --- ceilings pin ([`build.ceilings`]). What reads the projection afterwards, the links and every lookup, reads one of its own
 --- mode only ([`writer.other_code`]) and would answer from the standard library alone from the fork's.
-local function finish_projection(db: Sqlite.Handle, root: string, built: compiler): string?
+local function finish_projection(db: Sqlite.Handle, root: string): string?
   local closed, close_trouble = db:close()
   if not closed then return close_trouble end
   local grammar, grammar_trouble = GrammarMode.mode()
   if grammar == nil then return grammar_trouble end
   if grammar ~= "new" then return nil end
-  local written, trouble = tree_checks.projection(root, built, grammar)
+  local written, trouble = tree_checks.projection(root, grammar)
   if written == nil then return trouble end
   local _, _ = written:close()
   return nil
@@ -1793,7 +1793,7 @@ local function run_tree_checks(ctx: Fix)
     -- TODO: build this projection with the new checker, once the switch deletes the fork's compiler (doc/plans/strict-teal.md,
     -- "the switch"): the fork refuses a file in the new grammar, so a whole run of cosmic's own tree with one ends here with
     -- one syntax error and never reaches the plurals read off its syntax tree ([`fix.read_off_written`]).
-    local db, projection_trouble = tree_checks.projection(root, built, "teal")
+    local db, projection_trouble = tree_checks.projection(root, "new")
     if db == nil then
       findings[#findings + 1] = "tree checks: " .. projection_trouble
     else
@@ -1907,7 +1907,7 @@ local function run_tree_checks(ctx: Fix)
       for _, line in ipairs(sealed_launch_findings(root, db)) do
         findings[#findings + 1] = line
       end
-      local finish_trouble = finish_projection(db, root, built)
+      local finish_trouble = finish_projection(db, root)
       if finish_trouble ~= nil then findings[#findings + 1] = "tree checks: " .. finish_trouble end
     end
   end

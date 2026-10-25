@@ -13,11 +13,9 @@
 
 local Sqlite = require("cosmic.sqlite")
 local build_paths = require("build.paths")
-local GrammarMode = require("build.grammar_mode")
 local importer = require("build.importer")
 local link_index = require("build.link_index")
 local rebuild = require("build.rebuild")
-local teal = require("build.teal")
 local work = require("build.work")
 local writer = require("build.writer")
 
@@ -51,10 +49,7 @@ function docs_fixture.database(dir: string, files: {string: string}): Sqlite.Han
       { { text = path }, { text = files[path] } }))
   end
   local handle: work.Handle = { db = db, root = dir, dir = build_paths.required(dir), run = 1, inside = false }
-  local built = assert(teal.load())
-  -- Read as the build in this process reads, by the fork or, with `COSMIC_GRAMMAR=new`, by the new checker's syntax tree.
-  local grammar = assert(GrammarMode.mode())
-  assert(importer.derive(handle, true, built, nil, nil, nil, grammar))
+  assert(importer.derive(handle, true))
   -- [`build.importer.compile`] plans each module under its key, beside
   -- its compile; this stands in for both, planning every module with
   -- nothing compiled, which no table the fixture is for reads.
@@ -77,7 +72,7 @@ function docs_fixture.database(dir: string, files: {string: string}): Sqlite.Han
   -- so a lookup takes the projection for its own code's
   -- ([`writer.other_code`]).
   assert(writer.write_result(handle, path, {
-    modules = {}, tool = rebuild.compiled_by(grammar), refused = {}, left_out = {}, compiled = 0, cached = 0, shared = 0,
+    modules = {}, tool = rebuild.compiled_by("new"), refused = {}, left_out = {}, compiled = 0, cached = 0, shared = 0,
     worked = 0, parses = { parsed = 0, shared = 0, worked = 0 },
   }, nil, link_index.none))
   assert(db:close())

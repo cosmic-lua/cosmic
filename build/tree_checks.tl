@@ -146,9 +146,7 @@ allow({
 }, "the new checker's error reporting (build/error_catalog.tl, build/error_render.tl), which the compile with the new " ..
     "checker prints and writes through `insert` and `line`, and the fork's does not yet; tested directly until then")
 
-allow({ "build.seed_proof.boot", "build.seed_proof.shim" }, "the boot of a tree with a bare core and the bridge it boots through, which build/bridge_new_test.tl drives on a seed of stand-ins")
-
-allow({ "build.seed.compile", "build.seed.program" }, "the two things the bridge asks of the seed (core/bridge_new.lua, which is " ..
+allow({ "build.seed.compile", "build.seed.program" }, "the two things the bridge asks of the seed (core/bridge.lua, which is " ..
     "Lua and loads the seed's Lua by name), which no Teal calls")
 
 allow({ "build.compilation.full_keys" }, "the keys made of nothing kept, which build/dependency_keys_test.tl holds " ..
@@ -1259,8 +1257,7 @@ end
 --- The tree is compiled with the checker `grammar` names. A projection
 --- records which: a lookup of the other mode, `cosmic docs` and the
 --- link check among them, reads none of it ([`writer.other_code`]).
-function tree_checks.projection(root: string, built: compiler,
-                                grammar: GrammarMode.Mode): Sqlite.Handle?, string
+function tree_checks.projection(root: string, grammar: GrammarMode.Mode): Sqlite.Handle?, string
   local handle, open_trouble = work.open(root)
   if handle == nil then
     return nil, open_trouble
@@ -1270,16 +1267,13 @@ function tree_checks.projection(root: string, built: compiler,
     local _, _ = work.close(handle)
     return nil, stage_trouble
   end
-  local result, compile_trouble = importer.compile(handle, built,
-    GrammarMode.tool(Store.meta("compiler") or "", grammar), false, shared_compiles.for_build(), nil, nil, grammar)
+  local result, compile_trouble = importer.compile(handle,
+    GrammarMode.tool(Store.meta("compiler") or "", grammar), false, shared_compiles.for_build())
   if result == nil then
     local _, _ = work.close(handle)
     return nil, compile_trouble
   end
-  local refused = result.refused
-  if grammar == "new" then
-    refused = Pipeline.unexpected(refused)
-  end
+  local refused = Pipeline.unexpected(result.refused)
   if #refused > 0 then
     local _, _ = work.close(handle)
     return nil, "the tree does not build:\n" .. table.concat(refused, "\n")
@@ -2764,9 +2758,8 @@ end
 
 --- The files of `files` that a lowering covers, each with the key its answer is kept under: `salt`, its dialect and
 --- its source and the sources of every module it requires, however far. `written` are the sources the build writes from
---- other files ([`TreeProgram.derived_of`]), which count as files of the tree, named for the file each comes from. With
---- `steps` the files are mended as the pipeline mends them ([`TreeProgram.index`]).
-local function tree_of(given: {{string}}, salt: string, bindings?: {{string}}, written?: {{string}}, steps?: boolean,
+--- other files ([`TreeProgram.derived_of`]), which count as files of the tree, named for the file each comes from.
+local function tree_of(given: {{string}}, salt: string, bindings?: {{string}}, written?: {{string}},
                        shaping?: Shaping): Tree
   local files = TreeProgram.joined(given, written or {}).files
   local derived: mut {string: boolean} = {}
@@ -2774,7 +2767,7 @@ local function tree_of(given: {{string}}, salt: string, bindings?: {{string}}, w
     files[#files + 1] = entry
     derived[entry[1]] = true
   end
-  local index = TreeProgram.index(files, steps == true, {})
+  local index = TreeProgram.index(files, {})
   local tree: Tree = { rows = {}, by_module = {}, index = index }
   local rows, by_module = tree.rows, tree.by_module
   local hashes: mut {string: string} = {}
@@ -2971,7 +2964,7 @@ function tree_checks.declared(root: string, pinned?: {string: integer}, memo?: S
   if written == nil then
     return { "reading the derived sources: " .. written_why }
   end
-  local tree = tree_of(files, salt, TreeProgram.bindings_of(root), written, true, shaping_of(root, memo))
+  local tree = tree_of(files, salt, TreeProgram.bindings_of(root), written, shaping_of(root, memo))
   if memo ~= nil then
     local _, _ = check_memo.prepare(memo, "declared")
   end
@@ -3031,7 +3024,7 @@ function tree_checks.checked(root: string, pinned?: {string: integer}, memo?: Sq
   if written == nil then
     return { "reading the derived sources: " .. written_why }
   end
-  local tree = tree_of(files, salt, TreeProgram.bindings_of(root), written, true, shaping_of(root, memo))
+  local tree = tree_of(files, salt, TreeProgram.bindings_of(root), written, shaping_of(root, memo))
   if memo ~= nil then
     local _, _ = check_memo.prepare(memo, "checked")
   end
@@ -3086,7 +3079,7 @@ function tree_checks.pipeline(root: string, build_db: Sqlite.Handle, memo?: Sqli
     "build/lang_proof.tl", "build/syntax_shape_specs.tl", "build/pipeline.tl", "build/pipeline_check.tl",
     "build/gen_syscalls.tl", "build/compile_grammar.tl", "lang/codegen.tl", "lang/truthy.tl", "lang/fact_wraps.tl",
     "core/syscalls.h", "core/process.h", "core/socket.h", "build/new_declarations.tl" }, "pipeline 3")
-  local tree = tree_of(files, salt, TreeProgram.bindings_of(root), written, true, shaping_of(root, memo))
+  local tree = tree_of(files, salt, TreeProgram.bindings_of(root), written, shaping_of(root, memo))
   -- The ceilings are not in the salt: each file's answer is keyed by those held under its own name ([`PipelineCheck.keyed`]).
   local given: mut {string: boolean} = {}
   for _, entry in ipairs(files) do
@@ -3566,7 +3559,7 @@ function tree_checks.typed(root: string, pinned?: {string: integer}, memo?: Sqli
     "build/syntax_receivers.tl", "build/syntax_contracts.tl", "build/syntax_stub.tl", "build/syntax_typed.tl",
     "build/contracts.tl", "build/contract_rules.tl", "build/tree_checks.tl", "build/tree_program.tl", "build/gen_syscalls.tl", "core/syscalls.h", "core/process.h",
     "core/socket.h", "build/new_declarations.tl" }, "typed 4")
-  local tree = tree_of(files, salt, TreeProgram.bindings_of(root), nil, true, shaping_of(root, memo))
+  local tree = tree_of(files, salt, TreeProgram.bindings_of(root), nil, shaping_of(root, memo))
   if memo ~= nil then
     local _, _ = check_memo.prepare(memo, "typed")
   end
@@ -3780,7 +3773,7 @@ function tree_checks.untyped(root: string, pinned?: {string: integer}, memo?: Sq
     "build/syntax_receivers.tl", "build/syntax_contracts.tl", "build/contract_rules.tl", "build/tree_checks.tl",
     "build/tree_program.tl", "build/gen_syscalls.tl", "core/syscalls.h", "core/process.h", "core/socket.h",
     "build/new_declarations.tl" }, "untyped 1")
-  local tree = tree_of(files, salt, TreeProgram.bindings_of(root), written, true, shaping_of(root, memo))
+  local tree = tree_of(files, salt, TreeProgram.bindings_of(root), written, shaping_of(root, memo))
   if memo ~= nil then
     local _, _ = check_memo.prepare(memo, "untyped")
   end

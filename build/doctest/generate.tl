@@ -407,14 +407,14 @@ function generate.from_blocks(blocks: {Block}, file: string, prose?: string): st
     -- since each line written to `out` is a write the checker counts.
     out[#out + 1] = [==[
 local record __doctest_caught
-  text: string
+  mut text: string
 end
 
 --- A fresh `print` and a way to read back everything it caught, one
 --- pair per running example. `core/surface.c`'s `surface_print` is a
 --- plain global -- tab-separating its arguments and ending every call
 --- in one newline -- and this mirrors that exactly.
-local function __doctest_capture(): function(any...), function(): string
+local function __doctest_capture(): function(...: any), function(): string
   local caught: __doctest_caught = { text = "" }
   local into = function(...: any): ()
     local line = ""

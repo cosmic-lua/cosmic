@@ -1,14 +1,41 @@
---- The bridge of the new checker (core/bridge_new.lua), dark until the switch: its two stages, the declared differences of
---- the seed, the searcher it installs and the compiles it keeps. Each case boots a tree of stand-ins with a bare core, as
---- core/boot_test.tl does: the stand-in seed's `compile` passes a file through as its Lua, so the stand-in sources are Lua,
---- and its `program` answers a few modules by name. The real seed is [`build/seed_proof_test.tl`]'s.
+--- The bridge (core/bridge.lua): its two stages, the declared differences of the seed, the searcher it installs and the
+--- compiles it keeps. Each case boots a tree of stand-ins with a bare core, as core/boot_test.tl does: the stand-in seed's
+--- `compile` passes a file through as its Lua, so the stand-in sources are Lua, and its `program` answers a few modules by
+--- name.
 
+local Child = require("cosmic.child")
+local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
-local SeedProof = require("build.seed_proof")
+local Sqlite = require("cosmic.sqlite")
 local Test = require("cosmic.test")
 local artifact = require("build.artifact")
+local cache_formats = require("build.cache_formats")
 
-Test.policy{ grants = { { path = "core/bridge_new.lua", letters = "r" } } }
+Test.policy{ grants = { { path = "core/bridge.lua", letters = "r" } } }
+
+--- What [`boot`] ran.
+local record Booted
+  code: integer?
+  stdout: string
+  --- The bridge's account of its steps (`COSMIC_BRIDGE_TRACE`), one line each.
+  trace: {string}
+  --- The rest of the standard error.
+  stderr: string
+end
+
+--- The bridge's lines that say a step (`bridge: <seconds> s ...`), and the rest of `text`.
+local function split_trace(text: string): {string}, string
+  local trace: mut {string} = {}
+  local rest: mut {string} = {}
+  for line in (text .. "\n"):gmatch("([^\n]*)\n") do
+    if line:find("^bridge: ") ~= nil then
+      trace[#trace + 1] = line
+    elseif line ~= "" then
+      rest[#rest + 1] = line
+    end
+  end
+  return trace, table.concat(rest, "\n")
+end
 
 --- The entry of the stand-in seed, as a source and as the Lua the seed has for it (they are one text). Its `compile`
 --- hands each file back as its Lua; its `program` answers the modules a boot asks for.
@@ -61,9 +88,7 @@ local function tree_of(tmp: string, seed_entry: string, differs?: string): strin
   assert(Fs.mkdirs(tree .. "/core"))
   assert(Fs.mkdirs(tree .. "/build"))
   assert(Fs.mkdirs(tree .. "/lang"))
-  assert(Fs.write(tree .. "/core/bridge.lua", SeedProof.shim()))
-  assert(Fs.write(tree .. "/core/bridge_new.lua", (assert(Fs.read("core/bridge_new.lua")))))
-  assert(Fs.mkdirs(tree .. "/core"))
+  assert(Fs.write(tree .. "/core/bridge.lua", (assert(Fs.read("core/bridge.lua")))))
   assert(Fs.write(tree .. "/core/syscalls.h", "/* stand-in */\n"))
   assert(Fs.write(tree .. "/build/seed.txt", "build/seed.tl\nlang/helper.tl\n"))
   assert(Fs.write(tree .. "/build/seed.tl", ENTRY))
@@ -78,15 +103,17 @@ local function tree_of(tmp: string, seed_entry: string, differs?: string): strin
 end
 
 --- Boots `tree` with `tmp`'s seed; the cache is off unless `cache` names its file.
-local function boot(tmp: string, tree: string, cache?: string, declaration?: string): SeedProof.Booted
+local function boot(tmp: string, tree: string, cache?: string, declaration?: string): Booted
   local core = tmp .. "/cosmic-core"
   if Fs.exists(core) ~= true then
     local trusted = assert(artifact.trusted_core())
     assert(Fs.write(core, trusted.bytes, 0x1ed))
   end
-  local booted = assert(SeedProof.boot(core, tree, tmp .. "/seed", { "status" },
-    { COSMIC_BRIDGE_TRACE = "1", COSMIC_BUILD_CACHE = cache or "0", DECL = declaration or "x" }))
-  return booted
+  local ran = assert(Child.run({ core, "--boot", tree, tmp .. "/seed", "status" },
+    { env = { COSMIC_BRIDGE_TRACE = "1", COSMIC_BUILD_CACHE = cache or "0", DECL = declaration or "x" },
+      stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(60), capture_limit = 1 << 24 }))
+  local trace, rest = split_trace(ran.stderr or "")
+  return { code = ran.code, stdout = ran.stdout or "", trace = trace, stderr = rest }
 end
 
 local function test_a_boot_loads_the_seed_compiles_it_again_and_answers_the_build_from_stage_two(tmp: string)
@@ -166,7 +193,7 @@ end
 --- from it, changes exactly one input, and boots again: a part of the key left out would let the old rows stand for the new
 --- input, which is the stale compiler this keeps from running.
 
-local function seen(booted: SeedProof.Booted): string
+local function seen(booted: Booted): string
   return table.concat(booted.trace, "\n")
 end
 
@@ -183,7 +210,7 @@ end
 
 local function test_an_edit_of_the_bridge_makes_stage_two_again(tmp: string)
   local tree = warmed(tmp)
-  assert(Fs.write(tree .. "/core/bridge_new.lua", assert(Fs.read(tree .. "/core/bridge_new.lua")) .. "\n-- edited\n"))
+  assert(Fs.write(tree .. "/core/bridge.lua", assert(Fs.read(tree .. "/core/bridge.lua")) .. "\n-- edited\n"))
   local booted = boot(tmp, tree, tmp .. "/cache.db")
   assert(booted.code == 7, "exit " .. tostring(booted.code) .. ": " .. booted.stderr)
   assert(seen(booted):find("stage two: compiled by stage one", 1, true), seen(booted))
@@ -240,4 +267,72 @@ local function test_other_declarations_than_the_modules_were_made_with_make_them
   -- The row is kept again for the declarations it was just made with.
   local same = boot(tmp, tree, tmp .. "/cache.db", "two")
   assert(seen(same):find("build.boot loaded: 0 modules compiled", 1, true), seen(same))
+end
+
+--- How many rows the cache file holds, of the kind `where` names (all where none).
+local function rows(cache: string, where?: string): integer
+  local db = assert(Sqlite.open(cache))
+  local found = assert(Sqlite.text_rows(db, "SELECT count(*) FROM bridge_v2 " .. (where or "")))
+  assert(db:close())
+  local first = assert(found[1])
+  return math.tointeger(tonumber(first:text(1))) or 0
+end
+
+--- Rows become code that runs, so a file or directory that anyone else could write is neither read nor written, and a link
+--- is not taken for the file.
+local function test_a_cache_others_could_write_is_refused(tmp: string)
+  local function refused(name: string, spoil: function(string))
+    local dir = tmp .. "/" .. name
+    assert(Fs.mkdirs(dir))
+    local tree = tree_of(dir, ENTRY)
+    local cache = dir .. "/cache/cache.db"
+    assert(Fs.mkdirs(dir .. "/cache"))
+    assert(Fs.chmod(dir .. "/cache", 0x1c0))
+    boot(dir, tree, cache)
+    assert(rows(cache) == 2, name .. ": the control kept nothing")
+    spoil(cache)
+    local again = boot(dir, tree, cache)
+    assert(again.code == 7, name .. ": exit " .. tostring(again.code) .. ": " .. again.stderr)
+    assert(seen(again):find("stage two: compiled by stage one", 1, true), name .. ": rows were read from a cache others could write")
+  end
+  refused("group-writable-file", function(cache: string) assert(Fs.chmod(cache, 0x1b0)) end)
+  refused("world-writable-directory", function(cache: string) assert(Fs.chmod(Fs.dirname(cache), 0x1c7)) end)
+  refused("linked-file", function(cache: string)
+    assert(Fs.rename(cache, cache .. ".real"))
+    assert(Fs.symlink(cache .. ".real", cache))
+  end)
+end
+
+--- The file keeps the newest rows of each kind and no more.
+local function test_the_cache_keeps_a_bounded_number_of_rows(tmp: string)
+  local tree = tree_of(tmp, ENTRY)
+  local cache = tmp .. "/cache.db"
+  for round = 1, 20 do
+    assert(Fs.write(tree .. "/core/syscalls.h", "/* stand-in " .. tostring(round) .. " */\n"))
+    boot(tmp, tree, cache)
+  end
+  assert(rows(cache, "WHERE kind = 'modules'") == 16, "module rows: " .. tostring(rows(cache, "WHERE kind = 'modules'")))
+  assert(rows(cache, "WHERE kind = 'compiler'") == 1)
+end
+
+--- The bridge makes its table in plain Lua; it has to be the one [`build.cache_formats`] names, which the file's
+--- maintenance reads.
+local function test_the_bridge_makes_the_table_the_formats_name(tmp: string)
+  local cache = tmp .. "/cache.db"
+  boot(tmp, tree_of(tmp, ENTRY), cache)
+  local function schema(db: Sqlite.Handle): string
+    local found = assert(Sqlite.text_rows(db,
+      "SELECT sql FROM sqlite_schema WHERE name LIKE 'bridge_v%' ORDER BY name"))
+    local out: mut {string} = {}
+    for _, row in ipairs(found) do out[#out + 1] = row:text(1):gsub("%s+", "") end
+    return table.concat(out, ";")
+  end
+  local made = assert(Sqlite.open(cache))
+  local expected = assert(Sqlite.memory())
+  for _, statement in ipairs(cache_formats.bridge_statements) do
+    assert(expected:exec(statement))
+  end
+  assert(schema(made) ~= "" and schema(made) == schema(expected), schema(made))
+  assert(made:close())
+  assert(expected:close())
 end

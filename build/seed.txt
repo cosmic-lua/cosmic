@@ -1,7 +1,6 @@
 build/ceilings.tl
 build/compile_grammar.tl
 build/driver.tl
-build/new_declarations.tl
 build/removed_fix.tl
 build/seed.tl
 cosmic/clock.tl

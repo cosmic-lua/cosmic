@@ -69,7 +69,7 @@ local function compile_fixture(root: string): importer.Result?, string
     work.close(handle)
     return nil, stage_trouble
   end
-  local result, compile_trouble = importer.compile(handle, built,
+  local result, compile_trouble = importer.compile(handle,
     "declaration-cache-test")
   work.close(handle)
   return result, compile_trouble
@@ -96,7 +96,7 @@ local function test_project_keeps_uses_of_bundled_symbols()
   }))
   local handle = assert(work.open(root))
   assert(work.stage(handle, false))
-  local result = assert(importer.compile(handle, built, "importer-test"))
+  local result = assert(importer.compile(handle, "importer-test"))
   assert(writer.write_result(handle, build_dir(root) .. "/cosmic.db", result))
   local shipped = assert(Sqlite.open(build_dir(root) .. "/cosmic.db"))
   local rows = assert(Sqlite.text_rows(shipped,

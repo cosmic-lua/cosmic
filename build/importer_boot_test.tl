@@ -11,7 +11,6 @@ local Test = require("cosmic.test")
 local analysis_schema = require("build.analysis_schema")
 local identity = require("build.identity")
 local importer = require("build.importer")
-local teal = require("build.teal")
 local work = require("build.work")
 local writer = require("build.writer")
 local build_paths = require("build.paths")
@@ -25,7 +24,6 @@ local function build_dir(root: string): string
   return (assert(build_paths.prepare(root)))
 end
 
-local built = assert(teal.load())
 
 --- A boot carries no database and runs the tree's own code, so it names
 --- the analyzer by the tree ([`importer.tree_code`]). It must name it as
@@ -73,9 +71,9 @@ local function test_a_boot_names_its_analyzer_as_the_tool_it_writes()
   -- its own database (core/store.c's `requires` and `source`).
   local handle = assert(work.open(root))
   assert(work.stage(handle, true))
-  assert(importer.derive(handle, true, built))
+  assert(importer.derive(handle, true))
   local identities = assert(identity.record_identities(handle.db))
-  local result = assert(importer.compile(handle, built, identities.compiler))
+  local result = assert(importer.compile(handle, identities.compiler))
   assert(writer.write_result(handle, build_dir(root) .. "/cosmic.db", result))
   work.close(handle)
   local out = assert(Sqlite.open(build_dir(root) .. "/cosmic.db"))
@@ -130,7 +128,7 @@ local function test_a_boot_names_its_analyzer_as_the_tool_it_writes()
       if key == "boot_hash" then return nil end
       return meta(key)
     end
-    local ok, derived, trouble = pcall(importer.derive, again, true, built)
+    local ok, derived, trouble = pcall(importer.derive, again, true)
     Store.meta = meta
     assert(ok, tostring(derived))
     assert(derived, trouble)

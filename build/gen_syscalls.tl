@@ -130,12 +130,17 @@ end
 --- `function(self: Socket): boolean, string`.
 local function teal_type(text: string): string
   if text:sub(1, 4) == "fun(" then
-    local spaced = text:sub(5):gsub(":", ": "):gsub(",", ", ")
+    local spaced = text:sub(5):gsub("([^,%(%)%s|]+)|nil", "%1?"):gsub(":", ": "):gsub(",", ", ")
     return "function(" .. spaced
   end
   local parts: mut {string} = {}
   for piece in text:gmatch("[^|]+") do
     parts[#parts + 1] = piece
+  end
+  -- A type that may be nil is written with `?`, as the new grammar has it.
+  local first = parts[1]
+  if #parts == 2 and parts[2] == "nil" and first ~= nil then
+    return first .. "?"
   end
   return table.concat(parts, " | ")
 end
@@ -231,12 +236,12 @@ local function parse_call(name: string, lines: {string}): Call?, string
   end
   if n == 3 then
     local first = call.results[1].kind
-    if first == "boolean | nil" then
+    if first == "boolean?" then
       return nil, name .. ": a fallible syscall's first return is boolean, an " ..
         "effect that fails with false, or a value that fails with nil -- " ..
         "never boolean|nil"
     end
-    if first ~= "boolean" and first:sub(-6) ~= " | nil" then
+    if first ~= "boolean" and first:sub(-1) ~= "?" then
       return nil, name .. ": a fallible syscall's first return is boolean, or " ..
         "a value that fails with nil (T|nil)"
     end
@@ -616,8 +621,10 @@ function generator.declaration(header: string, target?: Target): string?, string
       for _, field in ipairs(class.fields) do
         comment(out, "    ", { field.description })
         local metamethod = class.userdata and field.name:sub(1, 2) == "__"
-        out[#out + 1] = "    " .. (if metamethod then "metamethod " else "" end) .. field.name .. ": " ..
-          field.kind
+        -- A field that may be nil may be left out of a literal.
+        local optional = not metamethod and field.kind:sub(-1) == "?" and field.kind:sub(1, 9) ~= "function("
+        out[#out + 1] = "    " .. field.name ..
+          (if optional then "?: " .. field.kind:sub(1, -2) else ": " .. field.kind end)
       end
       out[#out + 1] = "  end"
       out[#out + 1] = ""

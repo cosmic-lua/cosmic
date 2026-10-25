@@ -67,8 +67,7 @@ local function established(dir: string): boolean
 end
 
 --- Whether `root`'s last build staged a source at `path` or under it,
---- `path` relative to `root`, or a file of the tool's own there (`tool`,
---- which holds [`checker/tl.tl`]); nil and why when its `build.db` cannot be
+--- `path` relative to `root`, or a file of the tool's own there (`tool`); nil and why when its `build.db` cannot be
 --- read, which is not an answer either way.
 -- TODO: climb from a directory the last build staged no Teal under --
 -- prose alone (`doc/`, whose Markdown the walk skips), or one made

@@ -10,11 +10,9 @@ local Sqlite = require("cosmic.sqlite")
 local Store = require("cosmic.store")
 local importer = require("build.importer")
 local shared_compiles = require("build.shared_compiles")
-local teal = require("build.teal")
 local work = require("build.work")
 local parses_fixture = require("build.parses_fixture")
 
-local built = assert(teal.load())
 
 --- Every row `sql` answers of the database at `path`, a line each, and
 --- every row of every parse table of a working database.
@@ -56,7 +54,7 @@ local function boot(root: string, path: string): importer.Parses, string, string
     if key == "boot_hash" then return nil end
     return meta(key)
   end
-  local ok, parses, trouble = pcall(importer.derive, handle, true, built, shared)
+  local ok, parses, trouble = pcall(importer.derive, handle, true, shared)
   Store.meta = meta
   if shared ~= nil then shared.finish() end
   assert(ok, tostring(parses))

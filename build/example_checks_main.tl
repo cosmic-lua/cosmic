@@ -20,7 +20,7 @@ return function(_argv: {string}): integer
     print(built_trouble)
     return 2
   end
-  local db, projection_trouble = tree_checks.projection(root, built, "teal")
+  local db, projection_trouble = tree_checks.projection(root, "new")
   if db == nil then
     print(projection_trouble)
     return 2

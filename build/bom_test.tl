@@ -70,21 +70,21 @@ local function test_a_notice_range_must_hold_a_line()
   assert(kind:find("none of library, data and test", 1, true), kind)
 end
 
---- The binary carries the checker, not tl's own source, so the checker is
---- listed with tl as the code that is not upstream's as published.
-local function test_the_checker_is_listed_with_tl(tmp: string)
+--- The binary carries the new checker's declarations of the standard library, not tl's own source, so they are listed
+--- with tl as the code that is not upstream's as published.
+local function test_the_standard_librarys_declarations_are_listed_with_tl(tmp: string)
   assert(Fs.mkdirs(tmp .. "/build/bom"))
-  assert(Fs.mkdirs(tmp .. "/checker"))
+  assert(Fs.mkdirs(tmp .. "/lang"))
   assert(Fs.write(tmp .. "/build/bom/tl.pin", "version 0.24.8\nurl https://tl.example/t\nlicense MIT\n"))
-  assert(Fs.write(tmp .. "/checker/tl.tl", "a checker"))
+  assert(Fs.write(tmp .. "/lang/stdlib.d.tl", "a declaration"))
   local db = database()
   assert(bom.fill(db, tmp, "main."))
   local rows = assert(bom.rows(db))
-  assert(#rows == 1 and rows[1].patches == "checker/tl.tl " .. Hash.hex_sha256("a checker"),
-    "the checker is not listed: " .. tostring(rows[1] and rows[1].patches))
+  assert(#rows == 1 and rows[1].patches == "lang/stdlib.d.tl " .. Hash.hex_sha256("a declaration"),
+    "the declarations are not listed: " .. tostring(rows[1] and rows[1].patches))
   local line = bom.lines(rows)[1]
-  assert(line:find("(modified: checker/tl.tl)", 1, true) and not line:find("patch", 1, true),
-    "the checker is a modified descendant, not a patch: " .. line)
+  assert(line:find("(modified: lang/stdlib.d.tl)", 1, true) and not line:find("patch", 1, true),
+    "the declarations are a modified descendant, not a patch: " .. line)
   local document = assert(bom.cyclonedx(rows, "cosmic", "1"))
   assert(document:find("modified by cosmic", 1, true) and not document:find("patched by cosmic", 1, true),
     document)

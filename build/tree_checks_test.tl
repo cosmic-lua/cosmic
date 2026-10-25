@@ -1802,7 +1802,7 @@ end
 local function test_a_tree_read_through_the_checkers_types_is_held_to_what_the_forks_build_wrote_of_it(dir: string)
   local root = dir .. "/typed"
   typed_tree(root)
-  local counts: {string: integer} = {}
+  local counts: mut {string: integer} = {}
   local clean = tree_checks.typed(root, {}, nil, typed_fork(), counts)
   assert(#clean == 0, table.concat(clean, "\n"))
   assert(counts["typed refs"] == 1 and counts["contracts"] == 2 and counts["stub"] == 1 and counts["kind"] == 2, "counts")
@@ -1988,7 +1988,7 @@ local function test_the_projection_of_the_tree_checks_is_written_in_the_mode_ask
     assert(Fs.write(root .. "/lang/stdlib.d.tl", (assert(Fs.read("lang/stdlib.d.tl")))))
     assert(Fs.write(root .. "/lang/prelude.d.tl", (assert(Fs.read("lang/prelude.d.tl")))))
     assert(Fs.write(root .. "/things.tl", "--- Opens.\nlocal function open(): integer\n  return 1\nend\n\nreturn open\n"))
-    local db = assert(tree_checks.projection(root, (assert(teal.load())), mode))
+    local db = assert(tree_checks.projection(root, mode))
     local own, trouble = writer.other_code(db, rebuild.compiled_by(mode))
     assert(own == nil and trouble == "", mode .. ": " .. tostring(own) .. trouble)
     local other: GrammarMode.Mode = if mode == "new" then "teal" else "new" end

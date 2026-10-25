@@ -21,7 +21,6 @@ local Store = require("cosmic.store")
 local ast = require("build.ast")
 local importer = require("build.importer")
 local shared_compiles = require("build.shared_compiles")
-local teal = require("build.teal")
 local tree = require("build.tree")
 local work = require("build.work")
 local String = require("cosmic.string")
@@ -104,9 +103,8 @@ function spill.check(root: string): spill.Built?, string
     local _, _ = work.close(handle)
     return nil, stage_trouble
   end
-  local built = teal.lazy()
-  local result, compile_trouble = importer.compile(handle, built,
-    Store.meta("compiler") or "", false, shared_compiles.for_build(), nil, nil, nil, true)
+  local result, compile_trouble = importer.compile(handle,
+    Store.meta("compiler") or "", false, shared_compiles.for_build(), nil, true)
   local closed, close_trouble = work.close(handle)
   if not closed then return nil, close_trouble end
   local refused = compile_trouble

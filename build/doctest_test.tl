@@ -11,7 +11,6 @@ local Fs = require("cosmic.fs")
 local Test = require("cosmic.test")
 local GrammarMode = require("build.grammar_mode")
 local importer = require("build.importer")
-local teal = require("build.teal")
 local work = require("build.work")
 
 local type Module = importer.Module
@@ -21,7 +20,6 @@ local type Module = importer.Module
 -- database ("cosmic") has.
 Test.policy{ env = { "COSMIC_GRAMMAR" }, profiles = { "cosmic" }, grants = { { path = "o/bin", letters = "rx" } } }
 
-local built = assert(teal.load())
 
 local function doc(parts: {string}): string
   return table.concat(parts, "\n") .. "\n"
@@ -106,8 +104,11 @@ local function compile_fixture(root: string, given?: GrammarMode.Mode): importer
     return nil, stage_trouble
   end
   local grammar = given or assert(GrammarMode.mode())
-  local result, compile_trouble = importer.compile(handle, built, GrammarMode.tool("doctest-test", grammar), false, nil, nil, false,
-    grammar)
+  local result, compile_trouble = importer.compile(handle,
+    GrammarMode.tool("doctest-test", grammar),
+    false,
+    nil,
+    false)
   work.close(handle)
   if result == nil then
     return nil, compile_trouble
