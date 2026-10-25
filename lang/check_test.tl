@@ -1348,3 +1348,75 @@ local function test_the_types_a_literal_gives_are_held_to_the_arguments_and_the_
   end
   assert(#wrong == 0, table.concat(wrong, "; "))
 end
+
+local function test_a_value_refused_by_a_parameter_carries_the_call_and_an_assignment_carries_none()
+  local r = Programs.run([[
+local function put(a: string, n: integer): integer
+  return n
+end
+local x = put("a", "b")
+local s: string = 1
+local a, n = ("x"):gsub("a", function(c: integer): string return "" end)
+]])
+  assert(#r.errors == 3, Programs.codes(r))
+  local own, plain, library = assert(r.errors[1]), assert(r.errors[2]), assert(r.errors[3])
+  local argument = own.argument
+  assert(own.code == "not_assignable" and argument ~= nil and argument.callee == "put" and argument.position == 2 and
+      argument.module == "", own.msg)
+  assert(plain.code == "not_assignable" and plain.argument == nil, plain.msg)
+  local method = library.argument
+  assert(method ~= nil and method.position == 2 and has(method.callee, "gsub"), library.msg)
+end
+
+local function test_an_argument_of_a_function_read_from_a_declaration_names_the_module_that_declares_it()
+  local r = Programs.run([[
+local class C
+  n: integer
+end
+function C.make(n: integer): integer
+  return n
+end
+local x = C.make("s")
+local y = ("x"):sub("a")
+local z = C.make("s")
+]])
+  assert(#r.errors == 3, Programs.codes(r))
+  local statics, method = assert(r.errors[1]), assert(r.errors[2])
+  local again = assert(r.errors[3])
+  local a, b, c = statics.argument, method.argument, again.argument
+  assert(a ~= nil and b ~= nil and c ~= nil, Programs.codes(r))
+  assert(a.module ~= "" and a.module == c.module and a.callee == "C.make", a.module)
+  -- the module of the callee is the one read last: another call between the two does not leave its module behind
+  assert(b.callee:find("sub", 1, true) ~= nil and b.module ~= a.module, b.module)
+end
+
+local function test_an_argument_of_a_call_inside_an_argument_keeps_the_module_of_its_own_call()
+  local r = Programs.run([[
+local class C
+  n: integer
+end
+function C.make(n: integer, m: integer): integer
+  return n
+end
+local function id(n: integer): integer
+  return n
+end
+local x = C.make(id(1), "s")
+]])
+  assert(#r.errors == 1, Programs.codes(r))
+  local argument = assert(r.errors[1]).argument
+  assert(argument ~= nil and argument.callee == "C.make" and argument.module ~= "" and argument.position == 2, Programs.codes(r))
+end
+
+local function test_the_marker_of_an_argument_does_not_outlast_the_call_it_belongs_to()
+  local r = Programs.run([[
+local function id(n: integer): integer
+  return n
+end
+local x = id("s")
+local y: string = id(1)
+]])
+  assert(#r.errors == 2, Programs.codes(r))
+  local call, assignment = assert(r.errors[1]), assert(r.errors[2])
+  assert(call.argument ~= nil and assignment.argument == nil, Programs.codes(r))
+end

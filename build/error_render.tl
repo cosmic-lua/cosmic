@@ -12,20 +12,16 @@
 --- A fix repeated word for word in one file (the same advice for several unused functions) is printed on the first line
 --- that has it, with how many more lines it holds for, and those lines carry the message and the code alone.
 ---
---- A name the checker could not resolve is followed by what `cosmic docs` answers for it (`-- see also in docs: cosmic.fs`), and
---- a call or a field the checker refused by the worked example that teaches the form (`-- see also: cosmic docs
---- records_interfaces_methods`), when the databases the caller hands over hold them.
+--- A name the checker could not resolve is followed by what `cosmic docs` answers for it (`-- see also in docs:
+--- cosmic.fs`), and a call, a value a parameter's type refused (`not_assignable`) or a field the checker refused by the
+--- worked example that teaches the form (`-- see also: cosmic docs records_interfaces_methods`), when the databases the
+--- caller hands over hold them.
 ---
 --- The build prints the errors of a compile through [`ErrorRender.line`] ([`build.pipeline`]).
 --
 -- TODO: list the fields a record declares in the fix of `field_unknown` where none is near (`R's fields: y`, which the
 -- checker's fix does not say), once lang/check.tl's fix names them; this prints the checker's fix as
 -- it is.
---
--- TODO: point a `not_assignable` of an argument of a call of a standard-library function to `cosmic docs
--- generics_functions_returns`, as the fork's message did (only `arity`, `overload_none` and `field_unknown` point today,
--- in [`example_query`]), once [`Driver.Problem`] says a problem is an argument's: it carries a code, a message and a place
--- and no marker of the call, and the message cannot be read for it.
 local Driver = require("build.driver")
 local RemovedFix = require("build.removed_fix")
 local Sqlite = require("cosmic.sqlite")
@@ -50,8 +46,8 @@ local record ErrorRender
   line: function(file: string, problem: Driver.Problem): string
 
   --- What `hints` points a reader of `problem` to, to append to its line: ` -- see also in docs: <names>` for a name the
-  --- checker could not resolve that `cosmic docs` answers, ` -- see also: cosmic docs <example>` for a call or a field it
-  --- refused that a worked example teaches; "" for any other problem.
+  --- checker could not resolve that `cosmic docs` answers, ` -- see also: cosmic docs <example>` for a call, a value a
+  --- parameter's type refused (`not_assignable`) or a field it refused that a worked example teaches; "" for any other problem.
   pointers: function(result: Driver.Outcome, problem: Driver.Problem, hints: Hints): string
 
   --- The lines for the errors and then the warnings of `result`, with the pointers `hints` finds when it is given.
@@ -111,7 +107,9 @@ end
 
 --- The worked example that teaches the form a problem is about, by the query that finds it: nil for a problem of no form.
 local function example_query(problem: Driver.Problem): string?
-  if problem.code == "arity" or problem.code == "overload_none" then
+  if problem.code == "arity" or problem.code == "overload_none" or
+      (problem.code == "not_assignable" and problem.argument ~= nil) then
+    -- A value given to a parameter of any call, the standard library's or the project's own; an assignment has none.
     return ErrorRender.queries.arguments
   elseif problem.code == "field_unknown" then
     return ErrorRender.queries.record_key

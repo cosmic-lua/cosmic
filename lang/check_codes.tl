@@ -170,6 +170,18 @@ local record Codes
     "unchecked_binding"
   end
 
+  --- The call whose argument an error is about: set on an error filed for a value given to a parameter (a refusal by
+  --- the parameter's type, in any code), so that a reader need not parse its message to know it is an argument's.
+  record Argument
+    --- The callee as the program writes it ([`Fs.read`], `f`, `obj:method`).
+    callee: string
+    --- The module that declares the callee where the checker knows it (the receiver's, or the module a field is read
+    --- from), else "": a local or global function, or a callee whose declaration the checker did not see.
+    module: string
+    --- Which argument, as the message counts it: from 1, the receiver of a method call not among them.
+    position: integer
+  end
+
   --- An error: the scope builder's, with the types it is about.
   record Error
     filename: string
@@ -186,6 +198,8 @@ local record Codes
     other?: Scopes.Place
     --- The types it is about, as the program spells them (`string?`, never `string | nil`).
     types: {string}
+    --- Set when the error is a value refused by a parameter of a call; nil for any other.
+    argument?: Argument
   end
 
   --- The rule behind a code.
