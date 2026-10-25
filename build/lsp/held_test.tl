@@ -36,7 +36,7 @@ end
 local function checker_at(root: string): check.Checker
   return check.new(root, function(_line: string) end, function(): check.Hinted
     return { databases = {}, public = {} }
-  end, "new")
+  end)
 end
 
 local function document_of(root: string, name: string, text: string): check.Document
@@ -45,7 +45,7 @@ end
 
 local function test_an_error_appears_when_a_document_is_edited_and_clears_when_it_is_fixed()
   local root = helped()
-  local send = serving(root, "new")
+  local send = serving(root)
   local wrong = (MAIN:gsub("integer", "string"))
   send({ initialize(root), open(root, "main.tl", MAIN) })
   send({ change(root, "main.tl", wrong) })
@@ -67,7 +67,7 @@ end
 
 local function test_the_session_holds_one_program_for_all_its_checks()
   local root = helped()
-  local s = session.new(root, { grammar = "new" })
+  local s = session.new(root)
   local seen = programs_of(s, { initialize(root), open(root, "main.tl", MAIN), change(root, "main.tl", MAIN .. "-- one\n"),
     change(root, "main.tl", MAIN .. "-- two\n"), open(root, "helper.tl", HELPER) })
   local program = assert(seen[1], "no program after the first check")
@@ -82,7 +82,7 @@ end
 local function then_(root: string, first: {string}, between: function(), second: {string}): session_fixture.Ran
   return session_fixture.served_between(root, { first, second }, function(_after: integer)
     between()
-  end, nil, "new")
+  end)
 end
 
 local function test_a_module_changed_on_disk_is_served_to_the_document_open_again()
@@ -124,7 +124,7 @@ local function test_many_modules_changed_on_disk_make_the_program_again()
         assert(Fs.write(root .. "/mod" .. tostring(n) .. ".tl",
           "local record Api\n  n: string\nend\nlocal api: Api = { n = \"x\" }\nreturn api\n"))
       end
-    end, nil, "new")
+    end)
   assert(counts(ran):match("^0,[1-9]%d*$") ~= nil, counts(ran))
 end
 

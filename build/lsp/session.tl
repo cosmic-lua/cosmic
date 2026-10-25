@@ -8,9 +8,7 @@
 ---   closed, as [`build.lsp.check`] finds them, with those of the other
 ---   open documents that may change with it ([`build.lsp.publish`]).
 --- - Hover: the docs of the symbol under the cursor ([`build.lsp.hover`]).
---- - Formatting: the whole document as `cosmic fix` writes it, in a session of the fork's grammar. A session of the
----   new grammar ([`build.grammar_mode`]) offers none and answers a request with no edits: `cosmic fix` checks
----   new-grammar Teal and does not reformat it.
+--- - Formatting: none offered, and a request is answered with no edits: `cosmic fix` checks Teal and does not reformat it.
 ---
 --- The open documents that require one whose text changed are checked
 --- again once its own check is published, where what it serves them
@@ -27,7 +25,6 @@
 --- A message with no method answers a request of the session's own, and
 --- is never answered, whatever its id.
 
-local GrammarMode = require("build.grammar_mode")
 local Json = require("cosmic.json")
 local Sqlite = require("cosmic.sqlite")
 local Stream = require("cosmic.stream")
@@ -35,7 +32,6 @@ local bare = require("build.bare")
 local check = require("build.lsp.check")
 local dependents = require("build.lsp.dependents")
 local hover = require("build.lsp.hover")
-local lines = require("build.lsp.lines")
 local protocol = require("build.lsp.protocol")
 local publish = require("build.lsp.publish")
 local source = require("build.lsp.source")
@@ -47,8 +43,6 @@ local record session
     err?: function(line: string)
     --- The databases docs are read from: [`Store.databases()`] when nil.
     store?: {Sqlite.Handle}
-    --- The checker the session checks with: the one `COSMIC_GRAMMAR` asks for when nil ([`build.grammar_mode`]).
-    grammar?: GrammarMode.Mode
   end
 
   --- One editor's session: what it opened and what it was told.
@@ -98,7 +92,7 @@ end
 --- A session's checker and docs at `root`.
 local function checked_at(s: Session, root: string)
   s.root = root
-  s.checker = check.new(root, s.err, hints_of({ s }), s.checker.grammar)
+  s.checker = check.new(root, s.err, hints_of({ s }))
   s.docs = hover.new(root, s.checker.source, s.store, s.err)
 end
 
@@ -107,7 +101,7 @@ function session.new(root: string, options?: session.Options): Session
   local given: session.Options = options or {}
   local err = given.err or bare.err
   local held: mut {Session} = {}
-  local checker = check.new(root, err, hints_of(held), given.grammar)
+  local checker = check.new(root, err, hints_of(held))
   local made: Session = {
     root = root,
     encoding = "utf-16",
@@ -152,26 +146,14 @@ local function hovered(s: Session, params: protocol.DocumentParams): protocol.Ho
   return hover.at(s.docs, document.text, where, s.encoding)
 end
 
---- The edits that format `params`' document, encoded, or nil and why
---- there are none.
+--- The edits that format `params`' document, encoded: none, since `cosmic fix` does not lay out Teal and the session offers no
+--- formatting. A request for it is answered with no edits, or nil and why where no such document is open.
+---
+--- TODO: format the documents of a session, and offer `documentFormattingProvider`, once a formatter is written over the new
+--- syntax tree (the TODO of [`build.fix`]).
 local function formatting(s: Session, params: protocol.DocumentParams): string?, string
-  local document = document_of(s, params)
-  if document == nil then return nil, "no such document is open" end
-  -- The grammar is the session's, not the document's: nothing in a text says which grammar it is written in.
-  --
-  -- TODO: once the formatter reads the new grammar, format the documents of a session of it too.
-  if s.checker.grammar == "new" then return "[]", "" end
-  local built = check.compiler(s.checker)
-  local fixed, trouble = require("build.fix").source(built, document.text, document.name)
-  if fixed == nil then return nil, trouble end
-  if fixed.source == document.text then return "[]", "" end
-  local held = lines.lines_of(document.text)
-  local edit: protocol.TextEdit = {
-    range = protocol.range({ line = 0, character = 0 },
-      lines.position(held, #document.text + 1, s.encoding)),
-    newText = fixed.source,
-  }
-  return "[" .. assert(Json.encode_any(edit)) .. "]", ""
+  if document_of(s, params) == nil then return nil, "no such document is open" end
+  return "[]", ""
 end
 
 --- The workspace's root `params` names, if any.
@@ -210,14 +192,11 @@ local function initialize(s: Session, params: protocol.InitializeParams): protoc
   if workspace ~= nil then watched = workspace.didChangeWatchedFiles end
   s.watch = watched ~= nil and watched.dynamicRegistration == true
   s.initialized = true
-  local formats: boolean? = nil
-  if s.checker.grammar ~= "new" then formats = true end
   return {
     capabilities = {
       positionEncoding = s.encoding,
       textDocumentSync = { openClose = true, change = 1, save = { includeText = false } },
       hoverProvider = true,
-      documentFormattingProvider = formats,
     },
     serverInfo = { name = "cosmic" },
   }

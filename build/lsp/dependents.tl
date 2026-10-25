@@ -74,19 +74,9 @@ end
 local function key_of(checker: check.Checker, name: string): string
   local listed = source.module(checker.source, name)
   if listed == nil then return "" end
-  local built = check.compiler(checker)
-  local served = source.served(checker.source, built, listed.path, check.open_files(checker), true)
+  local served = source.served(checker.source, listed.path, check.open_files(checker), true)
   if served == nil then return "" end
-  local parts: mut {string} = {}
-  if checker.source.grammar == "new" then
-    parts = syntax_read.token_parts(served.text, served.file)
-  else
-    local tokens, _ = built.lex(served.text, served.file)
-    for _, token in ipairs(tokens) do
-      parts[#parts + 1] = tostring(token.y) .. ":" .. tostring(token.x) .. " " .. token.tk
-    end
-  end
-  return Hash.hex_sha256(table.concat(parts, "\0"))
+  return Hash.hex_sha256(table.concat(syntax_read.token_parts(served.text, served.file), "\0"))
 end
 
 --- Takes `uri` out of the dependents to check: its document was just

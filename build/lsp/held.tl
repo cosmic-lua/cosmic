@@ -52,7 +52,7 @@ end
 --- A program over the options `options`, whose modules but the document are served by `serve`.
 function held.new(options: Pipeline.Options, serve: function(module: string): Driver.Source?): Program
   local slot: held.Slot = { focus = nil }
-  local index = Driver.index({}, false, none)
+  local index = Driver.index({}, none)
   --- The document's source while it is the focus, then what serves the module.
   local function provider(module: string): Driver.Source?
     local focus = slot.focus
@@ -127,8 +127,8 @@ end
 --- The program as [`Pipeline.review`] reads it for the document `text`, the file `file`, the module `module`: the index it
 --- judges a standard-library module's stub by is made of the document alone.
 function held.built(self: Program, file: string, text: string, module: string, tests: boolean): Pipeline.Built
-  local index = Driver.index({ { file, text, module } }, false, none, function(_: string, _: string): Driver.Extra
-    return { tests = tests, mend = nil }
+  local index = Driver.index({ { file, text, module } }, none, function(_: string, _: string): Driver.Extra
+    return { tests = tests }
   end)
   return { build = self.build, ceilings = self.options.ceilings, index = index, globals = self.options.globals,
     standard = self.standard, types = true, given = {}, stubs = nil, stubbed = nil }

@@ -3,7 +3,6 @@
 --- read of the messages it sends back.
 
 local Fs = require("cosmic.fs")
-local GrammarMode = require("build.grammar_mode")
 local Json = require("cosmic.json")
 local Shape = require("cosmic.shape")
 local Sqlite = require("cosmic.sqlite")
@@ -190,8 +189,7 @@ end
 --- stream, answers, `between` called after each batch but the last,
 --- reading docs from `store` when given.
 function session_fixture.served_between(root: string, batches: {{string}},
-                                        between: function(after: integer), store?: {Sqlite.Handle},
-                                        grammar?: GrammarMode.Mode): Ran
+                                        between: function(after: integer), store?: {Sqlite.Handle}): Ran
   local framed: mut {string} = {}
   for _, messages in ipairs(batches) do framed[#framed + 1] = session_fixture.framed(messages) end
   local reader: Batches = { batches = framed, following = 1, rest = "", between = between }
@@ -200,7 +198,6 @@ function session_fixture.served_between(root: string, batches: {{string}},
   local s = session.new(root, {
     err = function(line: string) complaints[#complaints + 1] = line end,
     store = store,
-    grammar = grammar,
   })
   local code = session.serve(s, reader, function(text: string): boolean, string
     wrote[#wrote + 1] = text
@@ -213,14 +210,12 @@ end
 
 --- What a session at `root` answers `messages` with, reading docs from
 --- `store` when given.
-function session_fixture.served(root: string, messages: {string}, store?: {Sqlite.Handle},
-                                grammar?: GrammarMode.Mode): Ran
+function session_fixture.served(root: string, messages: {string}, store?: {Sqlite.Handle}): Ran
   local wrote: {string} = {}
   local complaints: {string} = {}
   local s = session.new(root, {
     err = function(line: string) complaints[#complaints + 1] = line end,
     store = store,
-    grammar = grammar,
   })
   local code = session.serve(s, Stream.from_string(session_fixture.framed(messages)),
     function(text: string): boolean, string
@@ -264,13 +259,12 @@ end
 
 --- A session at `root` served one batch of messages after another, as an
 --- editor sends them with time between: what it sent, all told.
-function session_fixture.serving(root: string, grammar?: GrammarMode.Mode): function(messages: {string}): Ran
+function session_fixture.serving(root: string): function(messages: {string}): Ran
   local wrote: {string} = {}
   local complaints: {string} = {}
   local s = session.new(root, {
     err = function(line: string) complaints[#complaints + 1] = line end,
     store = nil,
-    grammar = grammar,
   })
   return function(messages: {string}): Ran
     local code = session.serve(s, Stream.from_string(session_fixture.framed(messages)),

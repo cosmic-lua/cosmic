@@ -48,7 +48,7 @@ local BOX <const> = table.concat({
 
 --- What a session of the new checker at `root` publishes of the messages, one batch.
 local function served(root: string, messages: {string}): session_fixture.Ran
-  return session_fixture.served(root, messages, nil, "new")
+  return session_fixture.served(root, messages)
 end
 
 local function test_a_module_with_mut_an_optional_field_and_a_class_checks_clean()
@@ -125,7 +125,7 @@ local function test_the_dependents_of_a_module_are_checked_again_when_what_it_se
   -- What a document serves is keyed once no message waits, so the change is sent after the open with time between.
   local function then_changed(text: string): session_fixture.Ran
     return session_fixture.served_between(root, { start, { change(root, "helper.tl", text) } },
-      function(_after: integer) end, nil, "new")
+      function(_after: integer) end)
   end
   local quiet = then_changed(TWICE .. "-- Twice.\n")
   assert(quiet.dependents == 0, tostring(quiet.dependents))
@@ -193,13 +193,13 @@ end
 local function test_what_a_module_serves_is_keyed_by_the_new_lexer()
   local root = project()
   assert(Fs.write(root .. "/helper.tl", HELPER))
-  local s = session.new(root, { grammar = "new" })
+  local s = session.new(root)
   local messages = { initialize(root), open(root, "helper.tl", HELPER), open(root, "main.tl", MAIN) }
   session.serve(s, Stream.from_string(session_fixture.framed(messages)), function(_: string): boolean, string
     return true, ""
   end)
   local named = assert(source.module(s.checker.source, "helper.tl"))
-  local served_form = assert(source.served(s.checker.source, check.compiler(s.checker), named.path,
+  local served_form = assert(source.served(s.checker.source, named.path,
     check.open_files(s.checker), true))
   local expected = Hash.hex_sha256(table.concat(syntax_read.token_parts(served_form.text, served_form.file), "\0"))
   local keyed = ""

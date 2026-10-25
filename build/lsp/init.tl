@@ -27,11 +27,6 @@
 --- tree, it stages nothing for the session ([`reboot.unchecked`]). Complaints go to standard
 --- error as `cosmic: lsp: ...`.
 
--- TODO: once the switch deletes the fork (doc/plans/strict-teal.md, "the switch"), make the new checker the only one a session
--- checks with: under COSMIC_GRAMMAR=new it reads a document with the new parser and checks it in a program of the new checker
--- ([`build.lsp.syntax_read`], [`build.lsp.check`]), and the fork's half is what the switch deletes: the environment and
--- `search_module` of [`build.lsp.check`], [`build.lsp.plan`]'s `of` and `compiled`, [`build.lsp.splice`] and the fork's branches
--- of [`build.lsp.source`] and [`build.lsp.dependents`].
 local Cli = require("cosmic.cli")
 local Clock = require("cosmic.clock")
 local Flags = require("cosmic.flags")
@@ -255,7 +250,7 @@ local function run(argv: {string}): integer
     complain("--stdio serves one editor, and takes no --listen or --socket; " .. usage)
     return bare.refused
   end
-  -- A checker that is none is refused, as `docs` and `uses` refuse it, not read as the fork's.
+  -- A checker that is none is refused, as `docs` and `uses` refuse it.
   local chosen, mode_trouble = GrammarMode.mode()
   if chosen == nil then
     complain(mode_trouble)

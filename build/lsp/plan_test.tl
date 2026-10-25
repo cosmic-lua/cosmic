@@ -1,10 +1,8 @@
 --- What a build refuses of a document before it checks it, and the plan it compiles it by ([`build.lsp.plan`]), as the new
---- checker's reading of the new grammar finds it, and as the fork's finds it of the text both read: the same refusals in the
---- same words, at the same places.
+--- checker's reading finds it: the refusals in a build's words, at their places.
 local Test = require("cosmic.test")
 local plan = require("build.lsp.plan")
 local syntax_read = require("build.lsp.syntax_read")
-local teal = require("build.teal")
 
 Test.policy{}
 
@@ -51,7 +49,7 @@ local function required(planned: plan.Planned): string
   return out
 end
 
-local function test_a_module_in_the_new_grammar_is_planned_and_the_fork_cannot_read_it()
+local function test_a_module_is_planned()
   local planned = syntax_read.plan_of("box.tl", NEW, "box", "module", false, false)
   assert(said(planned) == "", said(planned))
   assert(not planned.halted)
@@ -59,9 +57,6 @@ local function test_a_module_in_the_new_grammar_is_planned_and_the_fork_cannot_r
   assert(made.path == "box" and made.file == "box.tl" and made.kind == "module")
   assert(made.has_top_level_return)
   assert(required(planned) == "cosmic.fs@1:20 cosmic.json@2:27", required(planned))
-  -- The fork's parser stops at the new grammar, which is why a session of the new grammar reads with the new one.
-  local forked = plan.of(assert(teal.load()), "box.tl", NEW, "box", "module", false, false)
-  assert(forked.plan == nil, "the fork read a text in the new grammar")
 end
 
 local function test_a_text_the_new_checker_does_not_parse_is_refused_with_the_parsers_words()
@@ -74,7 +69,7 @@ local function test_a_text_the_new_checker_does_not_parse_is_refused_with_the_pa
   assert(#planned.requires == 0)
 end
 
---- A case both grammars read the same: the text, the file, its kind, and what a build refuses of it.
+--- A case: the text, the file, its kind, and what a build refuses of it.
 local record Case
   name: string
   file: string
@@ -121,20 +116,13 @@ local CASES <const>: {Case} = {
   },
 }
 
---- Both grammars refuse a case in the same words at the same place and find the same requires: the new reading replaces the
---- fork's without a message moving.
-local function test_both_grammars_refuse_a_text_they_both_read_in_the_same_words()
-  local built = assert(teal.load())
+--- A case is refused in the words and at the place it says, and its requires are found.
+local function test_a_text_is_refused_in_a_builds_words_and_its_requires_are_found()
   for _, case in ipairs(CASES) do
     local path = case.file:gsub("%.d%.tl$", ""):gsub("%.tl$", "")
-    local forked = plan.of(built, case.file, case.text, path, case.kind, false, false)
     local fresh = syntax_read.plan_of(case.file, case.text, path, case.kind, false, false)
-    assert(said(forked) == case.refused, case.name .. " (fork): " .. said(forked))
-    assert(said(fresh) == case.refused, case.name .. " (new): " .. said(fresh))
-    assert(required(forked) == case.required, case.name .. " (fork): " .. required(forked))
-    assert(required(fresh) == case.required, case.name .. " (new): " .. required(fresh))
-    assert(forked.halted == fresh.halted, case.name .. ": halted")
-    assert((forked.plan == nil) == (fresh.plan == nil), case.name .. ": plan")
+    assert(said(fresh) == case.refused, case.name .. ": " .. said(fresh))
+    assert(required(fresh) == case.required, case.name .. ": " .. required(fresh))
   end
 end
 
@@ -147,12 +135,9 @@ local function test_a_global_in_a_program_is_a_syntax_error_of_the_new_parser()
   assert(said(planned):find("global", 1, true) ~= nil, said(planned))
 end
 
-local function test_a_test_module_plans_its_tests_and_an_example_its_examples_in_both_grammars()
-  local built = assert(teal.load())
+local function test_a_test_module_plans_its_tests()
   local text = "local function test_one() assert(true) end\nlocal function test_two() assert(true) end\n"
-  local forked = plan.of(built, "a_test.tl", text, "a", "test", false, false)
   local fresh = syntax_read.plan_of("a_test.tl", text, "a", "test", false, false)
-  assert(table.concat(assert(forked.plan).tests, ",") == "test_one,test_two")
   assert(table.concat(assert(fresh.plan).tests, ",") == "test_one,test_two")
 end
 
