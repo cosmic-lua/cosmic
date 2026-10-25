@@ -5,6 +5,7 @@
 --- paths where a value may be nil and asks a checked run
 --- (`cosmic test --check-types`) whether a value crossed a typed boundary
 --- as a kind its type does not admit; in any other run the tests skip.
+--- Until a compile writes the boundary checks (build/type_watch.tl), they skip in a checked run too.
 
 local Archive = require("cosmic.archive")
 local Fs = require("cosmic.fs")

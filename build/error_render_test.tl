@@ -227,3 +227,50 @@ local function test_the_examples_a_diagnostic_points_to_are_the_ones_the_build_h
   assert(ErrorRender.queries.arguments == "generics_functions_returns")
   assert(ErrorRender.queries.record_key == "records_interfaces_methods")
 end
+
+--- The line a build prints for the first error of `text`, with the examples `hinted` holds.
+local function first_line(text: string, stubs?: {string: string}): string
+  local hints, db = hinted()
+  local lines = ErrorRender.lines(result_of(text, stubs), hints)
+  db:close()
+  return at(lines, 1)
+end
+
+local POINTER <const> = " -- see also: cosmic docs generics_functions_returns"
+
+local function test_a_value_refused_by_a_parameter_points_at_the_example_whoever_declares_the_function()
+  -- a project's own function
+  local own = first_line("local function f(a: integer): integer\n  return a\nend\nprint(f(\"s\"))\n")
+  assert(own:find("(not_assignable): ", 1, true) ~= nil and own:sub(-#POINTER) == POINTER, own)
+  -- a function of the standard library
+  local library = first_line("local n = string.packsize(1)\nprint(n)\n")
+  assert(library:find("(not_assignable): ", 1, true) ~= nil and library:sub(-#POINTER) == POINTER, library)
+  -- a function of another module of the project
+  local other = first_line("local W = require(\"w\")\nprint(W.f(\"s\"))\n",
+    { w = "local record W\n  f: function(a: integer): integer\nend\nreturn W\n" })
+  assert(other:find("(not_assignable): ", 1, true) ~= nil and other:sub(-#POINTER) == POINTER, other)
+end
+
+local function test_a_plain_assignment_that_is_refused_points_at_no_example()
+  local line = first_line("local n: integer = \"s\"\nprint(n)\n")
+  assert(line:find("(not_assignable): ", 1, true) ~= nil and line:find("see also", 1, true) == nil, line)
+end
+
+local function test_the_fix_of_a_removed_name_beats_the_pointer_of_an_argument()
+  local result = result_of("local Hash = require(\"cosmic.hash\")\nlocal d = Hash.hex(\"x\")\nprint(d)\n",
+    { ["cosmic.hash"] = "local record Hash\n  alive: integer\nend\nreturn Hash\n" })
+  local problem = result.errors[1]
+  assert(problem ~= nil)
+  -- the same problem, made an argument's: the replacement is still the answer
+  local function marked(removed: boolean): Driver.Problem
+    return {
+      kind = problem.kind, stage = problem.stage, code = "not_assignable", msg = problem.msg, fix = problem.fix, y = problem.y,
+      x = problem.x, offset = problem.offset, removed = removed,
+      argument = { callee = "Hash.hex", module = "cosmic.hash", position = 1 },
+    }
+  end
+  local hints, db = hinted()
+  assert(ErrorRender.pointers(result, marked(true), hints) == "")
+  assert(ErrorRender.pointers(result, marked(false), hints) == POINTER)
+  db:close()
+end

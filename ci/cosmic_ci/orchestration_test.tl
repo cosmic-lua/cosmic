@@ -1599,6 +1599,16 @@ local function test_a_darwin_list_names_a_path_a_line()
   assert(#parsed == 1 and parsed[1] == "a_test.tl", table.concat(parsed, ","))
 end
 
+--- A skip for want of boundary checks in the compile is no sign that the run was not checked; any other skip is.
+local function test_only_a_skip_for_want_of_a_checked_run_fails_the_declared_types_phase()
+  local Orchestration = require("cosmic_ci.orchestration")
+  local checked = "test: SKIP  m t: boundary checks are not compiled in: x\ntest: 1 tests passed\n"
+  assert(#Orchestration.unchecked_skips(checked) == 0)
+  local plain = checked .. "test: SKIP  m u: run with --check-types: only a checked run carries the type checks\n"
+  local found = Orchestration.unchecked_skips(plain)
+  assert(#found == 1 and assert(found[1]):find("run with --check-types", 1, true) ~= nil, table.concat(found, "|"))
+end
+
 --- The declared-types tests ci.yml runs on a checked run are every
 --- `*declared_types_test.tl` under cosmic/, build/, core/ and eval/,
 --- wherever it sits, and none elsewhere.
