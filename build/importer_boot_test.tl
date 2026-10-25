@@ -64,6 +64,8 @@ local function test_a_boot_names_its_analyzer_as_the_tool_it_writes()
     ["build/thing.tl"] = module_of("thing", {}),
     ["build/raw.d.tl"] = "local record raw\n  n: integer\nend\nreturn raw\n",
     ["build/other.tl"] = module_of("other", {}),
+    -- The checker of the tree, which the tool a boot writes carries and the binary running the boot does not.
+    ["build/pipeline.tl"] = module_of("pipeline", { "helper" }),
   }
   for name, source in pairs(files) do
     assert(Fs.write(root .. "/" .. name, source))
@@ -120,7 +122,7 @@ local function test_a_boot_names_its_analyzer_as_the_tool_it_writes()
   -- removes) survived. Run as a boot runs, with no `boot_hash`: the
   -- suite's binary carries one, so [`Store.meta`] is stood in for across
   -- the derive. `before_derive` changes the working database first.
-  local function boot(before_derive?: function(work.Handle)): string, string, string, boolean
+  local function boot(before_derive?: function(work.Handle)): string, string, string, boolean, string
     local again = assert(work.open(root))
     assert(work.stage(again, true))
     assert(Sqlite.run(again.db,
@@ -144,49 +146,65 @@ local function test_a_boot_names_its_analyzer_as_the_tool_it_writes()
       "SELECT value FROM meta WHERE key = 'analyzer'"))
     local planted = assert(Sqlite.text_rows(again.db,
       "SELECT count(*) FROM docs WHERE symbol = 'Planted'"))
+    -- What the tool this tree writes names `after` once it carries the tree's checker: the staged one
+    -- ([`build.pipeline`]'s `coded_of`), which the binary running this test is not.
+    local named = assert(pipeline.coded_of(after, again.db))
     work.close(again)
-    return before, after, recorded[1]:text(1), planted[1]:text(1) == "1"
+    return before, after, recorded[1]:text(1), planted[1]:text(1) == "1", named
   end
   -- The first boot after the suite's own binary derived: that binary's
   -- rows go, and the boot names its own as the tool does.
-  local before, after, recorded, kept = boot()
+  local before, after, recorded, kept, named = boot()
   assert(before == tool, "a boot names the analyzer otherwise than the tool it wrote")
   assert(after == tool, "a boot's parse moved the analyzer's name")
-  assert(recorded == pipeline.coded(tool), "a boot recorded another name than the tool's")
+  assert(recorded == named, "a boot recorded another name than the tool's")
+  -- The name carries the checker the tree holds. A boot named by the code its own binary carries would
+  -- name the checker of the binary that ran it, and the tool it wrote, carrying the tree's, would find
+  -- every row named otherwise and parse the whole tree again on its first run.
+  assert(recorded ~= pipeline.coded(tool), "a boot named the analyzer by the checker it runs on, not the tree's")
   assert(not kept, "rows another analyzer derived were kept")
-  before, after, recorded, kept = boot()
-  assert(recorded == pipeline.coded(tool) and kept, "a boot forgot what a boot of the same tree derived")
+  before, after, recorded, kept, named = boot()
+  assert(recorded == named and kept, "a boot forgot what a boot of the same tree derived")
 
   assert(Fs.write(root .. "/build/other.tl", files["build/other.tl"] .. "-- edited\n"))
-  before, after, recorded, kept = boot()
-  assert(before == tool and after == tool and recorded == pipeline.coded(tool),
+  before, after, recorded, kept, named = boot()
+  assert(before == tool and after == tool and recorded == named,
     "an edit outside the analyzer moved its name")
+  -- An edit to the checker moves the name though no analyzer module changed: the rows were parsed by other
+  -- code, so every one is forgotten and parsed again.
+  assert(Fs.write(root .. "/build/pipeline.tl", module_of("pipeline", { "helper", "thing" })))
+  local checker_name = recorded
+  before, after, recorded, kept, named = boot()
+  assert(recorded == named and recorded ~= checker_name and not kept,
+    "an edit to the checker did not make a boot parse the tree again")
+  before, after, recorded, kept, named = boot()
+  assert(recorded == named and kept, "a boot forgot what the boot before it derived of the same checker")
   -- A new require of an analyzer module is found only by the parse: the
   -- edit alone moves the name, the parse settles it, and the boot
   -- records it, so the next boot forgets nothing.
   assert(Fs.write(root .. "/build/ast.tl", module_of("ast", { "raw", "other" })))
-  before, after, recorded, kept = boot()
+  before, after, recorded, kept, named = boot()
   assert(before ~= tool and after ~= tool and after ~= before,
     "an edit to an analyzer module did not move its name")
-  assert(recorded == pipeline.coded(after), "a boot recorded the name before its parse")
+  assert(recorded == named, "a boot recorded the name before its parse")
   local settled = after
-  before, after, recorded, kept = boot()
-  assert(before == settled and recorded == pipeline.coded(settled) and kept,
+  before, after, recorded, kept, named = boot()
+  assert(before == settled and recorded == named and kept,
     "a boot forgot what the boot before it derived of the same tree")
   -- Rows that are not the whole of a parse -- build.ast's missing, and
   -- the analyzer named by what is left -- move the name when the parse
   -- mends them, though nothing was forgotten: every row is forgotten
   -- and the tree parsed again.
-  before, after, recorded, kept = boot(function(cut: work.Handle)
+  before, after, recorded, kept, named = boot(function(cut: work.Handle)
     for _, table_name in ipairs(analysis_schema.tables) do
       assert(cut.db:exec("DELETE FROM " .. table_name .. " WHERE source_hash IN " ..
           "(SELECT source_hash FROM inputs WHERE path = 'build.ast')"))
     end
     assert(Sqlite.run(cut.db,
       "INSERT OR REPLACE INTO meta (key, value) VALUES ('analyzer', ?1)",
-      { { text = pipeline.coded(importer.analyzer_identity((assert(importer.tree_code(cut))))) } }))
+      { { text = assert(pipeline.coded_of(importer.analyzer_identity((assert(importer.tree_code(cut)))), cut.db)) } }))
   end)
-  assert(before ~= settled and after == settled and recorded == pipeline.coded(settled),
+  assert(before ~= settled and after == settled and recorded == named,
     "a cut parse was named otherwise than the whole one")
   assert(not kept, "rows a cut parse left were kept under the mended name")
   assert(out:close())

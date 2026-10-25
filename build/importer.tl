@@ -318,6 +318,17 @@ local function running_analyzer(handle: work.Handle): string?, string
   -- The new checker's readers write the rows of a parse: the analyzer is named by the code that reads them too.
   if not nameless(identity) then
     local pipeline = require("build.pipeline")
+    -- A boot carries no database, so the code it carries is none and every boot would name the same checker: it
+    -- names the tree's, as the compile keys do ([`prepare_compile`]), or the tool it writes would find a name
+    -- other than its own on every row and parse the whole tree again on its first run. Where the tree is not
+    -- parsed yet its checker's requires are not known, and the name stands for the while on what it carries; the
+    -- name [`importer.derive`] takes after the parse is the one recorded.
+    if Store.meta("boot_hash") == nil then
+      local staged, _ = pipeline.coded_of(identity, handle.db)
+      if staged ~= nil then
+        return staged, ""
+      end
+    end
     return pipeline.coded(identity), ""
   end
   return identity, ""
