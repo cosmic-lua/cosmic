@@ -74,7 +74,7 @@ local record RetiredData
   twin_code: string
 end
 
---- A message the fork's checker can refuse a program with, read from its source ([`build.fork_refusals`]) with the parts
+--- A message the fork's checker can refuse a program with, read from its source (`build.fork_refusals`) with the parts
 --- that vary written `%s`. The gate asks the new checker about the programs the fork refuses, so a refusal that no row of
 --- the table has is one it is never asked about: each template is covered by a row, or says why none can be.
 local record RefusalData

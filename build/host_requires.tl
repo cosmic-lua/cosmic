@@ -31,7 +31,7 @@
 ---   core has none of the instruments such a test uses, so it is n/a there;
 --- - `all_cores`: the tool carries a core for every release target, which
 ---   `bin/zig build boot -Dboot-cores=all` gives it and a bare boot does not
----   (a placeholder stands where each other core goes: `host_only`, which the
+---   (a placeholder stands where each other core goes: [`host_only`], which the
 ---   runner answers from the tool's prefix): only such a tool makes a
 ---   portable program. What tests one is skipped where it is not, saying
 ---   so, and a leg that promises `all_cores` fails the run that skips;

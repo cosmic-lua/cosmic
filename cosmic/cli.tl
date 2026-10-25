@@ -409,7 +409,7 @@ local record Cli
   --- output; several need `-o dir`, which gets `<name>.lua` for each (two
   --- files of one name are refused: compile them in two runs). A file is
   --- checked as the module its path below `--root` (the working directory)
-  --- names, [`lang/flow.tl`] as `lang.flow`, and a `require` of
+  --- names, [`lang/flow.tl`] as [`lang.flow`], and a `require` of
   --- another named file is answered with its text; a path outside the
   --- root is refused. A `.d.tl` file is skipped with a note, and types a
   --- `require` of it. The Lua is raw: no wrapper, nothing joining files.

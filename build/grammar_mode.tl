@@ -7,7 +7,7 @@
 --- verdict of a test never stand for another compile. It is not part of the compiler's identity ([`build.identity`]), which
 --- decides when the tool is stale.
 ---
---- TODO: drop `teal` from `Mode`, and the readers that compare with it, once the fork's readers are deleted (the second
+--- TODO: drop `teal` from [`Mode`], and the readers that compare with it, once the fork's readers are deleted (the second
 --- part of the switch): no function here answers it any more.
 ---
 --- A module of its own, because [`build.test_key`] reads it and a harness module reaches no more of the tree than it must.

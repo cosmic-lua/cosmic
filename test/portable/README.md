@@ -121,7 +121,7 @@ the retained prefix and cache entry count, and its bytes change. A subsequent
 core input edit ([`core/startup.h`]) is refused, under `COSMIC_AUTO_BOOT=0`,
 with the named `bin/zig build boot` remedy and touches neither the artifact
 nor the cache. Three further cases -- an edited [`vendor/lua/PIN`], an
-edited [`checker/tl.tl`] and an edited [`build/launcher.tl`] -- are refused
+edited `checker/tl.tl` and an edited [`build/launcher.tl`] -- are refused
 outright, before `test.run` or the artifact is ever reached. A last,
 dependency-free case exercises the prefix comparison itself: an exact match, a
 too-short program, and a single mutated byte.
@@ -139,7 +139,6 @@ command contracts are documented in `ci`.
 [`build/artifact.tl`]: ../../build/artifact.tl
 [`build/launcher.tl`]: ../../build/launcher.tl
 [`build/paths.tl`]: ../../build/paths.tl
-[`checker/tl.tl`]: ../../checker/tl.tl
 [`core/portable.c`]: ../../core/portable.c
 [`core/startup.h`]: ../../core/startup.h
 [`test.portable`]: init.tl

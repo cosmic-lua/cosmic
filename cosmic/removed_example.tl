@@ -250,10 +250,26 @@ function Example.coroutines()
   assert(coroutine.close(abandoned))
 end
 
+-- An interface method names its receiver, `function(self: Greeter, ...)`:
+-- `self` is then whatever implements Greeter, so a class's own
+-- `function greet(self, ...)` satisfies it. Unnamed, `function(Greeter, ...)`
+-- takes Greeter itself, which `function greet(self, ...)` does not match.
+local interface Greeter
+  greet: function(self: Greeter, who: string): string
+end
+local class Friendly is Greeter
+  mood: string
+
+  function greet(self, who: string): string
+    return self.mood .. ", " .. who
+  end
+end
+
 --- Records are nominal table types; interfaces are structural requirements.
---- `record R is I` states conformance. Colon methods receive self; dot access
---- is an ordinary field/function access. An interface method that a record
---- implements with `function R:m` declares its receiver as `self: I`.
+--- `record R is I` states conformance, and a class `class C is I` holds the
+--- methods. Colon methods receive self; dot access is an ordinary
+--- field/function access. An interface method that a class implements with
+--- `function m(self, ...)` declares its receiver as `self: I`.
 function Example.records_interfaces_methods()
   local interface Named
     name: string
@@ -271,30 +287,16 @@ function Example.records_interfaces_methods()
   local named: Named = user
   assert(named.name == "Ada" and user:label() == "Ada:7")
 
-  -- An interface method names its receiver, `function(self: Greeter, ...)`:
-  -- `self` is then whatever implements Greeter, so a record's own
-  -- `function Friendly:greet` satisfies it. Unnamed, `function(Greeter, ...)`
-  -- takes Greeter itself, which `function Friendly:greet` does not match.
-  local interface Greeter
-    greet: function(self: Greeter, who: string): string
-  end
-  local record Friendly is Greeter
-    mood: string
-  end
-  function Friendly:greet(who: string): string
-    return self.mood .. ", " .. who
-  end
-  local friendly_mt: metatable<Friendly> = { __index = Friendly }
-  -- setmetatable may be returned where an implemented interface is expected.
+  -- A class value is made from a literal, and returned where an implemented interface is expected.
   local function friend(mood: string): Greeter
     local made: Friendly = { mood = mood }
-    return setmetatable(made, friendly_mt)
+    return made
   end
   assert(friend("hello"):greet("Ada") == "hello, Ada")
 end
 
 --- Enums are closed sets of literal strings. `{T}` is an array, `{K:V}` a map,
---- and `{A,B}` a fixed tuple.
+--- and a record with a field for each position a fixed tuple.
 function Example.enums_arrays_maps_tuples()
   local enum Color
     "red"
@@ -303,8 +305,12 @@ function Example.enums_arrays_maps_tuples()
   local color: Color = "red"
   local array: {integer} = { 2, 3 }
   local map: {string:integer} = { answer = 42 }
-  local tuple: {string,integer} = { "age", 9 }
-  assert(color == "red" and array[2] == 3 and map.answer == 42 and tuple[1] == "age")
+  local record Pair
+    label: string
+    count: integer
+  end
+  local pair: Pair = { label = "age", count = 9 }
+  assert(color == "red" and array[2] == 3 and map.answer == 42 and pair.label == "age")
 end
 
 --- A union `A | B` accepts only values assignable to one member; operations

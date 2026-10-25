@@ -1,4 +1,4 @@
---- Proves the narrowing that the checker ([`checker/tl.tl`]) does. A bare
+--- Proves the narrowing that the checker (`checker/tl.tl`) does. A bare
 --- variable narrows across a statement-form `assert(x, ...)`.
 --- `x.field` is narrowed by no test -- truthy read, `assert`, `== nil` /
 --- `~= nil`, `type(...)`, the early-return shape: a build that relies on

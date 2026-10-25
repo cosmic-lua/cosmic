@@ -286,7 +286,7 @@ local Clock = require("cosmic.clock")
 local dir = assert(Fs.mkdtemp("quickstart-"))
 assert(Fs.write(dir .. "/greeter.tl", [[
 return function(argv: {string}): integer
-  print("hello, " .. argv[1])
+  print("hello, " .. (argv[1] or "world"))
   return 0
 end
 ]]))

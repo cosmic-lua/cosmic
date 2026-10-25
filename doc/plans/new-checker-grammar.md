@@ -761,7 +761,7 @@ returns as the production named, when a use appears.
 - **a `lua` dialect** (0: no doc example outside `vendor/` is tagged `lua`).
   it would add a third value of `dialect`, with Lua's reserved words alone
   and none of the cut forms below, to the lexer and the parser.
-- **long comments** (27, all in [`checker/stdlib.d.tl`]): rewritten as line
+- **long comments** (27, all in `checker/stdlib.d.tl`): rewritten as line
   comments. would add `--[==[ ... ]==]` to the lexer.
 - **`_` digit separators** (4 tokens) and **hex floats** (1): the fork
   strips the separators, so removing them keeps the Lua. both would
@@ -851,7 +851,7 @@ returns as the production named, when a use appears.
 - the first readers are rewritten as `build/syntax_<name>.tl` beside the one they replace ([`build/syntax_node.tl`],
   which also walks the tree and lists what a file requires, `_match`, `_rewrite`, `_scopes`, `_globals`, `_stub`,
   `_shape_specs`, `_derivation` and
-  [`build/coverage/syntax_lines.tl`]), each taking the tree and never the compiler. [`build/syntax_compared.tl`]
+  [`build/coverage/syntax_lines.tl`]), each taking the tree and never the compiler. `build/syntax_compared.tl`
   reads every file of the tree through the fork's readers and through these, over the translated file
   ([`lang.translate`]), and `fix --check .` holds the answers equal but for the `[read]` pins of
   [`build/ceilings.txt`] (no program declares a global and the check leaves out declaration files, so the globals are
@@ -935,7 +935,6 @@ returns as the production named, when a use appears.
 [`build/stub.tl`]: ../../build/stub.tl
 [`build/syntax_analyzer.tl`]: ../../build/syntax_analyzer.tl
 [`build/syntax_analyzer_test.tl`]: ../../build/syntax_analyzer_test.tl
-[`build/syntax_compared.tl`]: ../../build/syntax_compared.tl
 [`build/syntax_contracts.tl`]: ../../build/syntax_contracts.tl
 [`build/syntax_derivation.tl`]: ../../build/syntax_derivation.tl
 [`build/syntax_link_text.tl`]: ../../build/syntax_link_text.tl
@@ -950,7 +949,6 @@ returns as the production named, when a use appears.
 [`build/tree_checks.tl`]: ../../build/tree_checks.tl
 [`Capture.after`]: ../../lang/scopes.tl
 [`Check.Checked.callees`]: ../../lang/check.tl
-[`checker/stdlib.d.tl`]: ../../checker/stdlib.d.tl
 [`ci/cosmic_ci/orchestration.tl`]: ../../ci/cosmic_ci/orchestration.tl
 [`ci/cosmic_ci/orchestration_test.tl`]: ../../ci/cosmic_ci/orchestration_test.tl
 [`compiler.Result`]: ../../build/compiler.d.tl

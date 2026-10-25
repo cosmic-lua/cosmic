@@ -93,7 +93,7 @@ local record data
   record Task
     id: integer
     title: string
-    done: boolean
+    mut done: boolean
   end
   record Tasks
     tasks: {Task}
@@ -302,7 +302,7 @@ function Site.routes(store: Store): {Web.Route}
     local read = Input.form(req)
     local invalid = read.invalid
     if invalid ~= nil then return Web.abort(invalid.status, invalid.message) end
-    local title = (Url.query_last(assert(read.value), "title") or ""):match("^%s*(.-)%s*$")
+    local title = assert((Url.query_last(assert(read.value), "title") or ""):match("^%s*(.-)%s*$"))
     if title == "" then
       return Web.html(shown("", "give the task a name"), { status = 422 })
     end
@@ -312,12 +312,12 @@ function Site.routes(store: Store): {Web.Route}
 
   --- The task a request's `:id` names, or nil.
   local function named(req: Web.Request): integer?
-    return math.tointeger(tonumber(req.params.id))
+    return math.tointeger(tonumber(req.params["id"]))
   end
 
   local function toggle(req: Web.Request): Web.Response
     local id = named(req)
-    local task = id ~= nil and store:toggle(id) or nil
+    local task = if id ~= nil then store:toggle(id) else nil end
     if task == nil then return Web.abort(404, "no such task") end
     return Web.html(row.render(task))
   end

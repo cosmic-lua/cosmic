@@ -51,7 +51,7 @@ defines the target; once something ships, it leaves this file.
   run-time metatables too: today `setmetatable({}, {__index = f})` gives a
   plain map an `__index` the checker never sees, so a call it makes is not
   one the rule that a local is assigned before it is read counts.
-  `may_dispatch` and `runs_no_code` in [`checker/tl.tl`] carry a TODO that
+  `may_dispatch` and `runs_no_code` in `checker/tl.tl` carry a TODO that
   names this item, and `test_unnarrowed_field_metatable_attached_at_run_time`
   in [`build/checker_narrowing_test.tl`] pins four programs.
   `__gc` finalizers stay outside the claim.
@@ -67,18 +67,18 @@ defines the target; once something ships, it leaves this file.
   raise unwinds its frame, so `assert` and the operators that raise (division
   by zero, indexing nil) need no rule of their own then. it replaces the
   rule that any code that may run, and a call that never returns, lets it out,
-  and accepts what that refuses. [`checker/flow.tl`] holds a TODO for it.
+  and accepts what that refuses. `checker/flow.tl` holds a TODO for it.
 - exclude nil from every type but one that names it. the checker's own
   source is valid upstream Teal, which indexes no `T | nil` even after a
   guard, so it declares a local it reads before the code that assigns it
-  `local x: T = nil` (the TODO at the top of [`checker/tl.tl`] names them);
+  `local x: T = nil` (the TODO at the top of `checker/tl.tl` names them);
   those and every other place nil passes for a `T` are refused then.
 - list the standard library functions that run no code of the program's
-  with the declarations that say so (today [`checker/tl.tl`] marks them by
-  name where it loads [`checker/stdlib.d.tl`]), and let a declaration of the
+  with the declarations that say so (today `checker/tl.tl` marks them by
+  name where it loads `checker/stdlib.d.tl`), and let a declaration of the
   program's own say it too, so a call of one given arguments that cannot
   dispatch keeps the narrowing as `tostring` and `table.concat` do.
-- add earned lint rules and their fixes to [`build/fix/rule.tl`]'s rule list.
+- add earned lint rules and their fixes to `build/fix/rule.tl`'s rule list.
   the rewrite stage is in place and the list is still empty.
 - add a floor for line coverage, C included: `cosmic test --min PCT
   [--min-file PCT]` fails a whole run whose overall or any one file's line
@@ -470,7 +470,6 @@ four-producer provenance join.
 [`build/compiler.d.tl`]: ../build/compiler.d.tl
 [`build/contracts.tl`]: ../build/contracts.tl
 [`build/dataset.tl`]: ../build/dataset.tl
-[`build/fix/rule.tl`]: ../build/fix/rule.tl
 [`build/flow.tl`]: ../build/flow.tl
 [`build/hash_test.tl`]: ../build/hash_test.tl
 [`build/json.tl`]: ../build/json.tl
@@ -479,9 +478,6 @@ four-producer provenance join.
 [`build/shape_specs.tl`]: ../build/shape_specs.tl
 [`build/teal_test.tl`]: ../build/teal_test.tl
 [`build/workflows_test.tl`]: ../build/workflows_test.tl
-[`checker/flow.tl`]: ../checker/flow.tl
-[`checker/stdlib.d.tl`]: ../checker/stdlib.d.tl
-[`checker/tl.tl`]: ../checker/tl.tl
 [`Child.end_strays`]: ../cosmic/child.tl
 [`ci/cosmic-driver.pin`]: ../ci/cosmic-driver.pin
 [`ci/cosmic_ci/prerelease.tl`]: ../ci/cosmic_ci/prerelease.tl

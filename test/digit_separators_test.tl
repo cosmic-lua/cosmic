@@ -1,4 +1,4 @@
---- Proves the digit separators the checker ([`checker/tl.tl`]) reads. A `_`
+--- Proves the digit separators the checker (`checker/tl.tl`) reads. A `_`
 --- between two digits of a number literal's digit run is read into the
 --- literal (`1_000_000`, `3.141_592`, `0xFF_FF`, `6.02e2_3`), the
 --- literal's value and its integer-or-float type are those of the text

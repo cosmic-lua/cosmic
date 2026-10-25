@@ -346,7 +346,7 @@ local function pack_records(records)
   return table.concat(parts)
 end
 
--- The records of a payload by name, or nil for one [`pack_records`]
+-- The records of a payload by name, or nil for one `pack_records`
 -- never wrote.
 local function unpack_records(payload)
   local ok, records = pcall(function()
@@ -504,7 +504,7 @@ local function make_compiler_key(list, seed, sources, variables)
   return hex(sha256(format .. '\ncompiler\n' .. table.concat(parts) .. bridge))
 end
 
--- Set by `bootstrap` for [`searcher_for`], which keys its modules by it.
+-- Set by `bootstrap` for `searcher_for`, which keys its modules by it.
 local compiler_key = nil
 
 -- Modules handed in as text, never written anywhere: the declarations boot generates with build.gen_syscalls (the

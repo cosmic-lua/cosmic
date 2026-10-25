@@ -179,7 +179,7 @@ stack can carry.
   concern lands, until the new checker replaces it.** it lives in
   `checker/`, outside the module closure it compiles, and is edited
   directly. a step that gives a concern its rule gives it a module of its
-  own ([`checker/flow.tl`], [`checker/narrowing.tl`], [`checker/facts.tl`]), so
+  own (`checker/flow.tl`, `checker/narrowing.tl`, `checker/facts.tl`), so
   no step exists only to split.
 - **the seed is the pinned release.** the release [`ci/cosmic-driver.pin`]
   names compiles the checker's source to Lua, and boot loads that in place
@@ -194,7 +194,7 @@ stack can carry.
   as in any compiler that compiles itself, while the rest of the tree uses
   it at once. the way back from a release whose checker is broken is the
   previous pin, a one-line revert, and `COSMIC_BOOTSTRAP` runs any other
-  cosmic in its place. the fixed point of [`build/compiler_test.tl`] keeps
+  cosmic in its place. the fixed point of `build/compiler_test.tl` keeps
   a broken checker from being released.
 - **a new checker for the smaller language, started now.** the language
   a checker must handle is much smaller than Teal: structured control
@@ -277,7 +277,7 @@ stack can carry.
   and a compile through [`build/driver.tl`] read the same file and refuse a count above its ceiling with the same words
   (`pinned N`). a rise fails the build, so a change cannot add what the
   tree is working to remove, and a rewrite that lowers a count lowers its
-  ceiling with it. [`build/compiler_test.tl`] pins the frozen fork's own
+  ceiling with it. `build/compiler_test.tl` pins the frozen fork's own
   count as an exact number in its source, and the pin goes with the
   fork; the new checker's source is part of the tree and under the same
   ceilings.
@@ -1053,7 +1053,7 @@ each step measures again with the checker's own rows before it lands.
   and 668 in tests; `rawset` 11, `rawget` 29, `debug.*` 3 (all in the
   checker).
 - **the checker's own source.** 314 type errors under its own rules,
-  pinned as an exact count by [`build/compiler_test.tl`] until the fork
+  pinned as an exact count by `build/compiler_test.tl` until the fork
   goes. it has about 94 free locals, short of Lua's limit of 200.
 - **nil ([nil is its own type], [assigned before read]).** the rewrite of
   every directory outside `checker/` cost less than planned.
@@ -1105,7 +1105,7 @@ acceptances in the old narrowing, fixed in #3071, #3072, #3073 and #3075.
 what landed in the fork:
 
 - declared types are never mutated. an immutable map from a binding's
-  identity to its narrowed type ([`checker/facts.tl`]) is one register of
+  identity to its narrowed type (`checker/facts.tl`) is one register of
   the checker's in-order walk, so a shadowing name is a new binding. a
   read is the declared type met with its fact.
 - a place is a local, and a fact is dropped only by an assignment to it.
@@ -1160,7 +1160,7 @@ carries it.
 ### the new checker
 
 written for the language the foundations leave, not forked from
-[`checker/tl.tl`], at about 10,000 to 13,000 lines against the fork's
+`checker/tl.tl`, at about 10,000 to 13,000 lines against the fork's
 22,000. it starts now, beside the frozen fork, and holds each
 foundation's final form. it holds the strongest default of every other
 rule from its first PR: fixed fields, records that are not maps, no `as`,
@@ -1346,11 +1346,11 @@ constrained to Teal the fork also accepts.
   __close` (1) have no common spelling. the switch decides how the tool
   reads those, by translating them on read while the pin runs their Teal,
   or by compiling them with the pinned release's `compile`; the count of
-  each form, which only falls, is `blocked` in [`build/islands.tl`].
+  each form, which only falls, is `blocked` in `build/islands.tl`.
 - the pin move to that release follows the change that adds the flag,
   and waits for the release main publishes from it. it has moved: the
   pin names `next-8a4d0e65`, whose `compile --grammar new` writes, for
-  the translation [`build/lang_proof.tl`] makes of `lang/`, the Lua the
+  the translation `build/lang_proof.tl` makes of `lang/`, the Lua the
   tool's own writes. what waits is the translated tree: the switch has
   build.zig's `seedCompiler` run it over `lang/`.
 - the switch change rewrites, in lang/ and in [`build/tree_checks.tl`],
@@ -1360,7 +1360,7 @@ constrained to Teal the fork also accepts.
   writes such a test as one for a table once the clause is gone, so the
   Lua is a different program (`cosmic compile --grammar new` refuses the
   test, as `is_on_record`). the `where` clauses of lang/ast.tl and
-  lang/types.tl become tags in the same change. [`build/lang_proof.tl`]
+  lang/types.tl become tags in the same change. `build/lang_proof.tl`
   does these steps mechanically on the translation, compiles it with the
   seed and runs the tests of `lang/` against the Lua (`bin/cosmic
   build/lang_proof_main.tl prove <dir>`): 65 files and 41 test modules
@@ -1524,9 +1524,7 @@ since the seed's Lua runs on the tree's VM.
 [`bin/zig`]: ../../bin/zig
 [`build.fuzz`]: ../../build/fuzz/init.tl
 [`build/compiler.d.tl`]: ../../build/compiler.d.tl
-[`build/islands.tl`]: ../../build/islands.tl
 [`ci/islands.txt`]: ../../ci/islands.txt
-[`build/lang_proof.tl`]: ../../build/lang_proof.tl
 [`build/pipeline.tl`]: ../../build/pipeline.tl
 [`build/error_catalog.tl`]: ../../build/error_catalog.tl
 [`build/removed_fix.tl`]: ../../build/removed_fix.tl
@@ -1541,7 +1539,6 @@ since the seed's Lua runs on the tree's VM.
 [`build/contracts.tl`]: ../../build/contracts.tl
 [`lang/check.tl`]: ../../lang/check.tl
 [`lang/fact_wraps.tl`]: ../../lang/fact_wraps.tl
-[`build/compiler_test.tl`]: ../../build/compiler_test.tl
 [`build/driver.tl`]: ../../build/driver.tl
 [`build/checker_facts_reads_test.tl`]: ../../build/checker_facts_reads_test.tl
 [`build/confine.tl`]: ../../build/confine.tl
@@ -1570,10 +1567,6 @@ since the seed's Lua runs on the tree's VM.
 
 [`build/shards.tl`]: ../../build/shards.tl
 [`build/tree_checks.tl`]: ../../build/tree_checks.tl
-[`checker/facts.tl`]: ../../checker/facts.tl
-[`checker/flow.tl`]: ../../checker/flow.tl
-[`checker/narrowing.tl`]: ../../checker/narrowing.tl
-[`checker/tl.tl`]: ../../checker/tl.tl
 [`Child.Handle`]: ../../cosmic/child.tl
 [`compilation.ordered`]: ../../build/compilation.tl
 [`cosmic.json.array`]: ../../cosmic/json.tl

@@ -1,5 +1,5 @@
 --- Proves the contextual typing of a function literal that the checker
---- ([`checker/tl.tl`]) gives. A literal checked where a function type is
+--- (`checker/tl.tl`) gives. A literal checked where a function type is
 --- expected -- a call's argument, a declared local, an assignment, a
 --- table field, a return -- gives each parameter it leaves untyped the
 --- expected parameter type, and an omitted return list the expected

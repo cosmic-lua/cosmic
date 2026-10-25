@@ -292,7 +292,7 @@ the replacement for that very field, at the site that used it.
 [`cosmic.removed`] is the one place the map from a removed name to its
 replacement lives.
 
-the compiler -- the Lua the tree's checker, [`checker/tl.tl`], compiles to (below) --
+the compiler -- the Lua the tree's checker, `checker/tl.tl`, compiles to (below) --
 reaches outside the pure libraries nowhere: it opens no file, reads no
 variable and runs no code it compiles. it ships as a row in the
 database and is loaded with an environment that names the pure
@@ -441,8 +441,8 @@ input to the build, never to the runtime. one database holds:
   Teal-only rebuild carries the running binary's rows over, and `cosmic
   build` copies them into every executable it writes;
   [`Store.web_asset`] reads one.
-- **the compiler**: the Lua [`checker/tl.tl`] and its modules compile to,
-  started with the text of [`checker/stdlib.d.tl`], one row, loaded with
+- **the compiler**: the Lua `checker/tl.tl` and its modules compile to,
+  started with the text of `checker/stdlib.d.tl`, one row, loaded with
   its own environment.
 - **decls**: every declaration the tree holds, generated or written,
   so a checker building another tree against this binary can type
@@ -590,7 +590,7 @@ and `zig build` installs them under the build directory's `vendor/` and produces
 for each target (`zig build boot` builds the host's alone unless given `-Dboot-cores=all`,
 and puts a placeholder script where each other core goes). `zig build boot`
 bridges: it runs the fresh host core over `build/` to compile the
-importer with the compiler built from the checker, [`checker/tl.tl`], in two
+importer with the compiler built from the checker, `checker/tl.tl`, in two
 stages (below), writes `cosmic.db`, and writes one
 portable [`bin/cosmic`], each in the build directory. the tool carries `carried.db`, that projection
 without the tree's own tests and examples, and with the docs, uses
@@ -748,14 +748,14 @@ that does run runs in a worker process of its own:
 - *parallel*: a build with much to parse or compile, a cold boot or an
   edit that reaches most of the tree, does it in worker processes: one
   fewer than the processors, `COSMIC_BUILD_JOBS` naming another count
-  and `1` none ([`build/workers.tl`]). sources are dealt to them by
+  and `1` none (`build/workers.tl`). sources are dealt to them by
   size. modules are dealt by what they import ([`build/shards.tl`]),
   since the checker's types cannot leave a process and a worker checks
   every import of what it compiles. the build process alone writes the
   rows, in the order a build without workers writes them, and compiles
   itself what no worker did, a refusal included, so its error is the one
   a build alone gives and the database and the tool come out byte for
-  byte the same ([`build/worker.tl`]). a boot loads the build's code from
+  byte the same (`build/worker.tl`). a boot loads the build's code from
   source in each worker, which takes seconds, so it starts them only for
   a few megabytes of new source.
 - *fast*: compile and check run in one process, one transaction,
@@ -928,17 +928,17 @@ a CycloneDX document. a pin with no license fails the build.
 
 ### teal
 
-the checker and compiler are the tree's own source, [`checker/tl.tl`] and the
+the checker and compiler are the tree's own source, `checker/tl.tl` and the
 files beside it: they descend from tl 0.24.8 (MIT; the license and notice
 travel in the bill of materials, as [`build/bom/tl.pin`]) and are edited
 directly.
-[`checker/tl.tl`] is the entry and holds most of the checker.
-[`checker/flow.tl`] is the first module split out of it, and it decides
+`checker/tl.tl` is the entry and holds most of the checker.
+`checker/flow.tl` is the first module split out of it, and it decides
 reachability: which statements end their block (`return`, `break`, `goto`,
 an `if` with an `else` all of whose branches end, `while true` with no
 `break`, a call of a `: never` function), which a function declared `:
 never` or returning a value and a narrowing after an `if` that ends read.
-the checker asks it, never decides it. [`checker/narrowing.tl`] decides what
+the checker asks it, never decides it. `checker/narrowing.tl` decides what
 a test tells of a place. a place is a local. a guard is a
 test of a place (a truthiness read, a comparison with nil or a literal,
 `is`, `type(x) == "..."`, an `assert`), or a `not`, `and` or `or` of
@@ -1050,7 +1050,7 @@ and the loop: the check before the loop does not hold in a later pass, so the
 hint copies the value to a local at the top of the loop body.
 
 a function literal does not assign a local declared outside it
-([`checker/captures.tl`]'s `find`, asked of each file before it is checked):
+(`checker/captures.tl`'s `find`, asked of each file before it is checked):
 `function() ... end`, `local function`, `function f()`, a record function,
 and the function literals inside a macro expression (a `where` clause is one,
 as are those of the records nested in it) may read what is around them, and
@@ -1117,7 +1117,7 @@ read-only path) are in [`doc/plans/strict-teal.md`].
 a local is assigned before it is read. `local x: T` with no value is nil until
 something assigns it, and a read that comes first gets nil where the type
 promised a `T`, so it is legal only where every path from the declaration
-assigns `x` before its first read ([`checker/flow.tl`]'s `unassigned_read`,
+assigns `x` before its first read (`checker/flow.tl`'s `unassigned_read`,
 asked of each declaration once the block that holds it is checked). a read is
 any use of `x` as a value (an operand, an argument, an index, the target of
 `x.f = v` or `x[i] = v`). a path that ends first (`return`, a `break` or `goto`
@@ -1160,17 +1160,17 @@ refusal is the checker's guess that it may.
 
 what counts as running code is what `drop_all` counts, so the rule shares its
 gaps. the read of a declared field of a record that declares `__index` runs
-code that neither sees (the TODO in [`checker/narrowing.tl`] names it), nor
+code that neither sees (the TODO in `checker/narrowing.tl` names it), nor
 does a metatable attached at run time (the `setmetatable` TODOs in
-[`checker/tl.tl`] and the roadmap item they wait on). a raise from `assert`
+`checker/tl.tl` and the roadmap item they wait on). a raise from `assert`
 (`assert(false)`, `assert(<expr>)`) or from an operator (division by zero,
 indexing nil) can let out a function that has already escaped, as a call of a
 function typed `: never` does, but is not seen as doing so, so those are
-outside the rule for now (a TODO in [`checker/flow.tl`], and the roadmap item
+outside the rule for now (a TODO in `checker/flow.tl`, and the roadmap item
 that checks a function where it escapes). a global is not followed at all, and
 neither is a local given a call that returns no values (`local v: integer =
 f()`), which is nil though its type admits none; both are TODOs in
-[`checker/flow.tl`] that wait on the roadmap's item that excludes nil from
+`checker/flow.tl` that wait on the roadmap's item that excludes nil from
 every type but one that names it.
 
 a refusal of the first kind has the code `not_assigned`, with the variable, and
@@ -1219,13 +1219,13 @@ reads `checker/` as part of the tool, never as a module or a test
 holds no copy of upstream's `tl.lua`. the seed is the pinned release: a `build.zig` step runs
 `bin/cosmic-bootstrap compile` (the release [`ci/cosmic-driver.pin`] names;
 `COSMIC_BOOTSTRAP` names another cosmic) over `checker/*.tl` and
-[`build/checker_wrapper.tl`], and zig caches the Lua it writes. the boot
+`build/checker_wrapper.tl`, and zig caches the Lua it writes. the boot
 builds the compiler in two stages: the seed's Lua, wrapped as the tool
 carries a compiler, is the first stage, and it compiles the same files again
 to the second, which the tool carries. the second is the tree's own
 generator applied to the tree's own source, so the carried compiler does not
 depend on the pin's emitter, and the compiler that makes compiles its own
-sources to exactly itself, which [`build/compiler_test.tl`] holds it to (the
+sources to exactly itself, which `build/compiler_test.tl` holds it to (the
 third stage equal to the second): the compiler is a function of its Teal
 sources, not of what first compiled it. the first stage equals the second
 whenever the generator writes what the release's does, which the boot checks
@@ -1248,7 +1248,7 @@ loads on first use as a chunk of its own named by its path, under the local
 entry are parts. the checker's module system is nothing more than that.
 
 the Lua standard library's declarations are not in that source. they are
-[`checker/stdlib.d.tl`], the typing the checker takes without proof, so
+`checker/stdlib.d.tl`, the typing the checker takes without proof, so
 auditing or changing one is an edit of that file and touches no checker
 logic. the file sits beside the checker, not under a module's path, for
 three reasons. the checker reads it before any module system exists: a
@@ -1262,7 +1262,7 @@ the file: the bridge ([`core/bridge.lua`]) starts the compiled checker
 with `local stdlib = "<the file's text>"` on its first line, so the
 compiler the tool carries holds the declarations it was compiled with, and
 compiling the checker's sources again with the same file gives exactly that
-Lua ([`build/compiler_test.tl`]). the checker still names the few
+Lua (`build/compiler_test.tl`). the checker still names the few
 functions it handles in code (`assert`, `type`, `setmetatable`, `pcall`,
 `require`, `ipairs`, `pairs`, `coroutine.wrap`, and `string.format`,
 `gsub`, `match`, `find` and the like) after reading the file, in
@@ -1292,7 +1292,7 @@ enters and a shape validator turns it into a record by construction. the
 fork still accepts `as`, so the rule is not implemented. the fork narrows
 only a local; container covariance was dropped (see the roadmap).
 there is no planned `cosmic check` verb: compilation performs checking,
-while `cosmic fix`'s structural rule list ([`build/fix/rule.tl`]) is still
+while `cosmic fix`'s structural rule list (`build/fix/rule.tl`) is still
 empty: its one type-driven fix wraps a multi-value `assert(...)` in
 parentheses.
 
@@ -1396,8 +1396,8 @@ modules by none of those, so a cached compile could stand after the
 module that declares it changed, the verdict of a serial build would
 depend on that order, and parallel workers could not reproduce it.
 everything a module sees comes through a `require`, which the key
-covers. tl's own prelude ([`checker/tl.tl`]) and the Lua
-standard-library declarations ([`checker/stdlib.d.tl`]) are read by the
+covers. tl's own prelude (`checker/tl.tl`) and the Lua
+standard-library declarations (`checker/stdlib.d.tl`) are read by the
 checker's environment, not built as a source, and are unaffected. a Lua runtime trick the checker cannot
 see, `setmetatable(_G, ...)` or `local _ENV = ...`, is not refused, and
 neither is a file run by `cosmic --standalone`, which no build checks. the
@@ -1634,13 +1634,10 @@ in [roadmap.md](roadmap.md).
 [`build/bom/tl.pin`]: ../build/bom/tl.pin
 [`build/checker_assigned_fuzz_test.tl`]: ../build/checker_assigned_fuzz_test.tl
 [`build/checker_declarations.tl`]: ../build/checker_declarations.tl
-[`build/checker_wrapper.tl`]: ../build/checker_wrapper.tl
 [`build/closure_store.tl`]: ../build/closure_store.tl
 [`build/compiler.d.tl`]: ../build/compiler.d.tl
-[`build/compiler_test.tl`]: ../build/compiler_test.tl
 [`build/declared_key.tl`]: ../build/declared_key.tl
 [`build/dispatched_features_test.tl`]: ../build/dispatched_features_test.tl
-[`build/fix/rule.tl`]: ../build/fix/rule.tl
 [`build/identity.tl`]: ../build/identity.tl
 [`build/importer.tl`]: ../build/importer.tl
 [`build/key_parts.tl`]: ../build/key_parts.tl
@@ -1658,15 +1655,8 @@ in [roadmap.md](roadmap.md).
 [`build/test_worker.tl`]: ../build/test_worker.tl
 [`build/vendor.tl`]: ../build/vendor.tl
 [`build/verb_spec.tl`]: ../build/verb_spec.tl
-[`build/worker.tl`]: ../build/worker.tl
-[`build/workers.tl`]: ../build/workers.tl
 [`build/zig.tl`]: ../build/zig.tl
 [`build/zig_fetch.tl`]: ../build/zig_fetch.tl
-[`checker/captures.tl`]: ../checker/captures.tl
-[`checker/flow.tl`]: ../checker/flow.tl
-[`checker/narrowing.tl`]: ../checker/narrowing.tl
-[`checker/stdlib.d.tl`]: ../checker/stdlib.d.tl
-[`checker/tl.tl`]: ../checker/tl.tl
 [`ci/cosmic-driver.pin`]: ../ci/cosmic-driver.pin
 [`ci/cosmic_ci/host_id.tl`]: ../ci/cosmic_ci/host_id.tl
 [`ci/cosmic_ci/orchestration.tl`]: ../ci/cosmic_ci/orchestration.tl

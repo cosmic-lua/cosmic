@@ -32,7 +32,7 @@ one counts again with the checker's own rows.
   read.
 - **the declarations.** a `.d.tl` signature is the only typing taken without
   proof ("declarations are the trust boundary" in [strict-teal.md]): the Lua
-  library's in [`checker/stdlib.d.tl`], the tree's bindings in
+  library's in `checker/stdlib.d.tl`, the tree's bindings in
   `cosmic/internal/*.d.tl`.
 - **what the tree writes.** 1,786 records, 56 interfaces, 88 enums, 13
   generic records and interfaces, 65 `function<`, 6 constraints (four on one
@@ -397,7 +397,7 @@ it; nothing else is inferred, so a signature never depends on a body.
 ### narrowing and reachability
 
 the flow is [narrowing by construction] with the new places and joins.
-[`checker/facts.tl`] knows no type beyond identity (it takes `unite`, `is_a`
+`checker/facts.tl` knows no type beyond identity (it takes `unite`, `is_a`
 and `fixed`), so it is reused as written with interned types as its values.
 
 - **places** are a local, keyed by [`Var.id`], and a path of fixed fields from
@@ -864,7 +864,7 @@ readings, takes the one that refuses more. *not adopted:* each reading's looser 
   returns the first alone (`io.open`, `FILE:close`, `os.remove`, `utf8.len`, `load`), unlike the tree's own `T?, string` that
   its functions answer. The callbacks of
   `string.gsub` are enumerated by the number of captures they take (0 to 3) and answer `string | number | nil`, a nil
-  keeping the match. The fork's file ([`checker/stdlib.d.tl`]) lets a result that may be nil be added and passed on, so the
+  keeping the match. The fork's file (`checker/stdlib.d.tl`) lets a result that may be nil be added and passed on, so the
   corrected declarations are the new checker's own, in [`lang/stdlib.d.tl`]. A capture is declared a `string` and a position capture `()` is an
   integer: a TODO until the checker reads patterns. `select` and `string.match` are unchanged: what they answer past
   the first value is a tail, which reads `T?` as one value. *not adopted:* alternatives (`(T) | (nil, string, integer)`) for the
@@ -1090,8 +1090,6 @@ silent. *not adopted:* each reading's looser form, named here.
 [`build/teal_test.tl`]: ../../build/teal_test.tl
 [`build/tree_checks.tl`]: ../../build/tree_checks.tl
 [`Capture.after`]: ../../lang/scopes.tl
-[`checker/facts.tl`]: ../../checker/facts.tl
-[`checker/stdlib.d.tl`]: ../../checker/stdlib.d.tl
 [`cosmic.internal.process`]: ../../core/process.h
 [`cosmic.internal.socket`]: ../../core/socket.h
 [`cosmic.poll`]: ../../cosmic/poll.tl

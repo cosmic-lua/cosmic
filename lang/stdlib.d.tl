@@ -7,7 +7,7 @@
 -- `math.abs`, `math.max`) is declared by overloads. `pcall`, `xpcall` and the `coroutine` library are typed over
 -- `Coroutine<Y, R, S>`, which the language has no other form for.
 --
--- TODO: declare `Fs.Scratch`, `Signal.Guard` and `Child.Handle` as classes in cosmic/fs.tl, cosmic/signal.tl and
+-- TODO: declare [`Fs.Scratch`], [`Signal.Guard`] and [`Child.Handle`] as classes in cosmic/fs.tl, cosmic/signal.tl and
 -- cosmic/child.tl (each says `metamethod __close` today), once the stdlib is written in the new grammar: a `<close>`
 -- local must be a class, and the TODOs in build/patch.tl, build/zig.tl, build/zig_fetch.tl and ci/ that wait on
 -- ci/cosmic-driver.pin naming a release that declares them cannot be undone until a release does.
@@ -326,7 +326,7 @@ do
     char: function(...: integer): string
     dump: function(function(...: any): (any), arg2?: boolean): string
     -- The new checker types the captures of `find`, `match` and `gmatch` and the arguments of a `gsub` callback from a literal
-    -- pattern (lang/check.tl, `Calls.refine`): a position capture `()` is an integer, and these declarations are the
+    -- pattern (lang/check.tl, [`Calls.refine`]): a position capture `()` is an integer, and these declarations are the
     -- answer for a pattern that is no literal, where every capture is a string.
     find: function(string, string, arg3?: integer, arg4?: boolean): integer?, integer?, string...
     format: function(string, ...: any): string
