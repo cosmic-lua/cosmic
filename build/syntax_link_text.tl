@@ -46,10 +46,6 @@ function SyntaxLinkText.comments_of(tokens: Lexer.Tokens): {LinkText.Comment}
   return comments
 end
 
--- TODO: declare the members of a generic type too ([`Channel.Queue.send`] of `interface Queue<T>`), once the switch deletes
--- the fork's [`build.link_text`]: its `declarations` reads no generic type's members, and the comparison holds this
--- reader to it (doc/plans/strict-teal.md, "the switch").
-
 --- The names a type declaration's members declare, spelled in full under `prefix` and, for a type or a function, by
 --- their own names: `declare(name, top, scoped)` is the declaration of a name that `scoped` says a scope holds.
 local function declare_members(prefix: string, members: {Ast.Member}, depth: integer,
@@ -74,10 +70,7 @@ local function declare_members(prefix: string, members: {Ast.Member}, depth: int
       declare(prefix .. "." .. name, true, false)
       declare(name, true, false)
       if (member.kind == "Record") or (member.kind == "Interface") or (member.kind == "Class") then
-        -- The fork's reader looks through no generic type, so the members of one are not declared.
-        if #member.typeparams == 0 then
-          declare_members(prefix .. "." .. name, member.members, depth + 1, declare)
-        end
+        declare_members(prefix .. "." .. name, member.members, depth + 1, declare)
       elseif (member.kind == "Enum") then
         for _, value in ipairs(member.values) do
           declare(prefix .. "." .. name .. "." .. value.value, true, false)
@@ -114,9 +107,7 @@ function SyntaxLinkText.declarations(chunk: Ast.Chunk, scoped: Scopes.Scoped): L
     local declared = Node.declared(stat)
     if declared ~= nil and declared.scope ~= "global" then
       if (stat.kind == "Record") or (stat.kind == "Interface") or (stat.kind == "Class") then
-        if #stat.typeparams == 0 then
-          declare_members(declared.name.name, stat.members, 0, declare)
-        end
+        declare_members(declared.name.name, stat.members, 0, declare)
       elseif (stat.kind == "Enum") then
         for _, value in ipairs(stat.values) do
           declare(declared.name.name .. "." .. value.value, true, false)

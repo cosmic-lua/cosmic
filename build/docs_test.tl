@@ -1823,7 +1823,7 @@ local function test_a_record_page_lists_its_fields_and_an_enum_its_values(dir: s
     1, true), shown)
   local shape = assert(docs.lookup(looked, "Thing.Shape"))
   shown = table.concat(assert(docs.render(looked, shape[1])), "\n")
-  assert(shown:find("  values:\n    \"flat\"\n    \"round\"", 1, true), shown)
+  assert(shown:find("  values:\n    \"round\"\n    \"flat\"", 1, true), shown)
   local page = assert(docs.lookup(looked, "cosmic.thing"))
   shown = table.concat(assert(docs.render(looked, page[1])), "\n")
   assert(shown:find("\n  record Thing.Options\n    count: integer -- How many to make.\n" ..

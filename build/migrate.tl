@@ -89,11 +89,6 @@ local record Migrate
     rewrites: {string: integer}
     --- The findings left, by file and then place.
     left: {Finding}
-    --- The files the checker did not read, one line each with why: the `.tl` of a module that is also given as a `.d.tl`.
-    --
-    -- TODO: check a `.tl` that is given beside the `.d.tl` of its module, once the new checker's program can hold both
-    -- ([`Driver.index`] answers the declaration under every name of the module and the source under none).
-    unchecked: {string}
     --- The declarations whose `mut` was changed and that other files may list: files outside this run that mention one need the
     --- same change.
     shared: {Shared}
@@ -1078,17 +1073,13 @@ function Migrate.run(files: {string: string}, options?: Migrate.Options): Migrat
   end
   table.sort(paths)
   local result: Migrate.Result = {
-    texts = {}, changed = {}, untranslated = {}, before = {}, after = {}, rewrites = {}, left = {}, unchecked = {},
+    texts = {}, changed = {}, untranslated = {}, before = {}, after = {}, rewrites = {}, left = {},
     shared = {}, rounds = 0, converged = true, nanoseconds = 0,
   }
   local shared_seen: mut {string: boolean} = {}
   for _, path in ipairs(paths) do
     local translated = Translate.translate(assert(files[path]), path)
     result.texts[path] = translated.text
-    if path:sub(-5) ~= ".d.tl" and path:sub(-3) == ".tl" and files[path:sub(1, -4) .. ".d.tl"] ~= nil then
-      result.unchecked[#result.unchecked + 1] = path .. ": not checked: " .. path:sub(1, -4) ..
-        ".d.tl declares the same module, and the checker reads that one in its place"
-    end
     for _, e in ipairs(translated.errors) do
       result.untranslated[#result.untranslated + 1] = path .. ":" .. e.y .. ":" .. e.x .. ": " .. e.msg .. " (" .. e.code .. ")"
     end
@@ -1318,9 +1309,6 @@ function Migrate.main(argv: {string}, streams?: Migrate.Io): integer
   for _, line in ipairs(result.untranslated) do
     lines[#lines + 1] = line .. ": not translated: write it by hand"
   end
-  for _, line in ipairs(result.unchecked) do
-    lines[#lines + 1] = line
-  end
   for i, f in ipairs(result.left) do
     if i > LISTED then
       lines[#lines + 1] = "... and " .. plural.count(#result.left - LISTED, "more finding") .. ", counted by code in the summary"
@@ -1353,9 +1341,6 @@ function Migrate.main(argv: {string}, streams?: Migrate.Io): integer
   end
   if #result.untranslated > 0 then
     open[#open + 1] = plural.count(#result.untranslated, "form") .. " not translated"
-  end
-  if #result.unchecked > 0 then
-    open[#open + 1] = plural.count(#result.unchecked, "file") .. " not checked"
   end
   if #outside > 0 then
     open[#open + 1] = plural.count(#outside, "file") .. " outside this run to change with it"

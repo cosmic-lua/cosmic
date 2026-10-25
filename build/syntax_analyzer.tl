@@ -1,16 +1,15 @@
 --- The source analyzer on the new syntax tree: what one parse of a module's source tells the importer about it -- its
 --- own test names, whether it returns its own value at the top level and under what name, the failure messages it
 --- catalogs, the symbols it documents, its worked examples, the members of other modules it refers to, and the
---- `policy` a test module declares. It is the port of build.analyzer, and answers the rows of an analysis
---- ([`Analyzer.Analysis`]) the fork's analyzer does, read off a tree of [`lang.parser`] ([`lang.ast`]) and the names
---- [`lang.scopes`] resolved.
+--- `policy` a test module declares. It answers the rows of an analysis ([`Analyzer.Analysis`]), read off a tree of
+--- [`lang.parser`] ([`lang.ast`]) and the names [`lang.scopes`] resolved.
 ---
 --- A declaration's doc comment is on the node ([`Ast.Binding`], [`Ast.Function`], [`Ast.FieldDecl`], [`Ast.Method`],
 --- [`Ast.EnumValue`]) as the parser attached it, and the source of a signature or an example is read off the lines by
 --- the places of the tokens. What the new grammar changes of the rows, each deliberately:
 ---
---- - A class is documented as the record the fork's analyzer documented, and a method it declares is the `method`
----   row `Class:name` the fork gave `function Class:name()`: its signature is the head as written, with `self` as its
+--- - A class is documented as a record, and a method it declares is the `method`
+---   row `Class:name`, as `function Class:name()` was: its signature is the head as written, with `self` as its
 ---   first parameter.
 --- - A field or a method named `__x` is a metamethod, as the `metamethod` keyword made it; the signature has no keyword.
 --- - A source cannot jump (`goto`), so a policy is never refused for a jump past its call.
@@ -159,10 +158,6 @@ local function next_place(chunk: Ast.Chunk, stats: {Ast.Stat}, index: integer, c
   return token.y, token.x
 end
 
--- TODO: read a catalog message as the source means it, an escape decoded, once the switch deletes the fork's analyzer
--- (build.analyzer keeps the text between the quotes as written, so that `\"` is two bytes of the message and no error
--- a person sees holds it, and the comparison holds this reader to it) (doc/plans/strict-teal.md, "the switch").
-
 --- A `return nil, $MSG`-shaped statement's message expression, reduced to whatever of it is a literal: a plain string
 --- leaf reads as its own text, a `..` concatenation reads as both sides joined the same way, and anything else (a
 --- call, a variable) contributes nothing. A message built entirely from such a case reduces to `""`, which nothing is
@@ -171,14 +166,8 @@ local function static_text(chunk: Ast.Chunk, node: Ast.Node?): string
   if node == nil then
     return ""
   elseif (node.kind == "String") then
-    -- The text as written between the quotes, an escape left as the source spells it, as the fork's analyzer read it.
-    local written = first_token(chunk, node).text
-    if node.long then
-      -- Between the brackets, a line break that opens it too (the string's value drops it).
-      local _, body = written:match("^%[(=*)%[(.*)%]%1%]$")
-      return body or node.value
-    end
-    return written:sub(2, -2)
+    -- The message as the source means it, an escape decoded.
+    return node.value
   elseif (node.kind == "Binary") and node.op == ".." then
     return static_text(chunk, node.left) .. static_text(chunk, node.right)
   end
@@ -439,22 +428,6 @@ local function catalog_of(chunk: Ast.Chunk): {Analyzer.CatalogEntry}
   return out
 end
 
--- TODO: list the values of an enum in the order the source declares them, once the switch deletes the fork's analyzer:
--- it read them from a set, so that they came sorted, and the comparison holds this reader to it
--- (doc/plans/strict-teal.md, "the switch").
-
---- The sorted values of an enum.
-local function enum_values(values: {Ast.EnumValue}): {Ast.EnumValue}
-  local out: mut {Ast.EnumValue} = {}
-  for _, value in ipairs(values) do
-    out[#out + 1] = value
-  end
-  table.sort(out, function(a: Ast.EnumValue, b: Ast.EnumValue): boolean
-    return a.value < b.value
-  end)
-  return out
-end
-
 --- A record field's declaration on one line, however many the source spent on it: from the line its type starts on to
 --- the end of its type. A comment inside the signature is left out, as it would swallow the words after it once the
 --- lines are joined.
@@ -558,7 +531,7 @@ end
 type_docs = function(chunk: Ast.Chunk, lines: {string}, symbol: string, decl: Ast.Node, out: mut {Entry})
   if (decl.kind == "Enum") then
     local line = line_of(chunk, decl)
-    for _, value in ipairs(enum_values(decl.values)) do
+    for _, value in ipairs(decl.values) do
       local full = symbol .. "." .. value.value
       out[#out + 1] = { symbol = full, source_symbol = full, exported = false, kind = "value",
         signature = string.format("%q", value.value), text = doc_text(value.doc), line = line }

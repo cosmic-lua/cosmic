@@ -168,8 +168,8 @@ local function test_the_comments_of_a_source_say_where_their_text_starts()
   assert(LinkText.line_starts(source)[3] == #"local x = 1 -- trail\n--- [`x`] doc\n" + 1)
 end
 
---- What the fork's reader did not look through is not looked through: the members of a generic type are not declared.
-local function test_the_members_of_a_generic_type_are_not_declared_as_the_forks_reader_did_not_declare_them()
+--- The members of a generic type are declared as those of any other type are, at the top and nested.
+local function test_the_members_of_a_generic_type_are_declared_as_those_of_any_type_are()
   local source = lines(
     "local record Queue<T>",
     "  send: function(self: Queue<T>, item: T): boolean",
@@ -188,6 +188,6 @@ local function test_the_members_of_a_generic_type_are_not_declared_as_the_forks_
   local chunk = assert(Node.parse(source, "a.tl"))
   local declared = SyntaxLinkText.declarations(chunk, Node.scope(chunk, "a.tl"))
   local here = declared.at(14)
-  assert(here.names["Plain.send"] == true and here.names["Queue.send"] ~= true)
-  assert(here.names["Plain.Flat.keep"] == true and here.names["Plain.Inner.drop"] ~= true)
+  assert(here.names["Plain.send"] == true and here.names["Queue.send"] == true)
+  assert(here.names["Plain.Flat.keep"] == true and here.names["Plain.Inner.drop"] == true)
 end

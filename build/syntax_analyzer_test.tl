@@ -265,7 +265,7 @@ local function test_a_classs_methods_are_documented_as_the_methods_the_fork_docu
   local read = by["Stream:read"]
   assert(read ~= nil and read.kind == "method" and read.symbol == "read" and read.exported and read.text == "Reads.")
   assert(read.signature == "function read(self, max: integer?): string?, string", read.signature)
-  -- The metamethods follow the fields, and the methods come last, as the fork's rows came.
+  -- The metamethods follow the fields, and the methods come last, as the docs list them.
   local order: mut {string} = {}
   for _, entry in ipairs(found.docs) do
     order[#order + 1] = entry.source_symbol
@@ -274,9 +274,8 @@ local function test_a_classs_methods_are_documented_as_the_methods_the_fork_docu
   assert(#found.catalog == 1 and found.catalog[1].symbol == "Stream:read" and found.catalog[1].message == "nothing to read")
 end
 
---- A deliberate difference: the fork's reader kept the escapes of a message as written; so does this one, and it keeps
---- the text of a long string.
-local function test_a_catalog_message_keeps_its_escapes_as_written()
+--- A message is read as the source means it: an escape is decoded, and a long string's first line break is not its text.
+local function test_a_catalog_message_is_read_as_the_source_means_it()
   local found = analyzed(lines(
     "local function f(): nil, string",
     "  return nil, \"say \\\"stop\\\" here\"",
@@ -289,10 +288,10 @@ local function test_a_catalog_message_keeps_its_escapes_as_written()
     "the first line break is the string's own]]",
     "end"))
   assert(#found.catalog == 3, tostring(#found.catalog))
-  assert(found.catalog[1].message == 'say \\"stop\\" here', found.catalog[1].message)
+  assert(found.catalog[1].message == 'say "stop" here', found.catalog[1].message)
   assert(found.catalog[2].message == "a long message", found.catalog[2].message)
-  -- The fork read the text between the brackets, the line break that opens a long string included.
-  assert(found.catalog[3].message == "\nthe first line break is the string's own", found.catalog[3].message)
+  -- The line break that opens a long string is the string's own, not part of its value.
+  assert(found.catalog[3].message == "the first line break is the string's own", found.catalog[3].message)
 end
 
 --- The translation writes a metatable's `__close` as a method of the class, which is a metamethod row as the field is.
@@ -328,7 +327,7 @@ local function test_the_values_of_an_enum_are_listed_in_order_and_each_carries_i
   for _, entry in ipairs(found.docs) do
     values[#values + 1] = entry.symbol .. "=" .. entry.text
   end
-  assert(table.concat(values, "|") == "Mode=|Mode.a=First in the alphabet.|Mode.b=Second in the source.",
+  assert(table.concat(values, "|") == "Mode=|Mode.b=Second in the source.|Mode.a=First in the alphabet.",
     table.concat(values, "|"))
 end
 

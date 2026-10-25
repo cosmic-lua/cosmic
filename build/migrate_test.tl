@@ -629,11 +629,13 @@ local function test_a_family_changed_is_reported_for_the_declarations_the_run_ma
   assert(result.shared[1].field == "flag" and result.shared[1].name == "Guard" and result.shared[2].name == "Pins.Held")
 end
 
-local function test_a_module_given_as_tl_and_d_tl_says_the_tl_is_not_checked()
-  local result = migrated({ ["m.tl"] = "return 1\n", ["m.d.tl"] = "local record M\nend\nreturn M\n" })
-  assert(#result.unchecked == 1 and result.unchecked[1]:find("m.tl: not checked: m.d.tl declares the same module", 1, true) == 1,
-    table.concat(result.unchecked, "\n"))
-  assert(#migrated({ ["m.d.tl"] = "local record M\nend\nreturn M\n" }).unchecked == 0)
+local function test_a_module_given_as_tl_and_d_tl_has_its_tl_checked_as_the_implementation()
+  local result = migrated({ ["m.tl"] = "local n: string = 1\nreturn 1\n", ["m.d.tl"] = "local record M\nend\nreturn M\n" })
+  local found: mut {string} = {}
+  for _, finding in ipairs(result.left) do
+    found[#found + 1] = finding.path
+  end
+  assert(#found >= 1 and found[1] == "m.tl", table.concat(found, " "))
 end
 
 local function test_a_view_passed_to_a_parameter_that_became_mut_is_listed_with_what_to_do()
