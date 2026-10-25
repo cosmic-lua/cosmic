@@ -26,7 +26,7 @@ function verbs_fixture.write_tree(tmp: string): string
   assert(Fs.write(tree .. "/good/ok_test.tl", "local function test_ok()\n  assert(true)\nend\n"))
   assert(Fs.write(tree .. "/bad/no_test.tl",
     "local function test_no()\n  error(\"meant to fail\")\nend\n"))
-  assert(Fs.write(tree .. "/messy.tl", "local  x: integer = 1\nreturn x\n"))
+  assert(Fs.write(tree .. "/messy.tl", "--- One, which links to [`Nothing.here`].\nlocal x: integer = 1\nreturn x\n"))
   assert(Fs.mkdirs(tmp .. "/broken"))
   assert(Fs.write(tmp .. "/broken/wrong.tl", "local x: integer = \"text\"\nreturn x\n"))
   assert(Fs.mkdirs(tmp .. "/empty"))

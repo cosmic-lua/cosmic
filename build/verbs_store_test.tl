@@ -229,7 +229,7 @@ local function write_programs(tmp: string): string
     assert(Fs.write(tree .. "/cmd/" .. name .. "/main.tl", main))
   end
   assert(Fs.mkdirs(tree .. "/lib"))
-  assert(Fs.write(tree .. "/lib/reader.tl", "local Fs = require(\"cosmic.fs\")\nreturn Fs.read\n"))
+  assert(Fs.write(tree .. "/lib/reader.tl", "local Fs = require(\"cosmic.fs\")\nlocal read: function(string): (string?, string) = Fs.read\nreturn read\n"))
   return tree
 end
 
@@ -282,7 +282,8 @@ local function test_uses_prints_each_link_it_finds(tmp: string)
   assert(Fs.write(tree .. "/lib/links.tl", table.concat({
     "local waves = require(\"lib.waves\")",
     "-- [`waves.go`], [`lib.waves`] and [the notes](../notes.md#usage).",
-    "return waves.go",
+    "local said: string = waves.go()",
+    "return said",
     "",
   }, "\n")))
   local _ = verbs_fixture.expect(tree, "build", { "build", "--host" }, 0)
