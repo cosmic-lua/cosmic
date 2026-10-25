@@ -22,7 +22,7 @@
 ---   is: `interface_disagrees`. What it lists is an interface, and no declaration lists itself, even
 ---   through the declarations it lists: `super_not_interface`, `super_cycle`, `listing_too_large`.
 --- - tags: a union with two records or more is legal only if each has one shared fixed field typed
----   by a single-member enum, and no two have the same value: `untagged_union`.
+---   by an enum, and no value of it is in two members: `untagged_union`.
 --- - dense arrays: `{T?}`, `{K: V?}` and an instance that makes one (`List<string?>` for `record
 ---   List<T>` that holds a `{T}`): `array_of_optional`.
 --- - keys: a map's key is `integer`, `string`, `boolean`, an enum or a record, class, interface or
@@ -90,7 +90,7 @@ local record Declarations
     "super_cycle"
     -- a declaration whose listings are more than the judge follows, or nest too deep
     "listing_too_large"
-    -- a union of records without a shared single-valued enum field
+    -- a union of records without a shared fixed enum field whose values are in one member each
     "untagged_union"
     -- `{T?}`, `{K: V?}` or an instance that makes one
     "array_of_optional"
@@ -381,8 +381,8 @@ Declarations.catalog = {
   {
     code = "untagged_union", rule = "tagged unions",
     why = "a record is erased, so a union of records is told apart by a field of a type each member has to " ..
-      "itself: a fixed field of a single-member enum, with a value no other member has",
-    fix = "give <members> a fixed field of an enum of one value each, the same name in all",
+      "itself: a fixed field of an enum, none of whose values is in another member's enum",
+    fix = "give <members> a fixed field of an enum, the same name in all, with different values in each",
   },
   {
     code = "array_of_optional", rule = "arrays are dense",
@@ -2399,8 +2399,9 @@ end
 
 -- Tags --------------------------------------------------------------------------------------
 
---- The single value of the enum a tag field has, or nil and whether the enum is not defined yet.
-local function tag_value(field: Types.Field): string?, boolean
+--- The values of the enum a tag field has, or nil and whether the enum is not defined yet. A tag may have several values:
+--- a test of one of them selects its member, as long as no other member has it ([`check_union`]).
+local function tag_values(field: Types.Field): {string}?, boolean
   local t = field.type
   if field.mut or field.omittable or not ((t.tag == "named")) or t.decl.kind ~= "enum" then
     return nil, false
@@ -2409,10 +2410,10 @@ local function tag_value(field: Types.Field): string?, boolean
   if body == nil then
     return nil, true
   end
-  if #body.values ~= 1 then
+  if #body.values == 0 then
     return nil, false
   end
-  return body.values[1], false
+  return body.values, false
 end
 
 --- The field of `body` of this name, the first.
@@ -2441,6 +2442,31 @@ local function check_union(ctx: Ctx, site: UnionSite): boolean
       return false
     end
   end
+  -- The members are told in the order their declarations were made, which is the order they are written in a module.
+  local position: mut {Decl: integer} = {}
+  for i, d in ipairs(ctx.store.list) do
+    position[d] = i
+  end
+  table.sort(records, function(a: Named, b: Named): boolean
+    local pa, pb = position[a.decl] or 0, position[b.decl] or 0
+    if pa ~= pb then
+      return pa < pb
+    end
+    return Types.display(a, site.names) < Types.display(b, site.names)
+  end)
+  local function own_names(r: Named): {string}
+    local out: mut {string} = {}
+    local body = r.decl.body
+    if body ~= nil then
+      for _, tp in ipairs(body.tparams) do
+        out[#out + 1] = tp.name
+      end
+    end
+    return out
+  end
+  local function shown_of(r: Named): string
+    return quoted(Types.display(r, site.names))
+  end
   local first_body = records[1].decl.body
   if first_body == nil then
     return true
@@ -2466,26 +2492,33 @@ local function check_union(ctx: Ctx, site: UnionSite): boolean
       local f = body ~= nil and field_named(body, candidate.name) or nil
       if f == nil then
         good = false
-        why = quoted(r.decl.name) .. " has no field " .. quoted(candidate.name)
+        why = shown_of(r) .. " has no field " .. quoted(candidate.name)
         break
       end
-      local value, waiting = tag_value(f)
+      local own, waiting = tag_values(f)
       if waiting then
         return false
       end
-      if value == nil then
+      if own == nil then
         good = false
-        why = quoted(r.decl.name .. "." .. candidate.name) .. " is not a fixed field of an enum with one value"
+        why = "the field " .. quoted(candidate.name) .. " of " .. shown_of(r) .. " is " ..
+          (if f.mut == true then "`mut`" elseif f.omittable == true then "omittable" else "typed " .. quoted(Types.display(f.type, { own_names(r) })) end) ..
+          ", and a tag is a fixed field typed by one named enum"
         break
       end
-      local other = values[value]
-      if other ~= nil then
-        good = false
-        why = "both " .. quoted(other.decl.name) .. " and " .. quoted(r.decl.name) .. " have " ..
-          quoted(candidate.name) .. " = " .. string.format("%q", value)
+      for _, value in ipairs(own) do
+        local other = values[value]
+        if other ~= nil and other ~= r then
+          good = false
+          why = "both " .. shown_of(other) .. " and " .. shown_of(r) .. " have " ..
+            quoted(candidate.name) .. " = " .. string.format("%q", value)
+          break
+        end
+        values[value] = r
+      end
+      if not good then
         break
       end
-      values[value] = r
     end
     if good then
       return true
@@ -2502,14 +2535,14 @@ local function check_union(ctx: Ctx, site: UnionSite): boolean
   end
   local listed: mut {string} = {}
   for i, r in ipairs(records) do
-    listed[i] = quoted(r.decl.name)
+    listed[i] = shown_of(r)
   end
   local shown = Types.display(site.type, site.names)
   local reason = if failure ~= "" and shared then "; the closest, " .. quoted(blamed) .. ", fails because " .. failure else
     "; they share no field" end
   report_at(ctx, "untagged_union", site.node, "the union " .. quoted(shown) .. " holds " .. #records ..
       " records that have no tag" .. reason,
-    "give " .. table.concat(listed, ", ") .. " a fixed field of the same name whose type is an enum of one value each, " ..
+    "give " .. table.concat(listed, ", ") .. " a fixed field of the same name whose type is one named enum, with values " ..
       "different in each, so that `x.kind == \"...\"` tells them apart",
     { shown })
   return true

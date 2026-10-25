@@ -1,7 +1,9 @@
 --- The speed of the checker ([`lang.check`]), held to ratios and never to a clock: four times the input costs about four
 --- times the time, for each shape that could cost more than its length: a chain of operators, a record of many fields
 --- read many times and given in a literal, a literal of many items, a union of many tagged records read by a field
---- they share, an `if` expression of many arms, and a function of many parameters called with all of them.
+--- they share, a union of records with two tag values each told apart by a fixed number of tests (checked, and declared in
+--- the second guard at the end), an `if` expression of many arms, and a function of many parameters called with all of them.
+--- The guards of [`lang.relation`] are in [`lang.relation_speed_test`]; this module does not time it apart.
 local Check = require("lang.check")
 local Declarations = require("lang.declarations")
 local Lexer = require("lang.lexer")
@@ -77,6 +79,27 @@ local FORMS <const>: {string: function(n: integer): string} = {
     out[#out + 1] = "  return a.value\nend\n"
     return table.concat(out)
   end,
+  ["a union of many tagged records told apart by a fixed number of tests"] = function(n: integer): string
+    -- The members grow and the tests do not: each test is a scan of the members, so a check that is more than linear in the
+    -- members (of one test, of the narrowing it leaves, of the tag it reports) shows as more than four times the time.
+    local count = n * 4
+    local out: mut {string} = {}
+    local members: mut {string} = {}
+    for i = 1, count do
+      local at = tostring(i)
+      out[#out + 1] = "local enum K" .. at .. " \"k" .. at .. "\" \"j" .. at .. "\" end\nlocal record R" .. at .. "\n  kind: K" .. at ..
+        "\n  f" .. at .. ": integer\nend\n"
+      members[#members + 1] = "R" .. at
+    end
+    out[#out + 1] = "local type Node = " .. table.concat(members, " | ") .. "\nlocal function f(a: Node): integer\n"
+    for i = 1, 60 do
+      local m = tostring(i % count + 1)
+      out[#out + 1] = "  if a.kind == \"" .. (if i % 2 == 0 then "k" else "j" end) .. m .. "\" then\n    local v" .. tostring(i) ..
+        ": integer = a.f" .. m .. "\n  end\n  if a.kind ~= \"k" .. m .. "\" then\n    local w" .. tostring(i) .. ": Node = a\n  end\n"
+    end
+    out[#out + 1] = "  return 1\nend\n"
+    return table.concat(out)
+  end,
   ["an if expression of many arms"] = function(n: integer): string
     local arms: mut {string} = {}
     for i = 1, n * 50 do
@@ -118,4 +141,20 @@ end
 local function test_four_times_the_input_costs_about_four_times_the_time_for_a_union_an_if_expression_and_a_call()
   hold({ "a union of many tagged records read by a shared field", "an if expression of many arms",
     "a function of many parameters called with all of them" })
+end
+
+local function test_four_times_the_input_costs_about_four_times_the_time_for_a_union_of_many_tagged_records_told_apart_by_a_fixed_number_of_tests()
+  hold({ "a union of many tagged records told apart by a fixed number of tests" })
+end
+
+local function test_four_times_the_input_costs_about_four_times_the_time_for_declaring_a_union_of_many_tagged_records()
+  -- The members are read, matched for a shared tag and told apart by value when the union is declared, outside the check.
+  local form = assert(FORMS["a union of many tagged records told apart by a fixed number of tests"])
+  local small, large = form(6), form(24)
+  local ok, why = Speed.within(function()
+    prepare(small)
+  end, function()
+    prepare(large)
+  end, 10)
+  assert(ok, "four times the members " .. why)
 end

@@ -96,7 +96,7 @@ local CASES <const>: {Case} = {
     code = "untagged_union",
     source = "local record A\n  kind: string\nend\nlocal record B\n  kind: string\nend\nlocal type U = A | B\n",
     msg = "the union `A | B` holds 2 records that have no tag",
-    fix = "a fixed field of the same name whose type is an enum of one value each, different in each",
+    fix = "a fixed field of the same name whose type is one named enum, with values different in each",
   },
   {
     code = "array_of_optional",
@@ -541,10 +541,30 @@ local function test_a_union_of_records_without_a_tag_names_why_the_closest_field
   assert(has(none.msg, "they share no field"), none.msg)
   local mutable = only("local enum AK \"a\" end\nlocal enum BK \"b\" end\nlocal record A\n  mut kind: AK\nend\n" ..
       "local record B\n  kind: BK\nend\nlocal type U = A | B\n")
-  assert(has(mutable.msg, "`A.kind` is not a fixed field of an enum with one value"), mutable.msg)
-  local many = only("local enum AK \"a\" \"b\" end\nlocal enum BK \"c\" end\nlocal record A\n  kind: AK\nend\n" ..
+  assert(has(mutable.msg, "the field `kind` of `A` is `mut`, and a tag is a fixed field typed by one named enum"), mutable.msg)
+  local plain = only("local record A\n  kind: string\nend\nlocal record B\n  kind: string\nend\nlocal type U = A | B\n")
+  assert(has(plain.msg, "the field `kind` of `A` is typed `string`, and a tag is a fixed field typed by one named enum"), plain.msg)
+end
+
+local function test_a_tag_enum_may_have_several_values_when_no_value_is_in_two_members()
+  assert(#errors_of("local enum AK \"a\" \"b\" end\nlocal enum BK \"c\" end\nlocal enum CK \"d\" \"e\" \"f\" end\n" ..
+      "local record A\n  kind: AK\nend\nlocal record B\n  kind: BK\nend\nlocal record C\n  kind: CK\nend\n" ..
+      "local type U = A | B | C\n") == 0)
+end
+
+local function test_a_value_in_the_tags_of_two_members_names_both_members_and_the_value()
+  -- the shared value is the second of one enum and the first of the other
+  local shared = only("local enum AK \"a\" \"b\" end\nlocal enum BK \"b\" \"c\" end\nlocal record A\n  kind: AK\nend\n" ..
       "local record B\n  kind: BK\nend\nlocal type U = A | B\n")
-  assert(has(many.msg, "`A.kind` is not a fixed field"), many.msg)
+  assert(shared.code == "untagged_union" and has(shared.msg, "have `kind` = \"b\""), shared.msg)
+  assert(has(shared.msg, "both `A` and `B` have"), shared.msg)
+  assert(has(shared.fix, "give `A`, `B` a fixed field") and has(shared.fix, "with values different in each"), shared.fix)
+  -- a value in the third member and the first
+  local third = only("local enum AK \"a\" end\nlocal enum BK \"b\" end\nlocal enum CK \"c\" \"a\" end\nlocal record A\n  kind: AK\nend\n" ..
+      "local record B\n  kind: BK\nend\nlocal record C\n  kind: CK\nend\nlocal type U = A | B | C\n")
+  assert(has(third.msg, "have `kind` = \"a\""), third.msg)
+  assert(has(third.msg, "both `A` and `C` have"), third.msg)
+  assert(has(third.fix, "give `A`, `B`, `C` a fixed field"), third.fix)
 end
 
 local function test_a_union_with_one_record_or_of_classes_and_primitives_needs_no_tag()
@@ -1003,4 +1023,15 @@ local function test_a_lowered_module_names_the_declaration_each_binding_stands_f
     assert(entry.decl ~= nil or entry.alias ~= nil)
   end
   assert(count == 3)
+end
+
+local function test_a_tag_that_is_a_union_of_enums_or_a_type_parameter_is_told_to_be_one_named_enum_and_names_its_instance()
+  local united = only("local enum K1 \"a\" end\nlocal enum K2 \"c\" end\nlocal type KU = K1 | K2\nlocal record C\n  kind: KU\nend\n" ..
+      "local record D\n  kind: K2\nend\nlocal type U = C | D\n")
+  assert(united.code == "untagged_union" and has(united.msg, "the field `kind` of `C` is typed `K1 | K2`, and a tag is a fixed field typed by one named enum"),
+    united.msg)
+  assert(has(united.fix, "give `C`, `D` a fixed field"), united.fix)
+  local generic = only("local enum K1 \"a\" end\nlocal enum K2 \"c\" end\nlocal record G<T>\n  kind: T\nend\nlocal type U = G<K1> | G<K2>\n")
+  assert(has(generic.msg, "the field `kind` of `G<K1>` is typed `T`"), generic.msg)
+  assert(has(generic.fix, "give `G<K1>`, `G<K2>` a fixed field"), generic.fix)
 end
