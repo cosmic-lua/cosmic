@@ -112,8 +112,8 @@ local function test_a_declared_read_is_held_as_a_policy_holds_it()
   local status = assert(Fs.read("/proc/self/status"))
   -- One filter beyond the ones inherited, which a container's runtime may
   -- have installed on every process.
-  local filters = math.tointeger(status:match("Seccomp_filters:\t(%d+)"))
-  local baseline = math.tointeger(sys.getenv("BASELINE_FILTERS"))
+  local filters = assert(math.tointeger(assert(status:match("Seccomp_filters:\t(%d+)"))))
+  local baseline = assert(math.tointeger(assert(sys.getenv("BASELINE_FILTERS"))))
   assert(filters == baseline + 1, "no filter holds this worker: " .. tostring(filters) ..
     " filters, " .. tostring(baseline) .. " inherited")
   -- The directory is in the root of the sandbox, for what is granted in it
@@ -185,8 +185,8 @@ Test.policy {}
 
 local function test_the_program_is_refused()
   local launched = assert(Proc.relaunch())
-  local result, why = Child.run({ launched.(argv[1] or ""), "-e", "return" })
-  assert(result == nil and tostring(why):find("Permission denied", 1, true), tostring(why))
+  local result, why = Child.run({ assert(launched.argv[1]), "-e", "return" })
+  assert(result == nil and tostring(why):find("Permission denied", 1, true) ~= nil, tostring(why))
 end
 ]]))
   local env = environment()
@@ -214,7 +214,7 @@ Test.policy {}
 
 local function test_the_directory_is_its_own_at_the_padded_name(tmp: string)
   local scratch = assert(sys.getenv("TMPDIR"))
-  assert(#scratch == 80 and scratch:find("/", 8, true) == nil and scratch:find("-", 1, true), scratch)
+  assert(#scratch == 80 and scratch:find("/", 8, true) == nil and scratch:find("-", 1, true) ~= nil, scratch)
   assert(tmp == scratch .. "/tmp", tmp)
   local link = assert(sys.lstat(tmp))
   assert(link.kind == "link" and assert(sys.readlink(tmp)) == "real")
@@ -227,7 +227,7 @@ local function test_the_directory_is_its_own_at_the_padded_name(tmp: string)
     if point == "/tmp" then
       seen_tmp = true
       assert(line:find(" - tmpfs ", 1, true), line)
-    elseif point ~= "/" and point ~= "/proc" and not line:find(" - proc ", 1, true) then
+    elseif point ~= nil and point ~= "/" and point ~= "/proc" and not line:find(" - proc ", 1, true) then
       local there = assert(sys.stat(point))
       assert(there.kind ~= "dir", "a directory of the host: " .. point)
     end
@@ -314,7 +314,7 @@ local Proc = require("cosmic.proc")
 local function test_runs_the_core()
   local launched, _ = Proc.relaunch()
   if launched == nil then return end
-  local result, why = Child.run({ launched.(argv[1] or ""), "-e", "" }, { process_group = false,
+  local result, why = Child.run({ assert(launched.argv[1]), "-e", "" }, { process_group = false,
     stdout = "capture", stderr = "stdout" })
   assert(result ~= nil, tostring(why))
 end
