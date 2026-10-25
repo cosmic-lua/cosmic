@@ -1873,12 +1873,22 @@ local function field_unknown(ctx: Ctx, node: Ast.Node, t: Type, name: string)
       fix, { show(ctx, t) })
     return
   end
+  local owner = (t.tag == "named") and quoted(t.decl.name) or tq(ctx, t)
+  if is_enum(t) then
+    -- TODO: let a value of an enum call the functions of `string` (`k:upper()`), as the fork did, once it is decided whether
+    -- an enum is a string for its methods and not only where a string is wanted: the member `upper` is on `string`, not in
+    -- the enum, so a value of it has no methods today.
+    report(ctx, "field_unknown", node, owner .. " is an enum, whose values have no fields or methods: " .. quoted(name) ..
+        " is not one",
+      "make it a string first, `tostring(v):" .. name .. "(...)` or `string." .. name .. "(tostring(v), ...)`, or compare it " ..
+        "with `==` to a member", { show(ctx, t) })
+    return
+  end
   local names: {string} = {}
   if (t.tag == "named") then
     names = names_of(ctx, t)
   end
   local close = nearest(name, names)
-  local owner = (t.tag == "named") and quoted(t.decl.name) or tq(ctx, t)
   report(ctx, "field_unknown", node, owner .. " has no field " .. quoted(name) ..
       (if close ~= "" then ", nearest " .. quoted(close) else "" end),
     if close ~= "" then "write " .. quoted(close) .. ", or declare " .. quoted(name) .. " in " .. owner else

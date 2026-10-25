@@ -103,6 +103,11 @@ local CASES <const>: {Case} = {
     msg = "`R` has no field `nam`, nearest `name`", fix = "write `name`, or declare `nam` in `R`",
   },
   {
+    code = "field_unknown", source = "local enum Kind\n  \"a\"\n  \"b\"\nend\nlocal k: Kind = \"a\"\nlocal x = k:upper()\n",
+    msg = "`Kind` is an enum, whose values have no fields or methods: `upper` is not one",
+    fix = "make it a string first, `tostring(v):upper(...)` or `string.upper(tostring(v), ...)`, or compare it with `==` to a member",
+  },
+  {
     code = "map_field", source = "local m: {string: integer} = {}\nlocal x = m.a\n",
     msg = "`m.a` reads a field of a map, `{string: integer}`, which is read by a key",
     fix = "write `[\"a\"]` after the map, or declare a record for the fields",

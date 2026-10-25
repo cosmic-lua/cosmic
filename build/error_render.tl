@@ -21,6 +21,11 @@
 -- TODO: list the fields a record declares in the fix of `field_unknown` where none is near (`R's fields: y`, which the
 -- checker's fix does not say), once lang/check.tl's fix names them; this prints the checker's fix as
 -- it is.
+--
+-- TODO: point a `not_assignable` of an argument of a call of a standard-library function to `cosmic docs
+-- generics_functions_returns`, as the fork's message did (only `arity`, `overload_none` and `field_unknown` point today,
+-- in [`example_query`]), once [`Driver.Problem`] says a problem is an argument's: it carries a code, a message and a place
+-- and no marker of the call, and the message cannot be read for it.
 local Driver = require("build.driver")
 local RemovedFix = require("build.removed_fix")
 local Sqlite = require("cosmic.sqlite")
