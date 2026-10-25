@@ -127,8 +127,9 @@ else
     -- a directory it does not grant prints a getcwd error on macOS.
     local held_policy: Child.Options = { policy = { profiles = { "system" } }, cwd = "/" }
     local function refused_on_pty(opts: Child.Options, streams: {integer}, slot: string)
-      local held: Child.Options = { policy = held_policy.policy, stdin = opts.stdin, stdout = opts.stdout,
-        stderr = opts.stderr, fds = opts.fds }
+      local held: Child.Options = { env = opts.env, stdin = opts.stdin, input = opts.input, stdout = opts.stdout,
+        stderr = opts.stderr, fds = opts.fds, capture_limit = opts.capture_limit, process_group = opts.process_group,
+        timeout_ns = opts.timeout_ns, sandbox = opts.sandbox, policy = held_policy.policy, cwd = held_policy.cwd }
       local started, refusal = Child.start_on_pty(program, held, { streams = streams })
       assert(started == nil)
       assert_terminal_refusal(nil, refusal, slot)
@@ -145,7 +146,9 @@ else
     -- A stream not on the pty that is this process's own terminal, which no
     -- option names: the refusal looks at the descriptor the child would get.
     local function inherited(case: string, opts: Child.Options)
-      local started: Child.Options = { stdin = opts.stdin, stdout = opts.stdout, stderr = opts.stderr,
+      local started: Child.Options = { env = opts.env, cwd = opts.cwd, stdin = opts.stdin, input = opts.input,
+        stdout = opts.stdout, stderr = opts.stderr, fds = opts.fds, capture_limit = opts.capture_limit,
+        process_group = opts.process_group, sandbox = opts.sandbox, policy = opts.policy,
         timeout_ns = Clock.seconds(20) }
       local ran = assert(Child.run({ assert(Proc.executable()), script_path, "inherited", case }, started))
       local said = "code " .. tostring(ran.code) .. " signal " .. tostring(ran.signal) ..

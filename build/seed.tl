@@ -19,8 +19,6 @@
 --- and a type import that is never read as a value is not loaded (`served`). The type errors of a module are not
 --- refused (the code of the tool is held to its ceilings by the checks of the tree, not by a boot); a syntax error is,
 --- and so is a construct the generator does not write.
--- TODO: lower the `view_written` pins of build/seed.tl and build/seed_test.tl (writes to a local the checker takes for a
--- view: each list and map these files build) by declaring those locals `mut`, which `cosmic migrate` writes.
 
 local CompileGrammar = require("build.compile_grammar")
 local Driver = require("build.driver")
@@ -82,8 +80,8 @@ function Seed.program(root: string, declared: {string: string}): Seed.Program
     globals = { declaration(root, PRELUDE), declaration(root, STDLIB) }, adjust = nil, external = {}, types = false,
   })
   --- The source of each module asked for, and the names the tree has none of, so that a file is read once.
-  local sources: {string: Driver.Source} = {}
-  local absent: {string: boolean} = {}
+  local sources: mut {string: Driver.Source} = {}
+  local absent: mut {string: boolean} = {}
   build:provide(function(name: string): Driver.Source?
     local held = sources[name]
     if held ~= nil then
