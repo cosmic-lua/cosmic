@@ -1,7 +1,8 @@
 --- The speed of the checker ([`lang.check`]), held to ratios and never to a clock: four times the input costs about four
 --- times the time, for each shape that could cost more than its length: a chain of operators, a record of many fields
 --- read many times and given in a literal, a literal of many items, a union of many tagged records read by a field
---- they share, an `if` expression of many arms, and a function of many parameters called with all of them.
+--- they share, a union of 72 records with two tag values each told apart by many tests, an `if` expression of many arms,
+--- and a function of many parameters called with all of them.
 local Check = require("lang.check")
 local Declarations = require("lang.declarations")
 local Lexer = require("lang.lexer")
@@ -77,6 +78,26 @@ local FORMS <const>: {string: function(n: integer): string} = {
     out[#out + 1] = "  return a.value\nend\n"
     return table.concat(out)
   end,
+  ["a union of 72 tagged records told apart by many tests"] = function(n: integer): string
+    -- The size of the syntax tree's union is fixed, and the tests grow: each test is a scan of the members, so a test that
+    -- costs more with the members it has already seen would show as more than four times the time.
+    local out: mut {string} = {}
+    local members: mut {string} = {}
+    for i = 1, 72 do
+      local at = tostring(i)
+      out[#out + 1] = "local enum K" .. at .. " \"k" .. at .. "\" \"j" .. at .. "\" end\nlocal record R" .. at .. "\n  kind: K" .. at ..
+        "\n  f" .. at .. ": integer\nend\n"
+      members[#members + 1] = "R" .. at
+    end
+    out[#out + 1] = "local type Node = " .. table.concat(members, " | ") .. "\nlocal function f(a: Node): integer\n"
+    for i = 1, n * 3 do
+      local m = tostring(i % 72 + 1)
+      out[#out + 1] = "  if a.kind == \"" .. (if i % 2 == 0 then "k" else "j" end) .. m .. "\" then\n    local v" .. tostring(i) ..
+        ": integer = a.f" .. m .. "\n  end\n  if a.kind ~= \"k" .. m .. "\" then\n    local w" .. tostring(i) .. ": Node = a\n  end\n"
+    end
+    out[#out + 1] = "  return 1\nend\n"
+    return table.concat(out)
+  end,
   ["an if expression of many arms"] = function(n: integer): string
     local arms: mut {string} = {}
     for i = 1, n * 50 do
@@ -118,4 +139,8 @@ end
 local function test_four_times_the_input_costs_about_four_times_the_time_for_a_union_an_if_expression_and_a_call()
   hold({ "a union of many tagged records read by a shared field", "an if expression of many arms",
     "a function of many parameters called with all of them" })
+end
+
+local function test_four_times_the_input_costs_about_four_times_the_time_for_a_union_of_72_records_told_apart_by_many_tests()
+  hold({ "a union of 72 tagged records told apart by many tests" })
 end

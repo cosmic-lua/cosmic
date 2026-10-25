@@ -96,7 +96,7 @@ local CASES <const>: {Case} = {
     code = "untagged_union",
     source = "local record A\n  kind: string\nend\nlocal record B\n  kind: string\nend\nlocal type U = A | B\n",
     msg = "the union `A | B` holds 2 records that have no tag",
-    fix = "a fixed field of the same name whose type is an enum of one value each, different in each",
+    fix = "a fixed field of the same name whose type is an enum, with values different in each",
   },
   {
     code = "array_of_optional",
@@ -541,10 +541,29 @@ local function test_a_union_of_records_without_a_tag_names_why_the_closest_field
   assert(has(none.msg, "they share no field"), none.msg)
   local mutable = only("local enum AK \"a\" end\nlocal enum BK \"b\" end\nlocal record A\n  mut kind: AK\nend\n" ..
       "local record B\n  kind: BK\nend\nlocal type U = A | B\n")
-  assert(has(mutable.msg, "`A.kind` is not a fixed field of an enum with one value"), mutable.msg)
-  local many = only("local enum AK \"a\" \"b\" end\nlocal enum BK \"c\" end\nlocal record A\n  kind: AK\nend\n" ..
+  assert(has(mutable.msg, "`A.kind` is not a fixed field of an enum with a value"), mutable.msg)
+  local plain = only("local record A\n  kind: string\nend\nlocal record B\n  kind: string\nend\nlocal type U = A | B\n")
+  assert(has(plain.msg, ".kind` is not a fixed field of an enum with a value"), plain.msg)
+end
+
+local function test_a_tag_enum_may_have_several_values_when_no_value_is_in_two_members()
+  assert(#errors_of("local enum AK \"a\" \"b\" end\nlocal enum BK \"c\" end\nlocal enum CK \"d\" \"e\" \"f\" end\n" ..
+      "local record A\n  kind: AK\nend\nlocal record B\n  kind: BK\nend\nlocal record C\n  kind: CK\nend\n" ..
+      "local type U = A | B | C\n") == 0)
+end
+
+local function test_a_value_in_the_tags_of_two_members_names_both_members_and_the_value()
+  -- the shared value is the second of one enum and the first of the other
+  local shared = only("local enum AK \"a\" \"b\" end\nlocal enum BK \"b\" \"c\" end\nlocal record A\n  kind: AK\nend\n" ..
       "local record B\n  kind: BK\nend\nlocal type U = A | B\n")
-  assert(has(many.msg, "`A.kind` is not a fixed field"), many.msg)
+  assert(shared.code == "untagged_union" and has(shared.msg, "have `kind` = \"b\""), shared.msg)
+  assert(has(shared.msg, "both `A` and `B`") or has(shared.msg, "both `B` and `A`"), shared.msg)
+  assert(has(shared.fix, "with values different in each"), shared.fix)
+  -- a value in the third member and the first
+  local third = only("local enum AK \"a\" end\nlocal enum BK \"b\" end\nlocal enum CK \"c\" \"a\" end\nlocal record A\n  kind: AK\nend\n" ..
+      "local record B\n  kind: BK\nend\nlocal record C\n  kind: CK\nend\nlocal type U = A | B | C\n")
+  assert(has(third.msg, "have `kind` = \"a\""), third.msg)
+  assert(has(third.msg, "both `A` and `C`") or has(third.msg, "both `C` and `A`"), third.msg)
 end
 
 local function test_a_union_with_one_record_or_of_classes_and_primitives_needs_no_tag()

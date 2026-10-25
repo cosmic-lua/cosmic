@@ -111,8 +111,8 @@ local record Check
     strings: {string}?
     --- Where the read is of classes: their names, a table there has the metatable of one. Nil where it says no more.
     classes: {string}?
-    --- Where the read is of members of a union that a field with one value each tells apart: the field, and the values
-    --- of the members the read is of.
+    --- Where the read is of members of a union that a field with values of its own in each tells apart: the field, and
+    --- the values of the members the read is of (all of a member's, where its enum has several).
     tag: string?
     tags: {string}?
   end
@@ -1674,7 +1674,8 @@ local function literal_member(ctx: Ctx, e: Ast.Table, u: Union, written: Type): 
   if #candidates == 1 then
     return candidates[1]
   end
-  -- A tag: a named item whose string value is the one value of an enum a member's field of that name has.
+  -- A tag: a named item whose string value is a value of the enum a member's field of that name has. Another member with
+  -- the value too is `untagged_union` where the union is declared, and leaves the literal ambiguous here.
   for _, item in ipairs(e.items) do
     local name = item_name(item)
     local value = (item.kind == "Named") and peel(item.value) or (item.kind == "Keyed") and peel(item.value) or nil
@@ -1684,7 +1685,13 @@ local function literal_member(ctx: Ctx, e: Ast.Table, u: Union, written: Type): 
         local field = (m.tag == "named") and plain_field(ctx, m, name) or nil
         local t = field ~= nil and field.type or nil
         local body = t ~= nil and (t.tag == "named") and t.decl.body or nil
-        if body ~= nil and #body.values == 1 and body.values[1] == value.value then
+        local has = false
+        if body ~= nil then
+          for _, v in ipairs(body.values) do
+            has = has or v == value.value
+          end
+        end
+        if has then
           tagged[#tagged + 1] = m
         end
       end
@@ -2597,7 +2604,8 @@ function Tests.table_members(ctx: Ctx, t: Type): {Type}?
   return out
 end
 
---- The field that tells the types of `list` apart: one every one declares with an enum of one value, and the values.
+--- The field that tells the types of `list` apart: one every one declares with an enum, no value of which is in two of
+--- them, and the values of the enums.
 function Tests.tag_field(ctx: Ctx, list: {Type}): string?, {string}?
   local first = list[1]
   local body = first ~= nil and (first.tag == "named") and first.decl.body or nil
@@ -2606,15 +2614,23 @@ function Tests.tag_field(ctx: Ctx, list: {Type}): string?, {string}?
   end
   for _, f in ipairs(body.fields) do
     local values: mut {string} = {}
+    local seen: mut {string: boolean} = {}
+    local apart = true
     for _, m in ipairs(list) do
       local v = Tests.tag_values(ctx, m, f.name)
-      if v == nil or #v ~= 1 then
-        values = {}
+      if v == nil then
+        apart = false
         break
       end
-      values[#values + 1] = v[1]
+      for _, value in ipairs(v) do
+        if seen[value] == true then
+          apart = false
+        end
+        seen[value] = true
+        values[#values + 1] = value
+      end
     end
-    if #values == #list then
+    if apart and #values > 0 then
       return f.name, values
     end
   end
@@ -2663,8 +2679,7 @@ local function note_narrowed(ctx: Ctx, node: Ast.Node, declared: Type, narrowed:
       if tag ~= nil then
         local field = tag
         for _, m in ipairs(old) do
-          local v = Tests.tag_values(ctx, m, field)
-          if v == nil or #v ~= 1 then
+          if Tests.tag_values(ctx, m, field) == nil then
             tag, tags = nil, nil
           end
         end
@@ -2793,8 +2808,13 @@ function Tests.by_kind(ctx: Ctx, cur: Type, kind: string, keep: boolean): Type
   return store:union(out)
 end
 
---- The edges of `field == "lit"` for a field that tells the members of a union of records apart: the members whose
---- tag has the value, and those whose tag has no other.
+--- The edges of `field == "lit"` for a field that tells the members of a union of records apart. The true edge keeps
+--- the members whose tag enum has the value, each with all its values. The false edge drops a member only where the
+--- value is the one it has, since a member with other values may hold one of them.
+--
+-- TODO: drop a member with several tag values once tests have excluded every one of them (`t.tag ~= "a" and t.tag ~= "b"`
+-- for a member of `"a" | "b"`), once a narrowed type can say which values of an enum remain: the false edge of each test
+-- keeps the member today, so a chain over every value of a member does not end a function that must return.
 local function tag_edges(ctx: Ctx, f: Flow.State, field: Ast.Field, lit: string): Flow.State, Flow.State
   local p = place_of(ctx, f, field.object)
   if p == nil then
