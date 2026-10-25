@@ -112,7 +112,7 @@ local function derive_templates(db: Sqlite.Handle): boolean, string
   end
   for _, row in ipairs(templates) do
     local file, template_source, from_hash = row:text(1), row:text(2), row:text(3)
-    local source, compile_trouble = Template.compile(template_source, file, { dialects = nil, new_grammar = true })
+    local source, compile_trouble = Template.compile(template_source, file, { dialects = nil })
     if source == nil then
       return false, compile_trouble
     end

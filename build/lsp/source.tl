@@ -577,7 +577,7 @@ function source.served(src: source.View, name: string, open: source.Open, uncoun
     local text, hash = opened.text, opened.hash
     local key = found.file .. "\0" .. hash
     if template then
-      local compiled, _ = Template.compile(text, found.file, { dialects = nil, new_grammar = true })
+      local compiled, _ = Template.compile(text, found.file, { dialects = nil })
       if compiled == nil then return nil end
       return serving_as("source", compiled, key)
     end

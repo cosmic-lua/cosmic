@@ -686,7 +686,7 @@ end
 --- in the new grammar, written as Lua by [`build.compile_grammar`] (which writes it
 --- whether or not the checker likes what it reads), run against the real [`cosmic.html`].
 local function render(body: string, page: {string: any}): string
-  local out, why = Template.compile(HEAD .. body, "t.tmpl", { dialects = nil, new_grammar = true })
+  local out, why = Template.compile(HEAD .. body, "t.tmpl", { dialects = nil })
   assert(out ~= nil, why)
   local compiled = assert(CompileGrammar.compile({ { path = "t.tl", relative = "t.tl", text = out, declaration = false } })[1])
   local code = compiled.code

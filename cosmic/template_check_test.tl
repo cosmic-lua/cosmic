@@ -8,10 +8,8 @@
 --- [`cosmic.html`]. Its types are checked, and what it renders is made by
 --- the core's own escapers and `href`.
 
--- In the mode `COSMIC_GRAMMAR=new` (which a sandboxed worker sees only because the policy passes it) the project is built with
--- the new checker ([`importer.compile`]'s `grammar`), which holds it to no ceiling: the Teal that [`cosmic.template`] writes
--- is the new grammar's then ([`cosmic.template`]'s `Options`), and the guarantee these tests hold, that a slot of the wrong safe
--- type is refused, is the new checker's. What a refusal says is the mode's own.
+-- The project is built with the checker, which holds it to no ceiling: the Teal that [`cosmic.template`] writes is the new
+-- grammar's, and the guarantee these tests hold, that a slot of the wrong safe type is refused, is the checker's.
 local Fs = require("cosmic.fs")
 local Html = require("cosmic.html")
 local GrammarMode = require("build.grammar_mode")
@@ -19,9 +17,7 @@ local Test = require("cosmic.test")
 local importer = require("build.importer")
 local work = require("build.work")
 
-Test.policy{ env = { "COSMIC_GRAMMAR" }, profiles = { "cosmic" }, grants = { { path = "o/bin", letters = "rx" } } }
-
-local grammar = assert(GrammarMode.mode())
+Test.policy{ profiles = { "cosmic" }, grants = { { path = "o/bin", letters = "rx" } } }
 
 local DATA <const> = [[
 local html = require("cosmic.html")
@@ -94,7 +90,7 @@ local record fmt
   attr: function(s: string): html.SafeAttr
   url: function(s: string): html.SafeUrl
   join: function(s: string, sep?: string): string
-  ["end"]: function(s: string): string
+  mut ["end"]: function(s: string): string
 end
 function fmt.upper(s: string): string
   return s:upper()
@@ -133,26 +129,6 @@ end
 return multi
 ]]
 
---- A stage that answers a spread (`string...`), which the fork lets through the checker and the new checker's discipline refuses
---- in an exported function: a module of the fork's alone.
-local SPREAD <const> = [[
-local record spread
-  spread: function(s: string): string...
-end
-function spread.spread(s: string): string...
-  return s, "second"
-end
-return spread
-]]
-
---- `text`, a fixture module, as the new checker reads it: it holds a field fixed unless it is declared `mut`, and the
---- fixtures assign the ones named here after the module is made.
-local function for_new(text: string): string
-  local out = text:gsub('\n  %["end"%]: function', '\n  mut ["end"]: function')
-  out = out:gsub("\n  calls: integer", "\n  mut calls: integer")
-  return out
-end
-
 local UTIL <const> = [[
 local record util
   upper: function(s: string): string
@@ -165,7 +141,7 @@ return util
 
 --- Builds the project of `files` (paths to text) in the directory `case`
 --- of `tmp`: the Lua of every module (by path), or nil and what refused.
-local function build(tmp: string, case: string, files: {string: string}, mode?: GrammarMode.Mode): {string: string}?, string
+local function build(tmp: string, case: string, files: {string: string}): {string: string}?, string
   local root = tmp .. "/" .. case
   assert(Fs.mkdirs(root))
   for name, text in pairs(files) do
@@ -173,11 +149,7 @@ local function build(tmp: string, case: string, files: {string: string}, mode?: 
     if dir ~= nil then
       assert(Fs.mkdirs(root .. "/" .. dir))
     end
-    local shown = text
-    if (mode or grammar) == "new" then
-      shown = for_new(text)
-    end
-    assert(Fs.write(root .. "/" .. name, shown))
+    assert(Fs.write(root .. "/" .. name, text))
   end
   local handle, open_trouble = work.open(root)
   if handle == nil then
@@ -188,7 +160,7 @@ local function build(tmp: string, case: string, files: {string: string}, mode?: 
     local _, _ = work.close(handle)
     return nil, stage_trouble
   end
-  local result, trouble = importer.compile(handle, GrammarMode.tool("template-check-test", mode or grammar), false)
+  local result, trouble = importer.compile(handle, GrammarMode.tool("template-check-test", "new"), false)
   local _, _ = work.close(handle)
   if result == nil then
     return nil, trouble
@@ -205,13 +177,9 @@ local function build(tmp: string, case: string, files: {string: string}, mode?: 
 end
 
 --- Builds `template` as the module `page`, beside `data` and `fmt`.
-local function project(tmp: string, case: string, template: string, mode?: GrammarMode.Mode): {string: string}?, string
-  if (mode or grammar) == "new" then
-    return build(tmp, case, { ["data.tl"] = DATA, ["fmt.tl"] = FMT, ["util/string.tl"] = UTIL, ["multi.tl"] = MULTI,
-      ["page.tmpl"] = template }, mode)
-  end
+local function project(tmp: string, case: string, template: string): {string: string}?, string
   return build(tmp, case, { ["data.tl"] = DATA, ["fmt.tl"] = FMT, ["util/string.tl"] = UTIL, ["multi.tl"] = MULTI,
-    ["spread.tl"] = SPREAD, ["page.tmpl"] = template }, mode)
+    ["page.tmpl"] = template })
 end
 
 --- `s` as the core's `escape_attr` makes it in a document.
@@ -285,13 +253,10 @@ end
 
 local HEAD <const> = "{{type Page from data}}\n"
 
---- A type of the fixture's data as the checker in use spells it: the new checker names a record of a module by its module.
+--- A type of the fixture's data as the checker spells it: it names a record of a module by its module.
 local function spelled(type_name: string): string
-  if grammar == "new" then
-    return (type_name:gsub("{Item}", "{data.Item}"):gsub("string | number", "number | string"):gsub(
-      "wrong number of arguments", "(arity)"))
-  end
-  return type_name
+  return (type_name:gsub("{Item}", "{data.Item}"):gsub("string | number", "number | string"):gsub(
+    "wrong number of arguments", "(arity)"))
 end
 
 local function test_the_checker_counts_a_warning_as_a_refusal_here(tmp: string)
@@ -714,7 +679,7 @@ end
 --- A stage that counts its calls, and one that answers the count.
 local COUNTER <const> = [[
 local record counter
-  calls: integer
+  mut calls: integer
   each: function(l: {string}): {string}
   count: function(s: string): string
   some: function(l: {string}): {string}?
@@ -775,21 +740,6 @@ local function test_a_stage_answering_more_than_one_value_is_refused_in_every_po
     assert(trouble:find("page.tmpl:3:", 1, true), action .. ": " .. trouble)
     assert(trouble:find(spelled("wrong number of arguments"), 1, true), action .. ": " .. trouble)
   end
-end
-
---- The checker lets a stage declared to answer `string...` through, so
---- what holds it to one value at run time is the generated code.
--- TODO: delete this test with the fork's checker, which lets a stage declared `string...` through and leaves it to `_one` to
--- drop the rest (doc/plans/strict-teal.md, "the switch"). The new checker refuses the declared form of such a function in a
--- module (the discipline of exports), and a spread hidden behind a type alias by `nil_not_allowed` or `arity` in the template.
-local function test_a_stage_is_given_one_value_when_the_one_before_answers_more(tmp: string)
-  if grammar == "new" then
-    Test.skip("the fork's rule: it lets a stage declared `string...` through, which the new checker refuses in its declared form")
-  end
-  local out = render(tmp, "spread",
-    "{{type Page from data}}{{mode text}}{{.title | spread.spread | fmt.join}} {{.title | fmt.upper | fmt.join}}",
-    { title = "a" })
-  assert(out == "a|none A|none", out)
 end
 
 local function test_an_item_loop_reads_the_root_and_a_1_based_index(tmp: string)
@@ -871,7 +821,7 @@ local function test_every_form_of_a_template_builds_with_the_new_checker(tmp: st
     ["form7.tmpl"] = HEAD .. "{{if .flag}}y{{else if .error}}{{.error}}{{else}}n{{end}}\n",
     ["form8.tmpl"] = HEAD .. "{{if .nest}}{{.nest.c}}{{with .nest.b}}{{.c}}{{end}}{{end}}\n",
   }
-  local lua, trouble = build(tmp, "forms", files, "new")
+  local lua, trouble = build(tmp, "forms", files)
   assert(lua ~= nil, tostring(trouble))
   for name, text in pairs(files) do
     if name:find("^form") ~= nil then
@@ -882,7 +832,7 @@ end
 
 --- The guarantee is the new checker's too: a slot of a wrong safe type is refused, as an error on the template's line.
 local function test_the_new_checker_refuses_a_slot_of_the_wrong_safe_type(tmp: string)
-  local lua, trouble = project(tmp, "wrong", "{{type Page from data}}\n<p>fine</p>\n<a href=\"{{.h}}\">x</a>\n", "new")
+  local lua, trouble = project(tmp, "wrong", "{{type Page from data}}\n<p>fine</p>\n<a href=\"{{.h}}\">x</a>\n")
   assert(lua == nil and trouble:find("page.tmpl:3:", 1, true) ~= nil and
       trouble:find("SafeHtml", 1, true) ~= nil and trouble:find("(not_assignable)", 1, true) ~= nil, tostring(trouble))
 end

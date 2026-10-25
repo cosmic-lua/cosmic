@@ -12,9 +12,9 @@ function Example.compile()
   local source = assert(Template.compile(
     "{{type Page from site.page}}{{mode text}}\nHello, {{.name}}!\n", "greeting.tmpl"))
   print(source)
-  -- local page = require("site.page") local function _text(v: string | number): string if v is number then return tostring(v) end return v end local function render(d: page.Page): string local parts: {string} = {} parts[#parts + 1] = "\n"
+  -- local page = require("site.page") local function _text(v: string | number): string if v is number then return tostring(v) end return v end local function render(d: page.Page): string local parts: mut {string} = {} parts[#parts + 1] = "\n"
   -- parts[#parts + 1] = "Hello, " do local v: string | number = d.name parts[#parts + 1] = _text(v) end parts[#parts + 1] = "!\n"
-  -- return table.concat(parts) end return {render = render}
+  -- return table.concat(parts) end local record _Module render: function(d: page.Page): string end local _module: _Module = {render = render} return _module
   assert(source:find("render(d: page.Page): string", 1, true))
 end
 

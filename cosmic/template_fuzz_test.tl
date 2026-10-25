@@ -248,10 +248,10 @@ local function test_compile_is_total_and_keeps_the_lines_on_any_bytes(tmp: strin
       if newlines(out) ~= newlines(input) + 1 then
         return false, "the module has " .. newlines(out) .. " newlines for the template's " .. newlines(input)
       end
-      if out:find("\r", 1, true) or not out:find("end return {render = render}\n", 1, true) then
+      if out:find("\r", 1, true) or not out:find("local _module: _Module = {render = render} return _module\n", 1, true) then
         return false, "the module is not shaped as one: " .. out
       end
-      if out:find("render(d: ", 1, true) and out:find("local parts: {string} = {} ", 1, true) == nil then
+      if out:find("render(d: ", 1, true) and out:find("local parts: mut {string} = {} ", 1, true) == nil then
         return false, "no parts"
       end
       if input:find("{{mode text}}", 1, true) then Fuzz.label("text mode") end
@@ -315,7 +315,8 @@ local function test_literal_text_is_rendered_byte_for_byte(tmp: string)
       -- What Teal strikes out to leave Lua: the type require and the
       -- annotations, in the one shape a template with no action has.
       local lua = out:gsub("^local type t = require%b() ", "")
-      lua = lua:gsub("%(_: t%.T%): [%w%.]+", "()"):gsub("local parts: {string}", "local parts")
+      lua = lua:gsub("%(_: t%.T%): [%w%.]+", "()"):gsub("local parts: mut {string}", "local parts")
+      lua = lua:gsub("local record _Module .- end local _module: _Module =", "local _module =")
       local env: {string: any} = {
         require = function(name: string): any
           if name == "cosmic.html" then
@@ -670,7 +671,8 @@ local function lua_of(source: string): string
   lua = lua:gsub("%): [%w%.]+ ", ") ")
   lua = lua:gsub("local v: [^=]+= ", "local v = ")
   lua = lua:gsub("local p: [%w%.]+ ", "local p ")
-  lua = lua:gsub("local parts: {string} = {}", "local parts = {}")
+  lua = lua:gsub("local parts: mut {string} = {}", "local parts = {}")
+  lua = lua:gsub("local record _Module .- end local _module: _Module =", "local _module =")
   lua = lua:gsub("if v is (%a+) then", 'if type(v) == "%1" then')
   return lua
 end

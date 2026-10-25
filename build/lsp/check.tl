@@ -382,7 +382,7 @@ local function checked_of(checker: Checker, document: Document): Checked
   local generated = document.name:match("%.tmpl$") ~= nil
   local text = document.text
   if generated then
-    local compiled, trouble = Template.compile(document.text, document.name, { dialects = nil, new_grammar = true })
+    local compiled, trouble = Template.compile(document.text, document.name, { dialects = nil })
     if compiled == nil then
       return { refusals = { plan.refusal_of(trouble) }, text = text, splices = none, generated = false }
     end

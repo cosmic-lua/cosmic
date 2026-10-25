@@ -474,12 +474,11 @@ end
 
 --- Teal source for `template`.
 --- @param template types.Template The tree, its slots' places set
---- @param new_grammar? boolean Whether the source is in the new checker's grammar ([`doc/plans/new-checker-grammar.md`]),
----   which holds a project to what no ceiling excuses: `parts` is a `mut {string}`, and the module returns a local declared
----   with its record type, not a table literal that no declaration describes. The default is the fork's Teal, which the
----   checks of cosmic's own tree measure.
+--- The source is in the new checker's grammar ([`doc/plans/new-checker-grammar.md`]), which holds a project to what no
+--- ceiling excuses: `parts` is a `mut {string}`, and the module returns a local declared with its record type, not a table
+--- literal that no declaration describes.
 --- @return string Source that has as many lines as the template
-function Codegen.generate(template: types.Template, new_grammar?: boolean): string
+function Codegen.generate(template: types.Template): string
   local g: Gen = { pieces = {}, line = template.line, started = false, mode = template.mode,
     imports = { order = {}, alias_of = {}, taken = {}, as_value = {} }, html = "", helpers = {}, staged = false,
     dots = 0, root = { name = "d", used = false }, vars = {}, bound = {} }
@@ -505,15 +504,10 @@ function Codegen.generate(template: types.Template, new_grammar?: boolean): stri
   local result = if template.mode == "html" then g.html .. ".SafeHtml" else "string" end
   head[#head + 1] = "local function render(" .. (if g.root.used then "d" else "_" end) .. ": " .. type_alias .. "." ..
     template.type_name .. "): " .. result
-  local parts = "local parts: {string} = {}"
-  local ending = " end return {render = render}"
-  if new_grammar == true then
-    parts = "local parts: mut {string} = {}"
-    -- The module's value is a local of a record type that declares `render`, which is what a requirer reads its type from.
-    ending = " end local record _Module render: function(d: " .. type_alias .. "." .. template.type_name .. "): " ..
-      result .. " end local _module: _Module = {render = render} return _module"
-  end
-  head[#head + 1] = parts
+  -- The module's value is a local of a record type that declares `render`, which is what a requirer reads its type from.
+  local ending = " end local record _Module render: function(d: " .. type_alias .. "." .. template.type_name .. "): " ..
+    result .. " end local _module: _Module = {render = render} return _module"
+  head[#head + 1] = "local parts: mut {string} = {}"
 
   to_line(g, template.lines)
   put(g, "return " .. (if template.mode == "html" then g.html .. ".trust(table.concat(parts))" else
