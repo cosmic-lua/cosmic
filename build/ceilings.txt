@@ -201,8 +201,6 @@ cosmic/internal/errors.d.tl thread_type 1
 cosmic/poll.tl thread_type 3
 
 # the language tour, which teaches forms the new checker refuses (see the TODO of [examples]): each stays until the tour is rewritten
-cosmic/removed_example.tl interface_disagrees 2
-
 cosmic/removed_example.tl untagged_union 1
 
 [untyped]
@@ -1560,7 +1558,7 @@ lang/lexer.tl nil_not_allowed 17
 
 lang/lexer_cover.tl nil_not_allowed 3
 
-lang/lexer_test.tl nil_not_allowed 36
+lang/lexer_test.tl nil_not_allowed 34
 
 lang/literals.tl nil_not_allowed 3
 
@@ -2998,7 +2996,7 @@ lang/check_flow_fuzz_test.tl view_as_mut 3
 
 lang/declarations.tl view_as_mut 2
 
-lang/lexer.tl view_as_mut 12
+lang/lexer.tl view_as_mut 11
 
 lang/load_order.tl view_as_mut 3
 
@@ -10298,15 +10296,12 @@ cosmic/removed_example.tl any_use 1
 
 cosmic/removed_example.tl cast_refused 1
 
-cosmic/removed_example.tl compare_disjoint 2
 
-cosmic/removed_example.tl field_unknown 4
+cosmic/removed_example.tl field_unknown 2
 
 cosmic/removed_example.tl is_on_record 1
 
 cosmic/removed_example.tl literal_missing 1
-
-cosmic/removed_example.tl literal_unknown 1
 
 cosmic/removed_example.tl map_field 1
 
@@ -10361,23 +10356,18 @@ cosmic/web_example.tl any_use 1
 # checker declares no `coroutine.yield`, and `coroutine.close` answers one of two lists of values.
 cosmic/removed_example.tl alternatives_as_value 1
 
-cosmic/removed_example.tl field_unknown 4
+cosmic/removed_example.tl field_unknown 2
 
 cosmic/removed_example.tl overload_none 1
 
-# TODO: rewrite or retire these examples of forms the new grammar cuts (a record that names an interface it does not
-# declare the fields of, a union of two records, a cast, a test of a record, a field read of a map) once the language tour
-# (cosmic/removed_example.tl) shows the replacements and not the removed forms; the [declared] and [checked] stages pin the
-# same forms.
-cosmic/removed_example.tl compare_disjoint 2
+# TODO: rewrite or retire these examples of forms the new grammar cuts (a union of two records, a cast, a test of a record,
+# a field read of a map) once the language tour (cosmic/removed_example.tl) shows the replacements and not the removed
+# forms; the [declared] and [checked] stages pin the same forms.
+# The tour's other pins are gaps of the checker, named by the TODOs above them.
 
 cosmic/removed_example.tl cast_refused 1
 
-cosmic/removed_example.tl interface_disagrees 2
-
 cosmic/removed_example.tl is_on_record 1
-
-cosmic/removed_example.tl literal_unknown 1
 
 cosmic/removed_example.tl map_field 1
 

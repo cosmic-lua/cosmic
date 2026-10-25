@@ -61,7 +61,7 @@ end
 --- comparison, concatenation, length, or conversion metamethod behavior.
 function Example.metatables_raw()
   local values: mut {string:integer} = { present = 2 }
-  local mt: metatable<{string:integer}> = { __index = function(): integer return 9 end }
+  local mt: metatable<mut {string:integer}> = { __index = function(): integer return 9 end }
   setmetatable(values, mt)
   assert(values["missing"] == 9 and rawget(values, "missing") == nil)
   rawset(values, "missing", 4)
@@ -331,10 +331,10 @@ function Example.unions_narrowing_casts()
     name: string
   end
   local record Left is Named
-
+    name: string
   end
   local record Right is Named
-
+    name: string
   end
   local function side(value: Left | Right): string
     if value is Left then return "L:" .. value.name end
@@ -353,7 +353,7 @@ function Example.unions_narrowing_casts()
     return sizes and sizes[1]
   end
   assert(length("abc") == 3 and length(3) == 0 and first_size({ 7 }) == 7 and first_size(nil) == nil)
-  local maybe: string? = "present"
+  local maybe: string? = ("present"):match("^p%a+$")
   assert(maybe ~= nil)
   local definitely: string = maybe
   local left: Left = { name = "left" }
