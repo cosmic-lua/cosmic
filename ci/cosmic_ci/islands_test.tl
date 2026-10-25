@@ -30,7 +30,7 @@ end
 local function test_a_script_is_checked_and_run_with_help(tmp: string)
   local marker = tmp .. "/ran"
   local root = checkout(tmp, "", {
-    ["build/ok.tl"] = 'local Fs = require("cosmic.fs")\nassert(Fs.write("' .. marker .. '", "ran"))\nreturn 1\n',
+    ["build/ok.tl"] = 'local Fs = require("cosmic.fs")\nassert(Fs.write("' .. marker .. '", "ran"))\nreturn function(_: {string}): integer return 0 end\n',
     ["build/syntax.tl"] = "local x: integer =\n",
     ["build/typed.tl"] = 'local x: integer = "a"\nprint(x)\n',
   })
@@ -42,6 +42,30 @@ local function test_a_script_is_checked_and_run_with_help(tmp: string)
   assert(syntax:find("^build/syntax.tl: ") and syntax:find("build/syntax.tl:2:", 1, true), syntax)
   assert(typed:find("^build/typed.tl: ") and typed:find("(not_assignable)", 1, true), typed)
   assert(Fs.read(marker) == "ran", "the clean script was not run")
+end
+
+--- A script that prints its usage and exits with `status`.
+local function exiting(status: integer): string
+  return 'print("usage")\nreturn function(_: {string}): integer\n  return ' .. tostring(status) .. "\nend\n"
+end
+
+--- A script that checks clean and then stops for another reason is no clean script: its exit status is held to what its
+--- `--help` gives ([`Islands.help_exits`], 0 for a script the table does not name).
+local function test_a_script_that_fails_for_another_reason_is_a_complaint(tmp: string)
+  local root = checkout(tmp, "", {
+    ["build/crash.tl"] = 'error("no such module")\n',
+    ["build/exits.tl"] = exiting(7),
+    ["build/perf.tl"] = exiting(1),
+    ["build/paths.tl"] = exiting(0),
+  })
+  local report = Islands.check(root, { "build/crash.tl", "build/exits.tl", "build/perf.tl", "build/paths.tl" }, Env.all())
+  local complaints = report.complaints
+  assert(#complaints == 3, table.concat(complaints, "\n"))
+  assert(assert(complaints[1]):find("build/crash.tl: exited 1 with --help, not 0: ", 1, true) == 1 and
+    assert(complaints[1]):find("no such module", 1, true) ~= nil, complaints[1])
+  assert(assert(complaints[2]):find("build/exits.tl: exited 7 with --help, not 0", 1, true) == 1, complaints[2])
+  -- perf.tl gives 1 as it does; paths.tl, which gives 1 too, giving 0 is not what the table says.
+  assert(assert(complaints[3]):find("build/paths.tl: exited 0 with --help, not 1", 1, true) == 1, complaints[3])
 end
 
 --- A script the new grammar's checker refuses and the fork's would let by is the point of the check: a write to a
@@ -67,12 +91,15 @@ end
 
 local function test_the_command_fails_for_a_refused_script_a_listed_one_and_a_missing_list(tmp: string)
   local files: mut {string:string} = {}
-  for _, path in ipairs(Islands.scripts) do files[path] = 'print("usage")\n' end
+  -- Each prints usage and exits as the real script does with `--help`.
+  for _, path in ipairs(Islands.scripts) do
+    files[path] = exiting(Islands.help_exits[path] or 0)
+  end
   local root = checkout(tmp, "# nothing is listed\n", files)
   assert(Islands.command({ root }) == 0)
   assert(Fs.write(root .. "/build/zig.tl", "return\n  =\n"))
   assert(Islands.command({ root }) == 1)
-  assert(Fs.write(root .. "/build/zig.tl", 'print("usage")\n'))
+  assert(Fs.write(root .. "/build/zig.tl", exiting(0)))
   assert(Fs.write(root .. "/ci/islands.txt", "build/zig.tl\n"))
   assert(Islands.command({ root }) == 1)
   assert(Fs.remove(root .. "/ci/islands.txt"))

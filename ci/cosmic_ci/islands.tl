@@ -34,11 +34,21 @@ local record Islands
   --- The scripts the pinned release runs in the new grammar, each by its path from the root of the checkout, in the
   --- order of their bytes: those of `bin/` and the two runs of build/zig.tl.
   mut scripts: {string}
+
+  --- The exit status of `--help` for each script that does not give 0.
+  mut help_exits: {string:integer}
 end
 
 Islands.scripts = {
   "build/patch.tl", "build/paths.tl", "build/perf.tl", "build/vendor.tl", "build/verify_codesign.tl",
   "build/zig.tl", "build/zig_fetch.tl",
+}
+
+--- The exit status each script of [`Islands.scripts`] gives `--help`, where it is not 0: the scripts that answer a usage
+--- error (`patch`, `zig_fetch`, which take arguments) and those that print usage and fail (`paths`, `perf`). Any other
+--- status is a crash the check must not take for a clean script.
+Islands.help_exits = {
+  ["build/patch.tl"] = 2, ["build/paths.tl"] = 1, ["build/perf.tl"] = 1, ["build/zig_fetch.tl"] = 2,
 }
 
 --- The paths `text`, the list ci/islands.txt holds, names: one a line, with
@@ -54,8 +64,8 @@ function Islands.paths(text: string): {string}
 end
 
 --- What is wrong with `path`, a script of the checkout `root`, as the running driver reads it in the new grammar: nil
---- where it says no `file:line:column:` of a finding or a syntax error when run standalone with `--help`, else what it
---- said or why it did not run.
+--- where it says no `file:line:column:` of a finding or a syntax error and exits as its `--help` does
+--- ([`Islands.help_exits`]) when run standalone with `--help`, else what it said or why it did not run.
 function Islands.complaint(root: string, path: string, env: {string:string}): string?
   local there, _ = Fs.exists(root .. "/" .. path)
   if there ~= true then return "is not there" end
@@ -74,6 +84,13 @@ function Islands.complaint(root: string, path: string, env: {string:string}): st
     end
   end
   if #said > 0 then return table.concat(said, "\n") end
+  -- A script that stopped for another reason (a module it cannot load, an error in its `--help`) said no finding.
+  local expected = Islands.help_exits[path] or 0
+  if answer.code ~= expected then
+    local first = String.trim(tostring(answer.stderr or ""):match("^[^\n]*") or "")
+    return "exited " .. tostring(answer.code) .. " with --help, not " .. tostring(expected) ..
+      (if first ~= "" then ": " .. first else "" end)
+  end
   return nil
 end
 
