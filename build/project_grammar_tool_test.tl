@@ -1,9 +1,7 @@
 --- A project outside cosmic's tree, built and tested with the new checker (`COSMIC_GRAMMAR=new`) as the tool runs it: its
 --- globals are the declarations of the standard library the tool carries ([`build.checker_declarations`]), since the project has
---- no `checker/` to read them from, and there is no fork to fall back to. The project of testdata/rehearsal/project is written in
---- Teal both checkers read and passes in either mode; the one of testdata/rehearsal/fork_only is written in forms only the fork
---- reads, and is refused with the new checker's words and fix. CI's rehearsal job runs the same two projects on the tool it
---- boots with the new checker (ci/cosmic_ci/rehearsal.tl).
+--- no `checker/` to read them from. The project of testdata/rehearsal/project is written in the grammar and passes; the one of
+--- testdata/rehearsal/fork_only is written in forms the new grammar refuses, and is refused with the new checker's words and fix.
 local Child = require("cosmic.child")
 local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
@@ -47,12 +45,13 @@ local function test_a_project_outside_the_tree_is_built_and_tested_with_the_new_
   local root = copy_of(tmp, "project", "new")
   local result, text = tested(root, tmp, "new")
   assert(result.ok and text:find("test: 3 tests passed in 2 modules", 1, true) ~= nil, text)
-  -- the same project, read by the fork, says the same
+  -- the fork's grammar is gone: the mode that names it is refused, naming the verb that rewrites a project to the new one
   local forked, forked_text = tested(copy_of(tmp, "project", "teal"), tmp, "teal")
-  assert(forked.ok and forked_text:find("test: 3 tests passed in 2 modules", 1, true) ~= nil, forked_text)
+  assert(not forked.ok and forked_text:find("COSMIC_GRAMMAR=teal: the fork's grammar is gone; " ..
+      "`cosmic migrate` rewrites a project to the new one", 1, true) ~= nil, forked_text)
 end
 
-local function test_a_project_written_in_forms_only_the_fork_reads_is_refused_with_the_fix(tmp: string)
+local function test_a_project_written_in_forms_the_new_grammar_refuses_is_refused_with_the_fix(tmp: string)
   local root = copy_of(tmp, "fork_only", "new")
   local result, text = tested(root, tmp, "new")
   assert(not result.ok and result.code == 1, text)
@@ -67,9 +66,6 @@ local function test_a_project_written_in_forms_only_the_fork_reads_is_refused_wi
   assert(text:find("test: 4 of 4 tests failed", 1, true) ~= nil, text)
   -- a project has no pins to raise: nothing in its errors speaks of one
   assert(text:find("pinned", 1, true) == nil and text:find("ceilings.txt", 1, true) == nil, text)
-  -- the fork takes it, which is why it is the fork's Teal
-  local forked, forked_text = tested(copy_of(tmp, "fork_only", "teal"), tmp, "teal")
-  assert(forked.ok and forked_text:find("test: 2 tests passed", 1, true) ~= nil, forked_text)
 end
 
 --- A project of `files` under `tmp`, a tree of its own for a run in `grammar`.
@@ -82,8 +78,8 @@ local function project_of(tmp: string, name: string, files: {string: string}): s
   return root
 end
 
---- A project is judged by the standard library the tool carries ([`lang/stdlib.d.tl`]), not by the fork's: `tonumber` answers nil
---- for text that is no number, which the fork's declaration lets a sum take.
+--- A project is judged by the standard library the tool carries ([`lang/stdlib.d.tl`]): `tonumber` answers nil for text that
+--- is no number, which a sum does not take.
 local function test_a_project_is_judged_by_the_new_checkers_standard_library(tmp: string)
   local files: {string: string} = {
     ["inc.tl"] = "local function inc(s: string): number\n  return tonumber(s) + 1\nend\nreturn inc\n",
@@ -93,9 +89,6 @@ local function test_a_project_is_judged_by_the_new_checkers_standard_library(tmp
   assert(not result.ok, text)
   assert(text:find("inc.tl:2:", 1, true) ~= nil and text:find("`number?`", 1, true) ~= nil and
       text:find("(nil_not_allowed)", 1, true) ~= nil, text)
-  -- the fork takes the same program
-  local forked, forked_text = tested(project_of(tmp, "inc-teal", files), tmp, "teal")
-  assert(forked.ok, forked_text)
 end
 
 --- What the tool prints of the text its `decls` carry under `module`, as a length and a digest.
