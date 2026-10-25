@@ -2257,8 +2257,6 @@ lang/generics.tl index_may_be_nil 10
 
 lang/lexer.tl index_may_be_nil 3
 
-lang/lexer_fuzz_test.tl index_may_be_nil 1
-
 lang/lexer_test.tl index_may_be_nil 1
 
 lang/literals_test.tl index_may_be_nil 3
@@ -10206,8 +10204,6 @@ lang/flow.tl view_as_mut 1
 lang/lexer.tl array_hole 7
 
 lang/lexer_cover.tl array_hole 5
-
-lang/lexer_fuzz_test.tl array_hole 1
 
 lang/literals_test.tl array_hole 4
 
