@@ -61,7 +61,7 @@ local function prove(argv: {string}): integer
     assert(Fs.write(root .. "/ci/cosmic_ci/driver.tl", "fixture driver"))
     assert(Fs.write(root .. "/ci/.hidden", "hidden"))
     assert(Fs.mkdirs(root .. "/build"))
-    assert(Fs.write(root .. "/build/paths.tl", "local Fs = require(\"cosmic.fs\")\nlocal record Paths end\nfunction Paths.main(argv: {string}): integer\n  assert(Fs.put(Fs.stdout, argv[1] .. \"/o\\n\"))\n  return 0\nend\nreturn Paths\n"))
+    assert(Fs.write(root .. "/build/paths.tl", "local Fs = require(\"cosmic.fs\")\nlocal record Paths end\nfunction Paths.main(argv: {string}): integer\n  assert(Fs.put(Fs.stdout, assert(argv[1]) .. \"/o\\n\"))\n  return 0\nend\nreturn Paths\n"))
     assert(Fs.write(root .. "/tracked", "initial"))
     assert(Fs.write(root .. "/.gitignore", "o/\nignored\n"))
     assert(Fs.write(root .. "/o/bin/cosmic", [=[#!/bin/sh
@@ -110,6 +110,8 @@ printf 'error: fixture phase\n'
     env["COSMIC_ZIG_CACHE"], env["SSL_CERT_FILE"] = private .. "/seed", private .. "/ca"
     env["PROOF_UID"], env["PROOF_GID"] = tostring(account.uid), tostring(account.gid)
     env["PROOF_CORE_SHA"] = cache_digest
+    -- The runner below is new grammar and `driver` is the pinned release, which reads Teal unless told.
+    env["COSMIC_GRAMMAR"] = "new"
     env["GIT_CONFIG_COUNT"], env["GIT_CONFIG_KEY_0"], env["GIT_CONFIG_VALUE_0"] = "1", "proof.keep", "original"
     local git = assert(Proc.find("git"))
     local function git_run(args: {string}): string

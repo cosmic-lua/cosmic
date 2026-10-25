@@ -27,7 +27,11 @@ fi
 # A wrapper, not a link: the pinned release reads the tree's files, ci/
 # among them, in the new checker's grammar only where COSMIC_GRAMMAR=new, as
 # bin/cosmic-bootstrap sets it for the scripts it runs.
-printf '#!/bin/sh\nexec env COSMIC_GRAMMAR=new "%s" "$@"\n' "$driver" > "$RUNNER_TEMP/bin/cosmic-driver"
+# The path is written single-quoted, with each ' in it closed, escaped and
+# reopened, so no character of it (a ", $, backtick or newline) is read as
+# shell.
+quoted=$(printf '%s' "$driver" | sed "s/'/'\\\\''/g")
+printf '#!/bin/sh\nexec env COSMIC_GRAMMAR=new '"'%s'"' "$@"\n' "$quoted" > "$RUNNER_TEMP/bin/cosmic-driver"
 chmod 755 "$RUNNER_TEMP/bin/cosmic-driver"
 echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
 
