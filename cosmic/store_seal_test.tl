@@ -316,7 +316,7 @@ end
 --- A sealed module carries every edge the checker follows from it, as
 --- the database it came from holds them, an edge to a name left out
 --- among them: a compile of a project on the sealed database resolves
---- the standard library by them (build.compilation).
+--- the standard library by them ([`build.plans`]).
 local function test_seal_carries_the_checkers_edges(tmp: string)
   local path = tmp .. "/edges.db"
   assert(Store.seal({ "cosmic.time" }, path))

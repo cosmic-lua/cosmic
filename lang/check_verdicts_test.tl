@@ -1,4 +1,4 @@
---- The switch's gate, as data ([`lang.check_verdicts`]): the verdict table [`testdata/gate/verdicts.json`] says, for each
+--- The switch's gate, kept as data ([`lang.check_verdicts`]): the verdict table [`testdata/gate/verdicts.json`] says, for each
 --- program the fork's tests pin and each input of the checker corpora, what the fork said (frozen) and what the new
 --- checker says. Here the table is held to the gate: no program the fork refuses is taken without a rule, no
 --- program the new checker refuses has a code without a rule, and the checker still says what the table says. The
@@ -740,7 +740,7 @@ local function test_an_open_program_the_new_checker_refuses_is_a_problem()
   assert(told:find("is open, and the fork does not refuse it or the new checker does", 1, true) ~= nil, told)
 end
 
---- The switch waits on an empty open.json: every program the fork refuses is refused by the new checker, or is taken
+--- The gate holds open.json empty: every program the fork refuses is refused by the new checker, or is taken
 --- by a rule of the plan, with a retired row and its twin.
 local function test_the_switch_gate_is_met_when_no_program_is_open()
   local open = open_programs()
@@ -862,8 +862,3 @@ local function test_the_readonly_write_the_new_checker_takes_is_run_and_its_twin
   assert(codes_of("local record R\n  name: string\nend\nlocal r: R = { name = 'a' }\nr.name = 'b'\n") == "field_fixed")
 end
 
--- TODO: put the fork's warnings in the list of its refusals, once the table's `fork` says whether a program draws one: this
--- build rejects a result with warnings (build/compilation.tl's `rejected`), but build/gate_record.tl counts the errors of
--- `syntax_errors` and `type_errors` alone, so a program the fork refuses only by a warning (a variable never read, a shadowing,
--- a hint) is a row the fork takes, and moving that moves every row's verdict and the retired rows with it. The new checker's
--- own warnings are lang/warnings.tl.

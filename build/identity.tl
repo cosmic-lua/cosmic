@@ -503,8 +503,8 @@ end
 ---   than reading [`cosmic.removed`]: the rest of that catalog is only
 ---   what a refusal says, which no compile keeps;
 --- - the rules a module is refused by and the tree they hold in
----   (build.contracts, [`build.tree`]);
---- - the uses the checker finds (build.receivers);
+---   (build.syntax_contracts, [`build.tree`]);
+--- - the uses the checker finds ([`build.syntax_receivers`]);
 --- - the analyzer, whose `tests` rows a test module's compile is
 ---   appended from;
 --- - the schema of the rows a parse stores and of the `inputs` view a

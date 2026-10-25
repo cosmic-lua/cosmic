@@ -101,8 +101,6 @@ allowed["cosmic.http.default_roots"] = "public API: the roots a request naming n
 allowed["cosmic.http.minimal_roots"] = "public API: the roots `opts.roots = \"minimal\"` names, for a " ..
   "program to read or start a list of its own from"
 
--- TODO: drop these allowances as build.link_text, build.links, build/fix and build/lsp are rewritten to the new syntax
--- tree and call the readers that the tree's checks and tests alone call now (doc/plans/strict-teal.md, "the switch").
 local function allow(names: {string}, why: string)
   for _, name in ipairs(names) do
     allowed[name] = why
@@ -112,17 +110,15 @@ end
 allow({
   "build.syntax_analyzer.analyze",
   "build.syntax_derivation.rows_of", "build.syntax_match.matches", "build.syntax_match.text",
-}, "a reader of the new syntax tree (build/syntax_*.tl) that the rewrites of the readers of the fork's tree call; " ..
-    "tested directly until they do")
+}, "a reader of the syntax tree (build/syntax_*.tl) that the build reaches through its callers (`analysis_of`, " ..
+    "`docs`, the pipeline's derive) and that its tests call directly, to say what one read of a source gives")
 
--- TODO: drop these allowances as the build prints every module's problems through the new checker's reporting
--- ([`build.error_render`]) and the tree's checks call what they test directly (doc/plans/strict-teal.md, "the switch").
 allow({
   "build.error_catalog.rows", "build.error_catalog.check", "build.error_catalog.problems",
   "build.error_catalog.text", "build.error_catalog.emitted", "build.error_render.lines",
   "build.error_render.complain",
-}, "the new checker's error reporting (build/error_catalog.tl, build/error_render.tl), which the compile with the new " ..
-    "checker prints and writes through `insert` and `line`, and the fork's does not yet; tested directly until then")
+}, "the checker's error reporting (build/error_catalog.tl, build/error_render.tl), which the compile prints and writes " ..
+    "through `insert` and `line`, and whose parts its tests call directly")
 
 allow({ "build.seed.compile", "build.seed.program" }, "the two things the bridge asks of the seed (core/bridge.lua, which is " ..
     "Lua and loads the seed's Lua by name), which no Teal calls")

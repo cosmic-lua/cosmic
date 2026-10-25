@@ -4,7 +4,7 @@
 --- record and where under the module's own record, and which interface a field of it comes from.
 ---
 --- [`build.syntax_receivers`] (the record-field uses `cosmic uses` lists) and [`build.syntax_contracts`] (the error-slot
---- discipline) are the two readers; build.receivers and build.contracts read the fork's types in their place.
+--- discipline) are the two readers; build.receivers and build.syntax_contracts read the fork's types in their place.
 --- A declaration of the new checker is named by its module and the names it is nested under ([`cosmic.zip`], `Zip` and
 --- `Writer`), where the fork named a record by the type object tl gave it; the owner of a record is the module whose own
 --- record declares it, under a path that leaves out that record's name (`Writer`), as the fork's rows spell a member.

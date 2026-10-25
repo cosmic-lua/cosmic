@@ -3,8 +3,8 @@
 --- the comments of a tree ([`lang.lexer`]'s tokens carry them), what the file declares where each comment stands, and
 --- the links the build records of a source ([`SyntaxLinkText.found`]).
 ---
---- It is the port of the functions [`build.link_text`] has for the fork's tree and tokens ([`comments_of`],
---- `teal_comments`, `declarations`, `found`), and the switch moves them there. What a comment sees is the same: the
+--- It replaced the functions [`build.link_text`] had for the fork's tree and tokens ([`comments_of`],
+--- `teal_comments`, `declarations`, `found`). What a comment sees is the same: the
 --- names its top-level block binds, those a nested block binds where Lua has them in scope, and each function by its
 --- path and each top-level type's members. A class is read as the record and the `function R:m()` methods the fork's
 --- source wrote.

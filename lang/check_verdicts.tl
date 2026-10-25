@@ -1,10 +1,10 @@
---- The verdict of the new checker on a program of the fork's grammar, as the switch's gate reads it
+--- The verdict of the new checker on a program of the fork's grammar, as the switch's gate read it
 --- ([`doc/plans/strict-teal.md`], "the switch"): the program put in the new grammar ([`lang.translate`]), read, scoped,
 --- lowered and checked against the standard library ([`lang.check_programs`]), and what refused it, if anything.
 ---
 --- The verdict table is data: [`testdata/gate/verdicts.json`] holds one row for each program the fork's tests pin
 --- (build/teal_test.tl) and each input of the checker corpora (`testdata/fuzz/checker-total`, `checker-sound`),
---- with what the fork said of it (frozen, since the fork goes at the switch) and what the new checker says. The rule
+--- with what the fork said of it (frozen: the fork went with the switch) and what the new checker says. The rule
 --- behind each difference is in [`testdata/gate/retired.json`] (the fork refuses and the new checker takes) and
 --- [`testdata/gate/rules.json`] (a code of the lexer, the parser or the scope builder, which no catalog holds yet). The
 --- gate is a query that finds a difference with no rule, which [`Verdicts.problems`] runs, and `cosmic sql` runs on the
@@ -18,7 +18,7 @@
 --- The table holds the programs the fork refuses with every message it can ([`testdata/gate/fork_refusals.json`] lists the messages,
 --- as templates read from its source), so that a refusal of the fork no program of the table has is seen: [`Verdicts.refusal_problems`]
 --- finds one a row does not cover and no reason excuses. What the fork refuses and the new checker takes, and no rule of the plan
---- admits yet, is in [`testdata/gate/open.json`], which the switch waits on.
+--- admits yet, is in [`testdata/gate/open.json`], which the switch waited on and which is empty.
 local Codes = require("lang.check_codes")
 local Declarations = require("lang.declarations")
 local Hash = require("cosmic.hash")

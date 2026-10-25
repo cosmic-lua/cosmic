@@ -68,8 +68,7 @@ function Example.parse_rfc3339()
   assert(ns ~= nil, why)
   print(Time.format_rfc3339(ns))
   local c = Time.civil(ns)
-  -- TODO: change the one field of the [`Time.Civil`] instead of copying the rest into a [`Time.Wall`], once the fork reads `mut` on a
-  -- field (doc/plans/strict-teal.md, "the switch"): a field of a record is fixed in the new checker, so a new value is built.
+  -- A field of a record is fixed, so the date that names no day is a new value, not the same one with a field changed.
   local september_31: Time.Wall = { year = c.year, month = c.month, day = 31, hour = c.hour, minute = c.minute,
     second = c.second, ns = c.ns }
   local refused, reason = Time.from_civil(september_31)

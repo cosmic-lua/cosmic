@@ -27,7 +27,7 @@ local record alias_members
     --- exports as `name`, or nil for none.
     exported: function(module: string, name: string): T?, string
     --- The module that `module`'s own block binds `name` to
-    --- (build.analyzer.Bound), or nil for none.
+    --- ([`build.syntax_analyzer`]'s `Bound`), or nil for none.
     bound: function(module: string, name: string): string?, string
     --- The fields and values declared directly under `target`, less any
     --- named `_...`: what it hands to a declaration that stands for it.
@@ -57,7 +57,7 @@ function alias_members.references(declared: alias_members.Declared): {string}
 end
 
 --- The record a module's value is typed as, read off the signature of
---- the module's own row, which build.analyzer writes as the value's
+--- the module's own row, which [`build.syntax_analyzer`] writes as the value's
 --- declaration (`local module: Module`) when the module returns a name
 --- other than that record; nil for any other signature. The value's
 --- members are that record's: `order` of cosmic.cli is the row

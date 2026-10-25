@@ -548,8 +548,8 @@ end
 ---   fixture's tree is a test's own, whose fingerprint matches only a
 ---   tree holding every file of the tool's trees, each of which that
 ---   test would declare, and each keyed by it. build.writer's `running`
----   and build.importer's `running_analyzer` and build.compilation's
----   `receivers_identity` ask the same question of the tree, or only
+---   and build.importer's `running_analyzer` and the receivers'
+---   identity ask the same question of the tree, or only
 ---   whether there is one; `analyzer_identity` and `receivers_identity`
 ---   name the binary by it only where it carries no source for the code
 ---   they name, which a built

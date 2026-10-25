@@ -1,4 +1,4 @@
---- The scopes of a chunk as build.analyzer's references through an alias and [`build.link_text`]'s names a comment
+--- The scopes of a chunk as [`build.syntax_analyzer`]'s references through an alias and [`build.link_text`]'s names a comment
 --- sees read them, over [`lang.scopes`]: the bindings it resolved, with where each is in scope, and each `alias.member`
 --- whose `alias` is still the module a direct `require` bound.
 ---

@@ -24,13 +24,13 @@
 --- deep as its source nests, and as a chain of `a + a + ...` is long, so a
 --- recursive walker can overflow the stack where [`Ast.number`] does not.
 
--- TODO: once the switch has landed (doc/plans/strict-teal.md, "the switch"), replace each blanked
--- `where` clause of a record here with the single-member enum tag the plan's tagged unions use,
--- write each test `n.kind == "Local"` of a node (here and in every module that imports this
--- one) as a tag test or a `match`, and read the nodes in `number` and `children` by their kinds
--- in place of as `{string: any}`: the translation of the tree dropped the clauses and wrote each
--- test `n is Ast.Local` as a compare of `kind`, since the new code generator writes a test `is`
--- of a record as one for a table once the clause is gone, and of a union of unions as well.
+-- TODO: replace each blanked `where` clause of a record here with the single-member enum tag the plan's tagged
+-- unions use, write each test `n.kind == "Local"` of a node (here and in every module that imports this one, about 900
+-- sites with their tests) as a tag test or a `match`, and read the nodes in `number` and `children` by their kinds in
+-- place of as `{string: any}`: the translation of the tree dropped the clauses and wrote each test `n is Ast.Local` as a
+-- compare of `kind`, since the code generator writes a test `is` of a record as one for a table once the clause is gone,
+-- and of a union of unions as well. Waits on a change of its own that rewrites those sites together (the switch
+-- landed without it, doc/plans/strict-teal.md, "the switch"); no ceiling pins them.
 local Lexer = require("lang.lexer")
 
 local record Ast

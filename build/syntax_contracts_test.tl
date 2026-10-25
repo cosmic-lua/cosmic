@@ -1,4 +1,4 @@
---- Tests of [`build.syntax_contracts`] against the fork's build.contracts: each program is read by the new checker, and
+--- Tests of [`build.syntax_contracts`] against the fork's contracts: each program is read by the new checker, and
 --- the port says what the fork said of it (kept as text, [`lang.forked`]), problem for problem, in order -- the breaches of each rule and
 --- the programs that keep it -- with the places where the new checker's types make the answer differ named in a test of
 --- their own.

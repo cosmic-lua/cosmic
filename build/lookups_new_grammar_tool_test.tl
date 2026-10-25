@@ -319,8 +319,8 @@ local function test_a_lookup_answers_from_the_last_build_when_the_new_checker_re
 end
 
 --- A copy of the project of testdata/projects under `tmp`, built by `cosmic test`.
-local function rehearsal_project(tmp: string): string
-  local root = tmp .. "/rehearsal"
+local function fixture_project(tmp: string): string
+  local root = tmp .. "/fixture"
   assert(Fs.copy_tree("testdata/projects/project", root))
   local result, out, err = ran(root, tmp, "new", { "test" })
   assert(result.ok, out .. err)
@@ -329,8 +329,8 @@ end
 
 --- Every row the build recorded of the project of testdata/projects, the symbols documented and the uses, in one
 --- question, and what `docs` and `uses` say of it, each finding something: the rows carry their file and line, in order.
-local function test_the_rows_and_lookups_of_the_rehearsal_project_are_answered(tmp: string)
-  local root = rehearsal_project(tmp)
+local function test_the_rows_and_lookups_of_the_fixture_project_are_answered(tmp: string)
+  local root = fixture_project(tmp)
   local rows = looked_up(root, tmp, { "sql",
     "SELECT 'docs', module, symbol, file, line FROM docs UNION ALL SELECT 'uses', module, symbol, from_file, line FROM uses " ..
       "WHERE from_module IN ('queue', 'queue_test', 'report', 'report_test') ORDER BY 1, 2, 3, 4, 5" })

@@ -12,7 +12,7 @@
 --- A row is keyed by more than the local key (`key`): also by what else
 --- decides whether a compile is accepted, which a checkout's own cache
 --- leaves out. That is whether the tree is cosmic's own
---- (build.contracts runs only there) and whether the module was
+--- (build.syntax_contracts runs only there) and whether the module was
 --- extracted from a doc, so a row never stands where a compile of the
 --- module here would refuse it. The file the module is read from is in
 --- the local key already. A compile refused and kept only for the run

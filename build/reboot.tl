@@ -366,7 +366,7 @@ local function into(handle: work.Handle, argv: {string}, settle: boolean): strin
   -- change to the fingerprint's definition: it is stale by its own code,
   -- and settles on the "teal" path.
   local learned: Learned = { code = false, compiler = nil }
-  -- Unjudged: this tool's build.contracts, rules and exemptions alike,
+  -- Unjudged: this tool's build.syntax_contracts, rules and exemptions alike,
   -- may be older than the tree's, so a module it refuses is built
   -- anyway, and the tool built here judges it again, by the tree's own,
   -- when it re-enters the command.

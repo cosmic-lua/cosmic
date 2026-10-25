@@ -1,7 +1,7 @@
 --- Turns a markdown doc's fenced code-block examples into one Teal
 --- source string, per doc/writing.md's grammar. The result is the source of
---- an ordinary `kind = "test"` module: build.compilation.collect
---- treats it like a hand-written `_test.tl`. build.analyzer.analyze
+--- an ordinary `kind = "test"` module: [`build.plans`]'s `collect`
+--- treats it like a hand-written `_test.tl`. [`build.syntax_analyzer`]'s `analysis_of`
 --- discovers its tests and [`build.test`] runs them. Nothing
 --- here runs a test, discovers one, or records a verdict: doc/writing.md
 --- says a doc needs no doctest machinery of its own.

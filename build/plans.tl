@@ -228,7 +228,7 @@ end
 --- `require` loads the implementation at runtime.
 --- A module's own compile is keyed by its file as well as its import
 --- path (`file` below): `x.tl` and `x/init.tl` are both `x`, and
---- build.contracts names its exemptions by file, so a module moved
+--- build.syntax_contracts names its exemptions by file, so a module moved
 --- from one to the other is compiled again under its new file's rules.
 --- Only the key holds it: the graph key ([`build.positions`]'
 --- `graph_key`) is the import graph's by name and content, and a

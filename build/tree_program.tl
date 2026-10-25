@@ -222,10 +222,9 @@ function TreeProgram.tree_globals(root: string): TreeProgram.Globals
 end
 
 --
--- TODO: have build.gen_syscalls write a field that may be nil as `name?: T` and a table a binding fills in as `mut`, once
--- the build compiles with the new checker (doc/plans/strict-teal.md, "the switch"): it writes `name: T | nil` and no
--- `mut`, so a literal of such a record that leaves the field out (literal_missing) and a write to a stand-in's field
--- (field_fixed) are refused, and the [checked] ceilings of the files that use the bindings hold those counts.
+-- TODO: have build.gen_syscalls write `mut` on the fields of a binding's table that a program writes (a stand-in's), once
+-- a header's `@field` line can say which they are: it writes no `mut`, so a write to a stand-in's field (field_fixed) is
+-- refused, and the [checked] ceilings of the files that use the bindings hold those counts.
 function TreeProgram.bindings_of(root: string): {{string}}
   local out: mut {{string}} = {}
   for _, derivation in ipairs(gen_syscalls.targets) do
@@ -283,7 +282,7 @@ function TreeProgram.derived_of(root: string): {{string}}?, string
       if text == nil then
         return nil, why
       end
-      local made, made_why = Template.compile(text, file, { dialects = nil, new_grammar = true })
+      local made, made_why = Template.compile(text, file, { dialects = nil })
       if made == nil then
         return nil, made_why
       end

@@ -987,8 +987,8 @@ local record Lock
 end
 
 -- TODO: make [`Lock`] a class with `function __close(self)`, hold it in a `<close>` local and drop the `pcall` of
--- [`Zig.with_lock`], once ci/cosmic-driver.pin names a release that reads the new grammar (doc/plans/strict-teal.md,
--- "the switch"): the Teal both grammars read has no class, and the new one has no `setmetatable`.
+-- [`Zig.with_lock`], once ci/cosmic-driver.pin names a release that reads a class with `function __close(self)` in the
+-- islands: the new grammar has no `setmetatable`, and a `<close>` local of a record is refused (`close_not_closable`).
 
 --- Lets go of both halves of `lock`, the SQL one first.
 local function release(lock: Lock)

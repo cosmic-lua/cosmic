@@ -81,7 +81,7 @@ local record importer
     parses: derivation.Parses
     --- Writes the rows the checker that compiled adds to the shipped catalog (`catalog` of the attached schema `schema`,
     --- "" for the main one), after the extracted ones: the rule behind each code the new checker emits
-    --- ([`build.error_catalog`]). nil for the fork's compile, which adds none.
+    --- ([`build.error_catalog`]). nil where the compile adds none.
     catalog: Catalog?
   end
 
@@ -809,7 +809,7 @@ end
 
 local function prepare_cache(handle: work.Handle, tool: string): Cache?, string
   local db = handle.db
-  -- A compile build.contracts refused, kept anyway by an unjudged run,
+  -- A compile build.syntax_contracts refused, kept anyway by an unjudged run,
   -- is marked seen -1 and never reused: the next run compiles and
   -- judges the module again. Changing which verdict may stand is a
   -- semantic change: invalidate the stored keys or the cache schema,
@@ -1432,7 +1432,7 @@ end
 --- @param handle the working database the tree is staged in
 --- @param tool the identity of the compiler doing the compiling, which
 ---   every key carries
---- @param unjudged whether a module build.contracts refuses is kept
+--- @param unjudged whether a module build.syntax_contracts refuses is kept
 ---   rather than refused: a stale tool rebuilding itself ([`build.reboot`])
 ---   judges the tree by its own, older rules and exemptions, so it
 ---   leaves the last word to the tool it builds, which re-enters the

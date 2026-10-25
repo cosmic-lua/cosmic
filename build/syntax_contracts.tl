@@ -1,8 +1,8 @@
---- The error-slot discipline of doc/design.md's third principle (build.contracts states the eleven rules), checked
---- against the new checker's syntax tree and the type it gave each node ([`build.syntax_report`]). The port of the
---- fork's build.contracts: the rules are the same, the exemptions are the same table
---- (that module's `own_exemptions`, keyed by `"file:function"`) and the words of a problem are the same, so a module
---- the fork holds is held here and a breach is told alike. What reads the tree and the types differently is below.
+--- The error-slot discipline of doc/design.md's third principle (the eleven rules below), checked against the new
+--- checker's syntax tree and the type it gave each node ([`build.syntax_report`]). The rules, the exemptions
+--- ([`build.contract_rules`]'s `own_exemptions`, keyed by `"file:function"`) and the words of a problem are those of the
+--- fork's contracts, which this replaced, so a module it held is held here and a breach is told alike. What reads the
+--- tree and the types differently is below.
 ---
 --- **The callee.** A call's function is the one the checker took ([`lang.check`]'s `callees`, by the id of the call node):
 --- a method call has no node for its callee, and the fork kept the type at the callee's position. A call of an
@@ -13,7 +13,7 @@
 --- fallible functions. A trailing `T...` is the last result with the list marked variadic.
 ---
 --- **A name** is the fork's by position: the reason a statement binds is followed by the name's text from where its
---- statement ends to the end of its block (build.contracts's rule 6 says what it does not follow), where the scope
+--- statement ends to the end of its block (rule 6 below says what it does not follow), where the scope
 --- builder could say exactly which binding a name reads; the port does not, so that the two read alike.
 ---
 --- **Bindings of C.** [`cosmic.sys`] and the raw process and socket tables are typed from the declarations the build derives
@@ -25,14 +25,14 @@
 -- TODO: judge the calls the checker could not type (a call has no callee in [`Checked.callees`] where its callee is `invalid`: a
 -- value an error already reported, a call through one; the `[untyped]` ceilings of build/ceilings.txt count them per file, and the
 -- build's compile with the new checker ([`build.pipeline`]) refuses a module above its ceiling), once the `[checked]` pins that
--- leave them untyped reach 0. The switch does not wait on it: each of these calls follows from a pinned `[checked]` error, so the
+-- leave them untyped reach 0. Each of these calls follows from a pinned `[checked]` error, so the
 -- count is bookkeeping of those pins and no gap of its own. The pins hold the
 -- counts, and each later pull request that lowers a `[checked]` row lowers the `[untyped]` row of its file with it. The build's
 -- compile declares the bindings of C from the declarations it derives of the headers, as the tree checks do, so their calls are
 -- judged.
 --
 -- TODO: say what the discipline is for a function that answers one of several lists of values (`(true, R) | (false, E)`), which
--- no rule reads here as the fork could not write one, once the new grammar's convention for a failure is settled
+-- no rule reads here, once the new grammar's convention for a failure is settled
 -- (doc/design.md, third principle): until then the usual `T?, string` pair is the only function the rules hold.
 --
 -- TODO: follow a reason by the binding the scope builder resolves a name to ([`Scopes.Scoped.resolved`]) in place of the
@@ -662,7 +662,7 @@ local function standing(run: Run): {integer: boolean}
   return out
 end
 
---- Whether a call is of a method of a record some module names quiet (build.contracts's `quieted`).
+--- Whether a call is of a method of a record some module names quiet (`quieted`).
 local function is_quiet(run: Run, call: Ast.Node): boolean
   local object: Ast.Exp?
   local name: string?

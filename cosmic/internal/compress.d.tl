@@ -16,8 +16,9 @@ local record compress
     finish: function(Transform): string?, string
     -- Present only on a Transform that can hold output back: whether
     -- `update("")` has more to give.
-    -- TODO: declare it `pending?` once the fork is gone (doc/plans/strict-teal.md, "the switch"): the fork refuses a record that
-    -- lists this interface and repeats an omittable field, so a record that lists it declares `pending` and answers false.
+    -- TODO: declare it `pending?` once the Readers' and Transform's declarations change together (the TODO in
+    -- cosmic/stream.tl): a record that lists this interface repeats an omittable field exactly, so a record that lists it
+    -- declares `pending` and answers false.
     pending: function(Transform): boolean
   end
 

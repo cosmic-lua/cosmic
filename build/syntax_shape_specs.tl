@@ -13,7 +13,7 @@
 ---   (a test or an example declares its own and returns no type), or
 --- - `module.name.Record`, a record the module `module.name` declares inside the record it returns, which the calling
 ---   module must `require` at its top level (`local Fs = require("cosmic.fs")`), so the compile is keyed by it
----   (build.compilation's `dependency_keys`).
+---   ([`build.plans`]'s `dependency_keys`).
 ---
 --- What a record may hold is what [`cosmic.shape`] can check: strings, integers, numbers, booleans and `any`; arrays and
 --- string-keyed maps of those; enums, as `one_of` in byte order; records of those; and `T?` for a field that may be

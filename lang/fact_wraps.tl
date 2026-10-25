@@ -17,14 +17,12 @@
 --- code before the worker installs the hook (the worker's own libraries) or in a process that defines none (a relay, a
 --- process a test starts) gets the value all the same.
 --
--- TODO: check the arguments, return values and record fields written at run time as the fork's "p", "r" and "f" specs of
--- `__cosmic_tc` do (build/test_worker.tl), which [`lang.codegen`] writes none of: a checked run in the new mode
--- (`COSMIC_GRAMMAR=new cosmic test --check-types`) writes the facts alone. Once the switch (doc/plans/strict-teal.md, "the
--- switch") decides whether `--check-types` keeps them: they report and fail nothing, and the new checker keeps nil out of
--- every type itself, so what they could still report is what an `any`, an unchecked binding or a cast lets through.
+-- A checked run writes the facts alone: the fork's checks of arguments, return values and record fields (its "p", "r" and
+-- "f" specs of `__cosmic_tc`) went with it. They reported and failed nothing, and the checker keeps nil out of every type
+-- itself, so what they could still report is what an `any` or an unchecked binding lets through.
 --
 -- TODO: keep the name of the place in the error of a wrapped read, once a test of the suite is found to match one: the full
--- checked run in the new mode (the rehearsal's) shows none, but `x + 1` of a wrapped `x` says "attempt to perform
+-- checked-narrowing run (`cosmic test --check-types`) shows none, but `x + 1` of a wrapped `x` says "attempt to perform
 -- arithmetic on a nil value" and has lost "(local 'x')", as a call or an index does, for the operand is the result of a call.
 local Check = require("lang.check")
 

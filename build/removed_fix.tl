@@ -17,7 +17,7 @@
 --- `local X = require("module")`, never by its words. The driver ([`build.driver`]) calls it as it makes each problem.
 --
 -- TODO: say a member's sentence through [`cosmic.removed`], once it words a member's hint itself (the same TODO is in
--- [`build.docs`]): `X.m was removed: ...` is spelled here, in `docs` and in the fork's `replacement`, each from the
+-- [`build.docs`]): `X.m was removed: ...` is spelled here and in `docs`, each from the
 -- catalog's `members`.
 local Lexer = require("lang.lexer")
 local Scopes = require("lang.scopes")

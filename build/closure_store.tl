@@ -104,7 +104,7 @@ local closure_meta <const> = "('image_hash', 'main', 'runtime_basis')"
 --- carries, so one this leaves out is one no test can read, and a test
 --- that types it fails rather than standing. Scanned here rather than taken from the
 --- importer's parse, which the projection does not keep of a
---- declaration: a require of build.analyzer would salt every store's
+--- declaration: a require of [`build.syntax_analyzer`] would salt every store's
 --- address with it ([`build.test`]'s `store_writer`). [`build.tree_checks`]
 --- holds the tree to declarations that require only declarations
 --- (`declared`).
@@ -490,7 +490,7 @@ end
 --- files among them; the declarations `temp.declared` names
 --- (`declared`), the names they bind, their docs and links; and of both,
 --- every edge the checker follows (`decl_imports`), which
---- build.compilation reads of a standard-library module on a sealed
+--- [`build.plans`] reads of a standard-library module on a sealed
 --- database ([`build.test`]'s `sealed_fill`); and the `meta` rows `closure_meta` keeps. The zones, CA
 --- roots, components and notices are left out: the core, [`cosmic.time`]
 --- and [`build.bom`] read those from the tool's own database alone.

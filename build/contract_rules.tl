@@ -107,7 +107,7 @@ local own_exemptions: rules.Exemptions = {
 --- is let through; a result used any other way is held to rule 1 too.
 --- A stale entry, one whose record no module declares or whose method
 --- the record lacks, is refused by [`build.tree_checks`] over the whole
---- tree's projection, not here: build.contracts's `quiet_records` resolves them against
+--- tree's projection, not here: [`build.syntax_contracts`]'s `quieted` resolves them against
 --- whatever environment compiles the module at hand, which need not
 --- have loaded the record's module, so a miss here is no proof.
 local quieted: {string: rules.Quiet} = {

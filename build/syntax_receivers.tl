@@ -16,7 +16,7 @@ local Report = require("build.syntax_report")
 
 local record Receivers
   --- One use of a record's field: `member` is the field's canonical path within `module` (`"Writer.add_file"`), the same
-  --- shape build.receivers and build.analyzer.Reference give a module member.
+  --- shape [`build.syntax_analyzer`]'s uses give a module member.
   record Reference
     module: string
     member: string

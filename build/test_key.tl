@@ -1207,7 +1207,7 @@ local sealed_schema <const>: {string} = {
 --- tree), which a worker's key holds by their digest ([`extras_digest`]).
 --- The key and the tests of a module are left empty (the compile's, and the
 --- tree's own). Each module's and declaration's `decl_imports` rows, which
---- build.compilation reads of a standard-library module a project's
+--- [`build.plans`] reads of a standard-library module a project's
 --- compile resolves, come from where its own row does: the closure's,
 --- which its store's digest holds, else the program's, which the key holds
 --- as it holds the module ([`extras_digest`], or `epoch` for what every

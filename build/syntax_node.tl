@@ -5,9 +5,8 @@
 --- asks. Walks keep their own stack, so a chain of any length ([`Ast.number`]) is walked.
 ---
 --- The readers named `build.syntax_*` work on the tree: a reader takes the
---- tree and its tokens, never the compiler. Each was the port of a reader of the same name
---- ([`build/syntax_scopes.tl`] for build/scopes.tl, [`build/syntax_node.tl`] for build/ast/walk.tl and build/ast/requires.tl), and the switch
---- moves it there.
+--- tree and its tokens, never the compiler. Each replaced a reader of the same name
+--- of the fork's tree ([`build/syntax_scopes.tl`] for its scopes, [`build/syntax_node.tl`] for its walks and requires).
 local Ast = require("lang.ast")
 local Lexer = require("lang.lexer")
 local Parser = require("lang.parser")

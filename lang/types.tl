@@ -76,13 +76,12 @@
 --- body. A refused decode leaves the store as it was, and says why in a message that begins
 --- `types:`.
 
--- TODO: once the switch has landed (doc/plans/strict-teal.md, "the switch"), replace each blanked
--- `where` clause of a record here with the single-member enum tag the plan's tagged unions use,
--- and write each test `t.tag == "named"` and the others of this union (here and in the modules
--- that import it) as a tag test or a `match`: the translation of the tree dropped the clauses
--- and wrote each test `t is Named`, `t is Types.Atom` as a compare of `tag`, since the new code
--- generator writes such a test as one for a table once the clause is gone (lang/ast.tl has the
--- same gap).
+-- TODO: replace each blanked `where` clause of a record here with the single-member enum tag the plan's tagged unions
+-- use, and write each test `t.tag == "named"` and the others of this union (here and in the modules that import it) as a
+-- tag test or a `match`: the translation of the tree dropped the clauses and wrote each test `t is Named`, `t is
+-- Types.Atom` as a compare of `tag`, since the code generator writes such a test as one for a table once the clause is
+-- gone (lang/ast.tl has the same gap). Waits on a change of its own that rewrites those sites together (the switch landed
+-- without it, doc/plans/strict-teal.md, "the switch").
 local Hash = require("cosmic.hash")
 local Lexer = require("lang.lexer")
 

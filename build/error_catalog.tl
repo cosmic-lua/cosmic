@@ -10,12 +10,8 @@
 --- why the language holds it and the fix. The `message` is left NULL: the guidance of an uncaught run-time error
 --- ([`cosmic.errors`]) matches that column alone, and a code's words are no message of a running program.
 ---
---- [`build.writer`] writes these rows into the projection after the extracted ones, for a compile with the new checker
---- (`COSMIC_GRAMMAR=new`, [`build.importer`]'s [`Result.catalog`]): its keys hold the code that reads, so the rows belong to
---- that compile.
---
--- TODO: write these rows into every projection and the shipped catalog, and delete the fork's extracted `catalog` rows,
--- once the new checker compiles the tool (doc/plans/strict-teal.md, "the switch").
+--- [`build.writer`] writes these rows into the projection after the extracted ones ([`build.importer`]'s
+--- [`Result.catalog`]), for every compile: its keys hold the code that reads, so the rows belong to that compile.
 local Codes = require("lang.check_codes")
 local Codegen = require("lang.codegen")
 local Declarations = require("lang.declarations")

@@ -208,7 +208,7 @@ local function test_the_harness_holds_what_a_worker_runs_and_what_keys_it()
     "build.caches", "build.zig_caches",
     "cosmic.child", "cosmic.sandbox", "cosmic.sandbox.policy",
     "build.closure_store", "build.writer",
-    "build.test_report", "build.schema", "build.importer", "build.analyzer", "cosmic.removed",
+    "build.test_report", "build.schema", "build.importer", "build.syntax_analyzer", "cosmic.removed",
     "cosmic.sqlite", "cosmic.sys", "build.test", "build.test_state" }
   -- Each module's bytecode names what it requires, as a require by
   -- value leaves the name among its constants ([`test_key.value_imports`]).
@@ -262,7 +262,7 @@ local function test_the_harness_holds_what_a_worker_runs_and_what_keys_it()
   end
   -- The runner is none of it: build.test requires the key's code and the types
   -- they share, and an edit to it moves no digest.
-  for _, name in ipairs({ "build.importer", "build.analyzer", "build.writer",
+  for _, name in ipairs({ "build.importer", "build.syntax_analyzer", "build.writer",
       "build.harness_epoch", "build.test_report", "cosmic.removed", "build.test",
       "build.test_state" }) do
     assert(edited(name) == "", name .. " moved " .. edited(name))

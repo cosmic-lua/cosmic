@@ -56,8 +56,8 @@ end
 local function comment_of(line: string): Comment?
   -- TODO: a TODO after code on its line (`x = 1 -- TODO: ...`) is not
   -- found, since a line alone cannot tell a comment from a string. Take a
-  -- Teal file's comments from the tree tl's parser attaches them to
-  -- (build/ast/node.tl), and a C file's from clang's, and scan only those.
+  -- Teal file's comments from the ones the lexer attaches to its tokens
+  -- (lang/lexer.tl), and a C file's from clang's, and scan only those.
   local indent, marker, rest = line:match("^([ \t]*)([-#/*;]+)(.*)$")
   if indent == nil or not markers[marker] then
     return nil

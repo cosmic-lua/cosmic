@@ -1,7 +1,7 @@
 --- How a boot names the analyzer ([`build.importer`]) against the rows
 --- the running binary carries. It declares `store` for the binary's
 --- `boot_hash` meta row, whose presence tells a tool from a boot
---- (build.compilation's `booting`): the row moves with every file of
+--- ([`build.importer`]'s `booting`): the row moves with every file of
 --- the tree, so no key can hold it, and a worker on a sealed database
 --- carries none. build/importer_test.tl holds the importer's other cases.
 local Fs = require("cosmic.fs")

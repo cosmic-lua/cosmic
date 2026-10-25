@@ -389,7 +389,7 @@ end
 
 --- A module's own compile is keyed by its file as well as its import
 --- path: `x.tl` moved to `x/init.tl`, the same module of the same source,
---- is compiled again (build.contracts' exemptions are by file), while a
+--- is compiled again (build.syntax_contracts' exemptions are by file), while a
 --- module that requires it, whose compile no file of its dependency
 --- decides, stands, and so does the graph key a test's verdict is kept by.
 local function test_a_module_moved_to_its_init_file_is_compiled_again()
@@ -1749,7 +1749,7 @@ local function test_an_unjudged_compile_is_judged_by_the_next()
   assert(refused:find("cosmic/casting.tl:4: get: its error slot is dropped", 1, true), refused)
 end
 
---- A compile a stale tool's rebuild keeps though build.contracts
+--- A compile a stale tool's rebuild keeps though build.syntax_contracts
 --- refuses it is that run's alone: never offered the compiles every
 --- checkout shares, while the rest of the same run's are.
 local function test_an_unjudged_refused_compile_is_not_shared()

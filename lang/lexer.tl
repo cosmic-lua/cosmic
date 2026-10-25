@@ -195,7 +195,7 @@ local record Lexer
   end
 
   --- What `lex` answers. A record, not two results: an exported function
-  --- answers one (build.contracts).
+  --- answers one (build.syntax_contracts).
   record Lexed
     --- Every token in source order, the last an `$EOF$`.
     tokens: Tokens

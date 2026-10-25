@@ -1,7 +1,7 @@
 [scoped]
 # The errors of the new checker's scope builder ([`lang.scopes`]) that files of the
 # tree have, which [`scoped`] holds the tree to: `<file> <code>` to how many errors
-# of that code the file has. Each is a form the grammar drops, a type the fork resolves
+# of that code the file has. Each is a form the grammar drops, a type resolved
 # where it is used and not where it is written, or a local that names a type; a rewrite
 # removes it and a pin falls with it, and none is raised.
 # the parser reads the `self` of a `where` clause, which the grammar drops, as a type
@@ -208,7 +208,7 @@ cosmic/removed_example.tl untagged_union 1
 [untyped]
 # How many calls of a file the discipline holds ([`build.syntax_contracts`]) the checker gave no function, so that no rule
 # judged them: a call through a value an error already reported left `invalid`, or of a function an error refused (`table.sort`
-# of a view, `setmetatable`), `require` apart. The fork judged them. The switch does not wait on these reaching 0: every one
+# of a view, `setmetatable`), `require` apart. Every one
 # follows from a pinned `[checked]` error of the same file (a triage of all 591 calls found none that is a gap of its own, and none
 # that is a binding of C), so the count is bookkeeping of those pins. The pins hold the counts, and each later pull request lowers
 # the row of every file whose `[checked]` errors it removes.
@@ -350,7 +350,6 @@ cosmic/web/request.tl 1
 
 cosmic/web/router.tl 1
 
-
 cosmic/web/session/sqlite.tl 1
 
 cosmic/web/sse.tl 1
@@ -400,8 +399,8 @@ build/migrate.tl 1
 # file (a doc guide, a template) is held under the name of that file. The program is the one the pipeline reads
 # ([`build.tree_program`]), so that the pins and the compile agree: lang/ast.tl and lang/types.tl are mended by the steps of
 # [`build.lang_proof`], so that a file which reads them sees unions of records with no tag (their `where` clauses are
-# gone) and is pinned at what that shows, `field_unknown` and `any_use` above all, until the change of the switch tags
-# the unions by hand; and a call of [`Shape.record_of`] is resolved ([`build.syntax_shape_specs`]), which removes the
+# gone) and is pinned at what that shows, `field_unknown` and `any_use` above all, until a change of its own tags
+# the unions by hand (the TODOs of lang/ast.tl and lang/types.tl); and a call of [`Shape.record_of`] is resolved ([`build.syntax_shape_specs`]), which removes the
 # `cannot_infer` it was and shows the errors it hid. The pins below are grouped by code, with the rule or the later
 # piece that brings each to zero.
 # a call of `setmetatable`, which the translator writes as the literal of a class where the metatable is a
@@ -640,7 +639,6 @@ build/codec_test.tl nil_not_allowed 5
 build/codec_tool_test.tl nil_not_allowed 1
 
 build/codec_verb_fuzz_test.tl nil_not_allowed 4
-
 
 build/compile.tl nil_not_allowed 4
 
@@ -1354,7 +1352,7 @@ cosmic/template/markup.tl nil_not_allowed 10
 
 cosmic/template/parse.tl nil_not_allowed 60
 
-cosmic/template_build_test.tl nil_not_allowed 7
+cosmic/template_build_test.tl nil_not_allowed 3
 
 cosmic/template_check_test.tl nil_not_allowed 4
 
@@ -1786,7 +1784,6 @@ build/codec_fuzz_test.tl index_may_be_nil 6
 build/codec_verb_fuzz_test.tl index_may_be_nil 5
 
 build/plans.tl index_may_be_nil 1
-
 
 build/compile_test.tl index_may_be_nil 1
 
@@ -2643,8 +2640,6 @@ core/syscalls_tool_test.tl view_written 1
 
 cosmic/archive.tl view_written 1
 
-cosmic/channel_example.tl view_written 1
-
 cosmic/channel_test.tl view_written 7
 
 cosmic/child.tl view_written 14
@@ -2665,13 +2660,9 @@ cosmic/declared_types_test.tl view_written 2
 
 cosmic/flags.tl view_written 7
 
-cosmic/flags_example.tl view_written 4
-
 cosmic/flags_test.tl view_written 4
 
 cosmic/fs_test.tl view_written 1
-
-cosmic/http/server_example.tl view_written 1
 
 cosmic/http/server_test.tl view_written 2
 
@@ -2728,8 +2719,6 @@ cosmic/net_test.tl view_written 1
 cosmic/policy.tl view_written 1
 
 cosmic/poll.tl view_written 27
-
-cosmic/poll_example.tl view_written 5
 
 cosmic/poll_test.tl view_written 32
 
@@ -2795,8 +2784,6 @@ cosmic/web/htmx_test.tl view_written 1
 
 cosmic/web/input.tl view_written 10
 
-cosmic/web/input_example.tl view_written 1
-
 cosmic/web/input_fuzz_test.tl view_written 3
 
 cosmic/web/input_multipart_test.tl view_written 1
@@ -2827,8 +2814,6 @@ cosmic/web/session/sqlite.tl view_written 2
 
 cosmic/web/sse.tl view_written 5
 
-cosmic/web/sse_example.tl view_written 1
-
 cosmic/web/sse_test.tl view_written 7
 
 cosmic/web/static.tl view_written 2
@@ -2837,29 +2822,9 @@ cosmic/web/testing.tl view_written 13
 
 cosmic/web/typed_test.tl view_written 1
 
-cosmic/web_example.tl view_written 1
-
 cosmic/zip_fuzz_test.tl view_written 2
 
 cosmic/zip_test.tl view_written 1
-
-doc/guides/command-line.md view_written 3
-
-doc/guides/quickstart.md view_written 2
-
-doc/guides/web-api.md view_written 2
-
-doc/guides/web-deploy.md view_written 2
-
-doc/guides/web-forms.md view_written 2
-
-doc/guides/web-live.md view_written 2
-
-doc/guides/web-security.md view_written 2
-
-doc/guides/web-sessions.md view_written 2
-
-doc/guides/web.md view_written 2
 
 eval/round.tl view_written 2
 
@@ -3011,8 +2976,6 @@ cosmic/net_resolve_through_test.tl view_as_mut 4
 
 cosmic/poll.tl view_as_mut 4
 
-cosmic/poll_example.tl view_as_mut 1
-
 cosmic/poll_test.tl view_as_mut 4
 
 cosmic/seatbelt_network_probe_test.tl view_as_mut 6
@@ -3059,7 +3022,7 @@ lang/types.tl view_as_mut 3
 
 lang/warnings.tl view_as_mut 1
 
-# a field assigned after its record is made, not declared `mut`: the translator writes `mut` on the fields the fork's
+# a field assigned after its record is made, not declared `mut`: the translator writes `mut` on the fields its
 # rows show assigned and not on those it cannot attribute (a field of a module record assigned through its name)
 build/analysis_schema.tl field_fixed 2
 
@@ -3582,7 +3545,7 @@ test/terminal/pty.tl field_fixed 6
 test/terminal/relay.tl field_fixed 2
 
 # a field the record does not declare: a field an interface gives a record that lists it (declared again by the
-# rewrite), a field of a member of a union read without a test, and a method of the fork's standard library the
+# rewrite), a field of a member of a union read without a test, and a method of the standard library the
 # declarations lack
 build/compile_grammar.tl field_unknown 20
 
@@ -3592,13 +3555,13 @@ build/driver_test.tl field_unknown 8
 
 build/plural_sites.tl field_unknown 24
 
-build/syntax_analyzer.tl field_unknown 152
+build/syntax_analyzer.tl field_unknown 151
 
 build/syntax_contracts.tl field_unknown 318
 
 build/syntax_globals.tl field_unknown 2
 
-build/syntax_link_text.tl field_unknown 37
+build/syntax_link_text.tl field_unknown 35
 
 build/syntax_match.tl field_unknown 6
 
@@ -4874,7 +4837,7 @@ cosmic/tar.tl any_use 2
 
 cosmic/template_build_test.tl any_use 17
 
-cosmic/template_check_test.tl any_use 76
+cosmic/template_check_test.tl any_use 75
 
 cosmic/template_fuzz_test.tl any_use 42
 
@@ -5081,7 +5044,6 @@ build/sandbox_test.tl cast_refused 4
 build/stand_in_test.tl cast_refused 2
 
 build/standalone.tl cast_refused 1
-
 
 build/test_sandbox_system_confined_test.tl cast_refused 1
 
@@ -8136,7 +8098,6 @@ build/c/tree.tl compare_disjoint 2
 
 build/codec.tl compare_disjoint 2
 
-
 build/confine.tl compare_disjoint 1
 
 build/databases.tl compare_disjoint 1
@@ -8264,7 +8225,6 @@ cosmic/internal/relay_server_test.tl compare_disjoint 1
 cosmic/json.tl compare_disjoint 5
 
 cosmic/json_test.tl compare_disjoint 3
-
 
 cosmic/net_resolve_tool_test.tl compare_disjoint 1
 
@@ -8587,8 +8547,6 @@ cosmic/web/app.tl literal_missing 3
 
 cosmic/web/assets.tl literal_missing 4
 
-
-
 cosmic/web/htmx_test.tl literal_missing 7
 
 cosmic/web/input.tl literal_missing 2
@@ -8599,14 +8557,9 @@ cosmic/web/route.tl literal_missing 2
 
 cosmic/web/router.tl literal_missing 5
 
-
 cosmic/web/session/cookie.tl literal_missing 1
 
-
-
-
 cosmic/web/sse.tl literal_missing 3
-
 
 cosmic/web/testing.tl literal_missing 4
 
@@ -9800,13 +9753,13 @@ build/migrate.tl or_mix 2
 
 build/migrate.tl overload_none 1
 
-build/migrate.tl view_written 11
+build/migrate.tl view_written 10
 
 build/migrate_test.tl is_on_record 1
 
 build/migrate_test.tl map_field 57
 
-build/migrate_test.tl nil_not_allowed 6
+build/migrate_test.tl nil_not_allowed 5
 
 build/migrate_tool_test.tl concat_type 2
 
@@ -10364,53 +10317,12 @@ cosmic/removed_example.tl setmetatable_call 1
 [examples]
 # The findings of the new checker in the examples a reader copies (`*_example.tl` and the code blocks of doc/guides), which
 # [`build.example_checks`] holds in the new mode: `<file> <code> <count>`, the count over all of the file's examples. They
-# are the examples that only the new grammar, or a type the new checker does not yet have, can write cleanly; the fork
-# passes them as they stand, so the default mode shows none. A pin only falls.
-# TODO: write `mut` on the array or map each of these examples fills (`local taken: mut {string} = {}`) and on the one it
-# hands to `table.remove` or `rawset`, once the switch makes the new grammar the one the tool reads
-# (doc/plans/strict-teal.md, "the switch"): the fork has no word for it, so an example cannot show it and pass the default
-# mode.
-cosmic/channel_example.tl view_written 1
-
-cosmic/flags_example.tl view_written 4
-
-cosmic/http/server_example.tl view_written 1
-
-cosmic/poll_example.tl view_as_mut 1
-
-cosmic/poll_example.tl view_written 5
-
-cosmic/web/input_example.tl view_written 1
-
-cosmic/web/sse_example.tl view_written 1
-
-cosmic/web_example.tl view_written 1
-
-# TODO: have `Env.all` answer `mut {string:string}` (a table the caller owns: `sys.environ` builds a new one on each call), once
-# the switch makes the new grammar the one the tool reads (doc/plans/strict-teal.md, "the switch"): the guides write the
-# child's entries into it, which the new checker refuses for a view.
-doc/guides/command-line.md view_written 3
-
-doc/guides/quickstart.md view_written 2
-
-doc/guides/web.md view_written 2
-
-doc/guides/web-api.md view_written 2
-
-doc/guides/web-deploy.md view_written 2
-
-doc/guides/web-forms.md view_written 2
-
-doc/guides/web-live.md view_written 2
-
-doc/guides/web-security.md view_written 2
-
-doc/guides/web-sessions.md view_written 2
+# are the examples that need a type the new checker or the library does not yet have to be written cleanly. A pin only falls.
 
 # TODO: declare the handles these examples close with `<close>` (a child, a connection, a listener, a query, a scratch
 # directory, a response, the signal guard) as classes, and write the metatable of the two examples that build one by hand
-# as a class, once the switch makes the new grammar the one the tool reads (doc/plans/strict-teal.md, "the switch"): only
-# that grammar has `class`, and the new checker refuses `<close>` on a record and a call of `setmetatable`.
+# as a class, once the library's handles are classes (a change of its own, library by library): the new checker refuses
+# `<close>` on a record and a call of `setmetatable`.
 cosmic/child_example.tl close_not_closable 5
 
 cosmic/fs_example.tl close_not_closable 1
@@ -10439,14 +10351,14 @@ doc/guides/quickstart.md close_not_closable 1
 
 # TODO: write the JSON documents these examples encode and send as literals, once the new checker takes a literal of mixed
 # values where a JSON value is wanted: a recursive alias (`string | number | boolean | {Value} | {string: Value}`) is
-# `alias_cycle`, and a literal given to an `any` parameter is `arms_differ` or `any_use`. The switch
-# (doc/plans/strict-teal.md, "the switch") needs a JSON value type, or a decision that a document is a record, first.
+# `alias_cycle`, and a literal given to an `any` parameter is `arms_differ` or `any_use`. That needs a
+# JSON value type, or a decision that a document is a record, first.
 cosmic/removed_example.tl any_use 1
 
 cosmic/web_example.tl any_use 1
 
-# TODO: write the coroutine example of the reference with the typed coroutines of the switch (doc/plans/strict-teal.md,
-# "the switch"): the new checker declares no `coroutine.yield`, and `coroutine.close` answers one of two lists of values.
+# TODO: write the coroutine example of the reference with typed coroutines, once lang/stdlib.d.tl declares them: the
+# checker declares no `coroutine.yield`, and `coroutine.close` answers one of two lists of values.
 cosmic/removed_example.tl alternatives_as_value 1
 
 cosmic/removed_example.tl field_unknown 4
@@ -10455,7 +10367,8 @@ cosmic/removed_example.tl overload_none 1
 
 # TODO: rewrite or retire these examples of forms the new grammar cuts (a record that names an interface it does not
 # declare the fields of, a union of two records, a cast, a test of a record, a field read of a map) once the language tour
-# (cosmic/removed_example.tl) is written in the new grammar; the [declared] and [checked] stages pin the same forms.
+# (cosmic/removed_example.tl) shows the replacements and not the removed forms; the [declared] and [checked] stages pin the
+# same forms.
 cosmic/removed_example.tl compare_disjoint 2
 
 cosmic/removed_example.tl cast_refused 1

@@ -4205,7 +4205,7 @@ function Child.wait_any(handles: {Handle}, timeout_ns?: integer): Handle?, strin
   -- TODO: carry a settled group's lingering members on Child.Result, a
   -- field beside the exit status, and answer the handle with "" here:
   -- build/test.tl reads the trouble beside the handle's result today, and
-  -- build.contracts exempts this pair from the error-slot rules until then.
+  -- build.syntax_contracts exempts this pair from the error-slot rules until then.
   if #handles == 0 then error("child: no handles to wait for", 2) end
   Poll.checked_ns(timeout_ns, "child", "timeout_ns", 2)
   local deadline = if timeout_ns ~= nil then now() + timeout_ns else nil end

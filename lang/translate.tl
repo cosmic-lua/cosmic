@@ -1071,8 +1071,9 @@ end
 --- The methods that read what stays still read another name, and are hazards. In source order.
 --
 -- TODO: place a method after the local it reads that a call makes, and a function that reads the record as a value, instead of
--- refusing the method as `unknown_variable`: the fork accepts the file. This waits on the switch (doc/plans/strict-teal.md, "the
--- switch"), which deletes this translator and has the tree's files spell the class where the locals stand.
+-- refusing the method as `unknown_variable` and leaving the file to its author, once a project is found that needs it: the
+-- translator goes with `cosmic migrate` (build/migrate.tl), and the tree's own files already spell the class where the
+-- locals stand.
 local function hoists_of(tokens: Lexer.Tokens, stats: {Ast.Stat}, declared: {string: {integer}}, held: Owner,
                          taken: {string: boolean}, methods: {string: boolean}): {Ast.Stat}
   local rec = held.record
