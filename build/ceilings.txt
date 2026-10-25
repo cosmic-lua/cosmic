@@ -696,7 +696,7 @@ build/docs_removed_test.tl nil_not_allowed 16
 
 build/docs_search_test.tl nil_not_allowed 2
 
-build/docs_test.tl nil_not_allowed 110
+build/docs_test.tl nil_not_allowed 105
 
 build/doctest/generate.tl nil_not_allowed 2
 
