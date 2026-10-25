@@ -20,8 +20,9 @@ local function refused(json: string, field: string): string
   local policy, why = PolicyJson.decode(json)
   assert(policy == nil, json .. " was taken")
   assert(why:find("^sandbox: "), why)
-  assert(why:find(field, 1, true) or why:find(path_of(field), 1, true),
-    json .. " refused without naming " .. field .. ": " .. why)
+  local named = why:find(field, 1, true) ~= nil
+  if not named and field:sub(1, 1) == "/" then named = why:find(path_of(field), 1, true) ~= nil end
+  assert(named, json .. " refused without naming " .. field .. ": " .. why)
   return why
 end
 

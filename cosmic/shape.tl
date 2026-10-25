@@ -63,7 +63,7 @@
 ---   the root `$`, list indices counted from 0 as the JSON document
 ---   counts them: `$.rows[1].id: want string, got integer`. A key that
 ---   is not an identifier is quoted as JSON quotes it, `$["a b"]`, and
----   a value that is not there is `$.rows[1].id: missing`. A failure of
+---   a value that is not there, or [`Json.null`], is `$.rows[1].id: missing`. A failure of
 ---   [`record_of`]'s `into` starts with the record's name, as
 ---   `Envelope: $.rows[1].id: missing`. A record's
 ---   fields and a map's keys are checked in byte order, and a list's
@@ -276,7 +276,7 @@ local function index_path(path: string, index: integer): string
 end
 
 --- What a value is, for a message: the Lua type, with integer and float
---- told apart, and JSON's null and arrays by their JSON names.
+--- told apart, and arrays by their JSON name.
 local function kind_of(v: any): string
   if v is number then return math.type(v) end
   if Json.is_array(v) then return "array" end
@@ -558,9 +558,9 @@ end
 
 local function typed_decode_into<T>(self: Shape.Typed<T>, text: string,
                                     opts?: Json.DecodeOptions): T?, string
-  local out, failed: T?, string = Shape.decode_into(text, self.spec, opts)
-  if failed ~= "" then return nil, named(self, failed) end
-  return out, ""
+  local decoded, trouble = Json.decode(text, opts)
+  if decoded == nil and trouble ~= "" then return nil, trouble end
+  return typed_into(self, decoded)
 end
 
 --- The shape of the Teal record `name`, read off its declaration by the

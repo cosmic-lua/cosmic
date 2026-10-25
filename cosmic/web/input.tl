@@ -1019,21 +1019,12 @@ local function dotted(pointer: string): string
   return table.concat(parts, ".")
 end
 
---- The JSON Pointer `/a~1b/0` for the steps of a path.
-local function pointer_of(steps: {string}): string
-  local parts: mut {string} = {}
-  for _, step in ipairs(steps) do
-    parts[#parts + 1] = "/" .. step:gsub("~", "~0"):gsub("/", "~1")
-  end
-  return table.concat(parts)
-end
-
 --- Splits the message of [`Shape.into`], `$.a.b[0]: want integer, got
 --- string`, into the JSON Pointer of its path and the rest. A message in
 --- another form has no path.
 local function split_failure(message: string): string, string
   if message:sub(1, 1) ~= "$" then return "", message end
-  local steps: mut {string} = {}
+  local steps: mut {string | integer} = {}
   local i = 2
   while i <= #message do
     local c = message:sub(i, i)
@@ -1054,14 +1045,16 @@ local function split_failure(message: string): string, string
     elseif c == "[" then
       local index = message:match("^%d+", i + 1)
       if index == nil or message:sub(i + 1 + #index, i + 1 + #index) ~= "]" then return "", message end
-      steps[#steps + 1] = index
+      steps[#steps + 1] = assert(math.tointeger(index)) + 1
       i = i + 2 + #index
     else
       break
     end
   end
   if message:sub(i, i + 1) ~= ": " then return "", message end
-  return pointer_of(steps), message:sub(i + 2)
+  local pointer, refused = Json.pointer(steps)
+  if pointer == nil or refused ~= "" then return "", message end
+  return pointer, message:sub(i + 2)
 end
 
 --- The code a [`Shape.into`] failure `reason` stands for.

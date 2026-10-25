@@ -137,6 +137,13 @@ local function test_a_value_that_breaks_the_record_is_refused_by_path()
   assert(PROFILE:into(value) ~= nil)
 end
 
+--- Only a shape failure starts with the record's name: text that is not
+--- JSON is the decoder's own message.
+local function test_a_syntax_error_does_not_carry_the_records_name()
+  local profile, err = PROFILE:decode_into("{bad")
+  assert(profile == nil and err ~= "" and not err:find("^Profile: "), err)
+end
+
 --- A call the build did not resolve has no spec to answer with.
 local function test_an_unresolved_call_says_what_to_do()
   local unresolved: function(string): Shape.Typed<Profile> = Shape.record_of as function(string): Shape.Typed<Profile>

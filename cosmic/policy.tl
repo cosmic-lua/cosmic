@@ -67,6 +67,7 @@ local POLICY_SPEC <const> = Shape.strict_record({
 -- TODO: name the field by its path in Sandbox.check's messages too, once a
 -- change bumps the harness epoch for it: cosmic.sandbox is a harness module
 -- (build/harness_epoch.tl).
+
 --- The policy `json` holds. Strict: a key this module does not know, a
 --- value of the wrong type, an `isolate` or a promise it does not name,
 --- a profile it has not, and a grant whose `letters` are not in the order

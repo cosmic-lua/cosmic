@@ -77,6 +77,7 @@ end
 
 -- TODO: once ci/cosmic-driver.pin names a release whose Shape failures read
 -- `$.a[0].b: want string, got integer`, match that form only.
+
 --- Whether `said` holds the Shape failure at JSON Pointer `at` that wants `expected`
 --- (`string, got integer`), in the form of the release running the test or the tree's.
 local function shape_failure(said: string, at: string, expected: string): boolean
