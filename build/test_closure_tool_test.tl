@@ -35,6 +35,9 @@ local function run(root: string, output: string): boolean, string
   return result.ok, text
 end
 
+--- The helper module of the projects below.
+local HELPER <const> = "local record helper\n  answer: integer\nend\nlocal h: helper = { answer = 42 }\nreturn h\n"
+
 --- In a project of its own, a test that requires its helper by a
 --- computed name fails, naming it; one that requires it by a literal
 --- name passes, and so does a computed require of the standard
@@ -42,7 +45,7 @@ end
 local function test_a_project_test_requiring_outside_its_closure_fails(tmp: string)
   local root = tmp .. "/project"
   assert(Fs.mkdirs(root .. "/suite"))
-  assert(Fs.write(root .. "/suite/helper.tl", "return { answer = 42 }\n"))
+  assert(Fs.write(root .. "/suite/helper.tl", HELPER))
   assert(Fs.write(root .. "/suite/static_test.tl", table.concat({
     'local helper = require("suite.helper")',
     "local function test_static()",
@@ -77,7 +80,7 @@ local function test_a_project_test_reading_the_store_outside_its_closure_needs_s
     tmp: string)
   local root = tmp .. "/project"
   assert(Fs.mkdirs(root .. "/suite"))
-  assert(Fs.write(root .. "/suite/helper.tl", "return { answer = 42 }\n"))
+  assert(Fs.write(root .. "/suite/helper.tl", HELPER))
   local reads = table.concat({
     'local Store = require("cosmic.store")',
     "local function test_bytecode()",
@@ -85,18 +88,22 @@ local function test_a_project_test_reading_the_store_outside_its_closure_needs_s
     "  assert(bytes ~= nil, why)",
     "end",
     "local function test_searcher()",
-    "  local said = ''",
-    "  for _, searcher in ipairs(package.searchers as {function(string): any, any}) do",
-    '    local loader, extra = searcher("suite.helper")',
-    "    if loader is function(string, any): any then",
-    "      -- The worker's own gate on `require` raises; a searcher called by hand does not.",
-    '      local loaded, helper = pcall(loader, "suite.helper", extra)',
-    "      if loaded and helper is {string:integer} and helper.answer == 42 then assert(true, 'a searcher called by hand found the helper'); return end",
-    "    elseif loader is string then",
-    "      said = said .. loader",
-    "    end",
+    "  -- The searchers are read by hand and called as no typed file may, so the case is a chunk of Lua.",
+    "  local chunk = assert(load([=[",
+    "local said = ''",
+    "for _, searcher in ipairs(package.searchers) do",
+    '  local loader, extra = searcher("suite.helper")',
+    '  if type(loader) == "function" then',
+    "    -- The worker's own gate on `require` raises; a searcher called by hand does not.",
+    '    local loaded, helper = pcall(loader, "suite.helper", extra)',
+    '    if loaded and type(helper) == "table" and helper.answer == 42 then return end',
+    '  elseif type(loader) == "string" then',
+    "    said = said .. loader",
     "  end",
-    "  error(said)",
+    "end",
+    "error(said)",
+    '  ]=], "=searcher"))',
+    "  chunk()",
     "end",
   }, "\n") .. "\n"
   assert(Fs.write(root .. "/suite/held_test.tl", reads))
