@@ -2825,18 +2825,19 @@ local function tag_edges(ctx: Ctx, f: Flow.State, field: Ast.Field, lit: string)
     return f, f
   end
   local store = ctx.store
-  -- The key of the fact that a test showed the tag of the place is not `value` in the field being tested while it is the member `m` (told by its place among the members of the declared type). The fact is a
-  -- path from the place, so an assignment to the place or to what it is read from takes it away, and a join keeps it
-  -- only where both paths have it.
+  -- The key of the fact that a test showed the tag of the place is not `value` in the field being tested while it is the
+  -- member `m`, told by its place among the members of the declared type. The fact is a path from the place, so an
+  -- assignment to the place or to what it is read from takes it away, and a join keeps it only where both paths have it.
+  -- A member that is not one of the declared type's (a narrowing is a union of the declared members, so none is believed
+  -- to be) has no key, "": nothing is noted of it and nothing is read, so it stays in both branches and keeps every value.
   local whole = members_of(store, store:non_nil(p.declared))
   local function tag_key(m: Type, value: string): string
-    local at = 0
     for i, member in ipairs(whole) do
       if member == m then
-        at = i
+        return p.key .. ".#" .. tostring(i) .. "." .. field.name .. "=" .. value
       end
     end
-    return p.key .. ".#" .. tostring(at) .. "." .. field.name .. "=" .. value
+    return ""
   end
   local members = members_of(store, store:non_nil(current(f, p)))
   local yes: mut {Type} = {}
@@ -2851,7 +2852,8 @@ local function tag_edges(ctx: Ctx, f: Flow.State, field: Ast.Field, lit: string)
       local left = 0
       local has = false
       for _, v in ipairs(values) do
-        if f.facts[tag_key(m, v)] == nil then
+        local key = tag_key(m, v)
+        if key == "" or f.facts[key] == nil then
           left = left + 1
           has = has or v == lit
         end
@@ -2862,7 +2864,7 @@ local function tag_edges(ctx: Ctx, f: Flow.State, field: Ast.Field, lit: string)
       if not has or left > 1 then
         no[#no + 1] = m
       end
-      if has and left > 1 then
+      if has and left > 1 and tag_key(m, lit) ~= "" then
         noted[#noted + 1] = m
       end
     end
