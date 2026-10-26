@@ -143,7 +143,7 @@ local prerequisites: {string: string} = {
 --- Each function's required host name, copied so a caller cannot change
 --- the obligations [`tally`] holds. The runner probes them before workers
 --- start, and the whole-tree check requires a CI leg to promise each.
-function c_functions.prerequisites(): {string: string}
+function c_functions.prerequisites(): mut {string: string}
   local out: mut {string: string} = {}
   for key, name in pairs(prerequisites) do out[key] = name end
   return out

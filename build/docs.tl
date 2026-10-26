@@ -2645,7 +2645,7 @@ end
 
 --- The modules of `index` a line each, aligned, with the first sentence
 --- of each, cut to `limit` bytes when there is one.
-local function index_lines(index: {docs.Summary}, limit?: integer): {string}
+local function index_lines(index: {docs.Summary}, limit?: integer): mut {string}
   local width = 0
   for _, summary in ipairs(index) do
     width = math.max(width, #summary.module)

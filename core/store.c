@@ -30,6 +30,7 @@
 #include "sqlite.h"
 #include "startup.h"
 #include "surface.h"
+#include "vector.h"
 
 #define STORE_LIST "cosmic.store.databases"
 #define STORE_ARTIFACT "cosmic.store.artifact"
@@ -121,6 +122,7 @@ static const struct raw_module {
   {"cosmic.sqlite", "cosmic.internal.sqlite", cosmic_open_sqlite},
   {"cosmic.hash", "cosmic.internal.hash", cosmic_open_hash},
   {"cosmic.html", "cosmic.internal.html", cosmic_open_html},
+  {"cosmic.vector", "cosmic.internal.vector", cosmic_open_vector},
   {"build.digest", "cosmic.internal.hash", NULL},
   {"cosmic.child", "cosmic.internal.process", cosmic_open_process},
   {"cosmic.proc", "cosmic.internal.process", NULL},

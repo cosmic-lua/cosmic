@@ -15,6 +15,7 @@
 #include "memory.h"
 #include "process.h"
 #include "sqlite3.h"
+#include "vector.h"
 
 #define HANDLE_TYPE "cosmic.sqlite.handle"
 #define STATEMENT_TYPE "cosmic.sqlite.statement"
@@ -329,6 +330,7 @@ int cosmic_sqlite_functions (sqlite3 *db) {
     rc = extensions[i](db, &trouble, NULL);
     sqlite3_free(trouble);
   }
+  if (rc == SQLITE_OK) rc = cosmic_vector_functions(db);
   return rc;
 }
 

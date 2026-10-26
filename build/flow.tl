@@ -123,7 +123,7 @@ local ESCAPES <const>: {string: boolean} = {
 --- C1's NEL (U+0085), which YAML 1.1 ends a line at; a `\r` alone;
 --- U+2028 and U+2029, which JSON5 ends a line at and YAML 1.2 does not;
 --- and U+FEFF, U+FFFE and U+FFFF.
-local function characters(text: string): {string}
+local function characters(text: string): mut {string}
   local found: mut {string} = {}
   if utf8.len(text) == nil then
     return { "the text is not UTF-8" }

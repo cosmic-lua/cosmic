@@ -35,7 +35,7 @@ this_program.runtime_environment = {
 --- `test_directory`), so what the process leaves there goes with the
 --- test, not into the host's temporary directory. The core hands a child
 --- the directory its coverage goes to whatever environment it is given.
-function this_program.environment(): {string:string}
+function this_program.environment(): mut {string:string}
   local out: mut {string:string} = {}
   local own = confine.test_directory()
   for _, name in ipairs(this_program.runtime_environment) do

@@ -19,7 +19,7 @@ local function copy_of(tmp: string, name: string): string
 end
 
 --- The environment of a run of the program: `grammar` as COSMIC_GRAMMAR and `tmp` as its temporary directory.
-local function environment(tmp: string, grammar: string): {string:string}
+local function environment(tmp: string, grammar: string): mut {string:string}
   local env = this_program.environment()
   env["COSMIC_GRAMMAR"] = grammar
   env["TMPDIR"] = tmp

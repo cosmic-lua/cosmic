@@ -155,7 +155,7 @@ function symbol_index.add(index: symbol_index.Index, row: symbol_index.Row)
 end
 
 --- The rows of `lists`, in order, each module and symbol once.
-local function once_each(lists: {{symbol_index.Row}}): {symbol_index.Row}
+local function once_each(lists: {{symbol_index.Row}}): mut {symbol_index.Row}
   local out: mut {symbol_index.Row} = {}
   local seen: mut {string: boolean} = {}
   for _, list in ipairs(lists) do
@@ -264,7 +264,7 @@ end
 
 --- The rows `query` names as declared or by its last few names, or a
 --- module's own row, as [`build.docs`]'s `named` finds them.
-local function named_rows(index: symbol_index.Index, query: string): {{symbol_index.Row}}
+local function named_rows(index: symbol_index.Index, query: string): mut {{symbol_index.Row}}
   return { index.exact[query] or {}, index.named[query] or {},
     index.named[(query:gsub(":", "."))] or {} }
 end

@@ -914,7 +914,7 @@ local VERDICTS_COMMIT <const> = "${{ runner.temp }}/verdicts-commit"
 
 --- The steps that name, restore, trim and save a leg's test verdicts,
 --- by id or by what they run or cache.
-local function verdict_steps(steps: {{string: any}}): {string: integer}
+local function verdict_steps(steps: {{string: any}}): mut {string: integer}
   local at: mut {string: integer} = {}
   for i, step in ipairs(steps) do
     local id = step.id as string

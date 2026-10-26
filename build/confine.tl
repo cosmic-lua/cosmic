@@ -384,7 +384,7 @@ end
 --- cache that says it was verified, where there is one: without it,
 --- the launcher and the core hash the whole core again at every start
 --- (core/startup.c's `stamp_path`).
-function confine.itself(): {string}
+function confine.itself(): mut {string}
   local program: mut {string} = {}
   local executable = confine.executable()
   if executable ~= nil then program[#program + 1] = executable end
