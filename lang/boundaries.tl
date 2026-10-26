@@ -15,7 +15,8 @@
 --- * a userdata record: "userdata"
 --- * a function: "function"
 --- * a union: the kinds of its members
---- * `any`, a type variable, `invalid` and a union with one of them: no check
+--- * `any`, a type variable, `invalid`, a union with one of them, and the stdlib's `Coroutine` and `Yielder` (threads at
+---   run time): no check
 --- * `never`: no kind at all, since no value has the type
 ---
 --- `nil` is a kind only where the type admits it. A recursive alias is read one level, as
@@ -48,9 +49,9 @@ end
 
 local ORDER <const>: {string} = { "integer", "number", "string", "boolean", "table", "function", "userdata", "nil" }
 
--- A bound on the aliases looked through, which a store's aliases never reach: a body names an alias only inside an
--- array or a map.
-local MAX_ALIASES <const> = 100
+-- The userdata records of lang/stdlib.d.tl that are no userdata at run time: a coroutine is a thread, and the handle a
+-- body yields through is taken for one. No kind of ours is a thread's, so a boundary typed with one is not checked.
+local THREADS <const>: {string: boolean} = { Coroutine = true, Yielder = true }
 
 --- What the members of a type admit as it is read.
 local record Seen
@@ -61,21 +62,27 @@ local record Seen
   mut other_table: boolean
   classes: mut {Types.Decl}
   mut unchecked: boolean
+  -- The aliases read, by path, so that aliases that reach each other through their unions are read once.
+  visited: mut {string: boolean}
 end
 
 local function add(seen: Seen, t: Types.Type)
   local current = t
-  for _ = 1, MAX_ALIASES do
-    local next_type = Types.unfold(current)
-    if next_type == current then
-      break
-    end
-    current = next_type
-  end
   if (current.tag == "named") and current.decl.kind == "alias" then
-    -- An alias with no body yet.
-    seen.unchecked = true
-  elseif (current.tag == "union") then
+    if seen.visited[current.decl.text] == true then
+      return
+    end
+    seen.visited[current.decl.text] = true
+    local body = Types.unfold(current)
+    if body == current then
+      -- An alias with no body yet.
+      seen.unchecked = true
+    else
+      add(seen, body)
+    end
+    return
+  end
+  if (current.tag == "union") then
     for _, member in ipairs(current.members) do
       add(seen, member)
     end
@@ -110,6 +117,9 @@ local function add(seen: Seen, t: Types.Type)
           seen.strings[#seen.strings + 1] = value
         end
       end
+    elseif kind == "userdata" and not current.value and #current.decl.names == 1 and
+        THREADS[current.decl.name] == true then
+      seen.unchecked = true
     elseif kind == "userdata" and not current.value then
       seen.found["userdata"] = true
     else
@@ -134,7 +144,7 @@ local function add(seen: Seen, t: Types.Type)
 end
 
 function Boundaries.kinds(t: Types.Type): Boundaries.Kinds?
-  local seen: Seen = { found = {}, strings = {}, any_string = false, other_table = false, classes = {}, unchecked = false }
+  local seen: Seen = { found = {}, strings = {}, any_string = false, other_table = false, classes = {}, unchecked = false, visited = {} }
   add(seen, t)
   if seen.unchecked then
     return nil
@@ -180,8 +190,8 @@ function Boundaries.spec(kinds: Boundaries.Kinds?): string
   return table.concat(kinds.list, "|")
 end
 
--- TODO: once lang/stdlib.d.tl declares `Coroutine` as the thread the runtime makes of it (its own TODO there), map it to
--- a kind of its own: it is a record there, so a boundary typed with it would be "table" and a thread is none.
+-- TODO: give `Coroutine` and `Yielder` a kind of their own ("thread") once lang/stdlib.d.tl declares a thread type: they
+-- are userdata records there and threads at run time, so a boundary typed with one is not checked.
 -- TODO: once lang/codegen.tl writes a boundary check from the checker's list of declared parameters, returns and fields
 -- (the next step of the boundary checks in doc/plans/strict-teal.md), call [`Boundaries.kinds`] and [`Boundaries.spec`]
 -- there: nothing outside the tests calls them yet.

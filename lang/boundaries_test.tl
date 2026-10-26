@@ -207,3 +207,39 @@ local function test_the_hook_takes_the_spelling()
   cross(free, nil)
   assert(violations_met() == before + 2)
 end
+
+--- A userdata record of the standard library that is a thread at run time, declared in `m` as the stdlib's is.
+local function thread_type(w: World, name: string): Types.Type
+  local decl = w.store:declare("userdata", "m", { name }, 0)
+  w.store:define(decl, { tparams = {}, supers = {}, fields = {}, methods = {}, values = {} })
+  return w.store:named(decl)
+end
+
+--- A coroutine is a thread at run time, though the standard library declares `Coroutine` a userdata: a kind of
+--- "userdata" would record every real one as a violation.
+local function test_a_coroutine_is_not_checked_as_a_userdata()
+  local w = world()
+  local coroutine_type = thread_type(w, "Coroutine")
+  same(spec(coroutine_type), "-")
+  same(spec(thread_type(w, "Yielder")), "-")
+  same(spec(w.store:optional(coroutine_type)), "-")
+  local cross = crossing()
+  local before = violations_met()
+  cross("f;lang/boundaries_test.tl:3;field;" .. spec(coroutine_type), coroutine.create(function() end))
+  assert(violations_met() == before, "a real coroutine was recorded")
+  -- Another userdata record is a userdata.
+  same(spec(named(w, "Handle")), "userdata")
+end
+
+--- Aliases that reach each other through their unions are each read once.
+local function test_aliases_that_name_each_other_in_their_unions_end()
+  local w = world()
+  local a = w.store:declare("alias", "m", { "A" }, 0)
+  local b = w.store:declare("alias", "m", { "B" }, 0)
+  local use_a, use_b = w.store:named(a), w.store:named(b)
+  w.store:define(a, { tparams = {}, supers = {}, fields = {}, methods = {}, values = {},
+    alias = w.store:union({ use_b, w.store.integer }) })
+  w.store:define(b, { tparams = {}, supers = {}, fields = {}, methods = {}, values = {},
+    alias = w.store:union({ use_a, w.store.string }) })
+  same(spec(use_a), "integer|string")
+end

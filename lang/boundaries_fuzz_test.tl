@@ -2,9 +2,9 @@
 --- accepted by the kinds [`Boundaries.kinds`] answers for it, as the worker's `__cosmic_tc` reads them, and a mapping that
 --- leaves a kind out is caught. `FUZZ_SEED` and `FUZZ_ITERS` pick the inputs (build/fuzz/init.tl).
 local Boundaries = require("lang.boundaries")
+local Globals = require("cosmic.internal.globals")
 local Fuzz = require("build.fuzz")
 local Hash = require("cosmic.hash")
-local Globals = require("cosmic.internal.globals")
 local Programs = require("lang.types_programs")
 local Test = require("cosmic.test")
 local Types = require("lang.types")
@@ -36,6 +36,8 @@ local record Sink
   send: function(value: any)
   enum: function(value: string)
   class: function(decl: Types.Decl)
+  --- A value the type's kinds must not admit.
+  reject: function(value: any)
 end
 
 --- Sends a value of a userdata record: a hasher, which the worker's hook tells by `type` alone.
@@ -58,6 +60,8 @@ local function emit(walk: Walk, t: Types.Type, sink: Sink): boolean
     return emit(walk, member, sink)
   elseif current.tag == "integer" then
     sink.send(pick(walk, 100) - 50)
+    -- A float is no integer, whole or not.
+    sink.reject(2.0)
   elseif current.tag == "number" then
     sink.send(if pick(walk, 2) == 0 then 2 else 1.5 end)
   elseif current.tag == "string" then
@@ -86,7 +90,13 @@ local function emit(walk: Walk, t: Types.Type, sink: Sink): boolean
       end
       sink.enum(member)
       sink.send(member)
+    elseif kind == "userdata" and current.decl.name == "Coroutine" then
+      -- A thread at run time, though declared a userdata.
+      sink.send(coroutine.create(function() end))
     elseif kind == "userdata" then
+      send_userdata(sink)
+    elseif kind == "interface" and pick(walk, 2) == 0 then
+      -- A userdata record may implement an interface.
       send_userdata(sink)
     else
       if kind == "class" and not current.value then
@@ -155,8 +165,13 @@ local function refused(input: string, cross: function(text: string, value: any),
   local store = Types.new()
   local fixture = Programs.fixture(store)
   local t = Programs.generate(store, fixture, draws)
-  local kinds = Boundaries.kinds(t)
   local walk: Walk = { draws = draws, at = 0 }
+  if pick(walk, 4) == 0 then
+    local decl = store:declare("userdata", "m", { "Coroutine" }, 0)
+    store:define(decl, { tparams = {}, supers = {}, fields = {}, methods = {}, values = {} })
+    t = store:union({ t, store:named(decl) })
+  end
+  local kinds = Boundaries.kinds(t)
   local held: Held = { why = "" }
   local text = "-"
   local mapped: Boundaries.Kinds? = nil
@@ -170,6 +185,16 @@ local function refused(input: string, cross: function(text: string, value: any),
       cross(text, value)
       if violations_met() ~= before and held.why == "" then
         held.why = Types.display(t) .. " is not satisfied by " .. text .. ": a " .. type(value)
+      end
+    end,
+    reject = function(value: any)
+      if mapped ~= nil and held.why == "" then
+        local before = violations_met()
+        cross(text, value)
+        if violations_met() == before then
+          held.why = Types.display(t) .. " is satisfied by " .. text .. ", though " .. type(value) .. " " ..
+            "is not an integer"
+        end
       end
     end,
     enum = function(value: string)
