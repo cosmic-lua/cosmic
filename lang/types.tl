@@ -2249,7 +2249,7 @@ end
 
 Types.Store.decode = function(self: Store, text: string): Type?, string
   local r: Reader = { text = text, at = 1, store = self }
-  local read: {Type} = {}
+  local read: mut {Type} = {}
   local why = attempt(self, function()
     check_utf8(r)
     read[1] = read_type(r)
@@ -2265,7 +2265,7 @@ Types.Store.decode = function(self: Store, text: string): Type?, string
 end
 
 Types.Store.decode_declaration = function(self: Store, text: string): Decl?, string
-  local read: {Decl} = {}
+  local read: mut {Decl} = {}
   local why = attempt(self, function()
     read[1] = read_declaration(self, text, nil, nil)
   end)

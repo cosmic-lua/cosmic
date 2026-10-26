@@ -314,9 +314,11 @@ Codes.catalog = {
     fix = "declare `mut <field>: <type>` in <record>, or make a new <record>",
   },
   {
-    code = "array_hole", rule = "index writes append",
-    why = "`t[#t + 1] = v` and `table.insert` are the writes that grow an array, so no write makes a hole and `#`, " ..
-      "`ipairs` and `table.insert` stay defined on a sequence",
+    code = "array_hole", rule = "index writes append, or overwrite what is there",
+    why = "`t[#t + 1] = v` and `table.insert` grow an array, `t[#t] = nil` and `table.remove` shorten it, and a value that " ..
+      "is not nil written at `1`, or at the index of a `for i = 1, #t do` that leaves the length of `t` alone, overwrites " ..
+      "an element or appends to an empty array, so no write makes a hole and `#`, `ipairs` and `table.insert` stay " ..
+      "defined on a sequence",
     fix = "append with `<t>[#<t> + 1] = <v>` or `table.insert`, remove with `table.remove`, or key a map " ..
       "`{integer: T}` for sparse data",
   },

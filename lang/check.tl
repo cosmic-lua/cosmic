@@ -195,12 +195,23 @@ local record Members
   array: Type?
 end
 
+--- What a numeric loop `for i = 1, #t do` whose body leaves the length of `t` alone knows: `i` is a key `t` has for as long
+--- as the body runs, so a non-nil value written at it overwrites a slot and leaves no hole ([`Writes.leaves_no_hole`]).
+local record Fill
+  --- The id of the binding of `i`.
+  var: integer
+  --- The local `t`, as the loop writes it.
+  object: Ast.Exp
+end
+
 --- A loop being walked: where its `break`s and `continue`s leave from.
 local record Loop
   --- The states at the `break`s, met: nil where none.
   breaks: Flow.State?
   --- The states at the `continue`s, met.
   continues: Flow.State?
+  --- What the loop knows of the keys it counts, where it counts the keys of an array.
+  fill: Fill?
 end
 
 --- A call that tests a value: the argument it narrows, and the type it takes it to ([`Types.Narrows`]).
@@ -2276,7 +2287,20 @@ end
 local function string_operand(ctx: Ctx, node: Ast.Node, t: Type): boolean
   if is_text(t) or t.tag == "never" then
     return true
-  elseif t.tag == "invalid" then
+  end
+  -- A union of enums and strings, none of it nil, is a string whichever member it is.
+  -- TODO: take the same union as the operand of `#` and of the orderings, which [`is_text`] refuses where it is not one enum or
+  -- `string`, once a program of the tree writes one.
+  if (t.tag == "union") and not t.nilable then
+    local text = true
+    for _, m in ipairs(t.members) do
+      text = text and is_text(m)
+    end
+    if text then
+      return true
+    end
+  end
+  if t.tag == "invalid" then
     return false
   end
   if t.tag == "integer" or t.tag == "number" or is_bool(t) then
@@ -5447,26 +5471,137 @@ local function local_statement(ctx: Ctx, s: Ast.Local)
   end
 end
 
+--- The rules by which an index write to a `mut` array is no hole ([`Writes.leaves_no_hole`]).
+local record Writes
+end
+
 --- Whether `a` and `b` name the same place: a name, or fields of one.
-local function same_place(a: Ast.Exp, b: Ast.Exp): boolean
+function Writes.same_place(a: Ast.Exp, b: Ast.Exp): boolean
   local x, y = peel(a), peel(b)
   if (x.kind == "Name") and (y.kind == "Name") then
     return x.binding ~= nil and x.binding == y.binding
   elseif (x.kind == "Field") and (y.kind == "Field") then
-    return x.name == y.name and same_place(x.object, y.object)
+    return x.name == y.name and Writes.same_place(x.object, y.object)
   end
   return false
 end
 
+--- Whether `key` is `#object`: the key of the last element of the array `object`.
+function Writes.is_length_of(key: Ast.Exp, object: Ast.Exp): boolean
+  local len = peel(key)
+  return (len.kind == "Unary") and len.op == "#" and Writes.same_place(len.operand, object)
+end
+
 --- Whether the key of `target` is `#object + 1`, which appends.
-local function is_append(target: Ast.Index): boolean
+function Writes.is_append(target: Ast.Index): boolean
   local key = peel(target.key)
   if (key.kind == "Binary") and key.op == "+" then
-    local len, one = key.left, key.right
-    return (len.kind == "Unary") and len.op == "#" and same_place(len.operand, target.object) and (one.kind == "Integer") and
-      one.value == 1
+    local one = key.right
+    return Writes.is_length_of(key.left, target.object) and (one.kind == "Integer") and one.value == 1
   end
   return false
+end
+
+--- Whether a value of type `t` is known not to be nil: an optional is not, nor is `any`, nor a type with no value.
+function Writes.present(t: Type): boolean
+  local tag = t.tag
+  return not nilable(t) and tag ~= "any" and tag ~= "invalid" and tag ~= "never"
+end
+
+--- An index write to a `mut` array that is not an append, whose verdict waits for the values of its statement, which say
+--- whether the value written is nil.
+local record Pending
+  target: Ast.Index
+  --- Its place among the targets of the statement.
+  at: integer
+  owner: string
+  base: Type
+end
+
+--- Whether the statements `body` of a loop leave the number of elements of the array held by the local `array` from falling
+--- below what it was before them, and never assign the local `var`, the index of the loop. The code that may shorten the
+--- array is a call, an iterator of a generic `for` (a call of its own) and the `__close` of a `<close>` local, and a
+--- write of a nil or of the array's name. No other code runs in the body, because no metamethod can: `class_metamethod` lets
+--- a class declare only `__close` and `__tostring` (both reached by the forms above), `setmetatable_call` refuses
+--- `setmetatable`, and `operand_type` refuses an operator on a record. The loop rule must be revisited if any of the three is
+--- relaxed; lang/check_test.tl pins them beside the loop tests.
+function Writes.keeps_length(body: Ast.Node, array: integer, var: integer): boolean
+  -- A closure may not assign a local of its function, so a way the body may change the length is a mark in a list. The
+  -- statements wait in a list too, so that a body of any depth is read without recursion.
+  local marks: mut {boolean} = {}
+  local waiting: mut {Ast.Node} = { body }
+  local function wait(child: Ast.Node)
+    waiting[#waiting + 1] = child
+  end
+  while #waiting > 0 and #marks == 0 do
+    local node = assert(waiting[#waiting])
+    waiting[#waiting] = nil
+    if (node.kind == "Call") or (node.kind == "MethodCall") or (node.kind == "ForIn") then
+      -- TODO: let a call that cannot change the length of an array (a function of the standard library that is passed
+      -- no function, `string.format`, `math.max`) stand in the body, once the checker says which calls those are.
+      marks[#marks + 1] = true
+    elseif (node.kind == "Local") then
+      for _, binding in ipairs(node.bindings) do
+        if binding.attr == "close" then
+          marks[#marks + 1] = true
+        end
+      end
+    elseif (node.kind == "Assign") then
+      for i, target in ipairs(node.targets) do
+        local value = node.values[i]
+        if (target.kind == "Name") then
+          -- `t = {}` is another table, and the index of the loop is not assigned.
+          if target.binding == array or target.binding == var then
+            marks[#marks + 1] = true
+          end
+        elseif (target.kind == "Index") then
+          local object = peel(target.object)
+          if value ~= nil and peel(value).kind == "Nil" then
+            -- Any table may be the array under another name.
+            marks[#marks + 1] = true
+          elseif (object.kind == "Name") and object.binding == array then
+            -- The write at the index of the loop overwrites; any other write may append or leave a hole.
+            local key = peel(target.key)
+            if not ((key.kind == "Name") and key.binding == var) then
+              marks[#marks + 1] = true
+            end
+          end
+        end
+      end
+    end
+    Ast.children(node, wait)
+  end
+  return #marks == 0
+end
+
+--- What the numeric loop `s` knows of its index, if it counts the keys of an array: `for i = 1, #t do`, from a literal
+--- of 1 or more by a literal step of 1 or more, over a local `t` that the body does not assign, append to, shorten or
+--- pass to a call, and whose index nothing assigns. `t` has at least as many elements at each pass as it had when the
+--- loop began, so `i` is a key it has.
+function Writes.fill_of(s: Ast.ForNum): Fill?
+  local from = peel(s.from)
+  local to = peel(s.to)
+  local step = s.step
+  if not ((from.kind == "Integer") and from.value >= 1) then
+    return nil
+  elseif step ~= nil then
+    local given = peel(step)
+    if not ((given.kind == "Integer") and given.value >= 1) then
+      return nil
+    end
+  end
+  if not ((to.kind == "Unary") and to.op == "#") then
+    return nil
+  end
+  local object = peel(to.operand)
+  if not (object.kind == "Name") then
+    return nil
+  end
+  local held = object.binding
+  if held == nil or not Writes.keeps_length(s.body, held, s.var.id) then
+    return nil
+  end
+  return { var = s.var.id, object = object }
 end
 
 --- The type of `object` to write a member of, after reporting what it may not be.
@@ -5475,8 +5610,9 @@ local function writable_base(ctx: Ctx, object: Ast.Exp): Type?
   return readable(ctx, object, t, "it has no member to write")
 end
 
---- The place `target` writes, reporting what may not be written.
-local function place_of_target(ctx: Ctx, target: Ast.Exp): Type?, boolean
+--- The place `target` writes, reporting what may not be written. It is the `at`th target of its statement, which `removes`
+--- if it is the only one and gives it a literal nil. A write to an array that is no append is left in `pending`.
+local function place_of_target(ctx: Ctx, target: Ast.Exp, at: integer, removes: boolean, pending: mut {Pending}): Type?, boolean
   local store = ctx.store
   if (target.kind == "Name") then
     local t = name_value(ctx, target)
@@ -5523,10 +5659,12 @@ local function place_of_target(ctx: Ctx, target: Ast.Exp): Type?, boolean
         report(ctx, "view_written", target, owner .. " is a view " .. tq(ctx, base) .. ", so " .. subject(ctx, target) ..
             " cannot be assigned",
           "declare " .. owner .. " `mut " .. show(ctx, base) .. "` where it is made or received", { show(ctx, base) })
-      elseif not is_append(target) then
-        report(ctx, "array_hole", target, subject(ctx, target) .. " may leave a hole in the array " .. owner,
-          "append with `" .. text_of(ctx, target.object) .. "[#" .. text_of(ctx, target.object) .. " + 1] = v` or " ..
-            "`table.insert`, remove with `table.remove`, or key a map `{integer: T}` for sparse data", { show(ctx, base) })
+      elseif removes and Writes.is_length_of(target.key, target.object) then
+        -- The last element goes, so the elements left are the first ones. Of several targets, another may write the key
+        -- the length names after this one is gone (`t[#t], t[#t + 1] = nil, v`).
+        return base.element, true
+      elseif not Writes.is_append(target) then
+        pending[#pending + 1] = { target = target, at = at, owner = owner, base = base }
       end
       return base.element
     elseif (base.tag == "map") then
@@ -5579,6 +5717,39 @@ local function place_of_target(ctx: Ctx, target: Ast.Exp): Type?, boolean
   return nil
 end
 
+--- Whether the write `p` leaves the array it writes with no hole: the statement has the values `vals`. The array has its
+--- elements from 1 to its length, so a write that puts a value that is not nil
+---   - at 1 appends (the array is empty) or overwrites (it is not),
+---   - at the index of a loop over `1` to the length of the array ([`Writes.fill_of`]), which has that element,
+--- overwrites an element and leaves the others where they are. A nil would take an element out of the middle, and a write at
+--- the length (`t[#t] = v`) is at 0 where the array is empty, which is no key of an array.
+---
+--- A write in a function made inside the loop (`saved = function() u[i] = 1 end`) is refused only because the body of a
+--- function does not inherit `ctx.loops` (([`function_body`])), which holds the loop's fill; [`Writes.keeps_length`] does not
+--- decide it. Keep the two apart: a closure may run when the array is shorter.
+function Writes.leaves_no_hole(ctx: Ctx, vals: Values, p: Pending): boolean
+  local written = value_at(ctx, vals, p.at)
+  if written == nil or not Writes.present(written) then
+    return false
+  end
+  local target = p.target
+  local key = peel(target.key)
+  if (key.kind == "Integer") and key.value == 1 then
+    return true
+  end
+  if (key.kind == "Name") then
+    for _, loop in ipairs(ctx.loops) do
+      local fill = loop.fill
+      if fill ~= nil and key.binding == fill.var and Writes.same_place(fill.object, target.object) then
+        return true
+      end
+    end
+  end
+  -- TODO: let the swap `t[i], t[j] = t[j], t[i]` stand, whose values are elements that are there, once the checker narrows a
+  -- read of an index (`if t[i] ~= nil`) to the element type: `t[i]` is `T?` after any test now, so the swap is refused.
+  return false
+end
+
 local function check_assignment(ctx: Ctx, s: Ast.Assign): Values?
   local named: mut {integer: boolean} = {}
   for _, target in ipairs(s.targets) do
@@ -5602,8 +5773,11 @@ local function check_assignment(ctx: Ctx, s: Ast.Assign): Values?
   ctx.assigning = named
   local wants: mut {Type} = {}
   local deletes: mut {boolean} = {}
+  local pending: mut {Pending} = {}
+  local first = s.values[1]
+  local removes = #s.targets == 1 and #s.values == 1 and first ~= nil and peel(first).kind == "Nil"
   for i, target in ipairs(s.targets) do
-    local want, deleting = place_of_target(ctx, target)
+    local want, deleting = place_of_target(ctx, target, i, removes, pending)
     if want ~= nil then
       wants[i] = want
       deletes[i] = deleting
@@ -5611,6 +5785,14 @@ local function check_assignment(ctx: Ctx, s: Ast.Assign): Values?
   end
   local vals = values_of(ctx, s.values, wants, nil)
   ctx.assigning = outer_assigning
+  for _, p in ipairs(pending) do
+    if not Writes.leaves_no_hole(ctx, vals, p) then
+      local target = p.target
+      report(ctx, "array_hole", target, subject(ctx, target) .. " may leave a hole in the array " .. p.owner,
+        "append with `" .. text_of(ctx, target.object) .. "[#" .. text_of(ctx, target.object) .. " + 1] = v` or " ..
+          "`table.insert`, remove with `table.remove`, or key a map `{integer: T}` for sparse data", { show(ctx, p.base) })
+    end
+  end
   local counted = check_counts(ctx, s, #s.targets, vals, #s.values, "target")
   if not counted then
     return nil
@@ -5885,8 +6067,8 @@ local function run_loop(ctx: Ctx, entry: Flow.State, walk: function(head: Flow.S
 end
 
 --- Opens a loop: where its `break`s and `continue`s are met.
-local function open_loop(ctx: Ctx): Loop
-  local loop: Loop = {}
+local function open_loop(ctx: Ctx, fill?: Fill): Loop
+  local loop: Loop = { fill = fill }
   ctx.loops[#ctx.loops + 1] = loop
   return loop
 end
@@ -5926,9 +6108,10 @@ local function for_numeric(ctx: Ctx, s: Ast.ForNum)
   end
   ctx.vars[s.var.id] = (from == 1 and step == 1) and ctx.store.integer or ctx.store.number
   local entry = ctx.flow
+  local fill = Writes.fill_of(s)
   ctx.flow = run_loop(ctx, entry, function(head: Flow.State): Flow.State, Flow.State
     ctx.flow = head
-    local loop = open_loop(ctx)
+    local loop = open_loop(ctx, fill)
     declare_local(ctx, s.var.id, false)
     block(ctx, s.body)
     local back, breaks = close_loop(ctx, loop, ctx.flow)

@@ -1273,7 +1273,7 @@ end
 --- Every zone [`local_zone`] has answered with no options, by `TZ`, and
 --- the one for `TZ` unset.
 local locals: mut {string:Time.Zone} = {}
-local unset_local: {Time.Zone} = {}
+local unset_local: mut {Time.Zone} = {}
 
 --- The host's own zone, as Java and ICU find it: the host names a zone
 --- and the binary's tz database gives its rules, as `zone` does. The

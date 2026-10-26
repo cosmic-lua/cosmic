@@ -738,7 +738,7 @@ local function gather(paths: {string}, skip_file: string?): {Item}?, Outcome
         kind: string
       end
       local seen: mut {Seen} = {}
-      local odd: {string} = {}
+      local odd: mut {string} = {}
       local listed, walk_why = Fs.walk(given, function(relative: string, _bare: string, kind: Fs.Kind): boolean
         if kind == "dir" or kind == "link" then
           seen[#seen + 1] = { relative = relative, kind = kind }

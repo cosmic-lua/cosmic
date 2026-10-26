@@ -1524,7 +1524,7 @@ local function check_modes(run: Run)
     holding[Node.base(scope).id] = held
   end
   -- The functions around the node being visited, innermost last; the chunk itself is the first.
-  local stack: {Ast.Node} = { subject.chunk }
+  local stack: mut {Ast.Node} = { subject.chunk }
   local function scope_binding(name: string): Ast.Node?
     for i = #stack, 1, -1 do
       local own = binds[Node.base(stack[i]).id]

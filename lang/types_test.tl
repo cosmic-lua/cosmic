@@ -1083,8 +1083,8 @@ end
 
 local function test_what_a_loader_made_in_a_refused_decode_is_dead_and_its_id_is_not_another_type_s()
   local holder: mut {Types.Store} = {}
-  local kept: {Types.Type} = {}
-  local decls: {Types.Decl} = {}
+  local kept: mut {Types.Type} = {}
+  local decls: mut {Types.Decl} = {}
   local s = Types.new(function(_module: string, _name: string): string?
     local inside = holder[1]
     kept[1] = inside:map(inside.string, inside.integer)

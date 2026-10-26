@@ -59,7 +59,7 @@ local record Guard is Innermost.Held
 end
 
 --- The open guards, the innermost last.
-local open_guards: {Guard} = {}
+local open_guards: mut {Guard} = {}
 
 --- The stamp of the latest signal a guard caught and then closed on
 --- while another stayed open, 0 when none: the last guard to close

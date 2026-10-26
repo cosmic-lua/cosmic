@@ -45,7 +45,7 @@ local record test_inputs
     files: mut {string:boolean}
     --- Paths of the tree, each a file or a directory and all beneath
     --- it: the fuzz corpora, and what the module declares.
-    reads: {string}
+    reads: mut {string}
     --- Absolute paths outside the tree, each a file or /proc.
     host: {string}
     --- Environment variables, pinned or declared, by name.

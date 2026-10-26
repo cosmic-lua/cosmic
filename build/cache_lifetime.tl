@@ -67,7 +67,7 @@ local record cache_lifetime
     busy: mut {string}
     --- What it could not do, one line each; a failure keeps what it
     --- touched.
-    troubles: {string}
+    troubles: mut {string}
     --- Whether it began: not when the base was pruned in the day before.
     ran: boolean
   end

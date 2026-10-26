@@ -90,8 +90,8 @@ local CASES <const>: {Case} = {
     msg = "`R.n` is fixed: it is not declared `mut`", fix = "declare `mut n: integer` in `R`, or make a new `R`",
   },
   {
-    code = "array_hole", source = "local xs: mut {integer} = {}\nxs[1] = 2\n", at = { 2, 1 },
-    msg = "`xs[1]` may leave a hole in the array `xs`", fix = "append with `xs[#xs + 1] = v` or `table.insert`",
+    code = "array_hole", source = "local xs: mut {integer} = {}\nxs[2] = 2\n", at = { 2, 1 },
+    msg = "`xs[2]` may leave a hole in the array `xs`", fix = "append with `xs[#xs + 1] = v` or `table.insert`",
   },
   {
     code = "float_key", source = "local xs: mut {integer} = {}\nlocal i: number = 1.5\nlocal v = xs[i]\n", at = { 3, 14 },
@@ -891,6 +891,10 @@ local function test_a_chain_of_any_length_is_checked_without_recursion()
   end
   local c = Programs.run("local record Node\n  next: Node\nend\nlocal function chase(n: Node)\n  local deep = n" .. table.concat(hops) .. "\nend\n")
   assert(#c.before == 0 and #c.errors == 0 and Types.display(Programs.var(c, "deep")) == "Node", Programs.codes(c))
+  -- the body of a loop over the keys of an array is read for what it does to the array, and a chain in it is no recursion
+  local d = Programs.run("local xs: mut {integer} = {}\nlocal a: integer = 1\nfor n = 1, #xs do\n  xs[n] = " ..
+      table.concat(terms, " + ") .. "\nend\n")
+  assert(#d.before == 0 and #d.errors == 0, Programs.codes(d) .. (d.before[1] or ""))
 end
 
 -- holes a review found ----------------------------------------------------------------------------------
@@ -1008,6 +1012,116 @@ local function test_only_a_literal_nil_deletes_a_key_of_a_map()
   assert(codes_of(head .. "m[\"a\"] = v\n") == "nil_not_allowed")
   assert(codes_of(head .. "m[\"a\"] = nil\nm[\"b\"] = 1\n") == "")
   assert(codes_of(head .. "m[\"a\"], m[\"b\"] = nil, v\n") == "nil_not_allowed")
+end
+
+local function test_a_write_to_an_array_that_leaves_no_hole_stands()
+  local head = "local xs: mut {integer} = {}\nlocal i: integer = 1\nlocal v: integer = 3\n"
+  -- the first element: an append where the array is empty, an overwrite where it is not
+  assert(codes_of(head .. "xs[1] = v\nxs[1] = 4\n") == "")
+  -- the last element goes, and an append at the end is the write that grows
+  assert(codes_of(head .. "xs[#xs] = nil\nxs[#xs + 1] = v\n") == "")
+  -- a path of fields that has no call is the same table on both sides
+  local record_head = "local record Box\n  mut items: mut {integer}\nend\nlocal box: Box = { items = {} }\n"
+  assert(codes_of(record_head .. "box.items[#box.items] = nil\nbox.items[#box.items + 1] = 1\n") == "")
+  -- a loop over the keys of the array whose body leaves its length alone writes a value that is not nil at them
+  assert(codes_of(head .. "for n = 1, #xs do\n  xs[n] = n * 2\nend\n") == "")
+  assert(codes_of(head .. "for n = 2, #xs, 2 do\n  xs[n] = v\n  local m = xs[n]\nend\n") == "")
+  -- an inner loop
+  assert(codes_of(head .. "for n = 1, #xs do\n  for m = 1, 2 do\n    xs[n] = m\n  end\nend\n") == "")
+end
+
+local function test_a_write_that_may_leave_a_hole_is_refused_with_its_fix()
+  local head = "local xs: mut {integer} = {}\nlocal i: integer = 1\nlocal v: integer = 3\nlocal m: integer? = nil\n"
+  assert(codes_of(head .. "xs[2] = v\n") == "array_hole")
+  assert(codes_of(head .. "xs[#xs + 2] = v\n") == "array_hole")
+  assert(codes_of(head .. "xs[0] = v\n") == "array_hole")
+  assert(codes_of(head .. "xs[i] = v\n") == "array_hole")
+  -- an element is not taken out of the first place or from the middle, and a nil does not stand for a value
+  assert(has(codes_of(head .. "xs[1] = nil\n"), "array_hole"))
+  assert(has(codes_of(head .. "xs[1] = m\n"), "array_hole"))
+  assert(has(codes_of(head .. "xs[i] = nil\n"), "array_hole"))
+  -- the last element is overwritten where there is one, and is no key where the array is empty
+  assert(codes_of(head .. "xs[#xs] = v\n") == "array_hole")
+  -- `#t` at a table other than the one written
+  assert(has(codes_of(head .. "local ys: mut {integer} = {}\nys[#xs] = nil\n"), "array_hole"))
+  -- a removal and a write in one statement may put the write past the end the removal makes
+  assert(codes_of(head .. "xs[#xs], xs[#xs + 1] = nil, v\n") == "array_hole nil_not_allowed")
+  -- a call can be a different table each time it is evaluated
+  assert(codes_of(head .. "local function pick(): mut {integer}\n  return xs\nend\npick()[#pick() + 1] = v\n") == "array_hole")
+end
+
+local function test_a_loop_over_the_keys_of_an_array_writes_them_only_while_it_leaves_the_length_alone()
+  local head = "local xs: mut {integer} = {}\nlocal v: integer = 3\nlocal m: integer? = nil\n" ..
+    "local function shrink(): integer?\n  xs[#xs] = nil\n  return nil\nend\n"
+  local function in_loop(header: string, body: string): string
+    return codes_of(head .. header .. "\n" .. body .. "\nend\n")
+  end
+  assert(in_loop("for n = 1, #xs do", "  xs[n] = v") == "")
+  -- a nil may take an element out of the middle
+  assert(has(in_loop("for n = 1, #xs do", "  xs[n] = nil"), "array_hole"))
+  assert(has(in_loop("for n = 1, #xs do", "  xs[n] = m"), "array_hole"))
+  -- the body appends, shortens, assigns the array, or calls what may do any of that
+  assert(has(in_loop("for n = 1, #xs do", "  xs[n] = v\n  xs[#xs + 1] = v"), "array_hole"))
+  assert(has(in_loop("for n = 1, #xs do", "  xs[n] = v\n  xs[#xs] = nil"), "array_hole"))
+  assert(has(in_loop("for n = 1, #xs do", "  xs[n] = v\n  table.remove(xs)"), "array_hole"))
+  assert(has(in_loop("for n = 1, #xs do", "  xs[n] = v\n  xs = {}"), "array_hole"))
+  assert(has(in_loop("for n = 1, #xs do", "  xs[n] = v\n  xs[1] = v\n  xs[n + 1] = v"), "array_hole"))
+  assert(has(in_loop("for n = 1, #xs do", "  xs[n] = v\n  local f = function()\n    xs[#xs + 1] = v\n  end"), "array_hole"))
+  -- a closure made in the loop may run when the array is shorter
+  assert(has(in_loop("for n = 1, #xs do", "  local put = function()\n    xs[n] = v\n  end"), "array_hole"))
+  -- another table is another table, and an alias may be shortened where the array is not named
+  assert(has(in_loop("for n = 1, #xs do", "  local ys: mut {integer} = xs\n  ys[#ys] = nil\n  xs[n] = v"), "array_hole"))
+  -- a generic `for` calls its iterator, and a `<close>` local its `__close`, neither of which is a call to read
+  assert(has(in_loop("for n = 1, #xs do", "  xs[n] = v\n  for _ in shrink do\n  end"), "array_hole"))
+  assert(has(in_loop("for n = 1, #xs do", "  xs[n] = v\n  local closing <close> = nil"), "array_hole"))
+  -- the index of an inner loop is no key of the array the outer one counts
+  assert(has(in_loop("for n = 1, #xs do", "  for k = 1, 2 do\n    xs[k] = v\n  end"), "array_hole"))
+  -- a loop that counts something else, or from before the first key, or past the end, or backwards
+  assert(has(in_loop("for n = 1, #xs + 1 do", "  xs[n] = v"), "array_hole"))
+  assert(has(in_loop("for n = 0, #xs do", "  xs[n] = v"), "array_hole"))
+  assert(has(in_loop("for n = 1, #xs, -1 do", "  xs[n] = v"), "array_hole"))
+  assert(has(in_loop("for n = 1, 3 do", "  xs[n] = v"), "array_hole"))
+  assert(has(in_loop("for n = 1, #xs do", "  xs[n + 1] = v"), "array_hole"))
+  assert(has(in_loop("for n = 1, #xs do", "  local function put(at: integer)\n    xs[at] = v\n  end"), "array_hole"))
+  -- a write before the loop or after it is outside it
+  assert(has(codes_of(head .. "for n = 1, #xs do\nend\nlocal n: integer = 1\nxs[n] = v\n"), "array_hole"))
+end
+
+local function test_no_metamethod_runs_in_the_body_of_a_fill_loop_while_three_refusals_stand()
+  -- the loop rule reads no code but calls, iterators and `__close`: relax one of these and it must be revisited
+  local declared = Programs.run("local class C\n  function __add(self)\n  end\nend\n")
+  local first = declared.lowered.errors[1]
+  assert(first ~= nil and first.code == "class_metamethod")
+  assert(codes_of("local t = setmetatable({}, {})\n") == "setmetatable_call")
+  local got = codes_of("local record R\n  n: integer\nend\nlocal r: R = { n = 1 }\nlocal x = r + r\n")
+  assert(got == "operand_type operand_type", got)
+  -- a closure made in the loop is refused because a function body has no loop around it, not for what the body does
+  assert(codes_of("local saved: function() = function() end\nlocal u: mut {integer} = { 1, 2, 3 }\nfor i = 1, #u do\n" ..
+      "  saved = function() u[i] = 1 end\nend\n") == "array_hole")
+end
+
+local function test_a_removal_of_the_last_element_is_held_to_a_mut_array_and_a_write_there_is_not_one()
+  -- a view cannot be written
+  assert(has(codes_of("local function f(xs: {integer})\n  xs[#xs] = nil\nend\n"), "view_written"))
+  assert(has(codes_of("local function f(xs: {integer}?)\n  xs[#xs] = nil\nend\n"), "nil_not_allowed"))
+  -- a value at the length is a write at 0 where the array is empty, and a nil of two targets is no removal
+  assert(codes_of("local xs: mut {integer} = {}\nxs[#xs] = 1\n") == "array_hole")
+  assert(codes_of("local xs: mut {integer} = {}\nlocal ys: mut {integer} = {}\nxs[#xs], ys[#ys] = nil, nil\n") ==
+      "array_hole array_hole nil_not_allowed nil_not_allowed")
+  -- a swap of two elements puts each where the other is, and is held to the rule of a write at an index: the values of
+  -- it are `T?`
+  local swap = "local function f(xs: mut {integer}, i: integer, j: integer)\n"
+  assert(has(codes_of(swap .. "  xs[i], xs[j] = xs[j], xs[i]\nend\n"), "array_hole"))
+end
+
+local function test_a_union_of_enums_and_strings_is_a_string_operand_of_concatenation()
+  local head = "local enum A \"a\" end\nlocal enum B \"b\" end\nlocal enum C \"c\" end\n"
+  assert(codes_of(head .. "local function f(u: A | B, s: string): string\n  return u .. s .. u\nend\n") == "")
+  assert(codes_of(head .. "local function f(u: A | B | string): string\n  return \"k=\" .. u\nend\n") == "")
+  assert(codes_of(head .. "local function f(u: A | B | C): string\n  return u .. \"\"\nend\n") == "")
+  assert(codes_of(head .. "local function f(u: A | B?): string\n  return u .. \"\"\nend\n") == "nil_not_allowed")
+  assert(codes_of(head .. "local function f(u: A | integer): string\n  return u .. \"\"\nend\n") == "operand_type")
+  assert(codes_of(head .. "local function f(u: A | {string}): string\n  return u .. \"\"\nend\n") == "operand_type")
 end
 
 local function test_a_string_literal_on_the_left_of_an_equality_is_held_to_an_optional_enum()

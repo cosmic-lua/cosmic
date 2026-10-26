@@ -757,7 +757,7 @@ end
 function fix.link_context(root: string, whole: boolean, own: boolean,
                           rebuild_here: function(string): boolean, string,
                           databases: function(): docs.Sources): fix.LinkSource
-  local opened: {docs.Sources} = {}
+  local opened: mut {docs.Sources} = {}
   local source: fix.LinkSource?
   local function open(): docs.View?, string
     if not whole then

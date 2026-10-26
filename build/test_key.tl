@@ -991,7 +991,7 @@ function test_key.worker_environment(environment: {string:string}): {string:stri
 end
 
 -- Read once, since this process never changes its own environment.
-local worker_view_memo: {{string:string}} = {}
+local worker_view_memo: mut {{string:string}} = {}
 function test_key.worker_view(): {string:string}
   if worker_view_memo[1] == nil then
     worker_view_memo[1] = test_key.worker_environment(Env.all())

@@ -1579,7 +1579,7 @@ local function literal_rewrites(source: string, parsed: Parser.Parsed): {Rewrite
     end
   end
   local inline: {Literal} = {}
-  local returns: {Returning} = {}
+  local returns: mut {Returning} = {}
   --- Notes the call `e` as a class literal if it is one, where the place wants the class `accepts` says.
   local function consider(e: Ast.Exp, accepts: function(class: string): boolean, annotate: Ast.Binding?)
     if not ((e.kind == "Call")) then
@@ -1780,17 +1780,17 @@ local function mut_tracker(tokens: Lexer.Tokens, hazards: mut {Translate.Hazard}
   -- The entries a `local` statement bound, to give their types when it is over.
   local pending: {Ast.Local: {Held}} = {}
   -- The blocks being walked, innermost last, each with the names it binds.
-  local scopes: {{string: Entry}} = {}
+  local scopes: mut {{string: Entry}} = {}
   -- The names a block binds before its statements: a function's parameters,
   -- a loop's variables, a `match` arm's bindings.
   local arriving: {Ast.Block: {string: Entry}} = {}
-  local classes: {string} = {}
+  local classes: mut {string} = {}
   -- The interfaces (or the one interface) each type of the file names after `is`.
   local supers: {string: {string}} = {}
   -- The first token of each type of the file.
   local starts: {string: integer} = {}
   -- The record a method written as `function R:m()` is of, by its function.
-  local owner_of: {Ast.Fn: string} = {}
+  local owner_of: mut {Ast.Fn: string} = {}
 
   local function binder(name: string): Entry?
     for i = #scopes, 1, -1 do
@@ -2180,7 +2180,7 @@ local function collect(source: string, parsed: Parser.Parsed, hazards: {Translat
   end
 
   local covered: {Ast.Node: boolean} = {}
-  local frames: {Frame} = {}
+  local frames: mut {Frame} = {}
   local stopped: {integer: integer} = {}
   local open_tables: {integer} = {}
   local loop_bodies: {Ast.Block: boolean} = {}

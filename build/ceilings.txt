@@ -555,7 +555,7 @@ build/c/declared_types_test.tl nil_not_allowed 5
 
 build/c/init.tl nil_not_allowed 13
 
-build/c/layout.tl nil_not_allowed 17
+build/c/layout.tl nil_not_allowed 14
 
 build/c/rules.tl nil_not_allowed 34
 
@@ -657,7 +657,7 @@ build/dispatched_features_test.tl nil_not_allowed 1
 
 build/doc_anchors_test.tl nil_not_allowed 1
 
-build/docs.tl nil_not_allowed 58
+build/docs.tl nil_not_allowed 57
 
 build/docs_checks.tl nil_not_allowed 10
 
@@ -703,7 +703,7 @@ build/fix/near_test.tl nil_not_allowed 3
 
 build/fix/notes_test.tl nil_not_allowed 1
 
-build/flow.tl nil_not_allowed 32
+build/flow.tl nil_not_allowed 30
 
 build/flow_fuzz_test.tl nil_not_allowed 1
 
@@ -761,19 +761,17 @@ build/link_files.tl nil_not_allowed 7
 
 build/link_index.tl nil_not_allowed 9
 
-build/link_resolve.tl nil_not_allowed 18
+build/link_resolve.tl nil_not_allowed 17
 
 build/link_text.tl nil_not_allowed 16
 
 build/link_text_fuzz_test.tl nil_not_allowed 2
 
-build/links.tl nil_not_allowed 10
+build/links.tl nil_not_allowed 9
 
 build/locator_fuzz_test.tl nil_not_allowed 3
 
 build/lua_tail.tl nil_not_allowed 1
-
-build/narrow.tl nil_not_allowed 1
 
 build/patch_test.tl nil_not_allowed 1
 
@@ -881,7 +879,7 @@ build/syntax_analyzer.tl nil_not_allowed 4
 
 build/syntax_analyzer_test.tl nil_not_allowed 25
 
-build/syntax_contracts.tl nil_not_allowed 39
+build/syntax_contracts.tl nil_not_allowed 38
 
 build/syntax_contracts_test.tl nil_not_allowed 5
 
@@ -925,8 +923,6 @@ build/test.tl nil_not_allowed 31
 
 build/test_bail_tool_test.tl nil_not_allowed 6
 
-build/test_inputs.tl nil_not_allowed 1
-
 build/test_inputs_test.tl nil_not_allowed 3
 
 build/test_isolation_test.tl nil_not_allowed 2
@@ -967,7 +963,7 @@ build/time_input_fuzz_test.tl nil_not_allowed 3
 
 build/time_tool_test.tl nil_not_allowed 1
 
-build/todo_scan.tl nil_not_allowed 7
+build/todo_scan.tl nil_not_allowed 6
 
 build/todos.tl nil_not_allowed 13
 
@@ -975,7 +971,7 @@ build/todos_git_test.tl nil_not_allowed 31
 
 build/todos_test.tl nil_not_allowed 63
 
-build/tree_checks.tl nil_not_allowed 79
+build/tree_checks.tl nil_not_allowed 77
 
 build/tree_checks_test.tl nil_not_allowed 68
 
@@ -1063,9 +1059,9 @@ core/syscalls_tool_test.tl nil_not_allowed 3
 
 core/syscalls_tool_unsandboxed_test.tl nil_not_allowed 1
 
-cosmic/archive.tl nil_not_allowed 12
+cosmic/archive.tl nil_not_allowed 11
 
-cosmic/archive_fuzz_test.tl nil_not_allowed 4
+cosmic/archive_fuzz_test.tl nil_not_allowed 3
 
 cosmic/archive_test.tl nil_not_allowed 31
 
@@ -1203,9 +1199,9 @@ cosmic/internal/relay_wire_fuzz_test.tl nil_not_allowed 10
 
 cosmic/internal/relay_wire_test.tl nil_not_allowed 9
 
-cosmic/json.tl nil_not_allowed 48
+cosmic/json.tl nil_not_allowed 47
 
-cosmic/json_fuzz_test.tl nil_not_allowed 35
+cosmic/json_fuzz_test.tl nil_not_allowed 33
 
 cosmic/json_path_fuzz_test.tl nil_not_allowed 10
 
@@ -1279,8 +1275,6 @@ cosmic/shape_record_test.tl nil_not_allowed 3
 
 cosmic/shape_test.tl nil_not_allowed 1
 
-cosmic/signal.tl nil_not_allowed 1
-
 cosmic/sqlite.tl nil_not_allowed 6
 
 cosmic/store.tl nil_not_allowed 14
@@ -1307,7 +1301,7 @@ cosmic/template/context.tl nil_not_allowed 3
 
 cosmic/template/dialect/init.tl nil_not_allowed 2
 
-cosmic/template/lex.tl nil_not_allowed 7
+cosmic/template/lex.tl nil_not_allowed 6
 
 cosmic/template/markup.tl nil_not_allowed 10
 
@@ -1323,7 +1317,7 @@ cosmic/template_go_test.tl nil_not_allowed 16
 
 cosmic/template_html5lib_tokenizer_test.tl nil_not_allowed 5
 
-cosmic/template_html5lib_tree_test.tl nil_not_allowed 13
+cosmic/template_html5lib_tree_test.tl nil_not_allowed 12
 
 cosmic/template_test.tl nil_not_allowed 74
 
@@ -1411,7 +1405,7 @@ cosmic/web/response.tl nil_not_allowed 5
 
 cosmic/web/route.tl nil_not_allowed 2
 
-cosmic/web/router.tl nil_not_allowed 9
+cosmic/web/router.tl nil_not_allowed 8
 
 cosmic/web/router_fuzz_test.tl nil_not_allowed 7
 
@@ -1483,7 +1477,7 @@ lang/ast.tl nil_not_allowed 1
 
 lang/ast_dump.tl nil_not_allowed 5
 
-lang/check.tl nil_not_allowed 105
+lang/check.tl nil_not_allowed 98
 
 lang/check_class_test.tl nil_not_allowed 30
 
@@ -1511,7 +1505,7 @@ lang/codegen_fuzz_test.tl nil_not_allowed 16
 
 lang/codegen_test.tl nil_not_allowed 16
 
-lang/declarations.tl nil_not_allowed 23
+lang/declarations.tl nil_not_allowed 22
 
 lang/declarations_speed_test.tl nil_not_allowed 2
 
@@ -1527,7 +1521,7 @@ lang/literals.tl nil_not_allowed 3
 
 lang/literals_test.tl nil_not_allowed 8
 
-lang/parser.tl nil_not_allowed 63
+lang/parser.tl nil_not_allowed 62
 
 lang/parser_cover.tl nil_not_allowed 1
 
@@ -1539,7 +1533,7 @@ lang/parser_recovery_test.tl nil_not_allowed 57
 
 lang/parser_test.tl nil_not_allowed 19
 
-lang/relation.tl nil_not_allowed 11
+lang/relation.tl nil_not_allowed 10
 
 lang/relation_fuzz_test.tl nil_not_allowed 6
 
@@ -1549,19 +1543,19 @@ lang/relation_refused_test.tl nil_not_allowed 16
 
 lang/relation_test.tl nil_not_allowed 16
 
-lang/scopes.tl nil_not_allowed 70
+lang/scopes.tl nil_not_allowed 67
 
-lang/scopes_cover.tl nil_not_allowed 4
+lang/scopes_cover.tl nil_not_allowed 3
 
-lang/scopes_fuzz_test.tl nil_not_allowed 4
+lang/scopes_fuzz_test.tl nil_not_allowed 3
 
 lang/scopes_programs.tl nil_not_allowed 3
 
-lang/scopes_test.tl nil_not_allowed 25
+lang/scopes_test.tl nil_not_allowed 24
 
 lang/stdlib_test.tl nil_not_allowed 3
 
-lang/translate.tl nil_not_allowed 93
+lang/translate.tl nil_not_allowed 88
 
 lang/translate_fuzz_test.tl nil_not_allowed 5
 
@@ -1569,9 +1563,9 @@ lang/translate_test.tl nil_not_allowed 26
 
 lang/truthy_test.tl nil_not_allowed 1
 
-lang/types.tl nil_not_allowed 41
+lang/types.tl nil_not_allowed 37
 
-lang/types_programs.tl nil_not_allowed 7
+lang/types_programs.tl nil_not_allowed 6
 
 lang/types_test.tl nil_not_allowed 28
 
@@ -2271,7 +2265,7 @@ test/sqlite_row_test.tl index_may_be_nil 1
 # an index write through a collection that is a view: the translator writes `mut` on the parameters a function
 # changes and not yet on the locals, which are declared `{T}`
 
-build/archive.tl view_written 3
+build/archive.tl view_written 2
 
 build/boot_test.tl view_written 1
 
@@ -2281,17 +2275,9 @@ build/c/rules.tl view_written 1
 
 build/c_functions.tl view_written 1
 
-build/cache_lifetime.tl view_written 7
-
-build/cache_maintenance.tl view_written 5
-
 build/closure_store.tl view_written 4
 
 build/plans.tl view_written 9
-
-build/compile_grammar_test.tl view_written 1
-
-build/compile_test.tl view_written 1
 
 build/confine.tl view_written 1
 
@@ -2305,7 +2291,7 @@ build/dataset_fuzz_test.tl view_written 1
 
 build/dataset_test.tl view_written 1
 
-build/declared_key.tl view_written 2
+build/declared_key.tl view_written 1
 
 build/declared_key_fuzz_test.tl view_written 6
 
@@ -2319,15 +2305,15 @@ build/dispatched_features_test.tl view_written 1
 
 build/docs.tl view_written 7
 
-build/driver.tl view_written 6
+build/driver.tl view_written 5
 
 build/fetch_test.tl view_written 1
 
-build/fix/init.tl view_written 7
+build/fix/init.tl view_written 6
 
 build/fix/near.tl view_written 2
 
-build/flow.tl view_written 9
+build/flow.tl view_written 8
 
 build/flow_test.tl view_written 2
 
@@ -2339,7 +2325,7 @@ build/harness_epoch_test.tl view_written 2
 
 build/host_names.tl view_written 1
 
-build/identity.tl view_written 2
+build/identity.tl view_written 1
 
 build/importer.tl view_written 3
 
@@ -2350,8 +2336,6 @@ build/json_query.tl view_written 2
 build/json_query_test.tl view_written 1
 
 build/link_index.tl view_written 3
-
-build/links.tl view_written 3
 
 build/lsp/check.tl view_written 2
 
@@ -2383,21 +2367,17 @@ build/sql.tl view_written 1
 
 build/symbol_index.tl view_written 3
 
-build/syntax_analyzer.tl view_written 2
+build/syntax_analyzer.tl view_written 1
 
-build/syntax_contracts.tl view_written 2
-
-build/syntax_link_text.tl view_written 2
-
-build/syntax_typed_fixture.tl view_written 3
+build/syntax_typed_fixture.tl view_written 2
 
 build/test.tl view_written 36
 
-build/test_inputs.tl view_written 7
+build/test_inputs.tl view_written 5
 
 build/test_inputs_test.tl view_written 6
 
-build/test_key.tl view_written 10
+build/test_key.tl view_written 9
 
 build/test_sandbox_probe.tl view_written 1
 
@@ -2407,7 +2387,7 @@ build/test_test.tl view_written 1
 
 build/test_worker.tl view_written 8
 
-build/time.tl view_written 2
+build/time.tl view_written 1
 
 build/tree_checks.tl view_written 8
 
@@ -2425,7 +2405,7 @@ core/connector_public_fuzz_test.tl view_written 2
 
 core/promises_held_child_test.tl view_written 2
 
-cosmic/child.tl view_written 8
+cosmic/child.tl view_written 7
 
 cosmic/child_policy_anywhere_test.tl view_written 1
 
@@ -2435,7 +2415,7 @@ cosmic/child_task_tool_test.tl view_written 3
 
 cosmic/flags.tl view_written 3
 
-cosmic/http/wire.tl view_written 6
+cosmic/http/wire.tl view_written 1
 
 cosmic/http_store_test.tl view_written 1
 
@@ -2469,8 +2449,6 @@ cosmic/poll.tl view_written 19
 
 cosmic/poll_test.tl view_written 1
 
-cosmic/signal.tl view_written 2
-
 cosmic/sqlite.tl view_written 9
 
 cosmic/template/context.tl view_written 3
@@ -2479,13 +2457,9 @@ cosmic/template/parse.tl view_written 1
 
 cosmic/template_fuzz_test.tl view_written 1
 
-cosmic/time.tl view_written 1
-
 cosmic/url.tl view_written 1
 
 cosmic/url_test.tl view_written 1
-
-cosmic/web/builtin.tl view_written 1
 
 cosmic/web/csrf_test.tl view_written 2
 
@@ -2509,13 +2483,7 @@ cosmic/web/session/csrf_example.tl view_written 5
 
 cosmic/web/session/init.tl view_written 6
 
-cosmic/web/session/session_example.tl view_written 1
-
-cosmic/web/session/sqlite.tl view_written 1
-
 cosmic/web/sse_test.tl view_written 1
-
-cosmic/web/testing.tl view_written 3
 
 cosmic/zip_fuzz_test.tl view_written 1
 
@@ -2525,7 +2493,7 @@ lang/check.tl view_written 8
 
 lang/check_flow_fuzz_test.tl view_written 1
 
-lang/check_programs.tl view_written 6
+lang/check_programs.tl view_written 5
 
 lang/check_test.tl view_written 1
 
@@ -2535,7 +2503,7 @@ lang/check_verdicts_test.tl view_written 2
 
 lang/codegen_test.tl view_written 1
 
-lang/declarations.tl view_written 19
+lang/declarations.tl view_written 15
 
 lang/flow.tl view_written 12
 
@@ -2549,9 +2517,7 @@ lang/parser.tl view_written 4
 
 lang/parser_cover.tl view_written 1
 
-lang/parser_test.tl view_written 1
-
-lang/relation.tl view_written 12
+lang/relation.tl view_written 8
 
 lang/relation_fuzz_test.tl view_written 5
 
@@ -2569,13 +2535,13 @@ lang/scopes_test.tl view_written 1
 
 lang/stdlib_test.tl view_written 2
 
-lang/translate.tl view_written 38
+lang/translate.tl view_written 27
 
-lang/types.tl view_written 4
+lang/types.tl view_written 2
 
 lang/types_programs.tl view_written 4
 
-lang/types_test.tl view_written 3
+lang/types_test.tl view_written 1
 
 test/coverage_cache_test.tl view_written 2
 
@@ -2630,8 +2596,6 @@ cosmic/net_resolve_through_test.tl view_as_mut 3
 cosmic/poll.tl view_as_mut 4
 
 cosmic/poll_test.tl view_as_mut 3
-
-cosmic/signal.tl view_as_mut 1
 
 cosmic/web/router.tl view_as_mut 2
 
@@ -3862,7 +3826,7 @@ build/dataset_fuzz_test.tl overload_none 2
 
 build/declared_key_fuzz_test.tl overload_none 1
 
-build/declared_key_test.tl overload_none 4
+build/declared_key_test.tl overload_none 3
 
 build/docs.tl overload_none 1
 
@@ -8716,25 +8680,21 @@ lang/check_flow_fuzz_test.tl array_of_optional 1
 lang/declarations.tl array_of_optional 1
 
 # an index write that is not an append
-build/docs.tl array_hole 8
+build/docs.tl array_hole 7
 
-build/flow.tl array_hole 10
+build/flow.tl array_hole 8
 
-build/json_query_test.tl array_hole 3
+build/json_query_test.tl array_hole 2
 
 build/link_text.tl array_hole 7
 
-build/sandbox.tl array_hole 3
+build/sandbox.tl array_hole 1
 
 build/test_worker.tl array_hole 10
 
-build/tree_checks.tl array_hole 3
+build/tree_checks.tl array_hole 1
 
-cosmic/archive_test.tl array_hole 1
-
-cosmic/child.tl array_hole 10
-
-cosmic/child_relay_seatbelt_test.tl array_hole 1
+cosmic/child.tl array_hole 8
 
 cosmic/codec.tl array_hole 13
 
@@ -8742,45 +8702,43 @@ cosmic/hash_test.tl array_hole 2
 
 cosmic/internal/relay_wire_test.tl array_hole 5
 
-cosmic/json.tl array_hole 7
+cosmic/json.tl array_hole 6
 
 cosmic/poll.tl array_hole 7
 
 cosmic/template/codegen.tl array_hole 1
 
-cosmic/template_html5lib_tree_test.tl array_hole 1
-
 cosmic/time.tl array_hole 6
 
-cosmic/web/router.tl array_hole 6
+cosmic/web/router.tl array_hole 5
 
-cosmic/web/session/cookie_test.tl array_hole 2
+cosmic/web/session/cookie_test.tl array_hole 1
 
 lang/ast.tl array_hole 2
 
 lang/ast_dump.tl array_hole 1
 
-lang/check.tl array_hole 55
+lang/check.tl array_hole 43
 
 lang/check_fuzz_test.tl array_hole 5
 
 lang/codegen.tl array_hole 16
 
-lang/declarations.tl array_hole 47
+lang/declarations.tl array_hole 44
 
-lang/parser.tl array_hole 12
+lang/parser.tl array_hole 4
 
-lang/scopes.tl array_hole 10
+lang/scopes.tl array_hole 7
 
 lang/scopes_programs.tl array_hole 4
 
-lang/translate.tl array_hole 18
+lang/translate.tl array_hole 13
 
-lang/translate_fuzz_test.tl array_hole 8
+lang/translate_fuzz_test.tl array_hole 6
 
-lang/types.tl array_hole 33
+lang/types.tl array_hole 28
 
-lang/types_programs.tl array_hole 3
+lang/types_programs.tl array_hole 2
 
 # a `number` as an index or key: the rewrite converts it with `math.floor`
 cosmic/json_test.tl float_key 2
@@ -9230,13 +9188,9 @@ lang/recursive_alias_test.tl alternatives_as_value 3
 
 lang/relation.tl or_mix 1
 
-build/alias_members.tl array_hole 1
-
 build/archive_test.tl array_hole 4
 
 build/c/init.tl array_hole 2
-
-build/c/layout.tl array_hole 3
 
 build/c_functions_test.tl array_hole 1
 
@@ -9264,17 +9218,15 @@ build/confine.tl array_hole 1
 
 build/confine_tool_test.tl array_hole 1
 
-build/core_image_fuzz_test.tl array_hole 1
-
 build/coverage/syntax_lines.tl array_hole 1
 
 build/dataset.tl array_hole 9
 
-build/dataset_fuzz_test.tl array_hole 4
+build/dataset_fuzz_test.tl array_hole 3
 
 build/dataset_test.tl array_hole 5
 
-build/declared_key.tl array_hole 3
+build/declared_key.tl array_hole 2
 
 build/declared_key.tl view_as_mut 1
 
@@ -9284,7 +9236,7 @@ build/declared_key_test.tl array_hole 1
 
 build/digest_test.tl array_hole 1
 
-build/dispatch.tl array_hole 5
+build/dispatch.tl array_hole 4
 
 build/dispatched_features_test.tl array_hole 1
 
@@ -9292,13 +9244,7 @@ build/docs.tl view_as_mut 3
 
 build/docs_search_test.tl array_hole 1
 
-build/driver_test.tl array_hole 1
-
 build/embed.tl array_hole 2
-
-build/example_checks.tl array_hole 1
-
-build/fix/init.tl array_hole 1
 
 build/fix/near.tl array_hole 1
 
@@ -9324,8 +9270,6 @@ build/host_requires.tl array_hole 1
 
 build/identity.tl array_hole 1
 
-build/importer.tl array_hole 2
-
 build/importer_store_test.tl array_hole 1
 
 build/invoke.tl array_hole 1
@@ -9344,25 +9288,13 @@ build/link_files.tl view_as_mut 1
 
 build/link_index.tl array_hole 3
 
-build/link_resolve.tl array_hole 1
-
-build/links.tl array_hole 5
-
-build/lsp/graph.tl array_hole 1
-
 build/lsp/graph.tl nil_not_allowed 1
 
 build/lsp/protocol.tl array_hole 1
 
-build/lsp/session.tl array_hole 1
-
-build/lsp/syntax_read.tl array_hole 1
-
 build/lsp/syntax_read.tl view_as_mut 1
 
 build/migrate.tl array_hole 1
-
-build/narrow.tl array_hole 1
 
 build/perf_test.tl array_hole 11
 
@@ -9379,8 +9311,6 @@ build/rand_test.tl array_hole 2
 build/refresh_store_test.tl array_hole 1
 
 build/refresh_test.tl array_hole 1
-
-build/release.tl array_hole 1
 
 build/release_test.tl array_hole 12
 
@@ -9410,27 +9340,21 @@ build/standalone.tl array_hole 1
 
 build/symbols.tl array_hole 1
 
-build/syntax_analyzer.tl array_hole 6
-
-build/syntax_contracts.tl array_hole 3
+build/syntax_analyzer.tl array_hole 4
 
 build/syntax_link_text.tl array_hole 1
-
-build/syntax_match.tl array_hole 1
 
 build/syntax_node.tl array_hole 2
 
 build/syntax_node_test.tl array_hole 1
 
-build/syntax_stub.tl array_hole 6
+build/syntax_stub.tl array_hole 4
 
 build/term_filter_test.tl array_hole 1
 
 build/term_relay.tl array_hole 2
 
-build/test.tl array_hole 15
-
-build/test_inputs.tl array_hole 1
+build/test.tl array_hole 12
 
 build/test_sandbox.tl array_hole 2
 
@@ -9438,19 +9362,13 @@ build/test_sandbox_probe.tl array_hole 2
 
 build/test_test.tl array_hole 1
 
-build/this_program.tl array_hole 1
-
 build/time.tl array_hole 1
 
 build/time_test.tl array_hole 1
 
-build/todo_scan.tl array_hole 2
-
 build/todos_test.tl array_hole 1
 
 build/tree_root.tl array_hole 2
-
-build/unix_socket.tl array_hole 1
 
 build/work_test.tl array_hole 1
 
@@ -9468,7 +9386,7 @@ core/connector_public_test.tl array_hole 1
 
 core/connector_test.tl array_hole 4
 
-core/sqlite_functions_fuzz_test.tl array_hole 4
+core/sqlite_functions_fuzz_test.tl array_hole 3
 
 core/sqlite_functions_test.tl array_hole 1
 
@@ -9478,9 +9396,9 @@ core/syscalls_test.tl array_hole 2
 
 core/syscalls_tool_test.tl array_hole 1
 
-cosmic/archive.tl array_hole 2
+cosmic/archive.tl array_hole 1
 
-cosmic/archive_fuzz_test.tl array_hole 2
+cosmic/archive_fuzz_test.tl array_hole 1
 
 cosmic/child_policy_anywhere_test.tl array_hole 1
 
@@ -9502,13 +9420,11 @@ cosmic/csv_load_test.tl array_hole 1
 
 cosmic/csv_test.tl array_hole 3
 
-cosmic/errors.tl array_hole 1
-
 cosmic/flags.tl array_hole 3
 
 cosmic/fs.tl compare_disjoint 1
 
-cosmic/html_fuzz_test.tl array_hole 5
+cosmic/html_fuzz_test.tl array_hole 4
 
 cosmic/html_test.tl array_hole 1
 
@@ -9532,21 +9448,19 @@ cosmic/internal/relay_start.tl array_hole 3
 
 cosmic/internal/relay_start_test.tl array_hole 14
 
-cosmic/internal/relay_token_fuzz_test.tl array_hole 4
-
 cosmic/internal/relay_wire_client_fuzz_test.tl array_hole 2
 
-cosmic/internal/relay_wire_fuzz_test.tl array_hole 5
+cosmic/internal/relay_wire_fuzz_test.tl array_hole 4
 
-cosmic/json_fuzz_test.tl array_hole 7
+cosmic/json_fuzz_test.tl array_hole 4
 
 cosmic/json_path_fuzz_test.tl array_hole 3
 
 cosmic/json_path_test.tl array_hole 3
 
-cosmic/json_reader_fuzz_test.tl array_hole 2
+cosmic/json_reader_fuzz_test.tl array_hole 1
 
-cosmic/json_test.tl array_hole 6
+cosmic/json_test.tl array_hole 5
 
 cosmic/mime_test.tl array_hole 1
 
@@ -9578,19 +9492,15 @@ cosmic/stream_test.tl array_hole 1
 
 cosmic/tar_fuzz_test.tl array_hole 1
 
-cosmic/template/lex.tl array_hole 1
-
 cosmic/template/parse.tl array_hole 1
 
-cosmic/template_fuzz_test.tl array_hole 7
+cosmic/template_fuzz_test.tl array_hole 6
 
-cosmic/template_html5lib_tokenizer_test.tl array_hole 12
+cosmic/template_html5lib_tokenizer_test.tl array_hole 9
 
 cosmic/template_test.tl array_hole 1
 
 cosmic/test.tl array_hole 2
-
-cosmic/time_duration_fuzz_test.tl array_hole 1
 
 cosmic/time_tzif_fuzz_test.tl array_hole 2
 
@@ -9624,7 +9534,7 @@ cosmic/web/response.tl array_hole 2
 
 cosmic/web/response.tl view_as_mut 2
 
-cosmic/web/route.tl array_hole 2
+cosmic/web/route.tl array_hole 1
 
 cosmic/web/secret_test.tl array_hole 1
 
@@ -9632,11 +9542,11 @@ cosmic/web/session/cookie.tl array_hole 1
 
 cosmic/web/session/sqlite_test.tl array_hole 1
 
-cosmic/web/sse.tl array_hole 3
+cosmic/web/sse.tl array_hole 1
 
 cosmic/web/sse.tl view_as_mut 1
 
-cosmic/web/sse_fuzz_test.tl array_hole 3
+cosmic/web/sse_fuzz_test.tl array_hole 2
 
 cosmic/web/sse_test.tl array_hole 1
 
@@ -9648,7 +9558,7 @@ cosmic/web/typed.tl array_hole 1
 
 cosmic/zip_fuzz_test.tl array_hole 6
 
-eval/summarize.tl array_hole 9
+eval/summarize.tl array_hole 5
 
 lang/check_assigned_fuzz_test.tl array_hole 3
 
@@ -9665,8 +9575,6 @@ lang/check_verdicts.tl array_hole 1
 lang/check_verdicts.tl nil_not_allowed 1
 
 lang/check_verdicts_test.tl array_hole 22
-
-lang/codegen_fuzz_test.tl array_hole 1
 
 lang/codegen_speed_test.tl array_hole 1
 
@@ -9700,25 +9608,19 @@ lang/relation_fuzz_test.tl array_hole 7
 
 lang/relation_programs.tl array_hole 2
 
-lang/relation_speed_test.tl array_hole 13
+lang/relation_speed_test.tl array_hole 12
 
-lang/relation_test.tl array_hole 10
+lang/relation_test.tl array_hole 8
 
-lang/scopes_cover.tl array_hole 1
-
-lang/scopes_fuzz_test.tl array_hole 4
+lang/scopes_fuzz_test.tl array_hole 3
 
 lang/scopes_speed_test.tl array_hole 2
-
-lang/scopes_test.tl array_hole 1
 
 lang/stdlib_test.tl array_hole 1
 
 lang/types_fuzz_test.tl array_hole 3
 
 lang/types_speed_test.tl array_hole 6
-
-lang/types_test.tl array_hole 3
 
 test/sqlite_row_test.tl array_hole 1
 

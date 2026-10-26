@@ -1408,7 +1408,7 @@ local function inputs_of(chunk: Ast.Chunk, name: string): PolicyRules.Declared?,
     end
   end
   -- `policy` reached any other way than that one statement.
-  local elsewhere: {Ast.Field} = {}
+  local elsewhere: mut {Ast.Field} = {}
   Node.walk(chunk.body, function(node: Ast.Node)
     if #elsewhere == 0 and (node.kind == "Field") and names_policy(node, names) and callees[Node.base(node).id] == nil then
       elsewhere[1] = node

@@ -44,7 +44,7 @@ local record maintenance
     files: mut {File}
     digest?: string
     fresh?: integer
-    warnings: {string}
+    warnings: mut {string}
   end
 end
 

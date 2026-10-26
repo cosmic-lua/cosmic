@@ -522,7 +522,7 @@ end
 --- not hold the text to the subset: `format` does.
 function flow.parse(text: string): flow.Doc?, string
   local r: Reader = { text = text, at = 1, line = 1, depth = 0 }
-  local doc: {flow.Doc} = {}
+  local doc: mut {flow.Doc} = {}
   local ok, raised = pcall(function(): string
     local head = trivia(r)
     if r.at > #text then fail(r.line, "no value") end

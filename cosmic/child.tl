@@ -1651,7 +1651,7 @@ local function drain(self: Handle, opts: DrainOptions): DrainResult
   local owner <close> = consume(pipes)
   local bytes = 0
   local guard = Innermost.active()
-  local stamp: {integer} = {}
+  local stamp: mut {integer} = {}
   local deadline = now() + timeout_ns
   local function result(kind: DrainKind, reason?: string): DrainResult
     return { kind = kind, bytes = bytes, reason = reason or "" }
