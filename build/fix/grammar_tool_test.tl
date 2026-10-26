@@ -82,9 +82,9 @@ local PLAIN_LAID = (NEW_LAID:gsub("%[`Other.thing`%]", "`Other.thing`"))
 --- The text of BADLY_LAID_OUT, laid out.
 local ONE_LAID = 'local function one(word: string?): integer\n  return #(word or "")\nend\n\nreturn one\n'
 
---- A check notes the files that are not laid out, lists them, writes nothing and does not fail; a fix writes their
---- layout, and a run after it has nothing to note or write.
-local function test_a_check_notes_a_file_that_is_not_laid_out_and_a_fix_writes_it(tmp: string)
+--- A check fails on the files that are not laid out, lists them, says what to run and writes nothing; a fix writes their
+--- layout, and a check after it passes.
+local function test_a_check_fails_on_a_file_that_is_not_laid_out_and_a_fix_writes_it(tmp: string)
   local root = tmp .. "/project"
   assert(Fs.mkdirs(root))
   assert(Fs.write(root .. "/other.tl", OTHER))
@@ -92,12 +92,12 @@ local function test_a_check_notes_a_file_that_is_not_laid_out_and_a_fix_writes_i
   local linked = (NEW_GRAMMAR:gsub("`Other.thing`", "[`Other.thing`]"))
   assert(Fs.write(root .. "/new.tl", linked))
   local checked, said = fix_new(root, true)
-  assert(checked.ok, said)
-  assert(said:find("fix: note  2 Teal files are not laid out; `cosmic fix` lays them out", 1, true) ~= nil, said)
-  assert(said:find("fix: note  not laid out  laid.tl", 1, true) ~= nil, said)
-  assert(said:find("fix: note  not laid out  new.tl", 1, true) ~= nil, said)
+  assert(not checked.ok, said)
+  assert(said:find("2 Teal files are not laid out (`cosmic fix <paths>` lays them out)", 1, true) ~= nil, said)
+  assert(said:find("fix: FAIL  not laid out  laid.tl", 1, true) ~= nil, said)
+  assert(said:find("fix: FAIL  not laid out  new.tl", 1, true) ~= nil, said)
   assert(said:find("not laid out  other.tl", 1, true) == nil, said)
-  assert(said:find("would fix", 1, true) == nil and said:find("fix: 3 Teal files, 0 to fix", 1, true) ~= nil, said)
+  assert(said:find("would fix", 1, true) == nil, said)
   assert(Fs.read(root .. "/laid.tl") == BADLY_LAID_OUT and Fs.read(root .. "/new.tl") == linked, "a check wrote a file")
   local written, wrote = fix_new(root, false)
   assert(written.ok, wrote)
@@ -121,8 +121,8 @@ local function test_a_declaration_file_is_laid_out_by_a_fix_and_linking_leaves_a
   assert(Fs.write(root .. "/other.tl", OTHER))
   assert(Fs.write(root .. "/api.d.tl", "local  record Api\n  name:    string\nend\n\nreturn Api\n"))
   assert(Fs.write(root .. "/new.tl", NEW_GRAMMAR))
-  local _, said = fix_new(root, true)
-  assert(said:find("not laid out  api.d.tl", 1, true) ~= nil, said)
+  local checked, said = fix_new(root, true)
+  assert(not checked.ok and said:find("not laid out  api.d.tl", 1, true) ~= nil, said)
   local written, wrote = fix_new(root, false)
   assert(written.ok, wrote)
   assert(Fs.read(root .. "/api.d.tl") == "local record Api\n  name:    string\nend\n\nreturn Api\n", wrote)
@@ -170,6 +170,20 @@ local function test_the_links_of_a_file_in_the_new_grammar_are_checked_and_writt
   assert(why:find("1 link not resolving", 1, true) ~= nil, why)
 end
 
+--- A check fails on a file the formatter refuses, with the reason, as a fix does, and passes on a tree that is laid out.
+local function test_a_check_fails_on_a_refused_file_and_passes_on_a_tree_laid_out(tmp: string)
+  local root = tmp .. "/project"
+  assert(Fs.mkdirs(root))
+  assert(Fs.write(root .. "/ok.tl", ONE_LAID))
+  local passed, said = fix_new(root, true)
+  assert(passed.ok and said:find("not laid out", 1, true) == nil, said)
+  assert(Fs.write(root .. "/bad.tl", "local x = \n"))
+  local failed, refused = fix_new(root, true)
+  assert(not failed.ok, refused)
+  assert(refused:find("fix: FAIL  bad.tl:", 1, true) ~= nil and refused:find("1 of 2 files refused", 1, true) ~= nil, refused)
+  assert(refused:find("not laid out  ok.tl", 1, true) == nil, refused)
+end
+
 --- A file neither parser reads fails in the new parser's words, with its fix, and the layout note still says nothing of it.
 local function test_a_file_neither_parser_reads_fails_in_the_new_parsers_words(tmp: string)
   local root = tmp .. "/project"
@@ -188,9 +202,9 @@ local function test_a_file_neither_parser_reads_fails_in_the_new_parsers_words(t
   end
 end
 
---- The note is on a failing run too, not only a clean one: a refused file beside a file not laid out, and the file
---- is written by a fix though the tree does not build.
-local function test_the_layout_note_is_on_a_failing_summary(tmp: string)
+--- The layout failure is said beside the build's: a file not laid out and a tree that does not build, and the file is
+--- written by a fix though the tree does not build.
+local function test_the_layout_failure_is_on_a_failing_summary(tmp: string)
   local root = tmp .. "/project"
   assert(Fs.mkdirs(root))
   assert(Fs.write(root .. "/other.tl", OTHER))
@@ -198,8 +212,9 @@ local function test_the_layout_note_is_on_a_failing_summary(tmp: string)
   assert(Fs.write(root .. "/typed.tl", 'local y: integer = "no"\n\nreturn y\n'))
   local failed, said = fix_new(root, true)
   assert(not failed.ok, said)
-  assert(said:find("fix: the tree not building, ", 1, true) ~= nil, said)
-  assert(said:find("fix: note  1 Teal file is not laid out; `cosmic fix` lays it out", 1, true) ~= nil, said)
+  assert(said:find("lays them out), the tree not building, ", 1, true) ~= nil, said)
+  assert(said:find("fix: 1 Teal file is not laid out (`cosmic fix <paths>` lays them out)", 1, true) ~= nil, said)
+  assert(said:find("fix: FAIL  not laid out  new.tl", 1, true) ~= nil, said)
   local fixed, wrote = fix_new(root, false)
   assert(not fixed.ok and wrote:find("fixed  new.tl", 1, true) ~= nil, wrote)
 end

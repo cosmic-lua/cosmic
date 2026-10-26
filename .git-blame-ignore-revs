@@ -5,5 +5,5 @@
 # build: link plain references that resolve, across the tree (#2436)
 41484db5dc352cc6012e414d130cca4646d4b5bf
 
-# TODO: once the squash commit of the whole-tree layout (`bin/cosmic fix .`,
-# formatter PR 9) is on main, list its sha here, as #2443 did for the link sweep.
+# format: lay out the Teal tree with `bin/cosmic fix .` (#3235)
+796182a601d9c8811dd4219039a96ff2f8d674d9
