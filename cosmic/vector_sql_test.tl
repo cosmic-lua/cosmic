@@ -67,7 +67,8 @@ local function test_text_and_blob_forms_agree()
   assert(text_of(db, "SELECT vector_text(?1)", { { blob = packed } }) == "[1,2.5,-3]")
   assert(text_of(db, "SELECT vector_text(vector(' [ 0.1 ] '))") == "[0.100000001]")
   assert(number_of(db, "SELECT vector_dims(?1)", { { blob = packed } }) == 3)
-  assert(number_of(db, "SELECT vector_dims('[]')") == 0)
+  assert(refusal(db, "SELECT vector_dims('[]')"):find("at least 1 dimension", 1, true) ~= nil)
+  assert(refusal(db, "SELECT vector(x'')"):find("at least 1 dimension", 1, true) ~= nil)
   assert(close_to(number_of(db, "SELECT l2_distance(?1, '[1, 2.5, -3]')",
     { { blob = packed } }), 0))
   db:close()
@@ -81,8 +82,26 @@ local function test_normalize_and_subvector()
     "SELECT inner_product(l2_normalize('[1,2,3]'), l2_normalize('[4,6,3]'))"),
     1 - number_of(db, "SELECT cosine_distance('[1,2,3]', '[4,6,3]')")))
   assert(text_of(db, "SELECT vector_text(subvector('[1,2,3,4,5]', 2, 3))") == "[2,3,4]")
-  assert(refusal(db, "SELECT subvector('[1,2,3]', 3, 2)"):find("outside the vector", 1, true) ~= nil)
-  assert(refusal(db, "SELECT subvector('[1,2,3]', 0, 1)"):find("outside the vector", 1, true) ~= nil)
+  -- Clipped as substr clips: a count past the end stops at the end, a
+  -- start below 1 starts at 1 but spends count on the dimensions before it.
+  assert(text_of(db, "SELECT vector_text(subvector('[1,2,3]', 3, 2))") == "[3]")
+  assert(text_of(db, "SELECT vector_text(subvector('[1,2,3]', 0, 2))") == "[1]")
+  assert(text_of(db, "SELECT vector_text(subvector('[1,2,3]', -5, 100))") == "[1,2,3]")
+  assert(text_of(db, "SELECT vector_text(subvector('[1,2,3]', 2, 9223372036854775807))") == "[2,3]")
+  -- Only a range with no dimension left is refused.
+  assert(refusal(db, "SELECT subvector('[1,2,3]', 4, 2)"):find("at least 1 dimension", 1, true) ~= nil)
+  assert(refusal(db, "SELECT subvector('[1,2,3]', 0, 1)"):find("at least 1 dimension", 1, true) ~= nil)
+  assert(refusal(db, "SELECT subvector('[1,2,3]', 1, 0)"):find("at least 1 dimension", 1, true) ~= nil)
+  db:close()
+end
+
+local function test_normalize_does_not_underflow_or_overflow_in_float()
+  local db = assert(Sqlite.memory())
+  -- The squares of 1e-30 and 1e30 are outside a float's range.
+  assert(close_to(number_of(db,
+    "SELECT l2_distance(l2_normalize('[3e-30, 4e-30]'), '[0.6, 0.8]')"), 0))
+  assert(close_to(number_of(db,
+    "SELECT l2_distance(l2_normalize('[3e30, 4e30]'), '[0.6, 0.8]')"), 0))
   db:close()
 end
 
@@ -98,6 +117,8 @@ local function test_binary_quantize_and_bit_distances()
   assert(number_of(db, "SELECT jaccard_distance(x'00', x'00')") == 0)
   -- Past one 64-bit word, so both the word and byte paths count.
   assert(number_of(db, "SELECT hamming_distance(zeroblob(9), x'ffffffffffffffffff')") == 72)
+  -- Bit vectors compare by byte length alone: 9 bits and 16 are the same.
+  assert(number_of(db, "SELECT hamming_distance(binary_quantize('[1,1,1,1,1,1,1,1,1]'), x'ffff')") == 7)
   assert(refusal(db, "SELECT hamming_distance(x'00', x'0000')"):find("different lengths", 1, true) ~= nil)
   assert(refusal(db, "SELECT hamming_distance('a', 'b')"):find("is a blob", 1, true) ~= nil)
   db:close()
@@ -113,6 +134,17 @@ local function test_refuses_what_is_not_a_vector()
   assert(refusal(db, "SELECT vector(x'000000')"):find("4-byte floats", 1, true) ~= nil)
   assert(refusal(db, "SELECT vector(42)"):find("blob of floats or a text", 1, true) ~= nil)
   assert(refusal(db, "SELECT vector(zeroblob(64004))"):find("16000 dimensions", 1, true) ~= nil)
+  -- A number a float cannot hold is refused, not stored as infinity.
+  assert(refusal(db, "SELECT vector('[1e39]')"):find("finite numbers", 1, true) ~= nil)
+  assert(refusal(db, "SELECT vector('[1, nan]')"):find("finite numbers", 1, true) ~= nil)
+  assert(refusal(db, "SELECT vector('[]')"):find("at least 1 dimension", 1, true) ~= nil)
+  -- vector() also refuses a blob that holds a NaN or an infinity.
+  local inf = string.pack("<f", math.huge)
+  local nan = string.pack("<f", 0 / 0)
+  assert(refusal(db, "SELECT vector(?1)", { { blob = blob_of({ 1 }) .. inf } }):find("finite numbers", 1, true) ~= nil)
+  assert(refusal(db, "SELECT vector(?1)", { { blob = nan } }):find("finite numbers", 1, true) ~= nil)
+  -- A zeroblob is a vector of zeros, read without being held in memory.
+  assert(number_of(db, "SELECT vector_dims(zeroblob(12))") == 3)
   local rows = assert(Sqlite.rows(db,
     "SELECT l2_distance(NULL, '[1]') IS NULL, cosine_distance('[0,0]', '[1,1]') IS NULL"))
   assert(assert(rows[1]):integer(1) == 1 and assert(rows[1]):integer(2) == 1)
@@ -150,6 +182,8 @@ local docs: {Doc} = {
   { body = "Mars is a cold planet in the solar system", topic = "space" },
   { body = "Bake bread with flour water and yeast", topic = "food" },
   { body = "Cats and dogs can live together as pets", topic = "pets" },
+  -- No words, so an embedding of zeros: it has no direction.
+  { body = "", topic = "blank" },
 }
 
 local function corpus(): Sqlite.Handle
@@ -178,13 +212,21 @@ local function test_searches_by_meaning_with_a_filter()
   local db = corpus()
   local query: Sqlite.Value = { blob = embed("where do cats sleep") }
   local nearest = ids(db,
-    "SELECT id FROM chunks ORDER BY cosine_distance(embedding, ?1) LIMIT 2", { query })
+    "SELECT id FROM chunks ORDER BY cosine_distance(embedding, ?1) NULLS LAST LIMIT 2", { query })
   assert(nearest[1] == 1, "the cat that sleeps is nearest")
   -- A filter is a WHERE clause: every row it keeps is scored, none other.
   local in_space = ids(db,
-    "SELECT id FROM chunks WHERE topic = 'space' ORDER BY cosine_distance(embedding, ?1) LIMIT 1",
+    "SELECT id FROM chunks WHERE topic = 'space' ORDER BY cosine_distance(embedding, ?1) NULLS LAST LIMIT 1",
     { { blob = embed("the solar system") } })
-  assert(#in_space == 1 and (in_space[1] == 3 or in_space[1] == 4))
+  assert(#in_space == 1 and in_space[1] == 3, "the sun and solar system chunk beats Mars")
+  -- The chunk of zeros has no cosine, so it is NULL: without NULLS LAST
+  -- SQLite would rank it before every real match.
+  local everything = ids(db,
+    "SELECT id FROM chunks ORDER BY cosine_distance(embedding, ?1) NULLS LAST", { query })
+  assert(everything[1] == 1 and everything[#everything] == 7, "the zeros rank last")
+  local unguarded = ids(db,
+    "SELECT id FROM chunks ORDER BY cosine_distance(embedding, ?1) LIMIT 1", { query })
+  assert(unguarded[1] == 7, "NULL sorts first unless told otherwise")
   -- Normalized at insert, so the inner product ranks as cosine does.
   local by_dot = ids(db,
     "SELECT id FROM chunks ORDER BY inner_product(embedding, l2_normalize(?1)) DESC LIMIT 2", { query })
@@ -205,7 +247,7 @@ local function test_binary_first_pass_then_rerank()
     SELECT c.id FROM (
       SELECT id FROM chunk_bits ORDER BY hamming_distance(bits, binary_quantize(?1)) LIMIT 4
     ) b JOIN chunks c ON c.id = b.id
-    ORDER BY cosine_distance(c.embedding, ?1) LIMIT 1
+    ORDER BY cosine_distance(c.embedding, ?1) NULLS LAST LIMIT 1
   ]], { query })
   assert(reranked[1] == 6, "the chunk with all three words wins the rerank")
   db:close()
@@ -214,10 +256,22 @@ end
 local function test_hybrid_search_blends_keywords_and_meaning()
   local db = corpus()
   -- Reciprocal rank fusion: each list adds 1 / (60 + rank) to a chunk.
+  -- Neither list alone picks the winner: by meaning the sun chunk (3)
+  -- leads, by keyword the bread chunk (5) does, and Mars (4), second in
+  -- both, beats them. A constant distance would hand the semantic side
+  -- to the first rows by id, and chunk 5 would win.
+  local meaning: Sqlite.Value = { blob = embed("the sun in the solar system") }
+  local keywords: Sqlite.Value = { text = "bread OR mars" }
+  local by_meaning = ids(db,
+    "SELECT id FROM chunks ORDER BY cosine_distance(embedding, ?1) NULLS LAST LIMIT 5", { meaning })
+  local by_keyword = ids(db,
+    "SELECT rowid FROM chunks_fts WHERE chunks_fts MATCH ?1 ORDER BY rank LIMIT 5", { keywords })
+  assert(by_meaning[1] == 3 and by_meaning[2] == 4, "meaning alone: sun, then Mars")
+  assert(by_keyword[1] == 5 and by_keyword[2] == 4, "keywords alone: bread, then Mars")
   local blended = ids(db, [[
     WITH
       semantic AS (
-        SELECT id, row_number() OVER (ORDER BY cosine_distance(embedding, ?1)) AS rank
+        SELECT id, row_number() OVER (ORDER BY cosine_distance(embedding, ?1) NULLS LAST) AS rank
         FROM chunks LIMIT 5),
       keyword AS (
         SELECT rowid AS id, row_number() OVER (ORDER BY rank) AS rank
@@ -227,8 +281,33 @@ local function test_hybrid_search_blends_keywords_and_meaning()
       UNION ALL
       SELECT id, 1.0 / (60 + rank) AS score FROM keyword)
     GROUP BY id ORDER BY sum(score) DESC LIMIT 1
-  ]], { { blob = embed("a planet in the solar system") }, { text = "Mars" } })
-  assert(blended[1] == 4, "Mars matches both by word and by meaning")
+  ]], { meaning, keywords })
+  assert(blended[1] == 4, "Mars is second in both lists, ahead of each list's first")
+  db:close()
+end
+
+-- A blob sits at a different offset in its page as the columns before it
+-- grow. read_vector copies a blob that is misaligned for a float, but
+-- checked against the pinned SQLite, no SQL reaches that branch: OP_Column
+-- copies a column's blob out of the page into a malloc'd value, so it is
+-- always aligned. This pins that every offset reads the same.
+local function test_a_blob_at_any_offset_in_a_row_reads_the_same()
+  local db = assert(Sqlite.memory())
+  assert(db:exec("CREATE TABLE odd (id INTEGER PRIMARY KEY, pad BLOB, v BLOB)"))
+  local packed = blob_of({ 1, 2.5, -3, 4, 5, 6, 7, 8, 9, 10 })
+  for pad = 0, 3 do
+    assert(Sqlite.run(db, "INSERT INTO odd VALUES (?1, ?2, ?3)",
+      { { integer = pad }, { blob = string.rep("x", pad) }, { blob = packed } }))
+  end
+  local rows = assert(Sqlite.map(db,
+    "SELECT l2_distance(v, ?1), vector_text(v), vector(v) = ?1 FROM odd ORDER BY id",
+    { { blob = packed } }, function(r: Sqlite.Row): string
+      return string.format("%g %s %d", r:number(1), r:text(2), r:integer(3))
+    end))
+  assert(#rows == 4)
+  for _, row in ipairs(rows) do
+    assert(row == "0 [1,2.5,-3,4,5,6,7,8,9,10] 1", row)
+  end
   db:close()
 end
 

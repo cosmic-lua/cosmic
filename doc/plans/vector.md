@@ -70,8 +70,10 @@ Phase 1's functions, over 100k rows of 768 dimensions in memory, on a
   floats: 10 ms.
 
 Reading the rows costs more than the arithmetic. A 768-dimension vector
-is 3 KB, past what one page holds, so a scan reads its overflow pages,
-and so does reading any column stored after it. Two things follow:
+is 3 KB, about a whole 4096-byte page, so a scan reads a page per row,
+and reading any other column of that row, bits stored beside the floats
+included, costs the same. Bits in a table of their own pack about 40
+rows to a page. Two things follow:
 
 - the guide puts bit vectors in a table of their own;
 - phase 2's in-memory corpus, which holds the floats contiguously and
@@ -83,7 +85,8 @@ and so does reading any column stored after it. Two things follow:
 
 - conversions: `vector(X)`, `vector_text(X)`, `vector_dims(X)`;
 - distances: `l2_distance(A, B)`, `inner_product(A, B)`,
-  `cosine_distance(A, B)` and `l1_distance(A, B)`;
+  `cosine_distance(A, B)` (NULL for a vector of zeros, so a search
+  orders `NULLS LAST`) and `l1_distance(A, B)`;
 - transforms: `l2_normalize(X)`, and `subvector(X, S, N)` for the head
   of a Matryoshka embedding;
 - bit vectors: `binary_quantize(X)`, `hamming_distance(A, B)` and

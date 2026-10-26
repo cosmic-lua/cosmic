@@ -5,6 +5,11 @@
 #include <stdlib.h>
 #include <string.h>
 
+/* The functions are DETERMINISTIC and may back an expression index, so a
+ * result must not depend on whether the compiler fused a*b+c into one
+ * rounding. */
+#pragma STDC FP_CONTRACT OFF
+
 /* A vector as the functions below read one: its floats, aligned, and
  * whether they were copied (and so are freed with sqlite3_free). Every
  * target cosmic ships is little-endian, so a blob's bytes are the floats
@@ -25,9 +30,11 @@ static void release (struct vector *v) {
   v->owned = NULL;
 }
 
-/* Reads `[1, 2.5, -3e-2]`: a JSON array of numbers, nothing else. Each
- * number is read by strtod, which reads no locale, since cosmic never
- * sets one. */
+/* Reads `[1, 2.5, -3e-2]`: a bracketed, comma-separated list of numbers.
+ * Each number is read by strtod, which reads no locale, since cosmic
+ * never sets one, and so is more lenient than JSON: it also takes a
+ * leading `+`, `.5`, `1.` and hexadecimal floats. A number must be finite
+ * as a float, and there must be at least one. */
 static const char *parse_text (const char *text, struct vector *v) {
   const char *p = text;
   while (*p == ' ' || *p == '\t' || *p == '\n' || *p == '\r') p++;
@@ -40,12 +47,12 @@ static const char *parse_text (const char *text, struct vector *v) {
   for (;;) {
     while (*p == ' ' || *p == '\t' || *p == '\n' || *p == '\r') p++;
     if (*p == ']' && n == 0) {
-      p++;
-      break;
+      sqlite3_free(out);
+      return "a vector has at least 1 dimension";
     }
     char *end = NULL;
     double x = strtod(p, &end);
-    if (end == p || !isfinite(x)) {
+    if (end == p || !isfinite(x) || !isfinite((float)x)) {
       sqlite3_free(out);
       return "a vector's text holds finite numbers";
     }
@@ -97,7 +104,8 @@ static int read_vector (sqlite3_context *ctx, sqlite3_value *value,
   const char *why = NULL;
   switch (sqlite3_value_type(value)) {
     case SQLITE_BLOB: {
-      const void *data = sqlite3_value_blob(value);
+      /* The length first: for a zeroblob it is reported without
+       * expanding the blob, and the expansion is what can fail. */
       size_t len = (size_t)sqlite3_value_bytes(value);
       if (len % sizeof(float) != 0) {
         why = "a vector's blob is a whole number of 4-byte floats";
@@ -109,12 +117,26 @@ static int read_vector (sqlite3_context *ctx, sqlite3_value *value,
         break;
       }
       if (v->dims == 0) {
-        v->values = NULL;
+        why = "a vector has at least 1 dimension";
+        break;
       }
-      else if ((uintptr_t)data % _Alignof(float) == 0) {
+      const void *data = sqlite3_value_blob(value);
+      if (data == NULL) {
+        /* A zeroblob that could not be expanded; the length said it
+         * is not empty. */
+        v->dims = 0;
+        sqlite3_result_error_nomem(ctx);
+        return 0;
+      }
+      if ((uintptr_t)data % _Alignof(float) == 0) {
         v->values = data;
       }
       else {
+        /* SQLite's own values are malloc'd, so aligned: a table column is
+         * copied out of its page (OP_Column), and a bound or computed
+         * blob is held in a block of its own. This is for a virtual
+         * table that answers a static blob at an odd offset, which no
+         * SQL in the tree reaches (cosmic/vector_sql_test.tl says so). */
         v->owned = sqlite3_malloc64(len);
         if (v->owned == NULL) {
           sqlite3_result_error_nomem(ctx);
@@ -312,7 +334,9 @@ static void result_floats (sqlite3_context *ctx, const float *values,
 }
 
 /* `vector(X)`: X as a blob of floats, so a text is parsed once, where it
- * is stored, rather than in every comparison. */
+ * is stored, rather than in every comparison. It is also where a blob is
+ * checked for NaN and infinity: the distance functions do not look, to
+ * keep a scan fast, and give NaN for a vector that holds one. */
 static void vector_function (sqlite3_context *ctx, int argc,
                              sqlite3_value **argv) {
   if (any_null(argc, argv)) {
@@ -321,6 +345,13 @@ static void vector_function (sqlite3_context *ctx, int argc,
   }
   struct vector v;
   if (!read_vector(ctx, argv[0], &v)) return;
+  for (size_t i = 0; i < v.dims; i++) {
+    if (!isfinite(v.values[i])) {
+      release(&v);
+      sqlite3_result_error(ctx, "a vector holds finite numbers", -1);
+      return;
+    }
+  }
   result_floats(ctx, v.values, v.dims);
   release(&v);
 }
@@ -347,7 +378,8 @@ static void vector_text_function (sqlite3_context *ctx, int argc,
   char *text = sqlite3_str_finish(out);
   if (rc != SQLITE_OK || text == NULL) {
     sqlite3_free(text);
-    sqlite3_result_error_nomem(ctx);
+    if (rc != SQLITE_OK) sqlite3_result_error_code(ctx, rc);
+    else sqlite3_result_error_nomem(ctx);
     return;
   }
   sqlite3_result_text(ctx, text, -1, sqlite3_free);
@@ -381,7 +413,13 @@ static void l2_normalize_function (sqlite3_context *ctx, int argc,
     sqlite3_result_error_nomem(ctx);
     return;
   }
-  double norm = sqrt((double)dot(v.values, v.values, v.dims));
+  /* Summed in double: the squares of small floats underflow, and of
+   * large ones overflow, in float. */
+  double squares = 0.0;
+  for (size_t i = 0; i < v.dims; i++) {
+    squares += (double)v.values[i] * (double)v.values[i];
+  }
+  double norm = sqrt(squares);
   for (size_t i = 0; i < v.dims; i++) {
     out[i] = norm == 0.0 ? 0.0f : (float)((double)v.values[i] / norm);
   }
@@ -391,7 +429,10 @@ static void l2_normalize_function (sqlite3_context *ctx, int argc,
 
 /* `subvector(X, start, count)`: count of X's dimensions from start,
  * counted from 1, as pgvector's: the head of a Matryoshka embedding is
- * `subvector(X, 1, 256)`. */
+ * `subvector(X, 1, 256)`. The range is clipped to X as SQL's substring
+ * clips it: a start below 1 counts from 1 but still uses up count for
+ * the dimensions before it, and a count past the end stops at the end.
+ * Only a range that leaves no dimension is an error. */
 static void subvector_function (sqlite3_context *ctx, int argc,
                                 sqlite3_value **argv) {
   if (any_null(argc, argv)) {
@@ -402,13 +443,20 @@ static void subvector_function (sqlite3_context *ctx, int argc,
   if (!read_vector(ctx, argv[0], &v)) return;
   sqlite3_int64 start = sqlite3_value_int64(argv[1]);
   sqlite3_int64 count = sqlite3_value_int64(argv[2]);
-  if (start < 1 || count < 1 || (sqlite3_uint64)start > v.dims
-      || (sqlite3_uint64)count > v.dims - (size_t)(start - 1)) {
+  /* The half-open range [first, last) of 1-based dimensions, clipped to
+   * [1, dims + 1) without overflowing start + count. */
+  sqlite3_int64 first = start, last;
+  if (count < 1) last = first;
+  else if (start > INT64_MAX - count) last = INT64_MAX;
+  else last = start + count;
+  if (first < 1) first = 1;
+  if (last > (sqlite3_int64)v.dims + 1) last = (sqlite3_int64)v.dims + 1;
+  if (last <= first) {
     release(&v);
-    sqlite3_result_error(ctx, "subvector's range is outside the vector", -1);
+    sqlite3_result_error(ctx, "a vector has at least 1 dimension", -1);
     return;
   }
-  result_floats(ctx, v.values + (start - 1), (size_t)count);
+  result_floats(ctx, v.values + (first - 1), (size_t)(last - first));
   release(&v);
 }
 
@@ -438,7 +486,9 @@ static void binary_quantize_function (sqlite3_context *ctx, int argc,
   sqlite3_result_blob64(ctx, bits, len, sqlite3_free);
 }
 
-/* Reads two bit vectors, blobs of the same length. */
+/* Reads two bit vectors, blobs of the same length. They are compared by
+ * their bytes alone, so a vector of 9 bits and one of 16 are the same
+ * length. */
 static int read_bits (sqlite3_context *ctx, sqlite3_value **argv,
                       const unsigned char **a, const unsigned char **b,
                       size_t *len) {
@@ -447,13 +497,21 @@ static int read_bits (sqlite3_context *ctx, sqlite3_value **argv,
     sqlite3_result_error(ctx, "a bit vector is a blob", -1);
     return 0;
   }
-  *len = (size_t)sqlite3_value_bytes(argv[0]);
-  if ((size_t)sqlite3_value_bytes(argv[1]) != *len) {
+  /* The blob first, then its length: fetching a zeroblob expands it,
+   * which can fail, leaving NULL beside a length above zero. */
+  *a = sqlite3_value_blob(argv[0]);
+  size_t len_a = (size_t)sqlite3_value_bytes(argv[0]);
+  *b = sqlite3_value_blob(argv[1]);
+  size_t len_b = (size_t)sqlite3_value_bytes(argv[1]);
+  if ((*a == NULL && len_a > 0) || (*b == NULL && len_b > 0)) {
+    sqlite3_result_error_nomem(ctx);
+    return 0;
+  }
+  if (len_a != len_b) {
     sqlite3_result_error(ctx, "the bit vectors have different lengths", -1);
     return 0;
   }
-  *a = sqlite3_value_blob(argv[0]);
-  *b = sqlite3_value_blob(argv[1]);
+  *len = len_a;
   return 1;
 }
 
@@ -540,13 +598,12 @@ int cosmic_vector_functions (sqlite3 *db) {
   /* Pure arithmetic on their arguments, so innocuous: a database file's
    * own views, generated columns and expression indexes may use them,
    * which is how a stored `binary_quantize(embedding)` is indexed. */
-  int rc = SQLITE_OK;
-  for (size_t i = 0; rc == SQLITE_OK && i < sizeof functions / sizeof *functions;
-       i++) {
-    rc = sqlite3_create_function(
+  for (size_t i = 0; i < sizeof functions / sizeof *functions; i++) {
+    int rc = sqlite3_create_function(
         db, functions[i].name, functions[i].arity,
         SQLITE_UTF8 | SQLITE_DETERMINISTIC | SQLITE_INNOCUOUS, NULL,
         functions[i].call, NULL, NULL);
+    if (rc != SQLITE_OK) return rc;
   }
-  return rc;
+  return SQLITE_OK;
 }

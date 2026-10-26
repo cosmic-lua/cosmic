@@ -183,7 +183,7 @@ function Example.vector_search()
   local query = "[0.85, 0.15, 0.05]"
   local found = assert(Sqlite.map(db, [[
     SELECT body, cosine_distance(embedding, ?1) FROM chunks
-    WHERE tenant = 'a' ORDER BY 2 LIMIT 2
+    WHERE tenant = 'a' ORDER BY 2 NULLS LAST LIMIT 2
   ]], { { text = query } }, function(r: Sqlite.Row): string
     return string.format("%s (%.3f)", r:text(1), r:number(2))
   end))
