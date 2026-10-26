@@ -47,6 +47,7 @@ local type _sandbox = require("cosmic.sandbox")
 local type _sqlite = require("cosmic.sqlite")
 local type _store = require("cosmic.store")
 local type _tar = require("cosmic.tar")
+local type _vector = require("cosmic.vector")
 local type _zip = require("cosmic.zip")
 
 --- Every declaration of the core's raw modules, the headers the process
@@ -291,6 +292,9 @@ local makers: {string: function(raw: {string: any}): Made} = {
         call(members(lookup).close, lookup)
       end }
   end,
+  vector = function(raw: {string: any}): Made
+    return { instances = { Corpus = call(raw["corpus"], 4) }, release = nothing }
+  end,
   sqlite = function(raw: {string: any}): Made
     local handle = assert(call(raw.open, ":memory:", true))
     local statement = assert(call(members(handle).prepare, handle, "SELECT 1"))
@@ -330,6 +334,7 @@ local wrappers <const>: {string: string} = {
   ["cosmic.sqlite"] = "sqlite",
   ["cosmic.store"] = "store",
   ["cosmic.tar"] = "hash",
+  ["cosmic.vector"] = "vector",
   ["cosmic.zip"] = "compress",
 }
 
