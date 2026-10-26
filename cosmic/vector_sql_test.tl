@@ -271,15 +271,18 @@ local function test_hybrid_search_blends_keywords_and_meaning()
   local blended = ids(db, [[
     WITH
       semantic AS (
-        SELECT id, row_number() OVER (ORDER BY cosine_distance(embedding, ?1) NULLS LAST) AS rank
-        FROM chunks LIMIT 5),
+        SELECT id, row_number() OVER w AS pos FROM chunks
+        WINDOW w AS (ORDER BY cosine_distance(embedding, ?1) NULLS LAST)
+        ORDER BY pos LIMIT 5),
       keyword AS (
-        SELECT rowid AS id, row_number() OVER (ORDER BY rank) AS rank
-        FROM chunks_fts WHERE chunks_fts MATCH ?2 LIMIT 5)
+        SELECT rowid AS id, row_number() OVER w AS pos FROM chunks_fts
+        WHERE chunks_fts MATCH ?2
+        WINDOW w AS (ORDER BY rank)
+        ORDER BY pos LIMIT 5)
     SELECT id FROM (
-      SELECT id, 1.0 / (60 + rank) AS score FROM semantic
+      SELECT id, 1.0 / (60 + pos) AS score FROM semantic
       UNION ALL
-      SELECT id, 1.0 / (60 + rank) AS score FROM keyword)
+      SELECT id, 1.0 / (60 + pos) AS score FROM keyword)
     GROUP BY id ORDER BY sum(score) DESC LIMIT 1
   ]], { meaning, keywords })
   assert(blended[1] == 4, "Mars is second in both lists, ahead of each list's first")

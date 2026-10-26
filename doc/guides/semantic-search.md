@@ -8,8 +8,8 @@ to a measured fast path. The SQL functions it uses are listed in the
 [SQL functions guide](sql.md#vector-search).
 
 The examples run offline. A provider needs a key and the network, so a
-toy embedding stands in for it: each word lands on one of 64 dimensions
-by its digest. Texts that share words point the same way. It knows
+toy embedding stands in for it: each word gets one of 64 dimensions and
+a sign, both from its digest. Texts that share words point the same way. It knows
 nothing about meaning, but everything after the call is the real thing.
 
 ## embeddings from an API
@@ -17,12 +17,19 @@ nothing about meaning, but everything after the call is the real thing.
 An OpenAI-compatible `/v1/embeddings` endpoint takes a model name and a
 list of texts, and answers one embedding per text. Ask for
 `encoding_format: "base64"`: the embedding then arrives as the base64 of
-its little-endian 32-bit floats, which is the blob [`cosmic.vector`] and
-the SQL functions store. [`cosmic.http`] sends the request, [`cosmic.json`] writes and reads
-its JSON, and [`cosmic.codec`] decodes the embedding straight into one,
-with no list of numbers in between.
+its little-endian 32-bit floats, which is the blob [`cosmic.vector`]
+and the SQL functions store. [`cosmic.http`] sends the request,
+[`cosmic.json`] writes and reads its JSON, and [`cosmic.codec`] decodes
+the embedding straight into one, with no list of numbers in between.
 
-This example is compiled but not run, since it calls a provider.
+A provider caps the number of texts in one request, so `embed_all` sends
+them in batches. A server that ignores `encoding_format` answers float
+arrays; the shape check then fails with its message instead of storing
+garbage.
+
+This example is compiled but not run, since it calls a provider, so the
+request has not been tried against a live one. Check the field names
+against the provider's documentation.
 
 ```teal
 local Codec = require("cosmic.codec")
@@ -55,6 +62,9 @@ local record Embedded
 end
 
 local function embed_texts(texts: {string}, model: string, key: string): Embedded?, string
+  if #texts == 0 then
+    return nil, "embeddings: no texts"
+  end
   local body = assert(Json.encode({ model = model, input = texts, encoding_format = "base64" }))
   local reply, why = Http.request("POST", "https://api.openai.com/v1/embeddings", {
     headers = { ["Authorization"] = "Bearer " .. key, ["Content-Type"] = "application/json" },
@@ -97,9 +107,33 @@ local function embed_texts(texts: {string}, model: string, key: string): Embedde
   return { vectors = ordered, model = parsed.model, dims = #assert(ordered[1]) // 4 }, ""
 end
 
+-- Sends the texts `batch` at a time, and joins the answers.
+local function embed_all(texts: {string}, model: string, key: string, batch: integer): Embedded?, string
+  if #texts == 0 then
+    return nil, "embeddings: no texts"
+  end
+  local vectors: mut {string} = {}
+  local reported, dims = "", 0
+  for from = 1, #texts, batch do
+    local part: mut {string} = {}
+    for i = from, math.min(from + batch - 1, #texts) do
+      part[#part + 1] = assert(texts[i])
+    end
+    local made, why = embed_texts(part, model, key)
+    if made == nil then
+      return nil, why
+    end
+    for _, blob in ipairs(made.vectors) do
+      vectors[#vectors + 1] = blob
+    end
+    reported, dims = made.model, made.dims
+  end
+  return { vectors = vectors, model = reported, dims = dims }, ""
+end
+
 local key = Env.get("OPENAI_API_KEY")
 if key ~= nil then
-  local made = assert(embed_texts({ "cats purr" }, "text-embedding-3-small", key))
+  local made = assert(embed_all({ "cats purr", "dogs bark" }, "text-embedding-3-small", key, 100))
   print(made.model, made.dims)
 end
 ```
@@ -112,9 +146,11 @@ stops the silent mistake. The schema below has one, and every search
 filters on it.
 
 Some models, such as OpenAI's `text-embedding-3` family, are trained so
-that the first dimensions of an embedding stand alone: a shorter vector
-for a smaller table is `subvector(embedding, 1, 256)`, re-normalized.
-Record the shortened length as that model's dimensions.
+that the first dimensions of an embedding stand alone. A shorter vector
+for a smaller table comes from the client, `subvector(embedding, 1, 256)`
+re-normalized, or from the server: the request's `dimensions` parameter
+asks it to truncate. Either way, record the shortened length as that
+model's dimensions.
 
 ## chunking
 
@@ -183,8 +219,9 @@ Four tables hold a corpus.
   asks for. A bit vector is 96 bytes, which packs about 40 rows to a
   page, so the first pass of a binary search never touches the floats.
 
-Triggers keep the last two in step, so inserting a chunk is one
-statement. The embedding is normalized as it is stored, which makes the
+Triggers keep the last two in step with `chunks`, so inserting a chunk
+is one statement, and so is embedding a passage later or editing one.
+The embedding is normalized as it is stored, which makes the
 inner product the cosine, so either ranks the rows.
 
 The toy embedding comes first, then the schema and a first corpus of
@@ -233,6 +270,13 @@ local function open_corpus(): Sqlite.Handle, integer
 
     CREATE TRIGGER chunks_insert AFTER INSERT ON chunks BEGIN
       INSERT INTO chunks_fts (rowid, body) VALUES (new.id, new.body);
+      INSERT INTO chunk_bits SELECT new.id, new.model, binary_quantize(new.embedding)
+        WHERE new.embedding IS NOT NULL;
+    END;
+    CREATE TRIGGER chunks_update AFTER UPDATE ON chunks BEGIN
+      INSERT INTO chunks_fts (chunks_fts, rowid, body) VALUES ('delete', old.id, old.body);
+      INSERT INTO chunks_fts (rowid, body) VALUES (new.id, new.body);
+      DELETE FROM chunk_bits WHERE id = old.id;
       INSERT INTO chunk_bits SELECT new.id, new.model, binary_quantize(new.embedding)
         WHERE new.embedding IS NOT NULL;
     END;
@@ -309,21 +353,46 @@ local in_space = ids(db, [[
 print("nearest", table.concat(nearest, " "), "in space", table.concat(in_space, " "))
 ```
 
-The binary first pass keeps the 100 chunks whose bit vectors are
-nearest in Hamming distance, then ranks only those by their floats. It
-is approximate: measure its recall, as the last section shows. On
-100,000 chunks of 768 dimensions it took 10 ms, where scanning all the
-floats took 91 ms.
+The binary first pass keeps the 200 chunks whose bit vectors are
+nearest in Hamming distance, then ranks only those by their floats. The
+stored vectors are normalized, so the inner product of a normalized
+query ranks them as the cosine does. The pass is approximate: measure
+its recall, as the last section shows. In the plan's synthetic benchmark
+(100,000 chunks of 768 dimensions, on a 4-core 2.1 GHz Xeon) it took
+10 ms, where ranking all the floats by inner product took 91 ms, and by
+cosine 120 ms.
 
 ```teal continue
 local by_bits = ids(db, [[
   SELECT c.id FROM (
     SELECT id FROM chunk_bits WHERE model = ?2
-    ORDER BY hamming_distance(bits, binary_quantize(?1)) LIMIT 100
+    ORDER BY hamming_distance(bits, binary_quantize(?1)) LIMIT 200
   ) b JOIN chunks c ON c.id = b.id
-  ORDER BY cosine_distance(c.embedding, ?1) NULLS LAST LIMIT 2
+  ORDER BY inner_product(c.embedding, l2_normalize(?1)) DESC, c.id LIMIT 2
 ]], { question, { integer = model } })
 print("by bits", table.concat(by_bits, " "))
+```
+
+The `chunks_update` trigger keeps `chunk_bits` right when a passage is
+embedded after it was stored. This chunk starts with a `NULL` embedding,
+so it has no bit vector, and the first pass cannot find it. One `UPDATE`
+embeds it, and the trigger adds the bits:
+
+```teal continue
+local late: Sqlite.Value = { blob = embed("kittens purr in the sun") }
+assert(Sqlite.run(db, "INSERT INTO chunks (doc, start, stop, body, model) VALUES (?1, 1, 23, ?2, ?3)",
+  { { text = "late" }, { text = "Kittens purr in the sun" }, { integer = model } }))
+local late_id = db:last_insert_rowid()
+local function nearest_bits(): integer
+  return ids(db, [[
+    SELECT id FROM chunk_bits WHERE model = ?2
+    ORDER BY hamming_distance(bits, binary_quantize(?1)) LIMIT 1
+  ]], { late, { integer = model } })[1] or 0
+end
+local before = nearest_bits() == late_id
+assert(Sqlite.run(db, "UPDATE chunks SET embedding = l2_normalize(?1) WHERE id = ?2",
+  { late, { integer = late_id } }))
+print("late", before, nearest_bits() == late_id)
 ```
 
 Hybrid search blends meaning with keywords: a rare word or a name is
@@ -331,21 +400,29 @@ what keywords find, and an embedding blurs. Reciprocal rank fusion
 needs no common scale. Each list gives a chunk `1 / (60 + rank)`, and
 the chunk with the most in total wins, so one that is high in both lists
 beats one that leads a single list. FTS5's `rank` orders its matches by
-`bm25`.
+`bm25`, and the full-text index knows no models, so the keyword list
+keeps only the rows of this one. A `LIMIT` over a window function keeps
+rows in no guaranteed order, so each list sorts by its position before
+it cuts.
 
 ```teal continue
 local hybrid = ids(db, [[
   WITH
     semantic AS (
-      SELECT id, row_number() OVER (ORDER BY cosine_distance(embedding, ?1) NULLS LAST) AS rank
-      FROM chunks WHERE model = ?3 LIMIT 20),
+      SELECT id, row_number() OVER w AS pos FROM chunks
+      WHERE model = ?3
+      WINDOW w AS (ORDER BY cosine_distance(embedding, ?1) NULLS LAST)
+      ORDER BY pos LIMIT 20),
     keyword AS (
-      SELECT rowid AS id, row_number() OVER (ORDER BY rank) AS rank
-      FROM chunks_fts WHERE chunks_fts MATCH ?2 LIMIT 20)
+      SELECT rowid AS id, row_number() OVER w AS pos FROM chunks_fts
+      WHERE chunks_fts MATCH ?2
+        AND rowid IN (SELECT id FROM chunks WHERE model = ?3)
+      WINDOW w AS (ORDER BY rank)
+      ORDER BY pos LIMIT 20)
   SELECT id FROM (
-    SELECT id, 1.0 / (60 + rank) AS score FROM semantic
+    SELECT id, 1.0 / (60 + pos) AS score FROM semantic
     UNION ALL
-    SELECT id, 1.0 / (60 + rank) AS score FROM keyword)
+    SELECT id, 1.0 / (60 + pos) AS score FROM keyword)
   GROUP BY id ORDER BY sum(score) DESC LIMIT 3
 ]], { { blob = embed("the sun in the solar system") }, { text = "bread OR mars" }, { integer = model } })
 print("hybrid", table.concat(hybrid, " "))
@@ -371,6 +448,12 @@ many times, load it once with [`Vector.load`], which keeps every embedding
 in one buffer, and search that. A search then scores contiguous floats
 and keeps the best `k` in a small heap, with no SQLite in the loop. A tie
 goes to the lower id, so an answer is stable.
+
+[`Vector.load`] runs the query and reads each row as an id and a vector
+blob. When the query answers no rows, `load` returns nil with a message,
+because a corpus takes its dimensions from its first vector. The query
+keeps `embedding IS NOT NULL` because a passage not yet embedded has no
+blob, and `load` refuses a row without one rather than skip it.
 
 On 100,000 chunks of 768 dimensions (a 300 MB buffer), on a 4-core
 Xeon at 2.1 GHz, best of five:
@@ -402,9 +485,9 @@ print("corpus", table.concat(exact.ids, " "), "candidates", table.concat(quick.i
 
 ## a large corpus
 
-Past a few hundred thousand chunks, even the in-memory scan costs
-tens of milliseconds, and the rest of this section trades some recall
-for far less work. IVF ("inverted file") splits the corpus into
+Past about 100,000 chunks the in-memory scan costs tens to hundreds
+of milliseconds, and the rest of this section trades some recall for far
+less work. IVF ("inverted file") splits the corpus into
 clusters. A query scores only the chunks in the few clusters nearest to
 it. No new storage is needed: an integer column holds each chunk's
 cluster, and an ordinary index finds a cluster's rows.
@@ -413,7 +496,7 @@ cluster, and an ordinary index finds a cluster's rows.
 corpus's normalized vectors, seeded, so a run with the same `seed`
 replays. A starting point for `k` is the square root of the number of
 chunks. At 100,000 chunks of 768 dimensions with `k = 100` an iteration
-takes about 4 s, so train on a sample of some tens of thousands.
+takes about 4 s, so train on a sample of 20,000.
 
 The next example builds a corpus of 2,000 synthetic passages drawn from
 four topics, then clusters it. Keep the centers in a table: a program
@@ -486,18 +569,32 @@ binds them as one array for `carray`:
 ```teal continue
 local function by_cluster(query: string, probes: integer, k: integer): {integer}
   return ids(big, [[
-    SELECT id FROM chunks WHERE cluster IN carray(?2)
+    SELECT id FROM chunks WHERE model = ?4 AND cluster IN carray(?2)
     ORDER BY inner_product(embedding, ?1) DESC, id LIMIT ?3
-  ]], { { blob = query }, { integers = Vector.nearest_n(centroids, query, probes) }, { integer = k } })
+  ]], { { blob = query }, { integers = Vector.nearest_n(centroids, query, probes) },
+        { integer = k }, { integer = big_model } })
 end
+```
+
+A program that starts later reloads the centers from their table, in
+`id` order, since a center's position is its cluster number:
+
+```teal continue
+local reloaded = assert(Sqlite.map(big, "SELECT vector FROM centroids ORDER BY id", nil,
+  function(r: Sqlite.Row): string
+    return r:blob(1)
+  end))
+assert(#reloaded == #centroids and reloaded[1] == centroids[1])
 ```
 
 More probes find more of the true neighbours and scan more rows. When
 the data changes, so do the best centers. Inserts keep placing chunks
-by the old ones, and recall slowly falls. Retrain, and rewrite every
-`cluster`, when a measurement of recall (next) drops below what the
-program needs, or when the corpus has grown by half or its subject has
-changed. Run it from a job, not from a request.
+by the old ones, and recall slowly falls. Retrain when a measurement of
+recall (next) drops below what the program needs, or, for example, when
+the corpus has grown by half or its subject has changed. Retraining
+rewrites the `centroids` table and every `cluster`, in one transaction,
+so a reader never sees centers that do not match the clusters. Run it
+from a job, not from a request.
 
 ## measuring recall
 
@@ -541,15 +638,16 @@ for _, candidates in ipairs({ 100, 200, 400 }) do
 end
 ```
 
-The queries should be the ones the program will see, not rows of the
-corpus: a stored row is its own nearest neighbour, and flatters the
-result. The toy embedding's 64 sparse dimensions leave the sign bits little to
-go on, which is why `candidates` must be so large above; the recall on a
-real model's embeddings is for the caller to measure. A recall of 0.95
-for the top 10 means about one in twenty
-true neighbours is missed, and the missed ones are the last. Raise
-`candidates` or the probes until the recall is enough, and time the
-search at that setting.
+Use queries the program will see, not rows of the corpus: a stored row
+is its own nearest neighbour, and flatters the result. The toy
+embedding's 64 sparse dimensions leave the sign bits little to go on,
+which is why `candidates` must be so large above, and its scores tie
+heavily, so a neighbour that ties the cut-off may fall either side of it
+and counts as a miss. The recall on a real model's embeddings is for
+the caller to measure. A recall of 0.95 for the top 10 means about one
+in twenty true neighbours is missed, and the missed ones tend to be the
+lower-ranked. Raise `candidates` or the probes until the recall meets
+the program's target, and time the search at that setting.
 
 Running the examples above, in order, prints:
 
@@ -560,8 +658,9 @@ Running the examples above, in order, prints:
 chunks	7
 nearest	1 3	in space	4
 by bits	1 3
+late	false	true
 hybrid	5 6 4
-like 1	2 3
+like 1	8 2
 corpus	1 3	candidates	1 3
 ivf, 1 probes: 0.85
 ivf, 2 probes: 0.97
