@@ -24,7 +24,7 @@ end
 --- A merged policy's `loopback` is one list, so the failure says which one.
 local function test_a_loopback_conflict_of_the_merged_policy_is_named_by_its_path()
   local none, why = Sandbox.merge({ loopback = { "127.0.0.1" } }, { connect = { "127.0.0.1:80" } })
-  assert(none == nil and why:find("^sandbox: %$%.loopback%[0%] of the merged policy: ") ~= nil, why)
+  assert(none == nil and why:find("^sandbox: %$%.loopback%[0%]: in the merged policy, ") ~= nil, why)
   local ok, own = Sandbox.check({ loopback = { "127.0.0.2", "127.0.0.1" }, connect = { "127.0.0.1:80" } })
   assert(not ok and own:find("^sandbox: %$%.loopback%[1%]: ") ~= nil, own)
 end

@@ -236,10 +236,20 @@ local function listed(name: string, names: {string}): boolean
   return false
 end
 
+--- The path of the value `steps` name from the root: a string is a member, an
+--- integer a list element by its Lua index.
+local function path_of(steps: {string | integer}): string
+  local path = FieldPath.root
+  for _, step in ipairs(steps) do
+    path = if step is string then FieldPath.field(path, step) else FieldPath.index(path, step) end
+  end
+  return path
+end
+
 --- Why the limit `name`, nil for none, is below `least`, or "".
 local function below(name: string, value: integer?, least: integer): string
   if value == nil or value >= least then return "" end
-  return FieldPath.field(FieldPath.field(FieldPath.root, "limits"), name) .. ": a limit is at least " .. least
+  return path_of({ "limits", name }) .. ": a limit is at least " .. least
 end
 
 --- Why `loopback` and `connect` may not be held together, or "": a
@@ -252,7 +262,7 @@ local function loopback_conflict(loopback: {string}, connect: {string}, joined: 
   for i, address in ipairs(loopback) do
     local target = RelayConfig.naming(connect, address)
     if target ~= "" then
-      return FieldPath.index(FieldPath.field(FieldPath.root, "loopback"), i) .. (if joined then " of the merged policy" else "" end) .. ": \"" .. address .. "\" is also the host address that " ..
+      return path_of({ "loopback", i }) .. ": " .. (if joined then "in the merged policy, " else "" end) .. "\"" .. address .. "\" is also the host address that " ..
         "connect \"" .. target .. "\" names, and a proxy client cannot tell the two apart by port: " ..
         "give the sandbox's own services another 127.x address (127.0.0.2, say)"
     end
@@ -266,14 +276,8 @@ end
 --- already in the order of "rwxcu", each once, as [`Sandbox.check`] with
 --- `exact` takes them.
 local function invalid(p: rules.Policy, exact: boolean): string
-  --- `why` at the value `steps` name from the root: a string is a member, an
-  --- integer a list element by its Lua index.
   local function at(steps: {string | integer}, why: string): string
-    local path = FieldPath.root
-    for _, step in ipairs(steps) do
-      path = if step is string then FieldPath.field(path, step) else FieldPath.index(path, step) end
-    end
-    return path .. ": " .. why
+    return path_of(steps) .. ": " .. why
   end
   for i, name in ipairs(p.profiles or {}) do
     if not listed(name, PROFILES) then
@@ -434,6 +438,11 @@ end
 local function digest_of(value: string): string
   return Codec.hex(Hash.sha256(value))
 end
+
+-- TODO: name the field by its path in the two-values messages of merging
+-- too (`limits.open_files is given two values`, `set_env "X" is given two
+-- values`, `database is given two values`), once the tests that match their
+-- text move with them.
 
 --- Why `held` and `incoming`, two values for the limit `name` (either nil
 --- for none), disagree, or "" when they do not.

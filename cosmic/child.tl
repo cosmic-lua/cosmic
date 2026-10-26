@@ -3660,7 +3660,7 @@ local function prepare_relay(connect: {string}, opts: Options, seatbelt: boolean
   config.log = if log == "null" then "null" else "stderr" end
   config.token = token
   -- `program.digest` is the hex SHA-256 [`Store.seal`] hashed the file to,
-  -- which is what `/database/sha256` holds; [`Rules.merge`] checks it anyway.
+  -- which is what `$.database.sha256` holds; [`Rules.merge`] checks it anyway.
   local policy = seatbelt and RelayStart.seatbelt_policy(program.path, program.digest) or
     RelayStart.policy(program.path, program.digest)
   return { dir = program.dir, policy = policy, config = RelayConfig.encode(config), log = log,

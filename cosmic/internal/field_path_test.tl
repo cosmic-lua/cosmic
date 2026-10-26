@@ -1,4 +1,5 @@
 local FieldPath = require("cosmic.internal.field_path")
+local Json = require("cosmic.json")
 local Sandbox = require("cosmic.sandbox")
 
 local function test_a_path_runs_from_the_root_by_member_and_element()
@@ -13,6 +14,14 @@ local function test_a_key_that_is_no_identifier_is_quoted_as_json_quotes_it()
   assert(FieldPath.field("$", "1st") == '$["1st"]')
   assert(FieldPath.field("$", "") == '$[""]')
   assert(FieldPath.field("$", 'q"\\\n') == '$["q\\"\\\\\\u000a"]', FieldPath.field("$", 'q"\\\n'))
+end
+
+local function test_quote_writes_what_json_quote_writes()
+  local bytes: mut {string} = { "", "plain", 'a"b', "a\\b", "a\nb\0c", "\u{e9}" }
+  for byte = 0, 255 do bytes[#bytes + 1] = "x" .. string.char(byte) .. "y" end
+  for _, text in ipairs(bytes) do
+    assert(FieldPath.quote(text) == Json.quote(text), text)
+  end
 end
 
 --- A policy failure names a key that is no identifier the way a Shape

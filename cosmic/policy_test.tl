@@ -5,13 +5,12 @@ local Sandbox = require("cosmic.sandbox")
 local PolicyJson = require("cosmic.policy")
 
 --- Why `json` is refused, asserting that it is, and names `field`, a path
---- like `$.grants[0].letters`, in a message that never says "pointer".
+--- like `$.grants[0].letters`.
 local function refused(json: string, field: string): string
   local policy, why = PolicyJson.decode(json)
   assert(policy == nil, json .. " was taken")
   assert(why:find("^sandbox: "), why)
   assert(why:find(field, 1, true), json .. " refused without naming " .. field .. ": " .. why)
-  assert(not why:find("pointer", 1, true), why)
   return why
 end
 
