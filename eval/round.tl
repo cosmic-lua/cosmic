@@ -319,8 +319,8 @@ function Round.short_commit(root: string, path?: string): string
 end
 
 local function real_system(): Round.System
-  local handles: {integer: Child.Handle} = {}
-  local streams: {integer: integer} = {}
+  local handles: mut {integer: Child.Handle} = {}
+  local streams: mut {integer: integer} = {}
   local started = { issued = 0 }
   return {
     run = function(argv: {string}): Round.Output
