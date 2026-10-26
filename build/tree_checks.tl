@@ -954,7 +954,8 @@ local restricted: {string: Restriction} = {
 
 --- Each use in `db` of a member of `rules` (by default [`restricted`])
 --- from a file its rule does not name, as `<file>:<line>: <module> <member>
---- ...`.
+--- ...`; by default also each module that requires one only a few may
+--- ([`tree_checks.requirers`]).
 function tree_checks.restricted(db: Sqlite.Handle, rules?: {string: Restriction}): {string}
   local out: mut {string} = {}
   local names: mut {string} = {}
@@ -979,6 +980,53 @@ function tree_checks.restricted(db: Sqlite.Handle, rules?: {string: Restriction}
       end
     end
   end
+  if rules == nil then
+    for _, line in ipairs(tree_checks.requirers(db)) do out[#out + 1] = line end
+  end
+  return out
+end
+
+--- The modules only a few may require, by module: the loader of a module by a name got at run time is no edge of the
+--- build, so a module that holds it can load what no key, closure or carried program holds. Who may require it, not who
+--- calls it, is what is kept, so an alias of it in another module matters nothing.
+local requirers: {string: Restriction} = {
+  ["build.load_module"] = {
+    files = { "build.dispatch", "build.test_worker", "build.load_module_test" },
+    why = "only the tool's entry and the test worker load a module by a name they get at run " ..
+      "time, which is no edge of the build: any other module requires what it needs by a " ..
+      "literal name, `require(\"cosmic.fs\")`, or picks from a table of such requires",
+  },
+  ["cosmic.internal.globals"] = {
+    files = { "build.dispatch", "build.fact_hook_test", "build.fuzz", "build.load_module",
+      "build.raw_tables_test", "build.sandbox", "build.sandboxed_verdicts_test", "build.sealed_worker_test", "build.standalone",
+      "build.test_closure_diagnostic_test", "build.test_closure_test", "build.type_watch", "core.load_env_test", "core.surface_test",
+      "cosmic.coverage_test", "cosmic.flags_test", "cosmic.test_tool_test", "test.coverage_cache_test" },
+    why = "only the modules that run a program or a hook as a chunk of Lua text take the globals whole, as its " ..
+      "environment: it holds `require`, which a chunk loads modules the build does not see by; any other module " ..
+      "passes the chunk the few names it needs",
+  },
+}
+
+--- Each module of `db` (by its `decl_imports`, which hold a core module's name too) that requires a module of `rules` (by default [`requirers`]) and is not one that rule names, as
+--- `<module>: requires <name>, which only <modules> may require: <why>`.
+function tree_checks.requirers(db: Sqlite.Handle, rules?: {string: Restriction}): {string}
+  local out: mut {string} = {}
+  for name, rule in pairs(rules or requirers) do
+    local rows, trouble = Sqlite.text_rows(db,
+      "SELECT path FROM decl_imports WHERE requires = ?1 ORDER BY path", { { text = name } })
+    if rows == nil then
+      return { "reading the imports: " .. trouble }
+    end
+    local allowed_here: mut {string: boolean} = {}
+    for _, module in ipairs(rule.files) do allowed_here[module] = true end
+    for _, row in ipairs(rows) do
+      if allowed_here[row:text(1)] ~= true then
+        out[#out + 1] = row:text(1) .. ": requires " .. name .. ", which only " .. table.concat(rule.files, ", ") ..
+          " may require: " .. rule.why
+      end
+    end
+  end
+  table.sort(out)
   return out
 end
 
@@ -2130,11 +2178,17 @@ local record DeclareFile
   key: string
 end
 
---- The modules a source requires by a literal name.
-local function required_modules(source: string): {string}
+--- The modules a source requires by a literal name, as `require("m")` or `pcall(require, "m")`: the parser's own
+--- reading of the file `file`. A file that does not parse is read by its text, a name in a comment or a string counting
+--- too, which costs a key that moves for no reason and never a missed edge.
+local function required_modules(source: string, file: string): {string}
+  local chunk, _ = SyntaxNode.parse(source, file)
+  if chunk ~= nil then
+    return SyntaxNode.requires(chunk)
+  end
   local out: mut {string} = {}
   local seen: mut {string: boolean} = {}
-  for _, name in source:gmatch("require%s*%(?%s*([\"'])([%w_%.%-]+)%1") do
+  for _, name in source:gmatch("require%s*[%(,]?%s*([\"'])([%w_%.%-]+)%1") do
     if not seen[name] then
       seen[name] = true
       out[#out + 1] = name
@@ -2197,7 +2251,7 @@ local function tree_of(given: {{string}}, salt: string, bindings?: {{string}}, w
     if not derived[source.filename] then
       local row: DeclareFile = {
         file = source.filename, source = source.text, module = source.module, dialect = source.dialect,
-        imports = required_modules(source.text), key = "",
+        imports = required_modules(source.text, source.filename), key = "",
       }
       rows[#rows + 1] = row
       row_of[source] = row
@@ -2495,6 +2549,55 @@ function tree_checks.pipeline(root: string, build_db: Sqlite.Handle, memo?: Sqli
     local row = assert(tree.rows[index])
     return { file = row.file, module = row.module, dialect = row.dialect, key = row.key, plain = given[row.file] == true }
   end, tree_checks.declared(root, nil, memo), tree_checks.checked(root, nil, memo))
+end
+
+--- The files that may read `package`, tests apart: the table that holds the loaded modules, the searchers that find them, `preload`,
+--- `searchpath`, `loadlib` and the search paths. A module that reads them can load a module by a name it computes, which
+--- the build does not see as an edge, so `require`, the one way the build follows, is the only way the rest load one.
+local packagers: {string: string} = {
+  ["build/link_resolve.tl"] = "refuses a step into `package.loaded` or `package.preload` when it resolves a name",
+  ["build/removed_fix.tl"] = "reads the catalog from `package.loaded`",
+  ["build/sandbox.tl"] = "asks whether the core preloads a module",
+  ["build/sandbox_probe.tl"] = "asks the searchers whether a sandbox can be made",
+  ["build/test_worker.tl"] = "holds `require` to a test's closure through the searchers and `package.loaded`",
+  ["build/udp_fixture.tl"] = "reads the core's raw table through the searchers",
+  ["build/unix_socket.tl"] = "reads the core's raw table through the searchers",
+  ["cosmic/removed_example.tl"] = "shows that `package.loaded` holds a module once required",
+  ["cosmic/store.tl"] = "reads the store's searcher",
+}
+
+--- Each read of `package` in a file of the tree that is not one of `files` (by default [`packagers`]), as
+--- `<file>:<line>: reads \`package\`...`: a name `package` that is no field (`t.package`, `s:package()`, `{ package = 1 }`, a field `package: T` declared),
+--- so that an alias (`local p = package`), an index (`package["searchers"]`) and each field are all found.
+function tree_checks.package_readers(root: string, files?: {string: string}): {string}
+  local sources, trouble = sources_of(root)
+  if sources == nil then
+    return { "reading the sources: " .. trouble }
+  end
+  local permitted = files or packagers
+  local out: mut {string} = {}
+  for _, entry in ipairs(sources) do
+    local file, text = entry[1], entry[2]
+    -- A test is held to its closure by the worker, which makes the case of the many that read the core's raw tables through
+    -- the searchers to test a binding; it is no module a program carries.
+    if file ~= nil and text ~= nil and permitted[file] == nil and file:match("_test%.tl$") == nil and
+        text:find("package", 1, true) ~= nil then
+      local tokens = Lexer.lex(text, file).tokens
+      for i, word in ipairs(tokens.text) do
+        if word == "package" and tokens.kind[i] == "identifier" then
+          local before, after = tokens.text[i - 1], tokens.text[i + 1]
+          local is_field = before == "." or before == ":" or after == ":" or
+            ((before == "{" or before == ",") and after == "=")
+          if not is_field then
+            out[#out + 1] = file .. ":" .. tostring(tokens.y[i]) .. ": reads `package`, which only the files " ..
+              "build/tree_checks.tl's `packagers` names may: a module loads what it needs by `require` of a " ..
+              "literal name, which the build follows, and not through the searchers or the table of loaded modules"
+          end
+        end
+      end
+    end
+  end
+  return out
 end
 
 --- The calls the new checker gave no function, which no rule of the discipline judged ([`build.syntax_contracts`]'s

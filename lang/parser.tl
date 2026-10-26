@@ -102,6 +102,10 @@ local record Parser
     "nested_in_interface" "old_type_declaration" "narrowing_return"
     -- blocks, expressions or types nested past `MAX_NESTING`
     "too_deep"
+    -- `require(name)` or `pcall(require, name)` with a name that is no string literal
+    "computed_require"
+    -- `require` read as a value: aliased, parenthesised or passed anywhere but as the first argument of `pcall`
+    "require_value"
   end
 
   --- A syntax error, or the lexer's error carried over. `y`, `x`, `offset`
@@ -225,6 +229,8 @@ local record State
   --- The literal requires so far, and the node each is of, whose ids are set once the tree is numbered.
   mut requires: mut {Ast.Require}
   mut require_nodes: mut {Ast.Node}
+  --- Each token that reads the name `require`, by its index, and whether a `require(...)` or `pcall(require, ...)` took it.
+  mut require_names: mut {integer: boolean}
 end
 
 local NO_TOKENS <const>: Lexer.Tokens = Lexer.lex("", "").tokens
@@ -233,7 +239,7 @@ local S: State = {
   tokens = NO_TOKENS, kinds = NO_TOKENS.kind, texts = NO_TOKENS.text, ys = NO_TOKENS.y,
   yends = NO_TOKENS.yend, last = 1, pos = 1, text = "", kind = "$EOF$", errors = {}, name = "",
   decl = false, half = 0, reported = {}, beside = nil, beside_work = 0, muted = false, nesting = 0, arms = 0, tables = 0, arm_from = 1, arm_same = 0, scan_at = 1, scan_depth = 0, depth = 0, loops = {}, loop_base = 0, requires = {},
-  require_nodes = {},
+  require_nodes = {}, require_names = {},
 }
 
 local ADDED <const>: mut {string: boolean} = {}
@@ -1234,6 +1240,9 @@ local function parse_primary(): Ast.Exp
   if k == "identifier" then
     local text = S.text
     advance()
+    if text == "require" then
+      S.require_names[first] = false
+    end
     return { kind = "Name", id = 0, first = first, last = first, text = text }
   elseif k == "string" then
     local at = S.pos
@@ -1291,15 +1300,87 @@ local function parse_primary(): Ast.Exp
   return error_node(first)
 end
 
---- Records a call of `require` with one literal string, for the chunk's list.
+--- Whether `e` is the name `text`, written as a single token.
+local function is_name(e: Ast.Exp, text: string): boolean
+  local base = base_of(e)
+  return base.kind == "Name" and S.texts[base.first] == text
+end
+
+--- Whether the `i`th of `list` is the name `text`.
+local function arg_is_name(list: {Ast.Exp}, i: integer, text: string): boolean
+  local e = list[i]
+  return e ~= nil and is_name(e, text)
+end
+
+--- The contents of the `i`th of `list` where it is a string literal, nil where it is anything else.
+local function literal_at(list: {Ast.Exp}, i: integer): string?
+  local e = list[i]
+  if e == nil then
+    return nil
+  end
+  local base = base_of(e)
+  local from, to = base.first, base.last
+  if base.kind == "Paren" then
+    while S.texts[from] == "(" and S.texts[to] == ")" and from < to do
+      from, to = from + 1, to - 1
+    end
+  end
+  if from ~= to or S.kinds[from] ~= "string" then
+    return nil
+  end
+  local contents = S.tokens.value[from]
+  return contents
+end
+
+--- Reports the `i`th of `args`, the name that a `require` is given, written `how` (`require` or `pcall`) and that is
+--- no string literal: the build reads a module's dependencies from literal names alone.
+local function report_computed_require(args: {Ast.Exp}, i: integer, how: string)
+  local e = args[i]
+  if e == nil then
+    return
+  end
+  local base = base_of(e)
+  local text = quoted_text(base.first, base.last)
+  local call = if how == "pcall" then "pcall(require, " .. text .. ")" else "require(" .. text .. ")" end
+  local literal = if how == "pcall" then "pcall(require, \"cosmic.fs\")" else "require(\"cosmic.fs\")" end
+  report("computed_require", base.first,
+    "`" .. call .. "` names its module by an expression, and the build follows a require by a literal name alone, so " ..
+      "it cannot tell which module this one needs: a change to that module would not run this one's tests again, " ..
+      "a program sealed or built from this one would not carry it, and `cosmic test` refuses the call when it runs",
+    "write the module's name as a string: `" .. literal .. "`; to choose between modules, require each by its " ..
+      "literal name and pick from a table: `local by_name = { csv = require(\"cosmic.csv\"), json = " ..
+      "require(\"cosmic.json\") }`, then `by_name[" .. text .. "]`")
+end
+
+--- Records a call of `require` with one literal string, or of `pcall(require, "m")`, for the chunk's list. A
+--- `pcall(require, "m")` probes a module that may be absent and is a dependency all the same: it is carried and keyed
+--- as a `require("m")` is. A name that is no literal is an error ([`report_computed_require`]).
+-- TODO: refuse a `require` that a local shadows, which this reads as the global, once the scope builder reports a use of
+-- the global `require` (lang/scopes.tl): until then a shadowing function is held to the same rules as the global.
 local function note_require(call: Ast.Call)
   local callee, args = call.callee, call.args
-  if (callee.kind == "Name") and callee.text == "require" and #args == 1 then
-    local literal = args[1]
-    if (literal.kind == "String") then
-      S.requires[#S.requires + 1] = { module = literal.value, node = 0 }
-      S.require_nodes[#S.require_nodes + 1] = call
+  local at = 0
+  local how = "require"
+  if is_name(callee, "require") then
+    at = 1
+    S.require_names[base_of(callee).first] = true
+  elseif is_name(callee, "pcall") and arg_is_name(args, 1, "require") then
+    at = 2
+    how = "pcall"
+    local first = args[1]
+    if first ~= nil then
+      S.require_names[base_of(first).first] = true
     end
+  end
+  if at == 0 or #args < at then
+    return
+  end
+  local module = literal_at(args, at)
+  if module ~= nil then
+    S.requires[#S.requires + 1] = { module = module, node = 0 }
+    S.require_nodes[#S.require_nodes + 1] = call
+  else
+    report_computed_require(args, at, how)
   end
 end
 
@@ -1374,6 +1455,9 @@ parse_prefix = function(): Ast.Exp
     elseif S.kind == "string" then
       report("string_call", S.pos, "a call with a string in place of its arguments is not in the grammar",
         "put the string in parentheses: `f(" .. S.text .. ")`")
+      if is_name(e, "require") then
+        S.require_names[base_of(e).first] = true
+      end
       local at = S.pos
       advance()
       local string_arg: Ast.String = {
@@ -2561,7 +2645,17 @@ function Parser.parse(lexed: Lexer.Lexed, name: string, dialect: Ast.Dialect): P
   S.loop_base = 0
   S.requires = {}
   S.require_nodes = {}
+  S.require_names = {}
   local body = parse_block(2)
+  for index, taken in pairs(S.require_names) do
+    if not taken then
+      report("require_value", index, "`require` is read as a value here, and the build follows a require only where it is " ..
+          "called directly on a name",
+        "call it: `require(\"cosmic.fs\")`, or hand it to `pcall` as its first argument: `pcall(require, \"cosmic.fs\")`; " ..
+          "to choose between modules, require each by its literal name and pick from a table, and never keep `require` " ..
+          "in a variable, in parentheses or in another call's arguments")
+    end
+  end
   local chunk: Ast.Chunk = { kind = "Chunk", id = 0, first = 1, last = S.last, body = body, tokens = tokens, requires = S.requires }
   Ast.number(chunk)
   for i, req in ipairs(S.requires) do
@@ -2600,6 +2694,7 @@ function Parser.parse(lexed: Lexer.Lexed, name: string, dialect: Ast.Dialect): P
   S.loops = {}
   S.requires = {}
   S.require_nodes = {}
+  S.require_names = {}
   return { chunk = chunk, errors = errors }
 end
 
@@ -2616,7 +2711,7 @@ Parser.codes = {
   "generic_function_literal", "bad_attribute", "if_needs_else", "match_needs_call", "method_needs_self",
   "method_path", "close_repeated", "trailing_comma", "arm_on_same_line", "unreachable_arm", "duplicate_binding", "reserved_method",
   "suffix_needs_parens", "nested_in_interface",
-  "old_type_declaration", "narrowing_return", "too_deep",
+  "old_type_declaration", "narrowing_return", "too_deep", "computed_require", "require_value",
 }
 
 return Parser

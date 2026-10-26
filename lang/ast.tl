@@ -117,7 +117,7 @@ local record Ast
     xend: integer
   end
 
-  --- A literal `require("m")` call, or a type import of one.
+  --- A literal `require("m")` call, a `pcall(require, "m")` call, or a type import of one.
   record Require
     module: string
     --- The id of the [`Call`] or the [`Import`], set once the tree is numbered.

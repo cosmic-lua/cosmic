@@ -21,6 +21,7 @@ local allowed <const> = 4
 local library: {string: boolean} = {
   ["cosmic.env"] = true,
   ["cosmic.fs"] = true,
+  ["cosmic.internal.globals"] = true,
   ["cosmic.log"] = true,
   ["cosmic.sys"] = true,
 }

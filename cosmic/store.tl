@@ -264,15 +264,14 @@ end
 --- by the importer's bytecode not holding the name (the rule the test
 --- runner's closures follow), and a name that is also a string
 --- there is followed. Only the `imports` rows are edges, and they hold
---- the literal names handed to `require`: a `pcall(require, ...)` or a
---- computed name is none, so a program that loads one so fails when it
---- runs sealed. Raises naming a root, or a module a root requires, that
---- no searched database holds, and for a `roots` that is not a list.
+--- the literal names handed to `require` and to `pcall(require, ...)`.
+--- A name computed at run time is none: the build refuses one
+--- (`computed_require`), and a program that gets one past it fails when
+--- it runs sealed. Raises naming a root, or a module a root requires,
+--- that no searched database holds, and for a `roots` that is not a list.
 ---
 ---     local names = Store.closure({ "cosmic.json" })
 ---     print(#names, names[1])
--- TODO: follow `pcall(require, ...)` too, once the requires reader sees
--- it (the TODO in build/embed.tl): until then such a require is no edge.
 function Store.closure(roots: {string}, opts?: Store.ClosureOptions): {string}
   if type(roots) ~= "table" then
     error("store: closure: roots is a list of module names, not a " .. type(roots), 2)

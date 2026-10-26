@@ -48,6 +48,7 @@ local LIB <const> = table.concat({
 --- The tests of the project: a sound read passes, and a read after an `assert` that does not raise (the global is replaced
 --- by one that answers its arguments, as a program that shadows `assert` would) is found where it is false.
 local SUITE <const> = table.concat({
+  "local Globals = require(\"cosmic.internal.globals\")",
   "local Lib = require(\"lib\")",
   "",
   "local function test_a_sound_read_passes()",
@@ -55,8 +56,8 @@ local SUITE <const> = table.concat({
   "end",
   "",
   "local function test_an_unsound_read_is_found()",
-  "  local plant = assert(load(\"planted = assert; assert = function(...) return ... end\", \"=plant\"))",
-  "  local restore = assert(load(\"assert = planted\", \"=restore\"))",
+  "  local plant = assert(load(\"planted = assert; assert = function(...) return ... end\", \"=plant\", \"t\", Globals.table()))",
+  "  local restore = assert(load(\"assert = planted\", \"=restore\", \"t\", Globals.table()))",
   "  plant()",
   "  local ok, message = pcall(Lib.read, nil)",
   "  restore()",
