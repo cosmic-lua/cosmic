@@ -1312,9 +1312,9 @@ and the worker that compared the two. what the change did, and what it decided:
   a lone CR (`lines_of`, and the language server's columns, now follow the lexer's breaks). the rest were fixtures
   written in forms only the fork read, ported to the new grammar with the new checker's words asserted.
 
-what remains of the switch is bookkeeping with a home of its own: the `where` clauses of [`lang/ast.tl`] and
-[`lang/types.tl`] become tags (about 900 tests of a node kind, a `TODO:` in each file); `cosmic migrate` goes in the
-release after this one; and the TODOs that wait on the pin move are listed by `bin/cosmic todos '"cosmic-driver.pin"'`.
+what remains of the switch is bookkeeping with a home of its own: the records of [`lang/types.tl`] and [`lang/ast.tl`]
+are tagged now, and the two walkers of [`lang/ast.tl`] still read a node as `{string: any}` (a `TODO:` there);
+`cosmic migrate` goes in the release after this one; and the TODOs that wait on the pin move are listed by `bin/cosmic todos '"cosmic-driver.pin"'`.
 
 #### owner decisions
 

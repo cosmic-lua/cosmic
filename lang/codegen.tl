@@ -881,7 +881,7 @@ local function type_test(declared: Ast.Type, value: Output, y: integer, operand?
     add_child(out, value, "", G.indent)
     put(out, ") == \"integer\"")
   elseif G.enums[base_of(t).id] ~= nil then
-    -- A string that is the type's t.kind is no member of an enum: the test is for the values.
+    -- A string that is the type's kind is no member of an enum: the test is for the values.
     local members: mut {string} = {}
     for i, v in ipairs(G.enums[base_of(t).id]) do
       members[i] = "[" .. string.format("%q", v):gsub("\\\n", "\\n") .. "] = true"

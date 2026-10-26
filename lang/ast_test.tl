@@ -19,6 +19,8 @@ local record Declared
   mut enums: mut {string: string}
   --- The members of the union `Node`.
   mut members: mut {string}
+  --- The records whose `kind` is declared `mut`.
+  mut mutable: mut {string}
 end
 
 --- The values of `values`, in order.
@@ -36,7 +38,7 @@ local function declared(): Declared
   local parsed = Parser.parse(Lexer.lex(source, "lang/ast.tl"), "lang/ast.tl", "tl")
   assert(#parsed.errors == 0, "lang/ast.tl does not parse")
   local enums: mut {string: {string}} = {}
-  local out: Declared = { kinds = {}, tags = {}, enums = {}, members = {} }
+  local out: Declared = { kinds = {}, tags = {}, enums = {}, members = {}, mutable = {} }
   local top: Ast.Record? = nil
   for _, stat in ipairs(parsed.chunk.body.stats) do
     if (stat.kind == "Record") and stat.name.name == "Ast" then
@@ -62,6 +64,9 @@ local function declared(): Declared
           assert(enum ~= nil, m.name.name .. ".kind is " .. assert(t.path[1]) .. ", which is no enum of `Ast`")
           out.tags[m.name.name] = enum
           out.enums[m.name.name] = assert(t.path[1])
+          if field.mut then
+            out.mutable[#out.mutable + 1] = m.name.name
+          end
         end
       end
     elseif (m.kind == "Alias") and m.name.name == "Node" then
@@ -155,4 +160,9 @@ local function test_a_record_names_its_own_enum()
   for record, enum in pairs(d.enums) do
     assert(enum == record .. "_kind", record .. ".kind is " .. enum .. ", not " .. record .. "_kind")
   end
+end
+
+local function test_a_kind_is_never_mut()
+  local d = declared()
+  assert(#d.mutable == 0, "the kind of " .. table.concat(d.mutable, ", ") .. " is `mut`")
 end
