@@ -2,12 +2,14 @@
 ---
 --- It reads each Teal file with the new checker's parser ([`build.syntax_node`]), as written, and holds it to what the
 --- verb checks of a file: that it parses, that its links resolve ([`build.syntax_links`]) and that no function of it
---- repeats one the standard library has ([`build.fix.near`], read off its doc comments by [`build.syntax_analyzer`]). It does
---- not lay Teal out: a note says so once per run, and `--check` cannot tell a file that is badly laid out.
+--- repeats one the standard library has ([`build.fix.near`], read off its doc comments by [`build.syntax_analyzer`]). It
+--- lays Teal out with [`build.fix.format`]: a file it refuses (a syntax error, a layout that is not the same file or not a
+--- fixed point) is never written, and is told with its reason.
 ---
 --- The verb takes paths to narrow it, defaults to the whole tree in the working directory, and writes what it fixes,
---- which is the links it makes of plain code spans, the layout of C and of YAML in flow style. `--check` writes nothing
---- and reports what it would have changed, which is what a gate runs.
+--- which is the layout of Teal, the links it makes of plain code spans, the layout of C and of YAML in flow style.
+--- `--check` writes nothing and reports what it would have changed, which is what a gate runs; it only notes the Teal
+--- files that are not laid out and does not fail on them, until the tree is laid out.
 ---
 --- A second run changes nothing the first did not. CI's format-check step runs `cosmic fix --check .` over the whole
 --- tree.
@@ -36,10 +38,6 @@
 --- covers, and each Markdown and Zig file, which it never lays out. A plain code span that would link to one thing is made a
 --- link ([`build.links`]'s `rewrite`), and `--check` fails on one it would link.
 
--- TODO: lay out Teal in the new grammar, in [`lay_out_teal`], by calling [`build.fix.format`] (the formatter over the
--- new syntax tree, which refuses rather than write a layout that is not the same or not a fixed point) once the change
--- that wires it into `fix` lands: the fork's formatter was deleted with the fork (the owner's decision 1b of
--- doc/plans/strict-teal.md), so `cosmic fix --check` cannot tell a file that is badly laid out.
 local build_paths = require("build.paths")
 local Cli = require("cosmic.cli")
 local Flags = require("cosmic.flags")
@@ -55,6 +53,8 @@ local docs = require("build.docs")
 local docs_checks = require("build.docs_checks")
 local help_source = require("build.help_source")
 local flow = require("build.flow")
+local laid = require("build.fix.laid")
+local Format = require("build.fix.format")
 local link_files = require("build.link_files")
 local link_resolve = require("build.link_resolve")
 local links = require("build.links")
@@ -96,6 +96,30 @@ local record fix
     --- Each Markdown file whose block of definitions would change.
     redefined: {string}
     rewritten: {string}
+  end
+
+  --- How laying out a Teal file ended ([`fix.lay_out_source`]): `laid` it was laid out already, `unlaid` it is not and a
+  --- check wrote nothing, `written` it is now, `refused` the formatter or the parse of its layout refused it and nothing
+  --- was written, `linked` the file is a symlink, which is not written, `changed` it was edited while it was laid out and
+  --- is not written, `unwritable` the write failed.
+  enum LaidState
+    "laid"
+    "unlaid"
+    "written"
+    "refused"
+    "linked"
+    "changed"
+    "unwritable"
+  end
+
+  --- What laying out a Teal file left of it.
+  record Laid
+    state: LaidState
+    --- What the file holds now, and its parse.
+    text: string
+    chunk: Ast.Chunk
+    --- For the states that wrote nothing and are no layout (all but `laid`, `unlaid` and `written`), why.
+    why: string
   end
 
   --- Where links' names are read, and how to close what that opened.
@@ -441,7 +465,7 @@ end
 --- whole tree ([`fix.narrowed`]). What checks the tree as a whole -- the build, the tree checks, the links -- is not among
 --- them: such a run makes those checks over the whole tree anyway.
 local file_checks: {string} = { "build.syntax_node", "build.syntax_links", "build.syntax_analyzer", "build.flow", "build.c",
-  "build.fix.near", "build.logger", "build.tree", "cosmic.flags", "cosmic.cli", "cosmic.template" }
+  "build.fix.near", "build.fix.laid", "build.logger", "build.tree", "cosmic.flags", "cosmic.cli", "cosmic.template" }
 
 --- What else a run of `--changed` covers the whole tree for, by a path's first directory, and why: what the program and
 --- the clang that reads each C file are built from or run on. A test there (`core/*_test.tl`) is none of these.
@@ -630,7 +654,8 @@ function fix.lay_out(files: {string}, checking: boolean, changed: mut {string}, 
 end
 
 --- The new text of `file`, a file of `kind` whose spans were linked, as it is written: what the verb makes of it with its
---- links in, or nil and why when linking moved the layout of C. Teal has no layout to move.
+--- links in, or nil and why when linking moved the layout of C. Linking changes the text of comments only, which the layout of
+--- Teal never reads, so a Teal file laid out stays so ([`build/fix/grammar_tool_test.tl`] holds it).
 local function relaid(kind: string, linked: string): string?, string
   if kind == "c" then
     local out, trouble = c_check.laid_out(linked)
@@ -1084,12 +1109,68 @@ local function lay_out_c(ctx: Fix)
   fix.lay_out(picked.flow_files, ctx.checking == true, changed, failures)
 end
 
---- Reads each Teal file as written, keeping what its parse gives the later phases, and says once that Teal is not laid
---- out. A file the new parser does not read fails in the new parser's words, with its fix.
+--- Lays out the Teal file `file`, whose text is `source` and whose parse is `chunk`, with [`build.fix.format`] (`layout`
+--- makes the layout it checks, as `format`'s does): a layout that passes is written unless `checking`, and a file
+--- the formatter refuses, or whose layout the parser refuses, is never written. `kept` is the memo of what was found
+--- laid out ([`build.fix.laid`]).
+function fix.lay_out_source(file: string, source: string, chunk: Ast.Chunk, checking: boolean, kept: laid.Kept?,
+                            layout?: Format.Layouter): fix.Laid
+  local result = laid.format(kept, source, file, layout)
+  local text = result.text
+  if text == nil then
+    return { state = "refused", text = source, chunk = chunk, why = result.why }
+  elseif text == source then
+    return { state = "laid", text = source, chunk = chunk, why = "" }
+  end
+  if checking then
+    return { state = "unlaid", text = source, chunk = chunk, why = "" }
+  end
+  -- What the later phases read is the file as it will stand, so a layout they cannot read is refused unwritten.
+  local again, again_refusal = SyntaxNode.parse(text, file)
+  if again == nil then
+    return { state = "refused", text = source, chunk = chunk, why = file .. ": its layout does not parse: " .. again_refusal }
+  end
+  -- A write replaces the path with a file of its own, which would turn a link into a copy and leave its target as it is.
+  local target, _ = Fs.readlink(file)
+  if target ~= nil then
+    return { state = "linked", text = source, chunk = chunk, why = "not written: " .. file .. " is a link; fix its target" }
+  end
+  -- Another editor's save since the file was read is not overwritten.
+  local now, _ = Fs.read(file)
+  if now ~= source then
+    return { state = "changed", text = source, chunk = chunk, why = "not written: " .. file .. " changed while being laid out" }
+  end
+  -- The file keeps its mode: a script that is executable stays so. [`Fs.write`] gives the mode less the umask, so it is
+  -- set again to what the file had.
+  local stat, _ = Fs.stat(file)
+  local written, write_trouble = Fs.write(file, text, if stat ~= nil then stat.mode & 0xfff else nil end)
+  if written and stat ~= nil then
+    written, write_trouble = Fs.chmod(file, stat.mode & 0xfff)
+  end
+  if not written then
+    return { state = "unwritable", text = source, chunk = chunk, why = write_trouble }
+  end
+  return { state = "written", text = text, chunk = again, why = "" }
+end
+
+--- `list` as a list of its own, which a phase may add to and hand back: the lists of `ctx` are views.
+local function copied(list: {string}): mut {string}
+  local out: mut {string} = {}
+  for _, item in ipairs(list) do out[#out + 1] = item end
+  return out
+end
+
+--- Lays out each Teal file ([`build.fix.format`]), keeping what the parse of its text gives the later phases. A plain run
+--- writes the layout of a file that is not laid out and lists it as changed. `--check` writes nothing, and says in notes
+--- which files are not laid out: they do not fail it ([`build.fix.laid`] holds what a file laid out costs a later run).
+--- A file the formatter refuses is never written, and is told with the reason: a failure of a plain run, a note of a
+--- check. A file the new parser does not read fails in the new parser's words, with its fix.
 local function lay_out_teal(ctx: Fix)
   local files = assert(ctx.files)
-  local failures = assert(ctx.failures)
+  local failures = copied(assert(ctx.failures))
   local picked = assert(ctx.picked)
+  local changed = copied(assert(ctx.changed))
+  local checking = ctx.checking == true
   -- What the links read of each Teal file, from the parse it was read by.
   local facts: mut {string: links.Facts} = {}
   -- What the notes compare of each file.
@@ -1097,6 +1178,17 @@ local function lay_out_teal(ctx: Fix)
   -- What the tree checks' plurals read of each file, when they will run.
   local plurals: mut {string: tree_checks.Plurals}? = nil
   if picked.whole then plurals = {} end
+  -- What the formatter found laid out is kept in the build directory, so that a file whose text and formatter have not
+  -- changed is not formatted again; without the memo every file is.
+  local memo: Sqlite.Handle? = nil
+  local kept: laid.Kept? = nil
+  if #files > 0 then
+    local opened, _ = Sqlite.open(build_paths.resolve(assert(ctx.root)).translate_check, { writable = true })
+    memo = opened
+    if memo ~= nil then kept = laid.begin(memo) end
+  end
+  local unlaid: mut {string} = {}
+  local refusals: mut {string} = {}
   for _, file in ipairs(files) do
     local source, read_trouble = Fs.read(file)
     if source == nil then
@@ -1106,13 +1198,42 @@ local function lay_out_teal(ctx: Fix)
       if chunk == nil then
         failures[#failures + 1] = refusal
       else
-        fix.read_off(file, chunk, source, facts, ready, plurals)
+        local done = fix.lay_out_source(file, source, chunk, checking, kept)
+        if done.state == "unlaid" then
+          unlaid[#unlaid + 1] = file
+        elseif done.state == "written" then
+          changed[#changed + 1] = file
+        elseif done.state == "refused" and checking then
+          refusals[#refusals + 1] = done.why
+        elseif done.state ~= "laid" then
+          failures[#failures + 1] = done.why
+        end
+        chunk = done.chunk
+        local text = done.text
+        fix.read_off(file, chunk, text, facts, ready, plurals)
       end
     end
   end
-  if #files > 0 then
-    log:say("fix: note  Teal is read and checked, not laid out: `cosmic fix` has no layout for the new grammar yet")
+  if kept ~= nil then
+    laid.finish(kept, picked.whole == true and picked.every == nil and #failures == 0)
   end
+  if memo ~= nil then
+    local _, _ = memo:close()
+  end
+  -- TODO: make `--check` fail on a Teal file that is not laid out, and on one the formatter refuses, once the tree has
+  -- been laid out (the reformat that follows this change), so that a note stops being all CI says of it.
+  if #unlaid > 0 then
+    log:say("fix: note  " .. plural.count(#unlaid, "Teal file") .. " " .. (if #unlaid == 1 then "is" else "are" end) ..
+        " not laid out; `cosmic fix` lays " .. (if #unlaid == 1 then "it" else "them" end) .. " out")
+    for _, file in ipairs(unlaid) do
+      log:say("fix: note  not laid out  " .. file)
+    end
+  end
+  for _, why in ipairs(refusals) do
+    log:say("fix: note  not laid out, refused  " .. why)
+  end
+  ctx.failures = failures
+  ctx.changed = changed
   ctx.facts = facts
   ctx.ready = ready
   ctx.plurals = plurals

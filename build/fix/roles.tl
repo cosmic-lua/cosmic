@@ -65,6 +65,9 @@ local record Roles
     roles: {Role}
     --- For a token in a type, the index of the first token of the outermost type that holds it; 0 for the others.
     regions: {integer}
+    --- The regions that are the body of a record, an interface or an enum, whose every line (the first included) is
+    --- the author's own: the first token of each.
+    bodies: {integer: boolean}
   end
 
   --- The roles of the tokens of `chunk`, a parse without errors.
@@ -75,6 +78,13 @@ local record Roles
 
   --- The region of token `i` of `roled`.
   region: function(roled: Roled, i: integer): integer
+
+  --- Whether token `i` of `roled` continues the region of the token `previous` (0 for none) before it: the two are in
+  --- one region, or `i` is in the body of a record, interface or enum, which no token before it begins.
+  continues: function(roled: Roled, i: integer, previous: integer): boolean
+
+  --- Whether token `i` of `roled` is in the body of a record, interface or enum.
+  in_body: function(roled: Roled, i: integer): boolean
 end
 
 --- The role of a token by its text alone, for the tokens whose part the tree does not change; the walk sets the
@@ -83,16 +93,43 @@ local TEXT_ROLES <const>: {string: Roles.Role} = {
   [","] = "comma", [":"] = "colon", ["?"] = "question", ["."] = "dot", ["("] = "call_open", [")"] = "paren_close",
 }
 
+local function base_of(node: Ast.Node): Ast.Base
+  return node
+end
+
+--- The kinds of node that are members of a record, an interface or an enum.
+local MEMBER_KINDS <const>: {string: boolean} = {
+  FieldDecl = true, Record = true, Interface = true, Enum = true, Alias = true, Import = true, Userdata = true,
+  Error = true, EnumValue = true,
+}
+
+--- The first and last token of the members of `node`, a declaration whose body is kept as the author wrote it (a record
+--- or an enum: the alignment of its fields or its values is the author's). Empty for a body with no member or with
+--- code in it, which is a method or a class.
+local function body_of(node: Ast.Node): {integer}
+  local members: mut {Ast.Base} = {}
+  local code: mut {string} = {}
+  Ast.children(node, function(child: Ast.Node)
+    local base = base_of(child)
+    if base.kind == "Method" or base.kind == "Class" then
+      code[#code + 1] = base.kind
+    elseif MEMBER_KINDS[base.kind] == true then
+      members[#members + 1] = base
+    end
+  end)
+  local first, last = members[1], members[#members]
+  if #code > 0 or first == nil or last == nil then
+    return {}
+  end
+  return { first.first, last.last }
+end
+
 --- The kinds of node that are types, whose tokens form a region.
 local TYPE_KINDS <const>: {string: boolean} = {
   TypeName = true, TypeBool = true, TypeNil = true, TypeError = true, TypeArray = true, TypeMap = true,
   TypeUnion = true, TypeOptional = true, TypeMut = true, TypeFunction = true, PType = true, Narrows = true,
   Rets = true,
 }
-
-local function base_of(node: Ast.Node): Ast.Base
-  return node
-end
 
 function Roles.of(chunk: Ast.Chunk): Roles.Roled
   local tokens = chunk.tokens
@@ -170,6 +207,8 @@ function Roles.of(chunk: Ast.Chunk): Roles.Roled
     end
   end
 
+  -- The declarations whose bodies are kept, outermost first.
+  local bodies: mut {Ast.Node} = {}
   -- The order of the walk is of no matter: no two nodes mark one token.
   local queue: mut {Ast.Node} = { chunk }
   for _, node in ipairs(queue) do
@@ -191,6 +230,24 @@ function Roles.of(chunk: Ast.Chunk): Roles.Roled
         queue[#queue + 1] = child
       end)
       note(base, kids)
+      if base.kind == "Record" or base.kind == "Interface" or base.kind == "Enum" then
+        bodies[#bodies + 1] = node
+      end
+    end
+  end
+
+  -- A body is one region that no type inside it splits, and one inside another is the outer body's.
+  local verbatim: mut {integer: boolean} = {}
+  local held: mut {integer: boolean} = {}
+  for _, node in ipairs(bodies) do
+    local span = body_of(node)
+    local first, last = span[1], span[2]
+    if first ~= nil and last ~= nil and held[first] ~= true then
+      for i = first, math.min(last, count) do
+        region_of[i] = first
+        held[i] = true
+      end
+      verbatim[first] = true
     end
   end
 
@@ -201,7 +258,7 @@ function Roles.of(chunk: Ast.Chunk): Roles.Roled
     regions[#regions + 1] = region
     roles[#roles + 1] = if region ~= 0 then "word" else set[i] or TEXT_ROLES[Lexer.text(tokens, i)] or "word" end
   end
-  return { roles = roles, regions = regions }
+  return { roles = roles, regions = regions, bodies = verbatim }
 end
 
 function Roles.role(roled: Roles.Roled, i: integer): Roles.Role
@@ -210,6 +267,16 @@ end
 
 function Roles.region(roled: Roles.Roled, i: integer): integer
   return roled.regions[i] or 0
+end
+
+function Roles.in_body(roled: Roles.Roled, i: integer): boolean
+  local region = Roles.region(roled, i)
+  return region ~= 0 and roled.bodies[region] == true
+end
+
+function Roles.continues(roled: Roles.Roled, i: integer, previous: integer): boolean
+  local region = Roles.region(roled, i)
+  return region ~= 0 and (roled.bodies[region] == true or (previous ~= 0 and region == Roles.region(roled, previous)))
 end
 
 return Roles

@@ -57,9 +57,13 @@ worktree's build directory when you delete the worktree.
 2. Edit source and tests, then run `bin/cosmic fix <changed-paths>`. It
    checks syntax and builds the tree as `cosmic test` does, so a type
    error or a broken contract fails it, saying why. It writes a C file
-   back in Lua's own layout ([`doc/c.md`]); it has no layout for Teal yet
-   (the tool reads one grammar, the new one, and says so in a note), so lay
-   Teal out by hand as its neighbours are. The checks only the whole tree
+   back in Lua's own layout ([`doc/c.md`]) and a Teal file in the layout of
+   [`build.fix.format`]. It rewrites the layout of every Teal file it is
+   given, so run it on the files you changed and commit what it wrote. A
+   file it refuses (a syntax error, or a layout that is not the same file) is
+   left as it is, with the reason. `fix --check` only notes the Teal files
+   that are not laid out and does not fail on them until the tree is laid
+   out. The checks only the whole tree
    can answer ([`build/tree_checks.tl`]) run in `bin/cosmic fix --check .`,
    as CI runs it, which also refuses a tree that does not build: run it
    before pushing a change to what they read.
@@ -141,6 +145,7 @@ procedure.
 [`bin/vendor`]: bin/vendor
 [`bin/verify-codesign`]: bin/verify-codesign
 [`bin/zig`]: bin/zig
+[`build.fix.format`]: build/fix/format.tl
 [`build/flow.tl`]: build/flow.tl
 [`build/harness_epoch.tl`]: build/harness_epoch.tl
 [`build/paths.tl`]: build/paths.tl

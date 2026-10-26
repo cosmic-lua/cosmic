@@ -269,8 +269,9 @@ function Check.refuses(source: string)
 end
 
 --- For each token, the line on which the statement, member or value that holds it begins: that of the latest token
---- at its depth that begins one. The type of a token keeps the columns of its lines relative to that line.
-local function statement_lines(chunk: Ast.Chunk): {integer}
+--- at its depth that begins one. The type of a token keeps the columns of its lines relative to that line, and so does
+--- the body of a record, an interface or an enum, relative to the line of its declaration.
+local function statement_lines(chunk: Ast.Chunk, roled: Roles.Roled): {integer}
   local tokens = chunk.tokens
   local levels = Blocks.of(chunk)
   local lines: mut {integer} = {}
@@ -280,7 +281,11 @@ local function statement_lines(chunk: Ast.Chunk): {integer}
     if levels.starts[i] == true and levels.anchors[i] == nil then
       at_depth[depth] = Lexer.y(tokens, i)
     end
-    lines[#lines + 1] = at_depth[depth] or Lexer.y(tokens, i)
+    local line = at_depth[depth] or Lexer.y(tokens, i)
+    if Roles.in_body(roled, i) then
+      line = at_depth[(levels.depths[Roles.region(roled, i)] or 1) - 1] or line
+    end
+    lines[#lines + 1] = line
   end
   return lines
 end
@@ -294,7 +299,7 @@ function Check.respaced(source: string, seed: integer): string
   local parsed, lexed = parsed_of(source)
   local roled = Roles.of(parsed.chunk)
   local bare = Continuation.of(parsed.chunk).bare
-  local lines = statement_lines(parsed.chunk)
+  local lines = statement_lines(parsed.chunk, roled)
   local stream = Trivia.of(source, lexed.tokens)
   local out: mut {string} = {}
   local state = seed
@@ -308,8 +313,7 @@ function Check.respaced(source: string, seed: integer): string
   for i, item in ipairs(stream.items) do
     local before = stream.items[i - 1]
     if item.kind ~= "eof" then
-      local region = if item.kind == "token" then Roles.region(roled, item.token) else 0 end
-      local continues = region ~= 0 and previous ~= 0 and region == Roles.region(roled, previous)
+      local continues = item.kind == "token" and Roles.continues(roled, item.token, previous)
       if i == 1 then
         out[#out + 1] = if stream.shebang ~= nil then ("\n"):rep(item.newlines) else "" end
         dropped[item.y] = item.x - 1
@@ -343,7 +347,7 @@ end
 function Check.reindented(source: string, seed: integer): string
   local parsed, lexed = parsed_of(source)
   local roled = Roles.of(parsed.chunk)
-  local lines = statement_lines(parsed.chunk)
+  local lines = statement_lines(parsed.chunk, roled)
   local stream = Trivia.of(source, lexed.tokens)
   local items = stream.items
   -- The margin of each item that begins a line, a comment's being that of the first token after it.
@@ -360,9 +364,8 @@ function Check.reindented(source: string, seed: integer): string
     end
     if i == 1 or item.newlines > 0 then
       local kept = false
-      if item.kind == "token" and previous ~= 0 then
-        local region = Roles.region(roled, item.token)
-        kept = region ~= 0 and region == Roles.region(roled, previous)
+      if item.kind == "token" then
+        kept = Roles.continues(roled, item.token, previous)
       end
       if item.kind == "comment" then
         pending[#pending + 1] = i

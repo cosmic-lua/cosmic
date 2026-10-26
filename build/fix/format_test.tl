@@ -64,7 +64,12 @@ local function test_a_declaration_file_is_read_as_one_and_any_other_name_as_a_pr
   assert(Format.format(source, "a.tl").text == source)
   assert(Format.format(source, "a.d.tl").kind == "syntax")
   assert(Format.format(source, "d.tl").text == source and Format.format(source, "a.d.tl.tl").text == source)
-  lays("local record R\nx:integer\nend\n", "local record R\n  x: integer\nend\n", "a.d.tl")
+  -- The body of a record or an enum is the author's, aligned as the standard library's `OpenMode` is.
+  lays("local  record R\n  x:integer\nend\n", "local record R\n  x:integer\nend\n", "a.d.tl")
+  local grid = 'global enum OpenMode\n   "r"   "w"\n  "rb"  "wb"\nend\n'
+  lays(grid, grid, "a.d.tl")
+  local program = grid:gsub("global", "local")
+  lays(program, program)
   lays("global record R\n  __call: function(R, ...: any): any...\nend\n", "global record R\n  __call: function(R, ...: any): any...\nend\n",
     "a.d.tl")
 end
@@ -91,6 +96,16 @@ local function test_a_layout_that_is_not_the_same_as_the_file_is_refused()
   -- The comma a table ends with is the layout's to add.
   local table_source = "local y = {\n  1,\n  2\n}\n"
   assert(Format.format(table_source, "f.tl", giving("local y = {\n  1,\n  2,\n}\n")).text ~= nil)
+end
+
+local function test_a_layout_that_loses_a_comment_at_the_end_of_the_file_is_refused()
+  for _, source in ipairs({ "local x = 1\n-- last\n", "-- only\n", "local x = 1\n-- a\n-- b\n" }) do
+    local got = Format.format(source, "f.tl", giving((source:gsub("%-%-[^\n]*\n$", ""))))
+    assert(got.text == nil and got.kind == "equivalence", string.format("%q: %s", source, tostring(got.kind)))
+    assert(got.why:find("was lost", 1, true) ~= nil, got.why)
+  end
+  local kept = "local x = 1\n-- last\n"
+  assert(Format.format(kept, "f.tl").text == kept)
 end
 
 local function test_a_layout_that_is_not_a_fixed_point_is_refused()

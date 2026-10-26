@@ -28,22 +28,22 @@ end
 
 local function test_a_paren_is_a_call_a_group_or_a_pattern_by_its_place_in_the_tree()
   assert(roles_of("x = f((a))") ==
-    "x=word ==word f=word (=call_open (=group_open a=word )=paren_close )=paren_close", roles_of("x = f((a))"))
+      "x=word ==word f=word (=call_open (=group_open a=word )=paren_close )=paren_close", roles_of("x = f((a))"))
   assert(roles_of("match f() do | (true, v) then end") ==
-    "match=word f=word (=call_open )=paren_close do=word |=word (=group_open true=word ,=comma v=word " ..
-    ")=paren_close then=word end=word", roles_of("match f() do | (true, v) then end"))
+      "match=word f=word (=call_open )=paren_close do=word |=word (=group_open true=word ,=comma v=word " ..
+      ")=paren_close then=word end=word", roles_of("match f() do | (true, v) then end"))
 end
 
 local function test_a_colon_is_a_method_call_or_a_declaration_by_its_place_in_the_tree()
   assert(roles_of("local a: T = t:m()") ==
-    "local=word a=word :=colon T=word@4 ==word t=word :=method_colon m=word (=call_open )=paren_close",
+      "local=word a=word :=colon T=word@4 ==word t=word :=method_colon m=word (=call_open )=paren_close",
     roles_of("local a: T = t:m()"))
 end
 
 local function test_a_bracket_is_an_index_a_key_or_wide_by_what_it_holds()
   assert(roles_of("x = t[1] + {[2] = 3, [ [[k]] ] = 4}") ==
-    "x=word ==word t=word [=index_open 1=word ]=index_close +=word {=table_open [=key_open 2=word ]=key_close " ..
-    "==word 3=word ,=comma [=word [[k]]=word ]=word ==word 4=word }=table_close",
+      "x=word ==word t=word [=index_open 1=word ]=index_close +=word {=table_open [=key_open 2=word ]=key_close " ..
+      "==word 3=word ,=comma [=word [[k]]=word ]=word ==word 4=word }=table_close",
     roles_of("x = t[1] + {[2] = 3, [ [[k]] ] = 4}"))
   assert(roles_of("x = t[ [[a]] ]") == "x=word ==word t=word [=wide_open [[a]]=word ]=word", "an index of a long string")
 end
@@ -55,27 +55,31 @@ end
 
 local function test_the_angle_brackets_of_an_attribute_and_of_type_parameters_are_not_comparisons()
   assert(roles_of("local a <const> = 1 < 2") ==
-    "local=word a=word <=attr_open const=word >=attr_close ==word 1=word <=word 2=word", roles_of("local a <const> = 1 < 2"))
+      "local=word a=word <=attr_open const=word >=attr_close ==word 1=word <=word 2=word", roles_of("local a <const> = 1 < 2"))
   assert(roles_of("local function f<T>(a: T) end") ==
-    "local=word function=word f=word <=angle_open T=word >=angle_close (=call_open a=word :=colon T=word@10 " ..
-    ")=paren_close end=word", roles_of("local function f<T>(a: T) end"))
+      "local=word function=word f=word <=angle_open T=word >=angle_close (=call_open a=word :=colon T=word@10 " ..
+      ")=paren_close end=word", roles_of("local function f<T>(a: T) end"))
 end
 
 local function test_the_tokens_of_a_type_form_one_region_named_by_its_first_token()
   assert(roles_of("local m: {string: R<K>} = x as function(a: integer): string") ==
-    "local=word m=word :=colon {=word@4 string=word@4 :=word@4 R=word@4 <=word@4 K=word@4 >=word@4 }=word@4 " ..
-    "==word x=word as=word function=word@15 (=word@15 a=word@15 :=word@15 integer=word@15 )=word@15 " ..
-    ":=word@15 string=word@15", roles_of("local m: {string: R<K>} = x as function(a: integer): string"))
+      "local=word m=word :=colon {=word@4 string=word@4 :=word@4 R=word@4 <=word@4 K=word@4 >=word@4 }=word@4 " ..
+      "==word x=word as=word function=word@15 (=word@15 a=word@15 :=word@15 integer=word@15 )=word@15 " ..
+      ":=word@15 string=word@15", roles_of("local m: {string: R<K>} = x as function(a: integer): string"))
 end
 
 local function test_a_field_of_a_class_has_its_question_mark_and_bracketed_name_roled()
   assert(roles_of("local record R\n  a?: T\n  [\"b c\"]: U\nend") ==
-    "local=word record=word R=word a=word ?=question :=colon T=word@7 [=key_open \"b c\"=word ]=key_close " ..
-    ":=colon U=word@12 end=word", roles_of("local record R\n  a?: T\n  [\"b c\"]: U\nend"))
+      "local=word record=word R=word a=word@4 ?=word@4 :=word@4 T=word@4 [=word@4 \"b c\"=word@4 ]=word@4 " ..
+      ":=word@4 U=word@4 end=word", roles_of("local record R\n  a?: T\n  [\"b c\"]: U\nend"))
+  -- A class holds code, and its fields are roled one by one.
+  assert(roles_of("local class C\n  a?: T\n  [\"b c\"]: U\nend") ==
+      "local=word class=word C=word a=word ?=question :=colon T=word@7 [=key_open \"b c\"=word ]=key_close " ..
+      ":=colon U=word@12 end=word", roles_of("local class C\n  a?: T\n  [\"b c\"]: U\nend"))
 end
 
 local function test_the_parentheses_of_a_parenthesized_type_are_in_its_region()
   assert(roles_of("x = f(a as (T | U))") ==
-    "x=word ==word f=word (=call_open a=word as=word (=word@7 T=word@7 |=word@7 U=word@7 )=word@7 )=paren_close",
+      "x=word ==word f=word (=call_open a=word as=word (=word@7 T=word@7 |=word@7 U=word@7 )=word@7 )=paren_close",
     roles_of("x = f(a as (T | U))"))
 end

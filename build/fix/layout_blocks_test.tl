@@ -54,15 +54,16 @@ local function test_the_arms_of_a_match_are_laid_out_like_the_arms_of_an_if()
 end
 
 local function test_the_members_of_a_record_a_class_an_interface_and_an_enum_are_indented()
-  lays("local record R\nx: integer\n--- the name\nname?: string\nend\n",
-    "local record R\n  x: integer\n  --- the name\n  name?: string\nend\n")
-  lays("local enum E\n\"a\"\n\"b\"\nend\n", "local enum E\n  \"a\"\n  \"b\"\nend\n")
-  lays("local interface I\nx: integer\nend\n", "local interface I\n  x: integer\nend\n")
+  -- The body of a record, an interface or an enum is the author's (the previous formatter wrote it as it found it).
+  lays("local record R\nx: integer\n--- the name\nname?: string\nend\n", "local record R\nx: integer\n--- the name\nname?: string\nend\n")
+  lays("local enum E\n\"a\"\n\"b\"\nend\n", "local enum E\n\"a\"\n\"b\"\nend\n")
+  lays("local interface I\nx: integer\nend\n", "local interface I\nx: integer\nend\n")
+  lays("local class C\nx: integer\n--- the name\nname?: string\nend\n", "local class C\n  x: integer\n  --- the name\n  name?: string\nend\n")
   lays("local class C\nx: integer\nfunction get(self): integer\nreturn self.x\nend\nend\n",
     "local class C\n  x: integer\n  function get(self): integer\n    return self.x\n  end\nend\n")
-  lays("local record Outer\nrecord Inner\nx: integer\nend\ny: Inner\nend\n",
-    "local record Outer\n  record Inner\n    x: integer\n  end\n  y: Inner\nend\n")
-  lays("do\nlocal record R\nx: integer\nend\nend\n", "do\n  local record R\n    x: integer\n  end\nend\n")
+  lays("local class Outer\nrecord Inner\nx: integer\nend\ny: Inner\nend\n",
+    "local class Outer\n  record Inner\n  x: integer\n  end\n  y: Inner\nend\n")
+  lays("do\nlocal record R\nx: integer\nend\nend\n", "do\n  local record R\n  x: integer\n  end\nend\n")
 end
 
 local function test_a_one_line_block_is_left_on_its_line()
@@ -128,7 +129,7 @@ local function test_a_comment_before_a_closer_moves_as_the_last_statement_of_the
   lays("match f() do\n| (true) then\n  x()\n  -- c\n| (false) then\n  y()\nend\n",
     "match f() do\n| (true) then\n  x()\n  -- c\n| (false) then\n  y()\nend\n")
   lays("local record R\n  x: integer\n  -- c\nend\n", "local record R\n  x: integer\n  -- c\nend\n")
-  lays("  local record R\n      x: integer\n      -- c\n  end\n", "local record R\n  x: integer\n  -- c\nend\n")
+  lays("  local record R\n      x: integer\n      -- c\n  end\n", "local record R\n    x: integer\n    -- c\nend\n")
 end
 
 local function test_a_comment_in_an_empty_body_moves_as_the_statement_that_holds_it()

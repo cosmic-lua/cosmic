@@ -126,6 +126,8 @@ function Equiv.read(source: string, name: string, dialect: Ast.Dialect): Equiv.S
     if base.kind == "Table" and base.last > base.first + 1 and Lexer.text(tokens, base.last - 1) == "," then
       dropped[base.last - 1] = true
     elseif base.kind == "Binary" and head ~= nil then
+      -- Read only for the operator a comment is kept on, which begins its line whatever the source: a comment ends its
+      -- line, so the token after it begins the next. No test of the line is needed.
       operators[head.last + 1] = true
     end
   end
