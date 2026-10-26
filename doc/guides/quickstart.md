@@ -242,7 +242,8 @@ program's own file: `cosmic sandbox --closure -- cosmic convert.tl in.csv
 out.json` compiles `convert.tl` here, seals it with the `cosmic.*` modules
 it requires by name, and runs it on that, so a `require` of anything else
 fails; a module of your own beside the script is refused before the child
-starts, and a `pcall(require, ...)` or computed name is not followed.
+starts. A `pcall(require, "name")` is followed as a `require` is, and a
+computed name is refused when the script is compiled.
 `--database PATH` runs a file [`Store.seal`] wrote, and `--modules a,b`
 seals exactly those modules (the first its main) from this program's store;
 the three are exclusive. The database a run seals is removed when it ends.

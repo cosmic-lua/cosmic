@@ -93,7 +93,7 @@ local function test_a_module_is_checked_written_and_dumped_and_the_lua_and_the_b
   local source = "local record Box\n  n: integer\nend\nlocal function make(n: integer): Box\n  return { n = n }\nend\nreturn make(41).n + 1\n"
   local made = assert(generated(source, EXPORT))
   assert(value_of(made.lua) == 42 and not made.refused and #made.references == 0)
-  assert(assert(load(made.bytecode, "=m", "b"))() == 42)
+  assert(assert(load(made.bytecode, "=m", "b", {}))() == 42)
   assert(made.bytecode:sub(1, 4) == "\27Lua")
 end
 

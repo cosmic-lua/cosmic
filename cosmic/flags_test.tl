@@ -1,4 +1,5 @@
 local Flags = require("cosmic.flags")
+local Globals = require("cosmic.internal.globals")
 
 local spec: {string:boolean} = { ["--check"] = false, ["--jobs"] = true }
 
@@ -376,7 +377,8 @@ end
 local function test_dispatch_without_the_program_name_says_so()
   -- An untyped caller, which the compiler cannot refuse.
   local chunk = assert(load('local Flags = require("cosmic.flags") ' ..
-      'return pcall(Flags.dispatch, { "build" }, 1, { build = { run = function() return 0 end } })'))
+      'return pcall(Flags.dispatch, { "build" }, 1, { build = { run = function() return 0 end } })',
+    "=flags", "t", Globals.table()))
   local ok, trouble = chunk()
   assert(ok == false)
   assert(tostring(trouble):find("needs the program's name", 1, true) ~= nil, tostring(trouble))

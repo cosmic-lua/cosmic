@@ -26,6 +26,7 @@ local Test = require("cosmic.test")
 local raw_errors = require("cosmic.internal.errors")
 local Assertions = require("build.assertions")
 local confine = require("build.confine")
+local load_module = require("build.load_module")
 local key_parts = require("build.key_parts")
 local test_inputs = require("build.test_inputs")
 
@@ -257,7 +258,7 @@ local SECOND_NS <const> = 1000 * 1000 * 1000
 --- table, which follows `local type` requires Teal erases and requires
 --- inside functions no worker calls.
 worker.loads = {
-  "build.assertions", "build.cache_names", "build.confine", "build.key_parts",
+  "build.assertions", "build.cache_names", "build.confine", "build.key_parts", "build.load_module",
   "build.test_inputs",
   "build.test_worker", "build.this_program", "cmd.cosmic.main", "cosmic.coverage",
   "cosmic.env", "cosmic.fs", "cosmic.proc", "cosmic.test",
@@ -894,10 +895,10 @@ local function refusal(name: string, module_path: string, closure: {string:boole
                        tree: {string:boolean}): string?
   if closure[name] or not tree[name] then return nil end
   return string.format("module '%s' is outside the import closure of %s: the build " ..
-      "follows a require only when it is called directly on a literal name, so neither a " ..
-      "computed name nor pcall(require, ...) is followed, and a change to %s would not run " ..
-      "%s's tests again. Require it so at the top level of the module this is raised in, " ..
-      "or of %s itself: local _ = require(%q)",
+      "follows a require only when it is called directly on a literal name, or through " ..
+      "pcall(require, \"<name>\"), so a name computed at run time is not followed, and a change to %s " ..
+      "would not run %s's tests again. Require it so at the top level of the module this is " ..
+      "raised in, or of %s itself: local _ = require(%q)",
     name, module_path, name, module_path, module_path, name)
 end
 
@@ -909,7 +910,10 @@ local type Held = function(fn: function(...: any): (any...), argument?: any): an
 --- Answers a [`Held`], `tree` the set of the tree's modules. It calls `fn`
 --- with `argument` while two things hold: a searcher ahead of every
 --- other answers a module `refusal` refuses with a loader that raises
---- why, where it was required; and each such module the worker itself
+--- why, where it was required, and each searcher after it hands such a
+--- module's loader as a loader that raises too (with no raw value beside
+--- it), so a loop over `package.searchers` that calls what
+--- it is handed loads nothing outside the closure; and each such module the worker itself
 --- has loaded already is out of `package.loaded`, so a `require` of it
 --- reaches the searcher too. It then puts both back, whether `fn`
 --- returned or raised, and returns or raises as `fn` did. A lookup that
@@ -933,18 +937,37 @@ local function hold_requires(module_path: string, closure: {string:boolean},
       error(why, 3)
     end, nil
   end
+  -- A searcher after the gate, handing the loader of a module `refusal` refuses as a loader that raises why, and nothing
+  -- beside it: a loop over every searcher finds the loader of the store and calls it, or reads the core's raw table.
+  local function guarded(searcher: function(string): (function(arg1?: string, arg2?: any): (any), any)):
+      function(string): (function(arg1?: string, arg2?: any): (any), any)
+    return function(name: string): (function(arg1?: string, arg2?: any): (any), any)
+      local loader, raw = searcher(name)
+      local why = refusal(name, module_path, closure, tree)
+      if type(loader) == "function" and why ~= nil then
+        -- The gate's own: a loader that raises, and no raw value beside it (the core's table behind a module is
+        -- the module's, and goes to a test whose closure holds the module).
+        return gate(name)
+      end
+      return loader, raw
+    end
+  end
   return function(fn: function(...: any): (any...), argument?: any): any
     local set_aside: mut {string:any} = {}
     for name, value in pairs(package.loaded) do
       if refusal(name, module_path, closure, tree) ~= nil then set_aside[name] = value end
     end
     for name in pairs(set_aside) do package.loaded[name] = nil end
-    local searchers = package.searchers
-    table.insert(searchers, 1, gate)
-    local ok, produced = pcall(fn, argument)
-    for i = #searchers, 1, -1 do
-      if searchers[i] == gate then table.remove(searchers, i) end
+    -- The table `require` and a hand-made loop both read is replaced for the call, by the gate and a guarded
+    -- copy of each searcher, and put back as it was.
+    local held_searchers = package.searchers
+    local guarded_searchers: mut {function(string): (function(arg1?: string, arg2?: any): (any), any)} = { gate }
+    for _, searcher in ipairs(held_searchers) do
+      guarded_searchers[#guarded_searchers + 1] = guarded(searcher)
     end
+    package.searchers = guarded_searchers
+    local ok, produced = pcall(fn, argument)
+    package.searchers = held_searchers
     for name, value in pairs(set_aside) do package.loaded[name] = value end
     -- Level 0: the value raised, as it was raised.
     if not ok then error(produced, 0) end
@@ -1394,7 +1417,7 @@ function worker.run(argv: {string}): integer
   -- Each under a stand-in for `spawn` ([`confine.call`]), which holds what
   -- the test starts.
   local loading = confine.call(function(): any
-    return held(function(): any return require(module_path) end)
+    return held(function(): any return load_module.load(module_path) end)
   end, nil, own, sandboxed)
   local loaded, produced = loading.ok, loading.produced
   runner.loaded = true

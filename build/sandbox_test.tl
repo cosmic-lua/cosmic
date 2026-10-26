@@ -198,24 +198,24 @@ end
 
 local function test_a_path_names_its_letters_and_the_decoder_judges_them()
   local ran = refused({ "--path", "xr:.", "prog" })
-  assert(ran.err:find("rwxcu", 1, true) and ran.err:find("/grants/0/letters", 1, true), ran.err)
+  assert(ran.err:find("rwxcu", 1, true) and ran.err:find("$.grants[0].letters", 1, true), ran.err)
   assert(not ran.err:find("sandbox: sandbox:", 1, true), ran.err)
   assert(refused({ "--path", "z:.", "prog" }).err:find("letters", 1, true))
   assert(refused({ "--path", ":.", "prog" }).err:find("letters", 1, true))
   assert(refused({ "--path", "rw", "prog" }).err:find("LETTERS:PATH", 1, true))
   assert(refused({ "--path", "r:", "prog" }).err:find("LETTERS:PATH", 1, true))
-  assert(refused({ "--read", "", "prog" }).err:find("/grants/0/path", 1, true))
+  assert(refused({ "--read", "", "prog" }).err:find("$.grants[0].path", 1, true))
   assert(refused({ "--read", "../x", "prog" }).err:find("..", 1, true))
 end
 
 local function test_the_other_values_are_the_decoders_too()
   assert(refused({ "--isolate", "net", "prog" }).err:find("$.isolate[0]", 1, true))
   assert(refused({ "--promise", "all", "prog" }).err:find("$.promises[0]", 1, true))
-  assert(refused({ "--connect", "nohost", "prog" }).err:find("/connect/0", 1, true))
-  assert(refused({ "--loopback", "10.0.0.1", "prog" }).err:find("/loopback/0", 1, true))
+  assert(refused({ "--connect", "nohost", "prog" }).err:find("$.connect[0]", 1, true))
+  assert(refused({ "--loopback", "10.0.0.1", "prog" }).err:find("$.loopback[0]", 1, true))
   assert(refused({ "--set-env", "NOVALUE", "prog" }).err:find("NAME=VALUE", 1, true))
   assert(refused({ "--set-env", "A=1", "--set-env", "A=2", "prog" }).err:find("two values", 1, true))
-  assert(refused({ "--env", "A=B", "prog" }).err:find("/env/0", 1, true))
+  assert(refused({ "--env", "A=B", "prog" }).err:find("$.env[0]", 1, true))
 end
 
 local function test_a_connect_is_the_starts_to_serve_and_its_failure_is_the_starts(tmp: string)

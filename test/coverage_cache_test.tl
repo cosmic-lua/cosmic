@@ -1,3 +1,4 @@
+local Globals = require("cosmic.internal.globals")
 local Hits = require("build.coverage_hits")
 
 local function test_distinct_long_strings_with_same_source_merge_hits()
@@ -70,6 +71,6 @@ local function test_coverage_does_not_retain_captured_values()
     "collectgarbage('collect')",
     "collectgarbage('collect')",
     "assert(weak[1] == nil, 'coverage must not retain a closure environment')",
-  }, "\n"), "@coverage.capture.check", "t"))
+  }, "\n"), "@coverage.capture.check", "t", Globals.table()))
   probe()
 end

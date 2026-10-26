@@ -717,21 +717,29 @@ local function test_a_test_is_given_the_store_of_its_closure_alone(tmp: string)
   assert(Fs.write(root .. "/suite/other.tl", "local record Lib\n  value: integer\nend\nlocal lib: Lib = { value = 1 }\nreturn lib\n"))
   assert(Fs.write(root .. "/suite/closed_test.tl", [[
 local Env = require("cosmic.env")
+local Globals = require("cosmic.internal.globals")
 local Store = require("cosmic.store")
 local Test = require("cosmic.test")
 local lib = require("suite.lib")
 
 Test.policy { env = { "ADDED" } }
 
+-- A `require` of a name made at run time, from a chunk of Lua: the parser refuses it in a typed file.
+local function dynamic(name: string): any
+  local chunk = assert(load("return require('suite.' .. ...)", "=dynamic", "t", Globals.table()))
+  local value: any = chunk(name)
+  return value
+end
+
 local function test_closed()
   assert(lib.value == 1)
   assert(Store.bytecode("suite.lib") ~= nil, "the closure is not in the store")
   local bytes, _ = Store.bytecode("suite.other")
   assert(bytes == nil, "a module outside the closure is in the store")
-  local ok, why = pcall(require, ("suite." .. "other"))
+  local ok, why = pcall(dynamic, "other")
   assert(not ok and tostring(why):find("outside the import closure", 1, true) ~= nil, tostring(why))
   if Env.get("ADDED") == "1" then
-    local added, added_why = pcall(require, ("suite." .. "added"))
+    local added, added_why = pcall(dynamic, "added")
     assert(not added and tostring(added_why):find("outside the import closure", 1, true) ~= nil,
       tostring(added_why))
   end

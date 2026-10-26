@@ -1012,8 +1012,8 @@ end
 local function lay_out_c(ctx: Fix)
   local picked = assert(ctx.picked)
   local root = assert(ctx.root)
-  local changed = assert(ctx.changed)
-  local failures = assert(ctx.failures)
+  local changed: mut {string} = assert(ctx.changed)
+  local failures: mut {string} = assert(ctx.failures)
   -- The C is compiled from the root, so a path named from elsewhere is
   -- taken relative to it.
   local c_files: mut {string} = {}
@@ -1247,6 +1247,9 @@ local function run_tree_checks(ctx: Fix)
       end
       for _, line in ipairs(tree_checks.ci_testdata(root)) do
         findings[#findings + 1] = "ci testdata: " .. line
+      end
+      for _, line in ipairs(tree_checks.package_readers(root)) do
+        findings[#findings + 1] = "package: " .. line
       end
       -- What the scope builder, the lowering and the checker found in a file that has not changed is kept in the build
       -- directory; without the memo the checks run in full.

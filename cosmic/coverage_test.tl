@@ -9,6 +9,7 @@
 --- token that `start` and `stop` check stands between this file and the
 --- collection window [`build.test`] has open.
 
+local Globals = require("cosmic.internal.globals")
 local Store = require("cosmic.store")
 local Coverage = require("cosmic.coverage")
 local Hits = require("build.coverage_hits")
@@ -23,7 +24,7 @@ local function test_untrusted_load_cannot_reach_raw_debug()
   assert(bytes ~= nil and trouble == "", tostring(trouble))
   local source, source_trouble = Store.source("cosmic.coverage")
   assert(source ~= nil and source_trouble == "", tostring(source_trouble))
-  local chunk, load_trouble = load(bytes, "@cosmic.coverage", "b")
+  local chunk, load_trouble = load(bytes, "@cosmic.coverage", "b", Globals.table())
   assert(chunk ~= nil, tostring(load_trouble))
   -- Given anything but a table as `extra`, as an untrusted loader does,
   -- cosmic.coverage requires "cosmic.internal.debug" by name, which
@@ -38,7 +39,7 @@ end
 local function test_untrusted_load_of_the_hits_reader_cannot_reach_raw_debug()
   local bytes, trouble = Store.bytecode("build.coverage_hits")
   assert(bytes ~= nil and trouble == "", tostring(trouble))
-  local chunk, load_trouble = load(bytes, "@build.coverage_hits", "b")
+  local chunk, load_trouble = load(bytes, "@build.coverage_hits", "b", Globals.table())
   assert(chunk ~= nil, tostring(load_trouble))
   local ok = pcall(chunk, "build.coverage_hits", "not a table")
   assert(not ok, "an untrusted load must not obtain a working native collector")

@@ -83,6 +83,7 @@ function must_confine_fixture.held_suite(tmp: string, root: string)
   assert(Fs.write(root .. "/suite/held_test.tl", [==[
 local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")
+local Globals = require("cosmic.internal.globals")
 local Test = require("cosmic.test")
 
 Test.policy { grants = { { path = "bin/probe", letters = "r" } } }
@@ -100,7 +101,7 @@ local function raw()
   end
   error("no raw table")
 end
-]=] .. body, "=held_test"))
+]=] .. body, "=held_test", "t", Globals.table()))
   chunk(tmp, Child, Fs)
 end
 
@@ -144,6 +145,7 @@ function must_confine_fixture.confined_suite(tmp: string, root: string)
   assert(Fs.write(root .. "/suite/real_test.tl", string.format([==[
 local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")
+local Globals = require("cosmic.internal.globals")
 local Test = require("cosmic.test")
 
 Test.policy { grants = { { path = "bin/probe", letters = "r" } }, promises = { "nest" } }
@@ -165,7 +167,7 @@ if r == nil then return end -- refused: the run says why
 assert(r.code == 0, "the confined process exited " .. tostring(r.code))
 local out = assert(Fs.read(tmp .. "/out"))
 assert(out == "in" and (r.stdout == "" or r.stdout == "1\n"), out .. tostring(r.stdout))
-]=], "=real_test"))
+]=], "=real_test", "t", Globals.table()))
   chunk(tmp, Child, Fs)
 end
 ]==], real, hidden, real)))
@@ -182,6 +184,7 @@ function must_confine_fixture.fallback_suite(tmp: string, root: string)
   assert(Fs.write(root .. "/suite/fallback_test.tl", [==[
 local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")
+local Globals = require("cosmic.internal.globals")
 local Test = require("cosmic.test")
 
 Test.policy { grants = { { path = "bin/probe", letters = "r" } }, promises = { "nest" } }
@@ -199,7 +202,7 @@ confine.confine({ reads = many })
 local r = assert(Child.run({ probe, "exit 0" }))
 confine.confine(nil)
 assert(r.ok, "the process it fell back to did not run")
-]=], "=fallback_test"))
+]=], "=fallback_test", "t", Globals.table()))
   chunk(tmp, Child, Fs)
 end
 ]==]))

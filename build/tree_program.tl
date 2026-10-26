@@ -16,6 +16,7 @@ local Fs = require("cosmic.fs")
 local Memprobe = require("build.memprobe")
 local Scopes = require("lang.scopes")
 local ShapeSpecs = require("build.syntax_shape_specs")
+local SyntaxNode = require("build.syntax_node")
 local Template = require("cosmic.template")
 local analysis_schema = require("build.analysis_schema")
 local doctest = require("build.doctest")
@@ -114,10 +115,11 @@ function TreeProgram.splice(build: Driver.Build, module: string, file: string): 
   return true
 end
 
---- `modules` in an order in which each comes after the modules among them that its text requires by a literal name, and
+--- `modules` in an order in which each comes after the modules among them that its text requires by a literal name (as
+--- `require("m")` or `pcall(require, "m")`), and
 --- otherwise as they stand. A module the index lacks keeps its place, and a cycle of requires is broken where it is met. The
---- requires are found in the text by their pattern, so one in a comment or a string counts too: that costs a module being
---- retired later than it could be, and never a verdict. Only the modules asked for are ordered, so a chain through a module
+--- requires are the parser's reading of the text; a text that does not parse is read by a pattern, so one in a comment or
+--- a string counts too: that costs a module being retired later than it could be, and never a verdict. Only the modules asked for are ordered, so a chain through a module
 --- left out ([`Driver.Build.lower`] lowers it as it is needed) is not followed.
 local function ordered(index: Driver.Index, modules: {string}): {string}
   local wanted: mut {string: boolean} = {}
@@ -133,7 +135,18 @@ local function ordered(index: Driver.Index, modules: {string}): {string}
     state[module] = true
     local source = index.by_module[module]
     if source ~= nil then
-      for _, name in source.text:gmatch("require%s*%(?%s*([\"'])([%w_%.%-]+)%1") do
+      local chunk, _ = SyntaxNode.parse(source.text, source.filename)
+      local names: mut {string} = {}
+      if chunk ~= nil then
+        for _, name in ipairs(SyntaxNode.requires(chunk)) do
+          names[#names + 1] = name
+        end
+      else
+        for _, name in source.text:gmatch("require%s*[%(,]?%s*([\"'])([%w_%.%-]+)%1") do
+          names[#names + 1] = name
+        end
+      end
+      for _, name in ipairs(names) do
         local required = index.by_module[name]
         if required ~= nil then
           visit(required.module)

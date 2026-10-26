@@ -231,7 +231,7 @@ end
 
 local function nothing() end
 
-local preloaded <const>: {string: boolean} = { errors = true, testing = true }
+local preloaded <const>: {string: boolean} = { errors = true, globals = true, testing = true }
 
 --- The raw value the store's searcher hands `wrapper`'s loader, the
 --- way `require` hands it, or nil when it hands none.

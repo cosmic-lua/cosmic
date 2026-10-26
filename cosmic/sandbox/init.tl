@@ -110,8 +110,8 @@ local function refuse(why: string): nil, string
 end
 
 --- Whether the values of `p` are ones a policy may hold: `true`, or
---- `false` and why, naming the field by its JSON Pointer
---- (`pointer "/grants/0/letters": ...`, arrays counted from 0). What a
+--- `false` and why, naming the field by its path
+--- (`$.grants[0].letters: ...`, arrays counted from 0). What a
 --- type holds is not looked at again, only what it does not stop: an
 --- unknown profile, a letter outside "rwxcu", a malformed address, a
 --- ".." in a path. With `exact`, a grant's `letters` must also be in the
@@ -119,7 +119,7 @@ end
 --- [`Sandbox.merge`] takes any order and writes this one.
 ---
 ---     local ok, why = Sandbox.check({ grants = { { path = "x", letters = "xr" } } }, true)
----     print(ok, why) -- false  sandbox: pointer "/grants/0/letters": "xr" is not in the order of "rwxcu", each letter once: "rx"
+---     print(ok, why) -- false  sandbox: $.grants[0].letters: "xr" is not in the order of "rwxcu", each letter once: "rx"
 function Sandbox.check(p: Sandbox.Policy, exact?: boolean): boolean, string
   return rules.check(p, exact)
 end

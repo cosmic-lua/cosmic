@@ -65,17 +65,20 @@ local function left_over(): {string}
   return found
 end
 
---- A script that requires one module of this program and reports what a
---- `require` of another finds.
+--- A script that requires one module of this program, probes another with `pcall(require, ...)`, which is followed as a
+--- `require` is, and reports whether a `require` finds a third, whose name it builds inside a chunk of Lua: neither the
+--- parser nor the closure's search of the generated code finds a name so made.
 local SCRIPT <const> = [[
 local Json = require("cosmic.json")
 local text, _ = Json.encode({ a = 1 })
 print("json", text)
 print("args", arg[0], arg[1], arg[2])
 match pcall(require, "cosmic.archive") do
-  | (true, _) then print("outside", true)
-  | (false, _) then print("outside", false)
+  | (true, _) then print("probed", true)
+  | (false, _) then print("probed", false)
 end
+local outside = assert(load("return (pcall(require, 'cosmic.' .. 'template'))", "=outside"))
+print("outside", (outside()))
 return function(args: {string}): integer
   print("main", args[1])
   return 3
@@ -88,7 +91,7 @@ local function test_closure_runs_a_script_on_the_modules_it_requires(tmp: string
   local program = (assert(Proc.executable()))
   local ran = cosmic(tmp, { "sandbox", "--closure", "--", program, "run.tl", "x", "y" })
   assert(ran.code == 3, ran.code .. ": " .. ran.out .. ran.err)
-  assert(ran.out == 'json\t{"a":1}\nargs\trun.tl\tx\ty\noutside\tfalse\nmain\tx\n', ran.out)
+  assert(ran.out == 'json\t{"a":1}\nargs\trun.tl\tx\ty\nprobed\ttrue\noutside\tfalse\nmain\tx\n', ran.out)
   -- No cache or directory was made for it beforehand, and none is left.
   assert(#left_over() == 0, table.concat(left_over(), " "))
   local again = cosmic(tmp, { "sandbox", "--closure", "--", program, "run.tl" })
@@ -104,8 +107,8 @@ local text, _ = Json.encode({ a = 1 })
 words[#words + 1] = assert(text)
 print("json", words[1])
 match pcall(require, "cosmic.archive") do
-  | (true, _) then print("outside", true)
-  | (false, _) then print("outside", false)
+  | (true, _) then print("probed", true)
+  | (false, _) then print("probed", false)
 end
 return function(args: {string}): integer
   print("main", args[1])
@@ -118,7 +121,7 @@ local function test_closure_takes_the_requires_of_a_script_in_the_new_grammar_fr
   searchable.share(tmp .. "/new.tl")
   local program = (assert(Proc.executable()))
   local ran = cosmic(tmp, { "sandbox", "--closure", "--", program, "new.tl", "x" }, "new")
-  assert(ran.code == 3 and ran.out == 'json\t{"a":1}\noutside\tfalse\nmain\tx\n', tostring(ran.code) .. ": " .. ran.out .. ran.err)
+  assert(ran.code == 3 and ran.out == 'json\t{"a":1}\nprobed\ttrue\nmain\tx\n', tostring(ran.code) .. ": " .. ran.out .. ran.err)
   assert(#left_over() == 0, table.concat(left_over(), " "))
   local forked = cosmic(tmp, { "sandbox", "--closure", "--", program, "new.tl", "x" }, "teal")
   assert(forked.code == 125 and forked.err:find("COSMIC_GRAMMAR=teal: the fork's grammar is gone; " ..
@@ -133,10 +136,8 @@ local sys = require("cosmic.sys")
 local type Archive = require("cosmic.archive")
 local Fs = require("cosmic.fs")
 local _: Archive? = nil
-match pcall(require, "cosmic." .. "archive") do
-  | (true, _) then print("sys", type(sys.getpid), type(Fs.read), true)
-  | (false, _) then print("sys", type(sys.getpid), type(Fs.read), false)
-end
+local outside = assert(load("return (pcall(require, 'cosmic.' .. 'archive'))", "=outside"))
+print("sys", type(sys.getpid), type(Fs.read), (outside()))
 ]]))
   searchable.share(tmp .. "/sys.tl")
   local ran = cosmic(tmp, { "sandbox", "--closure", "--", (assert(Proc.executable())), "sys.tl" })
