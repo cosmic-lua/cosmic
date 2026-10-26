@@ -367,10 +367,11 @@ local function test_the_collector_counts_the_corpus_buffers()
   assert(collectgarbage("count") - before < held / 2, "the buffers were not released")
 end
 
---- A guard of cosmic.signal that has caught a signal ends a search with
---- `nil, "interrupted"`, and it neither changes the corpus nor takes the
---- signal: once it is taken, the same calls answer as they did before.
-local function test_a_caught_signal_interrupts_a_search_and_leaves_the_corpus()
+--- A guard of cosmic.signal that has caught a signal ends a search or a
+--- k-means with `nil, "interrupted"`, and neither changes the corpus nor
+--- takes the signal: once it is taken, the same calls answer as they did
+--- before.
+local function test_a_caught_signal_interrupts_long_calls_and_leaves_the_corpus()
   local next_number = stream(21)
   local corpus = Vector.corpus(8)
   for i = 1, 600 do
@@ -379,6 +380,7 @@ local function test_a_caught_signal_interrupts_a_search_and_leaves_the_corpus()
   local query = Vector.normalize(Vector.pack(random_vector(next_number, 8)))
   local exact = assert(corpus:search(query, 5))
   local approximate = assert(corpus:search(query, 5, { candidates = 50 }))
+  local centroids = assert(Vector.kmeans(corpus, 3, { seed = 4, iterations = 5 }))
 
   local guard = assert(Signal.guard())
   assert(sys.kill(sys.getpid(), sys.SIGTERM))
@@ -386,6 +388,9 @@ local function test_a_caught_signal_interrupts_a_search_and_leaves_the_corpus()
   assert(none == nil and why == "interrupted", tostring(why))
   none, why = corpus:search(query, 5, { candidates = 50 })
   assert(none == nil and why == "interrupted", tostring(why))
+  local no_centroids: {string}?
+  no_centroids, why = Vector.kmeans(corpus, 3, { seed = 4, iterations = 5 })
+  assert(no_centroids == nil and why == "interrupted", tostring(why))
   -- An add is short and not interruptible: it still lands.
   corpus:add(601, query)
   assert(corpus:count() == 601)
@@ -396,6 +401,8 @@ local function test_a_caught_signal_interrupts_a_search_and_leaves_the_corpus()
   assert(again.ids[1] == 601 and #again.ids == #exact.ids)
   local fast = assert(corpus:search(query, 5, { candidates = 50 }))
   assert(#fast.ids == #approximate.ids)
+  local recentred = assert(Vector.kmeans(corpus, 3, { seed = 4, iterations = 5 }))
+  assert(#recentred == #centroids)
 end
 
 local function test_from_json_reads_no_text_with_a_nul()

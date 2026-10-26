@@ -24,10 +24,11 @@
 --- need up to three times what it holds.
 ---
 --- Interruption: inside a [`Signal.guard`] of [`cosmic.signal`], a pending
---- SIGINT or SIGTERM ends [`Vector.Corpus.search`] with `nil,
---- "interrupted"`, within a few hundred rows of work (milliseconds at
---- thousands of dimensions), without taking the signal (the guard's
---- holder still sees it) and without changing the corpus. That is the shape every
+--- SIGINT or SIGTERM ends [`Vector.Corpus.search`] and [`Vector.kmeans`]
+--- with `nil, "interrupted"`, within a few hundred rows of work
+--- (milliseconds at thousands of dimensions; one centroid pass while
+--- k-means seeds), without taking the signal (the guard's holder still
+--- sees it) and without changing the corpus. That is the shape every
 --- interrupted operation in the tree answers, as [`cosmic.http`] and
 --- [`cosmic.net`] do; they have no partial answer to give instead.
 --- Out of memory and a wrong argument still raise. Without a guard open
@@ -100,6 +101,15 @@ local record Vector
     --- says.
     search: function(Corpus, query: string, k: integer, opts?: SearchOptions): Hits?, string
   end
+
+  record KmeansOptions
+    --- Seeds the choice of the first centroids; the same seed on the same
+    --- corpus answers the same centroids. 1 by default.
+    seed?: integer
+    --- The most Lloyd iterations; it stops sooner when no vector changes
+    --- cluster. 20 by default.
+    iterations?: integer
+  end
 end
 
 --- A vector from its numbers, as the SQL functions store one. Raises on
@@ -154,6 +164,43 @@ local function corpus_search(self: Vector.Corpus, query: string, k: integer,
     return nil, scores
   end
   return { ids = assert(ids), scores = scores }, ""
+end
+
+--- `k` centroids for IVF search: spherical k-means (k-means++ seeding,
+--- then Lloyd iterations on vectors scaled to length 1, centroids
+--- renormalized each step, so similarity is the inner product). Answers
+--- k packed centroids. Raises on `k` under 1 or over the corpus's count,
+--- on `iterations` under 1, and on a corpus of zero vectors alone. A
+--- zero vector (or one too short to scale to length 1) has no direction:
+--- it is never a seed and counts toward no cluster, and [`Vector.nearest`]
+--- gives it the first centroid.
+--- Cost is count x k x dims per iteration, in C. Answers `nil,
+--- "interrupted"` at the next row or centroid once a [`Signal.guard`] has
+--- caught a signal (see the module's description), and raises "not enough
+--- memory" when the heap refuses its scratch; the corpus is unchanged
+--- either way.
+function Vector.kmeans(corpus: Vector.Corpus, k: integer, opts?: Vector.KmeansOptions): {string}?, string
+  local o = opts or {}
+  local centroids, why = corpus.handle:kmeans(k, o.seed or 1, o.iterations or 20)
+  if centroids == nil then
+    return nil, assert(why)
+  end
+  return centroids, ""
+end
+
+--- The 1-based index of the centroid nearest `v` by inner product (the
+--- cluster to store a row under). Ties go to the lower index. Raises on
+--- no centroids, on a centroid that is not a vector of `v`'s length, and
+--- on `v` or a centroid holding a number that is not finite; a product
+--- that overflows to not-a-number scores worst.
+function Vector.nearest(centroids: {string}, v: string): integer
+  return assert(raw.nearest(centroids, v, 1)[1])
+end
+
+--- The indexes of the `n` nearest centroids, nearest first: the probes of
+--- a query. Fewer when there are fewer centroids.
+function Vector.nearest_n(centroids: {string}, v: string, n: integer): {integer}
+  return raw.nearest(centroids, v, n)
 end
 
 --- An empty corpus of vectors with `dims` dimensions, from 1 to 16000.
