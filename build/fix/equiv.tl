@@ -44,7 +44,7 @@ local record Equiv
     --- The numbers of the tokens that count: all but the trailing commas of tables.
     mut kept: {integer}
     mut comments: {Remark}
-    --- The binary operators that begin a line, by token.
+    --- The binary operators, by token.
     mut operators: {integer: boolean}
     --- The tree without places ([`lang.ast_dump`]); "" when the source does not parse.
     mut shape: string
@@ -126,11 +126,9 @@ function Equiv.read(source: string, name: string, dialect: Ast.Dialect): Equiv.S
     if base.kind == "Table" and base.last > base.first + 1 and Lexer.text(tokens, base.last - 1) == "," then
       dropped[base.last - 1] = true
     elseif base.kind == "Binary" and head ~= nil then
-      -- Only an operator that begins its line is moved behind the code before it.
-      local at = head.last + 1
-      if at <= count and Lexer.y(tokens, at) > Lexer.yend(tokens, head.last) then
-        operators[at] = true
-      end
+      -- Read only for the operator a comment is kept on, which begins its line whatever the source: a comment ends its
+      -- line, so the token after it begins the next. No test of the line is needed.
+      operators[head.last + 1] = true
     end
   end
 

@@ -100,12 +100,15 @@ local record fix
 
   --- How laying out a Teal file ended ([`fix.lay_out_source`]): `laid` it was laid out already, `unlaid` it is not and a
   --- check wrote nothing, `written` it is now, `refused` the formatter or the parse of its layout refused it and nothing
-  --- was written, `unwritable` the write failed.
+  --- was written, `linked` the file is a symlink, which is not written, `changed` it was edited while it was laid out and
+  --- is not written, `unwritable` the write failed.
   enum LaidState
     "laid"
     "unlaid"
     "written"
     "refused"
+    "linked"
+    "changed"
     "unwritable"
   end
 
@@ -115,7 +118,7 @@ local record fix
     --- What the file holds now, and its parse.
     text: string
     chunk: Ast.Chunk
-    --- For `refused` and `unwritable`, why.
+    --- For the states that wrote nothing and are no layout (all but `laid`, `unlaid` and `written`), why.
     why: string
   end
 
@@ -1127,7 +1130,18 @@ function fix.lay_out_source(file: string, source: string, chunk: Ast.Chunk, chec
   if again == nil then
     return { state = "refused", text = source, chunk = chunk, why = file .. ": its layout does not parse: " .. again_refusal }
   end
-  -- The file keeps its mode: a script that is executable stays so.
+  -- A write replaces the path with a file of its own, which would turn a link into a copy and leave its target as it is.
+  local target, _ = Fs.readlink(file)
+  if target ~= nil then
+    return { state = "linked", text = source, chunk = chunk, why = "not written: " .. file .. " is a link; fix its target" }
+  end
+  -- Another editor's save since the file was read is not overwritten.
+  local now, _ = Fs.read(file)
+  if now ~= source then
+    return { state = "changed", text = source, chunk = chunk, why = "not written: " .. file .. " changed while being laid out" }
+  end
+  -- The file keeps its mode: a script that is executable stays so. [`Fs.write`] gives the mode less the umask, so it is
+  -- set again to what the file had.
   local stat, _ = Fs.stat(file)
   local written, write_trouble = Fs.write(file, text, if stat ~= nil then stat.mode & 0xfff else nil end)
   if written and stat ~= nil then

@@ -611,3 +611,34 @@ local function test_a_file_written_keeps_its_mode(tmp: string)
   assert(Fs.read(file) == "local x = 1\n")
   assert(assert(Fs.stat(file)).mode & 0xfff == 0x1ed, "the mode was lost")
 end
+
+--- A link is not written: a write would replace it with a copy and leave its target as it was.
+local function test_a_link_is_not_written(tmp: string)
+  local target = tmp .. "/real.tl"
+  local link = tmp .. "/link.tl"
+  assert(Fs.write(target, "local   x=1\n"))
+  assert(Fs.symlink("real.tl", link))
+  local source = assert(Fs.read(link))
+  local chunk = assert(SyntaxNode.parse(source, link))
+  local done = fix.lay_out_source(link, source, chunk, false, nil)
+  assert(done.state == "linked" and done.why == "not written: " .. link .. " is a link; fix its target", done.why)
+  assert(Fs.readlink(link) == "real.tl", "the link was replaced")
+  assert(Fs.read(target) == "local   x=1\n")
+  -- A check says only that it is not laid out.
+  assert(fix.lay_out_source(link, source, chunk, true, nil).state == "unlaid")
+  -- The target is laid out by naming it.
+  assert(fix.lay_out_source(target, source, chunk, false, nil).state == "written")
+  assert(Fs.read(target) == "local x = 1\n")
+end
+
+--- A file edited since it was read is not overwritten.
+local function test_a_file_changed_while_being_laid_out_is_not_written(tmp: string)
+  local file = tmp .. "/edited.tl"
+  assert(Fs.write(file, "local   x=1\n"))
+  local source = assert(Fs.read(file))
+  local chunk = assert(SyntaxNode.parse(source, file))
+  assert(Fs.write(file, "local   x=2\n"))
+  local done = fix.lay_out_source(file, source, chunk, false, nil)
+  assert(done.state == "changed" and done.why == "not written: " .. file .. " changed while being laid out", done.why)
+  assert(Fs.read(file) == "local   x=2\n", "the edit was overwritten")
+end
