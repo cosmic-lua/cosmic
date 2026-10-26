@@ -66,7 +66,7 @@ local record Programs
   --- A `__fact`: it is called with the value of a narrowed read, what the checker concluded of it ([`lang.fact_wraps`]) and
   --- where the read is, answers the value and raises where the conclusion is false of it.
   type FactHook = function(v: any, taken: string, place: string, strings?: {string}, classes?: {any}, tag?: string,
-                           tags?: {string}, at?: string): any
+                           tags?: {string} | string, at?: string): any
 
   --- What running a checked program did.
   record Execution
@@ -462,10 +462,19 @@ local function typed_coroutines(): {string: any}
   return library
 end
 
+--- The values joined by "," in `text`.
+local function words_of(text: string): {string}
+  local out: mut {string} = {}
+  for word in text:gmatch("[^,]+") do
+    out[#out + 1] = word
+  end
+  return out
+end
+
 --- The `__fact` that [`Programs.execute`] runs a program with unless it is given another: it raises `fact violated: ...`
 --- for a read whose conclusion is false of the value.
-local function own_fact(v: any, kinds: string, name: string, strings?: {string}, tables?: {any}, tag?: string, tags?: {string},
-                        _at?: string): any
+local function own_fact(v: any, kinds: string, name: string, strings?: {string}, tables?: {any}, tag?: string,
+                        tags?: {string} | string, _at?: string): any
   local kind = type(v)
   local function fails(why: string)
     error("fact violated: " .. name .. " is " .. why, 0)
@@ -492,8 +501,9 @@ local function own_fact(v: any, kinds: string, name: string, strings?: {string},
     end
     if tag ~= nil and tags ~= nil then
       local field = v[tag]
-      if not among(tags, field) then
-        fails("a table whose " .. tag .. " is " .. tostring(field) .. ", the checker proved one of " .. table.concat(tags, ","))
+      local listed = if tags is string then words_of(tags) else tags end
+      if not among(listed, field) then
+        fails("a table whose " .. tag .. " is " .. tostring(field) .. ", the checker proved one of " .. table.concat(listed, ","))
       end
     end
   end
@@ -522,7 +532,7 @@ function Programs.execute(source: string, facts: boolean, modules?: {string: str
   end
   local wraps: {integer: string} = {}
   if facts then
-    wraps = FactWraps.of(run.result.narrowed, source, "t")
+    wraps = FactWraps.of(run.result.narrowed, source, "t", run.chunk)
   end
   done.lua = generated(run, wraps, kind_only)
   local loader: function(name: string): any

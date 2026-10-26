@@ -143,19 +143,23 @@ function Lexical.walk(chunk: Ast.Chunk, scoped: Resolved.Scoped,
         Node.walk(target, function(under: Ast.Node)
           written[Node.base(under).id] = true
         end)
-        if (target.kind == "Name") and target.binding ~= nil then
-          local held = ends[target.binding]
-          local last = Node.base(node).last
-          if held == nil or last < held then
-            ends[target.binding] = last
+        if (target.kind == "Name") then
+          local bound = target.binding
+          if bound ~= nil then
+            local held = ends[bound]
+            local last = Node.base(node).last
+            if held == nil or last < held then
+              ends[bound] = last
+            end
           end
         end
       end
     elseif (node.kind == "Field") and not written[Node.base(node).id] then
       local object = node.object
-      local line = chunk.tokens.y[Node.base(object).first]
+      local line = assert(chunk.tokens.y[Node.base(object).first])
       if (object.kind == "Name") then
-        local v = object.binding ~= nil and scoped.vars[object.binding] or nil
+        local bound = object.binding
+        local v = if bound ~= nil then scoped.vars[bound] else nil end
         if v ~= nil and v.module ~= "" then
           reads[#reads + 1] = { var = v.id, module = v.module, name = node.name, line = line, token = Node.base(node).first }
         end
@@ -185,7 +189,8 @@ function Lexical.in_scope(bindings: {Lexical.Binding}, y: integer, x: integer, h
   local from: mut {string: integer} = {}
   for _, each in ipairs(bindings) do
     local seen = each.from <= at or heading and each.head == line
-    if seen and at <= each.to and (from[each.name] == nil or each.from >= from[each.name]) then
+    local prior = from[each.name]
+    if seen and at <= each.to and (prior == nil or each.from >= prior) then
       out[each.name] = each.module
       from[each.name] = each.from
     end

@@ -37,7 +37,7 @@ local function test_walk_visits_each_node_once_in_source_order()
   local kinds: mut {string} = {}
   local ids: mut {integer} = {}
   Node.walk(chunk, function(node: Ast.Node)
-    kinds[#kinds + 1] = Node.base(node).kind
+    kinds[#kinds + 1] = node.kind
     ids[#ids + 1] = Node.base(node).id
   end)
   assert(table.concat(kinds, " ") == "Chunk Block Local Binding Integer If Arm Name Block CallStat Call Name Name",
@@ -51,7 +51,7 @@ local function test_a_walk_can_leave_a_subtree_alone()
   local chunk = parsed("local f = function() return 1 end\nreturn f\n")
   local seen: mut {string} = {}
   Node.walk_until(chunk, function(node: Ast.Node): boolean
-    seen[#seen + 1] = Node.base(node).kind
+    seen[#seen + 1] = node.kind
     return not ((node.kind == "FunctionLit"))
   end)
   assert(table.concat(seen, " ") == "Chunk Block Local Binding FunctionLit Return Name", table.concat(seen, " "))
@@ -76,9 +76,9 @@ local function test_the_parent_of_each_node_is_the_node_that_holds_it()
   assert(parents[Node.base(chunk).id] == nil)
   local stat = chunk.body.stats[1]
   assert((stat.kind == "Local"))
-  local call = stat.values[1]
+  local call = assert(stat.values[1])
   assert((call.kind == "Call"))
-  assert(parents[Node.base(call).id] == stat and parents[Node.base(call.args[1]).id] == call)
+  assert(parents[Node.base(call).id] == stat and parents[Node.base(assert(call.args[1])).id] == call)
   assert(parents[Node.base(stat).id] == chunk.body)
   assert(#Node.children(call) == 2)
 end

@@ -173,7 +173,7 @@ local function bind(st: State, name: string, target: Ast.Node?, token: integer):
   local predicate = st.pattern.predicates[name]
   if predicate ~= nil then
     local text = ""
-    if first == last or (target ~= nil and Node.base(target).kind:sub(1, 4) == "Type") then
+    if first == last or (target ~= nil and target.kind:sub(1, 4) == "Type") then
       text = Lexer.text(st.chunk.tokens, first)
     else
       return false
@@ -320,8 +320,11 @@ function Match.compile(source: string): Match.Pattern?, string
   local wrapped, _ = Node.parse("return " .. desugared, "<pattern>")
   if wrapped ~= nil then
     local ret = wrapped.body.stats[1]
-    if ret ~= nil and (ret.kind == "Return") and ret.values[1] ~= nil then
-      return { root = ret.values[1], predicates = predicates }, ""
+    if ret ~= nil and (ret.kind == "Return") then
+      local root = ret.values[1]
+      if root ~= nil then
+        return { root = root, predicates = predicates }, ""
+      end
     end
   end
   return nil, why

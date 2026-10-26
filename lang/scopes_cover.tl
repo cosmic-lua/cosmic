@@ -43,14 +43,13 @@ local function survey(chunk: Ast.Chunk): Found
   while #stack > 0 do
     local node = stack[#stack]
     stack[#stack] = nil
-    local kind = base_of(node).kind
     if (node.kind == "Name") then
       found.names[#found.names + 1] = node
     elseif (node.kind == "TypeName") then
       found.types[#found.types + 1] = node
     elseif (node.kind == "Binding") then
       local parent = parents[node.id]
-      local parent_kind = parent ~= nil and base_of(parent).kind or ""
+      local parent_kind = if parent ~= nil then parent.kind else "" end
       if parent_kind ~= "FieldDecl" and parent_kind ~= "Method" and node.name ~= "" then
         found.bindings[#found.bindings + 1] = node
       end
@@ -61,10 +60,10 @@ local function survey(chunk: Ast.Chunk): Found
           found.members[name.id] = true
         end
       end
-      if #path == 2 and chunk.tokens.text[path[2].first - 1] == ":" then
+      if #path == 2 and chunk.tokens.text[assert(path[2]).first - 1] == ":" then
         found.colons[#found.colons + 1] = node
       end
-    elseif kind == "Fn" or kind == "Method" then
+    elseif node.kind == "Fn" or node.kind == "Method" then
       found.functions[base_of(node).id] = true
     end
     local children: {Ast.Node} = {}
@@ -94,7 +93,7 @@ function Cover.check(chunk: Ast.Chunk, scoped: Scopes.Scoped, declared: {string:
   for _, b in ipairs(found.bindings) do
     local v = vars[b.id]
     if v == nil or v.name ~= b.name or v.declared ~= b.first then
-      return false, "the binding `" .. b.name .. "` at token " .. b.first .. " has no variable of its name and place"
+      return false, "the binding `" .. b.name .. "` at token " .. tostring(b.first) .. " has no variable of its name and place"
     end
   end
   local by_name: mut {string: {Scopes.Var}} = {}
@@ -162,7 +161,7 @@ function Cover.check(chunk: Ast.Chunk, scoped: Scopes.Scoped, declared: {string:
         end
       end
     elseif n.binding ~= nil or scoped.resolved[n.id] ~= nil then
-      return false, "the member name `" .. n.text .. "` at token " .. n.first .. " is bound"
+      return false, "the member name `" .. n.text .. "` at token " .. tostring(n.first) .. " is bound"
     end
   end
   for _, v in ipairs(scoped.list) do
@@ -191,7 +190,7 @@ function Cover.check(chunk: Ast.Chunk, scoped: Scopes.Scoped, declared: {string:
     if id ~= nil then
       local v = vars[id]
       if v == nil or v.name ~= head then
-        return false, "the type name `" .. tostring(head) .. "` at token " .. t.first .. " resolved to a variable of another name"
+        return false, "the type name `" .. tostring(head) .. "` at token " .. tostring(t.first) .. " resolved to a variable of another name"
       end
     end
   end

@@ -84,10 +84,6 @@ local BLOCK_STATEMENTS <const>: {string: boolean} = {
 --- The kinds of node written as they are, when on one line, with all they hold.
 local DECLARATIONS <const>: {string: boolean} = { Record = true, Interface = true, Class = true, Enum = true }
 
-local function base_of(node: Ast.Node): Ast.Base
-  return node
-end
-
 --- The children of `node`.
 local function kids_of(node: Ast.Node): {Ast.Node}
   local kids: mut {Ast.Node} = {}
@@ -100,7 +96,7 @@ end
 --- The block among the children of `node`, if it has one.
 local function body_of(node: Ast.Node): Ast.Node?
   for _, kid in ipairs(kids_of(node)) do
-    if base_of(kid).kind == "Block" then
+    if kid.kind == "Block" then
       return kid
     end
   end
@@ -135,13 +131,13 @@ function Breaks.of(chunk: Ast.Chunk): Breaks.Plan
       local stats = kids_of(body)
       local first = stats[1]
       if first ~= nil then
-        pieces[#pieces + 1] = base_of(first).first
-        if #stats > 1 or BLOCK_STATEMENTS[base_of(first).kind] == true then
+        pieces[#pieces + 1] = first.first
+        if #stats > 1 or BLOCK_STATEMENTS[first.kind] == true then
           shaped = false
         end
       end
       if bounded then
-        pieces[#pieces + 1] = base_of(body).last
+        pieces[#pieces + 1] = body.last
       end
     end
     local head = pieces[1]
@@ -165,21 +161,20 @@ function Breaks.of(chunk: Ast.Chunk): Breaks.Plan
   end
 
   for at, node in ipairs(queue) do
-    local base = base_of(node)
     local kids = kids_of(node)
     -- The nodes below an `if` expression, or a declaration on one line, are written as they stand.
-    local holds = frozen[at] == true or base.kind == "IfExp" or
-      (DECLARATIONS[base.kind] == true and Lexer.y(tokens, base.first) == Lexer.yend(tokens, base.last))
+    local holds = frozen[at] == true or node.kind == "IfExp" or
+      (DECLARATIONS[node.kind] == true and Lexer.y(tokens, node.first) == Lexer.yend(tokens, node.last))
     for _, kid in ipairs(kids) do
       queue[#queue + 1] = kid
       parents[#parents + 1] = at
       frozen[#queue] = holds
     end
-    local kind = if frozen[at] == true then "" else base.kind end
+    local kind = if frozen[at] == true then "" else node.kind end
     if kind == "Block" then
       for i = 2, #kids do
         local stat = kids[i]
-        local first = if stat == nil then 0 else base_of(stat).first end
+        local first = if stat == nil then 0 else stat.first end
         if first > 0 and shares(first) then
           parted[first] = true
         end
@@ -187,30 +182,30 @@ function Breaks.of(chunk: Ast.Chunk): Breaks.Plan
     elseif kind == "If" then
       local bodies: mut {Ast.Node} = {}
       for _, kid in ipairs(kids) do
-        local arm = base_of(kid)
+        local arm = kid
         local body = if arm.kind == "Arm" then body_of(kid) elseif arm.kind == "Block" then kid else nil end
         if body ~= nil then
           bodies[#bodies + 1] = body
         end
       end
-      construct(at, bodies, base.last, #bodies, true)
+      construct(at, bodies, node.last, #bodies, true)
     elseif kind == "While" or kind == "ForNum" or kind == "ForIn" or kind == "Do" or kind == "Repeat" or
         kind == "Method" then
       local body = body_of(node)
       if body ~= nil then
-        construct(at, { body }, base.last, 1, true)
+        construct(at, { body }, node.last, 1, true)
       end
     elseif kind == "LocalFunction" or kind == "Function" or kind == "FunctionLit" then
       for _, kid in ipairs(kids) do
-        local body = if base_of(kid).kind == "Fn" then body_of(kid) else nil end
+        local body = if kid.kind == "Fn" then body_of(kid) else nil end
         if body ~= nil then
-          construct(at, { body }, base.last, 1, true)
+          construct(at, { body }, node.last, 1, true)
         end
       end
     elseif kind == "MatchArm" then
       local body = body_of(node)
       if body ~= nil then
-        construct(at, { body }, base.last, 1, false)
+        construct(at, { body }, node.last, 1, false)
       end
     end
   end

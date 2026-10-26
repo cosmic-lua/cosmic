@@ -257,7 +257,7 @@ local function test_a_function_statement_has_its_doc_comment()
   local stat = parse("-- one\n--- two\nfunction R.m() end\nfunction R.n() end").chunk.body.stats[1]
   assert((stat.kind == "Function"))
   local doc = stat.doc
-  assert(doc ~= nil and #doc == 2 and doc[1].text == "-- one" and doc[2].text == "--- two", "the run before the statement")
+  assert(doc ~= nil and #doc == 2 and assert(doc[1]).text == "-- one" and assert(doc[2]).text == "--- two", "the run before the statement")
   local second = parse("-- one\nfunction R.m() end\nfunction R.n() end").chunk.body.stats[2]
   assert((second.kind == "Function") and second.doc == nil, "none for the next")
 end

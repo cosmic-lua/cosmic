@@ -391,7 +391,7 @@ local function test_a_doc_comment_is_the_run_of_comments_on_the_lines_before_a_d
   same(lines(the_local("-- a\n\n-- b\nlocal x = 1").bindings[1].doc), "-- b", "only the last run")
   local after = clean("local y = 1 -- trailing\nlocal x = 2").chunk.body.stats[2]
   assert((after.kind == "Local"))
-  same(lines(after.bindings[1].doc), "", "the end of a line of code is no doc")
+  same(lines(assert(after.bindings[1]).doc), "", "the end of a line of code is no doc")
   same(lines(the_record("-- the record\nlocal record R\n  -- the field\n  a: integer\nend").name.doc), "-- the record", "record")
   local r = the_record("local record R\n  -- the field\n  a: integer\n  -- never\n\n  b: integer\nend")
   local a, b = r.members[1], r.members[2]
@@ -400,12 +400,12 @@ local function test_a_doc_comment_is_the_run_of_comments_on_the_lines_before_a_d
   same(lines(b.doc), "", "field after a blank line")
   local c = clean("local class C\n  -- the method\n  function m(self) end\nend").chunk.body.stats[1]
   assert((c.kind == "Class"))
-  local m = c.members[1]
+  local m = assert(c.members[1])
   assert((m.kind == "Method"))
   same(lines(m.doc), "-- the method", "method")
   local e = clean("local enum E\n  -- first\n  \"a\"\n  \"b\"\nend").chunk.body.stats[1]
   assert((e.kind == "Enum"))
-  same(lines(e.values[1].doc) .. "/" .. lines(e.values[2].doc), "-- first/", "enum values")
+  same(lines(assert(e.values[1]).doc) .. "/" .. lines(assert(e.values[2]).doc), "-- first/", "enum values")
   local f = clean("-- the function\nlocal function f() end").chunk.body.stats[1]
   assert((f.kind == "LocalFunction"))
   same(lines(f.name.doc), "-- the function", "local function")
@@ -430,10 +430,10 @@ local function test_nodes_are_numbered_in_a_pre_order_walk_from_the_chunk()
   local chunk = clean("local a = 1 + 2").chunk
   local local_stat = chunk.body.stats[1]
   assert((local_stat.kind == "Local"))
-  local value = local_stat.values[1]
+  local value = assert(local_stat.values[1])
   assert((value.kind == "Binary"))
   assert(chunk.id == 1 and chunk.body.id == 2 and local_stat.id == 3, "chunk, block, local")
-  assert(local_stat.bindings[1].id == 4 and value.id == 5 and value.left.id == 6, "binding, binary, left")
+  assert(assert(local_stat.bindings[1]).id == 4 and value.id == 5 and value.left.id == 6, "binding, binary, left")
   local right = value.right
   local last: Ast.Base = right
   assert(last.id == 7, "right is the last node")
@@ -457,12 +457,12 @@ local function test_a_node_spans_its_tokens_and_a_block_its_terminator()
   local first = chunk.body.stats[1]
   local second = chunk.body.stats[2]
   assert((first.kind == "Local") and (second.kind == "If"))
-  local call = first.values[1]
+  local call = assert(first.values[1])
   local span = Ast.span(chunk, call)
   assert(span.y == 1 and span.x == 11 and span.yend == 1 and span.xend == 14, "the call f(1)")
   span = Ast.span(chunk, first)
   assert(span.x == 1 and span.xend == 14, "the local")
-  local body = second.arms[1].body
+  local body = assert(second.arms[1]).body
   span = Ast.span(chunk, body)
   assert(span.y == 3 and span.yend == 4 and span.x == 3 and span.xend == 3, "the block ends at the end")
   assert(body.close == body.last and chunk.tokens.text[body.close] == "end", "close is the terminator")
@@ -476,7 +476,7 @@ local function test_the_elseif_arms_of_an_if_do_not_overlap()
   assert((stat.kind == "If"))
   local else_body = stat.else_body
   assert(else_body ~= nil)
-  local one, two = stat.arms[1], stat.arms[2]
+  local one, two = assert(stat.arms[1]), assert(stat.arms[2])
   assert(one.last < two.first, "an arm ends at its `elseif` and the next begins after it")
   assert(two.last < else_body.first, "the last arm ends at `else`")
 end
@@ -484,7 +484,7 @@ end
 local function test_the_inner_type_ends_at_the_token_that_closes_two_lists()
   local t = the_local("local x: A<B<C>>").types[1]
   assert((t.kind == "TypeName"))
-  local inner = t.args[1]
+  local inner = assert(t.args[1])
   assert((inner.kind == "TypeName"))
   assert(inner.last == t.last, "both end at the one `>>`")
 end
@@ -511,7 +511,7 @@ local function test_a_node_of_no_token_is_empty_at_the_token_it_stands_before()
   local parsed = parse("local x =\nlocal y = 1")
   local stat = parsed.chunk.body.stats[1]
   assert((stat.kind == "Local"))
-  local missing = stat.values[1]
+  local missing = assert(stat.values[1])
   assert((missing.kind == "Error"))
   local span = Ast.span(parsed.chunk, missing)
   assert(span.y == 2 and span.x == 1 and span.yend == 2 and span.xend == 0, "empty before `local`")

@@ -38,12 +38,14 @@ local function base_of(node: Ast.Node): Ast.Base
 end
 
 --- Records the first problem of the node `node` and of what is below it.
-local function walk(node: Ast.Node, parent: Ast.Base, state: Walk)
+local function walk(node: Ast.Node, parent: Ast.Node, state: Walk)
   if state.problem ~= "" then
     return
   end
   local b = base_of(node)
-  local at = b.kind .. " at tokens " .. b.first .. " to " .. b.last
+  -- TODO: write the kind of a node as an operand of `..` here and below without `tostring` once lang/check.tl takes a union of
+  -- enums, as the kind of a tagged union is, as a string operand (it refuses it as `operand_type` now).
+  local at = tostring(node.kind) .. " at tokens " .. b.first .. " to " .. b.last
   state.count = state.count + 1
   if b.id ~= state.count then
     state.problem = at .. " has id " .. tostring(b.id) .. ", not " .. state.count
@@ -56,31 +58,31 @@ local function walk(node: Ast.Node, parent: Ast.Base, state: Walk)
     return
   end
   if b.first < parent.first or b.last > parent.last then
-    state.problem = at .. " is not within its parent, " .. parent.kind .. " at tokens " .. parent.first .. " to " .. parent.last
+    state.problem = at .. " is not within its parent, " .. tostring(parent.kind) .. " at tokens " .. parent.first .. " to " .. parent.last
     return
   end
   local previous: {integer} = { parent.first - 1 }
   Ast.children(node, function(child: Ast.Node)
     local c = base_of(child)
     if c.first <= previous[1] and state.problem == "" then
-      state.problem = at .. " has a child, " .. c.kind .. " at tokens " .. c.first .. " to " .. c.last .. ", that begins before its elder sibling ends"
+      state.problem = at .. " has a child, " .. tostring(child.kind) .. " at tokens " .. c.first .. " to " .. c.last .. ", that begins before its elder sibling ends"
     end
-    walk(child, b, state)
+    walk(child, node, state)
     previous[1] = math.max(previous[1], c.last)
   end)
-  if b.kind == "Block" and (node.kind == "Block") then
+  if (node.kind == "Block") then
     local expected = node.first
     for _, stat in ipairs(node.stats) do
       local s = base_of(stat)
       if s.first ~= expected and state.problem == "" then
-        state.problem = at .. " does not tile: " .. s.kind .. " begins at token " .. s.first .. ", not " .. expected
+        state.problem = at .. " does not tile: " .. tostring(stat.kind) .. " begins at token " .. s.first .. ", not " .. tostring(expected)
       end
       expected = s.last + 1
     end
     -- The terminator is the block's own, unless the construct around the block did not consume it.
     if state.problem == "" and (expected ~= node.close or (node.last ~= node.close and node.last ~= node.close - 1) or
         not TERMINATORS[Lexer.text(tokens, node.close)]) then
-      state.problem = at .. " does not end at its terminator: its statements end at token " .. (expected - 1) .. ", it closes at " .. node.close
+      state.problem = at .. " does not end at its terminator: its statements end at token " .. tostring(expected - 1) .. ", it closes at " .. tostring(node.close)
     end
   end
 end
@@ -91,9 +93,8 @@ function Cover.check(source: string, parsed: Parser.Parsed): boolean, string
     return false, "the chunk does not span the tokens or is not node 1"
   end
   local state: Walk = { chunk = chunk, count = 1, problem = "", ids = { true } }
-  local top = base_of(chunk)
   Ast.children(chunk, function(child: Ast.Node)
-    walk(child, top, state)
+    walk(child, chunk, state)
   end)
   if state.problem ~= "" then
     return false, state.problem

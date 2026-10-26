@@ -93,10 +93,6 @@ local TEXT_ROLES <const>: {string: Roles.Role} = {
   [","] = "comma", [":"] = "colon", ["?"] = "question", ["."] = "dot", ["("] = "call_open", [")"] = "paren_close",
 }
 
-local function base_of(node: Ast.Node): Ast.Base
-  return node
-end
-
 --- The kinds of node that are members of a record, an interface or an enum.
 local MEMBER_KINDS <const>: {string: boolean} = {
   FieldDecl = true, Record = true, Interface = true, Enum = true, Alias = true, Import = true, Userdata = true,
@@ -107,10 +103,10 @@ local MEMBER_KINDS <const>: {string: boolean} = {
 --- or an enum: the alignment of its fields or its values is the author's). Empty for a body with no member or with
 --- code in it, which is a method or a class.
 local function body_of(node: Ast.Node): {integer}
-  local members: mut {Ast.Base} = {}
+  local members: mut {Ast.Node} = {}
   local code: mut {string} = {}
   Ast.children(node, function(child: Ast.Node)
-    local base = base_of(child)
+    local base = child
     if base.kind == "Method" or base.kind == "Class" then
       code[#code + 1] = base.kind
     elseif MEMBER_KINDS[base.kind] == true then
@@ -162,12 +158,12 @@ function Roles.of(chunk: Ast.Chunk): Roles.Roled
 
   --- Notes what the tree says of the tokens of the node `base`, whose children are `kids`, that its children do
   --- not hold. The node's own fields are not read: its kind, its tokens and the order of its children say it.
-  local function note(base: Ast.Base, kids: {Ast.Node})
+  local function note(base: Ast.Node, kids: {Ast.Node})
     local kind = base.kind
     local head = kids[1]
-    local first = if head == nil then nil else base_of(head) end
+    local first = if head == nil then nil else head end
     local second = kids[2]
-    local next_one = if second == nil then nil else base_of(second) end
+    local next_one = if second == nil then nil else second end
     if kind == "Paren" or kind == "MatchArm" then
       mark(base.first, "(", "group_open")
     elseif kind == "MethodCall" then
@@ -212,7 +208,7 @@ function Roles.of(chunk: Ast.Chunk): Roles.Roled
   -- The order of the walk is of no matter: no two nodes mark one token.
   local queue: mut {Ast.Node} = { chunk }
   for _, node in ipairs(queue) do
-    local base = base_of(node)
+    local base = node
     if TYPE_KINDS[base.kind] == true then
       -- The parentheses of a parenthesized type, `(T | U)`, are in no node: take them in.
       local first, last = base.first, base.last

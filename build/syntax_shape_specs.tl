@@ -222,7 +222,7 @@ local function required(chunk: Ast.Chunk): {string: string}
     local alias: string? = nil
     if (statement.kind == "Local") then
       if #statement.bindings == 1 and #statement.values == 1 then
-        alias = statement.bindings[1].name
+        alias = assert(statement.bindings[1]).name
         name = required_name(statement.values[1])
       end
     elseif (statement.kind == "Import") then

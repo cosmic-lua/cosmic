@@ -632,15 +632,15 @@ local function keeping(run: Run): {integer: boolean}
   for _, n in ipairs(run.index.order) do
     if (n.kind == "Local") then
       if #n.values > 0 and #n.bindings > #n.values then
-        kept[Node.base(n.values[#n.values]).id] = true
+        kept[Node.base(assert(n.values[#n.values])).id] = true
       end
     elseif (n.kind == "Assign") then
       if #n.values > 0 and #n.targets > #n.values then
-        kept[Node.base(n.values[#n.values]).id] = true
+        kept[Node.base(assert(n.values[#n.values])).id] = true
       end
     elseif (n.kind == "Return") then
       if #n.values > 0 then
-        kept[Node.base(n.values[#n.values]).id] = true
+        kept[Node.base(assert(n.values[#n.values])).id] = true
       end
     elseif is_call(n) then
       local args = arguments_of(n)
@@ -1014,8 +1014,8 @@ local function handed_names(subject: Subject): {string: boolean}
         if e ~= nil and (e.kind == "Call") then
           local callee = e.callee
           local first, second = e.args[1], e.args[2]
-          if (callee.kind == "Name") and callee.text == "select" and #e.args == 2 and (first.kind == "Integer") and
-              first.value == 2 and (second.kind == "Vararg") then
+          if (callee.kind == "Name") and callee.text == "select" and #e.args == 2 and first ~= nil and (first.kind == "Integer") and
+              first.value == 2 and second ~= nil and (second.kind == "Vararg") then
             out[b.name] = true
           end
         end
@@ -1094,7 +1094,7 @@ local function exported_functions(run: Run): {Exported}
   -- the record), as a caller spells a member.
   local statements = subject.chunk.body.stats
   local last = statements[#statements]
-  local first = last ~= nil and (last.kind == "Return") and last.values[1] or nil
+  local first = if last ~= nil and (last.kind == "Return") then last.values[1] else nil end
   local spelling = root.names[1]
   if first ~= nil and (first.kind == "Name") then
     spelling = first.text
@@ -1383,10 +1383,10 @@ local function returned(subject: Subject): string?, Ast.Node?
     return name, records[name]
   end
   for _, statement in ipairs(statements) do
-    if (statement.kind == "Local") and #statement.bindings == 1 and statement.bindings[1].name == name then
+    if (statement.kind == "Local") and #statement.bindings == 1 and assert(statement.bindings[1]).name == name then
       local declared = statement.types[1]
       if declared ~= nil and (declared.kind == "TypeName") and #declared.path == 1 then
-        return name, records[declared.path[1]]
+        return name, records[assert(declared.path[1])]
       end
     end
   end

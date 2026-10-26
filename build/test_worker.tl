@@ -213,7 +213,7 @@ local record worker
   --- The `__fact` that [`install_checks`] defines: the hook the calls of [`lang.fact_wraps`] run, for a test that runs
   --- the Lua of a program with them.
   fact: function(v: any, taken: string, place: string, strings?: {string}, classes?: {any}, tag?: string,
-                 tags?: {string}, at?: string): any
+                 tags?: {string} | string, at?: string): any
   violations: function(): {Violation}
   dropped_violations: function(): integer
 
@@ -630,17 +630,39 @@ end
 -- metatable than the `classes`', a table whose field `tag` is none of `tags`.
 -- `at` is the place of the read; a call that gives none is placed by the frame
 -- that made it.
-local function fact(v: any, taken: string, name: string, strings?: {string}, classes?: {any}, tag?: string,
-                    tags?: {string}, at?: string): any
-  if lua_type(taken) ~= "string" then return v end
-  local kind = lua_type(v)
-  if lua_find(taken, kind, 1, true) ~= nil then
-    local actual = kind
-    if kind == "number" then actual = shown(v) end
-    fact_broken(at or raw_errors.where(2) or "?", name, "not " .. (lua_gsub(taken, ",", "|")), actual)
+local tag_sets: mut {string: {string: boolean}} = {}
+
+--- Whether `field` is one of the values joined by "," in `tags`. The set of a joined text is built once: a read of a
+--- union of many members would otherwise scan its list at every evaluation.
+local function among_joined(tags: string, field: any): boolean
+  if not (field is string) then return false end
+  local set = tag_sets[tags]
+  if set == nil then
+    local made: mut {string: boolean} = {}
+    lua_gsub(tags, "[^,]+", function(word: string): string?
+      made[word] = true
+      return nil
+    end)
+    tag_sets[tags] = made
+    set = made
   end
-  if strings ~= nil and kind == "string" and not among_strings(strings, v) then
-    fact_broken(at or raw_errors.where(2) or "?", name, "one of " .. lua_concat(strings, "|"), shown(v))
+  return set[field] == true
+end
+
+local function fact(v: any, taken?: string, name: string, strings?: {string}, classes?: {any}, tag?: string,
+                    tags?: {string} | string, at?: string): any
+  if taken == nil then return v end
+  -- A read of a tagged union has no kind taken, and no string: nothing here asks the kind of the value.
+  if taken ~= "" or strings ~= nil then
+    local kind = lua_type(v)
+    if lua_find(taken, kind, 1, true) ~= nil then
+      local actual = kind
+      if kind == "number" then actual = shown(v) end
+      fact_broken(at or raw_errors.where(2) or "?", name, "not " .. (lua_gsub(taken, ",", "|")), actual)
+    end
+    if strings ~= nil and kind == "string" and not among_strings(strings, v) then
+      fact_broken(at or raw_errors.where(2) or "?", name, "one of " .. lua_concat(strings, "|"), shown(v))
+    end
   end
   if v is {string:any} then
     if classes ~= nil and not of_class(v, classes) then
@@ -648,7 +670,12 @@ local function fact(v: any, taken: string, name: string, strings?: {string}, cla
     end
     if tag ~= nil and tags ~= nil then
       local field = v[tag]
-      if not among_strings(tags, field) then
+      if tags is string then
+        if not among_joined(tags, field) then
+          fact_broken(at or raw_errors.where(2) or "?", name, tag .. " one of " .. (lua_gsub(tags, ",", "|")),
+            "a table whose " .. tag .. " is " .. shown(field))
+        end
+      elseif not among_strings(tags, field) then
         fact_broken(at or raw_errors.where(2) or "?", name, tag .. " one of " .. lua_concat(tags, "|"),
           "a table whose " .. tag .. " is " .. shown(field))
       end

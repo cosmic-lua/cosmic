@@ -13,18 +13,10 @@
 # a rewrite removes it and a pin falls with it. A change that adds or sharpens a rule of the lowering may raise some, or
 # add some for a new code, and says why in its message. A file whose translation did not parse, and now does, is
 # pinned at what it has.
-# The program is the one the pipeline reads ([`build.tree_program`]): lang/ast.tl has the steps of
-# [`build.lang_proof`] made (its `where` clauses are blanked), so it is pinned at what it has.
 # a class whose metatable keeps its `__close` as a field, since the metatable also holds a `__gc` that a class has
 # no form for: the process handle becomes a C userdata whose finalizer C owns (doc/plans/strict-teal.md,
 # "compiler-written classes, in the new checker")
 cosmic/internal/connector.tl class_metamethod 1
-
-# a union of records told apart by the `where` clause the grammar drops, which the tagged unions of the plan (a field of a
-# single-member enum) replace: the syntax tree's union of declarations
-lang/ast.tl untagged_union 9
-
-lang/parser.tl untagged_union 1
 
 # a map keyed by `any` (the registry, a decoded table's keys, the shape validators), by a union or by a collection:
 # key by an `integer` or a `string`, or declare an enum or a record for the keys
@@ -185,8 +177,6 @@ cosmic/web/sse.tl interface_disagrees 2
 
 cosmic/zip.tl interface_disagrees 4
 
-lang/ast.tl interface_disagrees 288
-
 # an array of optional elements: a map `{integer: T}` for sparse data
 
 # the raw `thread` type, until coroutines are typed (`Coroutine<Y, R, S>`)
@@ -264,9 +254,7 @@ build/sql.tl 1
 
 build/stand_in_probe.tl 1
 
-build/syntax_analyzer.tl 3
-
-build/syntax_link_text.tl 2
+build/syntax_link_text.tl 1
 
 build/syntax_rewrite.tl 4
 
@@ -348,15 +336,13 @@ cosmic/zip.tl 1
 
 eval/summarize.tl 1
 
-lang/check.tl 2
+lang/check.tl 1
 
 lang/check_programs.tl 4
 
 lang/codegen.tl 1
 
 lang/declarations.tl 1
-
-lang/parser.tl 1
 
 lang/parser_cover.tl 1
 
@@ -381,11 +367,8 @@ build/migrate.tl 1
 # it adds to the files it edits. A file whose translation did not parse, and now does, is pinned at what it has: the
 # errors the checker finds in a file it could not see are not a rule newly broken. A source the build writes from another
 # file (a doc guide, a template) is held under the name of that file. The program is the one the pipeline reads
-# ([`build.tree_program`]), so that the pins and the compile agree: lang/ast.tl is mended by the steps of
-# [`build.lang_proof`], so that a file which reads it sees unions of records with no tag (its `where` clauses are
-# gone) and is pinned at what that shows, `field_unknown` and `any_use` above all, until a change of its own tags
-# the unions by hand (the TODO of lang/ast.tl); and a call of [`Shape.record_of`] is resolved ([`build.syntax_shape_specs`]), which removes the
-# `cannot_infer` it was and shows the errors it hid. The pins below are grouped by code, with the rule or the later
+# ([`build.tree_program`]), so that the pins and the compile agree: a call of [`Shape.record_of`] is resolved
+# ([`build.syntax_shape_specs`]), which removes the `cannot_infer` it was and shows the errors it hid. The pins below are grouped by code, with the rule or the later
 # piece that brings each to zero.
 # a call of `setmetatable`, which the translator writes as the literal of a class where the metatable is a
 # class's and the place gives the class: the calls left (a metatable that holds a `__gc` or a `__mode`, a table
@@ -919,8 +902,6 @@ build/syntax_node_test.tl nil_not_allowed 3
 build/syntax_rewrite.tl nil_not_allowed 7
 
 build/syntax_rewrite_test.tl nil_not_allowed 3
-
-build/syntax_scopes.tl nil_not_allowed 3
 
 build/syntax_scopes_test.tl nil_not_allowed 11
 
@@ -1502,7 +1483,7 @@ lang/ast.tl nil_not_allowed 12
 
 lang/ast_dump.tl nil_not_allowed 5
 
-lang/check.tl nil_not_allowed 107
+lang/check.tl nil_not_allowed 105
 
 lang/check_class_test.tl nil_not_allowed 30
 
@@ -1530,7 +1511,7 @@ lang/codegen_fuzz_test.tl nil_not_allowed 16
 
 lang/codegen_test.tl nil_not_allowed 16
 
-lang/declarations.tl nil_not_allowed 32
+lang/declarations.tl nil_not_allowed 23
 
 lang/declarations_speed_test.tl nil_not_allowed 2
 
@@ -1546,7 +1527,7 @@ lang/literals.tl nil_not_allowed 3
 
 lang/literals_test.tl nil_not_allowed 8
 
-lang/parser.tl nil_not_allowed 64
+lang/parser.tl nil_not_allowed 63
 
 lang/parser_cover.tl nil_not_allowed 1
 
@@ -1568,9 +1549,9 @@ lang/relation_refused_test.tl nil_not_allowed 16
 
 lang/relation_test.tl nil_not_allowed 16
 
-lang/scopes.tl nil_not_allowed 76
+lang/scopes.tl nil_not_allowed 70
 
-lang/scopes_cover.tl nil_not_allowed 5
+lang/scopes_cover.tl nil_not_allowed 4
 
 lang/scopes_fuzz_test.tl nil_not_allowed 4
 
@@ -2245,7 +2226,7 @@ lang/lexer_test.tl index_may_be_nil 1
 
 lang/literals_test.tl index_may_be_nil 3
 
-lang/parser.tl index_may_be_nil 16
+lang/parser.tl index_may_be_nil 15
 
 lang/parser_recovery_test.tl index_may_be_nil 2
 
@@ -3178,13 +3159,13 @@ lang/lexer.tl field_fixed 4
 
 lang/literals.tl field_fixed 7
 
-lang/parser.tl field_fixed 9
+lang/parser.tl field_fixed 3
 
 lang/relation.tl field_fixed 5
 
 lang/relation_programs.tl field_fixed 19
 
-lang/scopes.tl field_fixed 19
+lang/scopes.tl field_fixed 17
 
 lang/syntax_codes.tl field_fixed 1
 
@@ -3199,39 +3180,6 @@ lang/warnings.tl field_fixed 2
 # a field the record does not declare: a field an interface gives a record that lists it (declared again by the
 # rewrite), a field of a member of a union read without a test, and a method of the standard library the
 # declarations lack
-build/compile_grammar.tl field_unknown 7
-
-build/coverage/syntax_lines.tl field_unknown 2
-
-build/driver_test.tl field_unknown 2
-
-build/plural_sites.tl field_unknown 24
-
-build/syntax_analyzer.tl field_unknown 151
-
-build/syntax_contracts.tl field_unknown 292
-
-build/syntax_globals.tl field_unknown 2
-
-build/syntax_link_text.tl field_unknown 35
-
-build/syntax_match.tl field_unknown 5
-
-build/syntax_match_test.tl field_unknown 2
-
-build/syntax_node.tl field_unknown 18
-
-build/syntax_node_test.tl field_unknown 4
-
-build/syntax_receivers.tl field_unknown 21
-
-build/syntax_rewrite.tl field_unknown 1
-
-build/syntax_scopes.tl field_unknown 11
-
-build/syntax_shape_specs.tl field_unknown 12
-
-build/syntax_stub.tl field_unknown 48
 
 core/surface_test.tl field_unknown 2
 
@@ -3249,55 +3197,13 @@ cosmic/poll_test.tl field_unknown 1
 
 cosmic/stream.tl field_unknown 2
 
-lang/ast.tl field_unknown 3
-
-lang/check.tl field_unknown 426
-
 lang/check_programs.tl field_unknown 2
 
-lang/codegen.tl field_unknown 270
-
-lang/codegen_test.tl field_unknown 3
-
-lang/declarations.tl field_unknown 131
-
-lang/declarations_test.tl field_unknown 8
-
-lang/load_order.tl field_unknown 6
-
-lang/parser.tl field_unknown 54
-
-lang/parser_cover.tl field_unknown 13
-
-lang/parser_error_test.tl field_unknown 1
-
-lang/parser_fuzz_test.tl field_unknown 2
-
-lang/parser_recovery_test.tl field_unknown 14
-
-lang/parser_test.tl field_unknown 42
+lang/declarations.tl field_unknown 7
 
 lang/relation.tl field_unknown 8
 
-lang/scopes.tl field_unknown 177
-
-lang/scopes_cover.tl field_unknown 19
-
-lang/scopes_fuzz_test.tl field_unknown 54
-
-lang/scopes_test.tl field_unknown 5
-
-lang/translate.tl field_unknown 252
-
-lang/truthy.tl field_unknown 15
-
-lang/truthy_test.tl field_unknown 2
-
 lang/types.tl field_unknown 17
-
-lang/types_programs.tl field_unknown 2
-
-lang/warnings_test.tl field_unknown 16
 
 # `m.k` on a map: a table written `{ k = v }` with no record to be, which the rewrite declares as a record
 build/archive.tl map_field 2
@@ -6651,7 +6557,7 @@ build/syntax_match.tl and_ternary 2
 
 build/syntax_rewrite.tl and_ternary 2
 
-build/syntax_scopes.tl and_ternary 4
+build/syntax_scopes.tl and_ternary 3
 
 build/syntax_shape_specs.tl and_ternary 6
 
@@ -6967,15 +6873,13 @@ lang/relation.tl and_ternary 10
 
 lang/relation_fuzz_test.tl and_ternary 7
 
-lang/scopes.tl and_ternary 5
-
-lang/scopes_cover.tl and_ternary 1
+lang/scopes.tl and_ternary 4
 
 lang/scopes_fuzz_test.tl and_ternary 1
 
 lang/scopes_programs.tl and_ternary 1
 
-lang/scopes_test.tl and_ternary 2
+lang/scopes_test.tl and_ternary 1
 
 lang/stdlib_test.tl and_ternary 1
 
@@ -8192,12 +8096,6 @@ cosmic/net.tl literal_unknown 1
 
 cosmic/web/sse.tl literal_unknown 1
 
-lang/codegen.tl literal_unknown 4
-
-lang/parser.tl literal_unknown 112
-
-lang/scopes.tl literal_unknown 4
-
 # a `{}` with no type to make it from: the rewrite declares the local `mut {T}`
 
 build/archive.tl literal_needs_type 1
@@ -8516,9 +8414,6 @@ test/sqlite_parameter_test.tl literal_needs_type 11
 
 test/sqlite_result_test.tl literal_needs_type 4
 
-# a literal against a union of records the tag cannot tell apart: the syntax tree's nodes, told by a `where` clause
-lang/parser.tl literal_ambiguous 67
-
 # a literal of items its type does not take, or of an interface: the rewrite makes it a class
 build/archive.tl literal_shape 1
 
@@ -8658,8 +8553,6 @@ core/connector_request_fuzz_test.tl arms_differ 2
 core/connector_test.tl arms_differ 26
 
 core/declarations_test.tl arms_differ 5
-
-core/declarations_test.tl field_unknown 14
 
 core/grants_child_test.tl arms_differ 1
 
@@ -9051,8 +8944,6 @@ build/link_text.tl not_assignable 1
 
 build/lua_tail.tl not_assignable 1
 
-build/plural_sites.tl not_assignable 2
-
 build/reboot.tl not_assignable 3
 
 build/sandbox.tl not_assignable 1
@@ -9062,10 +8953,6 @@ build/sandbox_connect_test.tl not_assignable 16
 build/sandbox_seal_tool_test.tl not_assignable 1
 
 build/stand_in_probe.tl not_assignable 29
-
-build/syntax_analyzer.tl not_assignable 3
-
-build/syntax_contracts.tl not_assignable 4
 
 build/test_sandbox_system_confined_test.tl not_assignable 1
 
@@ -9143,25 +9030,11 @@ cosmic/web/sse.tl not_assignable 2
 
 eval/check/grade.tl not_assignable 1
 
-lang/check.tl not_assignable 40
+lang/declarations.tl not_assignable 1
 
-lang/codegen.tl not_assignable 21
+lang/parser.tl not_assignable 1
 
-lang/declarations.tl not_assignable 10
-
-lang/parser.tl not_assignable 8
-
-lang/parser_test.tl not_assignable 2
-
-lang/scopes.tl not_assignable 14
-
-lang/scopes_cover.tl not_assignable 4
-
-lang/scopes_fuzz_test.tl not_assignable 2
-
-lang/scopes_test.tl not_assignable 1
-
-lang/translate.tl not_assignable 19
+lang/translate.tl not_assignable 1
 
 # a call that answers one of several lists used as the value of one name: a `pcall` whose first value is read
 # (`assert(not pcall(f))`, `local ok = pcall(f)`), which the rewrite makes a `match`
@@ -9315,8 +9188,6 @@ build/migrate.tl condition_type 8
 
 build/migrate.tl field_fixed 11
 
-build/migrate.tl field_unknown 87
-
 build/migrate.tl literal_missing 1
 
 build/migrate.tl literal_needs_type 1
@@ -9324,8 +9195,6 @@ build/migrate.tl literal_needs_type 1
 build/migrate.tl map_field 1
 
 build/migrate.tl nil_not_allowed 15
-
-build/migrate.tl not_assignable 2
 
 build/migrate.tl or_mix 2
 

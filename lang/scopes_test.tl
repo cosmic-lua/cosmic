@@ -62,7 +62,8 @@ local function binds(source: string): string
     end
   end
   for _, n in ipairs(names) do
-    local v = n.binding ~= nil and case.scoped.vars[n.binding] or nil
+    local bound = n.binding
+    local v = if bound ~= nil then case.scoped.vars[bound] else nil end
     if n.binding ~= nil or case.scoped.globals[n.text] ~= nil then
       out[#out + 1] = n.text .. " " .. at(case, n.first) .. " -> " .. (v ~= nil and at(case, v.declared) or "global")
     end
@@ -248,7 +249,7 @@ local function test_a_narrowing_return_names_a_parameter_of_its_function()
   local stat = case.parsed.chunk.body.stats[1]
   if (stat.kind == "LocalFunction") then
     local rets = stat.fn.rets
-    local first = rets ~= nil and rets.lists[1][1] or nil
+    local first = assert(assert(assert(rets).lists[1])[1])
     if (first.kind == "Narrows") then
       narrows = first
     end

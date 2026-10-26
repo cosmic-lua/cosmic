@@ -2402,6 +2402,26 @@ local function subsume(ctx: Ctx, t: Type): Type
     return t
   end
   local members = members_of(ctx.store, t)
+  -- A record or a class is nominal: it is below another named type only when that is an interface it lists, or its own
+  -- declaration ([`lang.relation`]). Members that are all records and classes of declarations apart (a tagged union
+  -- is one), and `nil`, are below none of each other, and the pairs need not be asked: for a union of many members
+  -- that is all the cost of a join, and a left fold of joins asks every pair of every union it makes.
+  local declared: mut {Decl: boolean} = {}
+  local apart = true
+  for _, m in ipairs(members) do
+    if m.tag == "nil" then
+      -- Kept, whatever it is beside.
+    elseif m.tag == "named" and not m.value and (m.decl.kind == "record" or m.decl.kind == "class") and
+        declared[m.decl] == nil then
+      declared[m.decl] = true
+    else
+      apart = false
+      break
+    end
+  end
+  if apart then
+    return t
+  end
   local kept: mut {Type} = {}
   for i, m in ipairs(members) do
     local covered = false
@@ -2881,13 +2901,19 @@ local function tag_edges(ctx: Ctx, f: Flow.State, field: Ast.Field, lit: string)
   -- A member that is not one of the declared type's (a narrowing is a union of the declared members, so none is believed
   -- to be) has no key, "": nothing is noted of it and nothing is read, so it stays in both branches and keeps every value.
   local whole = members_of(store, store:non_nil(p.declared))
-  local function tag_key(m: Type, value: string): string
-    for i, member in ipairs(whole) do
-      if member == m then
-        return p.key .. ".#" .. tostring(i) .. "." .. field.name .. "=" .. value
-      end
+  -- The place of each by its id (a map is not keyed by a type), made once for the walks over the members below.
+  local placed: mut {integer: integer} = {}
+  for i, member in ipairs(whole) do
+    if placed[member.id] == nil then
+      placed[member.id] = i
     end
-    return ""
+  end
+  local function tag_key(m: Type, value: string): string
+    local i = placed[m.id]
+    if i == nil or whole[i] ~= m then
+      return ""
+    end
+    return p.key .. ".#" .. tostring(i) .. "." .. field.name .. "=" .. value
   end
   local members = members_of(store, store:non_nil(current(f, p)))
   local yes: mut {Type} = {}
@@ -4544,8 +4570,12 @@ function Calls.library_value(ctx: Ctx, e: Ast.Node): string?
   local at = peel(e)
   local name: string? = nil
   local object: Ast.Node? = nil
-  if (at.kind == "Name") and at.binding ~= nil then
-    return ctx.library[at.binding]
+  local bound: integer? = nil
+  if (at.kind == "Name") then
+    bound = at.binding
+  end
+  if bound ~= nil then
+    return ctx.library[bound]
   elseif (at.kind == "Field") then
     name, object = at.name, peel(at.object)
   elseif (at.kind == "Index") then
@@ -4560,10 +4590,11 @@ function Calls.library_value(ctx: Ctx, e: Ast.Node): string?
   if (object.kind == "String") then
     return name
   elseif (object.kind == "Name") then
-    if object.binding == nil then
+    local object_binding = object.binding
+    if object_binding == nil then
       return object.text == "string" and name or nil
     end
-    local held = ctx.vars[object.binding]
+    local held = ctx.vars[object_binding]
     local library = ctx.program.globals["string"]
     if held ~= nil and (is_text(held) or ((held.tag == "named") and library ~= nil and held.decl == library.decl)) then
       return name
@@ -4576,8 +4607,11 @@ end
 function Calls.literal_text(ctx: Ctx, e: Ast.Node): string?
   if (e.kind == "String") then
     return e.value
-  elseif (e.kind == "Name") and e.binding ~= nil then
-    return ctx.consts[e.binding]
+  elseif (e.kind == "Name") then
+    local bound = e.binding
+    if bound ~= nil then
+      return ctx.consts[bound]
+    end
   end
   return nil
 end
@@ -4734,7 +4768,9 @@ function Calls.library_call(ctx: Ctx, callee_node: Ast.Node, node: Ast.Node, arg
   local method = false
   if (node.kind == "MethodCall") then
     method = recv ~= nil and is_text(recv)
-    fn = method and node.name or nil
+    if method then
+      fn = node.name
+    end
   else
     fn = Calls.library_value(ctx, callee_node)
   end
@@ -5546,7 +5582,10 @@ end
 local function check_assignment(ctx: Ctx, s: Ast.Assign): Values?
   local named: mut {integer: boolean} = {}
   for _, target in ipairs(s.targets) do
-    local id = (target.kind == "Name") and target.binding or nil
+    local id: integer? = nil
+    if (target.kind == "Name") then
+      id = target.binding
+    end
     -- A name that begins with `_` discards the value, so there is no order to leave open.
     if id ~= nil and (target.kind == "Name") and target.text:sub(1, 1) == "_" then
       id = nil
@@ -5616,7 +5655,10 @@ local function assign_statement(ctx: Ctx, s: Ast.Assign)
   end
   local vals = check_assignment(ctx, s)
   for i, target in ipairs(s.targets) do
-    local id = (target.kind == "Name") and target.binding or nil
+    local id: integer? = nil
+    if (target.kind == "Name") then
+      id = target.binding
+    end
     if id ~= nil then
       -- The drop is told to a later use only where it took away a test that showed the value was not nil.
       local fact = ctx.flow.facts[id_key(ctx, id)]
@@ -6281,10 +6323,10 @@ local function match_statement(ctx: Ctx, s: Ast.Match)
         if verdict == "unclear" then
           explained = true
           taken[k] = true
-          local pat = arm.pats[at]
+          local pat = assert(arm.pats[at])
           local item = alt.items[at]
           report(ctx, "match_pattern", pat, "this pattern tests position " .. at .. " with `" ..
-              tostring((pat.kind == "PatBool") and pat.value or "") .. "`, and the list " .. quoted(lists_text(ctx, { alt })) .. " has " ..
+              (if (pat.kind == "PatBool") and pat.value then "true" else "" end) .. "`, and the list " .. quoted(lists_text(ctx, { alt })) .. " has " ..
               (item ~= nil and tq(ctx, item) or "no value") .. " there, which `true` and `false` do not tell",
             "test only the positions that are `true` or `false` in the lists the call answers, and name the others",
             { lists_text(ctx, { alt }) })
@@ -6502,15 +6544,15 @@ function Check.check(program: Declarations.Program, input: Declarations.Input, l
   end
   for _, top in ipairs(input.chunk.body.stats) do
     if (top.kind == "Function") and #top.path == 2 then
-      local binding = top.path[1].binding
+      local binding = assert(top.path[1]).binding
       local entry = binding ~= nil and lowered.entries[binding] or nil
       local decl = entry ~= nil and entry.decl or nil
       if decl ~= nil then
         local names = ctx.pending[decl] or {}
-        if names[top.path[2].text] ~= true then
+        if names[assert(top.path[2]).text] ~= true then
           ctx.load.waiting = ctx.load.waiting + 1
         end
-        names[top.path[2].text] = true
+        names[assert(top.path[2]).text] = true
         ctx.pending[decl] = names
       end
     end

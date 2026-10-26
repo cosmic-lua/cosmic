@@ -78,7 +78,7 @@ end
 --- Calls the hook with a value that the conclusion is false of: it raises, naming the read and what was seen, and
 --- keeps one row.
 local function refuses(index: integer, value: any, taken: string, strings: {string}?, classes: {any}?,
-                       tag: string?, tags: {string}?, actual: string, declared: string)
+                       tag: string?, tags: ({string} | string)?, actual: string, declared: string)
   local at = "false.tl:" .. tostring(index) .. ":9"
   local before = #worker.violations()
   local ok, message = pcall(function(): any
@@ -106,6 +106,10 @@ local function test_a_false_fact_fails_the_read_and_is_recorded()
     "a table of one of its classes")
   refuses(7, { kind = "ci" }, "nil", nil, nil, "kind", { "sq" }, "a table whose kind is string \"ci\"",
     "kind one of sq")
+  refuses(8, { kind = "ci" }, "nil", nil, nil, "kind", "sq,tr", "a table whose kind is string \"ci\"", "kind one of sq|tr")
+  refuses(9, { kind = 3 }, "nil", nil, nil, "kind", "sq,tr", "a table whose kind is integer", "kind one of sq|tr")
+  -- The joined text of the values is the set of them, and a member of it passes.
+  assert(worker.fact({ kind = "tr" }, "nil", "place", nil, nil, "kind", "sq,tr", "ok.tl:1:1") ~= nil)
 end
 
 --- Whether the hook fails a read of nil that the checker took to be none at `at`, which names it `name`.
@@ -181,6 +185,10 @@ local record Shapes
   pet: function(any): string
   area: function(any): integer
   area_after: function(any, function()): integer
+  area_between: function(any, function()): integer
+  tag_only: function(any, function()): string
+  all_return: function(any): integer
+  all_assign: function(any): integer
   pet_after: function(any, function()): string
   dog: function(): any
   cat: function(): any
@@ -243,6 +251,14 @@ local record Box
   mut value: string?
 end
 
+local record TagMember
+  kind: string
+end
+
+local record TagBox
+  mut s: TagMember
+end
+
 local record PokeApi
   read: function(Box, function()): string
 end
@@ -269,7 +285,7 @@ local function test_the_wraps_of_a_class_and_a_tag_hold_of_the_values_that_meet_
   worker.install_checks()
   local before = #worker.violations()
   local code = programs.compiled("shapes.tl", programs.shapes, true)
-  assert(code:find("\"kind\", {\"square\"}", 1, true) ~= nil and code:find("{Dog}", 1, true) ~= nil, code)
+  assert(code:find("\"kind\", \"square\"", 1, true) ~= nil and code:find("{Dog}", 1, true) ~= nil, code)
   local api = loaded(code, "shapes.tl", false) as Shapes
   assert(api.paint("red") == "red" and api.paint(3) == "3")
   assert(api.pet(api.dog()) == "rex" and api.pet(api.cat()) == "other" and api.pet(nil) == "other")
@@ -299,4 +315,32 @@ local function test_a_class_and_a_tag_planted_false_are_one_row_each()
     spelled(met[1]))
   assert(spelled(met[2]) == "fact | shapes.tl:49:12 | p | a table of one of its classes | a table of another class | 1",
     spelled(met[2]))
+  -- A narrowing read before a call and after it is checked at both: the read before holds, and the one after meets the plant.
+  square["kind"] = "square"
+  assert(api.area_between(square, nothing) == 8)
+  assert(#since(before) == 2, "a conclusion that held was recorded")
+  local ok_between, message_between = pcall(api.area_between, square, function() square["kind"] = "circle" end)
+  assert(not ok_between and tostring(message_between):find("fact violated at shapes.tl:", 1, true) == 1 and
+      tostring(message_between):find("the checker proved kind one of square", 1, true) ~= nil, tostring(message_between))
+  assert(#since(before) == 3, tostring(#since(before)) .. " rows")
+  -- The read of a tag is a read of a narrowed place: after a test of `b.s.kind` the remainder is what the read after the
+  -- call has, and a function that puts a member back is met there, though nothing else reads `b.s` after it.
+  local box: TagBox = { s = { kind = "b" } }
+  assert(api.tag_only(box, nothing) == "b")
+  assert(#since(before) == 3, "a conclusion that held was recorded")
+  local ok_tag, message_tag = pcall(api.tag_only, box, function() box.s = { kind = "a" } end)
+  assert(not ok_tag and tostring(message_tag):find("fact violated at shapes.tl:", 1, true) == 1 and
+      tostring(message_tag):find("kind one of c|b", 1, true) ~= nil, tostring(message_tag))
+  assert(#since(before) == 4, tostring(#since(before)) .. " rows")
+  -- The false side of the last test of a chain that names every member is empty, and the checker relies on it: a value
+  -- of no member is met at that test, in the form that returns from each arm and in the form that assigns.
+  local member: TagMember = { kind = "b" }
+  assert(api.all_return(member) == 2 and api.all_assign(member) == 2)
+  assert(#since(before) == 4, "a conclusion that held was recorded")
+  local stray: TagMember = { kind = "zz" }
+  local ok_return, message_return = pcall(api.all_return, stray)
+  assert(not ok_return and tostring(message_return):find("fact violated at shapes.tl:", 1, true) == 1, tostring(message_return))
+  local ok_assign, message_assign = pcall(api.all_assign, stray)
+  assert(not ok_assign and tostring(message_assign):find("fact violated at shapes.tl:", 1, true) == 1, tostring(message_assign))
+  assert(#since(before) == 6, tostring(#since(before)) .. " rows")
 end

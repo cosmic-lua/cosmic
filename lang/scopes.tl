@@ -920,22 +920,21 @@ local function walk_typeparams(list: {Ast.TypeParam})
 end
 
 ty = function(t: Ast.Type)
-  local kind = base_of(t).kind
-  if kind == "TypeName" and (t.kind == "TypeName") then
+  if (t.kind == "TypeName") then
     use_type(t)
     walk_types(t.args)
-  elseif kind == "TypeArray" and (t.kind == "TypeArray") then
+  elseif (t.kind == "TypeArray") then
     ty(t.element)
-  elseif kind == "TypeMap" and (t.kind == "TypeMap") then
+  elseif (t.kind == "TypeMap") then
     ty(t.key)
     ty(t.value)
-  elseif kind == "TypeUnion" and (t.kind == "TypeUnion") then
+  elseif (t.kind == "TypeUnion") then
     walk_types(t.members)
-  elseif kind == "TypeOptional" and (t.kind == "TypeOptional") then
+  elseif (t.kind == "TypeOptional") then
     ty(t.inner)
-  elseif kind == "TypeMut" and (t.kind == "TypeMut") then
+  elseif (t.kind == "TypeMut") then
     ty(t.inner)
-  elseif kind == "TypeFunction" and (t.kind == "TypeFunction") then
+  elseif (t.kind == "TypeFunction") then
     local deferring = S.defer
     S.defer = true
     open(t.last)
@@ -1020,12 +1019,11 @@ end
 local function walk_items(items: {Ast.Item})
   for i = 1, #items do
     local item = items[i]
-    local kind = base_of(item).kind
-    if kind == "Positional" and (item.kind == "Positional") then
+    if (item.kind == "Positional") then
       exp(item.value)
-    elseif kind == "Named" and (item.kind == "Named") then
+    elseif (item.kind == "Named") then
       exp(item.value)
-    elseif kind == "Keyed" and (item.kind == "Keyed") then
+    elseif (item.kind == "Keyed") then
       exp(item.key)
       exp(item.value)
     end
@@ -1040,18 +1038,17 @@ end
 
 -- The expression `e` when it is not one of the kinds that has a left side the walk goes down.
 local function leaf(e: Ast.Exp)
-  local kind = base_of(e).kind
-  if kind == "Name" and (e.kind == "Name") then
+  if (e.kind == "Name") then
     use_name(e, false)
-  elseif kind == "Paren" and (e.kind == "Paren") then
+  elseif (e.kind == "Paren") then
     exp(e.inner)
-  elseif kind == "FunctionLit" and (e.kind == "FunctionLit") then
+  elseif (e.kind == "FunctionLit") then
     walk_fn(e.fn, {}, nil)
-  elseif kind == "Table" and (e.kind == "Table") then
+  elseif (e.kind == "Table") then
     walk_items(e.items)
-  elseif kind == "Unary" and (e.kind == "Unary") then
+  elseif (e.kind == "Unary") then
     exp(e.operand)
-  elseif kind == "IfExp" and (e.kind == "IfExp") then
+  elseif (e.kind == "IfExp") then
     for _, arm in ipairs(e.arms) do
       exp(arm.cond)
       exp(arm.value)
@@ -1062,16 +1059,15 @@ end
 
 -- The rest of an expression whose left side has been walked.
 local function finish(e: Ast.Exp)
-  local kind = base_of(e).kind
-  if kind == "Binary" and (e.kind == "Binary") then
+  if (e.kind == "Binary") then
     exp(e.right)
-  elseif kind == "Call" and (e.kind == "Call") then
+  elseif (e.kind == "Call") then
     walk_exps(e.args)
-  elseif kind == "MethodCall" and (e.kind == "MethodCall") then
+  elseif (e.kind == "MethodCall") then
     walk_exps(e.args)
-  elseif kind == "Index" and (e.kind == "Index") then
+  elseif (e.kind == "Index") then
     exp(e.key)
-  elseif (kind == "IsTest" and (e.kind == "IsTest")) or (kind == "Cast" and (e.kind == "Cast")) then
+  elseif (e.kind == "IsTest") or (e.kind == "Cast") then
     ty(e.type)
   end
 end
@@ -1082,21 +1078,20 @@ exp = function(e: Ast.Exp)
   local top = floor
   local cur = e
   while true do
-    local kind = base_of(cur).kind
     local nxt: Ast.Exp = nil
-    if kind == "Binary" and (cur.kind == "Binary") then
+    if (cur.kind == "Binary") then
       nxt = cur.left
-    elseif kind == "Call" and (cur.kind == "Call") then
+    elseif (cur.kind == "Call") then
       nxt = cur.callee
-    elseif kind == "Field" and (cur.kind == "Field") then
+    elseif (cur.kind == "Field") then
       nxt = cur.object
-    elseif kind == "Index" and (cur.kind == "Index") then
+    elseif (cur.kind == "Index") then
       nxt = cur.object
-    elseif kind == "MethodCall" and (cur.kind == "MethodCall") then
+    elseif (cur.kind == "MethodCall") then
       nxt = cur.object
-    elseif kind == "IsTest" and (cur.kind == "IsTest") then
+    elseif (cur.kind == "IsTest") then
       nxt = cur.value
-    elseif kind == "Cast" and (cur.kind == "Cast") then
+    elseif (cur.kind == "Cast") then
       nxt = cur.value
     end
     if nxt == nil then
@@ -1123,7 +1118,7 @@ local function required(e: Ast.Exp?): string
     local args = e.args
     if (callee.kind == "Name") and callee.text == "require" and callee.binding == nil and #args == 1 then
       local first = args[1]
-      if (first.kind == "String") then
+      if first ~= nil and (first.kind == "String") then
         return first.value
       end
     end
@@ -1173,7 +1168,13 @@ local function stat_local(s: Ast.Local)
       v.module = required(value)
       -- Offered as the fix only where the chain starts at a module or a type.
       local text, head = dotted(value)
-      local bound = head ~= nil and head.binding ~= nil and S.vars[head.binding] or nil
+      local bound: Scopes.Var? = nil
+      if head ~= nil then
+        local id = head.binding
+        if id ~= nil then
+          bound = S.vars[id]
+        end
+      end
       if bound ~= nil and (bound.module ~= "" or bound.space ~= "value") then
         v.alias = text
       end
@@ -1201,7 +1202,6 @@ local KINDS <const>: {string: Scopes.Kind} = {
 }
 
 typedecl = function(d: Ast.Node, nested: boolean)
-  local kind = base_of(d).kind
   local name: Ast.Binding = nil
   local scope: Ast.Scope? = nil
   local typeparams: {Ast.TypeParam} = {}
@@ -1209,17 +1209,17 @@ typedecl = function(d: Ast.Node, nested: boolean)
   local array: Ast.Type? = nil
   local members: {Ast.Member} = {}
   local aliased: Ast.Type? = nil
-  if kind == "Record" and (d.kind == "Record") then
+  if (d.kind == "Record") then
     name, scope, typeparams, supers, array, members = d.name, d.scope, d.typeparams, d.supers, d.array, d.members
-  elseif kind == "Interface" and (d.kind == "Interface") then
+  elseif (d.kind == "Interface") then
     name, scope, typeparams, supers, members = d.name, d.scope, d.typeparams, d.supers, d.members
-  elseif kind == "Class" and (d.kind == "Class") then
+  elseif (d.kind == "Class") then
     name, scope, typeparams, supers, members = d.name, d.scope, d.typeparams, d.supers, d.members
-  elseif kind == "Enum" and (d.kind == "Enum") then
+  elseif (d.kind == "Enum") then
     name, scope = d.name, d.scope
-  elseif kind == "Alias" and (d.kind == "Alias") then
+  elseif (d.kind == "Alias") then
     name, scope, typeparams, aliased = d.name, d.scope, d.typeparams, d.type
-  elseif kind == "Import" and (d.kind == "Import") then
+  elseif (d.kind == "Import") then
     name, scope = d.name, d.scope
   else
     return
@@ -1227,14 +1227,14 @@ typedecl = function(d: Ast.Node, nested: boolean)
   -- An alias does not see its own name, so that `type Node = Node` inside a record names the `Node`
   -- around it; the name is declared once its type is walked.
   local v: Scopes.Var? = nil
-  if kind ~= "Alias" then
-    v = declare(name, KINDS[kind], name.first, not nested, nil, scope == "global")
+  if d.kind ~= "Alias" then
+    v = declare(name, KINDS[d.kind], name.first, not nested, nil, scope == "global")
     v.nested = nested
   end
-  if kind == "Import" and (d.kind == "Import") and v ~= nil then
+  if (d.kind == "Import") and v ~= nil then
     v.module = d.module
   end
-  if kind == "Enum" or kind == "Import" then
+  if d.kind == "Enum" or d.kind == "Import" then
     return
   end
   local deferring = S.defer
@@ -1250,19 +1250,18 @@ typedecl = function(d: Ast.Node, nested: boolean)
   end
   for i = 1, #members do
     local m = members[i]
-    local mkind = base_of(m).kind
-    if mkind == "FieldDecl" and (m.kind == "FieldDecl") then
+    if (m.kind == "FieldDecl") then
       ty(m.type)
-    elseif mkind == "Method" and (m.kind == "Method") then
+    elseif (m.kind == "Method") then
       walk_function(m.id, m.last, m.params, m.rets, m.body, nil)
-    elseif KINDS[mkind] ~= nil then
+    elseif KINDS[m.kind] ~= nil then
       typedecl(m, true)
     end
   end
   close()
   S.defer = deferring
-  if kind == "Alias" then
-    local alias = declare(name, KINDS[kind], name.first, not nested, nil, scope == "global")
+  if d.kind == "Alias" then
+    local alias = declare(name, KINDS[d.kind], name.first, not nested, nil, scope == "global")
     alias.nested = nested
   end
 end
@@ -1333,46 +1332,45 @@ local function stat_for_in(s: Ast.ForIn)
 end
 
 stat = function(s: Ast.Stat)
-  local kind = base_of(s).kind
-  if kind == "Local" and (s.kind == "Local") then
+  if (s.kind == "Local") then
     stat_local(s)
-  elseif kind == "Assign" and (s.kind == "Assign") then
+  elseif (s.kind == "Assign") then
     stat_assign(s)
-  elseif kind == "CallStat" and (s.kind == "CallStat") then
+  elseif (s.kind == "CallStat") then
     exp(s.call)
-  elseif kind == "LocalFunction" and (s.kind == "LocalFunction") then
+  elseif (s.kind == "LocalFunction") then
     local own = declare(s.name, "function", s.name.first, true, nil, false)
     own.fn = s.fn.id
     S.own = own
     walk_fn(s.fn, s.typeparams, nil)
     S.own = nil
-  elseif kind == "Function" and (s.kind == "Function") then
+  elseif (s.kind == "Function") then
     stat_function(s)
-  elseif kind == "Return" and (s.kind == "Return") then
+  elseif (s.kind == "Return") then
     walk_exps(s.values)
-  elseif kind == "Do" and (s.kind == "Do") then
+  elseif (s.kind == "Do") then
     walk_block(s.body)
-  elseif kind == "If" and (s.kind == "If") then
+  elseif (s.kind == "If") then
     stat_if(s)
-  elseif kind == "While" and (s.kind == "While") then
+  elseif (s.kind == "While") then
     enter_loop(s.id)
     exp(s.cond)
     walk_block(s.body)
     leave_loop(s.id)
-  elseif kind == "Repeat" and (s.kind == "Repeat") then
+  elseif (s.kind == "Repeat") then
     enter_loop(s.id)
     open(s.last)
     stats(s.body.stats)
     exp(s.cond)
     close()
     leave_loop(s.id)
-  elseif kind == "ForNum" and (s.kind == "ForNum") then
+  elseif (s.kind == "ForNum") then
     stat_for_num(s)
-  elseif kind == "ForIn" and (s.kind == "ForIn") then
+  elseif (s.kind == "ForIn") then
     stat_for_in(s)
-  elseif kind == "Match" and (s.kind == "Match") then
+  elseif (s.kind == "Match") then
     stat_match(s)
-  elseif KINDS[kind] ~= nil then
+  elseif KINDS[s.kind] ~= nil then
     typedecl(s, false)
   end
 end

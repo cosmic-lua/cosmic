@@ -59,10 +59,6 @@ local record Equiv
   difference: function(before: Side, after: Side): string?
 end
 
-local function base_of(node: Ast.Node): Ast.Base
-  return node
-end
-
 --- The kinds of node that [`lang.parser`] reads a doc comment for: the comments just before their first token.
 local DOCUMENTED <const>: {string: boolean} = {
   Local = true, LocalFunction = true, Function = true, Record = true, Interface = true, Class = true, Enum = true,
@@ -113,10 +109,10 @@ function Equiv.read(source: string, name: string, dialect: Ast.Dialect): Equiv.S
   local documented: mut {integer: boolean} = {}
   local queue: mut {Ast.Node} = { parsed.chunk }
   for _, node in ipairs(queue) do
-    local base = base_of(node)
-    local kids: mut {Ast.Base} = {}
+    local base = node
+    local kids: mut {Ast.Node} = {}
     Ast.children(node, function(child: Ast.Node)
-      kids[#kids + 1] = base_of(child)
+      kids[#kids + 1] = child
       queue[#queue + 1] = child
     end)
     local head = kids[1]

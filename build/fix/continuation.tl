@@ -155,13 +155,9 @@ local HEADED <const>: {string: boolean} = { While = true, ForNum = true, ForIn =
 --- The token that closes each bracket.
 local CLOSERS <const>: {string: string} = { ["("] = ")", ["["] = "]", ["{"] = "}", ["if"] = "end" }
 
-local function base_of(node: Ast.Node): Ast.Base
-  return node
-end
-
 --- The children of `kids` from the `from`th on.
-local function rest(kids: {Ast.Base}, from: integer): {Ast.Base}
-  local found: mut {Ast.Base} = {}
+local function rest(kids: {Ast.Node}, from: integer): {Ast.Node}
+  local found: mut {Ast.Node} = {}
   for i = from, #kids do
     local kid = kids[i]
     if kid ~= nil then
@@ -208,7 +204,7 @@ function Continuation.of(chunk: Ast.Chunk): Continuation.Plan
   --- Records the bracket from `open`, the token `text`, to `close`, whose entries begin with `items`: nothing is
   --- recorded where the tokens are not the ones the bracket is spelled with (a call written `f{}` or `f""` has
   --- none).
-  local function bracket(open: integer, close: integer, text: string, items: {Ast.Base}, single: boolean,
+  local function bracket(open: integer, close: integer, text: string, items: {Ast.Node}, single: boolean,
                          params: boolean)
     if not spells(open, text) or not spells(close, CLOSERS[text] or "") or close < open then
       return
@@ -225,8 +221,8 @@ function Continuation.of(chunk: Ast.Chunk): Continuation.Plan
   end
 
   --- The children of `kids` whose kind is `kind`.
-  local function of_kind(kids: {Ast.Base}, kind: string): {Ast.Base}
-    local found: mut {Ast.Base} = {}
+  local function of_kind(kids: {Ast.Node}, kind: string): {Ast.Node}
+    local found: mut {Ast.Node} = {}
     for _, kid in ipairs(kids) do
       if kid.kind == kind then
         found[#found + 1] = kid
@@ -236,12 +232,12 @@ function Continuation.of(chunk: Ast.Chunk): Continuation.Plan
   end
 
   --- The body block among `kids`, if there is one.
-  local function body_of(kids: {Ast.Base}): Ast.Base?
+  local function body_of(kids: {Ast.Node}): Ast.Node?
     return of_kind(kids, "Block")[1]
   end
 
   --- Notes what the tree says of the node `base`, whose children are `kids`.
-  local function note(base: Ast.Base, kids: {Ast.Base})
+  local function note(base: Ast.Node, kids: {Ast.Node})
     local kind = base.kind
     local head = kids[1]
     local generics = of_kind(kids, "TypeParam")
@@ -296,7 +292,7 @@ function Continuation.of(chunk: Ast.Chunk): Continuation.Plan
         mark(base.first, body.first - 1, true)
       end
     elseif kind == "MatchArm" then
-      local pats: mut {Ast.Base} = {}
+      local pats: mut {Ast.Node} = {}
       for _, kid in ipairs(kids) do
         if kid.kind == "PatBool" or kid.kind == "PatBind" then
           pats[#pats + 1] = kid
@@ -371,12 +367,12 @@ function Continuation.of(chunk: Ast.Chunk): Continuation.Plan
   -- marked them.
   local queue: mut {Ast.Node} = { chunk }
   for _, node in ipairs(queue) do
-    local kids: mut {Ast.Base} = {}
+    local kids: mut {Ast.Node} = {}
     Ast.children(node, function(child: Ast.Node)
-      kids[#kids + 1] = base_of(child)
+      kids[#kids + 1] = child
       queue[#queue + 1] = child
     end)
-    note(base_of(node), kids)
+    note(node, kids)
   end
 
   return {
