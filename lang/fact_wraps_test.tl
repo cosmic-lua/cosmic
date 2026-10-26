@@ -52,6 +52,14 @@ local function test_a_place_is_one_based_at_the_first_byte_of_the_read()
   assert(FactWraps.of({ lone }, "x", "z.tl")[1] == "\"nil,boolean\", \"x\", nil, nil, nil, nil, \"z.tl:1:1\"")
 end
 
+local function test_the_values_of_a_tag_are_one_string_constant()
+  local tagged: Check.Narrowed = {
+    id = 3, offset = 1, length = 1, text = "s", taken = { "nil" }, strings = nil, classes = nil, tag = "kind",
+    tags = { "square", "circle" },
+  }
+  assert(FactWraps.arguments(tagged, "f.tl:1:1") == "\"nil\", \"s\", nil, nil, \"kind\", \"square,circle\", \"f.tl:1:1\"")
+end
+
 local function test_a_string_with_a_newline_or_a_quote_is_one_line_of_lua()
   local odd: Check.Narrowed = {
     id = 2, offset = 1, length = 1, text = "a\"b\nc", taken = { "nil" }, strings = { "q\"", "n\n" }, classes = nil,

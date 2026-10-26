@@ -78,7 +78,7 @@ end
 --- Calls the hook with a value that the conclusion is false of: it raises, naming the read and what was seen, and
 --- keeps one row.
 local function refuses(index: integer, value: any, taken: string, strings: {string}?, classes: {any}?,
-                       tag: string?, tags: {string}?, actual: string, declared: string)
+                       tag: string?, tags: ({string} | string)?, actual: string, declared: string)
   local at = "false.tl:" .. tostring(index) .. ":9"
   local before = #worker.violations()
   local ok, message = pcall(function(): any
@@ -106,6 +106,10 @@ local function test_a_false_fact_fails_the_read_and_is_recorded()
     "a table of one of its classes")
   refuses(7, { kind = "ci" }, "nil", nil, nil, "kind", { "sq" }, "a table whose kind is string \"ci\"",
     "kind one of sq")
+  refuses(8, { kind = "ci" }, "nil", nil, nil, "kind", "sq,tr", "a table whose kind is string \"ci\"", "kind one of sq|tr")
+  refuses(9, { kind = 3 }, "nil", nil, nil, "kind", "sq,tr", "a table whose kind is integer", "kind one of sq|tr")
+  -- The joined text of the values is the set of them, and a member of it passes.
+  assert(worker.fact({ kind = "tr" }, "nil", "place", nil, nil, "kind", "sq,tr", "ok.tl:1:1") ~= nil)
 end
 
 --- Whether the hook fails a read of nil that the checker took to be none at `at`, which names it `name`.
@@ -269,7 +273,7 @@ local function test_the_wraps_of_a_class_and_a_tag_hold_of_the_values_that_meet_
   worker.install_checks()
   local before = #worker.violations()
   local code = programs.compiled("shapes.tl", programs.shapes, true)
-  assert(code:find("\"kind\", {\"square\"}", 1, true) ~= nil and code:find("{Dog}", 1, true) ~= nil, code)
+  assert(code:find("\"kind\", \"square\"", 1, true) ~= nil and code:find("{Dog}", 1, true) ~= nil, code)
   local api = loaded(code, "shapes.tl", false) as Shapes
   assert(api.paint("red") == "red" and api.paint(3) == "3")
   assert(api.pet(api.dog()) == "rex" and api.pet(api.cat()) == "other" and api.pet(nil) == "other")

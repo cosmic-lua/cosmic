@@ -7,7 +7,7 @@
 --- * `place` is the place as the program writes it;
 --- * `strings`, `classes`, and `tag` and `tags` are what it concluded of an enum, of the classes (their tables, whose
 ---   metatable a value there has) and of the field and values that tell a union's members apart, each nil where it
----   concluded nothing;
+---   concluded nothing (`tags` is the values joined by ",", a string constant a hook keeps the set of);
 --- * `at` is `<file>:<line>:<column>` of the read, since the place cannot be found from the call: a read at a `return`
 ---   is a tail call, which leaves no frame to ask.
 ---
@@ -60,6 +60,15 @@ local function strings_or_nil(list: {string}?): string
   return lua_strings(list)
 end
 
+--- The values of `list` joined by "," as a Lua string literal, or `nil` where it is none: the form a hook finds a set of by
+--- text, which a table written at each read would cost an allocation and a scan of the list for. A value has no ",".
+local function joined_or_nil(list: {string}?): string
+  if list == nil then
+    return "nil"
+  end
+  return quoted(table.concat(list, ","))
+end
+
 --- The Lua text of `text`, or `nil` where it is.
 local function quoted_or_nil(text: string?): string
   if text == nil then
@@ -76,7 +85,7 @@ function FactWraps.arguments(n: Check.Narrowed, at: string): string
   end
   return table.concat({
     quoted(table.concat(n.taken, ",")), quoted(n.text), strings_or_nil(n.strings), table_classes, quoted_or_nil(n.tag),
-    strings_or_nil(n.tags), quoted(at),
+    joined_or_nil(n.tags), quoted(at),
   }, ", ")
 end
 
