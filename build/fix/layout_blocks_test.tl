@@ -1,7 +1,7 @@
 --- [`build.fix.layout`] over tiny sources: the lines of a file. Indentation by block, the words that close a block,
 --- blank lines, comments and the end of the file, checked against the text the previous formatter wrote for the same
---- construct (its render and comment tests are where the cases come from). Lines that continue a statement are not
---- laid out yet, so no case here has one.
+--- construct (its render and comment tests are where the cases come from). The lines that continue a statement are
+--- [`build.fix.continuation_test`]'s.
 local Check = require("build.fix.layout_check")
 local Test = require("cosmic.test")
 
@@ -75,7 +75,7 @@ end
 local function test_a_long_string_keeps_its_bytes_inside_an_indented_block()
   lays("if x then\nlocal s = [[\n  a\n b]]\n  y = [==[\n]==]\nend\n",
     "if x then\n  local s = [[\n  a\n b]]\n  y = [==[\n]==]\nend\n")
-  lays("do\nx = f([[a\r\n  b]],\n'c\\\r\nd')\nend\n", "do\n  x = f([[a\r\n  b]],\n  'c\\\r\nd')\nend\n")
+  lays("do\nx = f([[a\r\n  b]],\n'c\\\r\nd')\nend\n", "do\n  x = f([[a\r\n  b]],\n    'c\\\r\nd')\nend\n")
   lays("do\nlocal t = '--[[ not a comment ]]' .. \"-- nor this\"\nend\n",
     "do\n  local t = '--[[ not a comment ]]' .. \"-- nor this\"\nend\n")
 end
@@ -132,13 +132,57 @@ local function test_a_comment_before_a_closer_moves_as_the_last_statement_of_the
   lays("  local record R\n      x: integer\n      -- c\n  end\n", "local record R\n  x: integer\n  -- c\nend\n")
 end
 
-local function test_a_comment_in_an_empty_body_moves_as_the_line_that_opened_it()
+local function test_a_comment_in_an_empty_body_moves_as_the_statement_that_holds_it()
   lays("if x then\n  -- c\nend\n", "if x then\n  -- c\nend\n")
   lays("    if x then\n      -- c\n    end\n", "if x then\n  -- c\nend\n")
   lays("    if x then\n  -- c\n    end\n", "if x then\n-- c\nend\n")
   lays("do\n  do\n-- c\n  end\nend\n", "do\n  do\n-- c\n  end\nend\n")
   lays("local function f() -- a\n    -- c\n end\n", "local function f() -- a\n    -- c\nend\n")
   lays("local record R\n  -- c\nend\n", "local record R\n  -- c\nend\n")
+end
+
+--- A comment before a closer moves by the shift of the body's last statement, a statement being laid out where it
+--- is written: after another statement on the line, after the `]]` of a string. The shift is how far the statement
+--- moved, whether or not it began its line.
+local function test_a_comment_before_a_closer_moves_as_the_last_statement_moved_though_it_did_not_begin_its_line()
+  lays("do\n      if x then a()\n          -- c\n      end\nend\n", "do\n  if x then a()\n      -- c\n  end\nend\n")
+  lays("do\n      local f = 1    if x then a()\n          -- c\n      end\nend\n",
+    "do\n  local f = 1 if x then a()\n   -- c\n  end\nend\n")
+  lays("do\n      do a()\n          -- c\n      end\n   end\n", "do\n  do a()\n      -- c\n  end\nend\n")
+  lays("do\n  x = [[\n]] if y then a()\n       -- c\n  end\nend\n", "do\n  x = [[\n]] if y then a()\n       -- c\n  end\nend\n")
+end
+
+--- A comment inside a body, less indented than the code of the body, moves by the shift of that code, so it comes
+--- out level with the closer when the code moved two columns left.
+local function test_a_comment_less_indented_than_the_body_moves_with_the_body_and_may_reach_the_closer()
+  lays("if x then\n    a()\n  -- c\nelse\n  b()\nend\n", "if x then\n  a()\n-- c\nelse\n  b()\nend\n")
+  lays("if x then\n  a()\n-- c\nelse\n  b()\nend\n", "if x then\n  a()\n-- c\nelse\n  b()\nend\n")
+  lays("    if x then\n        a()\n      -- c\n    end\n", "if x then\n  a()\n-- c\nend\n")
+  lays("if x then\n  a()\n      -- c\nend\n", "if x then\n  a()\n      -- c\nend\n")
+end
+
+--- A comment in an empty body moves only as its statement did, so it keeps its column where the statement stayed
+--- put, level with the opener or not.
+local function test_a_comment_in_an_empty_body_keeps_its_column_while_its_statement_stays()
+  lays("local function f()\n    -- c\nend\n", "local function f()\n    -- c\nend\n")
+  lays("local function f()\n-- c\nend\n", "local function f()\n-- c\nend\n")
+  lays("do\n      local function f()\n          -- c\n      end\nend\n", "do\n  local function f()\n      -- c\n  end\nend\n")
+  lays("if x then\n    -- c\nelseif y then\n    -- d\nelse\n    -- e\nend\n",
+    "if x then\n    -- c\nelseif y then\n    -- d\nelse\n    -- e\nend\n")
+  lays("while x do\n        -- c\nend\n", "while x do\n        -- c\nend\n")
+end
+
+local function test_a_comment_in_a_match_arm_or_a_method_of_a_class_moves_as_in_any_other_body()
+  lays("match f() do\n| (true) then\n      -- c\n| (false) then\n  y()\n    -- d\nend\n",
+    "match f() do\n| (true) then\n      -- c\n| (false) then\n  y()\n    -- d\nend\n")
+  lays("  match f() do\n  | (true) then\n      x()\n      -- c\n  | (false) then\n      y()\n      -- d\n  end\n",
+    "match f() do\n| (true) then\n  x()\n  -- c\n| (false) then\n  y()\n  -- d\nend\n")
+  lays("local class C\n  function m(self)\n      -- c\n  end\n  function n(self)\n    x()\n    -- d\n  end\nend\n",
+    "local class C\n  function m(self)\n      -- c\n  end\n  function n(self)\n    x()\n    -- d\n  end\nend\n")
+  lays("    local class C\n      function m(self)\n          x()\n          -- c\n      end\n    end\n",
+    "local class C\n  function m(self)\n    x()\n    -- c\n  end\nend\n")
+  lays("local class C\n      -- a\n  x: integer\n      -- b\n  function m(self) end\nend\n",
+    "local class C\n      -- a\n  x: integer\n      -- b\n  function m(self) end\nend\n")
 end
 
 local function test_a_comment_at_the_end_of_the_file_moves_as_the_last_statement()

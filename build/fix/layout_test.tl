@@ -2,8 +2,8 @@
 --- the text the previous formatter wrote for the same construct. Every case goes through
 --- [`build.fix.layout_check`], which also holds it to the properties of any source: no token, comment or node
 --- changes, no break moves, and laying out what is laid out changes nothing. The lines, blocks and comments are
---- [`build.fix.layout_blocks_test`]'s, and the properties over many spoilt sources
---- [`build.fix.layout_property_test`]'s.
+--- [`build.fix.layout_blocks_test`]'s, the lines that continue a statement [`build.fix.continuation_test`]'s, and
+--- the properties over many spoilt sources [`build.fix.layout_property_test`]'s.
 local Check = require("build.fix.layout_check")
 local Layout = require("build.fix.layout")
 local Test = require("cosmic.test")
@@ -71,7 +71,7 @@ local function test_table_literal_keys_and_brace_gaps()
   lays("local t = {{},{ }}\n", "local t = { {}, {} }\n")
   lays("f({1}, {})\n", "f({ 1 }, {})\n")
   lays("t = { -- c\n}\n", "t = { -- c\n}\n")
-  lays("t = { 1, 2, }\n", "t = { 1, 2, }\n")
+  lays("t = { 1, 2, }\n", "t = { 1, 2 }\n")
 end
 
 local function test_a_key_or_index_that_begins_with_a_long_string_stands_off_its_brackets()
@@ -150,7 +150,7 @@ end
 local function test_a_comment_keeps_its_line_and_a_trailing_one_follows_one_space_after_the_code()
   lays("x=1   -- why\n", "x = 1 -- why\n")
   lays("-- a\nx=1\n--b\n", "-- a\nx = 1\n--b\n")
-  lays("f(a,\n b) -- t\n", "f(a,\nb) -- t\n")
+  lays("f(a,\n b) -- t\n", "f(a,\n  b) -- t\n")
   lays("-- only", "-- only\n")
 end
 
