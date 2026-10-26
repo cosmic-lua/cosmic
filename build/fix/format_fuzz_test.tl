@@ -6,10 +6,12 @@
 --- other kind is a fault of the layout, and fails the property: the guard of `format` is what stops a faulty layout
 --- from being written, not what the property relies on. `FUZZ_SEED` and `FUZZ_ITERS` pick the inputs
 --- ([`build.fuzz`]).
+local Ast = require("lang.ast")
 local Check = require("build.fix.layout_check")
 local Equiv = require("build.fix.equiv")
 local Format = require("build.fix.format")
 local Fuzz = require("build.fuzz")
+local Lexer = require("lang.lexer")
 local Programs = require("build.parser_programs")
 local Test = require("cosmic.test")
 
@@ -107,6 +109,84 @@ local function holds(input: string, name: string): boolean, string
     return false, "the layout of the checks differs: " .. string.format("%q", checked)
   end
   return true, ""
+end
+
+--- A layout that is `laid`, whatever the source: the seam of [`build.fix.format`] for a layout that is faulty.
+local function giving(laid: string): Format.Layouter
+  return function(_source: string, _name: string, _dialect?: Ast.Dialect): string?, string
+    return laid, ""
+  end
+end
+
+--- `text` with the bytes from `from` for `length` bytes cut out.
+local function without(text: string, from: integer, length: integer): string
+  return text:sub(1, from - 1) .. text:sub(from + length)
+end
+
+--- A layout spoilt in the way `kind` says.
+local record Spoilt
+  kind: string
+  text: string
+end
+
+--- Spoilt copies of `laid`, the layout of a program, each of a kind a faulty layout could produce and each one
+--- meaning something other than `laid`: each comment cut out, some tokens cut out, and each comment on a line of its
+--- own swapped with the code line next to it.
+local function spoilt(laid: string): {Spoilt}
+  local out: mut {Spoilt} = {}
+  local tokens = Lexer.lex(laid, "f.tl").tokens
+  local count = Lexer.count(tokens)
+  for i = 1, count do
+    for _, comment in ipairs(tokens.comments[i] or {}) do
+      out[#out + 1] = { kind = "cut comment", text = without(laid, comment.offset, comment.length) }
+    end
+  end
+  local step = math.max(1, (count - 1) // 8)
+  for i = 1, count - 1, step do
+    out[#out + 1] = { kind = "cut token", text = without(laid, Lexer.offset(tokens, i), #Lexer.text(tokens, i)) }
+  end
+  local lines: mut {string} = {}
+  for line in (laid .. "\n"):gmatch("(.-)\n") do
+    lines[#lines + 1] = line
+  end
+  for i = 1, #lines - 1 do
+    local own, code = lines[i] or "", lines[i + 1] or ""
+    if own:find("^%s*%-%-") ~= nil and code:find("%S") ~= nil and code:find("^%s*%-%-") == nil then
+      local swapped: mut {string} = {}
+      for k, line in ipairs(lines) do
+        swapped[#swapped + 1] = if k == i then code elseif k == i + 1 then own else line end
+      end
+      out[#out + 1] = { kind = "swapped comment", text = table.concat(swapped, "\n") }
+    end
+  end
+  return out
+end
+
+local function test_a_layout_that_loses_a_token_or_a_comment_or_moves_a_comment_across_code_is_refused(tmp: string)
+  Fuzz.run({
+    name = "format refuses a spoilt layout",
+    dir = tmp,
+    gen = gen_dressed,
+    check = function(input: string): boolean, string
+      local laid = Format.format(input, "f.tl").text
+      if laid == nil then
+        Fuzz.label("no layout")
+        return true, ""
+      end
+      for _, bad in ipairs(spoilt(laid)) do
+        if bad.text ~= laid then
+          Fuzz.label(bad.kind)
+          local got = Format.format(input, "f.tl", giving(bad.text))
+          if got.text ~= nil then
+            return false, string.format("a layout with a %s was taken: %q for %q", bad.kind, bad.text, input)
+          end
+        end
+      end
+      return true, ""
+    end,
+    requires = { "cut comment", "cut token", "swapped comment" },
+    shares = { ["cut comment"] = 0.1, ["cut token"] = 0.2, ["swapped comment"] = 0.05 },
+  })
 end
 
 local function test_format_of_a_program_written_with_comments_and_blank_lines_is_the_same_and_a_fixed_point(tmp: string)

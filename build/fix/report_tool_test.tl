@@ -30,7 +30,8 @@ local function user(name: string, indent: string): string
     "return " .. name .. "\n"
 end
 
---- A file the run only links says so, each one (`cosmic fix` lays out none), and a check fails the link rather than say a fix.
+--- A file the run only links says so, each one; a file it also lays out is fixed without the mark. A check fails the
+--- link rather than say a fix.
 local function test_a_link_rewrite_says_why(tmp: string)
   local root = tmp .. "/project"
   assert(Fs.mkdirs(root))
@@ -43,7 +44,7 @@ local function test_a_link_rewrite_says_why(tmp: string)
   assert(not checked:find("(links)", 1, true), checked)
   local out = fix(root, false)
   assert(out:find("fixed  linked.tl (links)\n", 1, true), out)
-  assert(out:find("fixed  both.tl (links)\n", 1, true), out)
+  assert(out:find("fixed  both.tl\n", 1, true), out)
   assert(out:find("fix: 3 Teal + 1 Markdown files, ", 1, true), out)
 end
 

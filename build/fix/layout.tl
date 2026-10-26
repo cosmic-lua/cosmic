@@ -12,7 +12,9 @@
 ---   `["b"] = 2`, its brackets closed on it unless it begins with a long string (`[ [[x]] ]`);
 --- - an attribute has one space before and none inside (`local x <const>`), and sits before the annotation;
 --- - a table given to a call without parentheses is closed up to the callee (`Test.policy{ a = 1 }`).
---- A type keeps the author's own spacing, byte for byte, as do the type parameters of a declaration (`<P,Q>`).
+--- A type keeps the author's own spacing, byte for byte, as do the type parameters of a declaration (`<P,Q>`) and the
+--- body of a record, an interface or an enum, which authors align in columns: each of its lines begins at the column
+--- it had in the source, moved as the declaration moved. (A record that holds a method is laid out as any code.)
 ---
 --- A line that begins a statement or a member is indented two columns for each body it is in, as
 --- [`build.fix.blocks`] counts them, and a word that closes a body (`end`, `else`, `elseif`, `until`, the `|` of a
@@ -22,7 +24,8 @@
 --- moved (so a type that begins on a continuation line does not move with that line).
 ---
 --- A comment is laid out by where it stands:
---- - one that follows code on its line stays on that line, a space after the code;
+--- - one that follows code on its line stays on that line, a space after the code (the gap of the source, in the body
+---   of a record, an interface or an enum);
 --- - one on a line of its own and lined up with the code after it (the same column in the source) takes that code's
 ---   indentation;
 --- - any other keeps its column, moved as the statement it is in moved, or as the code after it moved where that
@@ -264,8 +267,10 @@ local function laid_out(source: string, placed: {Placed}, shebang: string?, toke
   --- of a type that began on an earlier line, the column it had in the source moved as the statement that holds
   --- the type moved.
   local function token_column(t: integer, prev_token: integer): integer
-    local region = Roles.region(roled, t)
-    if region ~= 0 and prev_token ~= 0 and Roles.region(roled, prev_token) == region then
+    if Roles.continues(roled, t, prev_token) then
+      -- TODO: a line of a kept body that the shift puts left of column 0 is clamped there, which loses its offset
+      -- from the lines beside it: move the whole body by one delta (a body deeper than its declaration moves by
+      -- less than the declaration), once such a body is met.
       return math.max(0, Lexer.x(tokens, t) - 1 + cursor.shift)
     end
     return Continuation.column(cursor, t)
@@ -351,7 +356,12 @@ local function laid_out(source: string, placed: {Placed}, shebang: string?, toke
       -- Not reached for a source that lexed: a comment runs to its line's end.
       put("\n")
     elseif item.kind == "comment" then
-      put(" ")
+      -- Authors align the comments that end the lines of a body they have aligned.
+      if before.comma or before.item.kind ~= "token" or not Roles.in_body(roled, before.item.token) then
+        put(" ")
+      else
+        put(source:sub(before.item.offset + #before.item.text, item.offset - 1))
+      end
     else
       put(gap(source, before, one, roled, cursor.plan))
     end
@@ -366,6 +376,10 @@ local function laid_out(source: string, placed: {Placed}, shebang: string?, toke
       -- A token that took a line the source did not give it moves as the line it left moved: it began no line there,
       -- so the column it was at says nothing of how what is measured from it is laid out.
       local from = if one_break and one.newlines == 0 then at - cursor.row + 1 else one.from end
+      -- The members of a kept body begin no statement that moves the lines after them.
+      if Roles.in_body(roled, item.token) then
+        from = at - cursor.shift + 1
+      end
       Continuation.wrote(cursor, item.token, at, from, item.text, starts_line)
       prev_token = item.token
     end

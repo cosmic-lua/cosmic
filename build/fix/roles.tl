@@ -65,6 +65,9 @@ local record Roles
     roles: {Role}
     --- For a token in a type, the index of the first token of the outermost type that holds it; 0 for the others.
     regions: {integer}
+    --- The regions that are the body of a record, an interface or an enum, whose every line (the first included) is
+    --- the author's own: the first token of each.
+    bodies: {integer: boolean}
   end
 
   --- The roles of the tokens of `chunk`, a parse without errors.
@@ -75,6 +78,13 @@ local record Roles
 
   --- The region of token `i` of `roled`.
   region: function(roled: Roled, i: integer): integer
+
+  --- Whether token `i` of `roled` continues the region of the token `previous` (0 for none) before it: the two are in
+  --- one region, or `i` is in the body of a record, interface or enum, which no token before it begins.
+  continues: function(roled: Roled, i: integer, previous: integer): boolean
+
+  --- Whether token `i` of `roled` is in the body of a record, interface or enum.
+  in_body: function(roled: Roled, i: integer): boolean
 end
 
 --- The role of a token by its text alone, for the tokens whose part the tree does not change; the walk sets the
@@ -83,16 +93,39 @@ local TEXT_ROLES <const>: {string: Roles.Role} = {
   [","] = "comma", [":"] = "colon", ["?"] = "question", ["."] = "dot", ["("] = "call_open", [")"] = "paren_close",
 }
 
+--- The kinds of node that are members of a record, an interface or an enum.
+local MEMBER_KINDS <const>: {string: boolean} = {
+  FieldDecl = true, Record = true, Interface = true, Enum = true, Alias = true, Import = true, Userdata = true,
+  Error = true, EnumValue = true,
+}
+
+--- The first and last token of the members of `node`, a declaration whose body is kept as the author wrote it (a record
+--- or an enum: the alignment of its fields or its values is the author's). Empty for a body with no member or with
+--- code in it, which is a method or a class.
+local function body_of(node: Ast.Node): {integer}
+  local members: mut {Ast.Node} = {}
+  local code: mut {string} = {}
+  Ast.children(node, function(child: Ast.Node)
+    local base = child
+    if base.kind == "Method" or base.kind == "Class" then
+      code[#code + 1] = base.kind
+    elseif MEMBER_KINDS[base.kind] == true then
+      members[#members + 1] = base
+    end
+  end)
+  local first, last = members[1], members[#members]
+  if #code > 0 or first == nil or last == nil then
+    return {}
+  end
+  return { first.first, last.last }
+end
+
 --- The kinds of node that are types, whose tokens form a region.
 local TYPE_KINDS <const>: {string: boolean} = {
   TypeName = true, TypeBool = true, TypeNil = true, TypeError = true, TypeArray = true, TypeMap = true,
   TypeUnion = true, TypeOptional = true, TypeMut = true, TypeFunction = true, PType = true, Narrows = true,
   Rets = true,
 }
-
-local function base_of(node: Ast.Node): Ast.Base
-  return node
-end
 
 function Roles.of(chunk: Ast.Chunk): Roles.Roled
   local tokens = chunk.tokens
@@ -123,58 +156,62 @@ function Roles.of(chunk: Ast.Chunk): Roles.Roled
     end
   end
 
-  --- Notes what the tree says of the tokens of the node `node`, whose children are `kids`, that its children do
+  --- Notes what the tree says of the tokens of the node `base`, whose children are `kids`, that its children do
   --- not hold. The node's own fields are not read: its kind, its tokens and the order of its children say it.
-  local function note(node: Ast.Node, kids: {Ast.Node})
+  local function note(base: Ast.Node, kids: {Ast.Node})
+    local kind = base.kind
     local head = kids[1]
-    local first = if head == nil then nil else base_of(head) end
+    local first = if head == nil then nil else head end
     local second = kids[2]
-    local next_one = if second == nil then nil else base_of(second) end
-    if node.kind == "Paren" or node.kind == "MatchArm" then
-      mark(node.first, "(", "group_open")
-    elseif node.kind == "MethodCall" then
+    local next_one = if second == nil then nil else second end
+    if kind == "Paren" or kind == "MatchArm" then
+      mark(base.first, "(", "group_open")
+    elseif kind == "MethodCall" then
       if first ~= nil then
         mark(first.last + 1, ":", "method_colon")
       end
-    elseif node.kind == "Index" then
+    elseif kind == "Index" then
       if first ~= nil and next_one ~= nil then
-        mark_brackets(first.last + 1, node.last, next_one.first, "index_open", "index_close", "wide_open")
+        mark_brackets(first.last + 1, base.last, next_one.first, "index_open", "index_close", "wide_open")
       end
-    elseif node.kind == "Keyed" then
+    elseif kind == "Keyed" then
       if first ~= nil then
-        mark_brackets(node.first, first.last + 1, first.first, "key_open", "key_close", "word")
+        mark_brackets(base.first, first.last + 1, first.first, "key_open", "key_close", "word")
       end
-    elseif node.kind == "Table" then
-      local empty = node.last == node.first + 1
-      mark(node.first, "{", if empty then "empty_open" else "table_open" end)
-      mark(node.last, "}", if empty then "empty_close" else "table_close" end)
-    elseif node.kind == "Unary" then
-      if Lexer.text(tokens, node.first) ~= "not" then
-        set[node.first] = "unary"
+    elseif kind == "Table" then
+      local empty = base.last == base.first + 1
+      mark(base.first, "{", if empty then "empty_open" else "table_open" end)
+      mark(base.last, "}", if empty then "empty_close" else "table_close" end)
+    elseif kind == "Unary" then
+      if Lexer.text(tokens, base.first) ~= "not" then
+        set[base.first] = "unary"
       end
-    elseif node.kind == "Binding" then
-      if node.last == node.first + 3 then
-        mark(node.last - 2, "<", "attr_open")
-        mark(node.last, ">", "attr_close")
+    elseif kind == "Binding" then
+      if base.last == base.first + 3 then
+        mark(base.last - 2, "<", "attr_open")
+        mark(base.last, ">", "attr_close")
       end
-    elseif node.kind == "FieldDecl" then
+    elseif kind == "FieldDecl" then
       -- The name is the first child; a bracketed name is a `[`, a string and a `]`.
       if first ~= nil and first.last == first.first + 2 then
         mark_brackets(first.first, first.last, first.first + 1, "key_open", "key_close", "word")
       end
-    elseif node.kind == "TypeParam" then
+    elseif kind == "TypeParam" then
       -- The list's first parameter follows the `<` and its last precedes the `>`.
-      mark(node.first - 1, "<", "angle_open")
-      mark(node.last + 1, ">", "angle_close")
+      mark(base.first - 1, "<", "angle_open")
+      mark(base.last + 1, ">", "angle_close")
     end
   end
 
+  -- The declarations whose bodies are kept, outermost first.
+  local bodies: mut {Ast.Node} = {}
   -- The order of the walk is of no matter: no two nodes mark one token.
   local queue: mut {Ast.Node} = { chunk }
   for _, node in ipairs(queue) do
-    if TYPE_KINDS[node.kind] == true then
+    local base = node
+    if TYPE_KINDS[base.kind] == true then
       -- The parentheses of a parenthesized type, `(T | U)`, are in no node: take them in.
-      local first, last = node.first, node.last
+      local first, last = base.first, base.last
       while first > 1 and last < count and Lexer.text(tokens, first - 1) == "(" and
           Lexer.text(tokens, last + 1) == ")" do
         first, last = first - 1, last + 1
@@ -188,7 +225,25 @@ function Roles.of(chunk: Ast.Chunk): Roles.Roled
         kids[#kids + 1] = child
         queue[#queue + 1] = child
       end)
-      note(node, kids)
+      note(base, kids)
+      if base.kind == "Record" or base.kind == "Interface" or base.kind == "Enum" then
+        bodies[#bodies + 1] = node
+      end
+    end
+  end
+
+  -- A body is one region that no type inside it splits, and one inside another is the outer body's.
+  local verbatim: mut {integer: boolean} = {}
+  local held: mut {integer: boolean} = {}
+  for _, node in ipairs(bodies) do
+    local span = body_of(node)
+    local first, last = span[1], span[2]
+    if first ~= nil and last ~= nil and held[first] ~= true then
+      for i = first, math.min(last, count) do
+        region_of[i] = first
+        held[i] = true
+      end
+      verbatim[first] = true
     end
   end
 
@@ -199,7 +254,7 @@ function Roles.of(chunk: Ast.Chunk): Roles.Roled
     regions[#regions + 1] = region
     roles[#roles + 1] = if region ~= 0 then "word" else set[i] or TEXT_ROLES[Lexer.text(tokens, i)] or "word" end
   end
-  return { roles = roles, regions = regions }
+  return { roles = roles, regions = regions, bodies = verbatim }
 end
 
 function Roles.role(roled: Roles.Roled, i: integer): Roles.Role
@@ -208,6 +263,16 @@ end
 
 function Roles.region(roled: Roles.Roled, i: integer): integer
   return roled.regions[i] or 0
+end
+
+function Roles.in_body(roled: Roles.Roled, i: integer): boolean
+  local region = Roles.region(roled, i)
+  return region ~= 0 and roled.bodies[region] == true
+end
+
+function Roles.continues(roled: Roles.Roled, i: integer, previous: integer): boolean
+  local region = Roles.region(roled, i)
+  return region ~= 0 and (roled.bodies[region] == true or (previous ~= 0 and region == Roles.region(roled, previous)))
 end
 
 return Roles

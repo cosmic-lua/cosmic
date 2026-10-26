@@ -202,7 +202,7 @@ local function test_a_block_that_holds_a_declaration_on_one_line_stays_on_its_li
   keeps("do local record R x: integer y: string end end\n")
   keeps("local function f() local record R x: integer end end\n")
   -- A declaration over several lines is not on one, and opens the block that holds it.
-  lays("if x then local record R\n  x: integer\nend end\n", "if x then\n  local record R\n    x: integer\n  end\nend\n")
+  lays("if x then local record R\n  x: integer\nend end\n", "if x then\n  local record R\n  x: integer\n  end\nend\n")
   -- A block still opens for the statements it holds beside the declaration.
   lays("if x then local record R x: integer end y() end\n", "if x then\n  local record R x: integer end\n  y()\nend\n")
 end

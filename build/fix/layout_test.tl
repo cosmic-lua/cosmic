@@ -144,8 +144,9 @@ local function test_the_constructs_the_old_formatter_did_not_have()
     "match f(x) do\n| (true, v) then print(v)\n| (false, _) then print(1) end\n")
   lays("local b = x   is   string and y is {string}\n", "local b = x is string and y is {string}\n")
   lays("while a do continue end\n", "while a do continue end\n")
-  lays("local record R\n  mut items:{string}\n  name ?:string\n  [\"a b\"]?:  T\nend\n",
-    "local record R\n  mut items: {string}\n  name?: string\n  [\"a b\"]?: T\nend\n")
+  -- A record's body is the author's, as the previous formatter left it.
+  local record = "local record R\n  mut items:{string}\n  name ?:string\n  [\"a b\"]?:  T\nend\n"
+  lays(record, record)
   lays("local class C\n  function get( self ):integer return 1 end\nend\n",
     "local class C\n  function get(self): integer return 1 end\nend\n")
   lays("local function g(...:string): (integer, string)  return 1, \"\" end\n",
@@ -178,4 +179,41 @@ local function test_a_source_with_an_error_is_refused_in_the_parsers_words()
   assert(got == nil and why:find("^bad.tl:1:5: ") ~= nil, why)
   local lexical = Layout.of("x = 1;\n", "bad.tl")
   assert(lexical == nil)
+end
+
+--- The previous formatter wrote a record, interface or enum body as the author did, and authors align the columns of
+--- an enum's values and a record's fields ([`lang/stdlib.d.tl`]'s `OpenMode`). Collapsing the padding would rewrite
+--- every such declaration.
+local function test_the_body_of_an_enum_or_a_record_keeps_its_alignment()
+  local grid = 'local enum OpenMode\n   "r"   "w"   "a"\n  "rb"  "wb"  "ab"\n "*r"  "*w"  "*a"\nend\n'
+  lays(grid, grid)
+  local fields = "local record R\n  name:    string\n  count:   integer\n  run:     function(): integer\nend\n"
+  lays(fields, fields)
+  local face = "local interface I\n  a:   integer\n  bb:  string\nend\n"
+  lays(face, face)
+  -- Around the body the layout is the layout's.
+  lays('local   enum   E\n  "a"    "b"\nend\n', 'local enum E\n  "a"    "b"\nend\n')
+  lays("local record  R\n    n:    integer\nend\n", "local record R\n    n:    integer\nend\n")
+end
+
+local function test_a_comment_that_ends_a_line_of_a_kept_body_keeps_its_gap()
+  local fields = "local record R\n  name:    string     -- the name\n  count:   integer    -- how many\nend -- r\n"
+  lays(fields, fields)
+  lays('local enum E\n  "a"   "b"   -- ab\n  "cc"  "d"    -- cd\nend\n', 'local enum E\n  "a"   "b"   -- ab\n  "cc"  "d"    -- cd\nend\n')
+  -- Outside a body a comment is one space after its code.
+  lays("local enum E   -- e\n  \"a\"\nend    -- f\n", "local enum E -- e\n  \"a\"\nend -- f\n")
+end
+
+local function test_a_body_kept_as_written_moves_with_its_declaration()
+  lays('do\nlocal enum E\n   "a"   "b"\n  "cc"  "d"\nend\nend\n', 'do\n  local enum E\n     "a"   "b"\n    "cc"  "d"\n  end\nend\n')
+end
+
+local function test_a_comment_in_a_kept_body_and_a_nested_declaration_are_kept_too()
+  local source = "local record R\n  -- the name\n  name:    string\n  enum  Mode\n    \"a\"   \"b\"\n  end\n  count:   integer\nend\n"
+  lays(source, source)
+end
+
+local function test_a_record_with_code_in_its_body_is_laid_out_as_code()
+  lays("local class C\n  function go(self, a:integer)\n      return a+1\n  end\nend\n",
+    "local class C\n  function go(self, a: integer)\n    return a + 1\n  end\nend\n")
 end

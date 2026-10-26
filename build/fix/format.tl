@@ -44,15 +44,17 @@ local record Format
   --- one that is faulty to show that it is refused. The layout of that layout, for the fixed point, is always
   --- [`build.fix.layout`]'s.
   format: function(source: string, name: string, layout?: Layouter): Result
+
+  --- How the file `name` is read: `decl` for a declaration file, `tl` for any other.
+  dialect_of: function(name: string): Ast.Dialect
 end
 
---- How `name` is read: `decl` for a declaration file, `tl` for any other.
-local function dialect_of(name: string): Ast.Dialect
+function Format.dialect_of(name: string): Ast.Dialect
   return if name:sub(-5) == ".d.tl" then "decl" else "tl" end
 end
 
 function Format.format(source: string, name: string, layout?: Format.Layouter): Format.Result
-  local dialect = dialect_of(name)
+  local dialect = Format.dialect_of(name)
   local laid, why = (layout or Layout.of)(source, name, dialect)
   if laid == nil then
     return { kind = "syntax", why = why }

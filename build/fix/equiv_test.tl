@@ -79,6 +79,16 @@ local function test_a_comment_moved_across_code_is_a_difference()
   differs("f(a, -- c\n  b)\n", "f(a,\n  b) -- c\n", "comes after")
 end
 
+--- A comment past the last token hangs on the end of the file, which a check of the comments before each token alone
+--- would not see.
+local function test_a_comment_lost_at_the_end_of_the_file_is_a_difference()
+  differs("x = 1\n-- c\n", "x = 1\n", "the comment at 2:1 was lost")
+  differs("x = 1\n-- c\n-- d\n", "x = 1\n-- c\n", "the comment at 3:1 was lost")
+  differs("-- only\n", "", "the comment at 1:1 was lost")
+  differs("x = 1 -- c\n", "x = 1\n", "the comment at 1:7 was lost")
+  same("x = 1\n-- c\n", "x = 1\n\n\n-- c")
+end
+
 local function test_a_comment_before_an_operator_that_moves_behind_the_code_is_no_difference()
   same("local x = a\n  -- c\n  + b\n", "local x = a +\n  -- c\n  b\n")
   same("local x = a -- c\n  or b\n", "local x = a or -- c\n  b\n")

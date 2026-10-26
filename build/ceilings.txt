@@ -2323,7 +2323,7 @@ build/driver.tl view_written 6
 
 build/fetch_test.tl view_written 1
 
-build/fix/init.tl view_written 9
+build/fix/init.tl view_written 7
 
 build/fix/near.tl view_written 2
 
