@@ -150,8 +150,9 @@ Details:
 - **Shape errors raise,** such as a wrong vector length or `k < 1`, as
   argument-shape errors do across the tree. `load` answers `nil, why`
   for a failed query or a row whose blob is not a vector.
-- **Memory** is allocated through Lua as a userdata, so the garbage
-  collector sees its size.
+- **Memory** should be allocated through Lua, so the garbage collector
+  sees its size. The prototype allocates outside it (see the status
+  below).
 - **Tests:**
   - agreement with the SQL functions on the same data;
   - the top-k order on ties;
