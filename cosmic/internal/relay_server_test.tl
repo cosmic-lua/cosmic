@@ -509,7 +509,7 @@ end
 
 local function test_a_name_none_of_whose_addresses_answer_is_refused_once_naming_each(tmp: string)
   Poll.run(function()
-    local asked, given: {string}, {integer} = {}, {}
+    local asked, given: mut {string}, mut {integer} = {}, {}
     local rig = start(tmp, { grants = { "multi.test:80" },
       connector = function(address: string, _port: integer, timeout_ns: integer): Net.Conn?, string
         asked[#asked + 1] = address
@@ -532,7 +532,7 @@ end
 
 local function test_the_connect_timeout_bounds_every_address_together(tmp: string)
   Poll.run(function()
-    local asked, given: {string}, {integer} = {}, {}
+    local asked, given: mut {string}, mut {integer} = {}, {}
     local rig = start(tmp, { grants = { "multi.test:80" }, timeouts = { connect = Clock.ms(600) },
       connector = function(address: string, _port: integer, timeout_ns: integer): Net.Conn?, string
         asked[#asked + 1] = address
@@ -1253,7 +1253,7 @@ end
 local function test_an_upstream_proxy_is_reached_at_the_next_of_its_addresses(tmp: string)
   Poll.run(function()
     local through = proxy("200")
-    local asked, given: {string}, {integer} = {}, {}
+    local asked, given: mut {string}, mut {integer} = {}, {}
     local up: Relay.Upstream = { host = "proxy.test", port = through.server.port, no_proxy = {},
       addresses = { "192.0.2.1", "127.0.0.1" } }
     local rig = start(tmp, { grants = { "api.test:443" }, upstream = up,
@@ -1276,7 +1276,7 @@ end
 local function test_an_upstream_proxy_none_of_whose_addresses_answer_is_refused_once(tmp: string)
   Poll.run(function()
     local up: Relay.Upstream = { host = "proxy.test", port = 3128, no_proxy = {}, addresses = { "192.0.2.1", "192.0.2.2" } }
-    local asked: {string} = {}
+    local asked: mut {string} = {}
     local rig = start(tmp, { grants = { "api.test:443" }, upstream = up,
       connector = function(address: string, _port: integer, _timeout_ns: integer): Net.Conn?, string
         asked[#asked + 1] = address

@@ -10,7 +10,7 @@ local SELF <const> = "http://testserver"
 
 --- A revocable store that keeps sessions in a table, under ids.
 local function memory_store(): Session.Store
-  local rows: {string:Session.Data} = {}
+  local rows: mut {string:Session.Data} = {}
   local count = { value = 0 }
   local store: Session.Store = {
     revocable = true,
@@ -370,7 +370,7 @@ local function test_the_refusal_is_a_403_that_says_why_without_the_token()
 end
 
 local function test_on_failure_gets_the_reason()
-  local reasons: {string} = {}
+  local reasons: mut {string} = {}
   local client = Web.test_client(make_app({ on_failure = function(_req: Web.Request, why: string): Web.Response
     reasons[#reasons + 1] = why
     return Web.text("no", { status = 418 })

@@ -18,7 +18,7 @@ local function test_an_empty_file_name_has_one_wording()
 end
 
 local function test_a_complaint_carries_the_verb_name()
-  local lines: {string} = {}
+  local lines: mut {string} = {}
   local complain = bare.complainer("json", function(line: string) lines[#lines + 1] = line end)
   complain("no such thing")
   complain("")
@@ -32,7 +32,7 @@ local function test_standard_output_takes_nothing_without_failing()
 end
 
 local function test_a_lost_write_complains_once_and_answers_false()
-  local lines: {string} = {}
+  local lines: mut {string} = {}
   local complain = bare.complainer("hash", function(line: string) lines[#lines + 1] = line end)
   assert(bare.delivered(complain, true, "") == true)
   assert(#lines == 0)
@@ -45,7 +45,7 @@ local function test_the_lost_write_message_names_standard_output()
 end
 
 local function test_written_is_zero_or_two()
-  local lines: {string} = {}
+  local lines: mut {string} = {}
   local complain = bare.complainer("rand", function(line: string) lines[#lines + 1] = line end)
   assert(bare.written(complain, true, "") == 0 and #lines == 0)
   assert(bare.written(complain, false, "No space left on device") == 2)

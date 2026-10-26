@@ -44,7 +44,7 @@ local record Ceilings
 
   --- The ceilings of each stage, by stage: a key (`<file> <code>`, or `<file>` for `untyped`) to its count.
   record Table
-    stages: {string: {string: integer}}
+    stages: mut {string: {string: integer}}
     --- Whether the tree has no ceilings to be held to and none to raise: a project's. An error over a ceiling of 0 is then
     --- listed without the pin that is not there.
     none: boolean?

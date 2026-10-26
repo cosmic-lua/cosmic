@@ -91,9 +91,9 @@ local record shared_compiles
 
   --- What a build owes the cache when its compile ends.
   record Owed
-    kept: {Kept}
+    kept: mut {Kept}
     --- Keys the build took a compile from, which stay the longer for it.
-    used: {string}
+    used: mut {string}
     --- Parses made here, none when nil.
     parses?: {Parsed}
     --- Parses the build took, which stay the longer for it; none when nil.
@@ -183,7 +183,7 @@ end
 
 --- `packed` undone: nil for what `packed` never writes.
 local function unpacked(refs: string): {SyntaxReceivers.Reference}?
-  local out: {SyntaxReceivers.Reference} = {}
+  local out: mut {SyntaxReceivers.Reference} = {}
   local rest = refs:gsub("([^\t\n]*)\t([^\t\n]*)\t(%d+)\n", function(module: string,
                                                                      member: string,
                                                                      line: string): string
@@ -210,7 +210,7 @@ end
 
 --- [`packed_requires`] undone: nil for what it never writes.
 local function unpacked_requires(requires: string): {string}?
-  local out: {string} = {}
+  local out: mut {string} = {}
   local rest = requires:gsub("([^\n]+)\n", function(name: string): string
     out[#out + 1] = name
     return ""

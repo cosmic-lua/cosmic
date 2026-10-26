@@ -139,7 +139,7 @@ end
 --- or subshell is not entered (its words join the command around it),
 --- which is enough for an advisory list.
 local function lex(src: string): {{Word}}
-  local commands: {{Word}} = {}
+  local commands: mut {{Word}} = {}
   -- The command being read: its words so far.
   local reading: Command = { words = {} }
   local delims: mut {string} = {}

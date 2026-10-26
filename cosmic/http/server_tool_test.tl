@@ -46,7 +46,7 @@ return function(argv: {string}): integer
   return 0
 end
 ]]))
-  local items: {string:string} = {}
+  local items: mut {string:string} = {}
   local result = { value = nil as Child.Result? }
   assert(Server.serve{
     listeners = { Net.tcp("127.0.0.1", 0) },
@@ -105,7 +105,7 @@ return function(argv: {string}): integer
   return 0
 end
 ]]))
-  local targets: {string} = {}
+  local targets: mut {string} = {}
   local result = { value = nil as Child.Result? }
   assert(Server.serve{
     listeners = { Net.tcp("127.0.0.1", 0) },

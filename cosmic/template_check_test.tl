@@ -189,7 +189,7 @@ end
 
 --- The module `path` of `lua`, loaded against the real [`cosmic.html`].
 local function load_module(lua: {string: string}, path: string): any
-  local loaded: {string: any} = {}
+  local loaded: mut {string: any} = {}
   local function req(name: string): any
     if name == "cosmic.html" then
       return Html

@@ -58,15 +58,15 @@ local record closure_store
     modules: {string:string}
     shared: string
     --- Each module's kind, by path.
-    kinds: {string:string}
+    kinds: mut {string:string}
     --- The modules an example can be paired with -- neither tests nor
     --- examples -- sorted (see [`build.writer`]'s `insert_examples`).
     pairable: {string}
     --- Each declaration's line, by path.
-    decls: {string:string}
+    decls: mut {string:string}
     --- The declarations each declaration requires, by path
     --- ([`required_by`]).
-    decl_requires: {string:{string}}
+    decl_requires: mut {string:{string}}
   end
 end
 
@@ -218,7 +218,7 @@ end
 --- place so that what is there is whole. A failure costs the next run
 --- the work it would have saved, and nothing else.
 local function remember(whole: string, token: string, basis: closure_store.Basis)
-  local parts: {string} = {}
+  local parts: mut {string} = {}
   local function put_string(value: string) parts[#parts + 1] = string.pack("<s4", value) end
   local function put_count(value: integer) parts[#parts + 1] = string.pack("<I4", value) end
   put_string(token)
@@ -367,7 +367,7 @@ local declared_beside: {string:{string}} = {
 --- that the projection holds. A name only a declaration answers for is none:
 --- `declared` answers those.
 local function stored(basis: closure_store.Basis, names: {string}): {string}
-  local seen: {string:boolean} = {}
+  local seen: mut {string:boolean} = {}
   local out: mut {string} = {}
   local function add(name: string)
     if seen[name] or basis.modules[name] == nil then return end
@@ -442,7 +442,7 @@ end
 --- 0.12 s of a run's 0.27. A line's digest stands for it in an address, as
 --- `basis.shared` stands for the meta rows: the address moves with any
 --- byte of any line, and the memo is by the whole line.
-local line_digests: {string:string} = {}
+local line_digests: mut {string:string} = {}
 
 --- The hex SHA-256 of `line`, made once.
 local function digest_of_line(line: string): string

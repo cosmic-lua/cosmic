@@ -71,12 +71,12 @@ local record docs
     --- [`use_key`] -- computed on demand, once per command, by
     --- [`effective_counts`], and cached here so several entries or
     --- renders naming the same symbol query `uses` only once.
-    use_counts: {string: integer}
+    use_counts: mut {string: integer}
     --- How many links name a module/symbol pair, as `use_counts`.
-    link_counts: {string: integer}
+    link_counts: mut {string: integer}
     --- The record each module's value is typed as (`""` for none), by
     --- module, as [`value_record`] reads it, cached as `use_counts` is.
-    value_records: {string: string}
+    value_records: mut {string: string}
     --- The module each module binds each name to, by module and name,
     --- as [`symbol_index.add_bound`] reads them: nil until a type's
     --- reference asks, then cached as `use_counts` is.
@@ -322,7 +322,7 @@ end
 --- line in column one that does not close the one before. `code` is a
 --- piece's first line that is not a comment.
 local function pieces_of(head: string): {{string}}
-  local out: {{string}} = {}
+  local out: mut {{string}} = {}
   -- The piece being read: its lines so far and its first line of code.
   local current: Piece = { lines = {}, code = "" }
   local function finish()
@@ -2244,7 +2244,7 @@ end
 --- lists what it inherits after its own. Empty for a declaration that
 --- stands for nothing.
 local function inherited_lines(view: docs.View, entry: docs.Entry): {string}?, string
-  local lines: {string} = {}
+  local lines: mut {string} = {}
   local references = entry.symbol ~= "" and alias_members.references(entry) or {}
   if #references == 0 then
     return lines

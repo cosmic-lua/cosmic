@@ -192,7 +192,7 @@ local ATTRS <const> = { 0x81A4 << 16, 0x41ED << 16, 0xA1FF << 16, 0 }
 --- forged end record -- then up to a few of its fields made hostile.
 local function gen_laid_out(src: Fuzz.Source): string
   local out: mut {string} = {}
-  local recs: {Rec} = {}
+  local recs: mut {Rec} = {}
   local marks: mut {integer} = {}
   local pos = { value = 0 }
   local function put(r: Rec)

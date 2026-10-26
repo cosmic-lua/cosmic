@@ -78,7 +78,7 @@ end
 
 local function fake(fails: {string: boolean}, lay_fails: {string: boolean}): Fake
   local f: Fake = { events = {}, files = {}, most = 0, system = nil }
-  local running: {integer: string} = {}
+  local running: mut {integer: string} = {}
   local count = { value = 0 }
   local issued = { value = 0 }
   local function task_of(argv: {string}): string

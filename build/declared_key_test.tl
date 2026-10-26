@@ -255,7 +255,7 @@ end
 --- core), the compiler, the module's key and the test's name.
 local function test_each_input_moves_it(tmp: string)
   tree(tmp)
-  local seen: {string:string} = {}
+  local seen: mut {string:string} = {}
   local function differs(what: string, s?: declared_key.Spec)
     local key = key_of(tmp, s)
     assert(seen[key] == nil, what .. " keys as " .. tostring(seen[key]) .. " did")
@@ -820,7 +820,7 @@ local function test_each_part_of_the_host_moves_its_identity(tmp: string)
   local function identity(): string
     return declared_key.host_identity(declared_key.digests(tmp), sources)
   end
-  local seen: {string:string} = {}
+  local seen: mut {string:string} = {}
   local function differs(what: string)
     local id = identity()
     assert(seen[id] == nil, what .. " identifies as " .. tostring(seen[id]) .. " did")
@@ -948,7 +948,7 @@ local function test_a_change_outside_a_package_moves_what_is_installed(tmp: stri
   local function installed(walk: boolean): string
     return declared_key.system_identity(declared_key.digests(tmp), sources, walk)
   end
-  local seen: {string:string} = {}
+  local seen: mut {string:string} = {}
   local function differs(what: string)
     local id = installed(true)
     assert(seen[id] == nil, what .. " is installed as " .. tostring(seen[id]) .. " was")

@@ -348,7 +348,7 @@ end
 --- The `return` statements in `body` that are `body`'s own: in its blocks, however deep, but not in a function
 --- declared inside it, whose returns are that function's.
 local function returns_of(body: Ast.Block): {Ast.Return}
-  local out: {Ast.Return} = {}
+  local out: mut {Ast.Return} = {}
   Node.walk_until(body, function(node: Ast.Node): boolean
     if (node.kind == "Return") then
       out[#out + 1] = node
@@ -408,7 +408,7 @@ end
 --- honest-return failure its own body returns. Top-level only: a function nested inside another statement is reached
 --- through that statement's own entry, never here.
 local function catalog_of(chunk: Ast.Chunk): {Analyzer.CatalogEntry}
-  local out: {Analyzer.CatalogEntry} = {}
+  local out: mut {Analyzer.CatalogEntry} = {}
   local function add(symbol: string, body: Ast.Block)
     for _, entry in ipairs(catalog_in_body(chunk, body, symbol)) do
       out[#out + 1] = entry
@@ -899,7 +899,7 @@ end
 --- is no use of its owner.
 local function uses_of(scoped: Scopes.Scoped, root: Ast.Node, used: mut {string: boolean})
   local base = Node.base(root)
-  local skipped: {integer: boolean} = {}
+  local skipped: mut {integer: boolean} = {}
   Node.walk(root, function(node: Ast.Node)
     if (node.kind == "Function") then
       for _, name in ipairs(node.path) do
@@ -1023,7 +1023,7 @@ local function preamble_text(scoped: Scopes.Scoped, pre: Preamble, body_node: As
   if first then
     calls = pre.calls
   end
-  local used: {string: boolean} = {}
+  local used: mut {string: boolean} = {}
   uses_of(scoped, body_node, used)
   if first then
     for _, node in ipairs(pre.call_nodes) do
@@ -1109,7 +1109,7 @@ end
 --- `require("module").member` while `require` is not shadowed. This is deliberately bounded: indirect aliases and
 --- unknown receiver types produce no edge rather than one guessed from spelling.
 local function references_of(chunk: Ast.Chunk, scoped: Scopes.Scoped): {Analyzer.Reference}, {Lexical.Binding}
-  local seen: {string: boolean} = {}
+  local seen: mut {string: boolean} = {}
   local out: mut {Analyzer.Reference} = {}
   local bindings = Lexical.walk(chunk, scoped, function(module: string, name: string, line: integer)
     local id = module .. "\n" .. name .. "\n" .. tostring(line)

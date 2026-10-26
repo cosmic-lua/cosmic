@@ -435,7 +435,7 @@ function test_sandbox.plan(root: string, scratch: string, effective: test_inputs
   local base = confine.worker_unveil(nil, scratch, false, effective.tool and not own_program, store)
   local reads: mut {string} = {}
   local at: mut {string:string} = {}
-  local seen: {string:boolean} = {}
+  local seen: mut {string:boolean} = {}
   local runs: mut {string:boolean} = {}
   -- With `run` where the path is run, as it may be by a worker's test; a
   -- read of a path of the closure is not.

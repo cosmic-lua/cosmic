@@ -68,7 +68,7 @@ local record Declared
 end
 
 local function declared_by(chunk: Ast.Chunk): {integer: Declared}
-  local out: {integer: Declared} = {}
+  local out: mut {integer: Declared} = {}
   Node.walk(chunk, function(node: Ast.Node)
     local function head_of(): integer
       return Lexical.position(Lexer.y(chunk.tokens, Node.base(node).first), 0)
@@ -132,11 +132,11 @@ function Lexical.walk(chunk: Ast.Chunk, scoped: Resolved.Scoped,
   if member == nil then
     return bindings
   end
-  local reads: {Read} = {}
+  local reads: mut {Read} = {}
   -- The token an assignment to each variable ends at, the first.
-  local ends: {integer: integer} = {}
+  local ends: mut {integer: integer} = {}
   -- What an assignment's targets hold is written, not read: `Fs.stderr = fd` is no reference to `stderr`.
-  local written: {integer: boolean} = {}
+  local written: mut {integer: boolean} = {}
   Node.walk(chunk, function(node: Ast.Node)
     if (node.kind == "Assign") then
       for _, target in ipairs(node.targets) do

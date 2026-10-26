@@ -27,7 +27,7 @@ local record inputs
     dirs: {string}
     --- What the command defines, as [`Header.defines`] lists a header's.
     defined: {inputs.Define}
-    held: {string: Header}
+    held: mut {string: Header}
   end
 
   --- A macro defined as `text` of a `kind`: a string or a name between `"` or `<>`, another macro (`alias`), or anything
@@ -305,7 +305,7 @@ function inputs.key(reader: inputs.Reader, file: string, command: {string}, inst
   local seen: mut {string: boolean} = {}
   local stack: mut {string} = { file }
   seen[file] = true
-  local defines: {string: {inputs.Define}} = {}
+  local defines: mut {string: {inputs.Define}} = {}
   local function define(d: inputs.Define)
     local list = defines[d.name]
     if list == nil then

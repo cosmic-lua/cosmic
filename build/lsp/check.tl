@@ -477,7 +477,7 @@ function check.diagnose(checker: Checker, document: Document, encoding: string):
   local checked: Checked = outcome
   local text_lines = lines.lines_of(document.text)
   local starts = lines.checker_starts(checked.text)
-  local out: {string} = {}
+  local out: mut {string} = {}
   --- The diagnostic `message` at the checker's line `y` and column `x`.
   local function add(y: integer, x: integer, message: string, code: string?)
     local line = math.min(math.max(y, 1), #starts)

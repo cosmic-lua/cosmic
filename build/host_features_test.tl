@@ -53,8 +53,8 @@ local function host(tmp: string, machine: string, cpuinfo: string):
     machine = machine,
     status = write("status", "Uid: 1 1 1 1\n"), own_proc = true, host_id = "h", uid = 1,
   }
-  local names: {string:boolean} = {}
-  local identities: {string:boolean} = {}
+  local names: mut {string:boolean} = {}
+  local identities: mut {string:boolean} = {}
   local function both(what: string, moved: boolean)
     sources.cpu_features = listed((Fs.read(tmp .. "/cpuinfo")) or "")
     local named = declared_key.host_features(sources)
@@ -138,8 +138,8 @@ local function test_a_macos_host_is_named_by_its_system_version(tmp: string)
     packages = {}, system = system, cpu_features = {}, machine = "arm64", sysname = "Darwin",
     status = tmp .. "/status", own_proc = false, host_id = "macos-15", uid = 501,
   }
-  local names: {string:boolean} = {}
-  local identities: {string:boolean} = {}
+  local names: mut {string:boolean} = {}
+  local identities: mut {string:boolean} = {}
   local function both(what: string)
     local named = declared_key.host_features(sources)
     local id = declared_key.host_identity(declared_key.digests(tmp), sources)

@@ -594,7 +594,7 @@ local function extract_streamed(file: string, source: Stream.Reader, dest: strin
     local _, _ = Fs.remove_tree(stage)
     return print_written(written, to)
   end
-  local steps: {Step} = {}
+  local steps: mut {Step} = {}
   local trouble = plan_move(tree, dest, force, "", steps, why_of)
   if trouble ~= nil then return give_up(trouble) end
   local moved = apply_steps(tree, dest, stage .. "/aside", steps)
@@ -698,7 +698,7 @@ end
 --- The items for the paths given, by name, sorted, and nil and an
 --- outcome when one cannot be archived.
 local function gather(paths: {string}, skip_file: string?): {Item}?, Outcome
-  local by_name: {string:Item} = {}
+  local by_name: mut {string:Item} = {}
   local function add(name: string, full: string): Outcome?
     local st, why = sys.lstat(full)
     if st == nil then return fail(bare.failed, full .. ": " .. why) end

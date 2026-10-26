@@ -146,7 +146,7 @@ local function type_facts(program: Declarations.Program, result: Driver.Outcome,
   local refused: mut {string} = {}
   local library = program.globals["table"]
   -- Every node, the walk's own list growing as it goes.
-  local nodes: {Ast.Node} = { result.chunk.body }
+  local nodes: mut {Ast.Node} = { result.chunk.body }
   for _, node in ipairs(nodes) do
     if (node.kind == "TypeName") then
       local t = lowered.types[node.id]

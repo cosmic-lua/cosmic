@@ -178,7 +178,7 @@ function docs_checks.rendered(db: Sqlite.Handle, exempt?: docs_checks.Exempt): {
   local shown: Sqlite.Rows = rows
 
   -- Several modules declare `Entry.path`, so one lookup answers each.
-  local looked: {string: docs.Lookup} = {}
+  local looked: mut {string: docs.Lookup} = {}
   local function lookup(name: string): docs.Lookup?
     local found = looked[name]
     if found == nil then
@@ -398,7 +398,7 @@ function docs_checks.references(db: Sqlite.Handle, help?: {string: string},
                                 verbs?: {string}, allowed?: {string: string}): {string}
   help = help or {}
   local dangling = allowed or unresolved
-  local danglers: {string: boolean} = {}
+  local danglers: mut {string: boolean} = {}
   local known: mut {string: boolean} = { exit = true }
   for _, verb in ipairs(verbs or Cli.order) do known[verb] = true end
   local read_view, view_trouble = docs.view({ db }, { true })
@@ -429,11 +429,11 @@ function docs_checks.references(db: Sqlite.Handle, help?: {string: string},
   local texts: Sqlite.Rows = rows
 
   local out: mut {string} = {}
-  local answered: {string: boolean} = {}
+  local answered: mut {string: boolean} = {}
   -- What cosmic.removed says to write instead, for a query it lists as
   -- gone: `cosmic docs` answers such a name, but a page that names it is
   -- stale.
-  local gone: {string: string} = {}
+  local gone: mut {string: string} = {}
   -- TODO: take a query that names a worked example by its own name
   -- (`cosmic docs records_interfaces_methods`, which the compiler's
   -- see-also hints print), so a guide can point a reader at the one

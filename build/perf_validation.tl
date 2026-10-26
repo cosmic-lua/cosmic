@@ -119,7 +119,7 @@ local function inside(low: number?, high: number?, truth: number): boolean
   return (low == nil or low <= truth) and (high == nil or high >= truth)
 end
 
-local function cover(counts: {string:Count}, name: string, bounds: Perf.Interval, truth: number)
+local function cover(counts: mut {string:Count}, name: string, bounds: Perf.Interval, truth: number)
   observe(counts, name, inside(bounds.low, bounds.high, truth), bounds.lower_bounded and bounds.upper_bounded)
 end
 
@@ -141,7 +141,7 @@ local coverage_keys = { "coverage_median_a", "coverage_median_b", "coverage_medi
 
 local function simulate(case: Case, index: integer, n: integer): {string:any}, boolean
   local bases = { 104729, 130363, 155921, 196613 }
-  local counts: {string:Count} = {}
+  local counts: mut {string:Count} = {}
   for trial = 1, 5000 do
     local source: Source = { state = (bases[(index - 1) % 4 + 1] + 1009 * index +
       9176 * n + 104729 * trial) % 2147483646 + 1 }

@@ -227,7 +227,7 @@ local function test_the_function_each_call_took_is_kept_by_the_id_of_the_call()
   local build = build_of({ { "m.tl", source } })
   local result = assert(build:result("m", true))
   assert(#result.errors == 0, codes_of(result.errors))
-  local calls: {Ast.Node} = {}
+  local calls: mut {Ast.Node} = {}
   Node.walk(result.chunk, function(n: Ast.Node)
     if (n.kind == "Call") or (n.kind == "MethodCall") then
       calls[#calls + 1] = n

@@ -339,7 +339,7 @@ function Match.matches(pattern: Match.Pattern, chunk: Ast.Chunk, node: Ast.Node)
 end
 
 function Match.find_all(pattern: Match.Pattern, chunk: Ast.Chunk, root: Ast.Node): {Match.Hit}
-  local hits: {Match.Hit} = {}
+  local hits: mut {Match.Hit} = {}
   Node.walk(root, function(node: Ast.Node)
     local caps = Match.matches(pattern, chunk, node)
     if caps ~= nil then

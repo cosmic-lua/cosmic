@@ -148,7 +148,7 @@ end
 --- nil and the failure that ended them.
 local function token_values(text: string, size: integer, opts: Json.ReaderOptions): {any}?, string
   local r = Json.reader(chunked(text, size), opts)
-  local values: {any} = {}
+  local values: mut {any} = {}
   local stack: mut {{any: any}} = {}
   local keys: mut {string} = {}
   local function place(v: any)

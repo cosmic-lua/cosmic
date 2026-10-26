@@ -459,7 +459,7 @@ local function test_the_relays_log_goes_where_the_start_says(tmp: string)
   local script = tmp .. "/flows.tl"
   assert(Fs.write(script, FLOWS))
   local database = sealed_client(tmp)
-  local errors: {string:string} = {}
+  local errors: mut {string:string} = {}
   local refusal = { value = nil as string? }
   serving(function(granted: integer, ungranted: integer)
     for _, log in ipairs({ "inherit", "null" }) do
@@ -713,7 +713,7 @@ local function test_the_upstream_proxy_is_reached_through_the_table(tmp: string)
   local script = tmp .. "/flows.tl"
   assert(Fs.write(script, FLOWS))
   local database = sealed_client(tmp)
-  local asked: {string} = {}
+  local asked: mut {string} = {}
   local said = { value = nil as {string:string}? }
   local refusal = { value = nil as string? }
   serving(function(granted: integer, ungranted: integer)
