@@ -8,8 +8,8 @@
 ---
 --- The verb takes paths to narrow it, defaults to the whole tree in the working directory, and writes what it fixes,
 --- which is the layout of Teal, the links it makes of plain code spans, the layout of C and of YAML in flow style.
---- `--check` writes nothing and reports what it would have changed, which is what a gate runs; it only notes the Teal
---- files that are not laid out and does not fail on them, until the tree is laid out.
+--- `--check` writes nothing and reports what it would have changed, which is what a gate runs; it fails on a Teal file
+--- that is not laid out and on one the formatter refuses.
 ---
 --- A second run changes nothing the first did not. CI's format-check step runs `cosmic fix --check .` over the whole
 --- tree.
@@ -920,6 +920,8 @@ local record Fix
   --- The changed files whose only change was a link written.
   mut link_only?: {string:boolean}
   mut failures?: {string}
+  --- The Teal files that are not laid out, which a check fails on ([`lay_out_teal`]).
+  mut unlaid?: {string}
 
   -- The C ([`lay_out_c`]).
   mut c_files?: {string}
@@ -1161,10 +1163,9 @@ local function copied(list: {string}): mut {string}
 end
 
 --- Lays out each Teal file ([`build.fix.format`]), keeping what the parse of its text gives the later phases. A plain run
---- writes the layout of a file that is not laid out and lists it as changed. `--check` writes nothing, and says in notes
---- which files are not laid out: they do not fail it ([`build.fix.laid`] holds what a file laid out costs a later run).
---- A file the formatter refuses is never written, and is told with the reason: a failure of a plain run, a note of a
---- check. A file the new parser does not read fails in the new parser's words, with its fix.
+--- writes the layout of a file that is not laid out and lists it as changed. `--check` writes nothing and fails on the
+--- files that are not laid out, naming them ([`build.fix.laid`] holds what a file laid out costs a later run). A file the
+--- formatter refuses is never written, and is told with the reason: a failure of a plain run and of a check. A file the new parser does not read fails in the new parser's words, with its fix.
 local function lay_out_teal(ctx: Fix)
   local files = assert(ctx.files)
   local failures = copied(assert(ctx.failures))
@@ -1188,7 +1189,6 @@ local function lay_out_teal(ctx: Fix)
     if memo ~= nil then kept = laid.begin(memo) end
   end
   local unlaid: mut {string} = {}
-  local refusals: mut {string} = {}
   for _, file in ipairs(files) do
     local source, read_trouble = Fs.read(file)
     if source == nil then
@@ -1203,8 +1203,6 @@ local function lay_out_teal(ctx: Fix)
           unlaid[#unlaid + 1] = file
         elseif done.state == "written" then
           changed[#changed + 1] = file
-        elseif done.state == "refused" and checking then
-          refusals[#refusals + 1] = done.why
         elseif done.state ~= "laid" then
           failures[#failures + 1] = done.why
         end
@@ -1220,18 +1218,7 @@ local function lay_out_teal(ctx: Fix)
   if memo ~= nil then
     local _, _ = memo:close()
   end
-  -- TODO: make `--check` fail on a Teal file that is not laid out, and on one the formatter refuses, once the tree has
-  -- been laid out (the reformat that follows this change), so that a note stops being all CI says of it.
-  if #unlaid > 0 then
-    log:say("fix: note  " .. plural.count(#unlaid, "Teal file") .. " " .. (if #unlaid == 1 then "is" else "are" end) ..
-        " not laid out; `cosmic fix` lays " .. (if #unlaid == 1 then "it" else "them" end) .. " out")
-    for _, file in ipairs(unlaid) do
-      log:say("fix: note  not laid out  " .. file)
-    end
-  end
-  for _, why in ipairs(refusals) do
-    log:say("fix: note  not laid out, refused  " .. why)
-  end
+  ctx.unlaid = unlaid
   ctx.failures = failures
   ctx.changed = changed
   ctx.facts = facts
@@ -1565,6 +1552,7 @@ local function report(ctx: Fix): integer
   local linked_out = assert(ctx.linked_out)
   local checking = ctx.checking
   local failures = assert(ctx.failures)
+  local unlaid = ctx.unlaid or {}
   local findings = assert(ctx.findings)
   local changed = assert(ctx.changed)
   local counted = assert(ctx.counted)
@@ -1582,6 +1570,9 @@ local function report(ctx: Fix): integer
   for _, line in ipairs(failures) do
     failed[plain(line)] = true
     log:say("fix: FAIL  " .. line)
+  end
+  for _, file in ipairs(unlaid) do
+    log:say("fix: FAIL  not laid out  " .. file)
   end
   for _, line in ipairs(findings) do
     log:say("fix: FAIL  " .. line)
@@ -1617,11 +1608,15 @@ local function report(ctx: Fix): integer
     log:say("fix: " .. (if checking then "would fix  " else "fixed  " end) .. file ..
         (if linked[file] then " (links)" else "" end))
   end
-  if #failures > 0 or #findings > 0 or #broken > 0 or #would > 0 or #redefined > 0 or
+  if #failures > 0 or #unlaid > 0 or #findings > 0 or #broken > 0 or #would > 0 or #redefined > 0 or
       unbuilt ~= nil or links_unbuilt ~= nil then
     local said: mut {string} = {}
     if #failures > 0 then
       said[#said + 1] = #failures .. " of " .. plural.count(counted, "file") .. " refused"
+    end
+    if #unlaid > 0 then
+      said[#said + 1] = plural.count(#unlaid, "Teal file") .. (if #unlaid == 1 then " is" else " are" end) ..
+        " not laid out (`cosmic fix <paths>` lays them out)"
     end
     if #findings > 0 then
       said[#said + 1] = #findings .. " found by the tree checks"

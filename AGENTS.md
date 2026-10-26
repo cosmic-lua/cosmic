@@ -61,9 +61,8 @@ worktree's build directory when you delete the worktree.
    [`build.fix.format`]. It rewrites the layout of every Teal file it is
    given, so run it on the files you changed and commit what it wrote. A
    file it refuses (a syntax error, or a layout that is not the same file) is
-   left as it is, with the reason. `fix --check` only notes the Teal files
-   that are not laid out and does not fail on them until the tree is laid
-   out. The checks only the whole tree
+   left as it is, with the reason. `fix --check` fails on a Teal file that is
+   not laid out and on one it refuses. The checks only the whole tree
    can answer ([`build/tree_checks.tl`]) run in `bin/cosmic fix --check .`,
    as CI runs it, which also refuses a tree that does not build: run it
    before pushing a change to what they read.
