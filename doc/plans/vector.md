@@ -183,12 +183,12 @@ like any Lua allocation (core/allocation_test.tl walks creation, growth
 past the first capacity, a search with `candidates`, `allow`,
 `kmeans` and `nearest_n`), and nothing is left on the C heap. The
 price is that growing allocates the larger buffer beside the old one,
-which lingers until collected, where `realloc` could extend in place.
+which lingers until collected, where `realloc` could extend in place:
+a corpus can need up to three times what it holds while it grows.
 A pending signal in a [`Signal.guard`] interrupts `search` and `kmeans`
 (see the decision above; tested in cosmic/vector_test.tl). Measured on
-100k × 768: exact inner product 52 ms (54 ms when the buffers
-were `cosmic_realloc`'d), with `candidates = 200` 2.6 ms (4.1
-ms before); recall@10 was 10/10 on clustered synthetic data. Earlier
+100k × 768 on the development VM: exact inner product 52 ms, with
+`candidates = 200` 2.6 ms; recall@10 was 10/10 on clustered synthetic data. Earlier
 measurements: cosine 66 ms, L2 61 ms, 2.5 ms cosine with candidates. The 15
 ms exact target is missed: the scan is bandwidth-bound, at about 5.4 GB/s
 on the test VM.
@@ -215,7 +215,8 @@ on 20 well-separated clusters of 100 points in 64 dimensions, recall@10
 against exact search is 0.96 with 1 probe and 1.0 with 3 probes;
 `kmeans` of 100k x 768 with k = 100 takes about 4 s per iteration on
 the development host. A `kmeans` of that size can be cancelled within
-a few rows' work, not at the end of an iteration.
+one block of rows (or one centroid pass while seeding), not only at
+the end of an iteration.
 
 The scheme: k-means picks centroids; each row stores the id of its
 nearest centroid in an integer column with an ordinary index; a query

@@ -19,13 +19,15 @@
 --- Out of memory: a call that cannot get the memory it needs raises
 --- "not enough memory", as any Lua allocation does, and leaves the corpus
 --- as it was (an `add` that raised added nothing; a later call works
---- once memory is back). Growing a corpus briefly holds the old buffers
---- beside the new, so it needs up to half again what it holds.
+--- once memory is back). Growing a corpus allocates buffers twice the
+--- size of the old ones, which are freed only when collected, so it can
+--- need up to three times what it holds.
 ---
 --- Interruption: inside a [`Signal.guard`] of [`cosmic.signal`], a pending
 --- SIGINT or SIGTERM ends [`Vector.Corpus.search`] and [`Vector.kmeans`]
---- with an error that reads "interrupted", within a fraction of a
---- millisecond of work, without taking the signal (the guard's holder
+--- with an error that reads "interrupted", within a few hundred rows
+--- of work (milliseconds at thousands of dimensions; one centroid pass
+--- while k-means seeds), without taking the signal (the guard's holder
 --- still sees it) and without changing the corpus. They raise rather
 --- than answer `nil`: they have no partial answer, and a raise is the
 --- one shape a caller who did not expect a signal cannot mistake for a

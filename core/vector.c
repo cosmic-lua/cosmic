@@ -676,8 +676,8 @@ int cosmic_vector_functions (sqlite3 *db) {
  * them (a corpus of a million vectors is not a 100-byte object to it),
  * the checked core refuses them like any Lua allocation, and nothing is
  * left on the C heap for a __gc to release. A buffer never moves while
- * the corpus holds it, so the pointers below stay valid across any Lua
- * call that has the corpus on the stack. Growing allocates the bigger
+ * the corpus holds it, so the pointers below stay valid across a Lua
+ * call that has the corpus on the stack and does not add to it. Growing allocates the bigger
  * buffer, copies, and only then swaps it in: a refusal raises with the
  * corpus as it was. */
 
@@ -708,15 +708,15 @@ static struct corpus *check_corpus (lua_State *L, int arg) {
  * SIGTERM, without taking the signal: the guard's holder still sees it.
  * The long calls below ask every few hundred rows. What they hold is
  * Lua's own, so the raise leaves nothing to release, and the corpus is
- * left as it was: no call changes it after its first check, but for the
- * bit vectors [`ensure_bits`] swaps in whole. */
+ * left as it was: search and kmeans never change the corpus, and
+ * [`ensure_bits`] publishes the bit vectors only after its loop ends. */
 static void check_interrupt (lua_State *L) {
   if (cosmic_signal_caught()) luaL_error(L, "interrupted");
 }
 
 /* How often a row loop asks: a power of two minus one, to mask a row
- * number with. A row costs some hundreds of nanoseconds or more, so a
- * signal is seen within a fraction of a millisecond. */
+ * number with: a signal is seen within that many rows' work, which is
+ * milliseconds at thousands of dimensions. */
 #define CHECK_EVERY 255u
 
 /* Reads argument `arg` as a vector of `dims` floats into a freshly
