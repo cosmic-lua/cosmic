@@ -479,7 +479,9 @@ local class Parser is Multipart.Reader
       return nil, ""
     end
     self.count = self.count + 1
-    if self.count > self.max_parts then return fail(self, "multipart: more than max_parts parts") end
+    if self.count > self.max_parts then
+      return fail(self, "multipart: more than max_parts parts")
+    end
     local body: BodyReader = {
       generation = self.generation + 1, finished = false,
       parsed_generation = function(): integer return self.generation end,

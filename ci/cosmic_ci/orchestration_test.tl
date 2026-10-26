@@ -1719,7 +1719,7 @@ local function test_the_darwin_suite_runs_on_the_macos_legs_gating_runs_alone(tm
     -- line.
     local failing = if case.ok then "" else
       "if [ \"$*\" = '" .. darwin .. "' ]; then printf '%s\\n' " ..
-      "'test: 1 of 2 tests failed, 0 infrastructure errors, 5 ms; unsandboxed'; exit 1; fi\n" end
+        "'test: 1 of 2 tests failed, 0 infrastructure errors, 5 ms; unsandboxed'; exit 1; fi\n" end
     Fixture.write(fake .. "/bin/zig", "#!/bin/sh\nmkdir -p o/bin\nprintf db > o/build.db\n" ..
         "cat > o/bin/cosmic <<'EOF'\n#!/bin/sh\n" ..
         "if [ \"$1\" = test ]; then printf '%s\\n' \"$*\" >> \"$0.ran\"; fi\n" .. failing ..

@@ -283,7 +283,7 @@ end
 
 local function test_a_method_called_on_a_union_of_enums_or_of_an_enum_and_a_string()
   local r = Programs.run(KIND .. "local function f(u: Kind | Other, v: Kind | string): string\n" ..
-    "  local s = u:upper()\n  return s .. v:sub(1, 1)\nend\n")
+      "  local s = u:upper()\n  return s .. v:sub(1, 1)\nend\n")
   assert(#r.before == 0 and #r.errors == 0, Programs.codes(r))
   assert(codes_of(KIND .. "local function f(u: Kind | Other)\n  local x: Kind = u:upper()\nend\n") == "not_assignable")
   -- a member that is not text has no function of string, and one with a function of its own differs from it

@@ -13,7 +13,6 @@ local shared_compiles = require("build.shared_compiles")
 local work = require("build.work")
 local parses_fixture = require("build.parses_fixture")
 
-
 --- Every row `sql` answers of the database at `path`, a line each, and
 --- every row of every parse table of a working database.
 local dump = parses_fixture.dump

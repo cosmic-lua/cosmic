@@ -20,7 +20,6 @@ local type Module = importer.Module
 -- database ("cosmic") has.
 Test.policy{ env = { "COSMIC_GRAMMAR" }, profiles = { "cosmic" }, grants = { { path = "o/bin", letters = "rx" } } }
 
-
 local function doc(parts: {string}): string
   return table.concat(parts, "\n") .. "\n"
 end

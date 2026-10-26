@@ -1692,7 +1692,7 @@ local function parse_method(first: integer, seen: mut {string: boolean}): Ast.Me
       report("duplicate_field", name.first, "the name `" .. name.name .. "` is declared twice in the class",
         if declares_type then
           "delete the field and write its parameter and return types on the method; the receiver is `self`, so a field " ..
-          "`function(R, integer)` is `function " .. name.name .. "(self, x: integer)`" else
+            "`function(R, integer)` is `function " .. name.name .. "(self, x: integer)`" else
           "rename or delete one; a method and a field, or two methods, cannot share a name" end)
     end
     seen["\0method " .. name.name] = true

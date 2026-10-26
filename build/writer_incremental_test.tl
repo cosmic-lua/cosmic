@@ -15,7 +15,6 @@ local Test = require("cosmic.test")
 Test.policy{ grants = { { path = "core", letters = "r" }, { path = "lang/prelude.d.tl", letters = "r" },
   { path = "lang/stdlib.d.tl", letters = "r" } } }
 
-
 --- One module of the tree: the variants of each part that an edit moves, so
 --- that a step is one change to one record. `dep` is the module it requires,
 --- `-` for none. A tree is the lines of its modules in the order of their

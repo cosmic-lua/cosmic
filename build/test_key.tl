@@ -790,7 +790,9 @@ end
 local function tool_use(rec: Recording, m: Module): ToolUse
   local effective = rec.effective[m.path]
   if effective.tool then return "declared" end
-  if effective.lua or effective.nests then return if seals(rec, m) then "sealed" else "allowed" end end
+  if effective.lua or effective.nests then
+    return if seals(rec, m) then "sealed" else "allowed" end
+  end
   return if can_forbid(rec, m) then "forbidden" else "allowed" end
 end
 
@@ -1371,7 +1373,7 @@ local function write_sealed(sealing: Sealing, store: string, whole: string, out:
   local meta: mut {{string}} = { { "core_sha256", core }, { "main", "cmd.cosmic.main" },
     { "runtime_basis", basis } }
   for _, key in ipairs(if with_compiler then { "image_hash", "compiler", "compiled_by" } else
-        { "image_hash" } end) do
+      { "image_hash" } end) do
     local value = Store.meta(key)
     if value ~= nil then meta[#meta + 1] = { key, value } end
   end

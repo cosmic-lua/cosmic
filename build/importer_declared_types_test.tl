@@ -15,7 +15,6 @@ local work = require("build.work")
 --- The core's own tree, which a compile of a fixture reads beside it.
 Test.policy{ grants = { { path = "core", letters = "r" } } }
 
-
 local function test_a_compile_with_no_cache_and_no_choice_is_as_declared(tmp: string)
   assert(Fs.write(tmp .. "/a.tl", "return { answer = 42 }\n"))
   local found = TypeWatch.during(function()

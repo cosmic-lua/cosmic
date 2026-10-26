@@ -141,7 +141,9 @@ function policy_rules.entry_trouble(field: string, value: string): string
   else
     trouble = path_trouble(value, field == "host")
   end
-  if trouble ~= "" then return (if field == "env" then "env" else "grants" end) .. ": " .. trouble end
+  if trouble ~= "" then
+    return (if field == "env" then "env" else "grants" end) .. ": " .. trouble
+  end
   return ""
 end
 

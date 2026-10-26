@@ -313,8 +313,8 @@ local function test_a_chain_of_tests_over_every_value_of_a_member_leaves_the_res
       "print(h(pair()), h(other()))\n", "7\t9", PAIR)
   -- The chain ends the function when it covers every value of every member, and not when one is left.
   local all = "local function size(f: Figure): integer\n  if f.kind == \"circle\" then\n    return f.radius\n  elseif f.kind == \"oval\" then\n" ..
-      "    return f.radius + 1\n  elseif f.kind == \"square\" or f.kind == \"rect\" or f.kind == \"tri\" then\n    return f.side\n" ..
-      "  elseif f.kind == \"line\" then\n    return f.length\n  end\nend\n"
+    "    return f.radius + 1\n  elseif f.kind == \"square\" or f.kind == \"rect\" or f.kind == \"tri\" then\n    return f.side\n" ..
+    "  elseif f.kind == \"line\" then\n    return f.length\n  end\nend\n"
   stands(all .. "print(size(curved(\"oval\")), size(angular(\"tri\")), size(line()))\n", "4\t4\t5", MANY)
   refused("local function size(f: Figure): integer\n  if f.kind == \"circle\" then\n    return f.radius\n  elseif f.kind == \"square\" or f.kind == \"rect\" or " ..
       "f.kind == \"tri\" then\n    return f.side\n  elseif f.kind == \"line\" then\n    return f.length\n  end\nend\n", "missing_return", MANY)

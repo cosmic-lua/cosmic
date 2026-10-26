@@ -930,7 +930,9 @@ local function remember(cache: Cache, path: string, key: string, ordinal: intege
     if bound then bound, bind_trouble = put:bind_text(2, cache.tool) end
     if bound then bound, bind_trouble = put:bind_text(3, lua) end
     if bound then bound, bind_trouble = put:bind_blob(4, bytecode) end
-    if bound then bound, bind_trouble = put:bind_integer(5, if refused then -1 else cache.run end) end
+    if bound then
+      bound, bind_trouble = put:bind_integer(5, if refused then -1 else cache.run end)
+    end
     if not bound then
       return false, bind_trouble
     end

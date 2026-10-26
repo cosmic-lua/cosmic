@@ -156,7 +156,7 @@ end
 --- guard caught a signal meanwhile (the corpus unchanged, the signal
 --- untaken).
 local function corpus_search(self: Vector.Corpus, query: string, k: integer,
-    opts?: Vector.SearchOptions): Vector.Hits?, string
+                             opts?: Vector.SearchOptions): Vector.Hits?, string
   local o = opts or {}
   local metric: string = o.metric or "inner_product"
   local ids, scores = self.handle:search(query, k, metric, o.candidates, o.allow)

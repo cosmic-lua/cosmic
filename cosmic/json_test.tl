@@ -293,7 +293,9 @@ local function test_duplicate_keys_are_refused()
   -- Large objects holding nulls inside large objects, decoded whole.
   local inner = "{" .. table.concat(large, ", ", 1, 70) .. "}"
   local outer: mut {string} = {}
-  for i = 1, 70 do outer[#outer + 1] = ('"o%d": %s'):format(i, if i % 2 == 0 then "null" else inner end) end
+  for i = 1, 70 do
+    outer[#outer + 1] = ('"o%d": %s'):format(i, if i % 2 == 0 then "null" else inner end)
+  end
   local within = decoded("{" .. table.concat(outer, ", ") .. "}") as {string: {string: any}}
   assert(within.o2 == nil and within.o1.k5 == nil and within.o1.k6 == 6, "every held null let go")
   for _, v in pairs(within.o1) do assert(type(v) == "number", "only the values the text holds") end

@@ -725,7 +725,7 @@ local class EntryWriter is Tar.Writer
   deterministic: boolean
 
   function add_file(self, path: string, data: string | Stream.Reader,
-                                fopts?: Stream.EntryOptions): boolean, string
+                    fopts?: Stream.EntryOptions): boolean, string
     fopts = fopts or {}
     local given = fopts.size
     if given ~= nil and (math.type(given) ~= "integer" or given < 0) then

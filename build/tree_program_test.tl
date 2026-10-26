@@ -15,7 +15,6 @@ Test.policy{ grants = {
   { path = "core/socket.h", letters = "r" }, { path = "core", letters = "r" },
 } }
 
-
 --- The files of the sources of `index`, in order, as one line.
 local function files_of(index: Driver.Index): string
   local files: mut {string} = {}

@@ -54,7 +54,9 @@ local function same(a: string, b: string): boolean
 end
 
 local function hex(bytes: string): string
-  return (bytes:gsub(".", function(c: string): string return string.format("%02x", assert(c:byte())) end))
+  return (bytes:gsub(".", function(c: string): string
+    return string.format("%02x", assert(c:byte()))
+  end))
 end
 
 --- The terminal's state is as it was at the start.

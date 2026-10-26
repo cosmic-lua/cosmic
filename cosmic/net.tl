@@ -177,7 +177,6 @@ local record Net
     connector?: Connector
   end
 
-
   --- What [`Net.serve`] serves, and how. A field of the wrong shape, or
   --- one not named here, raises, naming it.
   record ServeSpec
@@ -323,7 +322,9 @@ local class SocketConn is Net.Conn
   -- raises SIGPIPE where sys.write may, and reads the timeout [`set_timeout`]
   -- changes on every call, which an option fixes when the object is made.
   function read(self, max_bytes?: integer): string?, string
-    if max_bytes ~= nil and max_bytes <= 0 then error("net: read's max_bytes must be positive", 2) end
+    if max_bytes ~= nil and max_bytes <= 0 then
+      error("net: read's max_bytes must be positive", 2)
+    end
     if not self.open then return nil, "net: the connection is closed" end
     if self.read_failure ~= "" then return nil, self.read_failure end
     local fd = self.fd

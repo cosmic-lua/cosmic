@@ -861,4 +861,3 @@ local function test_the_readonly_write_the_new_checker_takes_is_run_and_its_twin
   assert(#printed == 1 and printed[1] == "b", table.concat(printed, "|"))
   assert(codes_of("local record R\n  name: string\nend\nlocal r: R = { name = 'a' }\nr.name = 'b'\n") == "field_fixed")
 end
-

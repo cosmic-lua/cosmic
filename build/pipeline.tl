@@ -209,7 +209,6 @@ local function judges_stub(file: string, module: string): boolean
   return SyntaxContracts.kind_of(file) == "module" and module:sub(1, 7) == "cosmic."
 end
 
-
 --- Why the stub `made` of a module does not stand for its source `source` (the module read by `built`), or "" where it does.
 local function stub_verdict(made: Stub.Made, built: Driver.Build, source: Driver.Outcome, stubbed: Driver.Build): string
   if not made.pruned then

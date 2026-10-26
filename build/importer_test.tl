@@ -39,7 +39,6 @@ local function requires_of(source: string, file: string): {string}
   return SyntaxNode.requires(parsed.chunk)
 end
 
-
 --- A module requiring each of `uses`, by name.
 local function module_requiring(uses: {string}): string
   local lines: mut {string} = {}
@@ -1990,4 +1989,3 @@ local function test_the_module_shape_does_not_reach_the_plans_or_the_readers()
     assert(not seen[name], "the shared module shape pulled in " .. name)
   end
 end
-

@@ -269,9 +269,9 @@ local function write_runtime_fixture(argv: {string}): integer
   local cores, records = targets.blobs, targets.records
   local prefix = if argv[5] == "test" then
     assert(artifact.test_prefix(records, cores))
-  else
+    else
     assert(artifact.prefix(records, cores))
-  end
+    end
   local database = assert(Fs.read(database_path))
   local program = assert(artifact.program(prefix, database))
   assert(Fs.write(output, program))

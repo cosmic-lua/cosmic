@@ -55,7 +55,7 @@ end
 -- The seven nearest by the SQL function `order` and by the corpus agree in
 -- id and, once `score` turns the SQL value into the corpus's, in score.
 local function agree(db: Sqlite.Handle, corpus: Vector.Corpus, q: string, metric: Vector.Metric,
-    order: string, score: function(number): number)
+                     order: string, score: function(number): number)
   local param: Sqlite.Value = { blob = q }
   local expected = assert(Sqlite.map(db,
     "SELECT id, " .. order .. " FROM chunks ORDER BY 2, id LIMIT 7", { param },

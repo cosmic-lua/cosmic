@@ -62,7 +62,7 @@ local function test_a_script_that_fails_for_another_reason_is_a_complaint(tmp: s
   local complaints = report.complaints
   assert(#complaints == 3, table.concat(complaints, "\n"))
   assert(assert(complaints[1]):find("build/crash.tl: exited 1 with --help, not 0: ", 1, true) == 1 and
-    assert(complaints[1]):find("no such module", 1, true) ~= nil, complaints[1])
+      assert(complaints[1]):find("no such module", 1, true) ~= nil, complaints[1])
   assert(assert(complaints[2]):find("build/exits.tl: exited 7 with --help, not 0", 1, true) == 1, complaints[2])
   -- perf.tl gives 1 as it does; paths.tl, which gives 1 too, giving 0 is not what the table says.
   assert(assert(complaints[3]):find("build/paths.tl: exited 0 with --help, not 1", 1, true) == 1, complaints[3])

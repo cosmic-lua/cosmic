@@ -15,7 +15,6 @@ local work = require("build.work")
 local writer = require("build.writer")
 local Clock = require("cosmic.clock")
 
-
 --- Writes a minimal one-module project at `root`, greeting `whom`: the
 --- one build/writer_test.tl projects, restated here since a test module
 --- requires no other's.

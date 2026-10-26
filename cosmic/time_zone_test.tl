@@ -285,7 +285,9 @@ local function tzif(version: string, times: {integer}, indices: {integer}, types
   local function block(wide: boolean): string
     local parts = { "TZif", version, ("\0"):rep(15),
       string.pack(">I4I4I4I4I4I4", 0, 0, 0, #times, #types, #chars) }
-    for _, t in ipairs(times) do parts[#parts + 1] = string.pack(if wide then ">i8" else ">i4" end, t) end
+    for _, t in ipairs(times) do
+      parts[#parts + 1] = string.pack(if wide then ">i8" else ">i4" end, t)
+    end
     for _, i in ipairs(indices) do parts[#parts + 1] = string.char(i) end
     for _, t in ipairs(types) do parts[#parts + 1] = string.pack(">i4BB", t[1], t[2], t[3]) end
     parts[#parts + 1] = chars

@@ -1004,7 +1004,7 @@ local class EntryWriter is Zip.Writer
   mut count: integer
 
   function add_file(self, path: string, data: string | Stream.Reader,
-                                fopts?: Zip.EntryOptions): boolean, string
+                    fopts?: Zip.EntryOptions): boolean, string
     fopts = fopts or {}
     local size = fopts.size
     if size ~= nil and (math.type(size) ~= "integer" or size < 0) then

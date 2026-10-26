@@ -184,7 +184,7 @@ local function test_a_declaration_is_read_under_its_own_name()
   assert(Fs.mkdirs(root .. "/lib"))
   assert(Fs.write(root .. "/lib/decl.d.tl", "local record Decl\n  list: {integer}\nend\nreturn Decl\n"))
   assert(Fs.write(root .. "/lib/decl.tl", 'local record Decl\n  list: {string}\nend\n' ..
-    'local d: Decl = { list = { "a" } }\nreturn d\n'))
+      'local d: Decl = { list = { "a" } }\nreturn d\n'))
   local text = 'local d = require("lib.decl")\nlocal s: string = d.list\nreturn s\n'
   local found = only(nth(served(root, { initialize(root), open(root, "main.tl", text) }), 1))
   assert(found.message == "`d.list` is `{integer}`, where `string` is wanted as the value of `s` " ..
@@ -254,7 +254,7 @@ local function test_a_dependent_reached_through_another_module_is_checked_again(
   local text = "local record helper\n  record Item\n    n: string\n  end\nend\n\nreturn helper\n"
   assert(Fs.write(root .. "/helper.tl", integer))
   assert(Fs.write(root .. "/mid.tl", 'local helper = require("helper")\nlocal type Item = helper.Item\n\n' ..
-    "local record mid\nend\n\nfunction mid.item(): Item\n  return { n = 1 }\nend\n\nreturn mid\n"))
+      "local record mid\nend\n\nfunction mid.item(): Item\n  return { n = 1 }\nend\n\nreturn mid\n"))
   local top = 'local mid = require("mid")\nlocal item = mid.item()\nlocal n: integer = item.n\nreturn n\n'
   assert(Fs.write(root .. "/top.tl", top))
   local send = serving(root)

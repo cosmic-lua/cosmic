@@ -293,13 +293,13 @@ print(Each)
   }
   local r = Programs.run("local e = require(\"eachdecl\")\nprint(e.run(function(s) return #s:upper() end, 1))\n", nil, agree)
   assert(#r.before == 0 and Programs.codes(r) == "", "every overload calls the literal with a string, but: " ..
-    table.concat(r.before, " ") .. Programs.codes(r))
+      table.concat(r.before, " ") .. Programs.codes(r))
   local disagree: {string: string} = {
     ["eachdecl"] = "local record Each\n  run: function(f: function(string): integer, n: integer): integer\n" ..
       "  run: function(f: function(integer): integer, s: string): integer\nend\nreturn Each\n",
   }
   local r2 = Programs.run("local e = require(\"eachdecl\")\nprint(e.run(function(s: string): integer return #s end, 1))\n" ..
-    "print(e.run(function(s) return s:upper() end, 1))\n", nil, disagree)
+      "print(e.run(function(s) return s:upper() end, 1))\n", nil, disagree)
   assert(#r2.before == 0 and Programs.codes(r2) ~= "",
     "overloads that disagree give the literal no context, but nothing was refused")
 end

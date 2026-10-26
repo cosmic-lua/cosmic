@@ -1158,7 +1158,7 @@ local function checked_suite(c: Context, target: string, work: string,
     if stale ~= "0" and exists(stale) then
       local removed, trouble = Fs.remove(stale)
       local _, _ = Fs.put(Fs.stderr, if removed then ("checked suite: removed this leg's " .. stale .. "\n") else
-          ("checked suite: could not remove " .. stale .. ": " .. tostring(trouble) .. "\n") end)
+        ("checked suite: could not remove " .. stale .. ": " .. tostring(trouble) .. "\n") end)
     end
     if target == "aarch64-macos" then
       local diagnostics = work .. "/checked-diagnostics"

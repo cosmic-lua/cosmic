@@ -12,7 +12,6 @@ local work = require("build.work")
 
 Test.policy{ grants = { { path = "core", letters = "r" } } }
 
-
 --- How many modules the tree can have, and the bit of `edges` that is a module of
 --- the standard library, which each may require beside the others.
 local count <const> = 14

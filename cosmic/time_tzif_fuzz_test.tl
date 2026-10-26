@@ -71,7 +71,9 @@ local function write(version: string, times: {integer}, indices: {integer}, type
   local function block(wide: boolean, count: integer): string
     local parts = { "TZif", version, ("\0"):rep(15),
       string.pack(">I4I4I4I4I4I4", 0, 0, 0, count, #types, length) }
-    for i = 1, count do parts[#parts + 1] = string.pack(if wide then ">i8" else ">i4" end, times[i]) end
+    for i = 1, count do
+      parts[#parts + 1] = string.pack(if wide then ">i8" else ">i4" end, times[i])
+    end
     for i = 1, count do parts[#parts + 1] = string.char(indices[i] - 1) end
     for _, t in ipairs(types) do
       parts[#parts + 1] = string.pack(">i4BB", t.offset, if t.dst then 1 else 0 end, at[t.abbreviation])

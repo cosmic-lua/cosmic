@@ -175,9 +175,9 @@ local function test_nearest_and_nearest_n()
   assert(#two == 2 and two[1] == 2 and two[2] == 1)
   assert(#Vector.nearest_n(centroids, Vector.pack({ 0.2, 0.9 }), 10) == 3)
   assert(refusal(function() Vector.nearest_n(centroids, Vector.pack({ 1, 0, 0 }), 1) end)
-    :find("centroid", 1, true))
+      :find("centroid", 1, true))
   assert(refusal(function() Vector.nearest_n(centroids, Vector.pack({ 1, 0 }), 0) end)
-    :find("at least 1", 1, true))
+      :find("at least 1", 1, true))
 end
 
 -- How well the clusters k-means found match the true ones: of the true
@@ -297,7 +297,7 @@ end
 local function test_iterations_under_one_raise()
   local corpus = corpus_of(dataset())
   assert(refusal(function() Vector.kmeans(corpus, 3, { iterations = 0 }) end)
-    :find("iterations is at least 1", 1, true))
+      :find("iterations is at least 1", 1, true))
 end
 
 local function test_nearest_refusals()
@@ -308,15 +308,15 @@ local function test_nearest_refusals()
   -- 4 bytes long standing in for a one-dimension centroid.
   local build = assert(load("local nearest, v, w = ...; return nearest({ v, 5 }, v), nearest({ 1234 }, w)"))
   assert(refusal(function() build(Vector.nearest, one, Vector.pack({ 1 })) end)
-    :find("centroid", 1, true))
+      :find("centroid", 1, true))
   local alone = assert(load("local nearest, w = ...; return nearest({ 1234 }, w)"))
   assert(refusal(function() alone(Vector.nearest, Vector.pack({ 1 })) end)
-    :find("centroid", 1, true))
+      :find("centroid", 1, true))
   local infinite = string.pack("<f", math.huge)
   assert(refusal(function() Vector.nearest({ Vector.pack({ 1 }) }, infinite) end)
-    :find("finite", 1, true))
+      :find("finite", 1, true))
   assert(refusal(function() Vector.nearest({ infinite }, Vector.pack({ 1 })) end)
-    :find("finite", 1, true))
+      :find("finite", 1, true))
 end
 
 local function test_nearest_survives_scores_that_are_not_finite()
@@ -357,6 +357,6 @@ local function test_nearest_is_the_best_inner_product_ties_to_the_lower()
     assert(Vector.nearest(centroids, p) == best, "point " .. tostring(i))
     assert(assert(Vector.nearest_n(centroids, p, 7)[1]) == best)
   end
-  assert(Vector.nearest({ assert(centroids[2]), assert(centroids[2]) }, assert(points[1]))
-    == 1)
+  assert(Vector.nearest({ assert(centroids[2]), assert(centroids[2]) }, assert(points[1])) ==
+      1)
 end

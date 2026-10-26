@@ -404,7 +404,7 @@ function Solve.main(argv: {string}): integer
   local seconds = (Time.monotonic_ns() - started) // 1000000000
   complain(arena .. ": exit " .. tostring(status) .. " after " .. tostring(seconds) .. "s" ..
       (if result ~= nil and result.timed_out then " (past the " .. tostring(options.timeout) ..
-        "s deadline)" else "" end))
+          "s deadline)" else "" end))
   return status
 end
 
