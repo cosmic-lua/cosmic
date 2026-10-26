@@ -1,8 +1,8 @@
 --- Fuzz properties for the vectors of [`cosmic.vector`] and the SQL
 --- functions beside them (core/vector.c): the text a vector is read from,
 --- every SQL function over arbitrary blobs, the packing functions, the
---- corpus's search against a brute-force reference. Each is total -- an
---- answer or a refusal, never a crash -- and
+--- corpus's search against a brute-force reference, and the centroid
+--- search. Each is total -- an answer or a refusal, never a crash -- and
 --- each answer is held to a reference written here in Teal, over the
 --- bytes. `FUZZ_SEED` and `FUZZ_ITERS` pick the inputs (build/fuzz/init.tl).
 ---
@@ -1320,6 +1320,10 @@ local REFUSAL_CHUNK <const> = [[
     corpus_dims_float = { true, function() Vector.corpus(1.5) end },
     corpus_dims_nil = { true, function() Vector.corpus(nil) end },
     corpus_dims_max = { false, function() Vector.corpus(16000) end },
+    kmeans_k0 = { true, function() Vector.kmeans(corpus, 0) end },
+    kmeans_k_big = { true, function() Vector.kmeans(corpus, corpus:count() + 1) end },
+    kmeans_iterations0 = { true, function() Vector.kmeans(corpus, 1, { iterations = 0 }) end },
+    kmeans_ok = { false, function() Vector.kmeans(corpus, 1) end },
     method_on_nothing = { true, function() corpus.search(nil, good, 1) end },
     method_on_table = { true, function() corpus.add({}, 1, good) end },
   }
@@ -1350,7 +1354,7 @@ local REFUSAL_OPS <const>: {string} = { "add_short", "add_long", "add_nan", "add
   "search_allow_table", "search_allow_number", "search_short", "search_nan", "search_number",
   "search_ok", "search_big_k", "search_everything", "search_allow_empty", "search_allow_whole_float",
   "corpus_dims0", "corpus_dims_neg", "corpus_dims_big", "corpus_dims_float", "corpus_dims_nil",
-  "corpus_dims_max",
+  "corpus_dims_max", "kmeans_k0", "kmeans_k_big", "kmeans_iterations0", "kmeans_ok",
   "method_on_nothing", "method_on_table" }
 
 local function gen_refusals_input(src: Fuzz.Source): string
@@ -1383,3 +1387,139 @@ local function test_a_corpus_refuses_what_is_not_a_vector_or_a_request(tmp: stri
   })
 end
 
+--------------------------------------------------------------------------
+-- Vector.nearest and Vector.nearest_n
+--------------------------------------------------------------------------
+
+--- Calls the centroid search on a list built from kinds: `s` a string, or
+--- a thing that is no vector.
+local NEAREST_CHUNK <const> = [[
+  local Vector, kinds, blobs, v, n = ...
+  local list = {}
+  for i = 1, #kinds do
+    local kind = kinds[i]
+    if kind == "s" then list[i] = blobs[i]
+    elseif kind == "num" then list[i] = 1.5
+    elseif kind == "tbl" then list[i] = {}
+    else list[i] = true end
+  end
+  local ok, many = pcall(Vector.nearest_n, list, v, n)
+  local one_ok, one = pcall(Vector.nearest, list, v)
+  if ok then many = table.concat(many, ",") else many = tostring(many) end
+  if not one_ok then one = -1 end
+  return ok, many, one_ok, one
+]]
+
+local run_nearest = assert(load(NEAREST_CHUNK, "=vector_fuzz_nearest", "t"))
+
+local function gen_nearest_input(src: Fuzz.Source): string
+  local kind = src:int(0, 4)
+  if kind == 3 then kind = 0 end
+  local letters = alphabet(kind)
+  local dims = Fuzz.pick(src, { 1, 1, 2, 3, 5 })
+  local hostile = src:int(0, 2) == 0
+  local kinds: mut {string} = {}
+  local blobs: mut {string} = {}
+  while Fuzz.more(src, #kinds, 8) do
+    local r = 99
+    if hostile then r = src:int(0, 15) end
+    if r == 0 then
+      kinds[#kinds + 1] = Fuzz.pick(src, { "num", "tbl", "bool" })
+      blobs[#blobs + 1] = ""
+    else
+      kinds[#kinds + 1] = "s"
+      if r == 1 then
+        blobs[#blobs + 1] = blob_of(gen_numbers(src, letters, Fuzz.pick(src, { 0, dims + 1, 2 * dims })))
+      elseif r == 2 then
+        blobs[#blobs + 1] = gen_chunks(src, true, false, dims)
+      elseif r == 3 then
+        blobs[#blobs + 1] = blob_of(gen_numbers(src, letters, dims)):sub(1, 4 * dims - 1)
+      else
+        blobs[#blobs + 1] = blob_of(gen_numbers(src, letters, dims))
+      end
+    end
+  end
+  local query = blob_of(gen_numbers(src, letters, dims))
+  if hostile and src:int(0, 4) == 0 then
+    query = Fuzz.pick(src, { "", "abc", gen_chunks(src, true, false, dims), query .. "x" })
+  end
+  local n = Fuzz.pick(src, { 1, 1, 2, 3, 5, 100, 0, -1 })
+  return Fuzz.pack({ table.concat(kinds, ","), Fuzz.pack(blobs), query, tostring(n) })
+end
+
+local function check_nearest(input: string): boolean, string
+  local fields = Fuzz.unpack(input)
+  local kinds_text = assert(fields[1])
+  local kinds = split(kinds_text, ",")
+  if kinds_text == "" then kinds = {} end
+  local blobs = Fuzz.unpack(assert(fields[2]))
+  local query = assert(fields[3])
+  local n = to_int(assert(fields[4]))
+  local refuses = #kinds == 0 or #query == 0 or #query % 4 ~= 0 or not all_finite(floats_of(query))
+  for i, kind in ipairs(kinds) do
+    local blob = assert(blobs[i])
+    if kind ~= "s" or #blob ~= #query or not all_finite(floats_of(blob)) then refuses = true end
+  end
+  local ok, many, one_ok, one = run_nearest(Vector, kinds, blobs, query, n)
+  if not (ok is boolean and many is string and one_ok is boolean and one is integer) then
+    return false, "the chunk answered oddly"
+  end
+  if ok == (refuses or n < 1) or one_ok == refuses then
+    return false, ("nearest_n %s and nearest %s with %d centroids (%s), n=%d: %s"):format(
+      if ok then "took it" else "refused" end, if one_ok then "took it" else "refused" end, #kinds, kinds_text, n, many)
+  end
+  if refuses or n < 1 then
+    Fuzz.label("refused")
+    return true, ""
+  end
+  local q = floats_of(query)
+  local pool: mut {Scored} = {}
+  local overflow = false
+  for i = 1, #kinds do
+    local centroid = floats_of(assert(blobs[i]))
+    local sim = dot_of(centroid, q)
+    -- A product past a float's range is the only way to a sum that differs.
+    if math.abs(sim) > 1e30 or not ordinary(centroid) then overflow = true end
+    pool[#pool + 1] = { id = i, key = sim, row = i }
+  end
+  local order = ranked(pool)
+  local want: mut {string} = {}
+  for i = 1, math.min(n, #order) do want[#want + 1] = tostring(assert(order[i]).id) end
+  if overflow then
+    -- Scores that overflow in float have no reference here: the answer must
+    -- still be distinct indexes of centroids. They await the TODO at the
+    -- score loop in core/vector.c (the corpus kernels sum in float).
+    local seen: mut {integer: boolean} = {}
+    local count = 0
+    for token in many:gmatch("[^,]+") do
+      local at = to_int(token)
+      if seen[at] == true or at < 1 or at > #kinds then return false, "nearest_n answered " .. many end
+      seen[at] = true
+      count = count + 1
+    end
+    if count ~= math.min(n, #kinds) then return false, "nearest_n answered " .. many end
+    Fuzz.label("overflowing")
+    return true, ""
+  end
+  if many ~= table.concat(want, ",") then
+    return false, ("nearest_n answered %s, not %s, for %d centroids and n=%d"):format(many,
+      table.concat(want, ","), #kinds, n)
+  end
+  if one ~= assert(order[1]).id then
+    return false, ("nearest answered %d, not %d"):format(one, assert(order[1]).id)
+  end
+  Fuzz.label("ranked")
+  if #order > 1 and assert(order[1]).key == assert(order[2]).key then Fuzz.label("tie") end
+  return true, ""
+end
+
+local function test_nearest_matches_a_reference_and_refuses_hostile_lists(tmp: string)
+  Fuzz.run({
+    name = "vector nearest",
+    dir = tmp,
+    gen = gen_nearest_input,
+    check = check_nearest,
+    requires = { "ranked", "tie", "refused", "overflowing" },
+    shares = { ranked = 0.1, refused = 0.1 },
+  })
+end

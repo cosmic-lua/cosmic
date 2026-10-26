@@ -4,10 +4,9 @@ Embedding search in cosmic: store a model's vectors, find the nearest
 to a query under any filter, and blend that with keyword search, in one
 binary with nothing else running. This plan is the outcome of a design
 discussion ([#3218]) and the record of what is decided, what is built,
-and what comes next. Phases 1 and 2 are in the tree; phases 3 and 4
-are planned, and a prototype of them is in [#3218], not yet merged.
-Where phase 3 or 4 names a file or a result, it describes that
-prototype.
+and what comes next. Phases 1 to 3 are in the tree; phase 4 is
+planned, and a prototype of it is in [#3218], not yet merged. Where
+phase 4 names a file or a result, it describes that prototype.
 
 ## Goal and scope
 
@@ -164,14 +163,15 @@ Details:
 - **Memory** is allocated through Lua, so the garbage collector sees
   its size: each buffer is a userdata held in a user value of the
   corpus (see the status below).
-- **Long calls can be cancelled.** `search` asks
-  [`cosmic_signal_caught`] every few hundred rows, as core/http.c and
-  core/socket.c do in their waits. Inside a [`Signal.guard`], a pending SIGINT or
+- **Long calls can be cancelled.** `search` and `kmeans` ask
+  [`cosmic_signal_caught`] every few hundred rows (and `kmeans` once per
+  centroid and iteration), as core/http.c and core/socket.c do in their
+  waits. Inside a [`Signal.guard`], a pending SIGINT or
   SIGTERM answers `nil, "interrupted"` and leaves the corpus as it was;
   the signal is not taken. That is the tree's convention for an
   interrupted operation, which core/http.c and core/socket.c follow,
   and honest returns (doc/design.md) make the result `Vector.Hits?,
-  string`. An earlier draft raised instead,
+  string` and `{string}?, string`. An earlier draft raised instead,
   because a search has no partial answer; the user decided on the
   convention over that. Out of memory and argument-shape errors still
   raise.
@@ -189,13 +189,13 @@ Details:
 and bit vectors) are Lua userdata held in the corpus's user values, so
 the garbage collector counts every byte, the checked core refuses them
 like any Lua allocation ([`core/allocation_test.tl`] walks creation,
-growth past the first capacity, and a search with `candidates` and
-`allow`, and that a refused allocation leaves the corpus as it was), and
+growth past the first capacity, a search with `candidates` and
+`allow`, `kmeans` and `nearest_n`, and that a refused allocation leaves the corpus as it was), and
 nothing is left on the C heap. The price is that growing allocates the
 larger buffer beside the old one, which lingers until collected, where
 `realloc` could extend in place: a corpus can need up to three times
 what it holds while it grows. A pending signal in a [`Signal.guard`]
-makes `search` answer `nil, "interrupted"` (see the decision above;
+makes `search` and `kmeans` answer `nil, "interrupted"` (see the decision above;
 tested in [`cosmic/vector_test.tl`]). [`cosmic/vector_fuzz_test.tl`]
 holds `pack`, `unpack`, `normalize`, `from_json` and the corpus's
 `search` and refusals to references written in Teal. Measured on
@@ -205,11 +205,11 @@ data. Earlier measurements: cosine 66 ms, L2 61 ms, 2.5 ms cosine with
 candidates. The 15 ms exact target is missed: the scan is
 bandwidth-bound, at about 5.4 GB/s on the test VM.
 
-## Phase 3: IVF over a cluster column (planned; prototyped in [#3218], not yet merged)
+## Phase 3: IVF over a cluster column (built)
 
 The approximate step for when brute force runs out, with no new storage.
 
-Status: prototyped in [#3218], not yet merged. `Vector.kmeans(corpus, k, { seed?, iterations? })`
+**Status:** built, in [`core/vector.c`] and [`cosmic/vector.tl`]. `Vector.kmeans(corpus, k, { seed?, iterations? })`
 is spherical k-means in C over the corpus buffer (vectors are scaled to
 length 1, centroids renormalized each step, so similarity is the inner
 product; k-means++ seeding from a splitmix64 stream of `seed`, default 1,
@@ -221,14 +221,18 @@ a seed and counts toward no cluster. `nearest` refuses a query or
 centroid holding a non-finite number. Also
 `Vector.nearest(centroids, v)` (1-based index) and
 `Vector.nearest_n(centroids, v, n)` (the probes, nearest first), and
-`cosmic/vector_ivf_test.tl` and `Example.ivf` show the SQL pattern with
+[`cosmic/vector_ivf_test.tl`] and `Example.ivf` in
+[`cosmic/vector_example.tl`] show the SQL pattern with
 `cluster IN carray(?2)`. No port of pgvector's code was made. Measured:
 on 20 well-separated clusters of 100 points in 64 dimensions, recall@10
 against exact search is 0.96 with 1 probe and 1.0 with 3 probes;
 `kmeans` of 100k x 768 with k = 100 takes about 4 s per iteration on
 the development host. A `kmeans` of that size can be cancelled within
 one block of rows (or one centroid pass while seeding), not only at
-the end of an iteration.
+the end of an iteration: under a [`Signal.guard`] that has caught a
+signal, `kmeans` answers `nil, "interrupted"` and leaves the corpus as it
+was (tested in [`cosmic/vector_test.tl`]; [`cosmic/vector_fuzz_test.tl`]
+holds `nearest_n` to a reference and the `kmeans` refusals).
 
 The scheme: k-means picks centroids; each row stores the id of its
 nearest centroid in an integer column with an ordinary index; a query
@@ -341,6 +345,7 @@ A separate track, pulled by its own callers. From the same discussion:
 [`cosmic.json`]: ../../cosmic/json.tl
 [`cosmic/sqlite_example.tl`]: ../../cosmic/sqlite_example.tl
 [`cosmic/vector_fuzz_test.tl`]: ../../cosmic/vector_fuzz_test.tl
+[`cosmic/vector_ivf_test.tl`]: ../../cosmic/vector_ivf_test.tl
 [`cosmic/vector_sql_test.tl`]: ../../cosmic/vector_sql_test.tl
 [`cosmic/vector_test.tl`]: ../../cosmic/vector_test.tl
 [`cosmic/vector_example.tl`]: ../../cosmic/vector_example.tl
