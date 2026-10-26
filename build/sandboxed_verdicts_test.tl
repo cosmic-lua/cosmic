@@ -717,6 +717,7 @@ local function test_a_test_is_given_the_store_of_its_closure_alone(tmp: string)
   assert(Fs.write(root .. "/suite/other.tl", "local record Lib\n  value: integer\nend\nlocal lib: Lib = { value = 1 }\nreturn lib\n"))
   assert(Fs.write(root .. "/suite/closed_test.tl", [[
 local Env = require("cosmic.env")
+local Globals = require("cosmic.internal.globals")
 local Store = require("cosmic.store")
 local Test = require("cosmic.test")
 local lib = require("suite.lib")
@@ -725,7 +726,7 @@ Test.policy { env = { "ADDED" } }
 
 -- A `require` of a name made at run time, from a chunk of Lua: the parser refuses it in a typed file.
 local function dynamic(name: string): any
-  local chunk = assert(load("return require('suite.' .. ...)", "=dynamic"))
+  local chunk = assert(load("return require('suite.' .. ...)", "=dynamic", "t", Globals.table()))
   local value: any = chunk(name)
   return value
 end

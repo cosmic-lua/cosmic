@@ -943,12 +943,6 @@ local restricted: {string: Restriction} = {
       "cannot check what it is about skips or declares `requires`, and one that checks " ..
       "asserts",
   },
-  ["build.load_module load"] = {
-    files = { "build/dispatch.tl", "build/test_worker.tl", "build/load_module_test.tl" },
-    why = "only the tool's entry and the test worker load a module by a name they get at run " ..
-      "time, which is no edge of the build: any other module requires what it needs by a " ..
-      "literal name, `require(\"cosmic.fs\")`, or picks from a table of such requires",
-  },
   ["build.confine sandbox_platform"] = {
     files = { "build/confine.tl", "build/host_requires.tl",
       "build/test_sandbox_probe.tl" },
@@ -960,7 +954,8 @@ local restricted: {string: Restriction} = {
 
 --- Each use in `db` of a member of `rules` (by default [`restricted`])
 --- from a file its rule does not name, as `<file>:<line>: <module> <member>
---- ...`.
+--- ...`; by default also each module that requires one only a few may
+--- ([`tree_checks.requirers`]).
 function tree_checks.restricted(db: Sqlite.Handle, rules?: {string: Restriction}): {string}
   local out: mut {string} = {}
   local names: mut {string} = {}
@@ -985,6 +980,53 @@ function tree_checks.restricted(db: Sqlite.Handle, rules?: {string: Restriction}
       end
     end
   end
+  if rules == nil then
+    for _, line in ipairs(tree_checks.requirers(db)) do out[#out + 1] = line end
+  end
+  return out
+end
+
+--- The modules only a few may require, by module: the loader of a module by a name got at run time is no edge of the
+--- build, so a module that holds it can load what no key, closure or carried program holds. Who may require it, not who
+--- calls it, is what is kept, so an alias of it in another module matters nothing.
+local requirers: {string: Restriction} = {
+  ["build.load_module"] = {
+    files = { "build.dispatch", "build.test_worker", "build.load_module_test" },
+    why = "only the tool's entry and the test worker load a module by a name they get at run " ..
+      "time, which is no edge of the build: any other module requires what it needs by a " ..
+      "literal name, `require(\"cosmic.fs\")`, or picks from a table of such requires",
+  },
+  ["cosmic.internal.globals"] = {
+    files = { "build.dispatch", "build.fact_hook_test", "build.fuzz", "build.load_module",
+      "build.sandbox", "build.sandboxed_verdicts_test", "build.sealed_worker_test", "build.standalone",
+      "build.test_closure_diagnostic_test", "build.test_closure_test", "build.type_watch", "core.load_env_test", "core.surface_test",
+      "cosmic.flags_test", "cosmic.test_tool_test" },
+    why = "only the modules that run a program or a hook as a chunk of Lua text take the globals whole, as its " ..
+      "environment: it holds `require`, which a chunk loads modules the build does not see by; any other module " ..
+      "passes the chunk the few names it needs",
+  },
+}
+
+--- Each module of `db` (by its `decl_imports`, which hold a core module's name too) that requires a module of `rules` (by default [`requirers`]) and is not one that rule names, as
+--- `<module>: requires <name>, which only <modules> may require: <why>`.
+function tree_checks.requirers(db: Sqlite.Handle, rules?: {string: Restriction}): {string}
+  local out: mut {string} = {}
+  for name, rule in pairs(rules or requirers) do
+    local rows, trouble = Sqlite.text_rows(db,
+      "SELECT path FROM decl_imports WHERE requires = ?1 ORDER BY path", { { text = name } })
+    if rows == nil then
+      return { "reading the imports: " .. trouble }
+    end
+    local allowed_here: mut {string: boolean} = {}
+    for _, module in ipairs(rule.files) do allowed_here[module] = true end
+    for _, row in ipairs(rows) do
+      if allowed_here[row:text(1)] ~= true then
+        out[#out + 1] = row:text(1) .. ": requires " .. name .. ", which only " .. table.concat(rule.files, ", ") ..
+          " may require: " .. rule.why
+      end
+    end
+  end
+  table.sort(out)
   return out
 end
 
@@ -2136,8 +2178,14 @@ local record DeclareFile
   key: string
 end
 
---- The modules a source requires by a literal name, as `require("m")` or `pcall(require, "m")`.
-local function required_modules(source: string): {string}
+--- The modules a source requires by a literal name, as `require("m")` or `pcall(require, "m")`: the parser's own
+--- reading of the file `file`. A file that does not parse is read by its text, a name in a comment or a string counting
+--- too, which costs a key that moves for no reason and never a missed edge.
+local function required_modules(source: string, file: string): {string}
+  local chunk, _ = SyntaxNode.parse(source, file)
+  if chunk ~= nil then
+    return SyntaxNode.requires(chunk)
+  end
   local out: mut {string} = {}
   local seen: mut {string: boolean} = {}
   for _, name in source:gmatch("require%s*[%(,]?%s*([\"'])([%w_%.%-]+)%1") do
@@ -2203,7 +2251,7 @@ local function tree_of(given: {{string}}, salt: string, bindings?: {{string}}, w
     if not derived[source.filename] then
       local row: DeclareFile = {
         file = source.filename, source = source.text, module = source.module, dialect = source.dialect,
-        imports = required_modules(source.text), key = "",
+        imports = required_modules(source.text, source.filename), key = "",
       }
       rows[#rows + 1] = row
       row_of[source] = row

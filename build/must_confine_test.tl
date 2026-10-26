@@ -45,6 +45,7 @@ local preamble = [==[
 local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")
 local sys = require("cosmic.sys")
+local Globals = require("cosmic.internal.globals")
 local Test = require("cosmic.test")
 
 Test.policy { grants = { { path = "bin/probe", letters = "r" } }, promises = { "nest" } }
@@ -72,7 +73,7 @@ local function refusing(fn)
   process.spawn = spawn
   if not ok then error(trouble, 0) end
 end
-]=] .. body, "=refused_test"))
+]=] .. body, "=refused_test", "t", Globals.table()))
   chunk(tmp, Child, Fs, sys)
 end
 ]==]

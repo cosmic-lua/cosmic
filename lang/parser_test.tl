@@ -516,3 +516,15 @@ local function test_a_node_of_no_token_is_empty_at_the_token_it_stands_before()
   local span = Ast.span(parsed.chunk, missing)
   assert(span.y == 2 and span.x == 1 and span.yend == 2 and span.xend == 0, "empty before `local`")
 end
+
+--- `require` is a special form: a call by its name, a `pcall` that takes it first, and a field or key named `require`
+--- are all fine; a parenthesised literal is a literal.
+local function test_require_as_a_special_form_accepts_only_its_direct_uses()
+  local chunk = clean("local a = require((\"m.one\"))\nlocal ok = pcall(require, \"m.two\")\nlocal t = { require = 1 }\n" ..
+    "local u = t.require\nlocal v = t:require()\nreturn a, ok, u, v").chunk
+  local modules: mut {string} = {}
+  for _, r in ipairs(chunk.requires) do
+    modules[#modules + 1] = r.module
+  end
+  same(table.concat(modules, " "), "m.one m.two", "requires")
+end

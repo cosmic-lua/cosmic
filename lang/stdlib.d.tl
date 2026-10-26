@@ -444,6 +444,10 @@ do
     getmetatable: function<T>(T): metatable<T>?
     ipairs: function<A>({A}): (function({A}, integer): (integer, A), {A}, integer)
 
+    -- A chunk given no environment reads a table of the base functions that reach nothing else and of `coroutine`, `math`,
+    -- `string`, `table` and `utf8`: neither `require` nor `package`, `_G` or `_ENV`, so the chunk cannot load a module the
+    -- build does not see. A program that needs more passes the environment, `_G` for all of the globals.
+    --
     -- The environment of the chunk is a table: an empty literal takes the type `{string: any}`, and the overloads over `V` are
     -- for a table of one value type (`{string: integer}`).
     --

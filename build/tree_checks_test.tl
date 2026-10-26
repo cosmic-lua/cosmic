@@ -379,35 +379,50 @@ local function test_a_restricted_member_used_outside_its_files_is_refused(dir: s
   assert(#found == 0, table.concat(found, "\n"))
 end
 
---- The loader of a module by a name computed at run time is kept to the tool's entry and the test worker: a call from
---- any other file is refused, with what to write instead.
-local function test_a_load_by_a_computed_name_outside_the_entry_and_the_worker_is_refused(dir: string)
+--- The loader of a module by a name computed at run time is kept to the tool's entry and the test worker by who may
+--- require it: a module that holds it under an alias or reads `load` off it by a key is refused all the same.
+local function test_a_module_requiring_the_loader_outside_the_entry_and_the_worker_is_refused(dir: string)
   local db = fixture.database(dir, {
     ["build/load_module.tl"] = source(
-      "local record store",
+      "local record loader",
       "end",
       "--- Loads a module by a name got at run time.",
-      "function store.load(name: string): any return name end",
-      "return store"),
+      "function loader.load(name: string): any return name end",
+      "return loader"),
     ["build/dispatch.tl"] = source(
-      'local store = require("build.load_module")',
+      'local loader = require("build.load_module")',
       "local record dispatch",
       "end",
-      "function dispatch.run(): any return store.load(\"x\") end",
+      'function dispatch.run(): any return loader.load("x") end',
       "return dispatch"),
     ["build/plugin.tl"] = source(
-      'local store = require("build.load_module")',
+      'local loader = require("build.load_module")',
       "local record plugin",
       "end",
-      "function plugin.run(): any return store.load(\"x\") end",
+      'function plugin.run(): any return loader["load"]("x") end',
       "return plugin"),
+    ["build/aliased.tl"] = source(
+      'local loader = require("build.load_module")',
+      "local alias = loader",
+      "local record aliased",
+      "end",
+      'function aliased.run(): any return alias.load("x") end',
+      "return aliased"),
+    ["build/probing.tl"] = source(
+      'local found, _ = pcall(require, "build.load_module")',
+      "local record probing",
+      "end",
+      "function probing.run(): boolean return found end",
+      "return probing"),
   })
-  local found = tree_checks.restricted(db)
-  assert(#found == 1, table.concat(found, "\n"))
+  local found = tree_checks.requirers(db)
+  assert(#found == 3, table.concat(found, "\n"))
   local line = assert(found[1])
-  assert(line:find("^build/plugin%.tl:%d+: build%.load_module load is used outside build/dispatch%.tl, build/test_worker%.tl, build/load_module_test%.tl: ") ~= nil,
-    line)
+  assert(line:find("^build%.aliased: requires build%.load_module, which only build%.dispatch, build%.test_worker, " ..
+      "build%.load_module_test may require: ") ~= nil, line)
   assert(line:find("require(\"cosmic.fs\")", 1, true) ~= nil, line)
+  local all = table.concat(found, "\n")
+  assert(all:find("\nbuild%.plugin: requires") ~= nil and all:find("\nbuild%.probing: requires") ~= nil, all)
 end
 
 --- A declaration that requires only declarations passes; one that requires a module is refused.

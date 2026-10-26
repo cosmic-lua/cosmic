@@ -10,6 +10,7 @@
 -- that ask `during` would pass having checked nothing. `__fact` ([`lang.fact_wraps`]) carries narrowed reads only, not the
 -- declared kind of a value crossing a boundary.
 local Test = require("cosmic.test")
+local Globals = require("cosmic.internal.globals")
 local worker = require("build.test_worker")
 
 local record TypeWatch
@@ -19,7 +20,7 @@ end
 function TypeWatch.checked(): boolean
   -- The hook a checked run defines as a global; read by a chunk, since the
   -- global is no field of the checker's `_G`.
-  local read = assert(load("return __cosmic_tc", "=type_watch", "t"))
+  local read = assert(load("return __cosmic_tc", "=type_watch", "t", Globals.table()))
   return (read()) ~= nil
 end
 

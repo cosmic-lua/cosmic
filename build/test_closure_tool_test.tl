@@ -53,8 +53,9 @@ local function test_a_project_test_requiring_outside_its_closure_fails(tmp: stri
     "end",
   }, "\n") .. "\n"))
   assert(Fs.write(root .. "/suite/dynamic_test.tl", table.concat({
+    "local Globals = require(\"cosmic.internal.globals\")",
     "local function dynamic(name: string): any",
-    "  local chunk = assert(load(\"return require((...))\", \"=dynamic\"))",
+    "  local chunk = assert(load(\"return require((...))\", \"=dynamic\", \"t\", Globals.table()))",
     "  local value: any = chunk(name)",
     "  return value",
     "end",
@@ -104,6 +105,7 @@ local function test_a_project_test_reading_the_store_outside_its_closure_needs_s
   assert(Fs.write(root .. "/suite/helper.tl", HELPER))
   local reads = table.concat({
     'local Store = require("cosmic.store")',
+    'local Globals = require("cosmic.internal.globals")',
     "local function test_bytecode()",
     '  local bytes, why = Store.bytecode("suite.helper")',
     "  assert(bytes ~= nil, why)",
@@ -123,7 +125,7 @@ local function test_a_project_test_reading_the_store_outside_its_closure_needs_s
     "  end",
     "end",
     "error(said)",
-    '  ]=], "=searcher"))',
+    '  ]=], "=searcher", "t", Globals.table()))',
     "  chunk()",
     "end",
   }, "\n") .. "\n"

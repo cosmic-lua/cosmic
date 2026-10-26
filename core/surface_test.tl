@@ -6,6 +6,7 @@ local Fs = require("cosmic.fs")
 local Removed = require("cosmic.removed")
 local sys = require("cosmic.sys")
 local errors = require("cosmic.internal.errors")
+local Globals = require("cosmic.internal.globals")
 
 --- What `fn` printed to descriptor 1, which it was pointed at a file of
 --- `tmp` for, and restored after.
@@ -52,7 +53,7 @@ end
 --- The error a chunk of plain Lua raises, compiled past the checker by
 --- `load` the way any Lua a program is handed would be.
 local function raised(code: string): string
-  local chunk = assert(load(code, "=plain.lua", "t"))
+  local chunk = assert(load(code, "=plain.lua", "t", Globals.table()))
   local ok, trouble = pcall(chunk)
   assert(not ok, "expected " .. code .. " to raise")
   return tostring(trouble)
@@ -112,7 +113,7 @@ local function test_a_removed_package_field_says_what_replaced_it()
   assert(package.loaded ~= nil and package.preload ~= nil and package.searchers ~= nil)
   assert(package.config ~= nil)
   local other = assert(load("package.frobnicate = 1\nlocal seen = package.frobnicate\n" ..
-      "package.frobnicate = nil\nreturn seen, package.frobnicate", "=other.lua", "t"))
+      "package.frobnicate = nil\nreturn seen, package.frobnicate", "=other.lua", "t", Globals.table()))
   local seen, gone = other()
   assert(seen == 1 and gone == nil)
 end

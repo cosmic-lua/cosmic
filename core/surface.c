@@ -119,6 +119,20 @@ static int surface_where (lua_State *L) {
   return 1;
 }
 
+/* `table`, answering the table of the program's globals, which `load`
+ * takes as the environment of a chunk that needs all of them. */
+static int globals_table (lua_State *L) {
+  lua_pushglobaltable(L);
+  return 1;
+}
+
+static int open_globals (lua_State *L) {
+  lua_createtable(L, 0, 1);
+  lua_pushcfunction(L, globals_table);
+  lua_setfield(L, -2, "table");
+  return 1;
+}
+
 static int open_errors (lua_State *L) {
   lua_createtable(L, 0, 3);
   lua_pushcfunction(L, surface_where);
@@ -378,6 +392,56 @@ void cosmic_surface_close (lua_State *L) {
   }
 }
 
+/* The registry key of the environment `load` gives a chunk it is given none for. */
+#define COSMIC_LOAD_ENV "cosmic.load_env"
+
+/* The globals a chunk built by `load` with no environment of its own can
+ * read: the base functions that reach nothing else, and the libraries
+ * that hold no way back to the globals. Neither `require` nor `package`
+ * is among them, nor `_G` or `_ENV`, and the table has no metatable, so
+ * no path leads from it to either. A program that needs more passes an
+ * environment, `_G` for all of them. */
+static const char *const load_env_names[] = {
+  "assert", "collectgarbage", "error", "getmetatable", "ipairs", "next",
+  "pairs", "pcall", "print", "rawequal", "rawget", "rawlen", "rawset",
+  "select", "setmetatable", "tonumber", "tostring", "type", "warn",
+  "xpcall", "_VERSION", "coroutine", "math", "string", "table", "utf8",
+  NULL,
+};
+
+/* `load`: Lua's own, except that a chunk given no environment gets the
+ * one above rather than the globals. Upvalue 1 is Lua's `load`. An
+ * environment passed as the fourth argument, nil included, is Lua's
+ * own rule. */
+static int surface_load (lua_State *L) {
+  int count = lua_gettop(L);
+  if (count < 4) {
+    lua_settop(L, 3);
+    lua_getfield(L, LUA_REGISTRYINDEX, COSMIC_LOAD_ENV);
+    count = 4;
+  }
+  lua_pushvalue(L, lua_upvalueindex(1));
+  lua_insert(L, 1);
+  lua_call(L, count, LUA_MULTRET);
+  return lua_gettop(L);
+}
+
+/* Replaces the global `load` with surface_load, and makes the
+ * environment it gives a chunk. */
+static void install_load (lua_State *L) {
+  lua_getglobal(L, "load");
+  lua_pushcclosure(L, surface_load, 1);
+  lua_createtable(L, 0, 32);
+  for (const char *const *name = load_env_names; *name != NULL; name++) {
+    lua_getglobal(L, *name);
+    lua_setfield(L, -2, *name);
+  }
+  lua_pushvalue(L, -2);
+  lua_setfield(L, -2, "load");
+  lua_setfield(L, LUA_REGISTRYINDEX, COSMIC_LOAD_ENV);
+  lua_setglobal(L, "load");
+}
+
 lua_State *cosmic_surface_open (const char *logical_executable) {
   lua_State *L = luaL_newstate();
   if (L == NULL) {
@@ -435,6 +499,8 @@ lua_State *cosmic_surface_open (const char *logical_executable) {
   lua_setfield(L, -2, "cosmic.sys");
   lua_pushcfunction(L, open_errors);
   lua_setfield(L, -2, "cosmic.internal.errors");
+  lua_pushcfunction(L, open_globals);
+  lua_setfield(L, -2, "cosmic.internal.globals");
   lua_pushcfunction(L, cosmic_open_testing);
   lua_setfield(L, -2, "cosmic.internal.testing");
   lua_pop(L, 1);
@@ -467,6 +533,8 @@ lua_State *cosmic_surface_open (const char *logical_executable) {
   lua_setfield(L, -2, "__index");
   lua_setmetatable(L, -2);
   lua_pop(L, 2);
+
+  install_load(L);
 
   return L;
 }

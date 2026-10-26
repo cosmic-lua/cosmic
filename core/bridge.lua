@@ -758,7 +758,7 @@ local function searcher_for(stage_two, variables)
     local chunk, file
     if record then
       local err
-      chunk, err = load(record.code, '@' .. name, 't')
+      chunk, err = load(record.code, '@' .. name, 't', _G)
       if not chunk then error(record.file .. ': ' .. err, 0) end
       file = root .. '/' .. record.file
       remember(name, record.file, record.code)
@@ -776,7 +776,7 @@ local function searcher_for(stage_two, variables)
       compiled = compiled + 1
       file = root .. '/' .. module.file
       local err
-      chunk, err = load(module.code, '@' .. name, 't')
+      chunk, err = load(module.code, '@' .. name, 't', _G)
       if not chunk then error(module.file .. ': ' .. err, 0) end
       dump(name, module.code)
       remember(name, module.file, module.code)

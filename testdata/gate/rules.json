@@ -28,6 +28,7 @@
   {"code":"not_a_type","rule":"one namespace, a space per binding","why":"a parameter, a loop variable, a function or a local that holds no module names no type"},
   {"code":"not_a_value","rule":"one namespace, a space per binding","why":"a type used as a value is the table of its functions, which the program cannot use as a value of the type"},
   {"code":"primitive_type_name","rule":"one namespace, a space per binding","why":"a primitive type name is never a binding, so a type declared with one would be unreachable"},
+  {"code":"require_value","rule":"what the grammar leaves out","why":"`require` is a special form of the build, read where it is called directly or handed to `pcall` as its first argument, so a `require` kept in a variable, in parentheses or in another call's arguments is a load the build cannot see"},
   {"code":"shadows","rule":"a name is declared once where it is visible","why":"a declaration whose name is visible hides the earlier one, and a reader takes the first for the second"},
   {"code":"statement_after_return","rule":"the syntactic grammar","why":"a statement after `return` never runs, and a `return` that has no statement to end is a mistake of the program"},
   {"code":"stray_byte","rule":"the lexical grammar","why":"a byte that begins no token is no part of the language, so the rest of the line cannot be read"},

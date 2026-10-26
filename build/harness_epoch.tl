@@ -111,7 +111,7 @@ harness_epoch.acknowledged = {
 
   ["build.launcher"] = "ea8495db991837f0b3411e99305d62b319c96071089897b555516062f6c05579",
 
-  ["build.load_module"] = "c8f618e5e6915dac456177d5207b79271d86f4ccc327429e68d8d257f774e730",
+  ["build.load_module"] = "a54bd951a24ee621ba85cda899b57226f1203ebc7ff8e710fad39459d5ba6e63",
 
   ["build.paths"] = "911ce247a4e165f0e0be03486c0b4c74fc02676d2d18363eeebbdb01af6286b4",
 

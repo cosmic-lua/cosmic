@@ -6,12 +6,13 @@
 --- is, load as ever. Those cases that run `cosmic test` on a project of
 --- their own are in build/test_closure_tool_test.tl.
 
+local Globals = require("cosmic.internal.globals")
 local test_inputs = require("build.test_inputs")
 
 --- A `require` of `first` and `second` joined by a dot at run time. The parser refuses a computed name in a typed file
 --- (`computed_require`), so the call is made from a chunk of Lua; the worker's hold is what stops one that gets past it.
 local function dynamic_require(first: string, second: string): any
-  local chunk = assert(load("return require((...))", "=dynamic_require"))
+  local chunk = assert(load("return require((...))", "=dynamic_require", "t", Globals.table()))
   local value: any = chunk(first .. "." .. second)
   return value
 end

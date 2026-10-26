@@ -140,6 +140,7 @@ local function test_a_pcall_of_require_with_a_literal_name_is_a_dependency_at_th
     "",
   }, "\n")
   assert(required(source) == "a.first b.optional", required(source))
+  assert(required("local a = require((\"p.q\"))\nlocal b = require(((\"p.r\")))\nreturn a, b\n") == "p.q p.r")
   local sites: mut {string} = {}
   for _, site in ipairs(Node.require_sites(parsed(source))) do
     sites[#sites + 1] = ("%s@%d:%d"):format(site.name, site.y, site.x)

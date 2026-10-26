@@ -555,7 +555,8 @@ local function evaluate(argv: {string}): integer
     log:complain("usage: cosmic -e '<chunk>' [args...]")
     return 2
   end
-  local loaded, trouble = load(chunk, "=-e", "t")
+  local Globals = require("cosmic.internal.globals")
+  local loaded, trouble = load(chunk, "=-e", "t", Globals.table())
   if loaded == nil then
     log:complain(tostring(trouble))
     return 1

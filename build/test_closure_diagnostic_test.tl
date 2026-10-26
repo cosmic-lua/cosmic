@@ -7,8 +7,10 @@
 --- closure is itself alone; core/surface_test.tl, which requires the
 --- catalog, is told what to write.
 
+local Globals = require("cosmic.internal.globals")
+
 local function test_a_removed_global_outside_the_closure_says_only_that_it_is_gone()
-  local ok, why = pcall(load("return os.getenv"))
+  local ok, why = pcall(load("return os.getenv", "=os", "t", Globals.table()))
   assert(not ok)
   assert(tostring(why):find(": os%.getenv is not available$"), tostring(why))
   assert(not tostring(why):find("Env.get", 1, true), tostring(why))

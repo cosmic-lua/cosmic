@@ -104,6 +104,8 @@ local record Parser
     "too_deep"
     -- `require(name)` or `pcall(require, name)` with a name that is no string literal
     "computed_require"
+    -- `require` read as a value: aliased, parenthesised or passed anywhere but as the first argument of `pcall`
+    "require_value"
   end
 
   --- A syntax error, or the lexer's error carried over. `y`, `x`, `offset`
@@ -227,6 +229,8 @@ local record State
   --- The literal requires so far, and the node each is of, whose ids are set once the tree is numbered.
   mut requires: mut {Ast.Require}
   mut require_nodes: mut {Ast.Node}
+  --- Each token that reads the name `require`, by its index, and whether a `require(...)` or `pcall(require, ...)` took it.
+  mut require_names: mut {integer: boolean}
 end
 
 local NO_TOKENS <const>: Lexer.Tokens = Lexer.lex("", "").tokens
@@ -235,7 +239,7 @@ local S: State = {
   tokens = NO_TOKENS, kinds = NO_TOKENS.kind, texts = NO_TOKENS.text, ys = NO_TOKENS.y,
   yends = NO_TOKENS.yend, last = 1, pos = 1, text = "", kind = "$EOF$", errors = {}, name = "",
   decl = false, half = 0, reported = {}, beside = nil, beside_work = 0, muted = false, nesting = 0, arms = 0, tables = 0, arm_from = 1, arm_same = 0, scan_at = 1, scan_depth = 0, depth = 0, loops = {}, loop_base = 0, requires = {},
-  require_nodes = {},
+  require_nodes = {}, require_names = {},
 }
 
 local ADDED <const>: mut {string: boolean} = {}
@@ -1236,6 +1240,9 @@ local function parse_primary(): Ast.Exp
   if k == "identifier" then
     local text = S.text
     advance()
+    if text == "require" then
+      S.require_names[first] = false
+    end
     return { kind = "Name", id = 0, first = first, last = first, text = text }
   elseif k == "string" then
     local at = S.pos
@@ -1312,10 +1319,16 @@ local function literal_at(list: {Ast.Exp}, i: integer): string?
     return nil
   end
   local base = base_of(e)
-  if base.kind ~= "String" then
+  local from, to = base.first, base.last
+  if base.kind == "Paren" then
+    while S.texts[from] == "(" and S.texts[to] == ")" and from < to do
+      from, to = from + 1, to - 1
+    end
+  end
+  if from ~= to or S.kinds[from] ~= "string" then
     return nil
   end
-  local contents = S.tokens.value[base.first]
+  local contents = S.tokens.value[from]
   return contents
 end
 
@@ -1352,9 +1365,14 @@ local function note_require(call: Ast.Call)
   local how = "require"
   if is_name(callee, "require") then
     at = 1
+    S.require_names[base_of(callee).first] = true
   elseif is_name(callee, "pcall") and arg_is_name(args, 1, "require") then
     at = 2
     how = "pcall"
+    local first = args[1]
+    if first ~= nil then
+      S.require_names[base_of(first).first] = true
+    end
   end
   if at == 0 or #args < at then
     return
@@ -1440,6 +1458,9 @@ parse_prefix = function(): Ast.Exp
     elseif S.kind == "string" then
       report("string_call", S.pos, "a call with a string in place of its arguments is not in the grammar",
         "put the string in parentheses: `f(" .. S.text .. ")`")
+      if is_name(e, "require") then
+        S.require_names[base_of(e).first] = true
+      end
       local at = S.pos
       advance()
       local string_arg: Ast.String = {
@@ -2628,7 +2649,17 @@ function Parser.parse(lexed: Lexer.Lexed, name: string, dialect: Ast.Dialect): P
   S.loop_base = 0
   S.requires = {}
   S.require_nodes = {}
+  S.require_names = {}
   local body = parse_block(2)
+  for index, taken in pairs(S.require_names) do
+    if not taken then
+      report("require_value", index, "`require` is read as a value here, and the build follows a require only where it is " ..
+          "called directly on a name",
+        "call it: `require(\"cosmic.fs\")`, or hand it to `pcall` as its first argument: `pcall(require, \"cosmic.fs\")`; " ..
+          "to choose between modules, require each by its literal name and pick from a table, and never keep `require` " ..
+          "in a variable, in parentheses or in another call's arguments")
+    end
+  end
   local chunk: Ast.Chunk = { kind = "Chunk", id = 0, first = 1, last = S.last, body = body, tokens = tokens, requires = S.requires }
   Ast.number(chunk)
   for i, req in ipairs(S.requires) do
@@ -2667,6 +2698,7 @@ function Parser.parse(lexed: Lexer.Lexed, name: string, dialect: Ast.Dialect): P
   S.loops = {}
   S.requires = {}
   S.require_nodes = {}
+  S.require_names = {}
   return { chunk = chunk, errors = errors }
 end
 
@@ -2683,7 +2715,7 @@ Parser.codes = {
   "generic_function_literal", "bad_attribute", "if_needs_else", "match_needs_call", "method_needs_self",
   "method_path", "close_repeated", "trailing_comma", "arm_on_same_line", "unreachable_arm", "duplicate_binding", "reserved_method",
   "suffix_needs_parens", "nested_in_interface",
-  "old_type_declaration", "narrowing_return", "too_deep", "computed_require",
+  "old_type_declaration", "narrowing_return", "too_deep", "computed_require", "require_value",
 }
 
 return Parser

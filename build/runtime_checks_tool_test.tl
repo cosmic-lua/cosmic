@@ -33,11 +33,12 @@ local greeting = table.concat({
 --- The tests: a read with a name passes, and a read after an `assert` that does not raise (the global is replaced by one
 --- that answers its arguments, as a program that shadows `assert` would) is found where it is false.
 local suite = table.concat({
+  "local Globals = require(\"cosmic.internal.globals\")",
   "local greet = require(\"greet\")",
   "",
   "local function test_hello_with_nothing()",
-  "  local plant = assert(load(\"planted = assert; assert = function(...) return ... end\", \"=plant\"))",
-  "  local restore = assert(load(\"assert = planted\", \"=restore\"))",
+  "  local plant = assert(load(\"planted = assert; assert = function(...) return ... end\", \"=plant\", \"t\", Globals.table()))",
+  "  local restore = assert(load(\"assert = planted\", \"=restore\", \"t\", Globals.table()))",
   "  plant()",
   "  local ok, message = pcall(greet.hello, nil)",
   "  restore()",

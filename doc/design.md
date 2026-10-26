@@ -1012,6 +1012,7 @@ computed, `require(name)` or `pcall(require, name)`, names no module the build c
 (`computed_require`); to choose between modules, require each by its literal name and pick from a table. this holds for
 `cosmic.*` and C modules as for a project's: a literal name that no database holds is no edge, and a probe of it
 answers false when it runs. a `.d.tl` file imports only with `local type T = require("m")`, whose name is a literal
+`require` is a special form: the build reads only a direct call by its name, `require("m")` (a parenthesised literal counts as a literal), and `pcall(require, "m")` with `require` as pcall's first argument. Any other use of the name (kept in a variable, in parentheses, passed to another call) is refused (`require_value`), so a load of a module the build cannot see has no spelling in checked code. A chunk built by `load` gets, by default, an environment of the base functions that reach nothing else and the pure libraries: no `require`, `package`, `_G` or `_ENV`, and no metatable back to the globals. A program that runs a chunk needing the globals passes them as its environment, through [`cosmic.internal.globals`], which only the tool and its tests may require (the tree check `requirers` lists who does).
 already.
 
 `: never` is a flag on a function type, declared by a helper that only raises or exits (`error`, [`Proc.exit`], a module's
@@ -1353,4 +1354,5 @@ in [roadmap.md](roadmap.md).
 [`Test.policy`]: ../cosmic/test.tl
 
 [`build.pipeline`]: ../build/pipeline.tl
+[`cosmic.internal.globals`]: ../cosmic/internal/globals.d.tl
 [`cosmic.shape`]: ../cosmic/shape.tl

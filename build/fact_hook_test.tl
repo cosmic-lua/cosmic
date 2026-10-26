@@ -3,6 +3,7 @@
 --- of the value they fail the read and keep a violation of kind "fact", the row `cosmic test --check-types` lists
 --- (`type_violations`). The programs are compiled with the wraps and run in this process, beside the fork's checks
 --- (build.checked_narrowing_test).
+local Globals = require("cosmic.internal.globals")
 local Test = require("cosmic.test")
 local programs = require("build.fact_programs")
 local worker = require("build.test_worker")
@@ -155,7 +156,7 @@ end
 --- A checked run's worker defines the hook as a global, where the Lua of the wraps finds it.
 local function test_the_worker_defines_the_hook_the_wraps_call()
   worker.install_checks()
-  local read = assert(load("return __fact", "=hook", "t"))
+  local read = assert(load("return __fact", "=hook", "t", Globals.table()))
   assert(read() == worker.fact)
 end
 

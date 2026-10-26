@@ -15,6 +15,7 @@ local function test_a_shutdown_failure_never_stands_as_a_passing_verdict(tmp: st
   assert(Fs.write(root .. "/shutdown_test.tl", [[
 local Proc = require("cosmic.proc")
 local Fs = require("cosmic.fs")
+local Globals = require("cosmic.internal.globals")
 -- A metatable is a chunk of Lua's to make: a program has no `setmetatable`. The object it makes is kept by the module table
 -- `package.loaded`, which the state holds until it closes, when it is collected.
 local chunk = assert(load([=[
@@ -25,7 +26,7 @@ package.loaded["shutdown_guard"] = setmetatable({}, {
     Proc.exit(7)
   end,
 })
-]=], "=shutdown"))
+]=], "=shutdown", "t", Globals.table()))
 chunk(Proc, Fs)
 local function test_passes_before_shutdown()
   assert(package.loaded["shutdown_guard"] ~= nil)
