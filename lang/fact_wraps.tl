@@ -13,7 +13,9 @@
 ---
 --- A narrowing is checked once, not at every read ([`FactWraps.once`]): the reads of the same narrowing of the same place
 --- that follow a checked one, in a region it dominates, with no call, write or loop between, carry no call of `__fact`. The
---- read of a tag of a union (`x.kind`) carries none either, as it relies on nothing the narrowing says.
+--- read of a tag (`x.kind`) is a read of a narrowed place like another, but for one in a test against a string, which takes
+--- nothing of the narrowing. A read that runs a metamethod (`__index`) is not a
+--- call to the walk: a second read through one that answers differently is not checked again.
 ---
 --- The hook answers `v`, or raises where the conclusion is false of it ([`build.test_worker`]'s `install_checks` defines
 --- one for a checked run; [`lang.check_programs`] defines another for the tests of the checker). A chunk with wraps begins,
@@ -98,8 +100,8 @@ local record Walk
   --- The narrowings noted in each region the walk is in, innermost last: the code of a region may not run, so what it
   --- noted is dropped as the walk leaves it.
   log: mut {mut {string}}
-  --- The reads that are the object of a read of their own tag: the field is in every member, and the read relies on no
-  --- narrowing of the place.
+  --- The reads that are the object of a read of their own tag in a test against a string, `x.kind == "a"`: the test
+  --- takes nothing of the narrowing, and every read that does is checked.
   mut exempt: mut {integer: boolean}
   --- The reads that an earlier read in the same run covers.
   skip: mut {integer: boolean}
@@ -168,14 +170,6 @@ local function walk_node(w: Walk, n: Ast.Node)
       walk_node(w, each)
     end
     leave(w)
-  elseif (n.kind == "Field") then
-    -- `x.kind` of a tagged union is valid whatever `x` was narrowed to: its tag is in every member. A narrowing that takes no
-    -- kind of value away (so `x` is not nil) is not relied on by the read, and the read is what a chain of tests is made of.
-    local object = w.want[n.object.id]
-    if object ~= nil and object.tag == n.name and #object.taken == 0 and object.strings == nil and object.classes == nil then
-      w.exempt[n.object.id] = true
-    end
-    walk_node(w, n.object)
   elseif (n.kind == "Call") then
     walk_node(w, n.callee)
     for _, each in ipairs(n.args) do
@@ -202,6 +196,24 @@ local function walk_node(w: Walk, n: Ast.Node)
       walk_node(w, assert(rest[i]))
     end
     leave(w)
+  elseif (n.kind == "Binary") and (n.op == "==" or n.op == "~=") then
+    -- A test of the tag of a narrowed place against a string (every test of a chain `if x.kind == "a" ... elseif x.kind == "b"`)
+    -- uses the tag alone, whatever `x` was narrowed to: the narrowing is checked at the read that stores the tag, or that
+    -- reads a field of `x`, which is where it is relied on.
+    local sides: {Ast.Exp} = { n.left, n.right }
+    for i = 1, 2 do
+      local side = assert(sides[i])
+      local other = assert(sides[3 - i])
+      if (side.kind == "Field") and (other.kind == "String") then
+        local object = w.want[side.object.id]
+        if object ~= nil and object.tag == side.name and #object.taken == 0 and object.strings == nil and
+            object.classes == nil then
+          w.exempt[side.object.id] = true
+        end
+      end
+    end
+    walk_node(w, n.left)
+    walk_node(w, n.right)
   elseif (n.kind == "IfExp") then
     for i, arm in ipairs(n.arms) do
       if i == 1 then

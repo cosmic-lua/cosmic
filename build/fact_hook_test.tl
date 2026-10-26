@@ -186,6 +186,7 @@ local record Shapes
   area: function(any): integer
   area_after: function(any, function()): integer
   area_between: function(any, function()): integer
+  tag_only: function(any, function()): string
   pet_after: function(any, function()): string
   dog: function(): any
   cat: function(): any
@@ -246,6 +247,14 @@ end
 
 local record Box
   mut value: string?
+end
+
+local record TagMember
+  kind: string
+end
+
+local record TagBox
+  mut s: TagMember
 end
 
 local record PokeApi
@@ -312,4 +321,13 @@ local function test_a_class_and_a_tag_planted_false_are_one_row_each()
   assert(not ok_between and tostring(message_between):find("fact violated at shapes.tl:", 1, true) == 1 and
       tostring(message_between):find("the checker proved kind one of square", 1, true) ~= nil, tostring(message_between))
   assert(#since(before) == 3, tostring(#since(before)) .. " rows")
+  -- The read of a tag is a read of a narrowed place: after a test of `b.s.kind` the remainder is what the read after the
+  -- call has, and a function that puts a member back is met there, though nothing else reads `b.s` after it.
+  local box: TagBox = { s = { kind = "b" } }
+  assert(api.tag_only(box, nothing) == "b")
+  assert(#since(before) == 3, "a conclusion that held was recorded")
+  local ok_tag, message_tag = pcall(api.tag_only, box, function() box.s = { kind = "a" } end)
+  assert(not ok_tag and tostring(message_tag):find("fact violated at shapes.tl:", 1, true) == 1 and
+      tostring(message_tag):find("kind one of c|b", 1, true) ~= nil, tostring(message_tag))
+  assert(#since(before) == 4, tostring(#since(before)) .. " rows")
 end

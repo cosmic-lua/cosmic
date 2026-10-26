@@ -176,7 +176,7 @@ local function test_the_remainder_of_a_chain_is_checked_where_a_read_relies_on_i
   assert(count == 1 and lua:find("\"kind\", \"b\"", 1, true) ~= nil, lua)
 end
 
-local function test_the_read_of_a_tag_is_not_checked_since_every_member_has_it()
+local function test_a_tag_compared_to_a_string_is_not_checked_but_the_read_that_follows_is()
   local count = facts_of(table.concat({
     "local function f(u: U): string",
     "  if u.kind == \"a\" then",
@@ -186,6 +186,28 @@ local function test_the_read_of_a_tag_is_not_checked_since_every_member_has_it()
     "  end",
     "end",
     "print(f({ kind = \"b\", s = \"x\" }))",
+    "",
+  }, "\n"))
+  assert(count == 1, tostring(count))
+end
+
+local function test_a_tag_read_after_a_test_of_it_and_a_call_is_checked()
+  local count = facts_of(table.concat({
+    "local enum C_kind \"c\" end",
+    "local record C",
+    "  kind: C_kind",
+    "end",
+    "local record Box",
+    "  s: A | B | C",
+    "end",
+    "local function f(b: Box, poke: function()): string",
+    "  if b.s.kind == \"a\" then return \"a\" end",
+    "  poke()",
+    "  local k = b.s.kind",
+    "  if k == \"b\" then return \"b\" end",
+    "  return k",
+    "end",
+    "print(f({ s = { kind = \"b\", s = \"x\" } }, function() end))",
     "",
   }, "\n"))
   assert(count == 1, tostring(count))
