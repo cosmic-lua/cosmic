@@ -139,6 +139,7 @@ local function results_of(f: Types.Type?): {Types.Type}?, boolean
     return nil, false
   end
   local alt = f.rets[1]
+  assert(alt ~= nil)
   local out: mut {Types.Type} = {}
   for _, item in ipairs(alt.items) do
     out[#out + 1] = item
@@ -1130,7 +1131,9 @@ local function exported_functions(run: Run): {Exported}
           if f ~= nil and (f.tag == "fn") then
             held[1] = f
           elseif f ~= nil and (f.tag == "union") then
-            held = f.members
+            for _, member_type in ipairs(f.members) do
+              held[#held + 1] = member_type
+            end
           end
           for _, one in ipairs(held) do
             if (one.tag == "fn") then
@@ -1449,7 +1452,8 @@ local function stringish(t: Types.Type?): boolean
     return true
   end
   if (t.tag == "union") then
-    return #t.members == 1 and t.members[1].tag == "string"
+    local only = t.members[1]
+    return #t.members == 1 and only ~= nil and only.tag == "string"
   end
   return false
 end
