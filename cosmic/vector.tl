@@ -48,7 +48,10 @@ local record Vector
   record SearchOptions
     --- The score to rank by; `inner_product` by default. On vectors
     --- normalized to length 1, `inner_product` and `cosine` rank alike
-    --- and the first is cheaper.
+    --- and the first is cheaper. Under `cosine` a zero vector, in the
+    --- corpus or as the query, has no direction (SQL's `cosine_distance`
+    --- of one is NULL): such rows rank after every other row, with the
+    --- score `-math.huge`, and come back only when `k` outruns the rest.
     metric?: Vector.Metric
     --- A binary first pass: keep this many rows nearest to the query by
     --- the sign bits of their dimensions, then score only those exactly.
@@ -76,7 +79,8 @@ local record Vector
 end
 
 --- A vector from its numbers, as the SQL functions store one. Raises on
---- an entry that is not a finite number, or past 16000 of them.
+--- an entry that is not a finite number or is too large for a 32-bit
+--- float, and on none or more than 16000 of them.
 function Vector.pack(numbers: {number}): string
   return raw.pack(numbers)
 end

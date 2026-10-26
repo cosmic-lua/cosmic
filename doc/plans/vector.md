@@ -162,6 +162,14 @@ Details:
 - **Target:** under 15 ms for 100k × 768 exact, and under 3 ms with a
   binary first pass. Measure both and state the numbers in the PR.
 
+**Status:** built. The corpus's memory is `cosmic_realloc`'d outside
+Lua's allocator, so the garbage collector sees only the userdata header
+(a `TODO:` in [`core/vector.c`]). Measured on 100k × 768: exact inner
+product 57 ms, cosine 66 ms, L2 61 ms; with `candidates = 200`, 4.1 ms
+(inner product) and 2.5 ms (cosine); recall@10 was 10/10 on clustered
+synthetic data. The 15 ms exact target is missed: the scan is
+bandwidth-bound, at about 5.4 GB/s on the test VM.
+
 ## Phase 3: IVF over a cluster column
 
 The approximate step for when brute force runs out, with no new storage.

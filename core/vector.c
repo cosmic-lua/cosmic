@@ -1,11 +1,13 @@
 #include "vector.h"
 
+#include <float.h>
 #include <math.h>
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
 
+#include "guard.h"
 #include "lauxlib.h"
 #include "memory.h"
 
@@ -665,6 +667,15 @@ static float *check_floats (lua_State *L, int arg, size_t dims) {
   return out;
 }
 
+/* The length of a vector, its squares summed in double as the SQL
+ * functions do: in float the squares of small numbers underflow to a
+ * length of zero and of large ones overflow. */
+static double length_of (const float *v, size_t n) {
+  double squares = 0.0;
+  for (size_t i = 0; i < n; i++) squares += (double)v[i] * (double)v[i];
+  return sqrt(squares);
+}
+
 static int vector_corpus (lua_State *L) {
   lua_Integer dims = luaL_checkinteger(L, 1);
   luaL_argcheck(L, dims >= 1 && dims <= MAX_DIMS, 1,
@@ -718,7 +729,7 @@ static int corpus_add (lua_State *L) {
     c->capacity = grown;
   }
   memcpy(c->data + c->count * c->dims, v, c->dims * sizeof *v);
-  double length = sqrt((double)dot(v, v, c->dims));
+  double length = length_of(v, c->dims);
   c->inverse[c->count] = length == 0.0 ? 0.0f : (float)(1.0 / length);
   c->ids[c->count] = id;
   c->count++;
@@ -882,7 +893,7 @@ static int corpus_search (lua_State *L) {
   }
 
   size_t dims = c->dims;
-  double qlen = sqrt((double)dot(q, q, dims));
+  double qlen = length_of(q, dims);
   float qinverse = qlen == 0.0 ? 0.0f : (float)(1.0 / qlen);
 
   size_t limit = (size_t)k < eligible ? (size_t)k : eligible;
@@ -936,9 +947,17 @@ static int corpus_search (lua_State *L) {
     float key;
     switch (metric) {
       case INNER_PRODUCT: key = dot(v, q, dims); break;
-      case COSINE: key = dot(v, q, dims) * c->inverse[row] * qinverse; break;
+      case COSINE:
+      /* A zero vector has no direction, and SQL's cosine_distance of
+       * one is NULL: it ranks below every row that has one. */
+      if (c->inverse[row] == 0.0f || qinverse == 0.0f) key = -INFINITY;
+      else key = dot(v, q, dims) * c->inverse[row] * qinverse;
+      break;
       default: key = -squared_l2(v, q, dims); break;
     }
+    /* A NaN key compares false both ways, which would leave the heap's
+     * order depending on arrival; such a row is not a hit. */
+    if (isnan(key)) continue;
     struct hit hit = {key, row};
     offer(&heap, hit);
   }
@@ -966,13 +985,17 @@ static int corpus_search (lua_State *L) {
 static int vector_pack (lua_State *L) {
   luaL_checktype(L, 1, LUA_TTABLE);
   size_t n = lua_rawlen(L, 1);
+  luaL_argcheck(L, n >= 1, 1, "a vector has at least 1 dimension");
   luaL_argcheck(L, n <= MAX_DIMS, 1, "a vector has at most 16000 dimensions");
   float *out = lua_newuserdatauv(L, n * sizeof *out + 1, 0);
   for (size_t i = 0; i < n; i++) {
     lua_rawgeti(L, 1, (lua_Integer)(i + 1));
     int ok;
     lua_Number x = lua_tonumberx(L, -1, &ok);
-    luaL_argcheck(L, ok && isfinite(x), 1, "a vector holds finite numbers");
+    /* Compared as a double before the conversion: a double past
+     * FLT_MAX has no float to convert to, and converting is undefined. */
+    luaL_argcheck(L, ok && isfinite(x) && fabs(x) <= (double)FLT_MAX, 1,
+                  "a vector holds finite numbers");
     out[i] = (float)x;
     lua_pop(L, 1);
   }
@@ -998,6 +1021,9 @@ static int vector_unpack (lua_State *L) {
 
 static int vector_from_json (lua_State *L) {
   const char *text = luaL_checkstring(L, 1);
+  /* The parsed block is the guard's: pushing the answer allocates, and
+   * a raise there must not leak the block. */
+  struct cosmic_guard *guard = cosmic_guard_push(L, sqlite3_free);
   struct vector v;
   const char *why = parse_text(text, &v);
   if (why != NULL) {
@@ -1005,8 +1031,9 @@ static int vector_from_json (lua_State *L) {
     lua_pushstring(L, why);
     return 2;
   }
+  guard->resource = v.owned;
   lua_pushlstring(L, (const char *)v.values, v.dims * sizeof(float));
-  release(&v);
+  cosmic_guard_release(guard);
   return 1;
 }
 
@@ -1018,7 +1045,7 @@ static int vector_normalize (lua_State *L) {
   size_t n = len / sizeof(float);
   float *in = lua_newuserdatauv(L, len + sizeof(float), 0);
   memcpy(in, s, len);
-  double norm = sqrt((double)dot(in, in, n));
+  double norm = length_of(in, n);
   for (size_t i = 0; i < n; i++) {
     in[i] = norm == 0.0 || !isfinite(norm) ? 0.0f : (float)((double)in[i] / norm);
   }
