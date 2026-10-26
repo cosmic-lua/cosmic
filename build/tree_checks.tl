@@ -126,11 +126,6 @@ allow({
 allow({ "build.seed.compile", "build.seed.program" }, "the two things the bridge asks of the seed (core/bridge.lua, which is " ..
     "Lua and loads the seed's Lua by name), which no Teal calls")
 
--- TODO: remove this allowance once the formatter's format entry (build/fix/) calls `layout.of`.
-allowed["build.fix.layout.of"] =
-  "the formatter's spacing pass (build/fix/), tested alone; the passes of the formatter that follow (blocks, " ..
-    "continuation, breaks, equivalence and format) are its callers once they land"
-
 allow({ "build.plans.full_keys" }, "the keys made of nothing kept, which build/dependency_keys_test.tl holds " ..
     "the keys `dependency_keys` keeps to, edit by edit")
 allow({
