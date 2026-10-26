@@ -79,6 +79,9 @@ local verb_spec = require("build.verb_spec")
 local plural = require("build.plural")
 
 local record fix
+  --- [`build.fix.format`]'s `format`, as [`format_text`], the way in for what is not inside `build/fix/`, such as the language server's
+  --- formatting ([`build.lsp.session`]).
+  format_text: function(source: string, name: string): Format.Result
   --- The verb's registration: see build/verb_spec.tl.
   spec: verb_spec.Spec
   --- The files one invocation covers, and the named paths it will not
@@ -1692,6 +1695,11 @@ local function run(argv: {string}): integer
   local code = fix_verb(argv)
   collectgarbage("incremental")
   return code
+end
+
+--- [`build.fix.format`]'s `format` of `source`, the contents of the file `name`.
+function fix.format_text(source: string, name: string): Format.Result
+  return Format.format(source, name)
 end
 
 --- The `fix` verb as [`build/verb_list.tl`] lists it.

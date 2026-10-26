@@ -8,7 +8,8 @@
 ---   closed, as [`build.lsp.check`] finds them, with those of the other
 ---   open documents that may change with it ([`build.lsp.publish`]).
 --- - Hover: the docs of the symbol under the cursor ([`build.lsp.hover`]).
---- - Formatting: none offered, and a request is answered with no edits: `cosmic fix` checks Teal and does not reformat it.
+--- - Formatting: a document laid out as `cosmic fix` lays out a Teal file ([`build.fix`]'s `format_text`), as one edit of the whole
+---   text, or none where it is laid out already or the formatter refuses it, which the person is shown.
 ---
 --- The open documents that require one whose text changed are checked
 --- again once its own check is published, where what it serves them
@@ -32,6 +33,7 @@ local bare = require("build.bare")
 local check = require("build.lsp.check")
 local dependents = require("build.lsp.dependents")
 local hover = require("build.lsp.hover")
+local lines = require("build.lsp.lines")
 local protocol = require("build.lsp.protocol")
 local publish = require("build.lsp.publish")
 local source = require("build.lsp.source")
@@ -146,14 +148,40 @@ local function hovered(s: Session, params: protocol.DocumentParams): protocol.Ho
   return hover.at(s.docs, document.text, where, s.encoding)
 end
 
---- The edits that format `params`' document, encoded: none, since `cosmic fix` does not lay out Teal and the session offers no
---- formatting. A request for it is answered with no edits, or nil and why where no such document is open.
----
---- TODO: format the documents of a session, and offer `documentFormattingProvider`, once a formatter is written over the new
---- syntax tree (the TODO of [`build.fix`]).
-local function formatting(s: Session, params: protocol.DocumentParams): string?, string
-  if document_of(s, params) == nil then return nil, "no such document is open" end
-  return "[]", ""
+--- What formatting a document gave: its `edits`, encoded, and what to show the person in `shown`; or no `edits` and
+--- `why` the request fails.
+local record Formatted
+  edits: string?
+  why: string
+  shown: string?
+end
+
+--- The edits that format `params`' document, encoded, and what to show the person: of the text the editor holds, not the
+--- file on disk, as [`build.fix.format`] lays it out (a `.d.tl` name as a declaration file, as `cosmic fix` reads it). A
+--- text already laid out takes no edits; any other takes one that replaces the whole text, from its first character to
+--- the position of its end, whether or not its last line ends in a newline, in the units the session negotiated. A name that does not
+--- end in `.tl` takes none. A text the formatter refuses takes no edits and a message saying why: a layout that was not checked is never offered. None, and why,
+--- where no such document is open.
+local function formatting(s: Session, params: protocol.DocumentParams): Formatted
+  local document = document_of(s, params)
+  if document == nil then return { edits = nil, why = "no such document is open", shown = nil } end
+  local text = document.text
+  -- Only Teal is laid out: a template or any other file the editor sends is none of the formatter's.
+  if document.name:sub(-3) ~= ".tl" then return { edits = "[]", why = "", shown = nil } end
+  -- Loaded at the first request, not with the session: the fix verb is large.
+  local fix = require("build.fix")
+  local result = fix.format_text(text, document.name)
+  local laid = result.text
+  if laid == nil then
+    return { edits = "[]", why = "", shown = "cosmic: not formatted: " .. result.why }
+  end
+  if laid == text then return { edits = "[]", why = "", shown = nil } end
+  local end_at = lines.position(lines.lines_of(text), #text + 1, s.encoding)
+  local edit: protocol.TextEdit = {
+    range = protocol.range({ line = 0, character = 0 }, end_at),
+    newText = laid,
+  }
+  return { edits = assert(Json.encode_any({ edit })), why = "", shown = nil }
 end
 
 --- The workspace's root `params` names, if any.
@@ -197,6 +225,7 @@ local function initialize(s: Session, params: protocol.InitializeParams): protoc
       positionEncoding = s.encoding,
       textDocumentSync = { openClose = true, change = 1, save = { includeText = false } },
       hoverProvider = true,
+      documentFormattingProvider = true,
     },
     serverInfo = { name = "cosmic" },
   }
@@ -321,11 +350,14 @@ local function handle(s: Session, message: protocol.Message): {string}
     if found ~= nil then result = assert(Json.encode_any(found)) end
     out[#out + 1] = protocol.response(id, result)
   elseif method == "textDocument/formatting" then
-    local edits, why = formatting(s, params)
+    local formatted = formatting(s, params)
+    local edits = formatted.edits
     if edits == nil then
-      out[#out + 1] = protocol.failure(id, protocol.REQUEST_FAILED, why)
+      out[#out + 1] = protocol.failure(id, protocol.REQUEST_FAILED, formatted.why)
     else
       out[#out + 1] = protocol.response(id, edits)
+      local refused = formatted.shown
+      if refused ~= nil then out[#out + 1] = protocol.shown(2, refused) end
     end
   elseif is_request then
     out[#out + 1] = protocol.failure(id, protocol.METHOD_NOT_FOUND, "no method " .. method)
