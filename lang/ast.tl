@@ -19,15 +19,11 @@
 --- [`Binding`] for a local or a type, a [`Function`], a [`FieldDecl`], a [`Method`] or an
 --- [`EnumValue`].
 ---
---- [`Ast.fields`] lists the structural fields of each kind in source order,
---- so that a walker needs no code per kind ([`Ast.children`]). A tree is as
---- deep as its source nests, and as a chain of `a + a + ...` is long, so a
---- recursive walker can overflow the stack where [`Ast.number`] does not.
+--- [`Ast.fields`] lists the structural fields of each kind in source order, for a reader that walks them by name
+--- (a pattern, a translation). [`Ast.children`] has code of its own for each kind, which lang/ast_test.tl holds to the
+--- list. A tree is as deep as its source nests, and as a chain of `a + a + ...` is long, so a recursive walker can
+--- overflow the stack where [`Ast.number`] does not.
 
--- TODO: read the nodes in `number` and `children` by their kinds (a test `n.kind == "Local"` of each, then the fields of the
--- record it selects) in place of as `{string: any}` driven by `SPEC`, and test a node of [`visit_list`] and [`children_of`] with
--- the one test `is Ast.Node` in place of the chain of compares of `kind` the translation of the tree made of it. Waits on a
--- change of its own that replaces both walkers (the `any_use` pin of this file counts them).
 local Lexer = require("lang.lexer")
 
 local record Ast
@@ -1024,105 +1020,486 @@ for kind, spec in pairs(SPEC) do
   Ast.depths[kind] = depths
 end
 
-local fields, depths = Ast.fields, Ast.depths
+local type Visit = function(Ast.Node)
 
---- Pushes the nodes of `value`, which is a node, a list of nodes or, `depth` 2, of lists, last first.
-local function push(stack: mut {{string: any}}, top: integer, value: {any}, depth: integer): integer
-  for i = #value, 1, -1 do
-    local item = value[i]
-    if depth == 1 then
-      if item is {string: any} then
-        top = top + 1
-        stack[top] = item
-      end
-    elseif item is {any} then
-      top = push(stack, top, item, 1)
+--- How to visit the children of each kind that has any, in source order. A kind with no field that holds a node
+--- ([`Break`], [`Name`], ...) has no entry. An entry takes a [`Node`] and tests its kind once, which narrows it to the
+--- record whose fields it reads, so no field is read by name from a string: lang/ast_test.tl holds the table to
+--- [`Ast.fields`] and to the declarations of the records, so a field added to one without the other fails there.
+--- The table is a lookup by `kind` and not a chain of tests, so a walk pays one lookup per node however many kinds
+--- there are.
+local WALK <const>: {string: function(Ast.Node, Visit)} = {
+  Chunk = function(n: Ast.Node, visit: Visit)
+    if n.kind == "Chunk" then
+      visit(n.body)
     end
-  end
-  return top
-end
-
-local function number(root: any): integer
-  local stack: mut {{string: any}} = {}
-  local top = 0
-  if root is {string: any} then
-    top = 1
-    stack[1] = root
-  end
-  local count = 0
-  while top > 0 do
-    local node = stack[top]
-    stack[top] = nil
-    top = top - 1
-    count = count + 1
-    node.id = count
-    local kind = node.kind
-    if kind is string then
-      local names, depth = fields[kind], depths[kind]
-      for i = #names, 1, -1 do
-        local value = node[names[i]]
-        if type(value) == "table" then
-          if depth[i] == 0 then
-            if value is {string: any} then
-              top = top + 1
-              stack[top] = value
-            end
-          elseif value is {any} then
-            top = push(stack, top, value, depth[i])
-          end
+  end,
+  Block = function(n: Ast.Node, visit: Visit)
+    if n.kind == "Block" then
+      for _, item in ipairs(n.stats) do
+        visit(item)
+      end
+    end
+  end,
+  Local = function(n: Ast.Node, visit: Visit)
+    if n.kind == "Local" then
+      for _, item in ipairs(n.bindings) do
+        visit(item)
+      end
+      for _, item in ipairs(n.types) do
+        visit(item)
+      end
+      for _, item in ipairs(n.values) do
+        visit(item)
+      end
+    end
+  end,
+  LocalFunction = function(n: Ast.Node, visit: Visit)
+    if n.kind == "LocalFunction" then
+      visit(n.name)
+      for _, item in ipairs(n.typeparams) do
+        visit(item)
+      end
+      visit(n.fn)
+    end
+  end,
+  Function = function(n: Ast.Node, visit: Visit)
+    if n.kind == "Function" then
+      for _, item in ipairs(n.path) do
+        visit(item)
+      end
+      for _, item in ipairs(n.typeparams) do
+        visit(item)
+      end
+      visit(n.fn)
+    end
+  end,
+  Assign = function(n: Ast.Node, visit: Visit)
+    if n.kind == "Assign" then
+      for _, item in ipairs(n.targets) do
+        visit(item)
+      end
+      for _, item in ipairs(n.values) do
+        visit(item)
+      end
+    end
+  end,
+  CallStat = function(n: Ast.Node, visit: Visit)
+    if n.kind == "CallStat" then
+      visit(n.call)
+    end
+  end,
+  Return = function(n: Ast.Node, visit: Visit)
+    if n.kind == "Return" then
+      for _, item in ipairs(n.values) do
+        visit(item)
+      end
+    end
+  end,
+  Do = function(n: Ast.Node, visit: Visit)
+    if n.kind == "Do" then
+      visit(n.body)
+    end
+  end,
+  While = function(n: Ast.Node, visit: Visit)
+    if n.kind == "While" then
+      visit(n.cond)
+      visit(n.body)
+    end
+  end,
+  Repeat = function(n: Ast.Node, visit: Visit)
+    if n.kind == "Repeat" then
+      visit(n.body)
+      visit(n.cond)
+    end
+  end,
+  If = function(n: Ast.Node, visit: Visit)
+    if n.kind == "If" then
+      for _, item in ipairs(n.arms) do
+        visit(item)
+      end
+      local else_body_node = n.else_body
+      if else_body_node ~= nil then
+        visit(else_body_node)
+      end
+    end
+  end,
+  Arm = function(n: Ast.Node, visit: Visit)
+    if n.kind == "Arm" then
+      visit(n.cond)
+      visit(n.body)
+    end
+  end,
+  Match = function(n: Ast.Node, visit: Visit)
+    if n.kind == "Match" then
+      visit(n.scrutinee)
+      for _, item in ipairs(n.arms) do
+        visit(item)
+      end
+    end
+  end,
+  MatchArm = function(n: Ast.Node, visit: Visit)
+    if n.kind == "MatchArm" then
+      for _, item in ipairs(n.pats) do
+        visit(item)
+      end
+      visit(n.body)
+    end
+  end,
+  PatBind = function(n: Ast.Node, visit: Visit)
+    if n.kind == "PatBind" then
+      visit(n.name)
+    end
+  end,
+  ForNum = function(n: Ast.Node, visit: Visit)
+    if n.kind == "ForNum" then
+      visit(n.var)
+      visit(n.from)
+      visit(n.to)
+      local step_node = n.step
+      if step_node ~= nil then
+        visit(step_node)
+      end
+      visit(n.body)
+    end
+  end,
+  ForIn = function(n: Ast.Node, visit: Visit)
+    if n.kind == "ForIn" then
+      for _, item in ipairs(n.vars) do
+        visit(item)
+      end
+      for _, item in ipairs(n.iterators) do
+        visit(item)
+      end
+      visit(n.body)
+    end
+  end,
+  Paren = function(n: Ast.Node, visit: Visit)
+    if n.kind == "Paren" then
+      visit(n.inner)
+    end
+  end,
+  FunctionLit = function(n: Ast.Node, visit: Visit)
+    if n.kind == "FunctionLit" then
+      visit(n.fn)
+    end
+  end,
+  Table = function(n: Ast.Node, visit: Visit)
+    if n.kind == "Table" then
+      for _, item in ipairs(n.items) do
+        visit(item)
+      end
+    end
+  end,
+  Positional = function(n: Ast.Node, visit: Visit)
+    if n.kind == "Positional" then
+      visit(n.value)
+    end
+  end,
+  Named = function(n: Ast.Node, visit: Visit)
+    if n.kind == "Named" then
+      visit(n.value)
+    end
+  end,
+  Keyed = function(n: Ast.Node, visit: Visit)
+    if n.kind == "Keyed" then
+      visit(n.key)
+      visit(n.value)
+    end
+  end,
+  Field = function(n: Ast.Node, visit: Visit)
+    if n.kind == "Field" then
+      visit(n.object)
+    end
+  end,
+  Index = function(n: Ast.Node, visit: Visit)
+    if n.kind == "Index" then
+      visit(n.object)
+      visit(n.key)
+    end
+  end,
+  Call = function(n: Ast.Node, visit: Visit)
+    if n.kind == "Call" then
+      visit(n.callee)
+      for _, item in ipairs(n.args) do
+        visit(item)
+      end
+    end
+  end,
+  MethodCall = function(n: Ast.Node, visit: Visit)
+    if n.kind == "MethodCall" then
+      visit(n.object)
+      for _, item in ipairs(n.args) do
+        visit(item)
+      end
+    end
+  end,
+  Unary = function(n: Ast.Node, visit: Visit)
+    if n.kind == "Unary" then
+      visit(n.operand)
+    end
+  end,
+  Binary = function(n: Ast.Node, visit: Visit)
+    if n.kind == "Binary" then
+      visit(n.left)
+      visit(n.right)
+    end
+  end,
+  IsTest = function(n: Ast.Node, visit: Visit)
+    if n.kind == "IsTest" then
+      visit(n.value)
+      visit(n.type)
+    end
+  end,
+  Cast = function(n: Ast.Node, visit: Visit)
+    if n.kind == "Cast" then
+      visit(n.value)
+      visit(n.type)
+    end
+  end,
+  IfExp = function(n: Ast.Node, visit: Visit)
+    if n.kind == "IfExp" then
+      for _, item in ipairs(n.arms) do
+        visit(item)
+      end
+      visit(n.else_value)
+    end
+  end,
+  ExpArm = function(n: Ast.Node, visit: Visit)
+    if n.kind == "ExpArm" then
+      visit(n.cond)
+      visit(n.value)
+    end
+  end,
+  Fn = function(n: Ast.Node, visit: Visit)
+    if n.kind == "Fn" then
+      for _, item in ipairs(n.params) do
+        visit(item)
+      end
+      local rets_node = n.rets
+      if rets_node ~= nil then
+        visit(rets_node)
+      end
+      visit(n.body)
+    end
+  end,
+  Rets = function(n: Ast.Node, visit: Visit)
+    if n.kind == "Rets" then
+      for _, list in ipairs(n.lists) do
+        for _, item in ipairs(list) do
+          visit(item)
         end
       end
     end
+  end,
+  Param = function(n: Ast.Node, visit: Visit)
+    if n.kind == "Param" then
+      local name_node = n.name
+      if name_node ~= nil then
+        visit(name_node)
+      end
+      local type_node = n.type
+      if type_node ~= nil then
+        visit(type_node)
+      end
+    end
+  end,
+  TypeName = function(n: Ast.Node, visit: Visit)
+    if n.kind == "TypeName" then
+      for _, item in ipairs(n.args) do
+        visit(item)
+      end
+    end
+  end,
+  TypeArray = function(n: Ast.Node, visit: Visit)
+    if n.kind == "TypeArray" then
+      visit(n.element)
+    end
+  end,
+  TypeMap = function(n: Ast.Node, visit: Visit)
+    if n.kind == "TypeMap" then
+      visit(n.key)
+      visit(n.value)
+    end
+  end,
+  TypeUnion = function(n: Ast.Node, visit: Visit)
+    if n.kind == "TypeUnion" then
+      for _, item in ipairs(n.members) do
+        visit(item)
+      end
+    end
+  end,
+  TypeOptional = function(n: Ast.Node, visit: Visit)
+    if n.kind == "TypeOptional" then
+      visit(n.inner)
+    end
+  end,
+  TypeMut = function(n: Ast.Node, visit: Visit)
+    if n.kind == "TypeMut" then
+      visit(n.inner)
+    end
+  end,
+  TypeFunction = function(n: Ast.Node, visit: Visit)
+    if n.kind == "TypeFunction" then
+      for _, item in ipairs(n.typeparams) do
+        visit(item)
+      end
+      for _, item in ipairs(n.params) do
+        visit(item)
+      end
+      local rets_node = n.rets
+      if rets_node ~= nil then
+        visit(rets_node)
+      end
+    end
+  end,
+  PType = function(n: Ast.Node, visit: Visit)
+    if n.kind == "PType" then
+      visit(n.type)
+    end
+  end,
+  Narrows = function(n: Ast.Node, visit: Visit)
+    if n.kind == "Narrows" then
+      visit(n.type)
+    end
+  end,
+  TypeParam = function(n: Ast.Node, visit: Visit)
+    if n.kind == "TypeParam" then
+      visit(n.name)
+      local constraint_node = n.constraint
+      if constraint_node ~= nil then
+        visit(constraint_node)
+      end
+    end
+  end,
+  Record = function(n: Ast.Node, visit: Visit)
+    if n.kind == "Record" then
+      visit(n.name)
+      for _, item in ipairs(n.typeparams) do
+        visit(item)
+      end
+      for _, item in ipairs(n.supers) do
+        visit(item)
+      end
+      local array_node = n.array
+      if array_node ~= nil then
+        visit(array_node)
+      end
+      for _, item in ipairs(n.members) do
+        visit(item)
+      end
+    end
+  end,
+  Interface = function(n: Ast.Node, visit: Visit)
+    if n.kind == "Interface" then
+      visit(n.name)
+      for _, item in ipairs(n.typeparams) do
+        visit(item)
+      end
+      for _, item in ipairs(n.supers) do
+        visit(item)
+      end
+      for _, item in ipairs(n.members) do
+        visit(item)
+      end
+    end
+  end,
+  Class = function(n: Ast.Node, visit: Visit)
+    if n.kind == "Class" then
+      visit(n.name)
+      for _, item in ipairs(n.typeparams) do
+        visit(item)
+      end
+      for _, item in ipairs(n.supers) do
+        visit(item)
+      end
+      for _, item in ipairs(n.members) do
+        visit(item)
+      end
+    end
+  end,
+  Enum = function(n: Ast.Node, visit: Visit)
+    if n.kind == "Enum" then
+      visit(n.name)
+      for _, item in ipairs(n.values) do
+        visit(item)
+      end
+    end
+  end,
+  Alias = function(n: Ast.Node, visit: Visit)
+    if n.kind == "Alias" then
+      visit(n.name)
+      for _, item in ipairs(n.typeparams) do
+        visit(item)
+      end
+      visit(n.type)
+    end
+  end,
+  Import = function(n: Ast.Node, visit: Visit)
+    if n.kind == "Import" then
+      visit(n.name)
+    end
+  end,
+  FieldDecl = function(n: Ast.Node, visit: Visit)
+    if n.kind == "FieldDecl" then
+      visit(n.name)
+      visit(n.type)
+    end
+  end,
+  Method = function(n: Ast.Node, visit: Visit)
+    if n.kind == "Method" then
+      visit(n.name)
+      for _, item in ipairs(n.params) do
+        visit(item)
+      end
+      local rets_node = n.rets
+      if rets_node ~= nil then
+        visit(rets_node)
+      end
+      visit(n.body)
+    end
+  end,
+}
+
+function Ast.children(node: Ast.Node, visit: function(Ast.Node))
+  local walk = WALK[node.kind]
+  if walk ~= nil then
+    walk(node, visit)
   end
-  return count
+end
+
+local children = Ast.children
+
+local function number_node(node: Ast.Base, id: integer)
+  node.id = id
 end
 
 function Ast.number(chunk: Ast.Chunk): integer
-  return number(chunk)
-end
-
---- Calls `visit` with each node in `list`, which is a list of nodes or, `depth` 2, of lists.
-local function visit_list(list: {any}, depth: integer, visit: function(Ast.Node))
-  for i = 1, #list do
-    local item = list[i]
-    if depth == 1 then
-      if (item.kind == "Chunk" or item.kind == "Block" or item.kind == "Local" or item.kind == "LocalFunction" or item.kind == "Function" or item.kind == "Assign" or item.kind == "CallStat" or item.kind == "Return" or item.kind == "Do" or item.kind == "Break" or item.kind == "Continue" or item.kind == "While" or item.kind == "Repeat" or item.kind == "If" or item.kind == "Arm" or item.kind == "Match" or item.kind == "MatchArm" or item.kind == "PatBool" or item.kind == "PatBind" or item.kind == "ForNum" or item.kind == "ForIn" or item.kind == "Name" or item.kind == "Nil" or item.kind == "Boolean" or item.kind == "Integer" or item.kind == "Float" or item.kind == "String" or item.kind == "Vararg" or item.kind == "Paren" or item.kind == "FunctionLit" or item.kind == "Table" or item.kind == "Positional" or item.kind == "Named" or item.kind == "Keyed" or item.kind == "Field" or item.kind == "Index" or item.kind == "Call" or item.kind == "MethodCall" or item.kind == "Unary" or item.kind == "Binary" or item.kind == "IsTest" or item.kind == "Cast" or item.kind == "IfExp" or item.kind == "ExpArm" or item.kind == "Fn" or item.kind == "Rets" or item.kind == "Param" or item.kind == "Binding" or item.kind == "TypeName" or item.kind == "TypeBool" or item.kind == "TypeNil" or item.kind == "TypeError" or item.kind == "TypeArray" or item.kind == "TypeMap" or item.kind == "TypeUnion" or item.kind == "TypeOptional" or item.kind == "TypeMut" or item.kind == "TypeFunction" or item.kind == "PType" or item.kind == "Narrows" or item.kind == "TypeParam" or item.kind == "Record" or item.kind == "Interface" or item.kind == "Class" or item.kind == "Enum" or item.kind == "EnumValue" or item.kind == "Alias" or item.kind == "Import" or item.kind == "FieldDecl" or item.kind == "Method" or item.kind == "Userdata" or item.kind == "Error") then
-        visit(item)
-      end
-    elseif item is {any} then
-      visit_list(item, 1, visit)
+  local pending: mut {Ast.Node} = { chunk }
+  local function push(child: Ast.Node)
+    pending[#pending + 1] = child
+  end
+  local count = 0
+  while true do
+    local node = table.remove(pending)
+    if node == nil then
+      break
+    end
+    count = count + 1
+    number_node(node, count)
+    -- The children go on in source order and are then turned about, so that the first is the next node taken.
+    local low = #pending + 1
+    children(node, push)
+    local high = #pending
+    while low < high do
+      local held = pending[low]
+      pending[low] = pending[high]
+      pending[high] = held
+      low = low + 1
+      high = high - 1
     end
   end
-end
-
-local function children_of(owner: {string: any}, visit: function(Ast.Node))
-  local kind = owner.kind
-  if not (kind is string) then
-    return
-  end
-  local names, depth = fields[kind], depths[kind]
-  for i = 1, #names do
-    local value = owner[names[i]]
-    if type(value) == "table" then
-      if depth[i] == 0 then
-        if (value.kind == "Chunk" or value.kind == "Block" or value.kind == "Local" or value.kind == "LocalFunction" or value.kind == "Function" or value.kind == "Assign" or value.kind == "CallStat" or value.kind == "Return" or value.kind == "Do" or value.kind == "Break" or value.kind == "Continue" or value.kind == "While" or value.kind == "Repeat" or value.kind == "If" or value.kind == "Arm" or value.kind == "Match" or value.kind == "MatchArm" or value.kind == "PatBool" or value.kind == "PatBind" or value.kind == "ForNum" or value.kind == "ForIn" or value.kind == "Name" or value.kind == "Nil" or value.kind == "Boolean" or value.kind == "Integer" or value.kind == "Float" or value.kind == "String" or value.kind == "Vararg" or value.kind == "Paren" or value.kind == "FunctionLit" or value.kind == "Table" or value.kind == "Positional" or value.kind == "Named" or value.kind == "Keyed" or value.kind == "Field" or value.kind == "Index" or value.kind == "Call" or value.kind == "MethodCall" or value.kind == "Unary" or value.kind == "Binary" or value.kind == "IsTest" or value.kind == "Cast" or value.kind == "IfExp" or value.kind == "ExpArm" or value.kind == "Fn" or value.kind == "Rets" or value.kind == "Param" or value.kind == "Binding" or value.kind == "TypeName" or value.kind == "TypeBool" or value.kind == "TypeNil" or value.kind == "TypeError" or value.kind == "TypeArray" or value.kind == "TypeMap" or value.kind == "TypeUnion" or value.kind == "TypeOptional" or value.kind == "TypeMut" or value.kind == "TypeFunction" or value.kind == "PType" or value.kind == "Narrows" or value.kind == "TypeParam" or value.kind == "Record" or value.kind == "Interface" or value.kind == "Class" or value.kind == "Enum" or value.kind == "EnumValue" or value.kind == "Alias" or value.kind == "Import" or value.kind == "FieldDecl" or value.kind == "Method" or value.kind == "Userdata" or value.kind == "Error") then
-          visit(value)
-        end
-      elseif value is {any} then
-        visit_list(value, depth[i], visit)
-      end
-    end
-  end
-end
-
-local function start_children(root: any, visit: function(Ast.Node))
-  if root is {string: any} then
-    children_of(root, visit)
-  end
-end
-
-function Ast.children(node: Ast.Node, visit: function(Ast.Node))
-  start_children(node, visit)
+  return count
 end
 
 function Ast.span(chunk: Ast.Chunk, node: Ast.Node): Ast.Span
