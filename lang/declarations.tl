@@ -552,7 +552,7 @@ local MAX_DEPTH <const> = Types.max_depth
 --- How deeply alias lowering nests before it is called too deep.
 local MAX_ALIAS_NESTING <const> = 200
 
-local PRIMITIVES <const>: {string: Types.Tag} = {
+local PRIMITIVES <const>: {string: Types.Atom_tag} = {
   integer = "integer", number = "number", string = "string", boolean = "boolean", any = "any", never = "never",
 }
 
@@ -1811,7 +1811,7 @@ local function check_metamethod(ctx: Ctx, build: Build, m: Ast.Method, made: Typ
       "write `function " .. name .. "(self)" .. (if name == "__tostring" then ": string" else "" end) .. "`")
   elseif name == "__tostring" then
     local alt = made.rets[1]
-    if #made.rets ~= 1 or alt.tail ~= nil or #alt.items ~= 1 or alt.items[1] ~= ctx.store.string then
+    if alt == nil or #made.rets ~= 1 or alt.tail ~= nil or #alt.items ~= 1 or alt.items[1] ~= ctx.store.string then
       report_at(ctx, "metamethod_signature", m.name, "the method `__tostring` of " .. class .. " does not answer a " ..
           "`string`, which `tostring` needs",
         "write `function __tostring(self): string`")
@@ -1927,8 +1927,12 @@ local function lower_field(ctx: Ctx, build: Build, m: Ast.FieldDecl)
     return
   end
   -- A function of a userdata record that names the record first is a method of it.
+  local receiver: Types.Param? = nil
+  if ft.tag == "fn" then
+    receiver = ft.params[1]
+  end
   if build.decl.kind == "userdata" and (ft.tag == "fn") and not m.mut and not m.omittable and
-      ft.params[1] ~= nil and ft.params[1].type == build.self_type then
+      receiver ~= nil and receiver.type == build.self_type then
     build.methods[#build.methods + 1] = { name = m.name.name, type = ft }
     return
   end
@@ -2206,7 +2210,7 @@ local function supplies(body: Types.Body, name: string): {Supply}
   local out: mut {Supply} = {}
   for _, f in ipairs(body.fields) do
     if f.name == name then
-      out[#out + 1] = { type = f.type, mut = f.mut or false, omittable = f.omittable or false, method = false }
+      out[#out + 1] = { type = f.type, mut = f.mut == true, omittable = f.omittable == true, method = false }
     end
   end
   for _, m in ipairs(body.methods) do
@@ -2229,10 +2233,20 @@ local function as_listed(store: Store, x: Named, field_type: Type, self_type: Ty
   end
   -- An omittable function field is `function(...)?`: the receiver is the function's.
   local optional = (instance.tag == "union") and instance.nilable
-  local callable: Type = optional and store:non_nil(instance) or instance
-  if (callable.tag == "fn") and #callable.params > 0 and #callable.tparams == 0 and callable.params[1].type == x then
+  local callable: Type = instance
+  if optional then
+    callable = store:non_nil(instance)
+  end
+  local receiver: Types.Param? = nil
+  if callable.tag == "fn" then
+    receiver = callable.params[1]
+  end
+  if (callable.tag == "fn") and receiver ~= nil and #callable.tparams == 0 and receiver.type == x then
     local replaced = with_receiver(store, callable, self_type)
-    return optional and store:optional(replaced) or replaced
+    if optional then
+      return store:optional(replaced)
+    end
+    return replaced
   end
   return instance
 end
@@ -2299,7 +2313,10 @@ local function check_listing(ctx: Ctx, build: Build, names: {{string}}): boolean
   local inherited: mut {string: Inherited} = {}
   local conflicted: mut {string: boolean} = {}
   for _, x in ipairs(listing.types) do
-    local xbody = (x.tag == "named") and x.decl.body or nil
+    local xbody: Types.Body? = nil
+    if x.tag == "named" then
+      xbody = x.decl.body
+    end
     if (x.tag == "named") and xbody ~= nil then
       for _, f in ipairs(xbody.fields) do
         local instance = as_listed(store, x, f.type, self_type)
@@ -2311,7 +2328,7 @@ local function check_listing(ctx: Ctx, build: Build, names: {{string}}): boolean
           local satisfied = false
           for _, s in ipairs(found) do
             local same = s.type == expected or tainted(ctx, s.type) or tainted(ctx, expected)
-            if same and s.mut == (f.mut or false) and s.omittable == (f.omittable or false) then
+            if same and s.mut == (f.mut == true) and s.omittable == (f.omittable == true) then
               satisfied = true
               break
             end
@@ -2323,23 +2340,23 @@ local function check_listing(ctx: Ctx, build: Build, names: {{string}}): boolean
             if s == nil then
               if decl.kind ~= "interface" then
                 local shown_type: Type = expected
-                if f.omittable then
+                if f.omittable == true then
                   shown_type = store:non_nil(expected)
                 end
                 report(ctx, "interface_disagrees", first, last, quoted(decl.name) .. " lists " .. xname ..
                     " but has no " .. (if is_class then "field or method " else "field " end) .. quoted(f.name),
-                  "declare " .. (if f.mut then "`mut " else "`" end) .. f.name .. (if f.omittable then "?" else "" end) ..
+                  "declare " .. (if f.mut == true then "`mut " else "`" end) .. f.name .. (if f.omittable == true then "?" else "" end) ..
                     (if tainted(ctx, shown_type) then "" else ": " .. display(shown_type) end) .. "` in " .. quoted(decl.name) ..
                     ", as " .. xname .. " declares it" ..
-                    (if is_class and (expected.tag == "fn") and not f.mut then " (or write the method `function " .. f.name .. "(self, ...)` of that type)" else "" end),
+                    (if is_class and (expected.tag == "fn") and f.mut ~= true then " (or write the method `function " .. f.name .. "(self, ...)` of that type)" else "" end),
                   if tainted(ctx, expected) then {} else { display(expected) } end)
               else
                 -- An interface that leaves a field out has it from the interfaces it lists, so they must say it alike.
                 local held = inherited[f.name]
                 if held == nil then
-                  inherited[f.name] = { from = x, type = expected, mut = f.mut or false, omittable = f.omittable or false }
+                  inherited[f.name] = { from = x, type = expected, mut = f.mut == true, omittable = f.omittable == true }
                 elseif not (held.type == expected or tainted(ctx, held.type) or tainted(ctx, expected)) or
-                    held.mut ~= (f.mut or false) or held.omittable ~= (f.omittable or false) then
+                    held.mut ~= (f.mut == true) or held.omittable ~= (f.omittable == true) then
                   -- One that lists the other has said so where it declares the field.
                   local chained = false
                   for _, above in ipairs(program.judge:listed(x).types) do
@@ -2355,8 +2372,8 @@ local function check_listing(ctx: Ctx, build: Build, names: {{string}}): boolean
                     report(ctx, "interface_disagrees", first, last, quoted(decl.name) .. " lists " ..
                         quoted(display(held.from)) .. " and " .. xname .. ", which declare " .. quoted(f.name) ..
                         " differently, as " .. quoted(inherited_text(display, held)) .. " and " ..
-                        quoted(inherited_text(display, { from = x, type = expected, mut = f.mut or false,
-                          omittable = f.omittable or false })) .. ", so " .. quoted(decl.name .. "." .. f.name) .. " has no single type",
+                        quoted(inherited_text(display, { from = x, type = expected, mut = f.mut == true,
+                          omittable = f.omittable == true })) .. ", so " .. quoted(decl.name .. "." .. f.name) .. " has no single type",
                       "change " .. other .. " to " .. quoted(inherited_text(display, held)) .. " to match " .. one ..
                         ", or change " .. one .. " to match it, or list only one of the two in " .. quoted(decl.name),
                       if tainted(ctx, held.type) then {} else { display(held.type), display(expected) } end)
@@ -2369,15 +2386,15 @@ local function check_listing(ctx: Ctx, build: Build, names: {{string}}): boolean
                 "change " .. mine .. " to " .. quoted(display(expected)) ..
                   ": a type that lists an interface declares each of its fields with exactly the interface's type",
                 { display(s.type), display(expected) })
-            elseif s.mut ~= (f.mut or false) then
+            elseif s.mut ~= (f.mut == true) then
               report_at(ctx, "interface_disagrees", where, mine .. " is " .. (if s.mut then "mut" else "fixed" end) .. ", but " ..
-                  xname .. " declares it " .. (if f.mut then "`mut`" else "fixed" end),
-                if f.mut then "declare `mut " .. f.name .. "` in " .. quoted(decl.name) .. ", as " .. xname .. " does" else
+                  xname .. " declares it " .. (if f.mut == true then "`mut`" else "fixed" end),
+                if f.mut == true then "declare `mut " .. f.name .. "` in " .. quoted(decl.name) .. ", as " .. xname .. " does" else
                   "remove `mut` from " .. mine .. ", as " .. xname .. " declares it fixed" end)
             else
               report_at(ctx, "interface_disagrees", where, mine .. " is " .. (if s.omittable then "omittable" else "required" end) ..
-                  ", but " .. xname .. " declares it " .. (if f.omittable then "omittable (`" .. f.name .. "?:`)" else "required" end),
-                if f.omittable then "write `" .. f.name .. "?:` in " .. quoted(decl.name) .. ", as " .. xname .. " does" else
+                  ", but " .. xname .. " declares it " .. (if f.omittable == true then "omittable (`" .. f.name .. "?:`)" else "required" end),
+                if f.omittable == true then "write `" .. f.name .. "?:` in " .. quoted(decl.name) .. ", as " .. xname .. " does" else
                   "remove the `?` after " .. quoted(f.name) .. " in " .. quoted(decl.name) .. ", as " .. xname .. " declares it required" end)
             end
           end
@@ -2560,7 +2577,7 @@ local function scan_requires(roots: {Type}): Requires
     if t.open <= level then
       return
     end
-    local mark = t.id .. ":" .. level
+    local mark = tostring(t.id) .. ":" .. level
     if seen[mark] then
       return
     end
@@ -3038,7 +3055,10 @@ function Declarations.inherited(store: Store, judge: Relation.Judge, decl: Types
     held[f.name] = true
   end
   for _, x in ipairs(judge:listed(self_type).types) do
-    local xbody = (x.tag == "named") and x.decl.body or nil
+    local xbody: Types.Body? = nil
+    if x.tag == "named" then
+      xbody = x.decl.body
+    end
     if (x.tag == "named") and xbody ~= nil then
       for _, f in ipairs(xbody.fields) do
         if held[f.name] ~= true then

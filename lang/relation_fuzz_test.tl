@@ -32,6 +32,14 @@ local type World = Programs.World
 local weaken: function(w: World, t: Type, salt: integer): Type
 local strengthen: function(w: World, t: Type, salt: integer): Type
 
+--- The first argument of a use of a declaration the fuzz made with one.
+local function first_argument(t: Type): Type
+  assert(t.tag == "named")
+  local argument = t.args[1]
+  assert(argument ~= nil)
+  return argument
+end
+
 local function use(w: World, name: string, args?: {Type}): Type
   return Programs.named(w, name, args)
 end
@@ -107,11 +115,11 @@ weaken = function(w: World, t: Type, salt: integer): Type
     elseif name == "IntSource" then
       result = use(w, "Source", { s.integer })
     elseif name == "Box" then
-      result = use(w, "Source", { t.args[1] })
+      result = use(w, "Source", { first_argument(t) })
     elseif name == "Wrapped" then
-      result = use(w, "Source", { s:array(t.args[1]) })
+      result = use(w, "Source", { s:array(first_argument(t)) })
     elseif name == "Ring" then
-      result = s:array(t.args[1])
+      result = s:array(first_argument(t))
     end
   elseif (t.tag == "array") then
     result = s:array(weaken(w, t.element, next_salt))
@@ -174,7 +182,7 @@ strengthen = function(w: World, t: Type, salt: integer): Type
     elseif name == "Source" and t.args[1] == s.integer then
       return use(w, "IntSource")
     elseif name == "Source" then
-      return use(w, "Box", { t.args[1] })
+      return use(w, "Box", { first_argument(t) })
     end
     return t
   elseif (t.tag == "array") then
@@ -197,7 +205,9 @@ strengthen = function(w: World, t: Type, salt: integer): Type
     if t.nilable and #t.members > 0 and salt % 2 == 0 then
       return s:union(t.members)
     end
-    return strengthen(w, t.members[1], next_salt)
+    local member = t.members[1]
+    assert(member ~= nil)
+    return strengthen(w, member, next_salt)
   elseif (t.tag == "fn") then
     return map_fn(w, t, function(p: Type): Type
       return weaken(w, p, next_salt)
@@ -422,7 +432,7 @@ end
 --- The labels a pair of types reaches.
 local function label_pair(a: Type, b: Type, holds: boolean)
   Fuzz.label(if holds then "holds" else "refused" end)
-  Fuzz.label(a.tag .. " below")
+  Fuzz.label(tostring(a.tag) .. " below")
   if a.tag ~= b.tag then
     Fuzz.label("different forms")
   end
@@ -892,12 +902,18 @@ local function replay(
         return nil, nil, "member of a type that is no union"
       end
       local member = a.members[index]
+      if member == nil then
+        return nil, nil, "a member that is not there"
+      end
       a = member
     elseif kind == "nil" then
       a = s:atom("nil")
     elseif kind == "target_alternative" then
       if (b.tag == "union") and index ~= nil then
         local member = b.members[index]
+        if member == nil then
+          return nil, nil, "a member that is not there"
+        end
         b = member
       elseif (b.tag == "fn") and index ~= nil then
         wanted_alt = b.rets[index]
@@ -912,7 +928,7 @@ local function replay(
         return nil, nil, "the element of types that are no arrays"
       end
     elseif kind == "array_part" then
-      local body = (a.tag == "named") and a.decl.body or nil
+      local body = if a.tag == "named" then a.decl.body else nil end
       if (a.tag == "named") and body ~= nil and (b.tag == "array") then
         local part = body.array
         if part == nil then
@@ -938,6 +954,9 @@ local function replay(
     elseif kind == "argument" then
       if (a.tag == "named") and (b.tag == "named") and index ~= nil then
         local from, to = a.args[index], b.args[index]
+        if from == nil or to == nil then
+          return nil, nil, "an argument that is not there"
+        end
         a, b = from, to
       else
         return nil, nil, "the argument of types that are no uses"
@@ -949,8 +968,8 @@ local function replay(
         local to: Type?
         if index ~= nil then
           local given, wanted = a.params[index], b.params[index]
-          from = wanted ~= nil and wanted.type or b.rest
-          to = given ~= nil and given.type or a.rest
+          from = if wanted ~= nil then wanted.type else b.rest end
+          to = if given ~= nil then given.type else a.rest end
         end
         if from == nil or to == nil then
           return nil, nil, "a parameter that is not there"
@@ -962,7 +981,7 @@ local function replay(
     elseif kind == "alternative" then
       if (a.tag == "fn") and (b.tag == "fn") and index ~= nil then
         given_alt = a.rets[index]
-        wanted_alt = #b.rets == 1 and b.rets[1] or nil
+        wanted_alt = if #b.rets == 1 then b.rets[1] else nil end
       else
         return nil, nil, "an alternative of types that are no functions"
       end

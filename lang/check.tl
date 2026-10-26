@@ -640,7 +640,10 @@ local function takes_receiver(ctx: Ctx, decl: Decl, given: Type): boolean
     return false
   end
   local first = ft.params[1]
-  local receiver = first ~= nil and first.type or nil
+  local receiver: Type? = nil
+  if first ~= nil then
+    receiver = first.type
+  end
   return receiver ~= nil and (receiver.tag == "named") and receiver.decl == decl
 end
 
@@ -845,7 +848,12 @@ local function refused(ctx: Ctx, node: Ast.Node, got: Type, want: Type, r: Relat
         " is wanted" .. where .. "): a receiver could store another element type through a `mut` collection",
       "pass a view, or declare the receiver's type " .. quoted(g) .. " as the argument has it", shown)
   elseif code == "declaration_value" then
-    local decl: Decl? = (from.tag == "named") and from.decl or (into.tag == "named") and into.decl or nil
+    local decl: Decl? = nil
+    if from.tag == "named" then
+      decl = from.decl
+    elseif into.tag == "named" then
+      decl = into.decl
+    end
     local name, kind = g, "record"
     if decl ~= nil then
       name, kind = decl.name, decl.kind
@@ -1122,7 +1130,11 @@ local function string_value(ctx: Ctx, node: Ast.Node, value: string, expected: T
     if (m.tag == "named") and m.decl.kind == "enum" then
       enums = enums + 1
       local body = m.decl.body
-      for _, v in ipairs(body ~= nil and body.values or {}) do
+      local enum_values: {string} = {}
+      if body ~= nil then
+        enum_values = body.values
+      end
+      for _, v in ipairs(enum_values) do
         if v == value then
           return m
         end
@@ -1970,7 +1982,7 @@ local function member_read(ctx: Ctx, node: Ast.Node, t: Type, name: string): Typ
     return put_in(ctx, t, list[1].type)
   elseif (t.tag == "union") then
     -- Read as a value, the member is the union of their types; a call is typed by [`union_method`] and not by this.
-    local key = t.id .. "." .. name
+    local key = tostring(t.id) .. "." .. name
     local held = ctx.union_fields[key]
     if held ~= nil then
       return held
@@ -2071,12 +2083,16 @@ local function union_method(ctx: Ctx, node: Ast.MethodCall, u: Union): Type?, {T
     local replaced: mut {Type} = {}
     for i, each in ipairs(declared) do
       local f = each
-      if (f.tag == "fn") and f.params[1] ~= nil and f.params[1].type == m and not is_text(m) then
+      local receiver: Types.Param? = nil
+      if f.tag == "fn" then
+        receiver = f.params[1]
+      end
+      if (f.tag == "fn") and receiver ~= nil and receiver.type == m and not is_text(m) then
         local params: mut {Types.Param} = {}
         for j, p in ipairs(f.params) do
           params[j] = p
         end
-        params[1] = { type = u, omittable = f.params[1].omittable }
+        params[1] = { type = u, omittable = receiver.omittable }
         f = store:fn({ tparams = f.tparams, params = params, rest = f.rest, rets = f.rets })
       end
       replaced[i] = f
@@ -2152,11 +2168,19 @@ local function index_read(ctx: Ctx, node: Ast.Index, object: Type): Type
   if (t.tag == "array") then
     local k = expr(ctx, node.key, store.integer)
     local _ = key_ok(ctx, node.key, k, store.integer, subject(ctx, node.object))
-    return store:optional(t.mut and t.element or view(store, t.element))
+    local element = t.element
+    if not t.mut then
+      element = view(store, element)
+    end
+    return store:optional(element)
   elseif (t.tag == "map") then
     local k = expr(ctx, node.key, t.key)
     local _ = key_ok(ctx, node.key, k, t.key, subject(ctx, node.object))
-    return store:optional(t.mut and t.value or view(store, t.value))
+    local value = t.value
+    if not t.mut then
+      value = view(store, value)
+    end
+    return store:optional(value)
   elseif (t.tag == "named") and (t.decl.kind == "record" or t.decl.kind == "class" or t.decl.kind == "userdata") then
     local k = expr(ctx, node.key, nil)
     if k.tag == "invalid" then
@@ -2601,7 +2625,10 @@ function Tests.enum_strings(ctx: Ctx, t: Type): {string}?
   local seen: mut {string: boolean} = {}
   for _, m in ipairs(members_of(ctx.store, t)) do
     if Tests.lua_kind(m) == "string" then
-      local body = (m.tag == "named") and m.decl.kind == "enum" and m.decl.body or nil
+      local body: Types.Body? = nil
+      if (m.tag == "named") and m.decl.kind == "enum" then
+        body = m.decl.body
+      end
       if body == nil then
         return nil
       end
@@ -2635,7 +2662,10 @@ end
 --- them, and the values of the enums.
 function Tests.tag_field(ctx: Ctx, list: {Type}): string?, {string}?
   local first = list[1]
-  local body = first ~= nil and (first.tag == "named") and first.decl.body or nil
+  local body: Types.Body? = nil
+  if first ~= nil and (first.tag == "named") then
+    body = first.decl.body
+  end
   if body == nil then
     return nil
   end
@@ -4394,8 +4424,12 @@ local function apply_overloads(ctx: Ctx, node: Ast.Node, callee: string, cands: 
       elseif wrong_count ~= nil then
         failure = wrong_count .. " arguments"
       elseif recv ~= nil and c.params[1] ~= nil and not accepts(ctx, recv, c.params[1].type) then
-        failure = "the receiver is " .. tq(ctx, recv) .. ", where " ..
-          quoted(Calls.shown(ctx, declared, declared.params[1] ~= nil and declared.params[1].type or c.params[1].type)) ..
+        local declared_receiver = declared.params[1]
+        local wanted_receiver = c.params[1].type
+        if declared_receiver ~= nil then
+          wanted_receiver = declared_receiver.type
+        end
+        failure = "the receiver is " .. tq(ctx, recv) .. ", where " .. quoted(Calls.shown(ctx, declared, wanted_receiver)) ..
           " is wanted"
       else
         for i = 1, count do
@@ -4664,7 +4698,13 @@ function Calls.refine_overloads(ctx: Ctx, call: Literals.Call, list: {Type}): {T
   end
   local out: mut {Type} = {}
   for _, each in ipairs(list) do
-    local callback = (each.tag == "fn") and each.params[3] ~= nil and each.params[3].type or nil
+    local callback: Type? = nil
+    if each.tag == "fn" then
+      local third = each.params[3]
+      if third ~= nil then
+        callback = third.type
+      end
+    end
     if (each.tag == "fn") and callback ~= nil and (callback.tag == "fn") then
       if #callback.params <= #given then
         local params: mut {Types.Param} = {}
@@ -4750,8 +4790,8 @@ function Calls.dispatch(ctx: Ctx, node: Ast.Node, callee_node: Ast.Node, callee:
   if cands == nil and nilable(first) and first.tag ~= "nil" then
     report(ctx, "nil_not_allowed", callee_node, quoted(callee) .. " is " .. tq(ctx, first) .. ", so it may be nil, and it is called",
       "test it first (`if " .. callee .. " ~= nil then ... end`), or copy it to a local and test that", { show(ctx, first) })
-    list = { ctx.store:non_nil(first) }
-    first = list[1]
+    first = ctx.store:non_nil(first)
+    list = { first }
   end
   local library = Calls.library_call(ctx, callee_node, node, args, recv, recv_node)
   local key: string? = nil
@@ -5946,12 +5986,13 @@ local function for_generic(ctx: Ctx, s: Ast.ForIn)
     end
     local state, control = vals.types[2], vals.types[3]
     local final = s.iterators[#s.iterators]
-    if state ~= nil and iterator.params[1] ~= nil then
-      local _ = expect_argument(ctx, s.iterators[math.min(2, #s.iterators)], state, iterator.params[1].type,
+    local iterator_state, iterator_control = iterator.params[1], iterator.params[2]
+    if state ~= nil and iterator_state ~= nil then
+      local _ = expect_argument(ctx, s.iterators[math.min(2, #s.iterators)], state, iterator_state.type,
         " as the state of the iterator")
     end
-    if control ~= nil and iterator.params[2] ~= nil then
-      local _ = expect_argument(ctx, s.iterators[math.min(3, #s.iterators)] or final, control, iterator.params[2].type,
+    if control ~= nil and iterator_control ~= nil then
+      local _ = expect_argument(ctx, s.iterators[math.min(3, #s.iterators)] or final, control, iterator_control.type,
         " as the first value of the iterator")
     end
   else
@@ -6174,7 +6215,10 @@ local function arm_against(arm: Ast.MatchArm, alt: Alt): string, integer
   for i, p in ipairs(arm.pats) do
     if (p.kind == "PatBool") then
       local item = alt.items[i]
-      local tag = item ~= nil and item.tag or ""
+      local tag = ""
+      if item ~= nil then
+        tag = item.tag
+      end
       if tag == "true" or tag == "false" then
         if (tag == "true") ~= p.value then
           return "no", i
@@ -6194,7 +6238,11 @@ end
 local function arm_for(alt: Alt): string
   local pats: mut {string} = {}
   for i, item in ipairs(alt.items) do
-    pats[i] = (item.tag == "true" or item.tag == "false") and item.tag or "v" .. i
+    local pat = "v" .. i
+    if item.tag == "true" or item.tag == "false" then
+      pat = item.tag
+    end
+    pats[i] = pat
   end
   if #pats == 0 and alt.tail ~= nil then
     pats[1] = "v1"
@@ -6375,7 +6423,10 @@ end
 function Check.enums(lowered: Declarations.Lowered): {integer: {string}}
   local out: mut {integer: {string}} = {}
   for id, t in pairs(lowered.types) do
-    local body = (t.tag == "named") and not t.value and t.decl.kind == "enum" and t.decl.body or nil
+    local body: Types.Body? = nil
+    if (t.tag == "named") and not t.value and t.decl.kind == "enum" then
+      body = t.decl.body
+    end
     if body ~= nil then
       out[id] = body.values
     end
