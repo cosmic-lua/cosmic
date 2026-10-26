@@ -2,7 +2,10 @@
 --- times the time, for each shape that could cost more than its length: a chain of operators, a record of many fields
 --- read many times and given in a literal, a literal of many items, a union of many tagged records read by a field
 --- they share, a union of records with two tag values each told apart by a fixed number of tests (checked, and declared in
---- the second guard at the end), an `if` expression of many arms, and a function of many parameters called with all of them.
+--- the second guard at the end), an `if` expression of many arms, and a function of many parameters called with all of
+--- them. A chain of tests over every tag of a union, and a test of every tag joined by `or`, are held to four times the
+--- members costing about the square of four (16 times) and not its cube, since each test reads what the one before
+--- left.
 --- The guards of [`lang.relation`] are in [`lang.relation_speed_test`]; this module does not time it apart.
 local Check = require("lang.check")
 local Declarations = require("lang.declarations")
@@ -100,6 +103,44 @@ local FORMS <const>: {string: function(n: integer): string} = {
     out[#out + 1] = "  return 1\nend\n"
     return table.concat(out)
   end,
+  ["a union of many tagged records told apart by a chain of tests over every tag"] = function(n: integer): string
+    -- One `if` and `elseif` for each member, like the walks over the nodes of [`lang.ast`]: the chain grows with the
+    -- union, and each test selects a member and leaves the rest. Each test reads the union it leaves and is a walk of
+    -- it, so the chain is quadratic in the members at best; a test that walks the members again to tell them apart, or
+    -- the join of the arms that asks each pair of members whether one is below the other, makes it the cube.
+    local count = n * 4
+    local out: mut {string} = {}
+    local members: mut {string} = {}
+    for i = 1, count do
+      local at = tostring(i)
+      out[#out + 1] = "local enum K" .. at .. " \"k" .. at .. "\" end\nlocal record R" .. at .. "\n  kind: K" .. at ..
+        "\n  f" .. at .. ": integer\nend\n"
+      members[#members + 1] = "R" .. at
+    end
+    out[#out + 1] = "local type Node = " .. table.concat(members, " | ") .. "\nlocal function f(a: Node): integer\n"
+    for i = 1, count do
+      out[#out + 1] = "  " .. (if i == 1 then "if" else "elseif" end) .. " a.kind == \"k" .. tostring(i) .. "\" then\n    local v" .. tostring(i) .. ": integer = a.f" ..
+        tostring(i) .. "\n"
+    end
+    out[#out + 1] = "  end\n  return 1\nend\n"
+    return table.concat(out)
+  end,
+  ["a union of many tagged records told apart by one test of every tag joined by or"] = function(n: integer): string
+    local count = n * 4
+    local out: mut {string} = {}
+    local members: mut {string} = {}
+    local tests: mut {string} = {}
+    for i = 1, count do
+      local at = tostring(i)
+      out[#out + 1] = "local enum K" .. at .. " \"k" .. at .. "\" end\nlocal record R" .. at .. "\n  kind: K" .. at ..
+        "\n  f" .. at .. ": integer\nend\n"
+      members[#members + 1] = "R" .. at
+      tests[#tests + 1] = "a.kind == \"k" .. at .. "\""
+    end
+    out[#out + 1] = "local type Node = " .. table.concat(members, " | ") .. "\nlocal function f(a: Node): integer\n  if " ..
+      table.concat(tests, " or ") .. " then\n    local w: Node = a\n  end\n  return 1\nend\n"
+    return table.concat(out)
+  end,
   ["an if expression of many arms"] = function(n: integer): string
     local arms: mut {string} = {}
     for i = 1, n * 50 do
@@ -145,6 +186,27 @@ end
 
 local function test_four_times_the_input_costs_about_four_times_the_time_for_a_union_of_many_tagged_records_told_apart_by_a_fixed_number_of_tests()
   hold({ "a union of many tagged records told apart by a fixed number of tests" })
+end
+
+local function test_four_times_the_members_costs_about_sixteen_times_for_a_chain_of_tests_over_every_tag_of_a_union()
+  -- A chain is quadratic in the members at best, each test reading the union the ones before it left: four times the
+  -- members costs 16 times, and 64 times where a test or the join of the arms asks each pair of members, or walks them
+  -- again, for each test. The limits lie between what the chain and the `or` of tests cost, and what they cost then.
+  local limits <const>: {string: integer} = {
+    ["a union of many tagged records told apart by a chain of tests over every tag"] = 21,
+    ["a union of many tagged records told apart by one test of every tag joined by or"] = 28,
+  }
+  for name, limit in pairs(limits) do
+    local form = assert(FORMS[name])
+    local small = prepare(form(5))
+    local large = prepare(form(20))
+    local ok, why = Speed.within(function()
+      check(small)
+    end, function()
+      check(large)
+    end, limit)
+    assert(ok, name .. ": four times the members " .. why)
+  end
 end
 
 local function test_four_times_the_input_costs_about_four_times_the_time_for_declaring_a_union_of_many_tagged_records()
