@@ -315,7 +315,7 @@ do
     loaders: { (function(string): (function(arg1?: string, arg2?: any): (any), any)) }
     path: string
     preload: {string : function(arg1?: string, arg2?: any): (any) }
-    searchers: { (function(string): (function(arg1?: string, arg2?: any): (any), any)) }
+    mut searchers: { (function(string): (function(arg1?: string, arg2?: any): (any), any)) }
     searchpath: function(string, string, arg3?: string, arg4?: string): string?, string?
   end
 
@@ -444,6 +444,16 @@ do
     getmetatable: function<T>(T): metatable<T>?
     ipairs: function<A>({A}): (function({A}, integer): (integer, A), {A}, integer)
 
+    -- A chunk given no environment is loaded as text and reads a table of its own: the base functions that reach nothing
+    -- else and share no state with the host (not `collectgarbage` or `warn`), and copies of `coroutine`, `math`, `string`,
+    -- `table` and `utf8` without `string.dump`, `math.random` and `math.randomseed`. A chunk that assigns into a library
+    -- changes its copy; `getmetatable("x")` answers a copy of the string metatable. A method call on a string,
+    -- `("x"):rep(2)`, goes through the real metatable to the host's own library, which the chunk cannot change (so
+    -- `("x").dump` reaches the host's `string.dump`, which is harmless: the chunk can load text alone). `print` writes
+    -- to the host's standard output. The chunk
+    -- holds neither `require` nor `package`, `_G` or `_ENV`, so it cannot load a module the build does not see, and the
+    -- `load` it reaches takes text alone. A program that needs more passes the environment, the globals for all of them.
+    --
     -- The environment of the chunk is a table: an empty literal takes the type `{string: any}`, and the overloads over `V` are
     -- for a table of one value type (`{string: integer}`).
     --

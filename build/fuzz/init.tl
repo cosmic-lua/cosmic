@@ -47,6 +47,7 @@ local shrink = require("build.fuzz.shrink")
 local type Budget = require("cosmic.internal.budget")
 local String = require("cosmic.string")
 local Test = require("cosmic.test")
+local Globals = require("cosmic.internal.globals")
 
 --- The instruction budget, handed to this module only when it loads from
 --- the binary's own tree (core/store.c's `raw_modules`). It shares the
@@ -81,7 +82,7 @@ local CHECKED_BUDGET_FACTOR <const> = 4
 
 --- Reads the hook a checked run defines as a global, which a chunk reads,
 --- since it is no field of the checker's `_G`.
-local read_hook = assert(load("return __cosmic_tc", "=fuzz", "t"))
+local read_hook = assert(load("return __cosmic_tc", "=fuzz", "t", Globals.table()))
 
 --- How many candidate inputs shrinking may check before it reports the
 --- smallest failing one found so far.

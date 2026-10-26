@@ -60,11 +60,13 @@ local record Node
   --- production) is empty at the token it stands before, and its last byte is the one before its first.
   range: function(chunk: Ast.Chunk, node: Ast.Node): Range
 
-  --- Every module `chunk` requires, in source order, each name once: the literal `require("m")` calls anywhere in the
-  --- file and the type imports (`local type T = require("m")`), whether or not they feed a top-level local, so that
-  --- `store = require("cosmic.internal.store")` in a branch and a type-only import are dependencies as well. A call whose
-  --- argument is not a string literal contributes nothing, since its target is unknown until the program runs, and text in
-  --- a string or a comment is no call. [`build.importer`] builds its import order and the recompilation key from this.
+  --- Every module `chunk` requires, in source order, each name once: the literal `require("m")` and
+  --- `pcall(require, "m")` calls anywhere in the file and the type imports (`local type T = require("m")`), whether or
+  --- not they feed a top-level local, so that `store = require("cosmic.internal.store")` in a branch, a probe for a
+  --- module that may be absent and a type-only import are dependencies as well. A call whose name is no string literal
+  --- contributes nothing, since its target is unknown until the program runs: the parser refuses one
+  --- (`computed_require`), so a tree that parses has none. Text in a string or a comment is no call.
+  --- [`build.importer`] builds its import order and the recompilation key from this.
   requires: function(chunk: Ast.Chunk): {string}
 
   --- A `require` of a module: the module it names, and the line and column of the string that names it.

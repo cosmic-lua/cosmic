@@ -278,7 +278,7 @@ build/term_relay.tl 2
 
 build/test.tl 1
 
-build/test_worker.tl 7
+build/test_worker.tl 6
 
 build/todo_scan.tl 2
 
@@ -1550,7 +1550,7 @@ lang/literals.tl nil_not_allowed 3
 
 lang/literals_test.tl nil_not_allowed 8
 
-lang/parser.tl nil_not_allowed 65
+lang/parser.tl nil_not_allowed 64
 
 lang/parser_cover.tl nil_not_allowed 1
 
@@ -2688,7 +2688,7 @@ build/syntax_analyzer.tl view_as_mut 1
 
 build/syntax_shape_specs.tl view_as_mut 1
 
-build/test_worker.tl view_as_mut 3
+build/test_worker.tl view_as_mut 2
 
 build/tree_checks.tl view_as_mut 3
 
@@ -3335,7 +3335,7 @@ lang/declarations_test.tl field_unknown 8
 
 lang/load_order.tl field_unknown 6
 
-lang/parser.tl field_unknown 58
+lang/parser.tl field_unknown 54
 
 lang/parser_cover.tl field_unknown 13
 
@@ -4062,7 +4062,7 @@ build/test_closure_diagnostic_test.tl overload_none 1
 
 build/test_policy_plan_tool_test.tl overload_none 1
 
-build/test_worker.tl overload_none 2
+build/test_worker.tl overload_none 1
 
 build/time_input_fuzz_test.tl overload_none 1
 

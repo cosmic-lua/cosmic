@@ -11,6 +11,7 @@
 --- program is no portable artifact, which the run's summary says; an
 --- unmarked worker on none is skipped.
 local Env = require("cosmic.env")
+local Globals = require("cosmic.internal.globals")
 local Proc = require("cosmic.proc")
 local Sqlite = require("cosmic.sqlite")
 local Store = require("cosmic.store")
@@ -55,7 +56,13 @@ local function test_a_module_outside_the_closure_is_not_in_the_program()
   if not sealed() then return end
   for _, name in ipairs(outside) do absent(name) end
   assert(Store.bytecode("cosmic.store") ~= nil, "a module of the closure is not")
-  local ok, why = pcall(require, "cosmic." .. "zip")
+  -- A `require` of a name made at run time, from a chunk of Lua: the parser refuses it in a typed file.
+  local function dynamic_require(name: string): any
+    local chunk = assert(load("return require((...))", "=dynamic_require", "t", Globals.table()))
+    local value: any = chunk(name)
+    return value
+  end
+  local ok, why = pcall(dynamic_require, "cosmic." .. "zip")
   assert(not ok and tostring(why):find("outside the import closure", 1, true), tostring(why))
 end
 

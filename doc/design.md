@@ -1005,6 +1005,16 @@ compile could stand after the module that declares it changed. everything a modu
 the key covers. a Lua runtime trick the checker cannot see, `local _ENV = ...`, is refused, and a file run by `cosmic
 --standalone` is checked and refused on a type error, cached by content hash like any compile.
 
+the same holds for what a `require` names. the build reads a module's dependencies from the literal names handed to
+`require("m")` and to `pcall(require, "m")` (the probe for a module that may be absent), anywhere in the file, and a
+dependency is carried into a built program, held in a test's closure and covered by its key. a `require` whose name is
+computed, `require(name)` or `pcall(require, name)`, names no module the build can see, so the parser refuses it
+(`computed_require`); to choose between modules, require each by its literal name and pick from a table. this holds for
+`cosmic.*` and C modules as for a project's: a literal name that no database holds is no edge, and a probe of it
+answers false when it runs. a `.d.tl` file imports only with `local type T = require("m")`, whose name is a literal
+`require` is a special form: the build reads only a direct call by its name, `require("m")` (a parenthesised literal counts as a literal), and `pcall(require, "m")` with `require` as pcall's first argument. Any other use of the name (kept in a variable, in parentheses, passed to another call) is refused (`require_value`), so a load of a module the build cannot see has no spelling in checked code. A chunk built by `load` gets, by default, an environment of its own, loaded as text: the base functions that share no state with the host (not `collectgarbage` or `warn`) and copies of the pure libraries (without `string.dump`, `math.random` and `math.randomseed`), so a chunk that writes into `string` changes its copy; it holds no `require`, `package`, `_G` or `_ENV`, and no metatable leads back to the globals. Method calls on strings go through the real metatable to the host's own `string`, which the chunk cannot change. A program that runs a chunk needing the globals passes them as its environment, through [`cosmic.internal.globals`], which only the tool and its tests may require (the tree check `requirers` lists who does). A module that is no test may read `package` only if the tree check `package_readers` names it, so the searchers and the table of loaded modules are no way around the build's edges. The type checker is a second barrier (`_G`, `_ENV` and `debug` have no declaration), and the one the build relies on is the first.
+already.
+
 `: never` is a flag on a function type, declared by a helper that only raises or exits (`error`, [`Proc.exit`], a module's
 `spec_error`): a call of one ends its block, so code below an `if x == nil then fail() end` guard sees `x` narrowed. nothing
 infers it from a body, and a declaration that returns anyway is a bug in the declaration.
@@ -1344,4 +1354,5 @@ in [roadmap.md](roadmap.md).
 [`Test.policy`]: ../cosmic/test.tl
 
 [`build.pipeline`]: ../build/pipeline.tl
+[`cosmic.internal.globals`]: ../cosmic/internal/globals.d.tl
 [`cosmic.shape`]: ../cosmic/shape.tl

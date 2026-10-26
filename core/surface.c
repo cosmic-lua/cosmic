@@ -119,6 +119,20 @@ static int surface_where (lua_State *L) {
   return 1;
 }
 
+/* `table`, answering the table of the program's globals, which `load`
+ * takes as the environment of a chunk that needs all of them. */
+static int globals_table (lua_State *L) {
+  lua_pushglobaltable(L);
+  return 1;
+}
+
+static int open_globals (lua_State *L) {
+  lua_createtable(L, 0, 1);
+  lua_pushcfunction(L, globals_table);
+  lua_setfield(L, -2, "table");
+  return 1;
+}
+
 static int open_errors (lua_State *L) {
   lua_createtable(L, 0, 3);
   lua_pushcfunction(L, surface_where);
@@ -378,6 +392,153 @@ void cosmic_surface_close (lua_State *L) {
   }
 }
 
+/* The registry key of the template of the environment `load` gives a
+ * chunk it is given none for. */
+#define COSMIC_LOAD_ENV "cosmic.load_env"
+
+/* The globals a chunk built by `load` with no environment of its own can
+ * read (`print` writes to the host's standard output, as it does for
+ * every chunk): the base functions that reach nothing else and share no state
+ * with the host (so not `collectgarbage`, which stops or restarts the
+ * host's collector, nor `warn`, which switches the host's warnings), and
+ * the libraries (copied, below). Neither `require` nor `package` is
+ * among them, nor `_G` or `_ENV`, and the table has no metatable, so no
+ * path leads from it to either. A program that needs more passes an
+ * environment. */
+static const char *const load_env_names[] = {
+  "assert", "error", "ipairs", "next", "pairs", "pcall", "print",
+  "rawequal", "rawget", "rawlen", "rawset", "select", "setmetatable",
+  "tonumber", "tostring", "type", "xpcall", "_VERSION", NULL,
+};
+
+/* The libraries a chunk reads, each copied for it so that a chunk that
+ * assigns into `string` or `table` changes its own and nothing else. */
+static const char *const load_env_libraries[] = {
+  "coroutine", "math", "string", "table", "utf8", NULL,
+};
+
+/* What a copy leaves out: `string.dump`, which makes the binary chunk
+ * that crafted bytecode imitates, and `math.random` and
+ * `math.randomseed`, whose state is the host's, not the chunk's. (A
+ * method call on a string, `("x").dump`, still reaches the host's
+ * `string.dump` through the real metatable; that is harmless, since a
+ * chunk can load text alone.) */
+static const char *const load_env_left_out[][2] = {
+  {"string", "dump"}, {"math", "random"}, {"math", "randomseed"}, {NULL, NULL},
+};
+
+/* Pushes a copy of the table at `from`, and with `deep` a copy of each
+ * table in it too, one level down. */
+static void copy_table (lua_State *L, int from, bool deep) {
+  from = lua_absindex(L, from);
+  lua_createtable(L, 0, 32);
+  lua_pushnil(L);
+  while (lua_next(L, from) != 0) {
+    if (deep && lua_type(L, -1) == LUA_TTABLE) {
+      copy_table(L, -1, false);
+      lua_remove(L, -2);
+    }
+    lua_pushvalue(L, -2);
+    lua_insert(L, -2);
+    lua_rawset(L, -4);
+  }
+}
+
+/* `getmetatable`, except that the metatable of a string it answers is a
+ * copy whose `__index` is a copy of the template's `string`. (A method
+ * call on a string, `("x"):rep(2)`, goes through the real metatable to
+ * the host's own library, which a chunk cannot reach to change.) Upvalue
+ * 1 is Lua's own. */
+static int surface_getmetatable (lua_State *L) {
+  lua_settop(L, 1);
+  if (lua_type(L, 1) == LUA_TSTRING) {
+    lua_createtable(L, 0, 1);
+    lua_getfield(L, LUA_REGISTRYINDEX, COSMIC_LOAD_ENV);
+    lua_getfield(L, -1, "string");
+    copy_table(L, -1, false);
+    lua_setfield(L, 2, "__index");
+    lua_settop(L, 2);
+    return 1;
+  }
+  lua_pushvalue(L, lua_upvalueindex(1));
+  lua_insert(L, 1);
+  lua_call(L, 1, 1);
+  return 1;
+}
+
+/* Lua's `load` (upvalue 1), except that a chunk given no environment
+ * gets a fresh copy of the template above rather than the globals, and
+ * is loaded as text: a binary chunk is code no checker has seen, and
+ * only a caller that names its environment may load one. With
+ * `always_text` the mode is text whatever the environment, as for the
+ * `load` a chunk itself reaches. An environment passed as the fourth
+ * argument, nil included, is Lua's own rule. */
+static int load_with (lua_State *L, bool always_text) {
+  int count = lua_gettop(L);
+  if (count < 4 || always_text) {
+    if (count < 3) {
+      lua_settop(L, 3);
+      count = 3;
+    }
+    lua_pushliteral(L, "t");
+    lua_replace(L, 3);
+  }
+  if (count < 4) {
+    lua_getfield(L, LUA_REGISTRYINDEX, COSMIC_LOAD_ENV);
+    copy_table(L, -1, true);
+    lua_remove(L, -2);
+    count = 4;
+  }
+  lua_pushvalue(L, lua_upvalueindex(1));
+  lua_insert(L, 1);
+  lua_call(L, count, LUA_MULTRET);
+  return lua_gettop(L);
+}
+
+static int surface_load (lua_State *L) {
+  return load_with(L, false);
+}
+
+static int surface_load_text (lua_State *L) {
+  return load_with(L, true);
+}
+
+/* Replaces the global `load` with surface_load, and makes the template
+ * of the environment it gives a chunk, whose libraries are copies made
+ * now, so that a later change to the host's does not reach it. The
+ * `load` in the template is the text-only one. */
+static void install_load (lua_State *L) {
+  lua_getglobal(L, "load");
+  lua_pushvalue(L, -1);
+  lua_pushcclosure(L, surface_load_text, 1);
+  lua_createtable(L, 0, 32);
+  for (const char *const *name = load_env_names; *name != NULL; name++) {
+    lua_getglobal(L, *name);
+    lua_setfield(L, -2, *name);
+  }
+  for (const char *const *name = load_env_libraries; *name != NULL; name++) {
+    lua_getglobal(L, *name);
+    copy_table(L, -1, false);
+    lua_remove(L, -2);
+    lua_setfield(L, -2, *name);
+  }
+  for (int i = 0; load_env_left_out[i][0] != NULL; i++) {
+    lua_getfield(L, -1, load_env_left_out[i][0]);
+    lua_pushnil(L);
+    lua_setfield(L, -2, load_env_left_out[i][1]);
+    lua_pop(L, 1);
+  }
+  lua_getglobal(L, "getmetatable");
+  lua_pushcclosure(L, surface_getmetatable, 1);
+  lua_setfield(L, -2, "getmetatable");
+  lua_pushvalue(L, -2);
+  lua_setfield(L, -2, "load");
+  lua_setfield(L, LUA_REGISTRYINDEX, COSMIC_LOAD_ENV);
+  lua_pop(L, 1);
+  lua_pushcclosure(L, surface_load, 1);
+  lua_setglobal(L, "load");
+}
+
 lua_State *cosmic_surface_open (const char *logical_executable) {
   lua_State *L = luaL_newstate();
   if (L == NULL) {
@@ -435,6 +596,8 @@ lua_State *cosmic_surface_open (const char *logical_executable) {
   lua_setfield(L, -2, "cosmic.sys");
   lua_pushcfunction(L, open_errors);
   lua_setfield(L, -2, "cosmic.internal.errors");
+  lua_pushcfunction(L, open_globals);
+  lua_setfield(L, -2, "cosmic.internal.globals");
   lua_pushcfunction(L, cosmic_open_testing);
   lua_setfield(L, -2, "cosmic.internal.testing");
   lua_pop(L, 1);
@@ -467,6 +630,8 @@ lua_State *cosmic_surface_open (const char *logical_executable) {
   lua_setfield(L, -2, "__index");
   lua_setmetatable(L, -2);
   lua_pop(L, 2);
+
+  install_load(L);
 
   return L;
 }

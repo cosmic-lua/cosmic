@@ -314,12 +314,9 @@ function embed.database(project: string, main: string, roots?: string): string?,
     -- anyway, since the program cannot load without it; its kind is
     -- only its file name. An import edge and a catalog row go with the
     -- module they are about.
-    -- TODO: an edge exists only for a `require` of a literal name
-    -- (build.syntax_node's requires), so a test or example file loaded by a
-    -- computed name or through `pcall(require, "<name>")` is left out
-    -- and the program fails to load it at run time; teach
-    -- `all_requires` the `pcall(require, ...)` form, and refuse a
-    -- computed require of a project module at build time.
+    -- An edge exists for a `require` of a literal name, `pcall(require,
+    -- "<name>")` included (build.syntax_node's requires), and the parser
+    -- refuses a computed name, so every file a program loads is carried.
     local project_rows: mut {string} = {
       "WITH RECURSIVE carried(path) AS (" ..
         "SELECT path FROM project.modules " ..

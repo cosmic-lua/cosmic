@@ -40,6 +40,7 @@
 local Fs = require("cosmic.fs")
 local Hash = require("cosmic.hash")
 local Store = require("cosmic.store")
+local Globals = require("cosmic.internal.globals")
 local GrammarMode = require("build.grammar_mode")
 local exit_status = require("build.exit_status")
 local log = require("build.logger").log
@@ -64,7 +65,7 @@ end
 
 --- `code`, loaded as `file`'s chunk.
 local function loaded(file: string, code: string): standalone.Main?, string
-  local chunk, chunk_trouble = load(code, "@" .. file, "t")
+  local chunk, chunk_trouble = load(code, "@" .. file, "t", Globals.table())
   if chunk == nil then
     return nil, file .. ": " .. tostring(chunk_trouble)
   end

@@ -368,6 +368,20 @@ SyntaxCodes.catalog = {
     why = "blocks, expressions and types nest to a depth the readers of a program (and the parser's own stack) can follow",
     fix = "split the code: name an inner expression with a `local`, or move an inner block into a function",
   },
+  {
+    code = "computed_require", stage = "parser", rule = LEFT_OUT,
+    why = "the build reads a module's dependencies from the literal names handed to `require` and to `pcall(require, ...)`, " ..
+      "so a name computed at run time is a module that no key, closure or sealed program holds",
+    fix = "write the name as a string literal, `require(\"<module>\")` or `pcall(require, \"<module>\")`; to choose between " ..
+      "modules, require each by its literal name and pick from a table",
+  },
+  {
+    code = "require_value", stage = "parser", rule = LEFT_OUT,
+    why = "`require` is a special form of the build, read where it is called directly or handed to `pcall` as its first " ..
+      "argument, so a `require` kept in a variable, in parentheses or in another call's arguments is a load the build cannot see",
+    fix = "call it by name, `require(\"<module>\")`, or write `pcall(require, \"<module>\")`; to choose between modules, " ..
+      "require each by its literal name and pick from a table",
+  },
   -- the scope builder
   {
     code = "unknown_variable", stage = "scopes", rule = "globals are what a declaration file declares",
