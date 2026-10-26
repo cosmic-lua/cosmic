@@ -180,13 +180,12 @@ local corpora <const> = "testdata/fuzz/"
 --- source and declarations, for a snippet the test type-checks -- into
 --- its closure.
 ---
---- `requires` holds only the literal names handed to `require` itself,
---- so a `require` of a computed name -- or, until the requires reader
---- follows it (the TODO in build/embed.tl), of a literal one through
---- `pcall(require, ...)` -- is not followed: the worker refuses one
---- that names a module of the tree outside this closure
---- ([`build.test_worker`]), so the miss fails the test rather than
---- leaving its key short.
+--- `requires` holds the literal names handed to `require` and to
+--- `pcall(require, ...)`. A computed name is refused when the module is
+--- compiled; one that gets past that (a `require` held in a variable) is
+--- not followed, and the worker refuses one that names a module of the
+--- tree outside this closure ([`build.test_worker`]), so the miss fails
+--- the test rather than leaving its key short.
 ---
 --- The declarations of the globals and of the standard library -- `lang.prelude` and `lang.stdlib` -- are no module
 --- of it, though [`build.checker_declarations`] reads them by name rather than by `require`: a key over the closure holds

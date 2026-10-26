@@ -231,7 +231,7 @@ end
 local function test_an_unnamed_reader_of_the_compiler_is_refused(dir: string)
   local db = fixture.database(dir, {
     ["build/reader.tl"] = source(
-      "local Store = require(\"cosmic.store\")",
+      "local Store = require(\"build.load_module\")",
       "local tool = Store.meta" .. "(\"compiler\")",
       "return { tool = tool }"),
   })
@@ -377,6 +377,81 @@ local function test_a_restricted_member_used_outside_its_files_is_refused(dir: s
   rules["build.probe has"].files = { "build/asker.tl", "build/other_test.tl" }
   found = tree_checks.restricted(db, rules)
   assert(#found == 0, table.concat(found, "\n"))
+end
+
+--- The loader of a module by a name computed at run time is kept to the tool's entry and the test worker by who may
+--- require it: a module that holds it under an alias or reads `load` off it by a key is refused all the same.
+local function test_a_module_requiring_the_loader_outside_the_entry_and_the_worker_is_refused(dir: string)
+  local db = fixture.database(dir, {
+    ["build/load_module.tl"] = source(
+      "local record loader",
+      "end",
+      "--- Loads a module by a name got at run time.",
+      "function loader.load(name: string): any return name end",
+      "return loader"),
+    ["build/dispatch.tl"] = source(
+      'local loader = require("build.load_module")',
+      "local record dispatch",
+      "end",
+      'function dispatch.run(): any return loader.load("x") end',
+      "return dispatch"),
+    ["build/plugin.tl"] = source(
+      'local loader = require("build.load_module")',
+      "local record plugin",
+      "end",
+      'function plugin.run(): any return loader["load"]("x") end',
+      "return plugin"),
+    ["build/aliased.tl"] = source(
+      'local loader = require("build.load_module")',
+      "local alias = loader",
+      "local record aliased",
+      "end",
+      'function aliased.run(): any return alias.load("x") end',
+      "return aliased"),
+    ["build/probing.tl"] = source(
+      'local found, _ = pcall(require, "build.load_module")',
+      "local record probing",
+      "end",
+      "function probing.run(): boolean return found end",
+      "return probing"),
+  })
+  local found = tree_checks.requirers(db)
+  assert(#found == 3, table.concat(found, "\n"))
+  local line = assert(found[1])
+  assert(line:find("^build%.aliased: requires build%.load_module, which only build%.dispatch, build%.test_worker, " ..
+      "build%.load_module_test may require: ") ~= nil, line)
+  assert(line:find("require(\"cosmic.fs\")", 1, true) ~= nil, line)
+  local all = table.concat(found, "\n")
+  assert(all:find("\nbuild%.plugin: requires") ~= nil and all:find("\nbuild%.probing: requires") ~= nil, all)
+end
+
+--- A module outside the list that reads `package` is refused, whether it indexes it, reads a field or holds it under
+--- another name; a field called `package`, a table key and text are no read; a test is not held to the list.
+local function test_a_module_reading_package_outside_the_list_is_refused(dir: string)
+  local function put(file: string, text: string)
+    assert(Fs.mkdirs(dir .. "/build"))
+    assert(Fs.write(dir .. "/" .. file, text))
+  end
+  put("build/allowed.tl", "local x = package.searchers\nreturn x\n")
+  put("build/alias.tl", "local p = package\nreturn p\n")
+  put("build/indexed.tl", "local s = package[\"searchers\"]\nreturn s\n")
+  put("build/searchers.tl", "local s = package.searchers\nreturn s\n")
+  put("build/preload.tl", "local s = package.preload\nreturn s\n")
+  put("build/searchpath.tl", "local s = package.searchpath\nreturn s\n")
+  put("build/loadlib.tl", "local s = package.loadlib\nreturn s\n")
+  put("build/path.tl", "package.cpath = \"\"\npackage.path = \"\"\n")
+  put("build/loaded.tl", "local s = package.loaded\nreturn s\n")
+  put("build/fine.tl", "local t = { package = 1 }\n-- package.searchers\nlocal s = \"package.loaded\"\nreturn t.package, s\n")
+  put("build/record.tl", "local record R\n  package: string\nend\nreturn R\n")
+  put("build/probe_test.tl", "local s = package.searchers\nreturn s\n")
+  local found = tree_checks.package_readers(dir, { ["build/allowed.tl"] = "needs it" })
+  local files: mut {string} = {}
+  for _, line in ipairs(found) do
+    files[#files + 1] = line:match("^([^:]+):%d+: reads `package`") or line
+  end
+  table.sort(files)
+  assert(table.concat(files, " ") == "build/alias.tl build/indexed.tl build/loaded.tl build/loadlib.tl build/path.tl " ..
+      "build/path.tl build/preload.tl build/searchers.tl build/searchpath.tl", table.concat(found, "\n"))
 end
 
 --- A declaration that requires only declarations passes; one that requires a module is refused.

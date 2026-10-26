@@ -144,8 +144,9 @@ its temporary directory and sets them.
 The closure is what the build finds `require`d by a literal name,
 anywhere in the module and in each module it requires.
 
-- A test requires a module of the tree it reads at its top level, with
-  a literal name. A computed name, `pcall(require, ...)` or a type-only
+- A test requires a module of the tree it reads with a literal name,
+  `require("m")` or `pcall(require, "m")`, anywhere in the module. A
+  computed name is refused when the module is compiled, and a type-only
   require of another module fails and names the module.
 - A `local type` require of a non-test module is not followed. Teal
   erases it. An edit to what it names runs no test again.

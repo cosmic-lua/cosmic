@@ -251,6 +251,49 @@ local function test_a_test_or_example_the_program_requires_is_carried(tmp: strin
   assert(imports[1]:text(1) == "1", "the edge between them is carried")
 end
 
+--- A `pcall(require, "<name>")` is an edge as a `require` is: the module it probes is carried with its edge, so the
+--- executable does not build and then probe a module it left out.
+local function test_a_module_a_program_probes_with_pcall_is_carried(tmp: string)
+  assert(Fs.mkdirs(tmp .. "/cmd/hello"))
+  assert(Fs.write(tmp .. "/cmd/hello/main.tl", table.concat({
+    "return function(): integer",
+    '  local found, _ = pcall(require, "probed")',
+    "  if found then return 0 end",
+    "  return 1",
+    "end",
+    "",
+  }, "\n")))
+  assert(Fs.write(tmp .. "/probed.tl", "local record probed\nend\nreturn probed\n"))
+  assert(embed.tree(tmp, true))
+  local database = assert(embed.database(build_dir(tmp) .. "/cosmic.db", "cmd.hello.main"))
+  local path = tmp .. "/carried.db"
+  assert(Fs.write(path, database))
+  local modules = rows_of(path, "SELECT path FROM modules WHERE path = 'probed'")
+  assert(#modules == 1, "a module probed with pcall(require, ...) is carried")
+  local imports = rows_of(path,
+    "SELECT count(*) FROM imports WHERE path = 'cmd.hello.main' AND requires = 'probed'")
+  assert(assert(imports[1]):text(1) == "1", "the edge to it is carried")
+end
+
+--- A program that requires a module by a name it computes is not built: the build cannot tell which module it carries.
+local function test_a_program_requiring_a_computed_name_is_not_built(tmp: string)
+  assert(Fs.mkdirs(tmp .. "/cmd/hello"))
+  assert(Fs.write(tmp .. "/cmd/hello/main.tl", table.concat({
+    'local name = "probed"',
+    "return function(): integer",
+    "  local found, _ = pcall(require, name)",
+    "  if found then return 0 end",
+    "  return 1",
+    "end",
+    "",
+  }, "\n")))
+  assert(Fs.write(tmp .. "/probed.tl", "local record probed\nend\nreturn probed\n"))
+  local names, trouble = embed.tree(tmp, true)
+  assert(names == nil, "built a program that requires a computed name")
+  assert(trouble:find("main.tl:3:35: `pcall(require, name)` names its module by an expression", 1, true) ~= nil, trouble)
+  assert(trouble:find("(computed_require): write the module's name as a string", 1, true) ~= nil, trouble)
+end
+
 local identity_source = [[
 local Proc = require("cosmic.proc")
 local Store = require("cosmic.store")

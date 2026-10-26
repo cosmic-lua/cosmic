@@ -633,6 +633,42 @@ local function test_finds_a_real_top_level_require()
   assert(requires[1] == "real_dep", "got: " .. tostring(requires[1]))
 end
 
+--- A `pcall(require, "<name>")` is an import as a `require` is: it is among the module's requires, and an edit to the
+--- module it probes moves the key of the module that probes it.
+local function test_finds_a_pcall_of_require_with_a_literal_name_and_keys_it()
+  local root = assert(write_fixture("pcall-require", {
+    ["main.tl"] = "local record Main\n  found: boolean\nend\nlocal found, _ = pcall(require, \"probed\")\n" ..
+      "local main: Main = { found = found }\nreturn main\n",
+    ["probed.tl"] = valued(1),
+  }))
+  local requires, trouble = requires_of_fixture(root, "main")
+  assert(requires ~= nil, "compile failed: " .. tostring(trouble))
+  assert(#requires == 1 and requires[1] == "probed", "got: " .. table.concat(requires, ", "))
+  local function key_of(result: importer.Result, path: string): string
+    for _, m in ipairs(result.modules) do
+      if m.path == path then return (m.key or "") .. " " .. (m.graph_key or "") end
+    end
+    error(path .. ": not among the modules")
+  end
+  local first = key_of(assert(compile_fixture(root)), "main")
+  assert(Fs.write(root .. "/probed.tl", valued(2)))
+  local edited = key_of(assert(compile_fixture(root)), "main")
+  assert(edited ~= first, "an edit to a module probed with pcall(require, ...) kept its importer's key")
+end
+
+--- A `require` or `pcall(require, ...)` whose name is computed is refused, naming the call and what to write.
+local function test_a_computed_require_is_refused_with_its_fix()
+  local root = assert(write_fixture("computed-require", {
+    ["main.tl"] = "local record Main\n  found: boolean\nend\nlocal name = \"probed\"\n" ..
+      "local found, _ = pcall(require, name)\nlocal main: Main = { found = found }\nreturn main\n",
+    ["probed.tl"] = valued(1),
+  }))
+  local requires, trouble = requires_of_fixture(root, "main")
+  assert(requires == nil, "a computed require compiled")
+  assert(trouble:find("`pcall(require, name)` names its module by an expression", 1, true) ~= nil, trouble)
+  assert(trouble:find("write the module's name as a string", 1, true) ~= nil, trouble)
+end
+
 --- A file under `testdata/` is inert input, even one named as a Teal
 --- test. Ordinary sources beside it still compile.
 local function test_testdata_is_not_a_module_or_test_source()

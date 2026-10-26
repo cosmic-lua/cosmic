@@ -74,6 +74,7 @@ local Sandbox = require("cosmic.sandbox")
 local PolicyJson = require("cosmic.policy")
 local Store = require("cosmic.store")
 local sys = require("cosmic.sys")
+local Globals = require("cosmic.internal.globals")
 local bare = require("build.bare")
 local connect_client = require("build.sandbox_connect")
 local plural = require("build.plural")
@@ -472,7 +473,7 @@ local function seal_script(file: string, cwd: string?, held: mut {string}): Seal
   if not ok then
     return { why = file .. ": " .. (tostring(names):gsub("^.-:%d+: store: ", "")), refused = true }
   end
-  local chunk, chunk_trouble = load(script_chunk(file, code), "@" .. file, "t")
+  local chunk, chunk_trouble = load(script_chunk(file, code), "@" .. file, "t", Globals.table())
   if chunk == nil then return { why = file .. ": " .. tostring(chunk_trouble), refused = false } end
   return sealed(names, { extra = {
     name = "main", bytecode = string.dump(chunk), source = source, requires = roots } }, held)

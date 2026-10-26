@@ -38,8 +38,9 @@ local function run(tmp: string, body: string): string
     body,
   }, "\n")
   assert(Fs.write(script, table.concat({
+    "local Globals = require(\"cosmic.internal.globals\")",
     "return function(): integer",
-    "  local chunk = assert(load(" .. string.format("%q", cases) .. ", \"=script.tl\"))",
+    "  local chunk = assert(load(" .. string.format("%q", cases) .. ", \"=script.tl\", \"t\", Globals.table()))",
     "  chunk()",
     "  return 0",
     "end",

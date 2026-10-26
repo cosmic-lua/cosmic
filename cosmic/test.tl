@@ -28,10 +28,11 @@
 --- test that starts a host program declares `system = true`.
 ---
 --- The closure is what the build finds `require`d by a literal name,
---- anywhere in the module and in each it requires. Under `cosmic test`,
---- a `require` of any other module of the tree -- a name computed, or
---- handed to `pcall(require, ...)` -- fails, naming the module: require
---- it statically, at the top level. The modules the core itself
+--- or handed to `pcall(require, "<name>")`, anywhere in the module and
+--- in each it requires. A name that is computed is refused when the
+--- module is compiled; under `cosmic test`, a `require` of any other
+--- module of the tree that gets past that (a `require` held in a
+--- variable) fails, naming the module: require it by its literal name. The modules the core itself
 --- carries, which no file of the tree is, load as ever.
 ---
 --- The build reads the declaration from the source, without running

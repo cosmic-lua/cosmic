@@ -53,21 +53,43 @@ local function test_a_project_test_requiring_outside_its_closure_fails(tmp: stri
     "end",
   }, "\n") .. "\n"))
   assert(Fs.write(root .. "/suite/dynamic_test.tl", table.concat({
-    'local name = "suite." .. "helper"',
+    "local Globals = require(\"cosmic.internal.globals\")",
+    "local function dynamic(name: string): any",
+    "  local chunk = assert(load(\"return require((...))\", \"=dynamic\", \"t\", Globals.table()))",
+    "  local value: any = chunk(name)",
+    "  return value",
+    "end",
     "local function test_dynamic()",
-    "  local helper: any = require(name)",
+    '  local helper: any = dynamic("suite." .. "helper")',
     "  assert(helper ~= nil)",
     "end",
     "local function test_standard_library()",
-    '  local json: any = require("cosmic." .. "json")',
+    '  local json: any = dynamic("cosmic." .. "json")',
     "  assert(json ~= nil)",
     "end",
   }, "\n") .. "\n"))
   local ok, text = run(root, tmp .. "/run.out")
   assert(not ok, text)
-  assert(text:find("test: FAIL  suite.dynamic_test test_dynamic: suite.dynamic_test:3: " ..
+  assert(text:find("test: FAIL  suite.dynamic_test test_dynamic: dynamic:1: " ..
       "module 'suite.helper' is outside the import closure of suite.dynamic_test", 1, true), text)
   assert(text:find("1 of 3 tests failed", 1, true), text)
+end
+
+--- In a project of its own, a test that probes its helper with `pcall(require, "<name>")` finds it: the probe is an import
+--- as a `require` is, so the helper is in the test's closure and its worker is given it.
+local function test_a_project_test_probing_a_module_with_pcall_has_it_in_its_closure(tmp: string)
+  local root = tmp .. "/project"
+  assert(Fs.mkdirs(root .. "/suite"))
+  assert(Fs.write(root .. "/suite/helper.tl", HELPER))
+  assert(Fs.write(root .. "/suite/probe_test.tl", table.concat({
+    "local function test_probe()",
+    '  local found, helper = pcall(require, "suite.helper")',
+    "  assert(found, tostring(helper))",
+    '  assert(type(helper) == "table")',
+    "end",
+  }, "\n") .. "\n"))
+  local ok, text = run(root, tmp .. "/run.out")
+  assert(ok, text)
 end
 
 --- In a project of its own, a test that reads its helper through the
@@ -75,7 +97,9 @@ end
 --- rather than by `require` fails, since the store its worker is given
 --- holds its closure alone, whether its module declares `tool` or not;
 --- one whose module declares `store`, whose key holds the whole
---- projection, reads it.
+--- projection, reads its bytecode, but the loader a searcher hands it
+--- for a module outside its closure raises all the same, whichever
+--- searcher it was.
 local function test_a_project_test_reading_the_store_outside_its_closure_needs_store(
     tmp: string)
   local root = tmp .. "/project"
@@ -83,6 +107,7 @@ local function test_a_project_test_reading_the_store_outside_its_closure_needs_s
   assert(Fs.write(root .. "/suite/helper.tl", HELPER))
   local reads = table.concat({
     'local Store = require("cosmic.store")',
+    'local Globals = require("cosmic.internal.globals")',
     "local function test_bytecode()",
     '  local bytes, why = Store.bytecode("suite.helper")',
     "  assert(bytes ~= nil, why)",
@@ -94,15 +119,16 @@ local function test_a_project_test_reading_the_store_outside_its_closure_needs_s
     "for _, searcher in ipairs(package.searchers) do",
     '  local loader, extra = searcher("suite.helper")',
     '  if type(loader) == "function" then',
-    "    -- The worker's own gate on `require` raises; a searcher called by hand does not.",
+    "    -- The loader of a module outside the closure raises, whichever searcher handed it.",
     '    local loaded, helper = pcall(loader, "suite.helper", extra)',
     '    if loaded and type(helper) == "table" and helper.answer == 42 then return end',
+    "    if not loaded then said = said .. tostring(helper) end",
     '  elseif type(loader) == "string" then',
     "    said = said .. loader",
     "  end",
     "end",
     "error(said)",
-    '  ]=], "=searcher"))',
+    '  ]=], "=searcher", "t", Globals.table()))',
     "  chunk()",
     "end",
   }, "\n") .. "\n"
@@ -124,6 +150,8 @@ local function test_a_project_test_reading_the_store_outside_its_closure_needs_s
     end
     assert(text:find("no module 'suite.helper' in the store", 1, true), text)
   end
-  assert(not text:find("suite.whole_test", 1, true), text)
-  assert(text:find("4 of 6 tests failed", 1, true), text)
+  assert(not text:find("suite.whole_test test_bytecode", 1, true), text)
+  assert(text:find("test: FAIL  suite.whole_test test_searcher: ", 1, true), text)
+  assert(text:find("module 'suite.helper' is outside the import closure of suite.whole_test", 1, true), text)
+  assert(text:find("5 of 6 tests failed", 1, true), text)
 end
