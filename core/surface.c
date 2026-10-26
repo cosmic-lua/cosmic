@@ -397,7 +397,8 @@ void cosmic_surface_close (lua_State *L) {
 #define COSMIC_LOAD_ENV "cosmic.load_env"
 
 /* The globals a chunk built by `load` with no environment of its own can
- * read: the base functions that reach nothing else and share no state
+ * read (`print` writes to the host's standard output, as it does for
+ * every chunk): the base functions that reach nothing else and share no state
  * with the host (so not `collectgarbage`, which stops or restarts the
  * host's collector, nor `warn`, which switches the host's warnings), and
  * the libraries (copied, below). Neither `require` nor `package` is
@@ -418,7 +419,10 @@ static const char *const load_env_libraries[] = {
 
 /* What a copy leaves out: `string.dump`, which makes the binary chunk
  * that crafted bytecode imitates, and `math.random` and
- * `math.randomseed`, whose state is the host's, not the chunk's. */
+ * `math.randomseed`, whose state is the host's, not the chunk's. (A
+ * method call on a string, `("x").dump`, still reaches the host's
+ * `string.dump` through the real metatable; that is harmless, since a
+ * chunk can load text alone.) */
 static const char *const load_env_left_out[][2] = {
   {"string", "dump"}, {"math", "random"}, {"math", "randomseed"}, {NULL, NULL},
 };

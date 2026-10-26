@@ -911,8 +911,8 @@ local type Held = function(fn: function(...: any): (any...), argument?: any): an
 --- with `argument` while two things hold: a searcher ahead of every
 --- other answers a module `refusal` refuses with a loader that raises
 --- why, where it was required, and each searcher after it hands such a
---- module's loader as a loader that raises too (with the raw value it
---- answers beside it), so a loop over `package.searchers` that calls what
+--- module's loader as a loader that raises too (with no raw value beside
+--- it), so a loop over `package.searchers` that calls what
 --- it is handed loads nothing outside the closure; and each such module the worker itself
 --- has loaded already is out of `package.loaded`, so a `require` of it
 --- reaches the searcher too. It then puts both back, whether `fn`
@@ -937,18 +937,17 @@ local function hold_requires(module_path: string, closure: {string:boolean},
       error(why, 3)
     end, nil
   end
-  -- A searcher after the gate, handing the loader of a module `refusal` refuses as a loader that raises why, with the raw
-  -- value it answers beside it, which is no module: a loop over every searcher finds the loader of the store and calls it.
+  -- A searcher after the gate, handing the loader of a module `refusal` refuses as a loader that raises why, and nothing
+  -- beside it: a loop over every searcher finds the loader of the store and calls it, or reads the core's raw table.
   local function guarded(searcher: function(string): (function(arg1?: string, arg2?: any): (any), any)):
       function(string): (function(arg1?: string, arg2?: any): (any), any)
     return function(name: string): (function(arg1?: string, arg2?: any): (any), any)
       local loader, raw = searcher(name)
       local why = refusal(name, module_path, closure, tree)
       if type(loader) == "function" and why ~= nil then
-        return function(_?: string, _?: any): any
-          -- Level 3: the caller of `require`, past this loader and it.
-          error(why, 3)
-        end, raw
+        -- The gate's own: a loader that raises, and no raw value beside it (the core's table behind a module is
+        -- the module's, and goes to a test whose closure holds the module).
+        return gate(name)
       end
       return loader, raw
     end

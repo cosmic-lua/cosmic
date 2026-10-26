@@ -998,7 +998,7 @@ local requirers: {string: Restriction} = {
   },
   ["cosmic.internal.globals"] = {
     files = { "build.dispatch", "build.fact_hook_test", "build.fuzz", "build.load_module",
-      "build.sandbox", "build.sandboxed_verdicts_test", "build.sealed_worker_test", "build.standalone",
+      "build.raw_tables_test", "build.sandbox", "build.sandboxed_verdicts_test", "build.sealed_worker_test", "build.standalone",
       "build.test_closure_diagnostic_test", "build.test_closure_test", "build.type_watch", "core.load_env_test", "core.surface_test",
       "cosmic.coverage_test", "cosmic.flags_test", "cosmic.test_tool_test", "test.coverage_cache_test" },
     why = "only the modules that run a program or a hook as a chunk of Lua text take the globals whole, as its " ..

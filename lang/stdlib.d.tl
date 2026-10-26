@@ -448,7 +448,9 @@ do
     -- else and share no state with the host (not `collectgarbage` or `warn`), and copies of `coroutine`, `math`, `string`,
     -- `table` and `utf8` without `string.dump`, `math.random` and `math.randomseed`. A chunk that assigns into a library
     -- changes its copy; `getmetatable("x")` answers a copy of the string metatable. A method call on a string,
-    -- `("x"):rep(2)`, goes through the real metatable to the host's own library, which the chunk cannot change. The chunk
+    -- `("x"):rep(2)`, goes through the real metatable to the host's own library, which the chunk cannot change (so
+    -- `("x").dump` reaches the host's `string.dump`, which is harmless: the chunk can load text alone). `print` writes
+    -- to the host's standard output. The chunk
     -- holds neither `require` nor `package`, `_G` or `_ENV`, so it cannot load a module the build does not see, and the
     -- `load` it reaches takes text alone. A program that needs more passes the environment, the globals for all of them.
     --
