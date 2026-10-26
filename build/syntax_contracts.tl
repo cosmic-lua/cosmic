@@ -872,7 +872,7 @@ local function check_inspections(run: Run)
   local subject = run.subject
   local index = run.index
   local tokens = subject.chunk.tokens
-  local bindings: mut {string: {Binding}} = {}
+  local bindings: mut {string: mut {Binding}} = {}
   local reads: mut {{Ast.Node}} = {}
   --- Binds the name `name` from `at` on. A `local` or an assignment binds after its own right-hand side, which reads the
   --- binding before it.
@@ -1461,7 +1461,7 @@ end
 --- Every string field (`stringish`) of every option record (`Options`, `...Options`) the chunk declares at its top level,
 --- nested ones included, by the record's declaration and then the field's name.
 local function string_fields(run: Run): {Types.Decl: {string: Declared}}
-  local out: mut {Types.Decl: {string: Declared}} = {}
+  local out: mut {Types.Decl: mut {string: Declared}} = {}
   local subject = run.subject
   local function visit(path: string, at: Ast.Node)
     local decl = subject.lowered.decls[Node.base(at).id]
@@ -1508,8 +1508,8 @@ local function check_modes(run: Run)
   -- Each local function by its name, for a call to bind its parameters.
   local functions: mut {string: Ast.Node} = {}
   -- The names each function binds, and those holding a field's value.
-  local binds: mut {integer: {string: boolean}} = {}
-  local holding: mut {integer: {string: Declared}} = {}
+  local binds: mut {integer: mut {string: boolean}} = {}
+  local holding: mut {integer: mut {string: Declared}} = {}
   local function bind(scope: Ast.Node, name: string?, field: Declared?)
     if name == nil then
       return
@@ -1534,7 +1534,7 @@ local function check_modes(run: Run)
     end
     return nil
   end
-  local literals: mut {Declared: {string: boolean}} = {}
+  local literals: mut {Declared: mut {string: boolean}} = {}
   local function note(field: Declared, literal: Ast.Node?)
     if literal ~= nil and (literal.kind == "String") and literal.value ~= "" then
       local set = literals[field] or {}

@@ -52,7 +52,7 @@ verb_list.entries = {
 }
 
 --- Every verb's spec, in help's order.
-function verb_list.specs(): {verb_spec.Spec}
+function verb_list.specs(): mut {verb_spec.Spec}
   local specs: mut {verb_spec.Spec} = {}
   for _, entry in ipairs(verb_list.entries) do
     specs[#specs + 1] = entry.load()

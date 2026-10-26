@@ -42,7 +42,7 @@ end
 --- row, the run's hits hold their union, and a table taken before is
 --- not folded or spelled again.
 local function test_a_modules_load_and_test_hits_are_two_lines_of_its_row()
-  local hits: {string:{integer:boolean}} = {}
+  local hits: {string:mut {integer:boolean}} = {}
   local folded: {{integer:boolean}:boolean} = {}
   local spelled: {{integer:boolean}:string} = {}
   local loaded: {integer:boolean} = { [3] = true, [1] = true }

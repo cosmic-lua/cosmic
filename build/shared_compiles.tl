@@ -451,7 +451,7 @@ local function evict(db: Sqlite.Handle, now_ns: integer, bound_bytes: integer): 
       " UNION ALL SELECT 'p', rowid, size, used_ns FROM " .. parsed .. ")) WHERE total > ?1",
     { { integer = bound_bytes } })
   if over == nil then return false, trouble end
-  local ids: {string:{string}} = { c = {}, p = {} }
+  local ids: {string:mut {string}} = { c = {}, p = {} }
   for _, row in ipairs(over) do
     local list = ids[row:text(1)]
     list[#list + 1] = row:text(2)

@@ -164,7 +164,7 @@ end
 
 --- The headers every answer about `asset` carries.
 local function validators(asset: Assets.Asset, etag: string, control: string,
-                          encoded: boolean): {string: string | {string}}
+                          encoded: boolean): mut {string: string | {string}}
   local headers: mut {string: string | {string}} = {
     ["Content-Type"] = asset.type, ["ETag"] = etag, ["Cache-Control"] = control,
     ["X-Content-Type-Options"] = "nosniff",

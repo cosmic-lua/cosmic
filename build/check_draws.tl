@@ -115,7 +115,7 @@ local function header(seed: integer): string
   }, "\n")
 end
 
-local function dup(list: {string}): {string}
+local function dup(list: {string}): mut {string}
   local out: mut {string} = {}
   for i, s in ipairs(list) do
     out[i] = s

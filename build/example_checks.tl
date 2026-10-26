@@ -129,7 +129,7 @@ end
 --- A name the text lacks that its file declares as a helper is said to
 --- be one too long to carry.
 --- @param root the tree, whose example files are read for that
-local function examples(db: Sqlite.Handle, options: Pipeline.Options, root: string): {string}
+local function examples(db: Sqlite.Handle, options: Pipeline.Options, root: string): mut {string}
   local rows, trouble = Sqlite.text_rows(db,
     "SELECT file, line, name, source FROM examples WHERE " ..
       symbols.public_only("module", true) .. " ORDER BY file, line")
