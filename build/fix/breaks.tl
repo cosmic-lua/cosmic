@@ -22,7 +22,8 @@ local Ast = require("lang.ast")
 local Lexer = require("lang.lexer")
 
 -- TODO: the members of a record, interface, class or enum that share a line (`local record R x: integer y: string
--- end`) keep that line. Part them one to a line once the style of a declaration written on one line is decided.
+-- end`) keep that line, and a method opened inside such a line leaves the declaration's own line as it is. Part them
+-- one to a line once the style of a declaration written on one line is decided.
 
 local record Breaks
   --- A block, at the first of its pieces.
