@@ -4,25 +4,14 @@ local Json = require("cosmic.json")
 local Sandbox = require("cosmic.sandbox")
 local PolicyJson = require("cosmic.policy")
 
---- `pointer` as the path `$.grants[0].letters` that a Shape failure names.
-local function path_of(pointer: string): string
-  local path = "$"
-  for segment in pointer:gmatch("/([^/]*)") do
-    path = path .. (if segment:find("^%d+$") then "[" .. segment .. "]" else "." .. segment end)
-  end
-  return path
-end
-
---- Why `json` is refused, asserting that it is, and names `field`, a JSON
---- Pointer: as a pointer where Sandbox.check refuses it, as a path where
---- Shape does.
+--- Why `json` is refused, asserting that it is, and names `field`, a path
+--- like `$.grants[0].letters`, in a message that never says "pointer".
 local function refused(json: string, field: string): string
   local policy, why = PolicyJson.decode(json)
   assert(policy == nil, json .. " was taken")
   assert(why:find("^sandbox: "), why)
-  local named = why:find(field, 1, true) ~= nil
-  if not named and field:sub(1, 1) == "/" then named = why:find(path_of(field), 1, true) ~= nil end
-  assert(named, json .. " refused without naming " .. field .. ": " .. why)
+  assert(why:find(field, 1, true), json .. " refused without naming " .. field .. ": " .. why)
+  assert(not why:find("pointer", 1, true), why)
   return why
 end
 
@@ -63,42 +52,42 @@ end
 
 local function test_decode_refusals_name_the_field()
   local cases: {{string}} = {
-    { '{"nope": 1}', "/nope" },
-    { '{"grants": [{"path": "a", "letters": "r", "also": 1}]}', "/grants/0/also" },
-    { '{"grants": [{"path": "a"}]}', "/grants/0/letters" },
-    { '{"grants": [{"letters": "r"}]}', "/grants/0/path" },
-    { '{"grants": [{"path": "", "letters": "r"}]}', "/grants/0/path" },
-    { '{"grants": [{"path": "a", "letters": "r"}, {"path": "b", "letters": "rz"}]}', "/grants/1/letters" },
-    { '{"grants": [{"path": "a", "letters": ""}]}', "/grants/0/letters" },
-    { '{"grants": [{"path": "a", "letters": "R"}]}', "/grants/0/letters" },
-    { '{"grants": [{"path": "a", "letters": "xr"}]}', "/grants/0/letters" },
-    { '{"grants": [{"path": "a", "letters": "rr"}]}', "/grants/0/letters" },
-    { '{"grants": [{"path": "a", "letters": 1}]}', "/grants/0/letters" },
-    { '{"grants": [{"path": "a", "letters": "r", "from": ""}]}', "/grants/0/from" },
-    { '{"grants": "a"}', "/grants" },
-    { '{"isolate": ["net"]}', "/isolate/0" },
-    { '{"promises": ["fork", "ptrace"]}', "/promises/1" },
-    { '{"profiles": ["system", "bogus"]}', "/profiles/1" },
-    { '{"connect": ["example.com"]}', "/connect/0" },
-    { '{"connect": ["example.com:0"]}', "/connect/0" },
-    { '{"connect": ["example.com:00080"]}', "/connect/0" },
-    { '{"connect": ["example.com:65536"]}', "/connect/0" },
-    { '{"connect": [":80"]}', "/connect/0" },
-    { '{"loopback": ["10.0.0.1"]}', "/loopback/0" },
-    { '{"loopback": ["127.0.0.256"]}', "/loopback/0" },
-    { '{"loopback": ["127.0.0.01"]}', "/loopback/0" },
-    { '{"env": ["A=B"]}', "/env/0" },
-    { '{"env": [""]}', "/env/0" },
-    { '{"set_env": {"A": 1}}', "/set_env/A" },
-    { '{"set_env": {"A=B": "1"}}', "/set_env" },
-    { '{"set_env_digests": {"A": "xyz"}}', "/set_env_digests/A" },
-    { '{"tmp": "yes"}', "/tmp" },
-    { '{"limits": {"open_files": 0}}', "/limits/open_files" },
-    { '{"limits": {"cpu_seconds": 0}}', "/limits/cpu_seconds" },
-    { '{"limits": {"file_bytes": -1}}', "/limits/file_bytes" },
-    { '{"limits": {"processes": 0}}', "/limits/processes" },
-    { '{"limits": {"open_files": "many"}}', "/limits/open_files" },
-    { '{"limits": {"bogus": 1}}', "/limits/bogus" },
+    { '{"nope": 1}', "$.nope" },
+    { '{"grants": [{"path": "a", "letters": "r", "also": 1}]}', "$.grants[0].also" },
+    { '{"grants": [{"path": "a"}]}', "$.grants[0].letters" },
+    { '{"grants": [{"letters": "r"}]}', "$.grants[0].path" },
+    { '{"grants": [{"path": "", "letters": "r"}]}', "$.grants[0].path" },
+    { '{"grants": [{"path": "a", "letters": "r"}, {"path": "b", "letters": "rz"}]}', "$.grants[1].letters" },
+    { '{"grants": [{"path": "a", "letters": ""}]}', "$.grants[0].letters" },
+    { '{"grants": [{"path": "a", "letters": "R"}]}', "$.grants[0].letters" },
+    { '{"grants": [{"path": "a", "letters": "xr"}]}', "$.grants[0].letters" },
+    { '{"grants": [{"path": "a", "letters": "rr"}]}', "$.grants[0].letters" },
+    { '{"grants": [{"path": "a", "letters": 1}]}', "$.grants[0].letters" },
+    { '{"grants": [{"path": "a", "letters": "r", "from": ""}]}', "$.grants[0].from" },
+    { '{"grants": "a"}', "$.grants" },
+    { '{"isolate": ["net"]}', "$.isolate[0]" },
+    { '{"promises": ["fork", "ptrace"]}', "$.promises[1]" },
+    { '{"profiles": ["system", "bogus"]}', "$.profiles[1]" },
+    { '{"connect": ["example.com"]}', "$.connect[0]" },
+    { '{"connect": ["example.com:0"]}', "$.connect[0]" },
+    { '{"connect": ["example.com:00080"]}', "$.connect[0]" },
+    { '{"connect": ["example.com:65536"]}', "$.connect[0]" },
+    { '{"connect": [":80"]}', "$.connect[0]" },
+    { '{"loopback": ["10.0.0.1"]}', "$.loopback[0]" },
+    { '{"loopback": ["127.0.0.256"]}', "$.loopback[0]" },
+    { '{"loopback": ["127.0.0.01"]}', "$.loopback[0]" },
+    { '{"env": ["A=B"]}', "$.env[0]" },
+    { '{"env": [""]}', "$.env[0]" },
+    { '{"set_env": {"A": 1}}', "$.set_env.A" },
+    { '{"set_env": {"A=B": "1"}}', '$.set_env["A=B"]' },
+    { '{"set_env_digests": {"A": "xyz"}}', "$.set_env_digests.A" },
+    { '{"tmp": "yes"}', "$.tmp" },
+    { '{"limits": {"open_files": 0}}', "$.limits.open_files" },
+    { '{"limits": {"cpu_seconds": 0}}', "$.limits.cpu_seconds" },
+    { '{"limits": {"file_bytes": -1}}', "$.limits.file_bytes" },
+    { '{"limits": {"processes": 0}}', "$.limits.processes" },
+    { '{"limits": {"open_files": "many"}}', "$.limits.open_files" },
+    { '{"limits": {"bogus": 1}}', "$.limits.bogus" },
     { '[]', "want record" },
     { 'not json', "json" },
   }
@@ -106,7 +95,7 @@ local function test_decode_refusals_name_the_field()
 end
 
 local function test_a_letters_refusal_names_the_canonical_order()
-  assert(refused('{"grants": [{"path": "a", "letters": "xr"}]}', "/grants/0/letters"):find('"rx"', 1, true))
+  assert(refused('{"grants": [{"path": "a", "letters": "xr"}]}', "$.grants[0].letters"):find('"rx"', 1, true))
 end
 
 local function test_merge_checks_a_digest_against_the_value()
@@ -171,7 +160,7 @@ local function test_encode_raises_for_what_is_not_merged()
   local ok, why = pcall(PolicyJson.encode, { profiles = { "system" } })
   assert(not ok and tostring(why):find("merged", 1, true), tostring(why))
   local bad, trouble = pcall(PolicyJson.encode, { grants = { { path = "a", letters = "z" } } })
-  assert(not bad and tostring(trouble):find("/grants/0/letters", 1, true), tostring(trouble))
+  assert(not bad and tostring(trouble):find("$.grants[0].letters", 1, true), tostring(trouble))
   assert(PolicyJson.encode({}) == "{}")
 end
 
@@ -224,20 +213,20 @@ local function test_a_database_that_changed_is_not_the_one_the_text_names(tmp: s
   local before = PolicyJson.encode(merged({ database = assert(Sandbox.database(path)) }))
   database_of(tmp, "two")
   local policy, why = PolicyJson.decode(before)
-  assert(policy == nil and why:find("/database/sha256", 1, true), tostring(why))
+  assert(policy == nil and why:find("$.database.sha256", 1, true), tostring(why))
   assert(PolicyJson.encode(merged({ database = assert(Sandbox.database(path)) })) ~= before,
     "the digest did not move")
   assert(Fs.remove(path))
   policy, why = PolicyJson.decode(before)
-  assert(policy == nil and why:find("/database", 1, true), tostring(why))
+  assert(policy == nil and why:find("$.database", 1, true), tostring(why))
 end
 
 local function test_a_database_text_is_held_to_its_shape(tmp: string)
   local path = database_of(tmp, "x")
-  refused('{"database":"' .. path .. '"}', "/database")
-  refused('{"database":{"path":"' .. path .. '"}}', "/database")
-  refused('{"database":{"path":"rel.db","sha256":"00"}}', "/database")
-  refused('{"database":{"path":"' .. path .. '","sha256":"00","more":1}}', "/database")
+  refused('{"database":"' .. path .. '"}', "$.database")
+  refused('{"database":{"path":"' .. path .. '"}}', "$.database")
+  refused('{"database":{"path":"rel.db","sha256":"00"}}', "$.database")
+  refused('{"database":{"path":"' .. path .. '","sha256":"00","more":1}}', "$.database")
   local ok, trouble = pcall(PolicyJson.encode,
     { database = { path = tmp .. "/absent.db", sha256 = string.rep("0", 64) } })
   assert(not ok and tostring(trouble):find("absent.db", 1, true), tostring(trouble))
@@ -277,7 +266,7 @@ local function test_merge_joins_database_digests_with_their_paths(tmp: string)
     { database = { path = path, sha256 = other } })
   assert(none == nil and why:find("two digests", 1, true), tostring(why))
   local ok, bad = Sandbox.check({ database = { path = path, sha256 = "XYZ" } })
-  assert(not ok and bad:find("/database/sha256", 1, true), bad)
+  assert(not ok and bad:find("$.database.sha256", 1, true), bad)
   local absent, absent_why = Sandbox.database(tmp .. "/absent.db")
   assert(absent == nil and absent_why:find("database", 1, true), tostring(absent_why))
 end
