@@ -62,4 +62,44 @@ function Example.binary_first_pass()
   assert(exact.ids[1] == fast.ids[1])
 end
 
+--- IVF search: k-means picks centroids, each row stores the cluster of its
+--- nearest centroid in an indexed column, and a query scores only the
+--- rows of the few clusters nearest to it. Approximate: measure recall
+--- against `corpus:search` on your data before trusting a probe count.
+function Example.ivf()
+  local points = {
+    { 1, 0.1 }, { 0.9, 0.0 }, { 1, -0.1 },
+    { 0.1, 1 }, { 0.0, 0.9 }, { -0.1, 1 },
+    { -1, 0.1 }, { -0.9, 0.0 }, { -1, -0.1 },
+  }
+  local corpus = Vector.corpus(2)
+  for i, p in ipairs(points) do
+    corpus:add(i, Vector.normalize(Vector.pack(p)))
+  end
+  local centroids = Vector.kmeans(corpus, 3)
+
+  local db = assert(Sqlite.memory())
+  assert(db:exec([[
+    CREATE TABLE chunks (id INTEGER PRIMARY KEY, cluster INTEGER, embedding BLOB);
+    CREATE INDEX chunks_cluster ON chunks (cluster);
+  ]]))
+  for i, p in ipairs(points) do
+    local blob = Vector.normalize(Vector.pack(p))
+    assert(Sqlite.run(db, "INSERT INTO chunks VALUES (?1, ?2, ?3)",
+      { { integer = i }, { integer = Vector.nearest(centroids, blob) }, { blob = blob } }))
+  end
+
+  local query = Vector.normalize(Vector.pack({ 0.2, 1 }))
+  local probes: Sqlite.Value = { integers = Vector.nearest_n(centroids, query, 1) }
+  local ids = assert(Sqlite.map(db, [[
+    SELECT id FROM chunks WHERE cluster IN carray(?2)
+    ORDER BY inner_product(embedding, ?1) DESC LIMIT 2
+  ]], { { blob = query }, probes }, function(r: Sqlite.Row): integer
+    return r:integer(1)
+  end))
+  print(ids[1], ids[2]) -- 4  5
+  assert(ids[1] == 4 and ids[2] == 5)
+  assert(db:close())
+end
+
 return Example

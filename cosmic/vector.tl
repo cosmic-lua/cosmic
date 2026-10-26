@@ -73,6 +73,15 @@ local record Vector
     --- `corpus:search(query, k, opts)`: the `k` nearest, as [`Vector.Hits`].
     search: function(Corpus, query: string, k: integer, opts?: SearchOptions): Hits
   end
+
+  record KmeansOptions
+    --- Seeds the choice of the first centroids; the same seed on the same
+    --- corpus answers the same centroids. 1 by default.
+    seed?: integer
+    --- The most Lloyd iterations; it stops sooner when no vector changes
+    --- cluster. 20 by default.
+    iterations?: integer
+  end
 end
 
 --- A vector from its numbers, as the SQL functions store one. Raises on
@@ -121,6 +130,28 @@ local function corpus_search(self: Vector.Corpus, query: string, k: integer,
   local metric: string = o.metric or "inner_product"
   local ids, scores = self.handle:search(query, k, metric, o.candidates, o.allow)
   return { ids = ids, scores = scores }
+end
+
+--- `k` centroids for IVF search: spherical k-means (k-means++ seeding,
+--- then Lloyd iterations on vectors scaled to length 1, centroids
+--- renormalized each step, so similarity is the inner product). Answers
+--- k packed centroids. Raises on `k` under 1 or over the corpus's count.
+--- Cost is count x k x dims per iteration, in C.
+function Vector.kmeans(corpus: Vector.Corpus, k: integer, opts?: Vector.KmeansOptions): {string}
+  local o = opts or {}
+  return corpus.handle:kmeans(k, o.seed or 1, o.iterations or 20)
+end
+
+--- The 1-based index of the centroid nearest `v` by inner product (the
+--- cluster to store a row under). Ties go to the lower index.
+function Vector.nearest(centroids: {string}, v: string): integer
+  return assert(raw.nearest(centroids, v, 1)[1])
+end
+
+--- The indexes of the `n` nearest centroids, nearest first: the probes of
+--- a query. Fewer when there are fewer centroids.
+function Vector.nearest_n(centroids: {string}, v: string, n: integer): {integer}
+  return raw.nearest(centroids, v, n)
 end
 
 --- An empty corpus of vectors with `dims` dimensions, from 1 to 16000.

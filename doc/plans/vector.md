@@ -166,6 +166,22 @@ Details:
 
 The approximate step for when brute force runs out, with no new storage.
 
+Status: built (prototype). `Vector.kmeans(corpus, k, { seed?, iterations? })`
+is spherical k-means in C over the corpus buffer (vectors are scaled to
+length 1, centroids renormalized each step, so similarity is the inner
+product; k-means++ seeding from a splitmix64 stream of `seed`, default 1,
+so a run replays; up to `iterations`, default 20, stopping when no
+assignment changes; an empty cluster is refilled with the worst-served
+vector). It raises on k under 1 or over the corpus count. Also
+`Vector.nearest(centroids, v)` (1-based index) and
+`Vector.nearest_n(centroids, v, n)` (the probes, nearest first), and
+[`cosmic/vector_ivf_test.tl`] and `Example.ivf` show the SQL pattern with
+`cluster IN carray(?2)`. No port of pgvector's code was made. Measured:
+on 20 well-separated clusters of 100 points in 64 dimensions, recall@10
+against exact search is 0.96 with 1 probe and 1.0 with 3 probes;
+`kmeans` of 100k x 768 with k = 100 takes about 4 s per iteration on
+the development host.
+
 The scheme: k-means picks centroids; each row stores the id of its
 nearest centroid in an integer column with an ordinary index; a query
 scores only the rows of the few centroids nearest to it.
@@ -277,3 +293,4 @@ A separate track, pulled by its own callers. From the same discussion:
 [`cosmic/internal/vector.d.tl`]: ../../cosmic/internal/vector.d.tl
 [`cosmic/vector.tl`]: ../../cosmic/vector.tl
 [`cosmic/vector_example.tl`]: ../../cosmic/vector_example.tl
+[`cosmic/vector_ivf_test.tl`]: ../../cosmic/vector_ivf_test.tl
