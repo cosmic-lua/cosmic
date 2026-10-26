@@ -239,6 +239,10 @@ that calls a provider needs a key and the network):
 - **Measuring recall** of a fast path against exact search on the
   caller's own data.
 
+**Status:** written, as [`doc/guides/semantic-search.md`]. Every example
+is compiled and, but for the provider call, run offline by `cosmic test`
+over a toy word-hash embedding.
+
 ## Later
 
 Each waits on a caller who needs it:
@@ -296,6 +300,7 @@ A separate track, pulled by its own callers. From the same discussion:
 [`cosmic/sqlite_example.tl`]: ../../cosmic/sqlite_example.tl
 [`cosmic/vector_sql_test.tl`]: ../../cosmic/vector_sql_test.tl
 [`doc/guides/sql.md`]: ../guides/sql.md
+[`doc/guides/semantic-search.md`]: ../guides/semantic-search.md
 
 [`cosmic.internal.hash`]: ../../cosmic/internal/hash.d.tl
 [`cosmic.internal.vector`]: ../../cosmic/internal/vector.d.tl
