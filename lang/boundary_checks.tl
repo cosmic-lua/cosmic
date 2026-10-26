@@ -38,6 +38,15 @@ local function field(text: string): string
   return (text:gsub(";", ","))
 end
 
+local function among(list: {string}, word: string): boolean
+  for _, each in ipairs(list) do
+    if each == word then
+      return true
+    end
+  end
+  return false
+end
+
 function BoundaryChecks.statement(rows: {Check.Boundary}, file: string, line: integer): string?
   local first = rows[1]
   if first == nil then
@@ -45,10 +54,24 @@ function BoundaryChecks.statement(rows: {Check.Boundary}, file: string, line: in
   end
   local spec: mut {string} = { "p", field(file) .. ":" .. tostring(line), field(first.owner) }
   local names: mut {string} = {}
+  -- A name given to two parameters (`_`) is the later one in the body: the earlier cannot be passed on by name.
+  local given: mut {string: integer} = {}
+  for _, row in ipairs(rows) do
+    given[row.name] = (given[row.name] or 0) + 1
+  end
   for _, row in ipairs(rows) do
     local kinds = Boundaries.kinds(row.type)
-    if kinds ~= nil then
-      spec[#spec + 1] = row.name .. "=" .. Boundaries.spec(kinds)
+    if kinds ~= nil and given[row.name] == 1 then
+      local list = kinds.list
+      if row.optional and not among(list, "nil") then
+        local more: mut {string} = {}
+        for _, each in ipairs(list) do
+          more[#more + 1] = each
+        end
+        more[#more + 1] = "nil"
+        list = more
+      end
+      spec[#spec + 1] = row.name .. "=" .. Boundaries.spec({ list = list, strings = nil, classes = nil })
       names[#names + 1] = row.name
     end
   end

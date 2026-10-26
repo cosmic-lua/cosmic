@@ -133,9 +133,10 @@ local record Check
     param: integer
     --- The function as the program calls it (`f`, `R.m`, `C.m`, or `function` for one with no name).
     owner: string
-    --- The type a value must have there: the declared type, with nil where the parameter is optional. It is turned into
-    --- the kinds of Lua value only where a run checks it ([`lang.boundaries`]'s `kinds`).
+    --- The type the program declares there, and whether the parameter is optional (`name?: T`), which admits nil as well. It
+    --- is turned into the kinds of Lua value only where a run checks it ([`lang.boundaries`]'s `kinds`).
     type: Type
+    optional: boolean
     --- The offset of the first token of the function.
     at: integer
   end
@@ -153,7 +154,8 @@ local record Check
     --- that checks it ([`Check.Narrowed`]).
     narrowed: {Narrowed}
     --- The typed boundaries the program declares, in source order ([`Check.Boundary`]): the parameters of every function
-    --- whose body was checked, bar the variadic one, a `self`, and one whose type is `any`.
+    --- whose body was checked, bar the variadic one, a `self`, one whose type is `any`, and one with no type written (a function
+    --- literal that takes its parameters' types from where it is passed).
     boundaries: {Boundary}
     --- The type of each expression that was typed, by the id of its node (empty where the check was asked not to keep them,
     --- `typed` false; kept by default): the type report the readers of the build take ([`build.driver`]). A name, a
@@ -3673,14 +3675,12 @@ local function function_body(ctx: Ctx, params: {Ast.Param}, body: Ast.Block, ft:
         if f ~= nil then
           given = f.params[j]
         end
-        if given ~= nil and given.type.tag ~= "any" and binding.name ~= "self" then
-          local t = given.type
-          if p.optional or given.omittable == true then
-            t = ctx.store:optional(t)
-          end
+        -- Only a type the program writes is a declaration to hold a value to: a function literal's parameter that takes
+        -- its type from the context (`table.sort(t, function(a, b) ... end)`) declares none.
+        if given ~= nil and p.type ~= nil and given.type.tag ~= "any" and binding.name ~= "self" then
           ctx.boundaries[binding.id] = {
-            id = fn_id, role = "parameter", name = binding.name, param = j, owner = owner, type = t,
-            at = Lexer.offset(ctx.tokens, whole.first),
+            id = fn_id, role = "parameter", name = binding.name, param = j, owner = owner, type = given.type,
+            optional = p.optional or given.omittable == true, at = Lexer.offset(ctx.tokens, whole.first),
           }
         end
         if narrows ~= nil and narrows.param == j then

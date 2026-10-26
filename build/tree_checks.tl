@@ -2533,6 +2533,7 @@ function tree_checks.pipeline(root: string, build_db: Sqlite.Handle, memo?: Sqli
     "build/check_memo.tl", "build/driver.tl", "build/tree_checks.tl", "build/tree_program.tl",
     "build/syntax_shape_specs.tl", "build/pipeline.tl", "build/pipeline_check.tl",
     "build/gen_syscalls.tl", "build/compile_grammar.tl", "lang/codegen.tl", "lang/truthy.tl", "lang/fact_wraps.tl",
+    "lang/boundaries.tl", "lang/boundary_checks.tl",
     "core/syscalls.h", "core/process.h", "core/socket.h" }, "pipeline 3")
   local tree = tree_of(files, salt, TreeProgram.bindings_of(root), written, shaping_of(root, memo))
   -- The ceilings are not in the salt: each file's answer is keyed by those held under its own name ([`PipelineCheck.keyed`]).

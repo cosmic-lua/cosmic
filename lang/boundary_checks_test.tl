@@ -76,6 +76,24 @@ local function test_a_semicolon_in_a_file_name_does_not_split_the_spec()
   assert(checks[row.id] == 'if __cosmic_tc then __cosmic_tc(2, "p;a,b.tl:1;h;x=integer", x) end', tostring(checks[row.id]))
 end
 
+local function test_a_parameter_the_program_gives_no_type_is_not_a_declaration()
+  local source = table.concat({
+    "local function each(items: {string}, visit: function(string, integer))",
+    "end",
+    "each({ \"a\" }, function(s, i) end)",
+    "",
+  }, "\n")
+  assert(listed(source) == "each.items=table each.visit=function")
+end
+
+local function test_two_parameters_of_one_name_are_not_passed_on()
+  local source = "local function h(_: string, _: integer, x: integer) end\n"
+  local run = Programs.run(source)
+  local checks = BoundaryChecks.of(run.result.boundaries, source, "t.tl")
+  local row = assert(run.result.boundaries[1])
+  assert(checks[row.id] == 'if __cosmic_tc then __cosmic_tc(2, "p;t.tl:1;h;x=integer", x) end', tostring(checks[row.id]))
+end
+
 local function test_a_boundary_row_is_kept_once_whatever_the_number_of_passes()
   local source = table.concat({
     "local function outer(a: integer)",
