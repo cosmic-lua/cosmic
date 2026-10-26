@@ -181,7 +181,10 @@ length 1, centroids renormalized each step, so similarity is the inner
 product; k-means++ seeding from a splitmix64 stream of `seed`, default 1,
 so a run replays; up to `iterations`, default 20, stopping when no
 assignment changes; an empty cluster is refilled with the worst-served
-vector). It raises on k under 1 or over the corpus count. Also
+vector). It raises on k under 1 or over the corpus count, on iterations
+under 1, and on a corpus of zero vectors alone; a zero vector is never
+a seed and counts toward no cluster. `nearest` refuses a query or
+centroid holding a non-finite number. Also
 `Vector.nearest(centroids, v)` (1-based index) and
 `Vector.nearest_n(centroids, v, n)` (the probes, nearest first), and
 [`cosmic/vector_ivf_test.tl`] and `Example.ivf` show the SQL pattern with
@@ -196,10 +199,12 @@ nearest centroid in an integer column with an ordinary index; a query
 scores only the rows of the few centroids nearest to it.
 
 ```text
--- Lloyd's k-means with k-means++ seeding, from a seeded Rand.Source so
--- a run replays. Answers k packed centroids.
+-- Lloyd's k-means with k-means++ seeding, from an inline splitmix64
+-- stream of opts.seed so a run replays. Answers k packed centroids.
+-- opts is { seed?: integer, iterations?: integer }.
 Vector.kmeans(corpus: Vector.Corpus, k: integer, opts?): {string}
 Vector.nearest(centroids: {string}, v: string): integer  -- 1-based
+Vector.nearest_n(centroids: {string}, v: string, n: integer): {integer}
 ```
 
 ```text

@@ -139,7 +139,11 @@ end
 --- `k` centroids for IVF search: spherical k-means (k-means++ seeding,
 --- then Lloyd iterations on vectors scaled to length 1, centroids
 --- renormalized each step, so similarity is the inner product). Answers
---- k packed centroids. Raises on `k` under 1 or over the corpus's count.
+--- k packed centroids. Raises on `k` under 1 or over the corpus's count,
+--- on `iterations` under 1, and on a corpus of zero vectors alone. A
+--- zero vector (or one too short to scale to length 1) has no direction:
+--- it is never a seed and counts toward no cluster, and [`Vector.nearest`]
+--- gives it the first centroid.
 --- Cost is count x k x dims per iteration, in C.
 function Vector.kmeans(corpus: Vector.Corpus, k: integer, opts?: Vector.KmeansOptions): {string}
   local o = opts or {}
@@ -147,7 +151,10 @@ function Vector.kmeans(corpus: Vector.Corpus, k: integer, opts?: Vector.KmeansOp
 end
 
 --- The 1-based index of the centroid nearest `v` by inner product (the
---- cluster to store a row under). Ties go to the lower index.
+--- cluster to store a row under). Ties go to the lower index. Raises on
+--- no centroids, on a centroid that is not a vector of `v`'s length, and
+--- on `v` or a centroid holding a number that is not finite; a product
+--- that overflows to not-a-number scores worst.
 function Vector.nearest(centroids: {string}, v: string): integer
   return assert(raw.nearest(centroids, v, 1)[1])
 end

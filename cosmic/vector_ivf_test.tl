@@ -119,10 +119,12 @@ local function test_same_seed_same_centroids()
   for i = 1, 8 do
     assert(a[i] == b[i], "centroid " .. tostring(i) .. " differs between runs")
   end
-  local c = Vector.kmeans(corpus, 8, { seed = 6, iterations = 1 })
+  -- Same iterations, so only the seed differs.
+  local one = Vector.kmeans(corpus, 8, { seed = 5, iterations = 1 })
+  local other = Vector.kmeans(corpus, 8, { seed = 6, iterations = 1 })
   local same = true
   for i = 1, 8 do
-    if a[i] ~= c[i] then
+    if one[i] ~= other[i] then
       same = false
     end
   end
@@ -176,4 +178,185 @@ local function test_nearest_and_nearest_n()
     :find("centroid", 1, true))
   assert(refusal(function() Vector.nearest_n(centroids, Vector.pack({ 1, 0 }), 0) end)
     :find("at least 1", 1, true))
+end
+
+-- How well the clusters k-means found match the true ones: of the true
+-- clusters, how many have 90% of their points under one centroid, and
+-- how many different centroids those are. Random rows as centroids
+-- leave true clusters sharing one, so the second count falls short.
+local function purity(centroids: {string}, points: {string}): integer, integer
+  local well = 0
+  local seen: mut {integer: boolean} = {}
+  for cluster = 0, CLUSTERS - 1 do
+    local tally: mut {integer: integer} = {}
+    for i = 1, PER do
+      local at = Vector.nearest(centroids, assert(points[cluster * PER + i]))
+      tally[at] = (tally[at] or 0) + 1
+    end
+    local top, owner = 0, 0
+    for at, n in pairs(tally) do
+      if n > top then
+        top, owner = n, at
+      end
+    end
+    if top >= PER * 0.9 then
+      well = well + 1
+      seen[owner] = true
+    end
+  end
+  local distinct = 0
+  for _ in pairs(seen) do
+    distinct = distinct + 1
+  end
+  return well, distinct
+end
+
+-- The mean inner product of each point with its nearest centroid.
+local function fit(centroids: {string}, points: {string}): number
+  local total = 0.0
+  for _, p in ipairs(points) do
+    local q = assert(Vector.unpack(p))
+    local c = assert(Vector.unpack(assert(centroids[Vector.nearest(centroids, p)])))
+    for d, x in ipairs(c) do
+      total = total + x * assert(q[d])
+    end
+  end
+  return total / #points
+end
+
+local function test_kmeans_recovers_the_true_clusters()
+  local points = dataset()
+  local centroids = Vector.kmeans(corpus_of(points), CLUSTERS)
+  -- Twenty rows of the data themselves, spread through it, as centroids:
+  -- what k-means would answer if it did nothing.
+  local rows: mut {string} = {}
+  for i = 1, CLUSTERS do
+    rows[#rows + 1] = assert(points[(i * 97) % #points + 1])
+  end
+  local gained = fit(centroids, points) - fit(rows, points)
+  assert(gained > 0.05, "k-means should fit better than rows: " .. tostring(gained))
+  local well, distinct = purity(centroids, points)
+  assert(well >= CLUSTERS - 2, "pure clusters: " .. tostring(well))
+  assert(distinct >= 15, "distinct owners: " .. tostring(distinct))
+end
+
+local function test_zero_vectors_are_no_cluster()
+  local points = dataset()
+  local corpus = corpus_of(points)
+  local zero = Vector.pack((function(): {number}
+    local z: mut {number} = {}
+    for _ = 1, DIMS do
+      z[#z + 1] = 0
+    end
+    return z
+  end)())
+  -- A tenth as many zero rows again, spread through the ids.
+  for i = 1, #points // 10 do
+    corpus:add(100000 + i, zero)
+  end
+  local centroids = Vector.kmeans(corpus, CLUSTERS)
+  for _, c in ipairs(centroids) do
+    local n = 0.0
+    for _, x in ipairs(Vector.unpack(c)) do
+      n = n + x * x
+    end
+    assert(math.abs(n - 1) < 1e-4, "centroid length with zero rows present")
+  end
+  local well, distinct = purity(centroids, points)
+  assert(well >= CLUSTERS - 2, "pure clusters: " .. tostring(well))
+  assert(distinct >= 15, "distinct owners: " .. tostring(distinct))
+
+  local only = Vector.corpus(2)
+  only:add(1, Vector.pack({ 0, 0 }))
+  only:add(2, Vector.pack({ 0, 0 }))
+  assert(refusal(function() Vector.kmeans(only, 1) end):find("direction", 1, true))
+end
+
+local function test_a_vector_too_short_to_scale_has_no_direction()
+  -- Its length is under 1/FLT_MAX, so the inverse would be infinite.
+  local corpus = Vector.corpus(2)
+  corpus:add(1, Vector.pack({ 1e-39, 1e-39 }))
+  corpus:add(2, Vector.pack({ 1, 0 }))
+  local c = Vector.unpack(assert(Vector.kmeans(corpus, 1)[1]))
+  assert(math.abs(assert(c[1]) - 1) < 1e-6 and math.abs(assert(c[2])) < 1e-6,
+    "the centroid is the one vector with a direction")
+end
+
+local function test_k_equal_to_count_with_duplicates()
+  local corpus = Vector.corpus(2)
+  for i = 1, 4 do
+    corpus:add(i, Vector.pack({ 1, 0 }))
+  end
+  local centroids = Vector.kmeans(corpus, 4)
+  assert(#centroids == 4)
+  for _, c in ipairs(centroids) do
+    assert(c == Vector.pack({ 1, 0 }))
+  end
+end
+
+local function test_iterations_under_one_raise()
+  local corpus = corpus_of(dataset())
+  assert(refusal(function() Vector.kmeans(corpus, 3, { iterations = 0 }) end)
+    :find("iterations is at least 1", 1, true))
+end
+
+local function test_nearest_refusals()
+  local one = Vector.pack({ 1, 0 })
+  assert(refusal(function() Vector.nearest({}, one) end):find("no centroids", 1, true))
+  -- Tables the type checker would refuse, built by a chunk that is not
+  -- checked: a number among the centroids, and a number whose text is
+  -- 4 bytes long standing in for a one-dimension centroid.
+  local build = assert(load("local nearest, v, w = ...; return nearest({ v, 5 }, v), nearest({ 1234 }, w)"))
+  assert(refusal(function() build(Vector.nearest, one, Vector.pack({ 1 })) end)
+    :find("centroid", 1, true))
+  local alone = assert(load("local nearest, w = ...; return nearest({ 1234 }, w)"))
+  assert(refusal(function() alone(Vector.nearest, Vector.pack({ 1 })) end)
+    :find("centroid", 1, true))
+  local infinite = string.pack("<f", math.huge)
+  assert(refusal(function() Vector.nearest({ Vector.pack({ 1 }) }, infinite) end)
+    :find("finite", 1, true))
+  assert(refusal(function() Vector.nearest({ infinite }, Vector.pack({ 1 })) end)
+    :find("finite", 1, true))
+end
+
+local function test_nearest_survives_scores_that_are_not_finite()
+  local big = Vector.pack({ 3e38, 3e38 })
+  -- Every product is -infinity.
+  local low = Vector.pack({ -3e38, -3e38 })
+  assert(Vector.nearest({ big, big }, low) == 1)
+  local all = Vector.nearest_n({ big, big, big }, low, 3)
+  assert(#all == 3 and all[1] == 1 and all[2] == 2 and all[3] == 3)
+  -- Infinity minus infinity is not a number; it ranks last.
+  local mixed = Vector.pack({ 3e38, -3e38 })
+  local ranked = Vector.nearest_n({ big, Vector.pack({ 1, 1 }) }, mixed, 2)
+  assert(ranked[1] == 2 and ranked[2] == 1)
+end
+
+local function test_nearest_is_the_best_inner_product_ties_to_the_lower()
+  local points = dataset()
+  local found = Vector.kmeans(corpus_of(points), 6)
+  local centroids: mut {string} = {}
+  for _, c in ipairs(found) do
+    centroids[#centroids + 1] = c
+  end
+  -- A repeated centroid, so a tie is certain.
+  centroids[#centroids + 1] = assert(found[2])
+  for i = 1, #points, 37 do
+    local p = assert(points[i])
+    local q = assert(Vector.unpack(p))
+    local best, top = 0, -math.huge
+    for j, c in ipairs(centroids) do
+      local sum = 0.0
+      for d, x in ipairs(assert(Vector.unpack(c))) do
+        sum = sum + x * assert(q[d])
+      end
+      if sum > top + 1e-6 then
+        best, top = j, sum
+      end
+    end
+    assert(Vector.nearest(centroids, p) == best, "point " .. tostring(i))
+    assert(assert(Vector.nearest_n(centroids, p, 7)[1]) == best)
+  end
+  assert(Vector.nearest({ assert(centroids[2]), assert(centroids[2]) }, assert(points[1]))
+    == 1)
 end

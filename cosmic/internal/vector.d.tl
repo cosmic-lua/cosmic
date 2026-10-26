@@ -9,13 +9,14 @@ local record vector
     -- Raises on a vector of another length or a number that is not finite.
     add: function(Corpus, id: integer, v: string)
     count: function(Corpus): integer
+    -- k centroids by spherical k-means (k-means++ seeding from `seed`).
+    -- Raises on k outside 1 to count, on iterations under 1, and on a
+    -- corpus whose every vector is zero. A zero vector is no cluster's.
+    kmeans: function(Corpus, k: integer, seed: integer, iterations: integer): {string}
     -- The ids and scores of the k best, best first. `metric` is
     -- "inner_product", "cosine" or "l2" (the score is the distance);
     -- `candidates` and `allow` may be nil. Raises on k < 1, a vector of
     -- another length, or another metric.
-    -- k centroids by spherical k-means (k-means++ seeding from `seed`).
-    -- Raises on k outside 1 to count.
-    kmeans: function(Corpus, k: integer, seed: integer, iterations: integer): {string}
     search: function(Corpus, query: string, k: integer, metric: string,
       candidates: integer?, allow: {integer}?): {integer}, {number}
   end
@@ -28,7 +29,10 @@ local record vector
   unpack: function(v: string): {number}
   -- The vector `[0.1, 0.2]` spells, or nil and why not.
   from_json: function(text: string): string?, string
-  -- The 1-based indexes of the n centroids nearest v by inner product.
+  -- The 1-based indexes of the n centroids nearest v by inner product,
+  -- ties to the lower. Raises on no centroids, n under 1, a centroid
+  -- that is not a string of the query's length, and a query or centroid
+  -- holding a number that is not finite.
   nearest: function(centroids: {string}, v: string, n: integer): {integer}
   -- The vector scaled to length 1; all zeros stays all zeros.
   normalize: function(v: string): string

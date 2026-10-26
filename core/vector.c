@@ -730,7 +730,9 @@ static int corpus_add (lua_State *L) {
   }
   memcpy(c->data + c->count * c->dims, v, c->dims * sizeof *v);
   double length = length_of(v, c->dims);
-  c->inverse[c->count] = length == 0.0 ? 0.0f : (float)(1.0 / length);
+  /* A length too small to invert in a float is a vector with no direction. */
+  float inverse = length == 0.0 ? 0.0f : (float)(1.0 / length);
+  c->inverse[c->count] = isfinite(inverse) ? inverse : 0.0f;
   c->ids[c->count] = id;
   c->count++;
   return 0;
@@ -1078,7 +1080,38 @@ static void normalize_in_place (float *v, size_t n) {
   for (size_t d = 0; d < n; d++) v[d] = (float)((double)v[d] / norm);
 }
 
-/* corpus:kmeans(k, seed, iterations): a table of k centroid strings. */
+/* The inner product with a NaN (infinity minus infinity, from floats
+ * that are each finite) counted as the worst score, so every ranking
+ * here agrees on what a score that is not a number is. */
+static float score (const float *a, const float *b, size_t n) {
+  float s = dot(a, b, n);
+  return isnan(s) ? -INFINITY : s;
+}
+
+/* The k-means++ weight of row i against a unit centroid: its squared
+ * distance, from 0 to 4. A row without a direction has weight 0, so it
+ * is never drawn. */
+static float seed_weight (const struct corpus *c, size_t i, const float *cent) {
+  if (c->inverse[i] == 0.0f) return 0.0f;
+  float m = 2.0f - 2.0f * c->inverse[i] * score(c->data + i * c->dims, cent, c->dims);
+  if (!(m > 0.0f)) return 0.0f;
+  return m > 4.0f ? 4.0f : m;
+}
+
+/* The index of the pick'th row that has a direction. */
+static size_t nth_directed (const struct corpus *c, size_t pick) {
+  for (size_t i = 0; i < c->count; i++) {
+    if (c->inverse[i] == 0.0f) continue;
+    if (pick == 0) return i;
+    pick--;
+  }
+  return 0;
+}
+
+/* corpus:kmeans(k, seed, iterations): a table of k centroid strings.
+ * A row of length zero (or too short to take the inverse of) has no
+ * direction: it is never a seed, and counts toward no cluster. A corpus
+ * of such rows alone raises. */
 static int corpus_kmeans (lua_State *L) {
   struct corpus *c = check_corpus(L, 1);
   lua_Integer k = luaL_checkinteger(L, 2);
@@ -1090,6 +1123,9 @@ static int corpus_kmeans (lua_State *L) {
   size_t dims = c->dims, n = c->count, kk = (size_t)k;
   luaL_argcheck(L, kk * dims <= ((size_t)1 << 30) && n <= ((size_t)1 << 30), 2,
                 "too large");
+  size_t directed = 0;
+  for (size_t i = 0; i < n; i++) if (c->inverse[i] != 0.0f) directed++;
+  if (directed == 0) return luaL_error(L, "no vector has a direction to cluster");
   size_t words = 2 * kk * dims + n + n + kk;
   float *scratch = lua_newuserdatauv(L, words * sizeof(float), 0);
   float *cent = scratch;
@@ -1100,28 +1136,30 @@ static int corpus_kmeans (lua_State *L) {
 
   /* k-means++: each next centroid is drawn in proportion to its
    * squared distance (2 - 2 * similarity) from the nearest chosen. */
-  unit_row(c, splitmix(&rng) % n, cent);
-  for (size_t i = 0; i < n; i++) {
-    float m = 2.0f - 2.0f * c->inverse[i] * dot(c->data + i * dims, cent, dims);
-    best[i] = m < 0 ? 0 : m;
-  }
+  unit_row(c, nth_directed(c, splitmix(&rng) % directed), cent);
+  for (size_t i = 0; i < n; i++) best[i] = seed_weight(c, i, cent);
   for (size_t j = 1; j < kk; j++) {
     double total = 0;
-    for (size_t i = 0; i < n; i++) total += best[i];
-    size_t pick = splitmix(&rng) % n;
-    if (total > 0) {
+    size_t last = 0;
+    bool any = false;
+    for (size_t i = 0; i < n; i++) {
+      total += best[i];
+      if (best[i] > 0) { last = i; any = true; }
+    }
+    size_t pick = nth_directed(c, splitmix(&rng) % directed);
+    if (any) {
       double r = (double)(splitmix(&rng) >> 11) * (1.0 / 9007199254740992.0) * total;
-      pick = n - 1;
+      /* Rounding can leave r unspent: the last row that has weight. */
+      pick = last;
       for (size_t i = 0; i < n; i++) {
         r -= best[i];
-        if (r < 0) { pick = i; break; }
+        if (r < 0 && best[i] > 0) { pick = i; break; }
       }
     }
     float *cj = cent + j * dims;
     unit_row(c, pick, cj);
     for (size_t i = 0; i < n; i++) {
-      float m = 2.0f - 2.0f * c->inverse[i] * dot(c->data + i * dims, cj, dims);
-      if (m < 0) m = 0;
+      float m = seed_weight(c, i, cj);
       if (m < best[i]) best[i] = m;
     }
   }
@@ -1130,11 +1168,12 @@ static int corpus_kmeans (lua_State *L) {
   for (lua_Integer it = 0; it < iterations; it++) {
     size_t changed = 0;
     for (size_t i = 0; i < n; i++) {
+      if (c->inverse[i] == 0.0f) { best[i] = 1.0f; continue; }
       const float *x = c->data + i * dims;
       float top = -INFINITY;
       int32_t at = 0;
       for (size_t j = 0; j < kk; j++) {
-        float sim = dot(x, cent + j * dims, dims);
+        float sim = score(x, cent + j * dims, dims);
         if (sim > top) { top = sim; at = (int32_t)j; }
       }
       best[i] = top * c->inverse[i];
@@ -1144,6 +1183,7 @@ static int corpus_kmeans (lua_State *L) {
     memset(sums, 0, kk * dims * sizeof *sums);
     memset(counts, 0, kk * sizeof *counts);
     for (size_t i = 0; i < n; i++) {
+      if (assign[i] < 0) continue;
       float *sum = sums + (size_t)assign[i] * dims;
       const float *x = c->data + i * dims;
       for (size_t d = 0; d < dims; d++) sum[d] += x[d] * c->inverse[i];
@@ -1153,8 +1193,10 @@ static int corpus_kmeans (lua_State *L) {
       float *cj = cent + j * dims;
       if (counts[j] == 0) {
         /* An empty cluster takes the vector worst served by its own. */
-        size_t far = 0;
-        for (size_t i = 1; i < n; i++) if (best[i] < best[far]) far = i;
+        size_t far = nth_directed(c, 0);
+        for (size_t i = far + 1; i < n; i++) {
+          if (c->inverse[i] != 0.0f && best[i] < best[far]) far = i;
+        }
         unit_row(c, far, cj);
         best[far] = 1.0f;
       } else {
@@ -1174,7 +1216,9 @@ static int corpus_kmeans (lua_State *L) {
 }
 
 /* nearest(centroids, v, n): the 1-based indexes of the n centroids with
- * the highest inner product with v, best first, ties to the lower. */
+ * the highest inner product with v, best first, ties to the lower. The
+ * query and every centroid hold finite numbers; a product that is not
+ * a number (infinity minus infinity) scores worst. */
 static int vector_nearest (lua_State *L) {
   luaL_checktype(L, 1, LUA_TTABLE);
   size_t vlen;
@@ -1189,26 +1233,35 @@ static int vector_nearest (lua_State *L) {
   size_t dims = vlen / sizeof(float);
   float *q = lua_newuserdatauv(L, vlen + sizeof(float), 0);
   memcpy(q, vs, vlen);
-  float *sims = lua_newuserdatauv(L, k * sizeof *sims, 0);
+  for (size_t i = 0; i < dims; i++) {
+    luaL_argcheck(L, isfinite(q[i]), 2, "a vector holds finite numbers");
+  }
+  /* The scores, then one byte per centroid saying it is already taken. */
+  float *sims = lua_newuserdatauv(L, k * (sizeof *sims + 1), 0);
+  unsigned char *taken = (unsigned char *)(sims + k);
+  memset(taken, 0, k);
   float *row = lua_newuserdatauv(L, vlen + sizeof(float), 0);
   for (size_t j = 0; j < k; j++) {
     lua_rawgeti(L, 1, (lua_Integer)(j + 1));
-    size_t len;
-    const char *s = lua_tolstring(L, -1, &len);
+    size_t len = 0;
+    const char *s = lua_type(L, -1) == LUA_TSTRING ? lua_tolstring(L, -1, &len) : NULL;
     luaL_argcheck(L, s != NULL && len == vlen, 1,
                   "a centroid is not a vector of the query's length");
     memcpy(row, s, len);
     lua_pop(L, 1);
-    sims[j] = dot(q, row, dims);
+    for (size_t i = 0; i < dims; i++) {
+      luaL_argcheck(L, isfinite(row[i]), 1, "a vector holds finite numbers");
+    }
+    sims[j] = score(q, row, dims);
   }
   lua_createtable(L, 0, 0);
   for (lua_Integer r = 1; r <= want; r++) {
     size_t at = k;
     for (size_t j = 0; j < k; j++) {
-      if (sims[j] == -INFINITY) continue;
+      if (taken[j]) continue;
       if (at == k || sims[j] > sims[at]) at = j;
     }
-    sims[at] = -INFINITY;
+    taken[at] = 1;
     lua_pushinteger(L, (lua_Integer)(at + 1));
     lua_rawseti(L, -2, r);
   }
