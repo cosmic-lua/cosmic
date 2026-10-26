@@ -22,8 +22,9 @@
 ---   a named member for a table), and a value that is no name is evaluated once, in a function called on the spot.
 ---   An alias of `integer`, `true` or `false` tests for that.
 --- * An operand of a comparison that is a test is in parentheses.
---- * An `if` expression is `c and a or b` only where every value is truthy ([`generate`]); otherwise it is a function
----   called on the spot, which is right for a value that is false or nil.
+--- * An `if` expression is `c and a or b` only where every value is truthy ([`generate`]). Otherwise, as the one value of
+---   a `local`, a plain assignment to a name or a `return`, it is an `if` statement that assigns or returns in each arm;
+---   anywhere else it is a function called on the spot. Both are right for a value that is false or nil.
 --- * A `return` that ends a loop a `continue` jumps to the end of is `do return ... end`, since a label may not follow
 ---   a `return`.
 --- * A field, a key or a function of a record named `goto` or `global`, which Lua 5.5 reserves, is
@@ -659,6 +660,16 @@ local IS_PRECEDENCE <const> = 3
 local CAST_PRECEDENCE <const> = 50
 local POSTFIX_PRECEDENCE <const> = 100
 
+--- Whether every value of the `if` expression `node` but its `else` is truthy, so that it is `c and a or b`.
+local function all_truthy(node: Ast.IfExp): boolean
+  for _, arm in ipairs(node.arms) do
+    if not G.truthy(arm.value) then
+      return false
+    end
+  end
+  return true
+end
+
 --- The precedence of the operator an expression ends in, or nil where it is not one (a name, a parenthesis, a table):
 --- an operand of a higher precedence than the operator it stands under is written in parentheses.
 local function precedence(e: Ast.Exp): integer?
@@ -679,12 +690,7 @@ local function precedence(e: Ast.Exp): integer?
     return POSTFIX_PRECEDENCE
   elseif (e.kind == "IfExp") then
     -- A function called on the spot is a primary expression.
-    for _, arm in ipairs(e.arms) do
-      if not G.truthy(arm.value) then
-        return nil
-      end
-    end
-    return PRECEDENCE["or"]
+    return if all_truthy(e) then PRECEDENCE["or"] else nil end
   end
   return nil
 end
@@ -1045,12 +1051,12 @@ end
 --- An `if` expression whose values all are truthy as the `c and a or b` it stands for: each arm's `then` is the
 --- `and` and each `elseif` and the `else` an `or`, at the lines the keywords are on. Any other is a function called
 --- on the spot, since `c and a or b` is `b` when `a` is false or nil, and the function keeps each value to one.
+--- A statement that [`hoisted_if`] can write has no function: only where the `if` expression is its one value.
+--- TODO: write an `if` expression in a call argument, a field or an index as an `if` statement too, once codegen can
+--- tell that what comes before it in the statement is not changed by the arms (a purity analysis it does not have).
 local function if_expression(node: Ast.IfExp): Output
   local arms = node.arms
-  local plain = true
-  for _, arm in ipairs(arms) do
-    plain = plain and G.truthy(arm.value)
-  end
+  local plain = all_truthy(node)
   local conds: mut {Output} = {}
   local values: mut {Output} = {}
   for i, arm in ipairs(arms) do
@@ -1101,6 +1107,70 @@ local function if_expression(node: Ast.IfExp): Output
   end
   put(out, " or")
   add_child(out, rest, " ", G.indent)
+  return out
+end
+
+--- The `if` expression `value` where it is one that is not `c and a or b`, else nil: the one a statement can write as
+--- an `if` statement.
+local function hoistable(value: Ast.Exp): Ast.IfExp?
+  local cur = value
+  while cur.kind == "Paren" do
+    -- A parenthesis around an `if` expression only makes it one value, which it is.
+    cur = cur.inner
+  end
+  if cur.kind == "IfExp" and not all_truthy(cur) then
+    return cur
+  end
+  return nil
+end
+
+--- Whether a name `name` is read or written anywhere under `node`, a function inside included. A rough test: it ignores
+--- shadowing, so it errs toward a name being there.
+local function mentions(node: Ast.Node, name: string): boolean
+  local stack: mut {Ast.Node} = { node }
+  while #stack > 0 do
+    local cur = assert(table.remove(stack))
+    if cur.kind == "Name" and cur.text == name then
+      return true
+    end
+    Ast.children(cur, function(child: Ast.Node)
+      stack[#stack + 1] = child
+    end)
+  end
+  return false
+end
+
+--- The `if` expression `node` as the `if` statement it stands for, which does with the value of the arm that is taken what
+--- `head` and `tail` say around it (`x = ` and nothing, or `return (` and `)`): there is no function to create and call.
+--- Only the taken arm is evaluated, and the value is one (`tail`'s parenthesis cuts a call or a `...` to one in a `return`,
+--- and an assignment to a single name takes one). An arm that is an `if` expression of this kind is a nested `if`
+--- statement. Each keyword is at the line it is on in the source.
+local function hoisted_if(node: Ast.IfExp, head: string, tail: string): Output
+  local out = new(line_of(node.first))
+  --- Appends `child`: after a space, or with nothing before it where it is the first piece of the statement.
+  local function piece(child: Output)
+    local space = if #out.parts == 0 then "" else " " end
+    add_child(out, child, space, G.indent)
+  end
+  --- The value `value` as the arm's body, after the keyword text `word` that is at line `y`.
+  local function arm_body(y: integer, word: string, value: Ast.Exp)
+    local nested = hoistable(value)
+    if nested ~= nil then
+      piece(text(y, word))
+      piece(hoisted_if(nested, head, tail))
+    else
+      piece(text(y, word .. " " .. head))
+      add_child(out, exp(value), "", G.indent)
+      put(out, tail)
+    end
+  end
+  for i, arm in ipairs(node.arms) do
+    piece(text(line_of(arm.first - 1), if i == 1 then "if" else "elseif" end))
+    piece(exp(arm.cond))
+    arm_body(line_of(arm.value.first - 1), "then", arm.value)
+  end
+  arm_body(line_of(node.else_value.first - 1), "else", node.else_value)
+  piece(text(line_of(node.last), "end"))
   return out
 end
 
@@ -1354,7 +1424,18 @@ local function local_statement(s: Ast.Local): Output
     end
   end
   local values = s.values
-  if #values > 0 then
+  local only = values[1]
+  local bound = s.bindings[1]
+  local hoisted: Ast.IfExp? = nil
+  if #values == 1 and #s.bindings == 1 and only ~= nil and bound ~= nil and bound.attr == nil then
+    hoisted = hoistable(only)
+  end
+  if hoisted ~= nil and bound ~= nil and not mentions(hoisted, bound.name) then
+    -- `local x; if c then x = a else x = b end`. The arms read an outer `x` where this one is declared before them, so an
+    -- `x` among them keeps the function.
+    put(out, ";")
+    add_child(out, hoisted_if(hoisted, bound.name .. " = ", ""), " ", G.indent)
+  elseif #values > 0 then
     put(out, " =")
     add_child(out, exps(values, line_of(values[1].first - 1)), " ")
   end
@@ -1364,6 +1445,17 @@ end
 local function assign_statement(s: Ast.Assign): Output
   local y = line_of(s.first)
   local out = new(y)
+  local target = s.targets[1]
+  local only = s.values[1]
+  local hoisted: Ast.IfExp? = nil
+  if #s.targets == 1 and #s.values == 1 and target ~= nil and target.kind == "Name" and only ~= nil then
+    hoisted = hoistable(only)
+  end
+  if hoisted ~= nil and target ~= nil and target.kind == "Name" then
+    -- A name is no expression to evaluate before the value, so the arms may do the assigning.
+    add_child(out, hoisted_if(hoisted, target.text .. " = ", ""))
+    return out
+  end
   add_child(out, exps(s.targets, y))
   put(out, " =")
   add_child(out, exps(s.values, line_of(s.values[1].first - 1)), " ")
@@ -1618,6 +1710,12 @@ stat = function(s: Ast.Stat): Output
     G.loops = outer
     return out
   elseif (s.kind == "Return") then
+    local only = s.values[1]
+    local hoisted = if #s.values == 1 and only ~= nil then hoistable(only) else nil end
+    if hoisted ~= nil then
+      -- The `return` of each arm ends the block as this one did, so a loop's `::continue::` may follow.
+      return hoisted_if(hoisted, "return (", ")")
+    end
     local out = new(line_of(first))
     local wrapped = G.guarded == s
     put(out, if wrapped then "do return" else "return" end)
