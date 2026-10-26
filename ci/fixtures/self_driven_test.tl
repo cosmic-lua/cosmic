@@ -1,6 +1,7 @@
 local BuildPaths = require("cosmic_ci.build_paths")
 local Clock = require("cosmic.clock")
 local Fixture = require("cosmic_ci.fixture")
+local Fs = require("cosmic.fs")
 
 local Test = require("cosmic.test")
 
@@ -74,6 +75,11 @@ local function test_the_product_boots_its_own_tree_to_itself(tmp: string)
   Fixture.mkdir(diagnostics)
   -- The tree the product was booted from (COSMIC_FIXTURE_SOURCE).
   Fixture.source_tree(tree)
+  -- The seed of this boot is the product, the generator the tree compiles
+  -- to, so nothing differs from it and the bridge refuses a standing
+  -- lang/SEED_DIFFERS (doc/contributing.md): leave it out of the copy.
+  local removed, trouble = Fs.remove(tree .. "/lang/SEED_DIFFERS")
+  assert(removed, trouble)
 
   Fixture.succeeded("self-driven-boot", Fixture.call_with_environment(
     "self-driven-boot", { tree .. "/bin/zig", "build", "boot", "-Dboot-cores=all" }, tree,
