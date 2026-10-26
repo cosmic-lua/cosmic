@@ -4,9 +4,8 @@ Embedding search in cosmic: store a model's vectors, find the nearest
 to a query under any filter, and blend that with keyword search, in one
 binary with nothing else running. This plan is the outcome of a design
 discussion ([#3218]) and the record of what is decided, what is built,
-and what comes next. Phases 1 to 3 are in the tree; phase 4 is
-planned, and a prototype of it is in [#3218], not yet merged. Where
-phase 4 names a file or a result, it describes that prototype.
+and what comes next. All four phases are in the tree; the guide that
+ends them is [`doc/guides/semantic-search.md`].
 
 ## Goal and scope
 
@@ -265,7 +264,7 @@ from the Postgres code around it. It is under the PostgreSQL License, a
 permissive one, so a port carries its notice in a bill-of-materials
 record.
 
-## Phase 4: the guide, `doc/guides/semantic-search.md` (planned; prototyped in [#3218], not yet merged)
+## Phase 4: the guide, `doc/guides/semantic-search.md` (built)
 
 End to end, every example run by `cosmic test` or saying why not (one
 that calls a provider needs a key and the network):
@@ -284,7 +283,7 @@ that calls a provider needs a key and the network):
 - **Measuring recall** of a fast path against exact search on the
   caller's own data.
 
-**Status:** prototyped in [#3218], not yet merged. In the prototype every example
+**Status:** built, as [`doc/guides/semantic-search.md`]. Every example
 is compiled and, but for the provider call, run offline by `cosmic test`
 over a toy word-hash embedding.
 
@@ -353,6 +352,7 @@ A separate track, pulled by its own callers. From the same discussion:
 [`cosmic/internal/vector.d.tl`]: ../../cosmic/internal/vector.d.tl
 [`core/allocation_test.tl`]: ../../core/allocation_test.tl
 [`doc/guides/sql.md`]: ../guides/sql.md
+[`doc/guides/semantic-search.md`]: ../guides/semantic-search.md
 
 [`cosmic.internal.hash`]: ../../cosmic/internal/hash.d.tl
 [`cosmic.internal.vector`]: ../../cosmic/internal/vector.d.tl
