@@ -100,7 +100,7 @@ function invoke.run(args: {string}, opts: invoke.Options): invoke.Result
   for i, word in ipairs(args) do argv[i] = word end
 
   local dir = assert(Fs.mkdtemp("cosmic-invoke-"))
-  local held: {integer} = {}
+  local held: mut {integer} = {}
   local function release()
     for _, fd in ipairs(held) do local _, _ = sys.close(fd) end
     local _, _ = Fs.remove_tree(dir)

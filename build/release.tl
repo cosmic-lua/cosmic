@@ -384,8 +384,8 @@ function verb.run(argv: {string}, io?: verb.Io): integer
   -- The matches, newest first: up to `need` of them from main's history,
   -- or every one a `--commit` names.
   local function matches(need: integer): {verb.Release}?, string
-    local found: {verb.Release} = {}
-    local seen: {string:boolean} = {}
+    local found: mut {verb.Release} = {}
+    local seen: mut {string:boolean} = {}
     local function take(r: ApiRelease)
       local release = usable(r)
       if release ~= nil and seen[release.tag] == nil and wanted(release) then

@@ -81,7 +81,7 @@ local sys = require("cosmic.sys")
 local record Zig
   record Pin
     version: string
-    shas: {string:string}
+    shas: mut {string:string}
   end
 
   --- Where [`bin/zig.pin`]'s release for a host is installed: `path`,

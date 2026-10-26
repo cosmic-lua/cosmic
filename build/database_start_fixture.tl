@@ -49,9 +49,9 @@ end
 --- libraries this test does: [`Store.requires`] and [`Store.bytecode`]
 --- answer for a module this test's closure holds.
 local function closure(roots: {string}): {Module}, {string:string}
-  local found: {Module} = {}
-  local bytecode: {string:string} = {}
-  local seen: {string:boolean} = {}
+  local found: mut {Module} = {}
+  local bytecode: mut {string:string} = {}
+  local seen: mut {string:boolean} = {}
   local function visit(name: string)
     if seen[name] then return end
     seen[name] = true

@@ -191,7 +191,7 @@ end
 --- Requests, a few pipelined, sometimes edited, and where to cut them:
 --- the bytes, then the size of each piece.
 local function gen_bytes(src: Fuzz.Source): string
-  local fields: {string} = {}
+  local fields: mut {string} = {}
   local count = 0
   while count == 0 or Fuzz.more(src, count, 3) do
     count = count + 1
@@ -261,7 +261,7 @@ local function test_a_written_request_reads_back(tmp: string)
     name = "http wire round trip",
     dir = tmp,
     gen = function(src: Fuzz.Source): string
-      local fields: {string} = {}
+      local fields: mut {string} = {}
       draw_request(src, fields)
       return Fuzz.pack(fields)
     end,

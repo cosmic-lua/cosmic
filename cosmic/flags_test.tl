@@ -193,7 +193,7 @@ local function test_asks_help_stops_at_the_double_dash_and_defers_to_the_spec()
 end
 
 local function test_dispatch_runs_the_command_with_its_own_options()
-  local ran: {string} = {}
+  local ran: mut {string} = {}
   local commands: {string:Flags.Command} = {
     build = {
       spec = { ["--jobs"] = true },
@@ -296,7 +296,7 @@ local function test_dispatch_answers_help_rather_than_running()
 end
 
 local function test_help_after_a_double_dash_or_named_by_the_spec_is_not_help()
-  local seen: {string} = {}
+  local seen: mut {string} = {}
   local commands: {string:Flags.Command} = {
     grep = {
       spec = { ["-h"] = false },

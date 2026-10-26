@@ -144,7 +144,7 @@ end
 
 --- The Teal expression, over the `shape` alias, that builds the spec of `t`, or nil and why it has none. `path` names
 --- where `t` is, for the message, and `holding` the records being read, which none may hold.
-spec_of = function(t: Type, path: string, shape: string, holding: {Types.Decl: boolean}, store: Types.Store):
+spec_of = function(t: Type, path: string, shape: string, holding: mut {Types.Decl: boolean}, store: Types.Store):
     string?, string
   if (t.atom == true) then
     if LEAVES[t.tag] then

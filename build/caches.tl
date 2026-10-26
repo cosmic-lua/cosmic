@@ -39,7 +39,7 @@ end
 -- bin/cosmic-bootstrap and build/launcher.tl's shell each spell
 -- [`Fs.cache_dir`]'s rule again, which this follows.
 local function paths(name: string, root: string, environment: {string:string}): {string}
-  local out: {string} = {}
+  local out: mut {string} = {}
   local function add(path: string?)
     if path == nil or path:sub(1, 1) ~= "/" or Fs.within(path, root) then return end
     for _, have in ipairs(out) do

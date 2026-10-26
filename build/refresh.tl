@@ -592,7 +592,7 @@ function refresh.binary(binary: string, out: string, chosen: {refresh.Dataset},
     return nil, scratch_trouble
   end
   local scratch: string = made_scratch
-  local lines: {string} = {}
+  local lines: mut {string} = {}
   local function write(): string
     local path = scratch .. "/carried.db"
     local written, write_trouble = Fs.write(path, parts.database)

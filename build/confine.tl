@@ -106,7 +106,7 @@ local record Entry
   sandboxed: boolean
   --- What each start that failed for what the sandbox lacked said of
   --- it ([`confine.unseen`]), once each.
-  unseen: {string}
+  unseen: mut {string}
   --- Whether the stand-in has been left, so a reference to it that
   --- outlives it is told.
   mut ended: boolean
@@ -114,7 +114,7 @@ end
 
 --- Every running stand-in, innermost last: one wraps another when a
 --- test runs one of its own ([`confine.call`]) inside the one running it.
-local entered: {Entry} = {}
+local entered: mut {Entry} = {}
 
 --- Whether this process runs in a sandbox, as a running stand-in says:
 --- one a test runs of its own inside its sandboxed worker's knows no
@@ -480,8 +480,8 @@ end
 function confine.worker_unveil(cwd: string?, scratch: string,
                                with_system?: boolean, with_program?: boolean,
                                projection?: string): raw_process.Unveil
-  local reads: {string} = {}
-  local seen: {string:boolean} = {}
+  local reads: mut {string} = {}
+  local seen: mut {string:boolean} = {}
   local stat = asked.stat
   local function add(path: string)
     if seen[path] then return end
@@ -572,7 +572,7 @@ function confine.forbid_running(programs: {string}, within?: {string}): boolean,
       end
     end
   end
-  local allowed: {string} = {}
+  local allowed: mut {string} = {}
   local walk: function(dir: string)
   local function visit(path: string)
     local real, _ = now.realpath(path)
@@ -946,7 +946,7 @@ confine.unseen = unseen
 --- The first spawn [`must_confine`] refused while each running stand-in
 --- ran, by its entry: which fails that stand-in's call, whatever the
 --- test made of the spawn's answer.
-local refusals: {Entry:string} = {}
+local refusals: mut {Entry:string} = {}
 
 --- Refuses a spawn `must` holds to its sandbox: `program` could not
 --- start with `part` of it applied, for `why` (`errno`). Every running

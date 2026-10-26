@@ -94,8 +94,8 @@ end
 
 --- What the pipeline answers for the staged modules of `rows`, and the lines that say why it could not.
 local function asked(build_db: Sqlite.Handle, options: Pipeline.Options, rows: {PipelineCheck.Row}): Answers, {string}
-  local over: {string: boolean} = {}
-  local other: {string: string} = {}
+  local over: mut {string: boolean} = {}
+  local other: mut {string: string} = {}
   local answers: mut {string: string} = {}
   local pipeline, built_why = Pipeline.build(build_db, options)
   if pipeline == nil then

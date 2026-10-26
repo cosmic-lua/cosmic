@@ -83,7 +83,7 @@ end
 local function test_a_guard_s_wait_ends_when_it_closes_under_another()
   local outer = assert(Signal.guard())
   local inner = assert(Signal.guard())
-  local got: {string} = {}
+  local got: mut {string} = {}
   Poll.run(function()
     local on_inner = Poll.spawn(function()
       local signal, why = inner:wait(Clock.seconds(5))

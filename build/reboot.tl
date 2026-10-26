@@ -467,7 +467,7 @@ local read_on_fresh <const> = -2
 --- The build directories of the trees this process's check of the tool
 --- ([`reboot.stale_exit`]) went on in without holding the tool to them
 --- ([`reboot.unchecked`]), each a tree however its root is spelled.
-local unchecked_trees: {string:boolean} = {}
+local unchecked_trees: mut {string:boolean} = {}
 
 --- Leaves the tree at `root` unchecked for the life of this process.
 local function leave_unchecked(root: string)

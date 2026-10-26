@@ -38,7 +38,7 @@ local probe: Probe = { trapped = 0, ignoring = false, troubles = {} }
 
 --- What `start` started, kept from the collector, whose end of a handle
 --- would end its process: the script then ends by [`sys.exit`].
-local started: {Child.Handle} = {}
+local started: mut {Child.Handle} = {}
 
 local function trap_fired(): boolean
   local guard = probe.guard

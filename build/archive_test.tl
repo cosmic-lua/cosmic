@@ -795,7 +795,7 @@ end
 
 --- The names under `dir`, recursively, sorted: what a destination holds.
 local function tree_of(dir: string): {string}
-  local out: {string} = {}
+  local out: mut {string} = {}
   local function walk(at: string, prefix: string)
     local listed = Fs.list(at)
     if listed == nil then return end

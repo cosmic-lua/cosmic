@@ -186,7 +186,7 @@ local function gen_template(src: Fuzz.Source): string
   elseif kind == 1 then
     return Fuzz.pick(src, HEADS) .. gen_body(src) .. Fuzz.pick(src, HEADERS) .. gen_body(src)
   elseif kind == 5 then
-    local out: {string} = {}
+    local out: mut {string} = {}
     gen_nodes(src, 0, out, PLAIN, {})
     return Fuzz.pick(src, HEADS) .. table.concat(out)
   elseif kind == 2 or kind == 4 then

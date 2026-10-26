@@ -79,7 +79,7 @@ function json_query.flatten(value: any, opts?: json_query.FlattenOptions): {Json
     local opts_root = opts.root
     if opts_root ~= nil then root = opts_root end
   end
-  local leaves: {Json.Match} = {}
+  local leaves: mut {Json.Match} = {}
   local open: {any:boolean} = {}
   local steps: Json.Steps = table.move(root, 1, #root, 1, {})
   local function leaf(v: any)

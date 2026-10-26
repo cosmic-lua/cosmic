@@ -61,7 +61,7 @@ local function test_interleaved_writers_have_distinct_temporary_files(tmp: strin
   assert(Fs.write(path, "old"))
   local real_open_temporary = sys.open_temporary
   local real_write = sys.write
-  local temporaries: {string} = {}
+  local temporaries: mut {string} = {}
   local nested = { value = false }
   sys.open_temporary = function(destination: string, mode?: integer): sys.TemporaryFile?, string, integer
     local file, trouble, number = real_open_temporary(destination, mode)

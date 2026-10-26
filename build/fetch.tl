@@ -275,8 +275,8 @@ function verb.run(argv: {string}, io?: verb.Io): integer
     return refuse("an empty file name after -o")
   end
   -- What the body must hash to, by algorithm, and where each came from.
-  local wants: {string:string} = {}
-  local from: {string:string} = {}
+  local wants: mut {string:string} = {}
+  local from: mut {string:string} = {}
   local function want_digest(algorithm: Algorithm, digest: string, source: string, sep: string): string?
     local name = algorithm.name
     if #digest ~= algorithm.digits or digest:find("[^%x]") then

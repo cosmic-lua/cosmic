@@ -461,7 +461,7 @@ local function test_a_hung_connect_holds_up_no_other()
     end)
     assert(Poll.delay(Clock.ms(50)))
     local tasks: mut {Poll.Task} = {}
-    local done: {integer} = {}
+    local done: mut {integer} = {}
     for n = 1, 8 do
       tasks[n] = Poll.spawn(function()
         local conn = assert(dial(connector, "127.0.0.1", echo, Clock.seconds(5)))

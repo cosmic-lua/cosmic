@@ -468,7 +468,7 @@ function c.check(root: string, files: {string}, cwd?: string, limit?: integer, s
   local declared = declared_in(root)
   local outcomes: mut {c.Outcome} = {}
   local units: mut {integer: rules.Unit} = {}
-  local which: {Child.Handle: integer} = {}
+  local which: mut {Child.Handle: integer} = {}
   -- One compile per file under the first variant, and one per file under
   -- each of the others the file's tree can differ in.
   local jobs: mut {c.Job} = {}
@@ -606,8 +606,8 @@ function c.check(root: string, files: {string}, cwd?: string, limit?: integer, s
     -- What the compiler is given beside what it runs from: the tree's
     -- pieces of the toolchain, the include directories, and each file's
     -- own directory, where a header beside it is found.
-    local reads: {string} = {}
-    local seen: {string: boolean} = {}
+    local reads: mut {string} = {}
+    local seen: mut {string: boolean} = {}
     local function give(path: string)
       if not seen[path] then
         seen[path] = true
