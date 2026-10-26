@@ -466,8 +466,8 @@ end
 function links.context(root: string, open: function(): docs.View?, string,
                        unbuilt: function(): string?): link_resolve.Context
   -- The index once built, or why it could not be; neither until asked.
-  local ready_index: {symbol_index.Index} = {}
-  local failure: {string} = {}
+  local ready_index: mut {symbol_index.Index} = {}
+  local failure: mut {string} = {}
   local function ready(): symbol_index.Index?, string
     if ready_index[1] ~= nil then return ready_index[1], "" end
     if failure[1] ~= nil then return nil, failure[1] end

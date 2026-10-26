@@ -169,7 +169,7 @@ function SyntaxLinkText.declarations(chunk: Ast.Chunk, scoped: Scopes.Scoped): L
       module_level[name] = true
     end
   end
-  local bindings: {{Lexical.Binding}} = {}
+  local bindings: mut {{Lexical.Binding}} = {}
   -- What every comment sees: `names`, the top-level block's bindings, and its aliases, the first binding of each name
   -- deciding before a later one is in scope.
   local everywhere: mut {string: boolean} = {}
@@ -243,7 +243,7 @@ function SyntaxLinkText.found(chunk: Ast.Chunk, scoped: Scopes.Scoped, source: s
     doc[comment.line] = comment.doc
     column[comment.line] = comment.column
   end
-  local known: {LinkText.Declarations} = {}
+  local known: mut {LinkText.Declarations} = {}
   local function declared(line: integer): LinkText.Declared
     local found = known[1] or SyntaxLinkText.declarations(chunk, scoped)
     known[1] = found

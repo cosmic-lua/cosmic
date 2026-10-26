@@ -379,7 +379,7 @@ end
 function wire.read_head(input: wire.Input, limits: wire.Limits): wire.Read
   local start = input.taken
   -- Why the head is refused, once a line says so.
-  local stopped: {wire.Read} = {}
+  local stopped: mut {wire.Read} = {}
   --- The next line of the head, without its CR; nil, `stopped` set, where
   --- there is none.
   local function next_line(): string?

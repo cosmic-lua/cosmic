@@ -415,7 +415,7 @@ local function requires_in(db: Sqlite.Handle): function(string): {string}?, stri
   -- Every module's names are read at the first walk's first step: a query
   -- for each of the some three hundred modules a walk reaches took a tenth
   -- of a second a build.
-  local held: {{string:{string}}} = {}
+  local held: mut {{string:{string}}} = {}
   return function(name: string): {string}?, string
     local all = held[1]
     if all == nil then

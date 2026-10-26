@@ -362,7 +362,7 @@ function verb.run(argv: {string}, io?: verb.Io): integer
   end
 
   -- The host's zone once asked for, which is asked for once.
-  local host: {Time.Zone} = {}
+  local host: mut {Time.Zone} = {}
   local function local_zone(): Time.Zone?
     if host[1] == nil then
       local zone, why = to.local_zone()

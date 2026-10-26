@@ -357,7 +357,7 @@ local function send(client: Testing.Client, method: string, path: string, opts: 
     version = "HTTP/1.1", headers = prepared.headers, body = Stream.from_string(prepared.body),
     length = #prepared.body, peer = Net.tcp("127.0.0.1", 50000),
   }
-  local answered: {Response} = {}
+  local answered: mut {Response} = {}
   in_loop(function()
     local reply = client.app.handle(raw)
     local trouble = Server.check(reply, method)
@@ -690,7 +690,7 @@ local loopback_mt: metatable<Testing.Loopback> = { __index = loopback_methods }
 --- @param fn function(client: Testing.Loopback) The test
 function Testing.with_server(app: Types.App, fn: function(client: Testing.Loopback))
   -- Why the test or its connection failed, if either did.
-  local failures: {string} = {}
+  local failures: mut {string} = {}
   local ok, why = App.serve(app, {
     listeners = { Net.tcp("127.0.0.1", 0) },
     on_ready = function(addresses: {Net.Address}, server: Net.Server)

@@ -43,9 +43,7 @@ local function walk(node: Ast.Node, parent: Ast.Node, state: Walk)
     return
   end
   local b = base_of(node)
-  -- TODO: write the kind of a node as an operand of `..` here and below without `tostring` once lang/check.tl takes a union of
-  -- enums, as the kind of a tagged union is, as a string operand (it refuses it as `operand_type` now).
-  local at = tostring(node.kind) .. " at tokens " .. b.first .. " to " .. b.last
+  local at = node.kind .. " at tokens " .. b.first .. " to " .. b.last
   state.count = state.count + 1
   if b.id ~= state.count then
     state.problem = at .. " has id " .. tostring(b.id) .. ", not " .. state.count
@@ -58,14 +56,14 @@ local function walk(node: Ast.Node, parent: Ast.Node, state: Walk)
     return
   end
   if b.first < parent.first or b.last > parent.last then
-    state.problem = at .. " is not within its parent, " .. tostring(parent.kind) .. " at tokens " .. parent.first .. " to " .. parent.last
+    state.problem = at .. " is not within its parent, " .. parent.kind .. " at tokens " .. parent.first .. " to " .. parent.last
     return
   end
   local previous: {integer} = { parent.first - 1 }
   Ast.children(node, function(child: Ast.Node)
     local c = base_of(child)
     if c.first <= previous[1] and state.problem == "" then
-      state.problem = at .. " has a child, " .. tostring(child.kind) .. " at tokens " .. c.first .. " to " .. c.last .. ", that begins before its elder sibling ends"
+      state.problem = at .. " has a child, " .. child.kind .. " at tokens " .. c.first .. " to " .. c.last .. ", that begins before its elder sibling ends"
     end
     walk(child, node, state)
     previous[1] = math.max(previous[1], c.last)
@@ -75,7 +73,7 @@ local function walk(node: Ast.Node, parent: Ast.Node, state: Walk)
     for _, stat in ipairs(node.stats) do
       local s = base_of(stat)
       if s.first ~= expected and state.problem == "" then
-        state.problem = at .. " does not tile: " .. tostring(stat.kind) .. " begins at token " .. s.first .. ", not " .. tostring(expected)
+        state.problem = at .. " does not tile: " .. stat.kind .. " begins at token " .. s.first .. ", not " .. tostring(expected)
       end
       expected = s.last + 1
     end

@@ -195,7 +195,7 @@ local function save_session(self: Session.Store, previous: string, data: Session
                             changes: Session.Changes, now: integer, _cookie: string): string?, string
   local store = backing(self)
   -- The id the session is saved under when it was given a new one.
-  local minted: {string} = {}
+  local minted: mut {string} = {}
   local failure: string? = nil
   -- No yield between the first read and the commit: another request of
   -- this process cannot interleave, and another process meets SQLite's lock.

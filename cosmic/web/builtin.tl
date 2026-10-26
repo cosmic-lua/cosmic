@@ -17,7 +17,7 @@ local PREFIX <const> = "_web"
 
 --- The handler over the files, built on first use: the bytes never change,
 --- and gzipping them is paid by a program that serves them only.
-local served: {Types.Handler} = {}
+local served: mut {Types.Handler} = {}
 
 local function handler(): Types.Handler
   if served[1] == nil then

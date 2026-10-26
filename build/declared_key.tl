@@ -751,7 +751,7 @@ local function tree(digests: declared_key.Digests, path: string, programs?: bool
     if kind ~= "dir" then return answer end
     local lines: mut {string} = {}
     -- What the first link that leads out of the bounds says, if one does.
-    local refused: {string} = {}
+    local refused: mut {string} = {}
     local function walk(directory: string, prefix: string, depth: integer)
       local listed, trouble = sys.readdir(directory)
       if listed == nil then

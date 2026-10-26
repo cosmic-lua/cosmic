@@ -799,7 +799,7 @@ end
 --- Runs `build`, which makes a type, and answers `invalid` and an error for the refusal of a store:
 --- a type that nests too deep, or another.
 local function attempt(ctx: Ctx, node: Ast.Node, build: function(): Type): Type
-  local box: {Type} = {}
+  local box: mut {Type} = {}
   local ok, why = pcall(function()
     box[1] = build()
   end)
@@ -1547,7 +1547,7 @@ local function declare_one(ctx: Ctx, node: Ast.Node, place: Place, seen: mut {st
   local kind = decl_kind(node)
   if kind ~= nil then
     local arity = #typeparams_of(node)
-    local made: {Decl} = {}
+    local made: mut {Decl} = {}
     local ok = pcall(function()
       made[1] = ctx.store:declare(kind, module, names, arity)
     end)
@@ -2284,7 +2284,7 @@ local function check_listing(ctx: Ctx, build: Build, names: {{string}}): boolean
   if not ((self_type.tag == "named")) then
     return true
   end
-  local box: {Relation.Listing} = {}
+  local box: mut {Relation.Listing} = {}
   local ok, why = pcall(function()
     box[1] = program.judge:listed(self_type)
   end)
@@ -2700,7 +2700,7 @@ end
 
 --- Whether `argument` is below the interface `bound`, or nil where a declaration either names has no body yet.
 local function bound_met(ctx: Ctx, argument: Type, bound: Type): boolean?
-  local answer: {boolean} = {}
+  local answer: mut {boolean} = {}
   local ok, why = pcall(function()
     answer[1] = ctx.program.judge:subtype(argument, bound)
   end)

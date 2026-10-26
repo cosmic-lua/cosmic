@@ -220,7 +220,7 @@ local record Relation
     --- Pairs of closed types, and pairs of types that mention a variable under no binder.
     closed: {integer: boolean}
     free: {integer: boolean}
-    scopes: {Scope}
+    scopes: mut {Scope}
     closures: {integer: Closure}
     sets: {integer: {integer: boolean}}
     --- The reasons built by the request in progress, by pair.
@@ -421,7 +421,7 @@ end
 -- that each listing chain adds: until then such a listing or array part is dropped, and a pair
 -- that holds by it is refused.
 local function instantiate_within(store: Store, t: Type, args: {Type}): Type?
-  local made: {Type} = {}
+  local made: mut {Type} = {}
   local ok, why = pcall(function()
     made[1] = instantiate(store, t, args)
   end)
@@ -569,7 +569,7 @@ end
 
 --- [`specialize`], or nil where the type it makes would nest past what the store allows.
 local function specialize_within(store: Store, f: Fn, args: {Type}): Fn?
-  local made: {Fn} = {}
+  local made: mut {Fn} = {}
   local ok, why = pcall(function()
     made[1] = specialize(store, f, args)
   end)

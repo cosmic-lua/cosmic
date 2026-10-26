@@ -145,7 +145,7 @@ local record Session
 end
 
 local sessions: mut {string: Session} = {}
-local counter: {integer} = { 0 }
+local counter: mut {integer} = { 0 }
 local standard: {string} = {}
 local bindings: mut {string: string} = {}
 

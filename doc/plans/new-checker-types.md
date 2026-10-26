@@ -707,9 +707,21 @@ declares for itself.
 ### index writes append
 
 `t[#t + 1] = v` and `table.insert` are the writes that grow an array, so no
-write makes a hole ([arrays are dense]). an overwrite at a loop index is left
-out and returns as a rule if a count of such sites asks. *not adopted:* any
-integer index, which breaks [arrays are dense].
+write makes a hole ([arrays are dense]). three writes more leave the keys 1 to
+`#t` dense, and stand: `t[#t] = nil` (the last element goes; a single
+target, since another target of the statement may write past the end it
+makes), a value that is not nil written at `1` (an append where `t` is empty,
+an overwrite where it is not), the same at the index of `for i = 1, #t do`
+(from a literal of 1 or more by a literal step of 1 or more) over a local
+`t` that the body does not assign, append to, shorten with a nil, or pass to a
+call, which holds `i` among the keys of `t` at each pass. a value that is
+nil, `any`, a type parameter or optional never stands (a nil at a loop index
+takes an element from the middle). *not adopted:* any integer
+index, which breaks [arrays are dense]; `t[#t] = v`, which is a write at 0
+where `t` is empty; the swap `t[i], t[j] = t[j], t[i]`, which would stand
+when both reads are not nil, and a read of an index is `T?` after any test; a
+call in the body of the loop, which may take elements out of `t` through a
+name the checker does not follow.
 
 ### overloads take the first match
 
@@ -828,8 +840,9 @@ readings, takes the one that refuses more. *not adopted:* each reading's looser 
 - **a literal gives every field that is not `name?:`**, the `T?` ones too (`name = nil`); a class's literal gives
   its `?` fields as well ([classes read the rules strictly](#classes-read-the-rules-strictly)). *not adopted:* a
   literal that may omit a field that admits nil or a function.
-- **a write to an array is the append, and nothing else** (`array_hole`), `t[#t] = nil` included. *not adopted:*
-  any integer index.
+- **a write to an array is the append or an overwrite of an element it has** (`array_hole`): `t[#t] = nil`, a value that
+  is not nil at `1`, and at the index of a loop over `1` to `#t` that leaves the length alone
+  ([index writes append](#index-writes-append)). *not adopted:* any integer index.
 - **a literal of named items with no type expected is a map `{string: V}`,** so `t.name` on it is `map_field`.
   *not adopted:* an anonymous record.
 - **`x == "lit"` for an enum `x` is dead when the literal is no member** (`enum_member`), as `==` of two types that

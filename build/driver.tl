@@ -553,7 +553,7 @@ function Driver.new(options: Driver.Options): Driver.Build
   local started_up: Flag = { done = false }
   --- The names of the modules [`Driver.Build.retire`] forgot after the program lowered them, which nothing reads again.
   local retired: mut {string: boolean} = {}
-  local scratches: {Driver.Build} = {}
+  local scratches: mut {Driver.Build} = {}
 
   local function find(module: string): Driver.Source?
     for _, provider in ipairs(providers) do

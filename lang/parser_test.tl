@@ -417,7 +417,7 @@ local function find(node: Ast.Node, id: integer): Ast.Node
   if base.id == id then
     return node
   end
-  local found: {Ast.Node} = {}
+  local found: mut {Ast.Node} = {}
   Ast.children(node, function(child: Ast.Node)
     if found[1] == nil then
       found[1] = find(child, id)

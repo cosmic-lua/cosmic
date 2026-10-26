@@ -18,7 +18,7 @@ end
 
 --- The directory of the test's files, which a run takes as `--root`
 --- unless it names another: the working directory is not the test's.
-local where: {string} = {}
+local where: mut {string} = {}
 
 --- One run: `words` after `cosmic compile`, its output collected.
 local function run(words: {string}): Ran

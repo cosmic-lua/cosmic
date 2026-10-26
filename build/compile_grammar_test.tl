@@ -21,7 +21,7 @@ local type IsColor = function(string): boolean
 local type Kinder = function(any): string
 
 --- The directory of the test's files, which a run takes as `--root`.
-local where: {string} = {}
+local where: mut {string} = {}
 
 --- One run of `cosmic compile` with `words`, in the new grammar unless a word says otherwise.
 local function run(words: {string}): Ran

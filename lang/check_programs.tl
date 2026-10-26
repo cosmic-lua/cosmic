@@ -277,7 +277,7 @@ end
 
 --- The parse of [`Programs.library`], made once: a runner lowers the library into a program of its own for each program a
 --- test checks, and reading its text again each time was most of what that cost. Nothing writes the syntax tree.
-local library_read: {Parser.Parsed} = {}
+local library_read: mut {Parser.Parsed} = {}
 
 local function read_library(): Parser.Parsed
   local held = library_read[1]
