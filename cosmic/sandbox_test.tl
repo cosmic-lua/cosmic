@@ -103,9 +103,9 @@ local function test_merge_takes_one_user_and_group_and_refuses_two()
   assert(out.user == 1000 and out.group == 100)
   assert(merged().user == nil and merged().group == nil)
   local none, why = Sandbox.merge({ user = 1 }, { user = 2 })
-  assert(none == nil and why:find("user is given two values", 1, true), why)
+  assert(none == nil and why:find("$.user: given two values", 1, true), why)
   none, why = Sandbox.merge({ user = 1, group = 1 }, { user = 1, group = 2 })
-  assert(none == nil and why:find("group is given two values", 1, true), why)
+  assert(none == nil and why:find("$.group: given two values", 1, true), why)
 end
 
 local function test_merge_refuses_root_and_a_group_without_a_user()
@@ -140,7 +140,7 @@ local function test_merge_refuses_two_values_for_one_variable_without_saying_the
   local out = merged({ set_env = { A = "1", B = "2" } }, { set_env = { A = "1", C = "3" } })
   assert(assert(out.set_env).A == "1" and assert(out.set_env).B == "2" and assert(out.set_env).C == "3")
   local none, why = Sandbox.merge({ set_env = { TOKEN = "hunter2" } }, { set_env = { TOKEN = "hunter3" } })
-  assert(none == nil and why:find("set_env \"TOKEN\"", 1, true), why)
+  assert(none == nil and why:find("$.set_env.TOKEN: given two values", 1, true), why)
   assert(not why:find("hunter", 1, true), why)
 end
 
@@ -483,7 +483,7 @@ local function test_merge_carries_a_database_and_refuses_two(tmp: string)
   assert(assert(merged({ database = { path = path } }).database).path == path)
   assert(assert(merged({ database = { path = path } }, { database = { path = tmp .. "//./program.db" } }, {}).database).path == path)
   local none, why = Sandbox.merge({ database = { path = path } }, { database = { path = other } })
-  assert(none == nil and why:find("database is given two values", 1, true), tostring(why))
+  assert(none == nil and why:find("$.database.path: given two values", 1, true), tostring(why))
   assert(merged({}).database == nil)
 end
 

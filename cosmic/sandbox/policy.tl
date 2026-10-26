@@ -439,16 +439,11 @@ local function digest_of(value: string): string
   return Codec.hex(Hash.sha256(value))
 end
 
--- TODO: name the field by its path in the two-values messages of merging
--- too (`limits.open_files is given two values`, `set_env "X" is given two
--- values`, `database is given two values`), once the tests that match their
--- text move with them.
-
 --- Why `held` and `incoming`, two values for the limit `name` (either nil
 --- for none), disagree, or "" when they do not.
 local function limit_conflict(name: string, held: integer?, incoming: integer?): string
   if held ~= nil and incoming ~= nil and held ~= incoming then
-    return "limits." .. name .. " is given two values, " .. held .. " and " .. incoming
+    return path_of({ "limits", name }) .. ": given two values, " .. held .. " and " .. incoming
   end
   return ""
 end
@@ -624,11 +619,11 @@ function rules.merge(...: rules.Policy): rules.Policy?, string
       local at = clean_path(named.path)
       local digest = named.sha256
       if database ~= nil and database.path ~= at then
-        return refuse("database is given two values, " .. database.path .. " and " .. at)
+        return refuse(path_of({ "database", "path" }) .. ": given two values, " .. database.path .. " and " .. at)
       end
       local database_sha256 = database and database.sha256
       if database ~= nil and digest ~= nil and database_sha256 ~= nil and database_sha256 ~= digest then
-        return refuse("database " .. at .. " is given two digests, " .. database_sha256 ..
+        return refuse(path_of({ "database", "sha256" }) .. ": given two digests for " .. at .. ", " .. database_sha256 ..
             " and " .. digest)
       end
       database = { path = at, sha256 = digest or (database and database.sha256) }
@@ -651,24 +646,24 @@ function rules.merge(...: rules.Policy): rules.Policy?, string
     env = sorted_set(env, p.env or {})
     for name, value in pairs(p.set_env or {}) do
       if set_env[name] ~= nil and set_env[name] ~= value then
-        return refuse("set_env \"" .. name .. "\" is given two values")
+        return refuse(path_of({ "set_env", name }) .. ": given two values")
       end
       set_env[name] = value
     end
     for name, digest in pairs(p.set_env_digests or {}) do
       if digests[name] ~= nil and digests[name] ~= digest then
-        return refuse("set_env_digests \"" .. name .. "\" is given two digests")
+        return refuse(path_of({ "set_env_digests", name }) .. ": given two digests")
       end
       digests[name] = digest
     end
     if p.tmp then tmp = true end
     local p_user = p.user
     if p_user ~= nil and user ~= nil and p_user ~= user then
-      return refuse("user is given two values, " .. user .. " and " .. p_user)
+      return refuse(path_of({ "user" }) .. ": given two values, " .. user .. " and " .. p_user)
     end
     local p_group = p.group
     if p_group ~= nil and group ~= nil and p_group ~= group then
-      return refuse("group is given two values, " .. group .. " and " .. p_group)
+      return refuse(path_of({ "group" }) .. ": given two values, " .. group .. " and " .. p_group)
     end
     user, group = p.user or user, p.group or group
     local own = p.limits or {}
@@ -703,7 +698,7 @@ function rules.merge(...: rules.Policy): rules.Policy?, string
   if has_file and not has_proc then isolate = sorted_set(isolate, { implied }) end
   for name, value in pairs(set_env) do
     if digests[name] ~= nil and digests[name] ~= digest_of(value) then
-      return refuse("set_env_digests \"" .. name .. "\" is not the digest of set_env's value")
+      return refuse(path_of({ "set_env_digests", name }) .. ": not the digest of set_env's value")
     end
     digests[name] = nil
   end

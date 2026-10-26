@@ -103,7 +103,7 @@ local function test_merge_checks_a_digest_against_the_value()
   local out = merged({ set_env = { A = "1" } }, digest)
   assert(assert(out.set_env).A == "1" and next(assert(out.set_env_digests)) == nil)
   local none, why = Sandbox.merge({ set_env = { A = "2" } }, digest)
-  assert(none == nil and why:find("set_env_digests \"A\"", 1, true), why)
+  assert(none == nil and why:find("$.set_env_digests.A", 1, true), why)
   local kept = merged(digest)
   assert(assert(kept.set_env).A == nil and assert(kept.set_env_digests).A ~= nil)
 end
