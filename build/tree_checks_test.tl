@@ -442,6 +442,7 @@ local function test_a_module_reading_package_outside_the_list_is_refused(dir: st
   put("build/path.tl", "package.cpath = \"\"\npackage.path = \"\"\n")
   put("build/loaded.tl", "local s = package.loaded\nreturn s\n")
   put("build/fine.tl", "local t = { package = 1 }\n-- package.searchers\nlocal s = \"package.loaded\"\nreturn t.package, s\n")
+  put("build/record.tl", "local record R\n  package: string\nend\nreturn R\n")
   put("build/probe_test.tl", "local s = package.searchers\nreturn s\n")
   local found = tree_checks.package_readers(dir, { ["build/allowed.tl"] = "needs it" })
   local files: mut {string} = {}

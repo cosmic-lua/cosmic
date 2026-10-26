@@ -19,7 +19,7 @@ end
 local function test_bytecode_is_the_dump_of_the_chunk_and_loads_back_as_it()
   local bytecode = assert(LuaTail.bytecode_of("return 6 * 7\n", "answer", "answer.tl"))
   assert(bytecode:sub(1, 4) == "\27Lua" and #bytecode > 20)
-  local chunk = assert(load(bytecode, "=answer", "b"))
+  local chunk = assert(load(bytecode, "=answer", "b", {}))
   assert(chunk() == 42)
 end
 

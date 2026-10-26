@@ -112,3 +112,33 @@ local function test_a_chunk_that_writes_through_a_strings_metatable_changes_a_co
   assert(host_reads("return ('a'):rep(2)") == "aa", "the string metatable reached the host")
   assert(host_reads("return getmetatable('').__index == string") == true, "the host's string metatable changed")
 end
+
+local function test_a_default_environment_holds_no_state_of_the_host_and_no_way_to_make_a_binary_chunk()
+  assert(run("return string.dump") == nil, "string.dump")
+  assert(run("return math.random") == nil and run("return math.randomseed") == nil, "math.random")
+  assert(run("return collectgarbage") == nil, "collectgarbage")
+  assert(run("return warn") == nil, "warn")
+  assert(run("return type(math.floor) == 'function' and type(string.rep) == 'function'") == true)
+end
+
+local function test_no_load_without_an_environment_loads_a_binary_chunk()
+  local made = assert(load("return string.dump(load('return 1'))", "=made", "t", Globals.table()))
+  local binary: any = made()
+  local chunk = assert(load("local binary = ... return load(binary, '=b', 'b')", "=inner", "t"))
+  -- A chunk with no environment: the `load` it reaches takes text alone, with the mode it names or none.
+  local from_chunk: any = chunk(binary)
+  assert(from_chunk == nil, "a default-environment chunk loaded a binary chunk")
+  local named = assert(load("local binary = ... return load(binary, '=b', 'b', {})", "=named", "t"))
+  local with_env: any = named(binary)
+  assert(with_env == nil, "its load loaded a binary chunk into an environment of its own")
+  local plain = assert(load("local binary = ... return load(binary)", "=plain", "t"))
+  local without: any = plain(binary)
+  assert(without == nil, "its load loaded a binary chunk with no mode")
+  -- The host's `load` takes none with no environment either, and takes one where it names the environment.
+  local host_none = assert(load("local binary = ... return load(binary, '=host', 'b')", "=none", "t", Globals.table()))
+  local refused: any = host_none(binary)
+  assert(refused == nil, "load with no environment took a binary chunk")
+  local host_named = assert(load("local binary = ... return load(binary, '=host', 'b', {})", "=named", "t", Globals.table()))
+  local taken: any = host_named(binary)
+  assert(taken ~= nil, "load with an environment refused a binary chunk")
+end

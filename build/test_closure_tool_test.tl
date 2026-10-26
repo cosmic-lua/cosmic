@@ -97,7 +97,9 @@ end
 --- rather than by `require` fails, since the store its worker is given
 --- holds its closure alone, whether its module declares `tool` or not;
 --- one whose module declares `store`, whose key holds the whole
---- projection, reads it.
+--- projection, reads its bytecode, but the loader a searcher hands it
+--- for a module outside its closure raises all the same, whichever
+--- searcher it was.
 local function test_a_project_test_reading_the_store_outside_its_closure_needs_store(
     tmp: string)
   local root = tmp .. "/project"
@@ -117,9 +119,10 @@ local function test_a_project_test_reading_the_store_outside_its_closure_needs_s
     "for _, searcher in ipairs(package.searchers) do",
     '  local loader, extra = searcher("suite.helper")',
     '  if type(loader) == "function" then',
-    "    -- The worker's own gate on `require` raises; a searcher called by hand does not.",
+    "    -- The loader of a module outside the closure raises, whichever searcher handed it.",
     '    local loaded, helper = pcall(loader, "suite.helper", extra)',
     '    if loaded and type(helper) == "table" and helper.answer == 42 then return end',
+    "    if not loaded then said = said .. tostring(helper) end",
     '  elseif type(loader) == "string" then',
     "    said = said .. loader",
     "  end",
@@ -147,6 +150,8 @@ local function test_a_project_test_reading_the_store_outside_its_closure_needs_s
     end
     assert(text:find("no module 'suite.helper' in the store", 1, true), text)
   end
-  assert(not text:find("suite.whole_test", 1, true), text)
-  assert(text:find("4 of 6 tests failed", 1, true), text)
+  assert(not text:find("suite.whole_test test_bytecode", 1, true), text)
+  assert(text:find("test: FAIL  suite.whole_test test_searcher: ", 1, true), text)
+  assert(text:find("module 'suite.helper' is outside the import closure of suite.whole_test", 1, true), text)
+  assert(text:find("5 of 6 tests failed", 1, true), text)
 end

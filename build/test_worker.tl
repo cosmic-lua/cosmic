@@ -910,7 +910,10 @@ local type Held = function(fn: function(...: any): (any...), argument?: any): an
 --- Answers a [`Held`], `tree` the set of the tree's modules. It calls `fn`
 --- with `argument` while two things hold: a searcher ahead of every
 --- other answers a module `refusal` refuses with a loader that raises
---- why, where it was required; and each such module the worker itself
+--- why, where it was required, and each searcher after it hands such a
+--- module's loader as a loader that raises too (with the raw value it
+--- answers beside it), so a loop over `package.searchers` that calls what
+--- it is handed loads nothing outside the closure; and each such module the worker itself
 --- has loaded already is out of `package.loaded`, so a `require` of it
 --- reaches the searcher too. It then puts both back, whether `fn`
 --- returned or raised, and returns or raises as `fn` did. A lookup that
@@ -934,18 +937,38 @@ local function hold_requires(module_path: string, closure: {string:boolean},
       error(why, 3)
     end, nil
   end
+  -- A searcher after the gate, handing the loader of a module `refusal` refuses as a loader that raises why, with the raw
+  -- value it answers beside it, which is no module: a loop over every searcher finds the loader of the store and calls it.
+  local function guarded(searcher: function(string): (function(arg1?: string, arg2?: any): (any), any)):
+      function(string): (function(arg1?: string, arg2?: any): (any), any)
+    return function(name: string): (function(arg1?: string, arg2?: any): (any), any)
+      local loader, raw = searcher(name)
+      local why = refusal(name, module_path, closure, tree)
+      if type(loader) == "function" and why ~= nil then
+        return function(_?: string, _?: any): any
+          -- Level 3: the caller of `require`, past this loader and it.
+          error(why, 3)
+        end, raw
+      end
+      return loader, raw
+    end
+  end
   return function(fn: function(...: any): (any...), argument?: any): any
     local set_aside: mut {string:any} = {}
     for name, value in pairs(package.loaded) do
       if refusal(name, module_path, closure, tree) ~= nil then set_aside[name] = value end
     end
     for name in pairs(set_aside) do package.loaded[name] = nil end
-    local searchers = package.searchers
-    table.insert(searchers, 1, gate)
-    local ok, produced = pcall(fn, argument)
-    for i = #searchers, 1, -1 do
-      if searchers[i] == gate then table.remove(searchers, i) end
+    -- The table `require` and a hand-made loop both read is replaced for the call, by the gate and a guarded
+    -- copy of each searcher, and put back as it was.
+    local held_searchers = package.searchers
+    local guarded_searchers: mut {function(string): (function(arg1?: string, arg2?: any): (any), any)} = { gate }
+    for _, searcher in ipairs(held_searchers) do
+      guarded_searchers[#guarded_searchers + 1] = guarded(searcher)
     end
+    package.searchers = guarded_searchers
+    local ok, produced = pcall(fn, argument)
+    package.searchers = held_searchers
     for name, value in pairs(set_aside) do package.loaded[name] = value end
     -- Level 0: the value raised, as it was raised.
     if not ok then error(produced, 0) end

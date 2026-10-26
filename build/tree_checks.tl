@@ -1000,7 +1000,7 @@ local requirers: {string: Restriction} = {
     files = { "build.dispatch", "build.fact_hook_test", "build.fuzz", "build.load_module",
       "build.sandbox", "build.sandboxed_verdicts_test", "build.sealed_worker_test", "build.standalone",
       "build.test_closure_diagnostic_test", "build.test_closure_test", "build.type_watch", "core.load_env_test", "core.surface_test",
-      "cosmic.flags_test", "cosmic.test_tool_test" },
+      "cosmic.coverage_test", "cosmic.flags_test", "cosmic.test_tool_test", "test.coverage_cache_test" },
     why = "only the modules that run a program or a hook as a chunk of Lua text take the globals whole, as its " ..
       "environment: it holds `require`, which a chunk loads modules the build does not see by; any other module " ..
       "passes the chunk the few names it needs",
@@ -2567,7 +2567,7 @@ local packagers: {string: string} = {
 }
 
 --- Each read of `package` in a file of the tree that is not one of `files` (by default [`packagers`]), as
---- `<file>:<line>: reads \`package\`...`: a name `package` that is no field (`t.package`, `s:package()`, `{ package = 1 }`),
+--- `<file>:<line>: reads \`package\`...`: a name `package` that is no field (`t.package`, `s:package()`, `{ package = 1 }`, a field `package: T` declared),
 --- so that an alias (`local p = package`), an index (`package["searchers"]`) and each field are all found.
 function tree_checks.package_readers(root: string, files?: {string: string}): {string}
   local sources, trouble = sources_of(root)
@@ -2586,7 +2586,8 @@ function tree_checks.package_readers(root: string, files?: {string: string}): {s
       for i, word in ipairs(tokens.text) do
         if word == "package" and tokens.kind[i] == "identifier" then
           local before, after = tokens.text[i - 1], tokens.text[i + 1]
-          local is_field = before == "." or before == ":" or ((before == "{" or before == ",") and after == "=")
+          local is_field = before == "." or before == ":" or after == ":" or
+            ((before == "{" or before == ",") and after == "=")
           if not is_field then
             out[#out + 1] = file .. ":" .. tostring(tokens.y[i]) .. ": reads `package`, which only the files " ..
               "build/tree_checks.tl's `packagers` names may: a module loads what it needs by `require` of a " ..
