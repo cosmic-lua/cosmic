@@ -399,3 +399,15 @@ local function test_a_caught_signal_interrupts_long_calls_and_leaves_the_corpus(
   local recentred = Vector.kmeans(corpus, 3, { seed = 4, iterations = 5 })
   assert(#recentred == #centroids)
 end
+
+local function test_from_json_reads_no_text_with_a_nul()
+  local none, why = Vector.from_json("[1]\0junk")
+  assert(none == nil and why:find("NUL", 1, true) ~= nil, why)
+end
+
+local function test_pack_takes_no_string_for_a_number()
+  local chunk = assert(load("local Vector = require('cosmic.vector'); return pcall(Vector.pack, { '1', 2 })",
+    "=string_entry", "t"))
+  local ok, why = chunk()
+  assert(ok == false and tostring(why):find("finite numbers", 1, true) ~= nil, tostring(why))
+end

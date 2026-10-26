@@ -326,3 +326,44 @@ local function test_a_view_in_an_untrusted_file_may_use_them()
   assert(number_of(db, "SELECT id FROM near_sun") == 1)
   db:close()
 end
+
+local function test_a_text_with_a_nul_is_no_vector()
+  local db = assert(Sqlite.memory())
+  -- The parser reads to the first NUL, which must not make `[1]` of this.
+  local text: Sqlite.Value = { text = "[1]\0junk" }
+  assert(refusal(db, "SELECT vector(?1)", { text }):find("NUL", 1, true) ~= nil)
+  assert(refusal(db, "SELECT vector_dims(?1)", { text }):find("NUL", 1, true) ~= nil)
+  db:close()
+end
+
+local function test_the_sign_of_zero_survives_vector_text()
+  local db = assert(Sqlite.memory())
+  local blob: Sqlite.Value = { blob = blob_of({ -0.0, 1 }) }
+  local written = text_of(db, "SELECT vector_text(?1)", { blob })
+  assert(written == "[-0,1]", written)
+  assert(text_of(db, "SELECT hex(vector(vector_text(?1)))", { blob }) == "000000800000803F")
+  db:close()
+end
+
+local function test_distances_of_huge_or_tiny_vectors_stay_finite()
+  local db = assert(Sqlite.memory())
+  local big: Sqlite.Value = { blob = blob_of({ 3e38, 1e20 }) }
+  local opposite: Sqlite.Value = { blob = blob_of({ -3e38, 0 }) }
+  -- Past a float's range these sums are infinite (or not a number) in
+  -- float, and ordinary doubles.
+  assert(number_of(db, "SELECT l2_distance(?1, ?2)", { big, opposite }) > 6e38)
+  assert(number_of(db, "SELECT l1_distance(?1, ?2)", { big, opposite }) > 6e38)
+  assert(number_of(db, "SELECT inner_product(?1, ?2)", { big, opposite }) < -8e76)
+  -- A vector of 1e20s has a direction though its square has none in float,
+  -- and so has one of 1e-30s, whose square is zero in float.
+  for _, x in ipairs({ 1e20, 1e-30 }) do
+    local v: Sqlite.Value = { blob = blob_of({ x, 0 }) }
+    assert(close_to(number_of(db, "SELECT cosine_distance(?1, ?1)", { v }), 0), tostring(x))
+    local w: Sqlite.Value = { blob = blob_of({ 0, x }) }
+    assert(close_to(number_of(db, "SELECT cosine_distance(?1, ?2)", { v, w }), 1), tostring(x))
+  end
+  local zeros: Sqlite.Value = { blob = blob_of({ 0, 0 }) }
+  local v: Sqlite.Value = { blob = blob_of({ 1e-30, 0 }) }
+  assert(text_of(db, "SELECT typeof(cosine_distance(?1, ?2))", { v, zeros }) == "null")
+  db:close()
+end
