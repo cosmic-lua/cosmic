@@ -10,8 +10,9 @@
 ---   gives its lines the one indentation;
 --- - a closing bracket that begins a line stands level with the line that opened its bracket;
 --- - a parameter list whose first parameter follows its `(` lines the rest up under that one;
---- - an `if` expression is a bracket from its `if` to its `end`: the values of its arms are its entries, and its
----   `then`, `elseif`, `else` and `end` stand level with the line the `if` is written on when they begin a line;
+--- - an `if` expression is a bracket from its `if` to its `end`: its `then`, `elseif`, `else` and `end` that begin a line
+---   are continuation lines, two columns in from the line the `if` is written on and level with each other, as are the
+---   condition and the value of an arm that begin a line, and a line that continues one is two further;
 --- - outside any bracket a line continues its statement two columns in from the statement, four in a header;
 --- - the body of a function written in an expression is indented from the line the `function` is written on, and
 ---   its `end` returns to that line's indentation, so a function opens wherever its line sits;
@@ -38,6 +39,9 @@ local record Continuation
     params: boolean
     --- For a parameter list, whether its first parameter is on the line of the `(`.
     inline: boolean
+    --- Whether it is an `if` expression, whose `then`, `elseif`, `else` and `end` that begin a line are continuation
+    --- lines, level with each other.
+    arms: boolean
   end
 
   --- A table with entries, for the comma it ends with.
@@ -85,6 +89,8 @@ local record Continuation
     indent: integer
     step: integer
     single: boolean
+    --- Whether it is an `if` expression.
+    arms: boolean
     --- The column a parameter list's first parameter is at, once it follows the `(`.
     mut align: integer?
   end
@@ -210,7 +216,7 @@ function Continuation.of(chunk: Ast.Chunk): Continuation.Plan
     local first = items[1]
     opens[open] = {
       close = close, single = single, params = params,
-      inline = first ~= nil and Lexer.y(tokens, first.first) == Lexer.y(tokens, open),
+      inline = first ~= nil and Lexer.y(tokens, first.first) == Lexer.y(tokens, open), arms = text == "if",
     }
     closes[close] = true
     for _, item in ipairs(items) do
@@ -305,9 +311,6 @@ function Continuation.of(chunk: Ast.Chunk): Continuation.Plan
         mark(base.first, body.first - 1, true)
       end
     elseif kind == "IfExp" then
-      -- TODO: once the owner settles the layout of a multi-line if expression, lay its `then`, `elseif`, `else` and
-      -- `end` out as continuation lines (two columns in, as the owner's decision names them) or keep them level
-      -- with the line of the `if`, as they are: in a block header the values then stand at 4 and the arms at 0.
       -- The arms after the first begin with an `elseif`, and the value after them with an `else`.
       local last = kids[#kids]
       for i, kid in ipairs(kids) do
@@ -319,6 +322,10 @@ function Continuation.of(chunk: Ast.Chunk): Continuation.Plan
     elseif kind == "ExpArm" then
       if head ~= nil and spells(head.last + 1, "then") then
         mids[head.last + 1] = true
+      end
+      -- The condition and the value of an arm are entries: each that begins a line is a continuation line.
+      if head ~= nil then
+        entries[head.first] = true
       end
       local value = kids[2]
       if value ~= nil then
@@ -415,7 +422,7 @@ function Continuation.column(cursor: Continuation.Cursor, t: integer): integer
     return margin(cursor, depth) + (if plan.header[t] == true then HEADER else STEP end)
   end
   if plan.closes[t] == true or plan.mids[t] == true then
-    return top.indent
+    return top.indent + (if top.arms then STEP else 0 end)
   end
   local base = top.align or top.indent + top.step
   if plan.entries[t] == true or top.single then
@@ -464,6 +471,7 @@ function Continuation.wrote(cursor: Continuation.Cursor, t: integer, col: intege
   if open ~= nil then
     local frame: Continuation.Frame = {
       indent = cursor.indent, step = if plan.header[t] == true then HEADER else STEP end, single = open.single,
+      arms = open.arms,
       align = nil,
     }
     if open.params and open.inline then

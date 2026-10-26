@@ -330,25 +330,30 @@ local function test_a_type_alone_on_its_line_after_a_colon_is_a_continuation()
   lays("local function f(a:\ninteger)\nend\n", "local function f(a:\n                   integer)\nend\n")
 end
 
-local function test_an_if_expression_is_a_bracket_whose_elseif_else_and_end_stand_level_with_its_line()
-  lays("local v = if a then\n  b\nelseif c then\n  d\nelse\n  e\nend\n", "local v = if a then\n  b\nelseif c then\n  d\nelse\n  e\nend\n")
+local function test_an_if_expression_is_a_bracket_whose_elseif_else_and_end_continue_its_line()
+  lays("local v = if a then\n  b\nelseif c then\n  d\nelse\n  e\nend\n",
+    "local v = if a then\n  b\n  elseif c then\n  d\n  else\n  e\n  end\n")
   lays("local v = if a then\n      b\n        elseif c then\n d\n   else\ne\n    end\n",
-    "local v = if a then\n  b\nelseif c then\n  d\nelse\n  e\nend\n")
-  lays("f(if a then\n  b\nelse\n  c\nend)\n", "f(if a then\n  b\nelse\n  c\nend)\n")
-  lays("f(\n      if a then\n b\n else\n c\n end,\n  2)\n", "f(\n  if a then\n    b\n  else\n    c\n  end,\n  2)\n")
+    "local v = if a then\n  b\n  elseif c then\n  d\n  else\n  e\n  end\n")
+  lays("f(if a then\n  b\nelse\n  c\nend)\n", "f(if a then\n  b\n  else\n  c\n  end)\n")
+  lays("f(\n      if a then\n b\n else\n c\n end,\n  2)\n", "f(\n  if a then\n    b\n    else\n    c\n    end,\n  2)\n")
   lays("do\n  local v = if a then\n    b +\n    c\n  else\n    d\n  end\nend\n",
-    "do\n  local v = if a then\n    b +\n      c\n  else\n    d\n  end\nend\n")
+    "do\n  local v = if a then\n    b +\n      c\n    else\n    d\n    end\nend\n")
   lays("local v = if a then b else c end\n", "local v = if a then b else c end\n")
-  lays("if (if a then\n b\n else\n c\n end) then\n  f()\nend\n", "if (if a then\n    b\nelse\n    c\nend) then\n  f()\nend\n")
+  lays("if (if a then\n b\n else\n c\n end) then\n  f()\nend\n", "if (if a then\n    b\n  else\n    c\n  end) then\n  f()\nend\n")
 end
 
---- The `then`, `elseif` and `else` of an `if` expression that begin a line stand level with each other.
+--- The `then`, `elseif` and `else` of an `if` expression that begin a line are level with each other and with its
+--- `end`, two columns in from the line of the `if`; so are the value of an arm and its condition when they begin a line,
+--- as the tree writes `else` at the end of a line and the value below it.
 local function test_the_then_of_an_if_expression_that_begins_a_line_is_level_with_its_else()
-  lays("local x = if a\n  then b\n  else c end\n", "local x = if a\nthen b\nelse c end\n")
-  lays("local x = if a\n    then b\n  elseif c\n then d\n else e\n end\n", "local x = if a\nthen b\nelseif c\nthen d\nelse e\nend\n")
-  lays("do\n  local x = if a\n      then b\n      else c end\nend\n", "do\n  local x = if a\n  then b\n  else c end\nend\n")
-  lays("f(if a\n    then b\n    else c end)\n", "f(if a\nthen b\nelse c end)\n")
-  lays("local x = if a and\n b then\n  c\nelse\n  d\nend\n", "local x = if a and\n    b then\n  c\nelse\n  d\nend\n")
+  lays("local x = if a\nthen b\nelse c end\n", "local x = if a\n  then b\n  else c end\n")
+  lays("local x = if a\n    then b\n  elseif c\n then d\n else e\n end\n", "local x = if a\n  then b\n  elseif c\n  then d\n  else e\n  end\n")
+  lays("do\n  local x = if a\n      then b\n      else c end\nend\n", "do\n  local x = if a\n    then b\n    else c end\nend\n")
+  lays("f(if a\n    then b\n    else c end)\n", "f(if a\n  then b\n  else c end)\n")
+  lays("local x = if a and\n b then\n  c\nelse\n  d\nend\n", "local x = if a and\n    b then\n  c\n  else\n  d\n  end\n")
+  lays("local x = if a then b\n  elseif c then d\n  else e end\n", "local x = if a then b\n  elseif c then d\n  else e end\n")
+  lays("local x = if a then b elseif\n      c then d else\n      e end\n", "local x = if a then b elseif\n  c then d else\n  e end\n")
 end
 
 local function test_a_match_arm_pattern_and_its_body_continue_like_those_of_an_if()
