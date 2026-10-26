@@ -7555,7 +7555,7 @@ cosmic/relay/address_fuzz_test.tl concat_type 2
 
 cosmic/sandbox/init.tl concat_type 8
 
-cosmic/sandbox/policy.tl concat_type 13
+cosmic/sandbox/policy.tl concat_type 7
 
 cosmic/sandbox/seatbelt.tl concat_type 7
 
@@ -7564,8 +7564,6 @@ cosmic/sandbox_restrict_test.tl concat_type 6
 cosmic/sandbox_test.tl concat_type 5
 
 cosmic/seatbelt_network_probe_test.tl concat_type 13
-
-cosmic/shape.tl concat_type 1
 
 cosmic/sqlite.tl concat_type 15
 

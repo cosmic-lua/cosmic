@@ -6,6 +6,7 @@
 --- this.
 
 local Codec = require("cosmic.codec")
+local FieldPath = require("cosmic.internal.field_path")
 local Fs = require("cosmic.fs")
 local Hash = require("cosmic.hash")
 local Proc = require("cosmic.proc")
@@ -235,23 +236,33 @@ local function listed(name: string, names: {string}): boolean
   return false
 end
 
+--- The path of the value `steps` name from the root: a string is a member, an
+--- integer a list element by its Lua index.
+local function path_of(steps: {string | integer}): string
+  local path = FieldPath.root
+  for _, step in ipairs(steps) do
+    path = if step is string then FieldPath.field(path, step) else FieldPath.index(path, step) end
+  end
+  return path
+end
+
 --- Why the limit `name`, nil for none, is below `least`, or "".
 local function below(name: string, value: integer?, least: integer): string
   if value == nil or value >= least then return "" end
-  return "pointer \"/limits/" .. name .. "\": a limit is at least " .. least
+  return path_of({ "limits", name }) .. ": a limit is at least " .. least
 end
 
 --- Why `loopback` and `connect` may not be held together, or "": a
 --- `loopback` address is the program's own network, which `NO_PROXY` keeps
 --- direct, while a `connect` target of it names the host's service, which
 --- the program reaches through the relay. `NO_PROXY` is by host, so the
---- port does not tell them apart. Names the `loopback` entry's pointer; in a merged policy, whose lists
+--- port does not tell them apart. Names the `loopback` entry's path; in a merged policy, whose lists
 --- hold each address once, sorted, it is the entry of the merged list.
 local function loopback_conflict(loopback: {string}, connect: {string}, joined: boolean): string
   for i, address in ipairs(loopback) do
     local target = RelayConfig.naming(connect, address)
     if target ~= "" then
-      return "pointer \"/loopback/" .. (i - 1) .. "\"" .. (if joined then " of the merged policy" else "" end) .. ": \"" .. address .. "\" is also the host address that " ..
+      return path_of({ "loopback", i }) .. ": " .. (if joined then "in the merged policy, " else "" end) .. "\"" .. address .. "\" is also the host address that " ..
         "connect \"" .. target .. "\" names, and a proxy client cannot tell the two apart by port: " ..
         "give the sandbox's own services another 127.x address (127.0.0.2, say)"
     end
@@ -259,119 +270,118 @@ local function loopback_conflict(loopback: {string}, connect: {string}, joined: 
   return ""
 end
 
---- The first thing wrong in a policy's values, as `pointer "/grants/0/letters":
+--- The first thing wrong in a policy's values, as `$.grants[0].letters:
 --- why`, or "" when none is: the field's types are Teal's, and these are the
 --- values a type does not hold. With `exact`, a grant's letters must be
 --- already in the order of "rwxcu", each once, as [`Sandbox.check`] with
 --- `exact` takes them.
 local function invalid(p: rules.Policy, exact: boolean): string
-  local function at(pointer: string, why: string): string
-    return "pointer \"" .. pointer .. "\": " .. why
+  local function at(steps: {string | integer}, why: string): string
+    return path_of(steps) .. ": " .. why
   end
   for i, name in ipairs(p.profiles or {}) do
     if not listed(name, PROFILES) then
-      return at("/profiles/" .. (i - 1), "unknown profile \"" .. name .. "\" (known: " ..
+      return at({ "profiles", i }, "unknown profile \"" .. name .. "\" (known: " ..
           table.concat(PROFILES, ", ") .. ")")
     end
   end
   for i, grant in ipairs(p.grants or {}) do
-    local base = "/grants/" .. (i - 1)
     if grant.path == nil or grant.path == "" or grant.path:find("\0", 1, true) then
-      return at(base .. "/path", "a path is not empty and holds no NUL")
+      return at({ "grants", i, "path" }, "a path is not empty and holds no NUL")
     end
     for segment in grant.path:gmatch("[^/]+") do
       if segment == ".." then
-        return at(base .. "/path", "\"..\" is not allowed; name the directory itself")
+        return at({ "grants", i, "path" }, "\"..\" is not allowed; name the directory itself")
       end
     end
     local canonical = grant.letters ~= nil and canonical_letters(grant.letters) or nil
     if canonical == nil then
-      return at(base .. "/letters", "letters are of \"" .. LETTERS .. "\", at least one")
+      return at({ "grants", i, "letters" }, "letters are of \"" .. LETTERS .. "\", at least one")
     end
     if exact and canonical ~= grant.letters then
-      return at(base .. "/letters", "\"" .. grant.letters .. "\" is not in the order of \"" ..
+      return at({ "grants", i, "letters" }, "\"" .. grant.letters .. "\" is not in the order of \"" ..
           LETTERS .. "\", each letter once: \"" .. canonical .. "\"")
     end
     local from = grant.from
     if from ~= nil and (from == "" or from:find("\0", 1, true)) then
-      return at(base .. "/from", "a host path is not empty and holds no NUL")
+      return at({ "grants", i, "from" }, "a host path is not empty and holds no NUL")
     end
   end
   for i, target in ipairs(p.connect or {}) do
     local _, why = Grant.parse(target)
     if why ~= "" then
-      return at("/connect/" .. (i - 1), "\"" .. target .. "\" is not a target the relay can use: " ..
+      return at({ "connect", i }, "\"" .. target .. "\" is not a target the relay can use: " ..
           why .. " (host:port, the host a name, an IPv4 address, an IPv6 address in " ..
           "brackets or \"*\" for any name, the port from 1 to 65535 or \"*\" for any)")
     end
   end
   for i, address in ipairs(p.loopback or {}) do
     if not loopback_ok(address) then
-      return at("/loopback/" .. (i - 1), "\"" .. address .. "\" is not an address of 127/8")
+      return at({ "loopback", i }, "\"" .. address .. "\" is not an address of 127/8")
     end
   end
   local conflict = loopback_conflict(p.loopback or {}, p.connect or {}, false)
   if conflict ~= "" then return conflict end
   for i, name in ipairs(p.env or {}) do
     if not env_name_ok(name) then
-      return at("/env/" .. (i - 1), "a variable's name is not empty and holds no '=' or NUL")
+      return at({ "env", i }, "a variable's name is not empty and holds no '=' or NUL")
     end
   end
   for name, value in pairs(p.set_env or {}) do
     if not env_name_ok(name) then
-      return at("/set_env", "\"" .. name .. "\" is not a variable's name: not empty, no '=' or NUL")
+      return at({ "set_env", name }, "\"" .. name .. "\" is not a variable's name: not empty, no '=' or NUL")
     end
     if value:find("\0", 1, true) then
-      return at("/set_env/" .. name, "a value holds no NUL")
+      return at({ "set_env", name }, "a value holds no NUL")
     end
   end
   for name, digest in pairs(p.set_env_digests or {}) do
     if not env_name_ok(name) then
-      return at("/set_env_digests", "\"" .. name .. "\" is not a variable's name: not empty, " ..
+      return at({ "set_env_digests", name }, "\"" .. name .. "\" is not a variable's name: not empty, " ..
           "no '=' or NUL")
     end
     if not digest:match("^%x+$") or #digest ~= 64 or digest:find("%u") then
-      return at("/set_env_digests/" .. name, "a digest is 64 lowercase hex digits")
+      return at({ "set_env_digests", name }, "a digest is 64 lowercase hex digits")
     end
   end
   for _, field in ipairs({ "user", "group" }) do
     local id = field == "user" and p.user or p.group
     if id ~= nil and (math.type(id) ~= "integer" or id < 1 or id > 4294967294) then
-      return at("/" .. field, "an id is a whole number from 1 to 4294967294: never root")
+      return at({ field }, "an id is a whole number from 1 to 4294967294: never root")
     end
     if id == 65534 or id == 65535 then
-      return at("/" .. field, id .. " is the overflow id, which the kernel shows for an id " ..
+      return at({ field }, id .. " is the overflow id, which the kernel shows for an id " ..
           "a namespace does not map: name another")
     end
   end
   if p.group ~= nil and p.user == nil then
-    return at("/group", "a group is given with a user")
+    return at({ "group" }, "a group is given with a user")
   end
   local given = p.database
   if given ~= nil then
     local path = given.path
     if path == "" or path:find("\0", 1, true) then
-      return at("/database/path", "a path is not empty and holds no NUL")
+      return at({ "database", "path" }, "a path is not empty and holds no NUL")
     end
     if path:sub(1, 1) ~= "/" then
-      return at("/database/path", "\"" .. path .. "\" is relative: the program's directory is not the " ..
+      return at({ "database", "path" }, "\"" .. path .. "\" is relative: the program's directory is not the " ..
           "one this is read from, so name the file by its absolute path")
     end
     for segment in path:gmatch("[^/]+") do
       if segment == ".." then
-        return at("/database/path", "\"..\" is not allowed; name the file itself")
+        return at({ "database", "path" }, "\"..\" is not allowed; name the file itself")
       end
     end
     local digest = given.sha256
     if digest ~= nil and not (digest:find("^%x+$") and #digest == 64 and digest:lower() == digest) then
-      return at("/database/sha256", "a digest is 64 lowercase hex digits")
+      return at({ "database", "sha256" }, "a digest is 64 lowercase hex digits")
     end
     local found, trouble = sys.stat(path)
     if found == nil then
-      return at("/database/path", path .. ": " .. trouble)
+      return at({ "database", "path" }, path .. ": " .. trouble)
     end
     if found.kind ~= "file" then
-      return at("/database/path", path .. " is not a regular file")
+      return at({ "database", "path" }, path .. " is not a regular file")
     end
   end
   local limits = p.limits or {}
@@ -433,7 +443,7 @@ end
 --- for none), disagree, or "" when they do not.
 local function limit_conflict(name: string, held: integer?, incoming: integer?): string
   if held ~= nil and incoming ~= nil and held ~= incoming then
-    return "limits." .. name .. " is given two values, " .. held .. " and " .. incoming
+    return path_of({ "limits", name }) .. ": given two values, " .. held .. " and " .. incoming
   end
   return ""
 end
@@ -609,11 +619,11 @@ function rules.merge(...: rules.Policy): rules.Policy?, string
       local at = clean_path(named.path)
       local digest = named.sha256
       if database ~= nil and database.path ~= at then
-        return refuse("database is given two values, " .. database.path .. " and " .. at)
+        return refuse(path_of({ "database", "path" }) .. ": given two values, " .. database.path .. " and " .. at)
       end
       local database_sha256 = database and database.sha256
       if database ~= nil and digest ~= nil and database_sha256 ~= nil and database_sha256 ~= digest then
-        return refuse("database " .. at .. " is given two digests, " .. database_sha256 ..
+        return refuse(path_of({ "database", "sha256" }) .. ": given two digests for " .. at .. ", " .. database_sha256 ..
             " and " .. digest)
       end
       database = { path = at, sha256 = digest or (database and database.sha256) }
@@ -636,24 +646,24 @@ function rules.merge(...: rules.Policy): rules.Policy?, string
     env = sorted_set(env, p.env or {})
     for name, value in pairs(p.set_env or {}) do
       if set_env[name] ~= nil and set_env[name] ~= value then
-        return refuse("set_env \"" .. name .. "\" is given two values")
+        return refuse(path_of({ "set_env", name }) .. ": given two values")
       end
       set_env[name] = value
     end
     for name, digest in pairs(p.set_env_digests or {}) do
       if digests[name] ~= nil and digests[name] ~= digest then
-        return refuse("set_env_digests \"" .. name .. "\" is given two digests")
+        return refuse(path_of({ "set_env_digests", name }) .. ": given two digests")
       end
       digests[name] = digest
     end
     if p.tmp then tmp = true end
     local p_user = p.user
     if p_user ~= nil and user ~= nil and p_user ~= user then
-      return refuse("user is given two values, " .. user .. " and " .. p_user)
+      return refuse(path_of({ "user" }) .. ": given two values, " .. user .. " and " .. p_user)
     end
     local p_group = p.group
     if p_group ~= nil and group ~= nil and p_group ~= group then
-      return refuse("group is given two values, " .. group .. " and " .. p_group)
+      return refuse(path_of({ "group" }) .. ": given two values, " .. group .. " and " .. p_group)
     end
     user, group = p.user or user, p.group or group
     local own = p.limits or {}
@@ -688,7 +698,7 @@ function rules.merge(...: rules.Policy): rules.Policy?, string
   if has_file and not has_proc then isolate = sorted_set(isolate, { implied }) end
   for name, value in pairs(set_env) do
     if digests[name] ~= nil and digests[name] ~= digest_of(value) then
-      return refuse("set_env_digests \"" .. name .. "\" is not the digest of set_env's value")
+      return refuse(path_of({ "set_env_digests", name }) .. ": not the digest of set_env's value")
     end
     digests[name] = nil
   end
