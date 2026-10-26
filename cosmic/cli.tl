@@ -883,7 +883,7 @@ local module: Module = {
       usage = "[path...]",
       spec = {
         ["--check"] = { about = "write nothing; name what a fix would change, and fail if any (a Teal file that is " ..
-            "not laid out is a note, not a failure)" },
+            "not laid out, or that the formatter refuses, fails it)" },
         ["--changed"] = { about = "in cosmic's own tree, lay out only the paths named, which " ..
             "changed since the whole tree passed; what spans files still covers it all" },
       },

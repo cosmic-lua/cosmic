@@ -69,6 +69,41 @@ conflict with the parent's squash.
 - a documentation-only edit needs no test run, but still
   `bin/cosmic fix` on the doc. comments follow [`doc/writing.md`].
 
+## teal layout
+
+`bin/cosmic fix <paths>` lays out every Teal file it is given
+([`build.fix.format`]), and `fix --check` fails on a file that is not
+laid out or that the formatter refuses (a syntax error, a layout that
+is not the same file, or one that is not a fixed point). run `fix` on
+the files you changed and commit what it wrote. the rules, which the
+formatter holds and a reviewer need not:
+
+- spacing follows the syntax. one space around binary operators and
+  after a comma, none before; `:` has none before and one after. unary
+  operators hug their operand, except `not`. calls and indexes close up.
+  tables are `{ a = 1, 2 }`, empty `{}`. an attribute follows its name:
+  `local x <const>`. strings, numbers and types keep their bytes.
+- indentation is 2 columns per block. `end`, `else`, `elseif` and
+  `until` line up with their opener.
+- a continuation line indents from the innermost open bracket: 2 more
+  than the line that opened it, 4 in an `if` or loop header or a
+  function signature. a closing bracket that starts a line sits level
+  with the line that opened it. outside brackets a statement continues
+  2 in.
+- one statement per line. a block stays on one line only if each body
+  holds at most one statement, that statement is not a block, an `if`
+  has at most two branches, and the whole ends by column 100. otherwise
+  it opens fully. the formatter adds no other break and removes none;
+  it does not wrap a long line.
+- a line that starts with a binary operator moves the operator to the
+  end of the line before.
+- a table has a trailing comma if and only if it closes on its own line.
+- blank lines collapse to one. there is no trailing whitespace, and the
+  file ends with exactly one newline.
+- a comment on a line of code is one space after it. a comment on its
+  own line takes the indent of the code after it, or keeps its column
+  shifted with its statement.
+
 ## review
 
 a second person or agent reviews the diff before it merges: a fresh
@@ -211,6 +246,7 @@ and keep the entry in the commit.
 [`bin/verify-codesign`]: ../bin/verify-codesign
 [`bin/zig`]: ../bin/zig
 [`build.boot`]: ../build/boot.tl
+[`build.fix.format`]: ../build/fix/format.tl
 [`build/paths.tl`]: ../build/paths.tl
 [`build/seed.tl`]: ../build/seed.tl
 [`build/seed.txt`]: ../build/seed.txt
