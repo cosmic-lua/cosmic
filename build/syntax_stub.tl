@@ -149,7 +149,7 @@ local function names_of(s: Ast.Stat): {string}, string
   elseif type_declared ~= nil and type_declared.scope == "local" then
     declared[1] = type_declared.name.name
   elseif (s.kind == "Function") and #s.path >= 2 then
-    return declared, s.path[1].text
+    return declared, assert(s.path[1]).text
   end
   return declared, ""
 end
@@ -190,8 +190,8 @@ local function unneeded(chunk: Ast.Chunk, bodies: {Span}): {Span}?
   local statements = chunk.body.stats
   local tokens = chunk.tokens
   local last = statements[#statements]
-  local value = last ~= nil and (last.kind == "Return") and #last.values == 1 and last.values[1] or nil
-  local returned = value ~= nil and (value.kind == "Name") and value.text or nil
+  local value = if last ~= nil and (last.kind == "Return") and #last.values == 1 then last.values[1] else nil end
+  local returned = if value ~= nil and (value.kind == "Name") then value.text else nil end
   if returned == nil then
     return nil
   end

@@ -719,7 +719,7 @@ local function refuse_nil_union(members: {Ast.Type}, first: integer, last: integ
   local at = 0
   for _, m in ipairs(members) do
     local b = base_of(m)
-    if b.kind == "TypeNil" and at == 0 then
+    if m.kind == "TypeNil" and at == 0 then
       at = b.first
     end
   end
@@ -1238,15 +1238,15 @@ local function parse_primary(): Ast.Exp
   elseif k == "string" then
     local at = S.pos
     advance()
-    return { kind = "String", id = 0, first = first, last = first, value = S.tokens.value[at], long = Lexer.long(S.tokens, at) }
+    return { kind = "String", id = 0, first = first, last = first, value = assert(S.tokens.value[at]), long = Lexer.long(S.tokens, at) }
   elseif k == "integer" then
     local number = S.tokens.number[S.pos]
     advance()
-    return { kind = "Integer", id = 0, first = first, last = first, value = math.tointeger(number) }
+    return { kind = "Integer", id = 0, first = first, last = first, value = assert(math.tointeger(number)) }
   elseif k == "number" then
     local number = S.tokens.number[S.pos]
     advance()
-    return { kind = "Float", id = 0, first = first, last = first, value = number }
+    return { kind = "Float", id = 0, first = first, last = first, value = assert(number) }
   end
   local t = S.text
   if t == "(" then
@@ -1312,8 +1312,7 @@ local SUFFIX <const>: {string: boolean} = { ["."] = true, ["["] = true, [":"] = 
 parse_prefix = function(): Ast.Exp
   local first = S.pos
   local e = parse_primary()
-  local kind = base_of(e).kind
-  local prefix = kind == "Name" or kind == "Paren" or kind == "Error"
+  local prefix = e.kind == "Name" or e.kind == "Paren" or e.kind == "Error"
   while true do
     local t = S.text
     if S.tables > 0 and (t == "{" or S.kind == "string") and begins_line(S.pos) then
@@ -1354,7 +1353,7 @@ parse_prefix = function(): Ast.Exp
           "put the string in parentheses: `obj:" .. name .. "(" .. S.text .. ")`")
         local at = S.pos
         advance()
-        args = { { kind = "String", id = 0, first = at, last = at, value = S.tokens.value[at], long = Lexer.long(S.tokens, at) } }
+        args = { { kind = "String", id = 0, first = at, last = at, value = assert(S.tokens.value[at]), long = Lexer.long(S.tokens, at) } }
       else
         report("expected_token", S.pos, "expected the arguments of the call `:" .. name .. "`, found " .. shown(S.pos),
           "write the call's arguments in parentheses: `obj:" .. name .. "(x)`")
@@ -1378,7 +1377,7 @@ parse_prefix = function(): Ast.Exp
       local at = S.pos
       advance()
       local string_arg: Ast.String = {
-        kind = "String", id = 0, first = at, last = at, value = S.tokens.value[at], long = Lexer.long(S.tokens, at),
+        kind = "String", id = 0, first = at, last = at, value = assert(S.tokens.value[at]), long = Lexer.long(S.tokens, at),
       }
       e = { kind = "Call", id = 0, first = first, last = S.pos - 1, callee = e, args = { string_arg } }
     else
@@ -1534,7 +1533,7 @@ end
 --- Whether a field of this name is declared again, with each declaration's
 --- type a function type only in a declaration file (the overloads).
 local function is_duplicate(seen: mut {string: boolean}, name: string, t: Ast.Type): boolean
-  local is_function = base_of(t).kind == "TypeFunction"
+  local is_function = t.kind == "TypeFunction"
   local before = seen[name]
   seen[name] = is_function and (before == nil or before)
   if before == nil then
@@ -2339,7 +2338,7 @@ local function parse_expression_statement(): Ast.Stat
     end
     for _, target in ipairs(targets) do
       local b = base_of(target)
-      if b.kind ~= "Name" and b.kind ~= "Field" and b.kind ~= "Index" and b.kind ~= "Error" then
+      if target.kind ~= "Name" and target.kind ~= "Field" and target.kind ~= "Index" and target.kind ~= "Error" then
         report("bad_target", b.first, "`" .. quoted_text(b.first, b.last) .. "` cannot be assigned to",
           "assign to a name, a field `t.k` or an index `t[k]`")
       end
@@ -2376,11 +2375,11 @@ local DECLARATIONS <const>: {string: boolean} = {
 --- Whether `stat` is a `local x = require("m")`.
 local function is_require_local(stat: Ast.Local): boolean
   local value = stat.values[1]
-  if #stat.bindings ~= 1 or #stat.values ~= 1 or #stat.types > 0 or not ((value.kind == "Call")) then
+  if #stat.bindings ~= 1 or #stat.values ~= 1 or #stat.types > 0 or value == nil or not ((value.kind == "Call")) then
     return false
   end
   local callee, literal = value.callee, value.args[1]
-  return (callee.kind == "Name") and callee.text == "require" and #value.args == 1 and (literal.kind == "String")
+  return (callee.kind == "Name") and callee.text == "require" and #value.args == 1 and literal ~= nil and (literal.kind == "String")
 end
 
 --- What a declaration file does not hold in `stat`, which is at the top level
@@ -2388,8 +2387,7 @@ end
 --- require("m")`, the `global` declarations, `do` blocks of those and one
 --- `return Name`.
 local function declaration_problem(stat: Ast.Stat, top: boolean): string
-  local kind = base_of(stat).kind
-  if DECLARATIONS[kind] then
+  if DECLARATIONS[stat.kind] then
     return ""
   elseif (stat.kind == "Local") then
     if stat.scope == "global" or is_require_local(stat) then
@@ -2398,12 +2396,12 @@ local function declaration_problem(stat: Ast.Stat, top: boolean): string
     return "a `local` of a declaration file is `local x = require(\"m\")`"
   elseif (stat.kind == "Return") then
     local value = stat.values[1]
-    if top and #stat.values == 1 and (value.kind == "Name") then
+    if top and #stat.values == 1 and value ~= nil and (value.kind == "Name") then
       return ""
     end
     return "a declaration file ends in one `return Name`, outside any block"
   end
-  return "a declaration file holds declarations, not " .. (if kind == "CallStat" then "calls" else "this statement" end)
+  return "a declaration file holds declarations, not " .. (if stat.kind == "CallStat" then "calls" else "this statement" end)
 end
 
 local LITERAL_KIND <const>: {string: boolean} = { string = true, integer = true, number = true }

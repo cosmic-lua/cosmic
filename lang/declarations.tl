@@ -825,8 +825,7 @@ local function key_refusal(k: Type): Declarations.Code?
   elseif k.tag == "number" then
     return "float_key"
   elseif (k.tag == "named") then
-    local kind = k.decl.kind
-    if kind == "record" or kind == "class" or kind == "interface" or kind == "userdata" or kind == "enum" then
+    if k.decl.kind == "record" or k.decl.kind == "class" or k.decl.kind == "interface" or k.decl.kind == "userdata" or k.decl.kind == "enum" then
       return nil
     end
   end
@@ -1400,20 +1399,19 @@ end
 
 lower_type = function(ctx: Ctx, t: Ast.Type): Type
   local store = ctx.store
-  local kind = base_of(t).kind
   local out: Type
-  if kind == "TypeName" and (t.kind == "TypeName") then
+  if (t.kind == "TypeName") then
     out = lower_name(ctx, t)
-  elseif kind == "TypeBool" and (t.kind == "TypeBool") then
+  elseif (t.kind == "TypeBool") then
     out = store:atom(if t.value then "true" else "false" end)
-  elseif kind == "TypeNil" then
+  elseif t.kind == "TypeNil" then
     out = store:atom("nil")
-  elseif kind == "TypeArray" or kind == "TypeMap" then
+  elseif t.kind == "TypeArray" or t.kind == "TypeMap" then
     out = lower_collection(ctx, t, false)
-  elseif kind == "TypeMut" and (t.kind == "TypeMut") then
+  elseif (t.kind == "TypeMut") then
     out = lower_collection(ctx, t.inner, true)
     ctx.types[t.inner.id] = out
-  elseif kind == "TypeUnion" and (t.kind == "TypeUnion") then
+  elseif (t.kind == "TypeUnion") then
     local members: mut {Type} = {}
     for i, m in ipairs(t.members) do
       members[i] = lower_type(ctx, m)
@@ -1428,7 +1426,7 @@ lower_type = function(ctx: Ctx, t: Ast.Type): Type
     if (out.tag == "union") then
       ctx.unions[#ctx.unions + 1] = { node = t, type = out, names = binder_names(ctx.frames) }
     end
-  elseif kind == "TypeOptional" and (t.kind == "TypeOptional") then
+  elseif (t.kind == "TypeOptional") then
     local inner = lower_type(ctx, t.inner)
     if inner.height >= MAX_DEPTH then
       out = attempt(ctx, t, function(): Type
@@ -1437,7 +1435,7 @@ lower_type = function(ctx: Ctx, t: Ast.Type): Type
     else
       out = store:optional(inner)
     end
-  elseif kind == "TypeFunction" and (t.kind == "TypeFunction") then
+  elseif (t.kind == "TypeFunction") then
     out = lower_function(ctx, t)
   else
     out = store.invalid
@@ -1502,16 +1500,15 @@ end
 
 --- The kind of declaration a node makes: a record with a `userdata` member is a userdata record.
 local function decl_kind(node: Ast.Node): Types.DeclKind?
-  local kind = base_of(node).kind
-  if kind == "Record" then
+  if node.kind == "Record" then
     for _, m in ipairs(members_of(node)) do
-      if base_of(m).kind == "Userdata" then
+      if m.kind == "Userdata" then
         return "userdata"
       end
     end
     return "record"
   end
-  return DECL_KINDS[kind]
+  return DECL_KINDS[node.kind]
 end
 
 --- Makes the entry of the declaration `node` standing at `place`, declares it in the store, and answers
@@ -1596,28 +1593,26 @@ local function declare_all(ctx: Ctx)
     kids[held.count] = child
   end
   while top > 0 do
-    local node, place = nodes[top], places[top]
+    local node, place = assert(nodes[top]), assert(places[top])
     nodes[top], places[top] = nil, nil
     top = top - 1
-    local kind = base_of(node).kind
-    if DECLARATIONS[kind] then
+    if DECLARATIONS[node.kind] then
       local inside = declare_one(ctx, node, place, seen)
       if inside ~= nil then
         local members = members_of(node)
         for i = #members, 1, -1 do
-          local m = members[i]
-          local mkind = base_of(m).kind
-          if DECLARATIONS[mkind] then
+          local m = assert(members[i])
+          if DECLARATIONS[m.kind] then
             top = top + 1
             nodes[top], places[top] = m, inside
-          elseif mkind == "Method" and (m.kind == "Method") then
+          elseif (m.kind == "Method") then
             top = top + 1
             nodes[top], places[top] = m.body, { names = {}, module = "", top = false }
           end
         end
       end
-    elseif not SKIP[kind] then
-      local transparent = TRANSPARENT[kind] or (kind == "Do" and ctx.decl_file)
+    elseif not SKIP[node.kind] then
+      local transparent = TRANSPARENT[node.kind] or (node.kind == "Do" and ctx.decl_file)
       local below: Place = place
       if not transparent then
         below = { names = {}, module = "", top = false }
@@ -1640,11 +1635,15 @@ local function find_export(ctx: Ctx): Entry?
   if last == nil or not ((last.kind == "Return")) or #last.values ~= 1 then
     return nil
   end
-  local value = last.values[1]
-  if not ((value.kind == "Name")) or value.binding == nil then
+  local value = assert(last.values[1])
+  if not ((value.kind == "Name")) then
     return nil
   end
-  local held = ctx.by_binding[value.binding]
+  local bound = value.binding
+  if bound == nil then
+    return nil
+  end
+  local held = ctx.by_binding[bound]
   if held ~= nil then
     -- A declaration file's record is the module's table, which has the fields it declares and no function a statement gave
     -- it: a value of the record, when the record takes no type argument.
@@ -1655,7 +1654,7 @@ local function find_export(ctx: Ctx): Entry?
     return held
   end
   for _, stat in ipairs(stats) do
-    if (stat.kind == "Local") and #stat.bindings == 1 and stat.bindings[1].id == value.binding then
+    if (stat.kind == "Local") and #stat.bindings == 1 and assert(stat.bindings[1]).id == value.binding then
       local annotation = stat.types[1]
       if annotation ~= nil and (annotation.kind == "TypeName") then
         local vid = ctx.scoped.resolved[annotation.id]
@@ -1672,7 +1671,7 @@ local function find_export(ctx: Ctx): Entry?
             names[i] = n
           end
           for i = 2, #annotation.path do
-            names[#names + 1] = annotation.path[i]
+            names[#names + 1] = assert(annotation.path[i])
           end
           local entry = ctx.program.entries[entry_key(base.module, names)]
           if entry == nil or entry.decl == nil then
@@ -1694,7 +1693,7 @@ local function find_value(ctx: Ctx): Type?
   if last == nil or not ((last.kind == "Return")) or #last.values ~= 1 then
     return nil
   end
-  local value = last.values[1]
+  local value = assert(last.values[1])
   if (value.kind == "FunctionLit") then
     return ctx.types[value.fn.id]
   elseif not ((value.kind == "Name")) or value.binding == nil then
@@ -1703,7 +1702,7 @@ local function find_value(ctx: Ctx): Type?
   for _, stat in ipairs(stats) do
     if (stat.kind == "LocalFunction") and stat.name.id == value.binding then
       return ctx.types[stat.fn.id]
-    elseif (stat.kind == "Local") and #stat.bindings == 1 and stat.bindings[1].id == value.binding then
+    elseif (stat.kind == "Local") and #stat.bindings == 1 and assert(stat.bindings[1]).id == value.binding then
       local annotation = stat.types[1]
       return annotation ~= nil and ctx.types[annotation.id] or nil
     end
@@ -1963,7 +1962,7 @@ end
 local function collect_statics(ctx: Ctx)
   for _, stat in ipairs(ctx.input.chunk.body.stats) do
     if (stat.kind == "Function") and #stat.path == 2 then
-      local binding = stat.path[1].binding
+      local binding = assert(stat.path[1]).binding
       local entry = binding ~= nil and ctx.by_binding[binding] or nil
       local decl = entry ~= nil and entry.decl or nil
       if decl ~= nil and (decl.kind == "record" or decl.kind == "class" or decl.kind == "userdata") then
@@ -1980,7 +1979,7 @@ end
 local function note_absent(ctx: Ctx)
   local given: {Decl: {string: boolean}} = {}
   local function note(head: Ast.Exp, field: string)
-    local binding = (head.kind == "Name") and head.binding or nil
+    local binding = if (head.kind == "Name") then head.binding else nil end
     local entry = binding ~= nil and ctx.by_binding[binding] or nil
     local decl = entry ~= nil and entry.decl or nil
     if decl ~= nil then
@@ -1991,9 +1990,9 @@ local function note_absent(ctx: Ctx)
   end
   for _, stat in ipairs(ctx.input.chunk.body.stats) do
     if (stat.kind == "Function") and #stat.path == 2 then
-      note(stat.path[1], stat.path[2].text)
+      note(assert(stat.path[1]), assert(stat.path[2]).text)
     elseif (stat.kind == "Assign") and #stat.targets == 1 then
-      local target = stat.targets[1]
+      local target = assert(stat.targets[1])
       if (target.kind == "Field") then
         note(target.object, target.name)
       end
@@ -2091,7 +2090,6 @@ local function enter_declaration(ctx: Ctx, node: Ast.Node): {Ast.Node}
   for i, p in ipairs(params) do
     build.tparams[i] = { name = p.name.name, bound = lower_bound(ctx, p) }
   end
-  local kind = base_of(node).kind
   local supers: {Ast.TypeName} = {}
   if (node.kind == "Record") or (node.kind == "Interface") or (node.kind == "Class") then
     supers = node.supers
@@ -2113,13 +2111,12 @@ local function enter_declaration(ctx: Ctx, node: Ast.Node): {Ast.Node}
   end
   local kids: mut {Ast.Node} = {}
   for _, m in ipairs(members_of(node)) do
-    local mkind = base_of(m).kind
-    if mkind == "FieldDecl" and (m.kind == "FieldDecl") then
+    if (m.kind == "FieldDecl") then
       lower_field(ctx, build, m)
-    elseif mkind == "Method" and (m.kind == "Method") then
+    elseif (m.kind == "Method") then
       lower_method(ctx, build, m)
       kids[#kids + 1] = m.body
-    elseif DECLARATIONS[mkind] then
+    elseif DECLARATIONS[m.kind] then
       kids[#kids + 1] = m
     end
   end
@@ -2144,7 +2141,7 @@ local function enter_declaration(ctx: Ctx, node: Ast.Node): {Ast.Node}
       ctx.program.statics[decl] = named
     end
   end
-  if kind == "Interface" or kind == "Record" or kind == "Class" then
+  if node.kind == "Interface" or node.kind == "Record" or node.kind == "Class" then
     finish_build(ctx, build, binder_names(ctx.frames))
   end
   return kids
@@ -2814,7 +2811,7 @@ local function declare_values(ctx: Ctx, node: Ast.Local)
       found[1] = ctx.types[annotation.id] or ctx.store.invalid
     elseif value ~= nil and (value.kind == "Field") then
       local head = value.object
-      local binding = (head.kind == "Name") and head.binding or nil
+      local binding = if (head.kind == "Name") then head.binding else nil end
       local entry = binding ~= nil and ctx.by_binding[binding] or nil
       local decl = entry ~= nil and entry.decl or nil
       local body = decl ~= nil and decl.body or nil
@@ -2833,11 +2830,10 @@ end
 --- What a node does when the walk reaches it: the nodes to walk next (nil for all its children), and whether
 --- a frame of type parameters it pushed is popped when the walk leaves it.
 local function enter(ctx: Ctx, node: Ast.Node): {Ast.Node}?, boolean
-  local kind = base_of(node).kind
-  if SKIP[kind] then
+  if SKIP[node.kind] then
     return {}, false
   end
-  if kind == "Local" and (node.kind == "Local") then
+  if (node.kind == "Local") then
     for _, t in ipairs(node.types) do
       local _ = lower_type(ctx, t)
     end
@@ -2845,10 +2841,10 @@ local function enter(ctx: Ctx, node: Ast.Node): {Ast.Node}?, boolean
       declare_values(ctx, node)
     end
     return nil, false
-  elseif (kind == "IsTest" and (node.kind == "IsTest")) or (kind == "Cast" and (node.kind == "Cast")) then
+  elseif (node.kind == "IsTest") or (node.kind == "Cast") then
     local _ = lower_type(ctx, node.type)
     return nil, false
-  elseif (kind == "LocalFunction" and (node.kind == "LocalFunction")) or (kind == "Function" and (node.kind == "Function")) then
+  elseif (node.kind == "LocalFunction") or (node.kind == "Function") then
     local params = node.typeparams
     push_frame(ctx, false, params)
     if not ctx.static_done[node.id] then
@@ -2859,22 +2855,22 @@ local function enter(ctx: Ctx, node: Ast.Node): {Ast.Node}?, boolean
       lower_fn(ctx, node.fn, tparams, params)
     end
     return { node.fn.body }, true
-  elseif kind == "FunctionLit" and (node.kind == "FunctionLit") then
+  elseif (node.kind == "FunctionLit") then
     lower_fn(ctx, node.fn, {}, {})
     return { node.fn.body }, false
-  elseif kind == "Record" or kind == "Interface" or kind == "Class" then
+  elseif node.kind == "Record" or node.kind == "Interface" or node.kind == "Class" then
     return enter_declaration(ctx, node), true
-  elseif kind == "Enum" and (node.kind == "Enum") then
+  elseif (node.kind == "Enum") then
     enter_enum(ctx, node)
     return {}, false
-  elseif kind == "Alias" and (node.kind == "Alias") then
+  elseif (node.kind == "Alias") then
     local entry = ctx.entry_of[node.id]
     local alias = entry ~= nil and entry.alias or nil
     if alias ~= nil then
       ensure_alias(ctx, alias)
     end
     return {}, false
-  elseif kind == "Import" then
+  elseif node.kind == "Import" then
     return {}, false
   end
   return nil, false

@@ -42,7 +42,7 @@ end
 local function annotation(result: Programs.Result, stat: integer, i?: integer): Types.Type
   local s = result.chunk.body.stats[stat]
   assert((s.kind == "Local"))
-  return result.lowered.types[s.types[i or 1].id]
+  return result.lowered.types[assert(s.types[i or 1]).id]
 end
 
 --- Interfaces that each list the next twice with other arguments: `rungs` of them have a closure of 2^rungs.
@@ -865,15 +865,15 @@ end
   assert((fn.kind == "LocalFunction"))
   local types = result.lowered.types
   local names: {{string}} = { { "A", "B" } }
-  local param = fn.fn.params[1].type
+  local param = assert(fn.fn.params[1]).type
   assert(param ~= nil and Types.display(types[param.id], names) == "A")
-  local both = fn.fn.body.stats[1]
+  local both = assert(fn.fn.body.stats[1])
   assert((both.kind == "Local"))
-  assert(Types.display(types[both.types[1].id], names) == "{A}")
-  local f = fn.fn.body.stats[2]
+  assert(Types.display(types[assert(both.types[1]).id], names) == "{A}")
+  local f = assert(fn.fn.body.stats[2])
   assert((f.kind == "Local"))
   -- the function's own parameter is the nearest binder's, displayed under a name of its own
-  assert(Types.display(types[f.types[1].id], names) == "function<T_1>(T_1, A): B", Types.display(types[f.types[1].id], names))
+  assert(Types.display(types[assert(f.types[1]).id], names) == "function<T_1>(T_1, A): B", Types.display(types[assert(f.types[1]).id], names))
   assert(Types.display(types[fn.fn.id]) == "function<T, U>(T, U): T", Types.display(types[fn.fn.id]))
 end
 

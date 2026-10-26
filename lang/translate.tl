@@ -1055,7 +1055,8 @@ local function mover_of(s: Ast.Stat, methods: {string: boolean}): Mover?
   elseif (s.kind == "Local") then
     local only = s.values[1]
     if #s.bindings == 1 and #s.values == 1 and only ~= nil and pure(only) then
-      return { name = s.bindings[1].name, doc = s.bindings[1].doc, kind = "value" }
+      local binding = assert(s.bindings[1])
+      return { name = binding.name, doc = binding.doc, kind = "value" }
     end
   end
   return nil
@@ -1330,7 +1331,7 @@ local function class_rewrite(source: string, tokens: Lexer.Tokens, declared: {st
     if (value.kind == "FunctionLit") and #value.fn.params > 0 and starts_line(tokens, first) and
         tokens.kind[last + 1] == "," and ends_line(tokens, last + 1) then
       local fl, ll = bounds(value)
-      local pf, pl = bounds(value.fn.params[1])
+      local pf, pl = bounds(assert(value.fn.params[1]))
       local indent = sub(source, line_start(source, Lexer.offset(tokens, first)), tokens.offset[first] - 1)
       local text = indent .. "function __close" .. sub(source, stop_of(tokens, fl), tokens.offset[pf] - 1) ..
         tokens.text[pf] .. sub(source, stop_of(tokens, pl), stop_of(tokens, ll) - 1) .. "\n"
@@ -1400,12 +1401,12 @@ local function class_rewrites(source: string, parsed: Parser.Parsed, hazards: {T
     end
   end
   for _, s in ipairs(stats) do
-    local annotation = (s.kind == "Local") and #s.types == 1 and s.types[1] or nil
-    local literal = (s.kind == "Local") and #s.values == 1 and s.values[1] or nil
+    local annotation = if (s.kind == "Local") and #s.types == 1 then s.types[1] else nil end
+    local literal = if (s.kind == "Local") and #s.values == 1 then s.values[1] else nil end
     if annotation ~= nil and (annotation.kind == "TypeName") and #annotation.path == 1 and annotation.path[1] == "metatable" and
         #annotation.args == 1 and literal ~= nil and (literal.kind == "Table") then
-      local target = annotation.args[1]
-      local held = (target.kind == "TypeName") and #target.path == 1 and owners[target.path[1]] or nil
+      local target = assert(annotation.args[1])
+      local held = (target.kind == "TypeName") and #target.path == 1 and owners[assert(target.path[1])] or nil
       -- A class has the metamethods `__close` and `__tostring` and no other: a metatable that holds more keeps its
       -- `__close`, since a value made with it would lose the method that moved.
       local only = true
@@ -1556,8 +1557,8 @@ local function literal_rewrites(source: string, parsed: Parser.Parsed): {Rewrite
   local order: mut {string} = {}
   for _, s in ipairs(stats) do
     if (s.kind == "Local") and #s.bindings == 1 and #s.types == 1 and #s.values == 1 then
-      local annotation, literal = s.types[1], s.values[1]
-      local binding = s.bindings[1]
+      local annotation, literal = assert(s.types[1]), assert(s.values[1])
+      local binding = assert(s.bindings[1])
       if (annotation.kind == "TypeName") and #annotation.path == 1 and annotation.path[1] == "metatable" and
           #annotation.args == 1 and (literal.kind == "Table") and #(declared[binding.name] or {}) == 1 then
         local class = index_class(literal, classes)
@@ -1579,7 +1580,7 @@ local function literal_rewrites(source: string, parsed: Parser.Parsed): {Rewrite
     local callee = e.callee
     local args = e.args
     local made, second = args[1], args[2]
-    if not ((callee.kind == "Name") and callee.text == "setmetatable" and #args == 2 and (made.kind == "Table") and
+    if not ((callee.kind == "Name") and callee.text == "setmetatable" and #args == 2 and made ~= nil and second ~= nil and (made.kind == "Table") and
         tokens.kind[e.first + 1] == "(") then
       return
     end
@@ -1612,13 +1613,13 @@ local function literal_rewrites(source: string, parsed: Parser.Parsed): {Rewrite
       returns[#returns + 1] = { rets = node.rets }
     elseif (node.kind == "Local") and #node.bindings == 1 and #node.values == 1 then
       local given = node.types[1]
-      consider(node.values[1], function(class: string): boolean
+      consider(assert(node.values[1]), function(class: string): boolean
         return given == nil or plain_type(given) == class
-      end, given == nil and node.bindings[1] or nil)
+      end, if given == nil then node.bindings[1] else nil end)
     elseif (node.kind == "Return") and #node.values == 1 then
       local frame = returns[#returns]
       local rets = frame ~= nil and frame.rets or nil
-      consider(node.values[1], function(class: string): boolean
+      consider(assert(node.values[1]), function(class: string): boolean
         if rets == nil or #rets.lists ~= 1 or rets.variadic then
           return false
         end
@@ -1857,73 +1858,55 @@ local function mut_tracker(tokens: Lexer.Tokens, hazards: mut {Translate.Hazard}
   end
 
   local function enter(node: Ast.Node)
-    local base: Ast.Base = node
-    local kind = base.kind
-    if kind == "Block" then
+    if node.kind == "Block" then
       local names = (node.kind == "Block") and arriving[node] or nil
       scopes[#scopes + 1] = names or {}
-    elseif kind == "Local" then
-      if (node.kind == "Local") then
-        local aligned = #node.types == #node.bindings
-        local bound: mut {Held} = {}
-        for i, b in ipairs(node.bindings) do
-          bind(b.name, aligned and named_record(node.types[i]) or nil)
-          local scope = scopes[#scopes]
-          local entry = scope ~= nil and scope[b.name] or nil
-          local written = node.types[i]
-          if entry ~= nil and aligned and written ~= nil and collection_of(written) ~= nil then
-            local mark: Held = { entry = entry, type = written, changed = false }
-            bound[#bound + 1] = mark
-            locals[#locals + 1] = mark
-            depth_of[entry] = nesting.depth
-          end
-        end
-        pending[node] = bound
-      end
-    elseif kind == "LocalFunction" then
-      if (node.kind == "LocalFunction") then
-        bind(node.name.name, nil)
-      end
-    elseif kind == "ForNum" then
-      if (node.kind == "ForNum") then
-        arrive(node.body, { [node.var.name] = {} })
-      end
-    elseif kind == "ForIn" then
-      if (node.kind == "ForIn") then
-        local names: mut {string: Entry} = {}
-        for _, b in ipairs(node.vars) do
-          names[b.name] = {}
-        end
-        arrive(node.body, names)
-      end
-    elseif kind == "MatchArm" then
-      if (node.kind == "MatchArm") then
-        local names: mut {string: Entry} = {}
-        for _, pat in ipairs(node.pats) do
-          if (pat.kind == "PatBind") then
-            names[pat.name.name] = {}
-          end
-        end
-        arrive(node.body, names)
-      end
-    elseif kind == "Function" then
-      if (node.kind == "Function") then
-        local path = node.path
-        if #path == 2 and tokens.kind[bounds(path[1]) + 1] == ":" then
-          owner_of[node.fn] = path[1].text
+    elseif (node.kind == "Local") then
+      local aligned = #node.types == #node.bindings
+      local bound: mut {Held} = {}
+      for i, b in ipairs(node.bindings) do
+        bind(b.name, aligned and named_record(node.types[i]) or nil)
+        local scope = scopes[#scopes]
+        local entry = scope ~= nil and scope[b.name] or nil
+        local written = node.types[i]
+        if entry ~= nil and aligned and written ~= nil and collection_of(written) ~= nil then
+          local mark: Held = { entry = entry, type = written, changed = false }
+          bound[#bound + 1] = mark
+          locals[#locals + 1] = mark
+          depth_of[entry] = nesting.depth
         end
       end
-    elseif kind == "Fn" then
-      if (node.kind == "Fn") then
-        nesting.depth = nesting.depth + 1
-        arrive(node.body, param_entries(node.params, nil, owner_of[node]))
+      pending[node] = bound
+    elseif (node.kind == "LocalFunction") then
+      bind(node.name.name, nil)
+    elseif (node.kind == "ForNum") then
+      arrive(node.body, { [node.var.name] = {} })
+    elseif (node.kind == "ForIn") then
+      local names: mut {string: Entry} = {}
+      for _, b in ipairs(node.vars) do
+        names[b.name] = {}
       end
-    elseif kind == "Method" then
-      if (node.kind == "Method") then
-        nesting.depth = nesting.depth + 1
-        arrive(node.body, param_entries(node.params, classes[#classes], nil))
+      arrive(node.body, names)
+    elseif (node.kind == "MatchArm") then
+      local names: mut {string: Entry} = {}
+      for _, pat in ipairs(node.pats) do
+        if (pat.kind == "PatBind") then
+          names[pat.name.name] = {}
+        end
       end
-    elseif kind == "Record" or kind == "Class" or kind == "Interface" then
+      arrive(node.body, names)
+    elseif (node.kind == "Function") then
+      local path = node.path
+      if #path == 2 and tokens.kind[bounds(assert(path[1])) + 1] == ":" then
+        owner_of[node.fn] = assert(path[1]).text
+      end
+    elseif (node.kind == "Fn") then
+      nesting.depth = nesting.depth + 1
+      arrive(node.body, param_entries(node.params, nil, owner_of[node]))
+    elseif (node.kind == "Method") then
+      nesting.depth = nesting.depth + 1
+      arrive(node.body, param_entries(node.params, classes[#classes], nil))
+    elseif node.kind == "Record" or node.kind == "Class" or node.kind == "Interface" then
       if (node.kind == "Record") or (node.kind == "Class") or (node.kind == "Interface") then
         local name = node.name.name
         seen[name] = (seen[name] or 0) + 1
@@ -1956,39 +1939,35 @@ local function mut_tracker(tokens: Lexer.Tokens, hazards: mut {Translate.Hazard}
           interfaces[#interfaces + 1] = { name = name, fields = listed, supers = parents }
         end
       end
-    elseif kind == "Assign" then
-      if (node.kind == "Assign") then
-        for _, target in ipairs(node.targets) do
-          if (target.kind == "Field") then
-            local key = field_key(target)
-            if key ~= nil then
-              assigned[key] = true
-            end
-          elseif (target.kind == "Index") then
-            collection_changed(target.object)
+    elseif (node.kind == "Assign") then
+      for _, target in ipairs(node.targets) do
+        if (target.kind == "Field") then
+          local key = field_key(target)
+          if key ~= nil then
+            assigned[key] = true
           end
+        elseif (target.kind == "Index") then
+          collection_changed(target.object)
         end
       end
-    elseif kind == "Call" then
-      if (node.kind == "Call") then
-        local callee = node.callee
-        if (callee.kind == "Name") and GLOBAL_WRITES[callee.text] and binder(callee.text) == nil then
+    elseif (node.kind == "Call") then
+      local callee = node.callee
+      if (callee.kind == "Name") and GLOBAL_WRITES[callee.text] and binder(callee.text) == nil then
+        local target = node.args[1]
+        if target ~= nil then
+          collection_changed(target)
+        end
+      elseif (callee.kind == "Field") and TABLE_WRITES[callee.name] then
+        local object = callee.object
+        if (object.kind == "Name") and object.text == "table" and binder("table") == nil then
+          -- `insert`, `remove` and `sort` change their first argument;
+          -- `move` its fifth, and its first when it has no fifth.
           local target = node.args[1]
+          if callee.name == "move" and node.args[5] ~= nil then
+            target = node.args[5]
+          end
           if target ~= nil then
             collection_changed(target)
-          end
-        elseif (callee.kind == "Field") and TABLE_WRITES[callee.name] then
-          local object = callee.object
-          if (object.kind == "Name") and object.text == "table" and binder("table") == nil then
-            -- `insert`, `remove` and `sort` change their first argument;
-            -- `move` its fifth, and its first when it has no fifth.
-            local target = node.args[1]
-            if callee.name == "move" and node.args[5] ~= nil then
-              target = node.args[5]
-            end
-            if target ~= nil then
-              collection_changed(target)
-            end
           end
         end
       end
@@ -1996,15 +1975,13 @@ local function mut_tracker(tokens: Lexer.Tokens, hazards: mut {Translate.Hazard}
   end
 
   local function leave(node: Ast.Node)
-    local base: Ast.Base = node
-    local kind = base.kind
-    if kind == "Block" then
+    if node.kind == "Block" then
       scopes[#scopes] = nil
-    elseif kind == "Class" then
+    elseif node.kind == "Class" then
       classes[#classes] = nil
-    elseif kind == "Fn" or kind == "Method" then
+    elseif node.kind == "Fn" or node.kind == "Method" then
       nesting.depth = nesting.depth - 1
-    elseif kind == "Local" then
+    elseif node.kind == "Local" then
       -- The names are the local's only once its initializers are read.
       local held = (node.kind == "Local") and pending[node] or nil
       if held ~= nil then
@@ -2199,13 +2176,11 @@ local function collect(source: string, parsed: Parser.Parsed, hazards: {Translat
   local labels: {integer} = {}
 
   local function enter(node: Ast.Node)
-    local base: Ast.Base = node
-    local kind = base.kind
-    if kind == "Rets" then
+    if node.kind == "Rets" then
       -- A return list that begins with `(A | B)?` and goes on is written in
       -- parentheses, which would otherwise be taken for the whole list.
       if (node.kind == "Rets") and #node.lists == 1 then
-        local list = node.lists[1]
+        local list = assert(node.lists[1])
         local head = list[1]
         local first, last = bounds(node)
         if head ~= nil and (head.kind == "TypeUnion") and (#list > 1 or node.variadic) and tokens.kind[first] ~= "(" then
@@ -2218,25 +2193,23 @@ local function collect(source: string, parsed: Parser.Parsed, hazards: {Translat
           end
         end
       end
-    elseif kind == "TypeUnion" then
+    elseif node.kind == "TypeUnion" then
       if (node.kind == "TypeUnion") and not covered[node] then
         local made = union_rewrite(source, tokens, node)
         if made ~= nil then
           out[#out + 1] = made
         end
       end
-    elseif kind == "TypeFunction" then
-      if (node.kind == "TypeFunction") then
-        parameter_rewrites(source, tokens, node, out)
-      end
-    elseif kind == "Binary" then
+    elseif (node.kind == "TypeFunction") then
+      parameter_rewrites(source, tokens, node, out)
+    elseif node.kind == "Binary" then
       if (node.kind == "Binary") and node.op == "or" and not covered[node] then
         local made = ternary_rewrite(tokens, node, covered)
         if made ~= nil then
           out[#out + 1] = made
         end
       end
-    elseif kind == "Unary" then
+    elseif node.kind == "Unary" then
       if (node.kind == "Unary") and not covered[node] then
         local cur: Ast.Exp = node.operand
         while (cur.kind == "Unary") do
@@ -2249,35 +2222,27 @@ local function collect(source: string, parsed: Parser.Parsed, hazards: {Translat
           out[#out + 1] = { row = "unary_power", edits = { insert_before(tokens, first, "("), insert_after(tokens, last, ")") } }
         end
       end
-    elseif kind == "FieldDecl" then
-      if (node.kind == "FieldDecl") then
-        local made = field_rewrite(source, tokens, node)
-        if made ~= nil then
-          out[#out + 1] = made
-        end
+    elseif (node.kind == "FieldDecl") then
+      local made = field_rewrite(source, tokens, node)
+      if made ~= nil then
+        out[#out + 1] = made
       end
-    elseif kind == "Record" then
-      if (node.kind == "Record") then
-        local made = declaration_rewrite(tokens, node, node.scope, node.name)
-        if made ~= nil then
-          out[#out + 1] = made
-        end
+    elseif (node.kind == "Record") then
+      local made = declaration_rewrite(tokens, node, node.scope, node.name)
+      if made ~= nil then
+        out[#out + 1] = made
       end
-    elseif kind == "Enum" then
-      if (node.kind == "Enum") then
-        local made = declaration_rewrite(tokens, node, node.scope, node.name)
-        if made ~= nil then
-          out[#out + 1] = made
-        end
+    elseif (node.kind == "Enum") then
+      local made = declaration_rewrite(tokens, node, node.scope, node.name)
+      if made ~= nil then
+        out[#out + 1] = made
       end
-    elseif kind == "Interface" then
-      if (node.kind == "Interface") then
-        local made = declaration_rewrite(tokens, node, node.scope, node.name)
-        if made ~= nil then
-          out[#out + 1] = made
-        end
+    elseif (node.kind == "Interface") then
+      local made = declaration_rewrite(tokens, node, node.scope, node.name)
+      if made ~= nil then
+        out[#out + 1] = made
       end
-    elseif kind == "Table" then
+    elseif node.kind == "Table" then
       -- A `;` after the table's last token whose `{` is closed further on
       -- ended it: the table of a nested `{ a = { b }; c }` is the outer one.
       local first, last = bounds(node)
@@ -2285,7 +2250,7 @@ local function collect(source: string, parsed: Parser.Parsed, hazards: {Translat
         stopped[last + 1] = first
         open_tables[#open_tables + 1] = first
       end
-    elseif kind == "While" or kind == "Repeat" or kind == "ForNum" or kind == "ForIn" then
+    elseif node.kind == "While" or node.kind == "Repeat" or node.kind == "ForNum" or node.kind == "ForIn" then
       if (node.kind == "While") then
         loop_bodies[node.body] = true
       elseif (node.kind == "Repeat") then
@@ -2295,25 +2260,23 @@ local function collect(source: string, parsed: Parser.Parsed, hazards: {Translat
       elseif (node.kind == "ForIn") then
         loop_bodies[node.body] = true
       end
-    elseif kind == "Block" then
-      if (node.kind == "Block") then
-        local label = direct_label(tokens, node)
-        local loop = loop_bodies[node] == true
-        frames[#frames + 1] = { barrier = false, loop = loop, label = label }
-        if label ~= nil then
-          local stats = node.stats
-          local last = stats[#stats]
-          local ends = false
-          if last ~= nil then
-            ends = bounds(last) == label
-          end
-          jumps[label] = { ends_loop = loop and ends, gotos = {} }
-          labels[#labels + 1] = label
+    elseif (node.kind == "Block") then
+      local label = direct_label(tokens, node)
+      local loop = loop_bodies[node] == true
+      frames[#frames + 1] = { barrier = false, loop = loop, label = label }
+      if label ~= nil then
+        local stats = node.stats
+        local last = stats[#stats]
+        local ends = false
+        if last ~= nil then
+          ends = bounds(last) == label
         end
+        jumps[label] = { ends_loop = loop and ends, gotos = {} }
+        labels[#labels + 1] = label
       end
-    elseif kind == "Fn" or kind == "Method" then
+    elseif node.kind == "Fn" or node.kind == "Method" then
       frames[#frames + 1] = { barrier = true, loop = false }
-    elseif kind == "Error" then
+    elseif node.kind == "Error" then
       local first, last = bounds(node)
       if first == last and tokens.kind[first] == "keyword" and tokens.text[first] == "goto" then
         if tokens.text[first + 1] == "continue" then
@@ -2344,9 +2307,7 @@ local function collect(source: string, parsed: Parser.Parsed, hazards: {Translat
   end
 
   local function leave(node: Ast.Node)
-    local base: Ast.Base = node
-    local kind = base.kind
-    if kind == "Block" or kind == "Fn" or kind == "Method" then
+    if node.kind == "Block" or node.kind == "Fn" or node.kind == "Method" then
       frames[#frames] = nil
     end
   end

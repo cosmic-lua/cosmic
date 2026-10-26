@@ -577,21 +577,20 @@ end
 --- The Lua type a value of `t` has: what `type(v)` answers for it, as the fork writes it. A type the fork does not
 --- resolve (one of another module) is a table. `hops` bounds the aliases followed.
 lua_type = function(t: Ast.Type, hops: integer): string
-  local kind = base_of(t).kind
-  if kind == "TypeName" and (t.kind == "TypeName") then
+  if (t.kind == "TypeName") then
     local declaration, resolved = declaration_of(t)
     if not resolved then
-      return #t.path == 1 and LUA_TYPES[t.path[1]] or "table"
+      return #t.path == 1 and LUA_TYPES[assert(t.path[1])] or "table"
     end
     if declaration == nil then
       return "table"
     end
     return declared_type(declaration, hops)
-  elseif kind == "TypeFunction" then
+  elseif t.kind == "TypeFunction" then
     return "function"
-  elseif kind == "TypeNil" then
+  elseif t.kind == "TypeNil" then
     return "nil"
-  elseif kind == "TypeMut" and (t.kind == "TypeMut") then
+  elseif (t.kind == "TypeMut") then
     return lua_type(t.inner, hops)
   end
   return "table"
@@ -613,19 +612,18 @@ end
 --- union in a test, which has one type): the fork tests a value of a union for each member in turn. Nil where `t` is
 --- no union.
 union_members = function(t: Ast.Type, hops: integer): {Ast.Type}?
-  local kind = base_of(t).kind
   local out: mut {Ast.Type} = {}
-  if kind == "TypeUnion" and (t.kind == "TypeUnion") then
+  if (t.kind == "TypeUnion") then
     for _, member in ipairs(t.members) do
       append_members(out, member, hops)
     end
     return out
-  elseif kind == "TypeOptional" and (t.kind == "TypeOptional") then
+  elseif (t.kind == "TypeOptional") then
     append_members(out, t.inner, hops)
     local missing: Ast.TypeNil = { kind = "TypeNil", id = 0, first = t.last, last = t.last }
     out[#out + 1] = missing
     return out
-  elseif kind == "TypeName" and (t.kind == "TypeName") and hops > 0 then
+  elseif (t.kind == "TypeName") and hops > 0 then
     local declaration = declaration_of(t)
     if declaration ~= nil and (declaration.kind == "Alias") then
       return union_members(declaration.type, hops - 1)
@@ -664,23 +662,22 @@ local POSTFIX_PRECEDENCE <const> = 100
 --- The precedence of the operator an expression ends in, or nil where it is not one (a name, a parenthesis, a table):
 --- an operand of a higher precedence than the operator it stands under is written in parentheses.
 local function precedence(e: Ast.Exp): integer?
-  local kind = base_of(e).kind
-  if kind == "Binary" and (e.kind == "Binary") then
+  if (e.kind == "Binary") then
     return PRECEDENCE[e.op]
-  elseif kind == "Unary" then
+  elseif e.kind == "Unary" then
     return UNARY_PRECEDENCE
-  elseif kind == "IsTest" and (e.kind == "IsTest") then
+  elseif (e.kind == "IsTest") then
     if union_members(e.type, 32) ~= nil then
       -- A test for each member, or a function called on the spot where the value is no name.
       local value = e.value
       return (value.kind == "Name") and PRECEDENCE["or"] or nil
     end
     return IS_PRECEDENCE
-  elseif kind == "Cast" then
+  elseif e.kind == "Cast" then
     return CAST_PRECEDENCE
-  elseif kind == "Call" or kind == "MethodCall" or kind == "Field" or kind == "Index" then
+  elseif e.kind == "Call" or e.kind == "MethodCall" or e.kind == "Field" or e.kind == "Index" then
     return POSTFIX_PRECEDENCE
-  elseif kind == "IfExp" and (e.kind == "IfExp") then
+  elseif (e.kind == "IfExp") then
     -- A function called on the spot is a primary expression.
     for _, arm in ipairs(e.arms) do
       if not G.truthy(arm.value) then
@@ -694,20 +691,19 @@ end
 
 --- The expression that `e` is written to the left of, or nil where it has none.
 local function left_of(e: Ast.Exp): Ast.Exp?
-  local kind = base_of(e).kind
-  if kind == "Binary" and (e.kind == "Binary") then
+  if (e.kind == "Binary") then
     return e.left
-  elseif kind == "Call" and (e.kind == "Call") then
+  elseif (e.kind == "Call") then
     return e.callee
-  elseif kind == "Field" and (e.kind == "Field") then
+  elseif (e.kind == "Field") then
     return e.object
-  elseif kind == "Index" and (e.kind == "Index") then
+  elseif (e.kind == "Index") then
     return e.object
-  elseif kind == "MethodCall" and (e.kind == "MethodCall") then
+  elseif (e.kind == "MethodCall") then
     return e.object
-  elseif kind == "IsTest" and (e.kind == "IsTest") then
+  elseif (e.kind == "IsTest") then
     return e.value
-  elseif kind == "Cast" and (e.kind == "Cast") then
+  elseif (e.kind == "Cast") then
     return e.value
   end
   return nil
@@ -769,14 +765,13 @@ end
 
 --- The fields of a table literal, written as the fork writes them.
 local function item(it: Ast.Item): Output
-  local kind = base_of(it).kind
   local y = line_of(it.first)
   local out = new(y)
-  if kind == "Named" and (it.kind == "Named") then
+  if (it.kind == "Named") then
     add_child(out, text(y, if RESERVED_FIELDS[it.name] then "[\"" .. it.name .. "\"]" else it.name end))
     put(out, " = ")
     add_child(out, exp(it.value))
-  elseif kind == "Keyed" and (it.kind == "Keyed") then
+  elseif (it.kind == "Keyed") then
     put(out, "[")
     local key = exp(it.key)
     if begins_long(it.key) then
@@ -872,7 +867,6 @@ end
 local function type_test(declared: Ast.Type, value: Output, y: integer, operand?: Ast.Exp): Output
   local t = through_aliases(declared, 32)
   local out = new(y)
-  local kind = base_of(t).kind
   local class = class_named(t)
   local resolved = G.kinds[base_of(t).id]
   if class ~= nil then
@@ -882,12 +876,12 @@ local function type_test(declared: Ast.Type, value: Output, y: integer, operand?
     put(out, "@")
     add_child(out, value, "", G.indent)
     put(out, " == " .. class.name.name)
-  elseif kind == "TypeName" and (t.kind == "TypeName") and #t.path == 1 and t.path[1] == "integer" then
+  elseif (t.kind == "TypeName") and #t.path == 1 and t.path[1] == "integer" then
     put(out, "math.type(")
     add_child(out, value, "", G.indent)
     put(out, ") == \"integer\"")
   elseif G.enums[base_of(t).id] ~= nil then
-    -- A string that is the type's kind is no member of an enum: the test is for the values.
+    -- A string that is the type's t.kind is no member of an enum: the test is for the values.
     local members: mut {string} = {}
     for i, v in ipairs(G.enums[base_of(t).id]) do
       members[i] = "[" .. string.format("%q", v):gsub("\\\n", "\\n") .. "] = true"
@@ -899,7 +893,7 @@ local function type_test(declared: Ast.Type, value: Output, y: integer, operand?
     put(out, "math.type(")
     add_child(out, value, "", G.indent)
     put(out, ") == \"integer\"")
-  elseif kind == "TypeNil" or resolved == "nil" then
+  elseif t.kind == "TypeNil" or resolved == "nil" then
     add_child(out, value, "", G.indent)
     put(out, " == nil")
   elseif resolved == "true" or resolved == "false" then
@@ -909,7 +903,7 @@ local function type_test(declared: Ast.Type, value: Output, y: integer, operand?
     else
       put(out, " == false")
     end
-  elseif kind == "TypeBool" and (t.kind == "TypeBool") then
+  elseif (t.kind == "TypeBool") then
     add_child(out, value, "", G.indent)
     put(out, if t.value then " == true" else " == false" end)
   else
@@ -965,8 +959,7 @@ end
 --- `e` given the output `left` of the expression to its left, the one [`left_of`] finds. The pieces of `e` are all
 --- written before the indent is read, as the fork writes a node after its children.
 local function combine(e: Ast.Exp, left: Output): Output
-  local kind = base_of(e).kind
-  if kind == "Binary" and (e.kind == "Binary") then
+  if (e.kind == "Binary") then
     local op = e.op
     local own = PRECEDENCE[op]
     local out = new(line_of(e.left.last + 1))
@@ -978,7 +971,7 @@ local function combine(e: Ast.Exp, left: Output): Output
     put(out, op)
     add_child(out, right, " ", G.indent)
     return out
-  elseif kind == "Field" and (e.kind == "Field") then
+  elseif (e.kind == "Field") then
     local out = new(line_of(e.object.last + 1))
     add_child(out, left, "", G.indent)
     if RESERVED_FIELDS[e.name] then
@@ -988,7 +981,7 @@ local function combine(e: Ast.Exp, left: Output): Output
       add_child(out, text(line_of(e.last), e.name), "", G.indent)
     end
     return out
-  elseif kind == "Index" and (e.kind == "Index") then
+  elseif (e.kind == "Index") then
     local out = new(line_of(e.object.last + 1))
     local key = exp(e.key)
     if begins_long(e.key) then
@@ -1000,7 +993,7 @@ local function combine(e: Ast.Exp, left: Output): Output
     add_child(out, key, "", G.indent)
     put(out, "]")
     return out
-  elseif kind == "Call" and (e.kind == "Call") then
+  elseif (e.kind == "Call") then
     local y = line_of(e.callee.last + 1)
     local out = new(y)
     local args = exps(e.args, y)
@@ -1009,7 +1002,7 @@ local function combine(e: Ast.Exp, left: Output): Output
     add_child(out, args, "", G.indent)
     put(out, ")")
     return out
-  elseif kind == "MethodCall" and (e.kind == "MethodCall") then
+  elseif (e.kind == "MethodCall") then
     local colon = e.object.last + 1
     local y = line_of(colon + 2)
     local method = new(line_of(colon))
@@ -1023,9 +1016,9 @@ local function combine(e: Ast.Exp, left: Output): Output
     add_child(out, args, "", G.indent)
     put(out, ")")
     return out
-  elseif kind == "IsTest" and (e.kind == "IsTest") then
+  elseif (e.kind == "IsTest") then
     return is_test(e, left)
-  elseif kind == "Cast" and (e.kind == "Cast") then
+  elseif (e.kind == "Cast") then
     local out = new(line_of(e.value.last + 1))
     add_child(out, left, "", G.indent)
     return out
@@ -1112,32 +1105,31 @@ local function if_expression(node: Ast.IfExp): Output
 end
 
 local function leaf(e: Ast.Exp): Output
-  local kind = base_of(e).kind
   local first = base_of(e).first
   local y = line_of(first)
-  if kind == "Name" and (e.kind == "Name") then
+  if (e.kind == "Name") then
     return text(y, e.text)
-  elseif kind == "String" then
+  elseif e.kind == "String" then
     return text(y, Lexer.text(G.tokens, first))
-  elseif kind == "Integer" or kind == "Float" then
+  elseif e.kind == "Integer" or e.kind == "Float" then
     return text(y, number_text(first))
-  elseif kind == "Nil" then
+  elseif e.kind == "Nil" then
     return text(y, "nil")
-  elseif kind == "Boolean" and (e.kind == "Boolean") then
+  elseif (e.kind == "Boolean") then
     return text(y, if e.value then "true" else "false" end)
-  elseif kind == "Vararg" then
+  elseif e.kind == "Vararg" then
     return text(y, "...")
-  elseif kind == "Paren" and (e.kind == "Paren") then
+  elseif (e.kind == "Paren") then
     local out = new(y)
     put(out, "(")
     add_child(out, exp(e.inner), "", G.indent)
     put(out, ")")
     return out
-  elseif kind == "FunctionLit" and (e.kind == "FunctionLit") then
+  elseif (e.kind == "FunctionLit") then
     return function_literal(e)
-  elseif kind == "Table" and (e.kind == "Table") then
+  elseif (e.kind == "Table") then
     return table_literal(e)
-  elseif kind == "Unary" and (e.kind == "Unary") then
+  elseif (e.kind == "Unary") then
     local out = new(y)
     local own = UNARY_PRECEDENCE
     put(out, e.op)
@@ -1152,7 +1144,7 @@ local function leaf(e: Ast.Exp): Output
       add_child(out, operand, if nested then " " else "" end, G.indent)
     end
     return out
-  elseif kind == "IfExp" and (e.kind == "IfExp") then
+  elseif (e.kind == "IfExp") then
     return if_expression(e)
   end
   return new(y)
@@ -1232,16 +1224,15 @@ end
 
 --- Whether the value of `s` ends in an expression, so that a line that begins with `(` after it would continue it.
 local function ends_in_expression(s: Ast.Stat): boolean
-  local kind = base_of(s).kind
-  if kind == "Local" and (s.kind == "Local") then
+  if (s.kind == "Local") then
     return #s.values > 0
-  elseif kind == "Assign" or kind == "CallStat" then
+  elseif s.kind == "Assign" or s.kind == "CallStat" then
     return true
-  elseif kind == "Return" and (s.kind == "Return") then
+  elseif (s.kind == "Return") then
     return #s.values > 0
-  elseif kind == "Function" and (s.kind == "Function") then
+  elseif (s.kind == "Function") then
     -- `R.goto = function() end` ends in an expression.
-    return RESERVED_FIELDS[s.path[#s.path].text] == true
+    return RESERVED_FIELDS[assert(s.path[#s.path]).text] == true
   end
   return false
 end
@@ -1584,15 +1575,14 @@ local function class_statement(s: Ast.Class): Output
 end
 
 stat = function(s: Ast.Stat): Output
-  local kind = base_of(s).kind
   local first = base_of(s).first
-  if kind == "Local" and (s.kind == "Local") then
+  if (s.kind == "Local") then
     return local_statement(s)
-  elseif kind == "Assign" and (s.kind == "Assign") then
+  elseif (s.kind == "Assign") then
     return assign_statement(s)
-  elseif kind == "CallStat" and (s.kind == "CallStat") then
+  elseif (s.kind == "CallStat") then
     return exp(s.call)
-  elseif kind == "LocalFunction" and (s.kind == "LocalFunction") then
+  elseif (s.kind == "LocalFunction") then
     local y = line_of(first)
     local outer = G.loops
     G.loops = {}
@@ -1604,21 +1594,22 @@ stat = function(s: Ast.Stat): Output
     function_rest(out, y, s.fn)
     G.loops = outer
     return out
-  elseif kind == "Function" and (s.kind == "Function") then
+  elseif (s.kind == "Function") then
     local y = line_of(first)
     local outer = G.loops
     G.loops = {}
     indent_in(y, line_of(s.fn.body.first))
     local out = new(y)
-    local name = s.path[#s.path]
+    local name = assert(s.path[#s.path])
+    local head = assert(s.path[1])
     if RESERVED_FIELDS[name.text] then
       -- `function R.goto()` is no Lua 5.5.
-      add_child(out, text(line_of(s.path[1].first), s.path[1].text))
+      add_child(out, text(line_of(head.first), head.text))
       add_child(out, text(line_of(name.first), "[\"" .. name.text .. "\"]"))
       put(out, " = function(")
     else
       put(out, "function")
-      add_child(out, text(line_of(s.path[1].first), s.path[1].text), " ")
+      add_child(out, text(line_of(head.first), head.text), " ")
       put(out, ".")
       add_child(out, text(line_of(name.first), name.text))
       put(out, "(")
@@ -1626,19 +1617,19 @@ stat = function(s: Ast.Stat): Output
     function_rest(out, y, s.fn)
     G.loops = outer
     return out
-  elseif kind == "Return" and (s.kind == "Return") then
+  elseif (s.kind == "Return") then
     local out = new(line_of(first))
     local wrapped = G.guarded == s
     put(out, if wrapped then "do return" else "return" end)
     local values = s.values
     if #values > 0 then
-      add_child(out, exps(values, line_of(values[1].first)), " ")
+      add_child(out, exps(values, line_of(assert(values[1]).first)), " ")
     end
     if wrapped then
       add_child(out, text(line_of(s.last), "end"), " ", G.indent)
     end
     return out
-  elseif kind == "Do" and (s.kind == "Do") then
+  elseif (s.kind == "Do") then
     local y = line_of(first)
     local body_y = line_of(s.body.first)
     indent_in(y, body_y)
@@ -1648,30 +1639,30 @@ stat = function(s: Ast.Stat): Output
     indent_out(y, body_y)
     add_child(out, text(line_of(s.last), "end"), " ", G.indent)
     return out
-  elseif kind == "Break" then
+  elseif s.kind == "Break" then
     return text(line_of(first), "break")
-  elseif kind == "Continue" then
+  elseif s.kind == "Continue" then
     G.loops[#G.loops] = true
     return text(line_of(first), "goto continue")
-  elseif kind == "While" and (s.kind == "While") then
+  elseif (s.kind == "While") then
     return while_statement(s)
-  elseif kind == "Repeat" and (s.kind == "Repeat") then
+  elseif (s.kind == "Repeat") then
     return repeat_statement(s)
-  elseif kind == "If" and (s.kind == "If") then
+  elseif (s.kind == "If") then
     return if_statement(s)
-  elseif kind == "ForNum" and (s.kind == "ForNum") then
+  elseif (s.kind == "ForNum") then
     return for_num_statement(s)
-  elseif kind == "ForIn" and (s.kind == "ForIn") then
+  elseif (s.kind == "ForIn") then
     return for_in_statement(s)
-  elseif kind == "Match" and (s.kind == "Match") then
+  elseif (s.kind == "Match") then
     return match_statement(s)
-  elseif kind == "Record" and (s.kind == "Record") then
+  elseif (s.kind == "Record") then
     return record_statement(s)
-  elseif kind == "Import" and (s.kind == "Import") then
+  elseif (s.kind == "Import") then
     return import_statement(s)
-  elseif kind == "Class" and (s.kind == "Class") then
+  elseif (s.kind == "Class") then
     return class_statement(s)
-  elseif kind == "Interface" and (s.kind == "Interface") then
+  elseif (s.kind == "Interface") then
     refuse_nested_classes(s.members)
   end
   -- An interface, an enum and an alias are types only; a failed production's [`Ast.Error`] node is a refusal the parser already made.

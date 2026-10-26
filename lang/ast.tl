@@ -24,13 +24,10 @@
 --- deep as its source nests, and as a chain of `a + a + ...` is long, so a
 --- recursive walker can overflow the stack where [`Ast.number`] does not.
 
--- TODO: replace each blanked `where` clause of a record here with the single-member enum tag the plan's tagged
--- unions use, write each test `n.kind == "Local"` of a node (here and in every module that imports this one, about 900
--- sites with their tests) as a tag test or a `match`, and read the nodes in `number` and `children` by their kinds in
--- place of as `{string: any}`: the translation of the tree dropped the clauses and wrote each test `n is Ast.Local` as a
--- compare of `kind`, since the code generator writes a test `is` of a record as one for a table once the clause is gone,
--- and of a union of unions as well. Waits on a change of its own that rewrites those sites together (the switch
--- landed without it, doc/plans/strict-teal.md, "the switch"); no ceiling pins them.
+-- TODO: read the nodes in `number` and `children` by their kinds (a test `n.kind == "Local"` of each, then the fields of the
+-- record it selects) in place of as `{string: any}` driven by `SPEC`, and test a node of [`visit_list`] and [`children_of`] with
+-- the one test `is Ast.Node` in place of the chain of compares of `kind` the translation of the tree made of it. Waits on a
+-- change of its own that replaces both walkers (the `any_use` pin of this file counts them).
 local Lexer = require("lang.lexer")
 
 local record Ast
@@ -85,19 +82,27 @@ local record Ast
     "decl"
   end
 
-  --- What every node holds.
+  --- What every node holds besides its kind: each record declares `kind` as an enum of its own, and [`Node`] is told
+  --- apart by it. No value is in the enums of two records (`untagged_union` otherwise), a kind is never `mut`, and
+  --- [`Kind`] lists them all for the tables below (lang/ast_test.tl holds the two to agree). A record repeats these
+  --- fields, since a record lists the fields of an interface alike.
   interface Base
-    kind: Kind
     --- The indexes in [`Chunk.tokens`] of its first and last token.
     first: integer
-    last: integer
+    mut last: integer
     --- Set by [`Ast.number`]; 0 before. A node is made with the field so that numbering
     --- does not grow its table.
-    id: integer
+    mut id: integer
   end
 
+  enum Chunk_kind
+    "Chunk"
+  end
   record Chunk is Base
-
+    kind: Chunk_kind
+    first: integer
+    mut last: integer
+    mut id: integer
     body: Block
     tokens: Lexer.Tokens
     requires: {Require}
@@ -115,321 +120,687 @@ local record Ast
   --- A literal `require("m")` call, or a type import of one.
   record Require
     module: string
-    --- The id of the [`Call`] or the [`Import`].
-    node: integer
+    --- The id of the [`Call`] or the [`Import`], set once the tree is numbered.
+    mut node: integer
   end
 
+  enum Block_kind
+    "Block"
+  end
   --- Its last token is the one that ended it: `end`, `else`, `elseif`,
   --- `until`, `}`-less, or the `$EOF$` of the chunk. `close` is that token's index.
   record Block is Base
-
+    kind: Block_kind
+    first: integer
+    mut last: integer
+    mut id: integer
     stats: {Stat}
     close: integer
   end
 
+  enum Local_kind
+    "Local"
+  end
   record Local is Base
-
+    kind: Local_kind
+    first: integer
+    mut last: integer
+    mut id: integer
     scope: Scope
     bindings: {Binding}
     types: {Type}
     values: {Exp}
   end
+  enum LocalFunction_kind
+    "LocalFunction"
+  end
   record LocalFunction is Base
-
+    kind: LocalFunction_kind
+    first: integer
+    mut last: integer
+    mut id: integer
     name: Binding
     typeparams: {TypeParam}
     fn: Fn
   end
+  enum Function_kind
+    "Function"
+  end
   --- `function R.m(...)`: `path` is `R` and `m`. Its `doc` is the doc comment of the statement.
   record Function is Base
-
+    kind: Function_kind
+    first: integer
+    mut last: integer
+    mut id: integer
     path: {Name}
     typeparams: {TypeParam}
     fn: Fn
     doc?: {Lexer.Comment}
   end
+  enum Assign_kind
+    "Assign"
+  end
   record Assign is Base
-
+    kind: Assign_kind
+    first: integer
+    mut last: integer
+    mut id: integer
     targets: {Exp}
     values: {Exp}
   end
+  enum CallStat_kind
+    "CallStat"
+  end
   record CallStat is Base
-
+    kind: CallStat_kind
+    first: integer
+    mut last: integer
+    mut id: integer
     call: CallExp
   end
+  enum Return_kind
+    "Return"
+  end
   record Return is Base
-
+    kind: Return_kind
+    first: integer
+    mut last: integer
+    mut id: integer
     values: {Exp}
   end
+  enum Do_kind
+    "Do"
+  end
   record Do is Base
-
+    kind: Do_kind
+    first: integer
+    mut last: integer
+    mut id: integer
     body: Block
+  end
+  enum Break_kind
+    "Break"
   end
   record Break is Base
-
+    kind: Break_kind
+    first: integer
+    mut last: integer
+    mut id: integer
+  end
+  enum Continue_kind
+    "Continue"
   end
   record Continue is Base
-
+    kind: Continue_kind
+    first: integer
+    mut last: integer
+    mut id: integer
+  end
+  enum While_kind
+    "While"
   end
   record While is Base
-
+    kind: While_kind
+    first: integer
+    mut last: integer
+    mut id: integer
     cond: Exp
     body: Block
+  end
+  enum Repeat_kind
+    "Repeat"
   end
   record Repeat is Base
-
+    kind: Repeat_kind
+    first: integer
+    mut last: integer
+    mut id: integer
     body: Block
     cond: Exp
   end
+  enum If_kind
+    "If"
+  end
   record If is Base
-
+    kind: If_kind
+    first: integer
+    mut last: integer
+    mut id: integer
     arms: {Arm}
     else_body?: Block
   end
+  enum Arm_kind
+    "Arm"
+  end
   record Arm is Base
-
+    kind: Arm_kind
+    first: integer
+    mut last: integer
+    mut id: integer
     cond: Exp
     body: Block
   end
+  enum Match_kind
+    "Match"
+  end
   record Match is Base
-
+    kind: Match_kind
+    first: integer
+    mut last: integer
+    mut id: integer
     scrutinee: CallExp
     arms: {MatchArm}
   end
+  enum MatchArm_kind
+    "MatchArm"
+  end
   record MatchArm is Base
-
+    kind: MatchArm_kind
+    first: integer
+    mut last: integer
+    mut id: integer
     pats: {PatItem}
     body: Block
   end
+  enum PatBool_kind
+    "PatBool"
+  end
   record PatBool is Base
-
+    kind: PatBool_kind
+    first: integer
+    mut last: integer
+    mut id: integer
     value: boolean
   end
+  enum PatBind_kind
+    "PatBind"
+  end
   record PatBind is Base
-
+    kind: PatBind_kind
+    first: integer
+    mut last: integer
+    mut id: integer
     name: Binding
   end
+  enum ForNum_kind
+    "ForNum"
+  end
   record ForNum is Base
-
+    kind: ForNum_kind
+    first: integer
+    mut last: integer
+    mut id: integer
     var: Binding
     from: Exp
     to: Exp
     step?: Exp
     body: Block
   end
+  enum ForIn_kind
+    "ForIn"
+  end
   record ForIn is Base
-
+    kind: ForIn_kind
+    first: integer
+    mut last: integer
+    mut id: integer
     vars: {Binding}
     iterators: {Exp}
     body: Block
   end
 
+  enum Name_kind
+    "Name"
+  end
   record Name is Base
-
+    kind: Name_kind
+    first: integer
+    mut last: integer
+    mut id: integer
     text: string
     --- The id of the [`Binding`] it refers to, set by the scope builder.
-    binding?: integer
+    mut binding?: integer
+  end
+  enum Nil_kind
+    "Nil"
   end
   record Nil is Base
-
+    kind: Nil_kind
+    first: integer
+    mut last: integer
+    mut id: integer
+  end
+  enum Boolean_kind
+    "Boolean"
   end
   record Boolean is Base
-
+    kind: Boolean_kind
+    first: integer
+    mut last: integer
+    mut id: integer
     value: boolean
   end
+  enum Integer_kind
+    "Integer"
+  end
   record Integer is Base
-
+    kind: Integer_kind
+    first: integer
+    mut last: integer
+    mut id: integer
     value: integer
   end
+  enum Float_kind
+    "Float"
+  end
   record Float is Base
-
+    kind: Float_kind
+    first: integer
+    mut last: integer
+    mut id: integer
     value: number
   end
+  enum String_kind
+    "String"
+  end
   record String is Base
-
+    kind: String_kind
+    first: integer
+    mut last: integer
+    mut id: integer
     --- The decoded contents.
     value: string
     long: boolean
   end
+  enum Vararg_kind
+    "Vararg"
+  end
   record Vararg is Base
-
+    kind: Vararg_kind
+    first: integer
+    mut last: integer
+    mut id: integer
+  end
+  enum Paren_kind
+    "Paren"
   end
   record Paren is Base
-
+    kind: Paren_kind
+    first: integer
+    mut last: integer
+    mut id: integer
     inner: Exp
   end
+  enum FunctionLit_kind
+    "FunctionLit"
+  end
   record FunctionLit is Base
-
+    kind: FunctionLit_kind
+    first: integer
+    mut last: integer
+    mut id: integer
     fn: Fn
   end
+  enum Table_kind
+    "Table"
+  end
   record Table is Base
-
+    kind: Table_kind
+    first: integer
+    mut last: integer
+    mut id: integer
     items: {Item}
   end
+  enum Positional_kind
+    "Positional"
+  end
   record Positional is Base
-
+    kind: Positional_kind
+    first: integer
+    mut last: integer
+    mut id: integer
     value: Exp
+  end
+  enum Named_kind
+    "Named"
   end
   record Named is Base
-
+    kind: Named_kind
+    first: integer
+    mut last: integer
+    mut id: integer
     name: string
     value: Exp
+  end
+  enum Keyed_kind
+    "Keyed"
   end
   record Keyed is Base
-
+    kind: Keyed_kind
+    first: integer
+    mut last: integer
+    mut id: integer
     key: Exp
     value: Exp
   end
+  enum Field_kind
+    "Field"
+  end
   record Field is Base
-
+    kind: Field_kind
+    first: integer
+    mut last: integer
+    mut id: integer
     object: Exp
     name: string
   end
+  enum Index_kind
+    "Index"
+  end
   record Index is Base
-
+    kind: Index_kind
+    first: integer
+    mut last: integer
+    mut id: integer
     object: Exp
     key: Exp
   end
+  enum Call_kind
+    "Call"
+  end
   record Call is Base
-
+    kind: Call_kind
+    first: integer
+    mut last: integer
+    mut id: integer
     callee: Exp
     args: {Exp}
   end
+  enum MethodCall_kind
+    "MethodCall"
+  end
   record MethodCall is Base
-
+    kind: MethodCall_kind
+    first: integer
+    mut last: integer
+    mut id: integer
     object: Exp
     name: string
     args: {Exp}
   end
+  enum Unary_kind
+    "Unary"
+  end
   record Unary is Base
-
+    kind: Unary_kind
+    first: integer
+    mut last: integer
+    mut id: integer
     op: UnaryOp
     operand: Exp
   end
+  enum Binary_kind
+    "Binary"
+  end
   record Binary is Base
-
+    kind: Binary_kind
+    first: integer
+    mut last: integer
+    mut id: integer
     op: BinaryOp
     left: Exp
     right: Exp
   end
+  enum IsTest_kind
+    "IsTest"
+  end
   record IsTest is Base
-
+    kind: IsTest_kind
+    first: integer
+    mut last: integer
+    mut id: integer
     value: Exp
     type: Type
+  end
+  enum Cast_kind
+    "Cast"
   end
   --- The transition form `e as T`. The checker refuses it.
   record Cast is Base
-
+    kind: Cast_kind
+    first: integer
+    mut last: integer
+    mut id: integer
     value: Exp
     type: Type
   end
+  enum IfExp_kind
+    "IfExp"
+  end
   record IfExp is Base
-
+    kind: IfExp_kind
+    first: integer
+    mut last: integer
+    mut id: integer
     arms: {ExpArm}
     else_value: Exp
   end
+  enum ExpArm_kind
+    "ExpArm"
+  end
   record ExpArm is Base
-
+    kind: ExpArm_kind
+    first: integer
+    mut last: integer
+    mut id: integer
     cond: Exp
     value: Exp
   end
 
+  enum Fn_kind
+    "Fn"
+  end
   --- A function's parameters, return list and body. `rets` is nil where the
   --- source has no return list.
   record Fn is Base
-
+    kind: Fn_kind
+    first: integer
+    mut last: integer
+    mut id: integer
     params: {Param}
     rets?: Rets
     body: Block
   end
+  enum Rets_kind
+    "Rets"
+  end
   --- Two or more `lists` are a union of value lists. `variadic` marks a
   --- trailing `T...` on the one list.
   record Rets is Base
-
+    kind: Rets_kind
+    first: integer
+    mut last: integer
+    mut id: integer
     lists: {{RType}}
     variadic: boolean
   end
+  enum Param_kind
+    "Param"
+  end
   --- `name` is nil for the rest parameter `...: T`, which has `variadic`.
   record Param is Base
-
+    kind: Param_kind
+    first: integer
+    mut last: integer
+    mut id: integer
     name?: Binding
     optional: boolean
     type?: Type
     variadic: boolean
   end
+  enum Binding_kind
+    "Binding"
+  end
   record Binding is Base
-
+    kind: Binding_kind
+    first: integer
+    mut last: integer
+    mut id: integer
     name: string
-    attr?: Attr
-    doc?: {Lexer.Comment}
+    mut attr?: Attr
+    mut doc?: {Lexer.Comment}
   end
 
+  enum TypeName_kind
+    "TypeName"
+  end
   record TypeName is Base
-
+    kind: TypeName_kind
+    first: integer
+    mut last: integer
+    mut id: integer
     path: {string}
     args: {Type}
   end
+  enum TypeBool_kind
+    "TypeBool"
+  end
   record TypeBool is Base
-
+    kind: TypeBool_kind
+    first: integer
+    mut last: integer
+    mut id: integer
     value: boolean
   end
+  enum TypeNil_kind
+    "TypeNil"
+  end
   record TypeNil is Base
-
+    kind: TypeNil_kind
+    first: integer
+    mut last: integer
+    mut id: integer
+  end
+  enum TypeError_kind
+    "TypeError"
   end
   record TypeError is Base
-
+    kind: TypeError_kind
+    first: integer
+    mut last: integer
+    mut id: integer
+  end
+  enum TypeArray_kind
+    "TypeArray"
   end
   record TypeArray is Base
-
+    kind: TypeArray_kind
+    first: integer
+    mut last: integer
+    mut id: integer
     element: Type
   end
+  enum TypeMap_kind
+    "TypeMap"
+  end
   record TypeMap is Base
-
+    kind: TypeMap_kind
+    first: integer
+    mut last: integer
+    mut id: integer
     key: Type
     value: Type
   end
+  enum TypeUnion_kind
+    "TypeUnion"
+  end
   record TypeUnion is Base
-
+    kind: TypeUnion_kind
+    first: integer
+    mut last: integer
+    mut id: integer
     members: {Type}
   end
+  enum TypeOptional_kind
+    "TypeOptional"
+  end
   record TypeOptional is Base
-
+    kind: TypeOptional_kind
+    first: integer
+    mut last: integer
+    mut id: integer
     inner: Type
+  end
+  enum TypeMut_kind
+    "TypeMut"
   end
   record TypeMut is Base
-
+    kind: TypeMut_kind
+    first: integer
+    mut last: integer
+    mut id: integer
     inner: Type
   end
+  enum TypeFunction_kind
+    "TypeFunction"
+  end
   record TypeFunction is Base
-
+    kind: TypeFunction_kind
+    first: integer
+    mut last: integer
+    mut id: integer
     typeparams: {TypeParam}
     params: {PType}
     rets?: Rets
   end
+  enum PType_kind
+    "PType"
+  end
   --- A parameter of a function type. `name` is nil where only the type is written.
   record PType is Base
-
+    kind: PType_kind
+    first: integer
+    mut last: integer
+    mut id: integer
     name?: string
     optional: boolean
     variadic: boolean
     type: Type
   end
+  enum Narrows_kind
+    "Narrows"
+  end
   --- A return item `v is T` or `asserts v is T`.
   record Narrows is Base
-
+    kind: Narrows_kind
+    first: integer
+    mut last: integer
+    mut id: integer
     param: string
     type: Type
     asserts: boolean
   end
+  enum TypeParam_kind
+    "TypeParam"
+  end
   record TypeParam is Base
-
+    kind: TypeParam_kind
+    first: integer
+    mut last: integer
+    mut id: integer
     name: Binding
     constraint?: TypeName
   end
 
+  enum Record_kind
+    "Record"
+  end
   --- `is` names the array part (`record Node is {Node}`) or the one interface.
   record Record is Base
-
+    kind: Record_kind
+    first: integer
+    mut last: integer
+    mut id: integer
     scope?: Scope
     name: Binding
     typeparams: {TypeParam}
@@ -437,71 +808,131 @@ local record Ast
     array?: Type
     members: {Member}
   end
+  enum Interface_kind
+    "Interface"
+  end
   record Interface is Base
-
+    kind: Interface_kind
+    first: integer
+    mut last: integer
+    mut id: integer
     scope?: Scope
     name: Binding
     typeparams: {TypeParam}
     supers: {TypeName}
     members: {Member}
+  end
+  enum Class_kind
+    "Class"
   end
   record Class is Base
-
+    kind: Class_kind
+    first: integer
+    mut last: integer
+    mut id: integer
     scope?: Scope
     name: Binding
     typeparams: {TypeParam}
     supers: {TypeName}
     members: {Member}
   end
+  enum Enum_kind
+    "Enum"
+  end
   record Enum is Base
-
+    kind: Enum_kind
+    first: integer
+    mut last: integer
+    mut id: integer
     scope?: Scope
     name: Binding
     values: {EnumValue}
   end
+  enum EnumValue_kind
+    "EnumValue"
+  end
   record EnumValue is Base
-
+    kind: EnumValue_kind
+    first: integer
+    mut last: integer
+    mut id: integer
     value: string
     doc?: {Lexer.Comment}
   end
+  enum TypeAlias_kind
+    "Alias"
+  end
   --- `type Name = T`, the draft's `Alias` kind. The record is [`TypeAlias`], which names no other type of the tree.
   record TypeAlias is Base
-
+    kind: TypeAlias_kind
+    first: integer
+    mut last: integer
+    mut id: integer
     scope?: Scope
     name: Binding
     typeparams: {TypeParam}
     type: Type
   end
+  enum Import_kind
+    "Import"
+  end
   --- `type name = require("module")`.
   record Import is Base
-
+    kind: Import_kind
+    first: integer
+    mut last: integer
+    mut id: integer
     scope?: Scope
     name: Binding
     module: string
   end
+  enum FieldDecl_kind
+    "FieldDecl"
+  end
   record FieldDecl is Base
-
+    kind: FieldDecl_kind
+    first: integer
+    mut last: integer
+    mut id: integer
     name: Binding
     mut: boolean
     omittable: boolean
     type: Type
     doc?: {Lexer.Comment}
   end
+  enum Method_kind
+    "Method"
+  end
   --- A method of a class. `params` begins with `self`.
   record Method is Base
-
+    kind: Method_kind
+    first: integer
+    mut last: integer
+    mut id: integer
     name: Binding
     params: {Param}
     rets?: Rets
     body: Block
     doc?: {Lexer.Comment}
   end
+  enum Userdata_kind
+    "Userdata"
+  end
   record Userdata is Base
-
+    kind: Userdata_kind
+    first: integer
+    mut last: integer
+    mut id: integer
+  end
+  enum Error_kind
+    "Error"
   end
   --- The tokens a failed production skipped; the parser reports why.
   record Error is Base
-
+    kind: Error_kind
+    first: integer
+    mut last: integer
+    mut id: integer
   end
 
   type Stat = Local | LocalFunction | Function | Assign | CallStat | Return | Do | Break | Continue |
