@@ -960,7 +960,7 @@ runs `bin/cosmic-bootstrap compile` over the files [`build/seed.txt`] lists, and
 ([`core/bridge.lua`]) loads that Lua as stage one, which compiles the same files again from the tree to stage two. stage
 two is the tree's own generator applied to the tree's own source, so the tool never depends on the pin's emitter, and it
 is what builds the rest of the tree. the boot checks that the first stage equals the second wherever the generator
-writes what the release's does, and fails naming the files unless `lang/SEED_DIFFERS` lists them (one path a line) as
+writes what the release's does, and fails naming the files unless [`lang/SEED_DIFFERS`] lists them (one path a line) as
 declared to differ, a generator change ahead of the pin; a file listed that does not differ fails too. the sources are in
 the compiler's identity, so in every compile's key, and in the tool's boot hash, so an edit to one boots the tool.
 
@@ -1356,3 +1356,4 @@ in [roadmap.md](roadmap.md).
 [`build.pipeline`]: ../build/pipeline.tl
 [`cosmic.internal.globals`]: ../cosmic/internal/globals.d.tl
 [`cosmic.shape`]: ../cosmic/shape.tl
+[`lang/SEED_DIFFERS`]: ../lang/SEED_DIFFERS

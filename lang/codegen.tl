@@ -1052,9 +1052,9 @@ end
 --- `and` and each `elseif` and the `else` an `or`, at the lines the keywords are on. Any other is a function called
 --- on the spot, since `c and a or b` is `b` when `a` is false or nil, and the function keeps each value to one.
 --- A statement that [`hoisted_if`] can write has no function: only where the `if` expression is its one value.
---- TODO: write an `if` expression in a call argument, a field or an index as an `if` statement too, once codegen can
---- tell that what comes before it in the statement is not changed by the arms (a purity analysis it does not have).
 local function if_expression(node: Ast.IfExp): Output
+  -- TODO: write an `if` expression in a call argument, a field or an index as an `if` statement too, once codegen can
+  -- tell that what comes before it in the statement is not changed by the arms (a purity analysis it does not have).
   local arms = node.arms
   local plain = all_truthy(node)
   local conds: mut {Output} = {}
