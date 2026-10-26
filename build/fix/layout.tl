@@ -1,7 +1,7 @@
 --- The layout of a Teal source: the third layer of the formatter, which writes the stream of
 --- [`build.fix.trivia`] with the gap between neighbours on a line chosen from the roles of
---- [`build.fix.roles`] and the start of each line chosen from the levels of [`build.fix.blocks`] and the brackets of
---- [`build.fix.continuation`].
+--- [`build.fix.roles`], the start of each line chosen from the levels of [`build.fix.blocks`] and the brackets of
+--- [`build.fix.continuation`], and the breaks added by [`build.fix.breaks`].
 ---
 --- What this layer decides, from the role of each token and never from the whitespace the author wrote:
 --- - a binary operator has one space each side, a unary operator hugs its operand (`-x`, `#t`; the operator `not`
@@ -18,8 +18,8 @@
 --- [`build.fix.blocks`] counts them, and a word that closes a body (`end`, `else`, `elseif`, `until`, the `|` of a
 --- `match` arm) stands level with the construct. Any other line is a continuation, which [`build.fix.continuation`]
 --- indents from the brackets open where it starts. A type that spans lines keeps the author's spacing: each line
---- after the first begins at the column it began at in the source, moved by the line that holds the type's first
---- token.
+--- after the first begins at the column it began at in the source, moved as the statement that holds the type
+--- moved (so a type that begins on a continuation line does not move with that line).
 ---
 --- A comment is laid out by where it stands:
 --- - one that follows code on its line stays on that line, a space after the code;
@@ -42,12 +42,18 @@
 --- - the comma is not added after an entry that ends in a function type with return types (`x as function(): A`),
 ---   which a `,` would read on as another return type;
 ---
---- The only break that moves is a binary operator that begins a line: it goes to the end of the line before, ahead
---- of any comment that line ends in, and the operand after it takes the line (`a\n  and b` is `a and\n  b`). An
---- operator is left where it is when a blank line is before it, or when a comment ends its line and another lies
---- between it and the code before it. This layer does not wrap, and adds no break.
+--- A binary operator that begins a line goes to the end of the line before, ahead of any comment that line ends in,
+--- and the operand after it takes the line (`a\n  and b` is `a and\n  b`). An operator is left where it is when a
+--- blank line is before it, or when a comment ends its line and another lies between it and the code before it.
+---
+--- The line breaks of the source are all kept, and the layout adds a break in two cases, both decided by
+--- [`build.fix.breaks`]. A statement that follows another on its line begins a line, and a block is opened to its
+--- full form (each body's first statement and each word that ends a body on a line of its own) unless it is to stay
+--- on one line. A statement that moves takes its continuation lines with it, as they are indented from the line the
+--- statement is on. The layout does not wrap, and removes no break.
 
 local Blocks = require("build.fix.blocks")
+local Breaks = require("build.fix.breaks")
 local Continuation = require("build.fix.continuation")
 local Lexer = require("lang.lexer")
 local Parser = require("lang.parser")
@@ -240,7 +246,7 @@ end
 --- The text of `placed`, the items of `source` in the order they are written, laid out by `roled` and `cursor`,
 --- whose `plan` and levels are those of the tree that `source` parses to, whose tokens are `tokens`.
 local function laid_out(source: string, placed: {Placed}, shebang: string?, tokens: Lexer.Tokens, roled: Roles.Roled,
-                        cursor: Continuation.Cursor): string
+                        cursor: Continuation.Cursor, breaks: Breaks.Plan): string
   local out: mut {string} = {}
   local line: Writer = { col = 0 }
   local function put(text: string)
@@ -253,13 +259,12 @@ local function laid_out(source: string, placed: {Placed}, shebang: string?, toke
   end
 
   --- The column a line that begins with token `t` takes: that of the continuation or the structure, or for a token
-  --- of a type that began on an earlier line, the column it had in the source moved as the line of the type's first
-  --- token moved.
+  --- of a type that began on an earlier line, the column it had in the source moved as the statement that holds
+  --- the type moved.
   local function token_column(t: integer, prev_token: integer): integer
     local region = Roles.region(roled, t)
     if region ~= 0 and prev_token ~= 0 and Roles.region(roled, prev_token) == region then
-      local shift = Continuation.row_shift(cursor, region)
-      return math.max(0, Lexer.x(tokens, t) - 1 + shift)
+      return math.max(0, Lexer.x(tokens, t) - 1 + cursor.shift)
     end
     return Continuation.column(cursor, t)
   end
@@ -285,19 +290,60 @@ local function laid_out(source: string, placed: {Placed}, shebang: string?, toke
     return math.max(0, item.x - 1 + shift)
   end
 
+  -- The tokens a break is due before whether or not the source has one: the statements that share a line, and the
+  -- pieces of each block once it is opened.
+  local forced: mut {integer: boolean} = {}
+  for t, _ in pairs(breaks.parted) do
+    forced[t] = true
+  end
+  local at_index: mut {integer: integer} = {}
+  for i, one in ipairs(placed) do
+    if one.item.kind == "token" and not one.comma then
+      at_index[one.item.token] = i
+    end
+  end
+
+  --- The column the code from `placed[from]` to `placed[to]` ends at, written on one line after what is written.
+  local function flat_end(from: integer, to: integer): integer
+    local col = line.col
+    for k = from, to do
+      local one = placed[k]
+      local before = placed[k - 1]
+      if one ~= nil and before ~= nil then
+        col = col + #gap(source, before, one, roled, cursor.plan) + #one.item.text
+      end
+    end
+    return col
+  end
+
   local before: Placed? = nil
   local prev_token = 0
-  for _, one in ipairs(placed) do
+  for index, one in ipairs(placed) do
     local item = one.item
     if item.kind == "eof" then
       break
     end
-    local starts_line = before == nil or one.newlines > 0
+    local one_break = one.newlines > 0
+    if item.kind == "token" and not one.comma then
+      local block = breaks.constructs[item.token]
+      if block ~= nil and block.shares then
+        local last = at_index[block.last]
+        local end_col = if block.bounded and block.inline and block.flat and last ~= nil then
+          flat_end(index, last) else 0 end
+        if Breaks.opens(block, end_col) then
+          for _, piece in ipairs(block.pieces) do
+            forced[piece] = true
+          end
+        end
+      end
+      one_break = one_break or forced[item.token] == true
+    end
+    local starts_line = before == nil or one_break
     if before == nil then
       if shebang ~= nil and one.blank then
         put("\n")
       end
-    elseif one.newlines > 0 then
+    elseif one_break then
       put(if one.blank then "\n\n" else "\n" end)
     elseif before.item.kind == "comment" then
       -- Not reached for a source that lexed: a comment runs to its line's end.
@@ -315,7 +361,10 @@ local function laid_out(source: string, placed: {Placed}, shebang: string?, toke
     local at = line.col
     put(item.text)
     if item.kind == "token" and not one.comma then
-      Continuation.wrote(cursor, item.token, at, one.from, item.text, starts_line)
+      -- A token that took a line the source did not give it moves as the line it left moved: it began no line there,
+      -- so the column it was at says nothing of how what is measured from it is laid out.
+      local from = if one_break and one.newlines == 0 then at - cursor.row + 1 else one.from end
+      Continuation.wrote(cursor, item.token, at, from, item.text, starts_line)
       prev_token = item.token
     end
     before = one
@@ -338,7 +387,8 @@ function Layout.of(source: string, name: string): string?, string
   local levels = Blocks.of(parsed.chunk)
   local plan = Continuation.of(parsed.chunk)
   local placed = with_commas(with_operators(stream, plan), plan)
-  return laid_out(source, placed, stream.shebang, lexed.tokens, roled, Continuation.start(plan, levels)), ""
+  local breaks = Breaks.of(parsed.chunk)
+  return laid_out(source, placed, stream.shebang, lexed.tokens, roled, Continuation.start(plan, levels), breaks), ""
 end
 
 return Layout
