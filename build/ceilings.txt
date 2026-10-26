@@ -1533,7 +1533,7 @@ lang/parser_cover.tl nil_not_allowed 1
 
 lang/parser_error_test.tl nil_not_allowed 4
 
-lang/parser_fuzz_test.tl nil_not_allowed 2
+lang/parser_fuzz_test.tl nil_not_allowed 1
 
 lang/parser_recovery_test.tl nil_not_allowed 57
 
@@ -1670,8 +1670,6 @@ lang/declarations.tl not_assigned 4
 lang/generics.tl not_assigned 1
 
 lang/parser.tl not_assigned 9
-
-lang/parser_fuzz_test.tl not_assigned 3
 
 lang/relation.tl not_assigned 1
 
@@ -2230,8 +2228,6 @@ lang/literals_test.tl index_may_be_nil 3
 
 lang/parser.tl index_may_be_nil 15
 
-lang/parser_fuzz_test.tl index_may_be_nil 2
-
 lang/parser_recovery_test.tl index_may_be_nil 2
 
 lang/parser_test.tl index_may_be_nil 9
@@ -2553,8 +2549,6 @@ lang/parser.tl view_written 4
 
 lang/parser_cover.tl view_written 1
 
-lang/parser_fuzz_test.tl view_written 3
-
 lang/parser_test.tl view_written 1
 
 lang/relation.tl view_written 12
@@ -2654,8 +2648,6 @@ lang/load_order.tl view_as_mut 3
 lang/load_order_test.tl view_as_mut 5
 
 lang/parser.tl view_as_mut 2
-
-lang/parser_fuzz_test.tl view_as_mut 97
 
 lang/relation.tl view_as_mut 1
 
@@ -4003,8 +3995,6 @@ lang/check_programs.tl overload_none 2
 lang/literals_test.tl overload_none 3
 
 lang/parser_cover.tl overload_none 1
-
-lang/parser_fuzz_test.tl overload_none 1
 
 lang/scopes.tl overload_none 3
 
@@ -6879,8 +6869,6 @@ lang/literals_test.tl and_ternary 1
 
 lang/parser.tl and_ternary 1
 
-lang/parser_fuzz_test.tl and_ternary 1
-
 lang/relation.tl and_ternary 10
 
 lang/relation_fuzz_test.tl and_ternary 7
@@ -7559,7 +7547,7 @@ lang/parser_cover.tl concat_type 12
 
 lang/parser_error_test.tl concat_type 8
 
-lang/parser_fuzz_test.tl concat_type 10
+lang/parser_fuzz_test.tl concat_type 4
 
 lang/parser_speed_test.tl concat_type 1
 
