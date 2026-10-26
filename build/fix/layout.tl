@@ -3,7 +3,8 @@
 --- [`build.fix.roles`].
 ---
 --- What this layer decides, from the role of each token and never from the whitespace the author wrote:
---- - a binary operator has one space each side, a unary operator hugs its operand (`not` keeps its space);
+--- - a binary operator has one space each side, a unary operator hugs its operand (`-x`, `#t`; the operator `not`
+---   keeps its space, and one before `not` hugs it: `-not a`);
 --- - a comma has none before and one after, a `:` none before and one after, a call, an index and a field are
 ---   closed up;
 --- - a table has its entries one space inside its braces (`{ a = 1, 2 }`) and an empty one is `{}`, and a key is
@@ -27,12 +28,9 @@ local Trivia = require("build.fix.trivia")
 
 local record Layout
   --- `source` with the gaps of its lines laid out and "", or nil and why it is refused: the first lexical or
-  --- syntax error, worded `name:line:column: message`.
+  --- syntax error, worded `name:line:column: message`. It lays out the gaps within lines alone and leaves every
+  --- line flush left, so it is no formatter of a file yet.
   of: function(source: string, name: string): string?, string
-
-  --- The text of `stream`, the items of `source` laid out by `roled`, which is the roles of the tree that
-  --- `source` parses to.
-  spaced: function(source: string, stream: Trivia.Stream, roled: Roles.Roled): string
 end
 
 --- The roles after which the next token is closed up to it.
@@ -78,7 +76,9 @@ local function gap(source: string, before: Trivia.Item, item: Trivia.Item, roled
   return " "
 end
 
-function Layout.spaced(source: string, stream: Trivia.Stream, roled: Roles.Roled): string
+--- The text of `stream`, the items of `source` laid out by `roled`, which is the roles of the tree that `source`
+--- parses to.
+local function spaced(source: string, stream: Trivia.Stream, roled: Roles.Roled): string
   local out: mut {string} = {}
   local shebang = stream.shebang
   if shebang ~= nil then
@@ -120,7 +120,7 @@ function Layout.of(source: string, name: string): string?, string
     return nil, string.format("%s:%d:%d: %s", name, first.y, first.x, first.msg)
   end
   local stream = Trivia.of(source, lexed.tokens)
-  return Layout.spaced(source, stream, Roles.of(parsed.chunk)), ""
+  return spaced(source, stream, Roles.of(parsed.chunk)), ""
 end
 
 return Layout

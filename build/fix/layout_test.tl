@@ -14,6 +14,7 @@ Test.policy{
   grants = {
     { path = "build/fix/trivia.tl", letters = "r" }, { path = "build/fix/roles.tl", letters = "r" },
     { path = "build/fix/layout.tl", letters = "r" }, { path = "build/fix/near.tl", letters = "r" },
+    { path = "lang/ast_dump.tl", letters = "r" },
   },
 }
 
@@ -68,6 +69,7 @@ local function test_unary_operators_hug_their_operand_but_not()
   lays("local a = - x+ not   y+# z\n", "local a = -x + not y + #z\n")
   lays("x = - -y\n", "x = - -y\n")
   lays("x = a - -b\n", "x = a - -b\n")
+  lays("x = - not a\n", "x = -not a\n")
   lays("x = -(a + b) * #(t)\n", "x = -(a + b) * #(t)\n")
 end
 
@@ -83,6 +85,8 @@ local function test_table_literal_keys_and_brace_gaps()
   lays("local t = {  }\n", "local t = {}\n")
   lays("local t = {{},{ }}\n", "local t = { {}, {} }\n")
   lays("f({1}, {})\n", "f({ 1 }, {})\n")
+  lays("t = { -- c\n}\n", "t = { -- c\n}\n")
+  lays("t = { 1, 2, }\n", "t = { 1, 2, }\n")
 end
 
 local function test_a_key_or_index_that_begins_with_a_long_string_stands_off_its_brackets()
@@ -104,6 +108,14 @@ local function test_a_types_own_spacing_is_kept()
   lays("local w = t as {  string :  any }\n", "local w = t as {  string :  any }\n")
   lays("local m: metatable<R<K>> = {}\n", "local m: metatable<R<K>> = {}\n")
   lays("local a:  {string}|nil2\n", "local a: {string}|nil2\n")
+end
+
+local function test_a_parenthesized_type_keeps_its_parentheses_in_the_type()
+  lays("local y = x as (T | U)\n", "local y = x as (T | U)\n")
+  lays("local y = x   is  ( T )\n", "local y = x is ( T )\n")
+  lays("local b:(integer)=1\n", "local b: (integer) = 1\n")
+  lays("local type A=((T | U))\n", "local type A = ((T | U))\n")
+  lays("f(x as T)\n", "f(x as T)\n")
 end
 
 local function test_a_shift_is_a_binary_operator_and_not_the_close_of_type_arguments()
@@ -243,10 +255,22 @@ local function test_the_whitespace_an_author_wrote_outside_a_type_does_not_reach
   end
 end
 
+--- The number of lines of `text` that hold something.
+local function lines_of(text: string): integer
+  local count = 0
+  for line in text:gmatch("[^\r\n]+") do
+    if line:find("%S") ~= nil then
+      count = count + 1
+    end
+  end
+  return count
+end
+
 local function test_real_modules_keep_their_tokens_and_comments_and_lay_out_to_a_fixed_point()
-  for _, path in ipairs({ "build/fix/trivia.tl", "build/fix/roles.tl", "build/fix/layout.tl", "build/fix/near.tl" }) do
+  for _, path in ipairs({ "build/fix/trivia.tl", "build/fix/roles.tl", "build/fix/layout.tl", "build/fix/near.tl",
+      "lang/ast_dump.tl" }) do
     local source = assert(Fs.read(path))
     local first = laid(source)
-    assert(first ~= source, path .. " is not flush left, so it changes")
+    assert(lines_of(first) == lines_of(source), path .. " gained or lost a line")
   end
 end

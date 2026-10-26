@@ -73,3 +73,9 @@ local function test_a_field_of_a_class_has_its_question_mark_and_bracketed_name_
     "local=word record=word R=word a=word ?=question :=colon T=word@7 [=key_open \"b c\"=word ]=key_close " ..
     ":=colon U=word@12 end=word", roles_of("local record R\n  a?: T\n  [\"b c\"]: U\nend"))
 end
+
+local function test_the_parentheses_of_a_parenthesized_type_are_in_its_region()
+  assert(roles_of("x = f(a as (T | U))") ==
+    "x=word ==word f=word (=call_open a=word as=word (=word@7 T=word@7 |=word@7 U=word@7 )=word@7 )=paren_close",
+    roles_of("x = f(a as (T | U))"))
+end

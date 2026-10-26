@@ -175,8 +175,14 @@ function Roles.of(chunk: Ast.Chunk): Roles.Roled
   for _, node in ipairs(queue) do
     local base = base_of(node)
     if TYPE_KINDS[base.kind] == true then
-      for i = base.first, base.last do
-        region_of[i] = base.first
+      -- The parentheses of a parenthesized type, `(T | U)`, are in no node: take them in.
+      local first, last = base.first, base.last
+      while first > 1 and last < count and Lexer.text(tokens, first - 1) == "(" and
+          Lexer.text(tokens, last + 1) == ")" do
+        first, last = first - 1, last + 1
+      end
+      for i = first, last do
+        region_of[i] = first
       end
     else
       local kids: mut {Ast.Node} = {}
