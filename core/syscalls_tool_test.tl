@@ -76,7 +76,7 @@ end
 
 --- What a confined `probe` is given to read: itself, and /proc and
 --- /dev/null where this host has them.
-local function probe_reads(probe: string): {string}
+local function probe_reads(probe: string): mut {string}
   local reads: mut {string} = { probe }
   for _, path in ipairs({ "/proc", "/dev/null" }) do
     if sys.stat(path) ~= nil then reads[#reads + 1] = path end

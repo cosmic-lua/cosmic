@@ -72,7 +72,7 @@ end
 local function test_policy_refuses_at_the_connect_pointer()
   local ok, why = Sandbox.check({ connect = { "example.com:443", "*.example.com:443" } })
   assert(not ok)
-  assert(why:find("/connect/1", 1, true), why)
+  assert(why:find("$.connect[1]", 1, true), why)
   ok, why = Sandbox.check({ connect = { "example.com:443", "Example.COM.:*", "[::1]:80", "*:*" } })
   assert(ok, why)
 end

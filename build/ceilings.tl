@@ -232,7 +232,7 @@ function Ceilings.over(file: string, errors: {Ceilings.Finding}, codes: {string}
                        what: string, unpinned?: boolean): Ceilings.Held
   local out: mut {string} = {}
   local found: mut {string: integer} = {}
-  local by_code: mut {string: {Ceilings.Finding}} = {}
+  local by_code: mut {string: mut {Ceilings.Finding}} = {}
   for _, e in ipairs(errors) do
     local held = by_code[e.code] or {}
     held[#held + 1] = e

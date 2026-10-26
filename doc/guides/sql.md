@@ -12,7 +12,7 @@ A caller's own SQL may use every name here. A view or trigger that a
 database file holds may not use some of them, so that reading a file does
 not run what its author chose:
 
-- `bytecode`, `tables_used`, `dbstat`, `csv`, cosmic's own functions,
+- `bytecode`, `tables_used`, `dbstat`, `csv`, cosmic's own functions but the [vector](#vector-search) ones,
   `base64`, `base85`, `sha1_query`, `sha3_query` and `sqlite_log` are
   direct-only: only the caller's own SQL uses them. A `csv` table may
   only be made in the `temp` schema, which no database file holds.
@@ -347,6 +347,70 @@ cosmic's own functions. Each answers NULL for a NULL argument.
 - `deflate(X)`: the raw deflate of X, as `Compress.deflate("raw", X)` writes it.
 - `inflate(X)`: a raw deflate stream decoded, to a blob.
 
+## vector search
+
+Functions for embeddings, under [pgvector](https://github.com/pgvector/pgvector)'s
+names. A vector is a blob of little-endian 32-bit floats, what an
+embedding API's base64 `float32` decodes to, or wherever one is read, a
+text such as `'[1, 2.5, -3]'`, of 1 to 16000 finite numbers. Each answers
+NULL for a NULL argument, and refuses vectors of different dimensions.
+Unlike cosmic's other functions
+they are innocuous, so a view, a generated column or an expression index
+in a database file may use them.
+
+- `vector(X)`: X as a blob of floats, so a text is parsed once. It
+  refuses a blob that holds a NaN or an infinity; the distance functions
+  do not look, to keep a scan fast, and answer NaN for such a vector.
+- `vector_text(X)`: X as text, `[1,2.5,-3]`.
+- `vector_dims(X)`: the number of dimensions.
+- `l2_distance(A, B)`: the Euclidean distance.
+- `l1_distance(A, B)`: the taxicab distance, the sum of the differences.
+- `inner_product(A, B)`: the dot product; the cosine, for normalized vectors.
+- `cosine_distance(A, B)`: one minus the cosine, from 0 to 2; NULL for a
+  vector of zeros.
+- `l2_normalize(X)`: X scaled to length 1.
+- `subvector(X, S, N)`: N dimensions from the Sth, counted from 1: the
+  head of a Matryoshka embedding. The range is clipped as SQL's
+  `substr` clips it, and it is an error only to leave no dimension.
+- `binary_quantize(X)`: a bit per dimension, set where it is above zero,
+  the first in the high bit of the first byte.
+- `hamming_distance(A, B)`: how many bits two bit vectors of the same
+  length differ in. A bit vector is only its bytes, so one of 9 bits and
+  one of 16 have the same length and compare.
+- `jaccard_distance(A, B)`: one minus the share of set bits two bit
+  vectors of the same length have in common.
+
+A search is an `ORDER BY` over every row a `WHERE` keeps, so a filter
+never loses a match, and a hybrid search blends it with FTS5's ranking.
+Write `NULLS LAST` after an `ORDER BY` over `cosine_distance`: SQLite
+sorts NULL before every number, so without it the rows of zeros, which
+have no direction and so no distance, would rank first.
+Reading the rows costs more than the arithmetic: a 768-dimension vector
+is 3 KB, about a whole 4096-byte page, so a scan reads a page per row,
+and reading any other column of that row, such as bits stored beside
+the floats, costs the same. Bit vectors in a table of their own pack
+about 40 rows to a page, which a first pass reads without touching the
+floats.
+`Example.vector_search` in [`cosmic/sqlite_example.tl`] runs one end to
+end.
+
+```text
+CREATE TABLE chunks (id INTEGER PRIMARY KEY, body TEXT, tenant TEXT, embedding BLOB);
+INSERT INTO chunks VALUES (1, 'cats purr', 'a', l2_normalize('[0.1, 0.9, 0.2]'));
+
+SELECT id, body FROM chunks WHERE tenant = 'a'
+ORDER BY cosine_distance(embedding, '[0.2, 0.8, 0.1]') NULLS LAST LIMIT 10;
+
+-- A bit vector per row, 32 times smaller, then the floats to rerank.
+CREATE TABLE chunk_bits (id INTEGER PRIMARY KEY, bits BLOB);
+INSERT INTO chunk_bits SELECT id, binary_quantize(embedding) FROM chunks;
+
+SELECT c.id FROM (
+  SELECT id FROM chunk_bits ORDER BY hamming_distance(bits, binary_quantize(?1)) LIMIT 100
+) b JOIN chunks c ON c.id = b.id
+ORDER BY cosine_distance(c.embedding, ?1) NULLS LAST LIMIT 10;
+```
+
 ## SQLite's extensions
 
 Extensions from SQLite's source tree (`ext/misc/`), compiled into the
@@ -454,3 +518,4 @@ and `decimal` and `uint` from [SQLite's extensions](#sqlites-extensions).
 [`cosmic.json`]: ../../cosmic/json.tl
 [`cosmic.sqlite`]: ../../cosmic/sqlite.tl
 [`cosmic.store`]: ../../cosmic/store.tl
+[`cosmic/sqlite_example.tl`]: ../../cosmic/sqlite_example.tl

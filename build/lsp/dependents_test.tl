@@ -28,7 +28,7 @@ local function helped(names: {string}): string
 end
 
 --- The messages that open `names` below `root` as they are on disk.
-local function opened(root: string, names: {string}): {string}
+local function opened(root: string, names: {string}): mut {string}
   local out: mut {string} = { initialize(root), open(root, "helper.tl", integer) }
   for _, name in ipairs(names) do
     out[#out + 1] = open(root, name .. ".tl", (assert(Fs.read(root .. "/" .. name .. ".tl"))))

@@ -470,7 +470,7 @@ function test_key.value_imports(db: Sqlite.Handle): {string:{string}}?, string
   local rows, trouble = Sqlite.text_rows(db,
     "SELECT i.path, i.requires FROM imports i WHERE NOT EXISTS " .. erased_require)
   if rows == nil then return nil, trouble end
-  local out: mut {string:{string}} = {}
+  local out: mut {string:mut {string}} = {}
   for _, row in ipairs(rows) do
     local list = out[row:text(1)] or {}
     out[row:text(1)] = list
@@ -490,7 +490,7 @@ function test_key.type_only_imports(db: Sqlite.Handle): {string:{string:boolean}
   local rows, trouble = Sqlite.text_rows(db,
     "SELECT i.path, i.requires FROM imports i WHERE EXISTS " .. erased_require)
   if rows == nil then return nil, trouble end
-  local out: mut {string:{string:boolean}} = {}
+  local out: mut {string:mut {string:boolean}} = {}
   for _, row in ipairs(rows) do
     local set = out[row:text(1)] or {}
     out[row:text(1)] = set

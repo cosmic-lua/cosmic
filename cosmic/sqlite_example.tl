@@ -166,4 +166,31 @@ function Example.captured_results()
   assert(db:close())
 end
 
+--- Vector search in SQL: store each chunk's embedding as a blob of
+--- floats, normalized once, then rank by distance under any filter. A
+--- real program stores what an embedding API answers; these three
+--- dimensions stand in for its hundreds.
+function Example.vector_search()
+  local db = assert(Sqlite.memory())
+  assert(db:exec([[
+    CREATE TABLE chunks (id INTEGER PRIMARY KEY, body TEXT, tenant TEXT, embedding BLOB);
+    INSERT INTO chunks VALUES
+      (1, 'cats purr in the sun', 'a', l2_normalize('[0.9, 0.1, 0.0]')),
+      (2, 'dogs fetch the ball', 'a', l2_normalize('[0.7, 0.6, 0.1]')),
+      (3, 'mars is a cold planet', 'a', l2_normalize('[0.0, 0.2, 0.9]')),
+      (4, 'kittens nap all day', 'b', l2_normalize('[0.8, 0.2, 0.1]'));
+  ]]))
+  local query = "[0.85, 0.15, 0.05]"
+  local found = assert(Sqlite.map(db, [[
+    SELECT body, cosine_distance(embedding, ?1) FROM chunks
+    WHERE tenant = 'a' ORDER BY 2 NULLS LAST LIMIT 2
+  ]], { { text = query } }, function(r: Sqlite.Row): string
+    return string.format("%s (%.3f)", r:text(1), r:number(2))
+  end))
+  print(table.concat(found, "; ")) -- cats purr in the sun (0.004); dogs fetch the ball (0.139)
+  local first = assert(found[1])
+  assert(first:find("cats", 1, true) == 1, first)
+  assert(db:close())
+end
+
 return Example

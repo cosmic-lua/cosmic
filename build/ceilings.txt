@@ -244,7 +244,7 @@ build/link_text.tl 3
 
 build/links.tl 2
 
-build/pipeline.tl 2
+build/pipeline.tl 1
 
 build/policy_rules.tl 5
 
@@ -265,8 +265,6 @@ build/sql.tl 1
 build/stand_in_probe.tl 1
 
 build/syntax_analyzer.tl 3
-
-build/syntax_contracts.tl 1
 
 build/syntax_link_text.tl 2
 
@@ -406,8 +404,6 @@ build/c/inputs.tl view_written 1
 build/json_query_test.tl setmetatable_call 1
 
 build/pipeline.tl condition_type 1
-
-build/pipeline.tl overload_none 1
 
 build/pipeline.tl view_as_mut 1
 
@@ -2308,15 +2304,9 @@ build/c/rules.tl view_written 1
 
 build/c_functions.tl view_written 1
 
-build/c_functions_test.tl view_written 1
-
 build/cache_lifetime.tl view_written 7
 
 build/cache_maintenance.tl view_written 5
-
-build/ceilings.tl view_written 1
-
-build/check_draws.tl view_written 4
 
 build/closure_store.tl view_written 4
 
@@ -2346,25 +2336,15 @@ build/declared_key_test.tl view_written 2
 
 build/dependency_keys_test.tl view_written 1
 
-build/derivation.tl view_written 6
-
-build/dispatch.tl view_written 5
+build/dispatch.tl view_written 3
 
 build/dispatched_features_test.tl view_written 1
 
-build/docs.tl view_written 9
-
-build/docs_checks_test.tl view_written 3
+build/docs.tl view_written 7
 
 build/driver.tl view_written 6
 
-build/example_checks.tl view_written 3
-
-build/fact_hook_tool_test.tl view_written 3
-
 build/fetch_test.tl view_written 1
-
-build/fix/grammar_tool_test.tl view_written 1
 
 build/fix/init.tl view_written 9
 
@@ -2396,11 +2376,7 @@ build/link_index.tl view_written 3
 
 build/links.tl view_written 3
 
-build/lookups_new_grammar_tool_test.tl view_written 4
-
 build/lsp/check.tl view_written 2
-
-build/lsp/dependents_test.tl view_written 1
 
 build/lsp/graph.tl view_written 1
 
@@ -2408,49 +2384,31 @@ build/lsp/source.tl view_written 1
 
 build/lsp/syntax_read.tl view_written 1
 
-build/lsp/tool_test.tl view_written 1
-
 build/must_confine_sandboxed_test.tl view_written 1
 
 build/must_confine_test.tl view_written 1
 
-build/pipeline.tl view_written 3
+build/pipeline.tl view_written 2
 
 build/pipeline_check.tl view_written 1
 
 build/policy_rules.tl view_written 2
 
-build/project_grammar_tool_test.tl view_written 4
-
-build/project_new_grammar_tool_test.tl view_written 4
-
 build/rand.tl view_written 2
 
 build/reboot.tl view_written 1
 
-build/refresh_store_test.tl view_written 4
-
 build/roots.tl view_written 4
-
-build/run_file_tool_test.tl view_written 2
-
-build/runtime_checks_tool_test.tl view_written 1
-
-build/sandbox_probe.tl view_written 1
-
-build/sandbox_seal_tool_test.tl view_written 1
-
-build/sealed_nests_worker_test.tl view_written 1
 
 build/shared_compiles.tl view_written 1
 
 build/sql.tl view_written 1
 
-build/symbol_index.tl view_written 8
+build/symbol_index.tl view_written 3
 
 build/syntax_analyzer.tl view_written 2
 
-build/syntax_contracts.tl view_written 8
+build/syntax_contracts.tl view_written 2
 
 build/syntax_link_text.tl view_written 2
 
@@ -2462,17 +2420,11 @@ build/test_inputs.tl view_written 7
 
 build/test_inputs_test.tl view_written 6
 
-build/test_key.tl view_written 12
-
-build/test_no_assert_tool_test.tl view_written 1
-
-build/test_requires_tool_test.tl view_written 1
+build/test_key.tl view_written 10
 
 build/test_sandbox_probe.tl view_written 1
 
 build/test_sandbox_tool_test.tl view_written 1
-
-build/test_skip_tool_test.tl view_written 1
 
 build/test_test.tl view_written 1
 
@@ -2480,7 +2432,7 @@ build/test_worker.tl view_written 8
 
 build/time.tl view_written 2
 
-build/tree_checks.tl view_written 10
+build/tree_checks.tl view_written 8
 
 build/tree_checks_test.tl view_written 1
 
@@ -2490,27 +2442,19 @@ build/work.tl view_written 3
 
 build/work_test.tl view_written 2
 
-build/workflows_test.tl view_written 3
+build/workflows_test.tl view_written 2
 
 core/connector_public_fuzz_test.tl view_written 2
 
 core/promises_held_child_test.tl view_written 2
 
-core/startup_test.tl view_written 3
-
-core/syscalls_tool_test.tl view_written 1
-
 cosmic/child.tl view_written 8
 
-cosmic/child_policy_anywhere_test.tl view_written 2
+cosmic/child_policy_anywhere_test.tl view_written 1
 
 cosmic/child_relay_seatbelt_test.tl view_written 2
 
-cosmic/child_sandbox_tool_test.tl view_written 6
-
 cosmic/child_task_tool_test.tl view_written 3
-
-cosmic/child_tool_test.tl view_written 1
 
 cosmic/flags.tl view_written 3
 
@@ -2547,8 +2491,6 @@ cosmic/net_serve_test.tl view_written 2
 cosmic/poll.tl view_written 19
 
 cosmic/poll_test.tl view_written 1
-
-cosmic/seatbelt_network_probe_test.tl view_written 27
 
 cosmic/signal.tl view_written 2
 
@@ -2596,9 +2538,7 @@ cosmic/web/session/sqlite.tl view_written 1
 
 cosmic/web/sse_test.tl view_written 1
 
-cosmic/web/static.tl view_written 2
-
-cosmic/web/testing.tl view_written 4
+cosmic/web/testing.tl view_written 3
 
 cosmic/zip_fuzz_test.tl view_written 1
 
@@ -2670,7 +2610,7 @@ build/c/init.tl view_as_mut 1
 
 build/c/rules.tl view_as_mut 1
 
-build/check_draws.tl view_as_mut 8
+build/check_draws.tl view_as_mut 2
 
 build/declared_key_fuzz_test.tl view_as_mut 2
 
@@ -2715,8 +2655,6 @@ cosmic/net_resolve_through_test.tl view_as_mut 3
 cosmic/poll.tl view_as_mut 4
 
 cosmic/poll_test.tl view_as_mut 3
-
-cosmic/seatbelt_network_probe_test.tl view_as_mut 3
 
 cosmic/signal.tl view_as_mut 1
 
@@ -4054,8 +3992,6 @@ build/shared_compiles.tl overload_none 2
 
 build/stand_in_probe.tl overload_none 1
 
-build/syntax_contracts.tl overload_none 1
-
 build/syntax_rewrite.tl overload_none 2
 
 build/test_closure_diagnostic_test.tl overload_none 1
@@ -4544,6 +4480,8 @@ cosmic/time.tl any_use 4
 cosmic/time_fuzz_test.tl any_use 10
 
 cosmic/url_fuzz_test.tl any_use 3
+
+cosmic/vector.tl any_use 1
 
 cosmic/web/app.tl any_use 2
 
@@ -5058,6 +4996,8 @@ cosmic/time_tzif_fuzz_test.tl cast_refused 1
 cosmic/time_zone_test.tl cast_refused 7
 
 cosmic/url_test.tl cast_refused 2
+
+cosmic/vector.tl cast_refused 1
 
 cosmic/web/app_test.tl cast_refused 6
 
@@ -7555,7 +7495,7 @@ cosmic/relay/address_fuzz_test.tl concat_type 2
 
 cosmic/sandbox/init.tl concat_type 8
 
-cosmic/sandbox/policy.tl concat_type 13
+cosmic/sandbox/policy.tl concat_type 7
 
 cosmic/sandbox/seatbelt.tl concat_type 7
 
@@ -7564,8 +7504,6 @@ cosmic/sandbox_restrict_test.tl concat_type 6
 cosmic/sandbox_test.tl concat_type 5
 
 cosmic/seatbelt_network_probe_test.tl concat_type 13
-
-cosmic/shape.tl concat_type 1
 
 cosmic/sqlite.tl concat_type 15
 

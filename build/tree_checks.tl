@@ -628,7 +628,7 @@ function tree_checks.anchors(db: Sqlite.Handle, expected?: {string}): {string}
       callable[#callable + 1] = r.signature
     end
   end
-  local by_name: mut {string: {Row}} = {}
+  local by_name: mut {string: mut {Row}} = {}
   local found: mut {string: boolean} = {}
   for _, owner in ipairs(all) do
     if owner.kind == "record" then
@@ -995,7 +995,8 @@ local requirers: {string: Restriction} = {
     files = { "build.dispatch", "build.fact_hook_test", "build.fuzz", "build.load_module",
       "build.raw_tables_test", "build.sandbox", "build.sandboxed_verdicts_test", "build.sealed_worker_test", "build.standalone",
       "build.test_closure_diagnostic_test", "build.test_closure_test", "build.type_watch", "core.load_env_test", "core.surface_test",
-      "cosmic.coverage_test", "cosmic.flags_test", "cosmic.test_tool_test", "test.coverage_cache_test" },
+      "cosmic.coverage_test", "cosmic.flags_test", "cosmic.test_tool_test", "lang.boundaries_fuzz_test", "lang.boundaries_test",
+      "test.coverage_cache_test" },
     why = "only the modules that run a program or a hook as a chunk of Lua text take the globals whole, as its " ..
       "environment: it holds `require`, which a chunk loads modules the build does not see by; any other module " ..
       "passes the chunk the few names it needs",
@@ -2083,7 +2084,7 @@ function tree_checks.scoped(root: string, pinned?: {string: integer}, memo?: Sql
     if outcome.consistent ~= "" then
       out[#out + 1] = file .. ": its scopes are not consistent with its tree: " .. outcome.consistent
     end
-    local by_code: mut {string: {Scopes.Error}} = {}
+    local by_code: mut {string: mut {Scopes.Error}} = {}
     for _, e in ipairs(outcome.errors) do
       local held = by_code[e.code] or {}
       held[#held + 1] = e

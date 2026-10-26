@@ -459,7 +459,7 @@ function Pipeline.coded_of(tool: string, db: Sqlite.Handle): string?, string
 end
 
 function Pipeline.pinned(ceilings: Ceilings.Table): {string: string}
-  local lines: mut {string: {string}} = {}
+  local lines: mut {string: mut {string}} = {}
   for stage, held in pairs(ceilings.stages) do
     for key, count in pairs(held) do
       local file = key:match("^(%S+)") or key

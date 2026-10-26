@@ -146,7 +146,7 @@ local function test_a_policy_that_is_not_met_fails_naming_the_field(tmp: string)
   skip_where_seatbelt_holds("a policy that is not met")
   local probe = stand_in_of(tmp)
   local base = itself(probe)
-  local function grants(): {Sandbox.Grant}
+  local function grants(): mut {Sandbox.Grant}
     local copy: mut {Sandbox.Grant} = {}
     for i, grant in ipairs(base) do copy[i] = grant end
     return copy
@@ -227,7 +227,7 @@ end
 local function test_a_policy_that_does_not_merge_fails_naming_the_field(tmp: string)
   local probe = stand_in_of(tmp)
   local none, why = Child.start({ probe }, { policy = { grants = { { path = probe, letters = "q" } } } })
-  assert(none == nil and why:find("/grants/0/letters", 1, true), why)
+  assert(none == nil and why:find("$.grants[0].letters", 1, true), why)
   local profile, trouble = Child.start({ probe }, { policy = { profiles = { "bogus" } } })
   assert(profile == nil and trouble:find("bogus", 1, true), trouble)
 end

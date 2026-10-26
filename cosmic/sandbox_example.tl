@@ -20,7 +20,7 @@ function Example.merge()
   print(grant.letters, table.concat(both.promises or {}, ",")) -- rx  fork,jit
   assert(grant.letters == "rx" and table.concat(both.promises or {}, ",") == "fork,jit")
   local clash, why = Sandbox.merge({ limits = { open_files = 64 } }, { limits = { open_files = 128 } })
-  print(why) -- sandbox: limits.open_files is given two values, 64 and 128
+  print(why) -- sandbox: $.limits.open_files: given two values, 64 and 128
   assert(clash == nil)
   assert(why:find("limits.open_files", 1, true), why)
 end

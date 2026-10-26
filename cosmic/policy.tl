@@ -1,7 +1,7 @@
 --- A policy as JSON text, read and written: [`PolicyJson.decode`] reads a
 --- [`Sandbox.Policy`] strictly -- a key it does not know, a value of the
 --- wrong type or a letter outside "rwxcu" is refused, naming the field by
---- its JSON Pointer -- and [`PolicyJson.encode`] writes a merged policy
+--- its path -- and [`PolicyJson.encode`] writes a merged policy
 --- as canonical JSON, the same text for the same policy, with `set_env`'s
 --- values as digests. It is apart from [`cosmic.sandbox`], the policy's
 --- data and merge, so that a program that only runs a child under a
@@ -13,6 +13,7 @@
 ---     print(policy.grants[1].path, policy.tmp) -- data  true
 
 local Codec = require("cosmic.codec")
+local FieldPath = require("cosmic.internal.field_path")
 local Fs = require("cosmic.fs")
 local Hash = require("cosmic.hash")
 local Json = require("cosmic.json")
@@ -64,17 +65,15 @@ local POLICY_SPEC <const> = Shape.strict_record({
   database = Shape.optional(DATABASE_SPEC),
 })
 
--- TODO: name the field by its path in Sandbox.check's messages too, once a
--- change bumps the harness epoch for it: cosmic.sandbox is a harness module
--- (build/harness_epoch.tl).
+local DATABASE <const> = FieldPath.field(FieldPath.root, "database")
 
 --- The policy `json` holds. Strict: a key this module does not know, a
 --- value of the wrong type, an `isolate` or a promise it does not name,
 --- a profile it has not, and a grant whose `letters` are not in the order
 --- of "rwxcu", each once, are refused. The field is named by its path
---- where a value's shape is wrong (`$.limits.open_files: want integer,
---- got string`) and by its JSON Pointer where its content is
---- (`pointer "/grants/0/letters": ...`), arrays counted from 0 in both.
+--- in both cases, a shape that is wrong (`$.limits.open_files: want integer,
+--- got string`) or a content that is (`$.grants[0].letters: ...`), arrays
+--- counted from 0.
 --- A hand-built [`Sandbox.Policy`] is judged by [`Sandbox.merge`]
 --- instead, which takes any order of letters and writes them in this one.
 --- A `database` is `{"path": ..., "sha256": ...}`: the file must be there
@@ -87,7 +86,7 @@ local POLICY_SPEC <const> = Shape.strict_record({
 ---     local policy = assert(PolicyJson.decode('{"env":["HOME"],"tmp":true}'))
 ---     print(policy.env[1], policy.tmp) -- HOME  true
 ---     local bad, why = PolicyJson.decode('{"grants":[{"path":"x","letters":"xr"}]}')
----     print(why) -- sandbox: pointer "/grants/0/letters": "xr" is not in the order of "rwxcu", each letter once: "rx"
+---     print(why) -- sandbox: $.grants[0].letters: "xr" is not in the order of "rwxcu", each letter once: "rx"
 function PolicyJson.decode(json: string): Sandbox.Policy?, string
   local policy, why: Sandbox.Policy?, string = Shape.decode_into(json, POLICY_SPEC)
   if policy == nil then return nil, "sandbox: " .. why end
@@ -97,10 +96,10 @@ function PolicyJson.decode(json: string): Sandbox.Policy?, string
   if database ~= nil then
     local bytes, trouble = Fs.read(database.path)
     if bytes == nil then
-      return nil, "sandbox: pointer \"/database/path\": " .. trouble
+      return nil, "sandbox: " .. FieldPath.field(DATABASE, "path") .. ": " .. trouble
     end
     if Hash.hex_sha256(bytes) ~= database.sha256 then
-      return nil, "sandbox: pointer \"/database/sha256\": " .. database.path ..
+      return nil, "sandbox: " .. FieldPath.field(DATABASE, "sha256") .. ": " .. database.path ..
         " is not the database the text names: its SHA-256 differs"
     end
   end

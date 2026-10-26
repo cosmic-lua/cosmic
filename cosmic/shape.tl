@@ -74,6 +74,7 @@
 --- - `into` never raises on a value, whatever it holds. A spec that was
 ---   not built by these functions is a programming error, and raises.
 
+local FieldPath = require("cosmic.internal.field_path")
 local Json = require("cosmic.json")
 
 local record Shape
@@ -255,25 +256,9 @@ function Shape.one_of(...: string | number | boolean): Spec
   return { kind = "one_of", optional = false, values = values }
 end
 
-local quoted = Json.quote
+local quoted = FieldPath.quote
 
---- Whether `name` reads as a bare field in a path, as an identifier does.
-local function is_identifier(name: string): boolean
-  return name:find("^[%a_][%w_]*$") ~= nil
-end
-
---- The path `path` extended by the member `name`: `.name` for an
---- identifier, else `["name"]` quoted as JSON quotes a string.
-local function field_path(path: string, name: string): string
-  if is_identifier(name) then return path .. "." .. name end
-  return path .. "[" .. quoted(name) .. "]"
-end
-
---- The path `path` extended by the list element at `index`, counted from
---- 1 as Lua counts it and from 0 as the JSON document does.
-local function index_path(path: string, index: integer): string
-  return path .. "[" .. (index - 1) .. "]"
-end
+local field_path, index_path = FieldPath.field, FieldPath.index
 
 --- What a value is, for a message: the Lua type, with integer and float
 --- told apart, and arrays by their JSON name.
