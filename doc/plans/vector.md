@@ -46,7 +46,12 @@ corpus outgrows brute force.
 - **The functions are innocuous.** They are pure arithmetic on their
   arguments, so a database file's views, generated columns and
   expression indexes may call them. cosmic's other functions are
-  direct-only.
+  direct-only. A hostile file's worst use of them is bounded: memory is
+  at most the 16000-dimension limit and SQLite's length limit on a
+  value, and the CPU they spend is no new risk, since plain SQL in the
+  same file (a recursive CTE, a cross join) can already burn CPU
+  without end. Pure functions are what `SQLITE_INNOCUOUS` is for;
+  direct-only is for functions with effects.
 - **Identical results across targets are not required** for floating
   point. A kernel may sum in whatever order its target's vectors make
   fastest. The same core gives the same answer on every run: no threads,
@@ -150,9 +155,17 @@ Details:
 - **Shape errors raise,** such as a wrong vector length or `k < 1`, as
   argument-shape errors do across the tree. `load` answers `nil, why`
   for a failed query or a row whose blob is not a vector.
-- **Memory** should be allocated through Lua, so the garbage collector
-  sees its size. The prototype allocates outside it (see the status
-  below).
+- **Memory** is allocated through Lua, so the garbage collector sees
+  its size: each buffer is a userdata held in a user value of the
+  corpus (see the status below).
+- **Long calls can be cancelled.** `search` and `kmeans` ask
+  [`cosmic_signal_caught`] every few hundred rows (and once per
+  centroid and iteration of `kmeans`), as core/http.c and core/socket.c
+  do in their waits. Inside a [`Signal.guard`], a pending SIGINT or
+  SIGTERM raises "interrupted" and leaves the corpus as it was; the
+  signal is not taken. They raise instead of answering `nil, why`
+  because a search has no partial answer worth a second return value,
+  and [`Vector.Hits`] is not optional in any caller.
 - **Tests:**
   - agreement with the SQL functions on the same data;
   - the top-k order on ties;
@@ -163,13 +176,22 @@ Details:
 - **Target:** under 15 ms for 100k × 768 exact, and under 3 ms with a
   binary first pass. Measure both and state the numbers in the PR.
 
-**Status:** built. The corpus's memory is `cosmic_realloc`'d outside
-Lua's allocator, so the garbage collector sees only the userdata header
-(a `TODO:` in [`core/vector.c`]). Measured on 100k × 768: exact inner
-product 57 ms, cosine 66 ms, L2 61 ms; with `candidates = 200`, 4.1 ms
-(inner product) and 2.5 ms (cosine); recall@10 was 10/10 on clustered
-synthetic data. The 15 ms exact target is missed: the scan is
-bandwidth-bound, at about 5.4 GB/s on the test VM.
+**Status:** built. The corpus's buffers (vectors, inverse lengths, ids
+and bit vectors) are Lua userdata held in the corpus's user values, so
+the garbage collector counts every byte, the checked core refuses them
+like any Lua allocation (core/allocation_test.tl walks creation, growth
+past the first capacity, a search with `candidates`, `allow`,
+`kmeans` and `nearest_n`), and nothing is left on the C heap. The
+price is that growing allocates the larger buffer beside the old one,
+which lingers until collected, where `realloc` could extend in place.
+A pending signal in a [`Signal.guard`] interrupts `search` and `kmeans`
+(see the decision above; tested in cosmic/vector_test.tl). Measured on
+100k × 768: exact inner product 52 ms (54 ms when the buffers
+were `cosmic_realloc`'d), with `candidates = 200` 2.6 ms (4.1
+ms before); recall@10 was 10/10 on clustered synthetic data. Earlier
+measurements: cosine 66 ms, L2 61 ms, 2.5 ms cosine with candidates. The 15
+ms exact target is missed: the scan is bandwidth-bound, at about 5.4 GB/s
+on the test VM.
 
 ## Phase 3: IVF over a cluster column
 
@@ -192,7 +214,8 @@ centroid holding a non-finite number. Also
 on 20 well-separated clusters of 100 points in 64 dimensions, recall@10
 against exact search is 0.96 with 1 probe and 1.0 with 3 probes;
 `kmeans` of 100k x 768 with k = 100 takes about 4 s per iteration on
-the development host.
+the development host. A `kmeans` of that size can be cancelled within
+a few rows' work, not at the end of an iteration.
 
 The scheme: k-means picks centroids; each row stores the id of its
 nearest centroid in an integer column with an ordinary index; a query
@@ -298,6 +321,7 @@ A separate track, pulled by its own callers. From the same discussion:
 [pgvector]: https://github.com/pgvector/pgvector
 [`build.zig`]: ../../build.zig
 [`core/vector.c`]: ../../core/vector.c
+[`cosmic_signal_caught`]: ../../core/process.h
 [`cosmic.codec`]: ../../cosmic/codec.tl
 [`cosmic.hash`]: ../../cosmic/hash.tl
 [`cosmic.http`]: ../../cosmic/http/init.tl
@@ -313,3 +337,5 @@ A separate track, pulled by its own callers. From the same discussion:
 [`cosmic/vector.tl`]: ../../cosmic/vector.tl
 [`cosmic/vector_example.tl`]: ../../cosmic/vector_example.tl
 [`cosmic/vector_ivf_test.tl`]: ../../cosmic/vector_ivf_test.tl
+[`Signal.guard`]: ../../cosmic/signal.tl
+[`Vector.Hits`]: ../../cosmic/vector.tl

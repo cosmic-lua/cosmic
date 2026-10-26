@@ -11,6 +11,26 @@
 ---     corpus:add(2, Vector.pack({ 0, 1, 0 }))
 ---     local hits = corpus:search(Vector.pack({ 0.9, 0.1, 0 }), 1)
 ---     -- hits.ids[1] == 1
+---
+--- A corpus lives in the Lua heap: the collector counts every byte of its
+--- vectors, ids and bit vectors, so a large one makes it collect as any
+--- large value does, and a corpus nothing refers to gives them all back.
+---
+--- Out of memory: a call that cannot get the memory it needs raises
+--- "not enough memory", as any Lua allocation does, and leaves the corpus
+--- as it was (an `add` that raised added nothing; a later call works
+--- once memory is back). Growing a corpus briefly holds the old buffers
+--- beside the new, so it needs up to half again what it holds.
+---
+--- Interruption: inside a [`Signal.guard`] of [`cosmic.signal`], a pending
+--- SIGINT or SIGTERM ends [`Vector.Corpus.search`] and [`Vector.kmeans`]
+--- with an error that reads "interrupted", within a fraction of a
+--- millisecond of work, without taking the signal (the guard's holder
+--- still sees it) and without changing the corpus. They raise rather
+--- than answer `nil`: they have no partial answer, and a raise is the
+--- one shape a caller who did not expect a signal cannot mistake for a
+--- result. Wrap a long one in `pcall` to tell it from a bug by that
+--- message. Without a guard open nothing interrupts them.
 
 local Sqlite = require("cosmic.sqlite")
 
@@ -74,6 +94,8 @@ local record Vector
     --- `corpus:count()`: how many vectors the corpus holds.
     count: function(Corpus): integer
     --- `corpus:search(query, k, opts)`: the `k` nearest, as [`Vector.Hits`].
+    --- Raises "interrupted" on a caught signal and "not enough memory"
+    --- when the heap refuses, as the module's description says.
     search: function(Corpus, query: string, k: integer, opts?: SearchOptions): Hits
   end
 
@@ -144,7 +166,10 @@ end
 --- zero vector (or one too short to scale to length 1) has no direction:
 --- it is never a seed and counts toward no cluster, and [`Vector.nearest`]
 --- gives it the first centroid.
---- Cost is count x k x dims per iteration, in C.
+--- Cost is count x k x dims per iteration, in C. Raises "interrupted" at
+--- the next row or centroid once a [`Signal.guard`] has caught a signal
+--- (see the module's description), and "not enough memory" when the heap
+--- refuses its scratch; the corpus is unchanged either way.
 function Vector.kmeans(corpus: Vector.Corpus, k: integer, opts?: Vector.KmeansOptions): {string}
   local o = opts or {}
   return corpus.handle:kmeans(k, o.seed or 1, o.iterations or 20)

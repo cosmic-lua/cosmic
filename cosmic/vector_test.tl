@@ -3,7 +3,9 @@
 --- the binary first pass finding the true neighbors of clustered data,
 --- the `allow` filter, and the refusals.
 
+local Signal = require("cosmic.signal")
 local Sqlite = require("cosmic.sqlite")
+local sys = require("cosmic.sys")
 local Vector = require("cosmic.vector")
 
 local function close_to(a: number, b: number): boolean
@@ -338,4 +340,62 @@ local function test_shape_errors_raise()
   assert(refusal(function() Vector.pack({}) end):find("at least 1 dimension", 1, true) ~= nil)
   assert(refusal(function() Vector.unpack("abc") end):find("floats", 1, true) ~= nil)
   assert(corpus:count() == 1)
+end
+
+--- The collector sees a corpus's buffers: every byte of its vectors, ids
+--- and bit vectors is Lua's, so a corpus of many vectors is not a
+--- header's worth of memory to it, and dropping it gives the bytes back.
+local function test_the_collector_counts_the_corpus_buffers()
+  local dims, rows = 256, 2000
+  local function fill(): number
+    local corpus = Vector.corpus(dims)
+    local next_number = stream(9)
+    for i = 1, rows do
+      corpus:add(i, Vector.pack(random_vector(next_number, dims)))
+    end
+    corpus:search(Vector.pack(random_vector(next_number, dims)), 1, { candidates = 10 })
+    assert(corpus:count() == rows)
+    collectgarbage("collect")
+    return collectgarbage("count")
+  end
+  collectgarbage("collect")
+  local before = collectgarbage("count")
+  local held = fill() - before
+  -- The vectors alone are rows * dims * 4 bytes.
+  assert(held >= rows * dims * 4 / 1024, "the collector counted " .. tostring(held) .. " KB")
+  collectgarbage("collect")
+  assert(collectgarbage("count") - before < held / 2, "the buffers were not released")
+end
+
+--- A guard of cosmic.signal that has caught a signal ends a search or a
+--- k-means with an "interrupted" error, and neither changes the corpus:
+--- once the signal is taken, the same calls answer as they did before.
+local function test_a_caught_signal_interrupts_long_calls_and_leaves_the_corpus()
+  local next_number = stream(21)
+  local corpus = Vector.corpus(8)
+  for i = 1, 600 do
+    corpus:add(i, Vector.normalize(Vector.pack(random_vector(next_number, 8))))
+  end
+  local query = Vector.normalize(Vector.pack(random_vector(next_number, 8)))
+  local exact = corpus:search(query, 5)
+  local approximate = corpus:search(query, 5, { candidates = 50 })
+  local centroids = Vector.kmeans(corpus, 3, { seed = 4, iterations = 5 })
+
+  local guard = assert(Signal.guard())
+  assert(sys.kill(sys.getpid(), sys.SIGTERM))
+  assert(refusal(function() corpus:search(query, 5) end):find("interrupted", 1, true) ~= nil)
+  assert(refusal(function() corpus:search(query, 5, { candidates = 50 }) end):find("interrupted", 1, true) ~= nil)
+  assert(refusal(function() Vector.kmeans(corpus, 3, { seed = 4, iterations = 5 }) end):find("interrupted", 1, true) ~= nil)
+  -- An add is short and not interruptible: it still lands.
+  corpus:add(601, query)
+  assert(corpus:count() == 601)
+  assert(guard:take() == sys.SIGTERM)
+  assert(guard:release() == sys.SIGTERM)
+
+  local again = corpus:search(query, 5)
+  assert(again.ids[1] == 601 and #again.ids == #exact.ids)
+  local fast = corpus:search(query, 5, { candidates = 50 })
+  assert(#fast.ids == #approximate.ids)
+  local recentred = Vector.kmeans(corpus, 3, { seed = 4, iterations = 5 })
+  assert(#recentred == #centroids)
 end

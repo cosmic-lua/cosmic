@@ -9,7 +9,7 @@
 
 #include "guard.h"
 #include "lauxlib.h"
-#include "memory.h"
+#include "process.h"
 
 /* The functions are DETERMINISTIC and may back an expression index, so a
  * result must not depend on whether the compiler fused a*b+c into one
@@ -616,9 +616,22 @@ int cosmic_vector_functions (sqlite3 *db) {
 
 /* The Lua side: [`cosmic.internal.vector`]. A corpus is a userdata
  * holding its vectors in one buffer, with the id of each and, once a
- * search asks for a binary first pass, a bit vector of each. */
+ * search asks for a binary first pass, a bit vector of each.
+ *
+ * Every buffer is a userdata of its own, held in one of the corpus's
+ * user values, so Lua's allocator owns each byte: the collector counts
+ * them (a corpus of a million vectors is not a 100-byte object to it),
+ * the checked core refuses them like any Lua allocation, and nothing is
+ * left on the C heap for a __gc to release. A buffer never moves while
+ * the corpus holds it, so the pointers below stay valid across any Lua
+ * call that has the corpus on the stack. Growing allocates the bigger
+ * buffer, copies, and only then swaps it in: a refusal raises with the
+ * corpus as it was. */
 
 #define CORPUS_TYPE "cosmic.vector.corpus"
+
+/* The user value each buffer is held in. */
+enum { SLOT_DATA = 1, SLOT_INVERSE, SLOT_IDS, SLOT_BITS, SLOTS = SLOT_BITS };
 
 struct corpus {
   size_t dims;
@@ -638,18 +651,20 @@ static struct corpus *check_corpus (lua_State *L, int arg) {
   return luaL_checkudata(L, arg, CORPUS_TYPE);
 }
 
-static int corpus_gc (lua_State *L) {
-  struct corpus *c = lua_touserdata(L, 1);
-  cosmic_free(c->data);
-  cosmic_free(c->inverse);
-  cosmic_free(c->ids);
-  cosmic_free(c->bits);
-  c->data = NULL;
-  c->inverse = NULL;
-  c->ids = NULL;
-  c->bits = NULL;
-  return 0;
+/* Raises "interrupted" once a guard of cosmic.signal has caught SIGINT or
+ * SIGTERM, without taking the signal: the guard's holder still sees it.
+ * The long calls below ask every few hundred rows. What they hold is
+ * Lua's own, so the raise leaves nothing to release, and the corpus is
+ * left as it was: no call changes it after its first check, but for the
+ * bit vectors [`ensure_bits`] swaps in whole. */
+static void check_interrupt (lua_State *L) {
+  if (cosmic_signal_caught()) luaL_error(L, "interrupted");
 }
+
+/* How often a row loop asks: a power of two minus one, to mask a row
+ * number with. A row costs some hundreds of nanoseconds or more, so a
+ * signal is seen within a fraction of a millisecond. */
+#define CHECK_EVERY 255u
 
 /* Reads argument `arg` as a vector of `dims` floats into a freshly
  * pushed, aligned userdata; raises on another length or a number that
@@ -680,7 +695,7 @@ static int vector_corpus (lua_State *L) {
   lua_Integer dims = luaL_checkinteger(L, 1);
   luaL_argcheck(L, dims >= 1 && dims <= MAX_DIMS, 1,
                 "dimensions are from 1 to 16000");
-  struct corpus *c = lua_newuserdatauv(L, sizeof *c, 0);
+  struct corpus *c = lua_newuserdatauv(L, sizeof *c, SLOTS);
   memset(c, 0, sizeof *c);
   c->dims = (size_t)dims;
   c->bytes = ((size_t)dims + 7) / 8;
@@ -688,44 +703,39 @@ static int vector_corpus (lua_State *L) {
   return 1;
 }
 
-/* Each grows one of a corpus's buffers in place to n elements, leaving
- * it as it was when the heap refuses: the corpus owns every buffer, and
- * its __gc frees them, so no caller holds a block of its own across a
- * raise. */
-static bool grow_floats (float **slot, size_t n) {
-  float *grown = cosmic_realloc(*slot, n * sizeof *grown);
-  if (grown == NULL) return false;
-  *slot = grown;
-  return true;
+/* Whether n elements of `size` bytes can be asked of the allocator at
+ * all: Lua refuses a block too large itself, but the product must not
+ * wrap first. */
+static bool fits (size_t n, size_t size) {
+  return n <= SIZE_MAX / size;
 }
 
-static bool grow_ids (int64_t **slot, size_t n) {
-  int64_t *grown = cosmic_realloc(*slot, n * sizeof *grown);
-  if (grown == NULL) return false;
-  *slot = grown;
-  return true;
-}
-
-static bool grow_bytes (unsigned char **slot, size_t n) {
-  unsigned char *grown = cosmic_realloc(*slot, n);
-  if (grown == NULL) return false;
-  *slot = grown;
-  return true;
-}
-
-/* TODO: account the corpus's buffers to the garbage collector, which
- * sees only the userdata header; once the core has a way to charge a
- * block to the collector that is not Lua's own allocator. */
 static int corpus_add (lua_State *L) {
   struct corpus *c = check_corpus(L, 1);
   lua_Integer id = luaL_checkinteger(L, 2);
   float *v = check_floats(L, 3, c->dims);
   if (c->count == c->capacity) {
     size_t grown = c->capacity == 0 ? 64 : c->capacity * 2;
-    if (!grow_floats(&c->data, grown * c->dims)
-        || !grow_floats(&c->inverse, grown) || !grow_ids(&c->ids, grown)) {
-      return luaL_error(L, "out of memory");
+    if (!fits(grown, (c->dims + 2) * sizeof(int64_t))) {
+      return luaL_error(L, "not enough memory");
     }
+    /* All three first, each held on the stack and so safe from the
+     * collector the next allocation may run; the corpus is changed only
+     * once none can be refused. */
+    float *data = lua_newuserdatauv(L, grown * c->dims * sizeof *data, 0);
+    float *inverse = lua_newuserdatauv(L, grown * sizeof *inverse, 0);
+    int64_t *ids = lua_newuserdatauv(L, grown * sizeof *ids, 0);
+    if (c->count > 0) {
+      memcpy(data, c->data, c->count * c->dims * sizeof *data);
+      memcpy(inverse, c->inverse, c->count * sizeof *inverse);
+      memcpy(ids, c->ids, c->count * sizeof *ids);
+    }
+    lua_setiuservalue(L, 1, SLOT_IDS);
+    lua_setiuservalue(L, 1, SLOT_INVERSE);
+    lua_setiuservalue(L, 1, SLOT_DATA);
+    c->data = data;
+    c->inverse = inverse;
+    c->ids = ids;
     c->capacity = grown;
   }
   memcpy(c->data + c->count * c->dims, v, c->dims * sizeof *v);
@@ -750,15 +760,20 @@ static void quantize (const float *v, size_t dims, unsigned char *bits) {
   }
 }
 
-/* Brings the bit vectors up to every vector added so far. */
+/* Brings the bit vectors up to every vector added so far; the corpus is
+ * at stack index 1. A new buffer is made each time rather than grown in
+ * place: the rows already built are copied, which costs less than the
+ * scan that follows. */
 static void ensure_bits (lua_State *L, struct corpus *c) {
   if (c->bits_built == c->count) return;
-  if (!grow_bytes(&c->bits, c->count * c->bytes)) {
-    luaL_error(L, "out of memory");
-  }
+  unsigned char *bits = lua_newuserdatauv(L, c->count * c->bytes, 0);
+  if (c->bits_built > 0) memcpy(bits, c->bits, c->bits_built * c->bytes);
   for (size_t i = c->bits_built; i < c->count; i++) {
-    quantize(c->data + i * c->dims, c->dims, c->bits + i * c->bytes);
+    if ((i & CHECK_EVERY) == 0) check_interrupt(L);
+    quantize(c->data + i * c->dims, c->dims, bits + i * c->bytes);
   }
+  lua_setiuservalue(L, 1, SLOT_BITS);
+  c->bits = bits;
   c->bits_built = c->count;
 }
 
@@ -918,6 +933,7 @@ static int corpus_search (lua_State *L) {
     uint16_t *distance = lua_newuserdatauv(
         L, c->count * sizeof *distance + 1, 0);
     for (size_t row = 0; row < c->count; row++) {
+      if ((row & CHECK_EVERY) == 0) check_interrupt(L);
       if (mask != NULL && !mask[row]) continue;
       unsigned d = hamming(c->bits + row * c->bytes, qbits, c->bytes);
       distance[row] = (uint16_t)d;
@@ -943,6 +959,7 @@ static int corpus_search (lua_State *L) {
   }
 
   for (size_t at = 0; at < row_count; at++) {
+    if ((at & CHECK_EVERY) == 0) check_interrupt(L);
     size_t row = rows != NULL ? rows[at] : at;
     if (rows == NULL && mask != NULL && !mask[row]) continue;
     const float *v = c->data + row * dims;
@@ -1139,6 +1156,7 @@ static int corpus_kmeans (lua_State *L) {
   unit_row(c, nth_directed(c, splitmix(&rng) % directed), cent);
   for (size_t i = 0; i < n; i++) best[i] = seed_weight(c, i, cent);
   for (size_t j = 1; j < kk; j++) {
+    check_interrupt(L);
     double total = 0;
     size_t last = 0;
     bool any = false;
@@ -1167,7 +1185,9 @@ static int corpus_kmeans (lua_State *L) {
   for (size_t i = 0; i < n; i++) assign[i] = -1;
   for (lua_Integer it = 0; it < iterations; it++) {
     size_t changed = 0;
+    check_interrupt(L);
     for (size_t i = 0; i < n; i++) {
+      if ((i & 63u) == 0) check_interrupt(L);
       if (c->inverse[i] == 0.0f) { best[i] = 1.0f; continue; }
       const float *x = c->data + i * dims;
       float top = -INFINITY;
@@ -1289,8 +1309,6 @@ static const luaL_Reg module[] = {
 
 int cosmic_open_vector (lua_State *L) {
   luaL_newmetatable(L, CORPUS_TYPE);
-  lua_pushcfunction(L, corpus_gc);
-  lua_setfield(L, -2, "__gc");
   lua_newtable(L);
   luaL_setfuncs(L, corpus_methods, 0);
   lua_setfield(L, -2, "__index");
