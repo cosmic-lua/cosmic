@@ -123,60 +123,58 @@ function Roles.of(chunk: Ast.Chunk): Roles.Roled
     end
   end
 
-  --- Notes what the tree says of the tokens of the node `base`, whose children are `kids`, that its children do
+  --- Notes what the tree says of the tokens of the node `node`, whose children are `kids`, that its children do
   --- not hold. The node's own fields are not read: its kind, its tokens and the order of its children say it.
-  local function note(base: Ast.Base, kids: {Ast.Node})
-    local kind = base.kind
+  local function note(node: Ast.Node, kids: {Ast.Node})
     local head = kids[1]
     local first = if head == nil then nil else base_of(head) end
     local second = kids[2]
     local next_one = if second == nil then nil else base_of(second) end
-    if kind == "Paren" or kind == "MatchArm" then
-      mark(base.first, "(", "group_open")
-    elseif kind == "MethodCall" then
+    if node.kind == "Paren" or node.kind == "MatchArm" then
+      mark(node.first, "(", "group_open")
+    elseif node.kind == "MethodCall" then
       if first ~= nil then
         mark(first.last + 1, ":", "method_colon")
       end
-    elseif kind == "Index" then
+    elseif node.kind == "Index" then
       if first ~= nil and next_one ~= nil then
-        mark_brackets(first.last + 1, base.last, next_one.first, "index_open", "index_close", "wide_open")
+        mark_brackets(first.last + 1, node.last, next_one.first, "index_open", "index_close", "wide_open")
       end
-    elseif kind == "Keyed" then
+    elseif node.kind == "Keyed" then
       if first ~= nil then
-        mark_brackets(base.first, first.last + 1, first.first, "key_open", "key_close", "word")
+        mark_brackets(node.first, first.last + 1, first.first, "key_open", "key_close", "word")
       end
-    elseif kind == "Table" then
-      local empty = base.last == base.first + 1
-      mark(base.first, "{", if empty then "empty_open" else "table_open" end)
-      mark(base.last, "}", if empty then "empty_close" else "table_close" end)
-    elseif kind == "Unary" then
-      if Lexer.text(tokens, base.first) ~= "not" then
-        set[base.first] = "unary"
+    elseif node.kind == "Table" then
+      local empty = node.last == node.first + 1
+      mark(node.first, "{", if empty then "empty_open" else "table_open" end)
+      mark(node.last, "}", if empty then "empty_close" else "table_close" end)
+    elseif node.kind == "Unary" then
+      if Lexer.text(tokens, node.first) ~= "not" then
+        set[node.first] = "unary"
       end
-    elseif kind == "Binding" then
-      if base.last == base.first + 3 then
-        mark(base.last - 2, "<", "attr_open")
-        mark(base.last, ">", "attr_close")
+    elseif node.kind == "Binding" then
+      if node.last == node.first + 3 then
+        mark(node.last - 2, "<", "attr_open")
+        mark(node.last, ">", "attr_close")
       end
-    elseif kind == "FieldDecl" then
+    elseif node.kind == "FieldDecl" then
       -- The name is the first child; a bracketed name is a `[`, a string and a `]`.
       if first ~= nil and first.last == first.first + 2 then
         mark_brackets(first.first, first.last, first.first + 1, "key_open", "key_close", "word")
       end
-    elseif kind == "TypeParam" then
+    elseif node.kind == "TypeParam" then
       -- The list's first parameter follows the `<` and its last precedes the `>`.
-      mark(base.first - 1, "<", "angle_open")
-      mark(base.last + 1, ">", "angle_close")
+      mark(node.first - 1, "<", "angle_open")
+      mark(node.last + 1, ">", "angle_close")
     end
   end
 
   -- The order of the walk is of no matter: no two nodes mark one token.
   local queue: mut {Ast.Node} = { chunk }
   for _, node in ipairs(queue) do
-    local base = base_of(node)
-    if TYPE_KINDS[base.kind] == true then
+    if TYPE_KINDS[node.kind] == true then
       -- The parentheses of a parenthesized type, `(T | U)`, are in no node: take them in.
-      local first, last = base.first, base.last
+      local first, last = node.first, node.last
       while first > 1 and last < count and Lexer.text(tokens, first - 1) == "(" and
           Lexer.text(tokens, last + 1) == ")" do
         first, last = first - 1, last + 1
@@ -190,7 +188,7 @@ function Roles.of(chunk: Ast.Chunk): Roles.Roled
         kids[#kids + 1] = child
         queue[#queue + 1] = child
       end)
-      note(base, kids)
+      note(node, kids)
     end
   end
 
