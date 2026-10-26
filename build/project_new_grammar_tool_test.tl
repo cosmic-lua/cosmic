@@ -83,13 +83,13 @@ local function test_a_project_in_the_new_grammar_is_tested_and_its_coverage_coun
       "`cosmic migrate` rewrites a project to the new one", 1, true) ~= nil, forked_text)
 end
 
---- `cosmic fix --check` reads and checks the project, and lays out none of it; the fork's mode is refused.
+--- `cosmic fix --check` reads and checks the project and writes none of it, noting the files that are not laid out without failing; the fork's mode is refused.
 local function test_a_project_in_the_new_grammar_is_checked_by_fix_and_the_fork_mode_is_refused(tmp: string)
   local result, text = checked(copy_of(tmp, "fix_new"), tmp, "new")
   assert(result.ok, text)
   assert(text:find("fix: 7 Teal + 1 template files, 0 to fix, ", 1, true) ~= nil, text)
-  assert(text:find("fix: note  Teal is read and checked, not laid out: `cosmic fix` has no layout for the new grammar yet",
-    1, true) ~= nil, text)
+  -- The project is laid out as the formatter lays it out: the check has no file to note.
+  assert(text:find("not laid out", 1, true) == nil, text)
   local forked, forked_text = checked(copy_of(tmp, "fix_forked"), tmp, "teal")
   assert(not forked.ok and forked_text:find("COSMIC_GRAMMAR=teal: the fork's grammar is gone; " ..
       "`cosmic migrate` rewrites a project to the new one", 1, true) ~= nil, forked_text)

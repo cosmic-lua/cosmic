@@ -6,6 +6,10 @@ local fix = require("build.fix")
 local link_resolve = require("build.link_resolve")
 local type docs = require("build.docs")
 local Sqlite = require("cosmic.sqlite")
+local Ast = require("lang.ast")
+local Format = require("build.fix.format")
+local laid = require("build.fix.laid")
+local SyntaxNode = require("build.syntax_node")
 
 --- A named path the verb will not take is a refusal among the files the
 --- run covers, not an end to the run: it comes back in `refused` with
@@ -107,7 +111,7 @@ local function program_modules(): Sqlite.Handle
   assert(Sqlite.run(db, "CREATE TABLE modules (path TEXT, file TEXT)"))
   assert(Sqlite.run(db, "CREATE TABLE imports (path TEXT, requires TEXT)"))
   for _, module in ipairs({ "build.syntax_node", "build.syntax_links", "build.syntax_analyzer",
-      "build.flow", "build.c", "build.fix.near", "build.logger", "build.tree", "cosmic.flags",
+      "build.flow", "build.c", "build.fix.near", "build.fix.laid", "build.logger", "build.tree", "cosmic.flags",
       "cosmic.cli", "cosmic.template",
       "cosmic.string" }) do
     assert(Sqlite.run(db, "INSERT INTO modules VALUES (?1, ?2)",
@@ -494,4 +498,116 @@ local function test_nothing_under_static_is_chosen(tmp: string)
     assert(#named.files == 0 and #named.templates == 0 and #named.checked == 0, path)
     assert(#named.refused == 1 and named.refused[1]:find("carried verbatim", 1, true), path)
   end
+end
+
+--- A Teal file of `source` in `tmp`, laid out by [`fix.lay_out_source`] (`checking`, `kept` and `layout` as it takes
+--- them), and what it did.
+local function laid_in(tmp: string, name: string, source: string, checking: boolean, kept?: laid.Kept,
+                       layout?: Format.Layouter): fix.Laid, string
+  local file = tmp .. "/" .. name
+  assert(Fs.write(file, source))
+  local chunk = assert(SyntaxNode.parse(source, file))
+  return fix.lay_out_source(file, source, chunk, checking, kept, layout), file
+end
+
+--- A layout that is `text`, whatever the source: a faulty formatter.
+local function giving(text: string): Format.Layouter
+  return function(_source: string, _name: string, _dialect?: Ast.Dialect): string?, string
+    return text, ""
+  end
+end
+
+--- A plain run writes the layout of a file and what it left is laid out: laying it out again writes nothing.
+local function test_a_file_not_laid_out_is_written(tmp: string)
+  local done, file = laid_in(tmp, "a.tl", "local   x=1\nprint( x )\n", false)
+  assert(done.state == "written" and done.why == "", done.why)
+  assert(Fs.read(file) == "local x = 1\nprint(x)\n", "the layout was not written")
+  assert(done.text == "local x = 1\nprint(x)\n", "the later phases would read the text before")
+  assert(Fs.read(file) == done.text)
+  local again = fix.lay_out_source(file, done.text, done.chunk, false, nil)
+  assert(again.state == "laid", again.state)
+end
+
+--- A check says the file is not laid out and writes nothing: the later phases read the file as it is.
+local function test_a_check_leaves_a_file_not_laid_out_as_it_is(tmp: string)
+  local source = "local   x=1\n"
+  local done, file = laid_in(tmp, "a.tl", source, true)
+  assert(done.state == "unlaid" and done.text == source, done.state)
+  assert(Fs.read(file) == source, "a check wrote the file")
+  local laid_out = laid_in(tmp, "b.tl", "local x = 1\n", true)
+  assert(laid_out.state == "laid")
+end
+
+--- A faulty layout and why the formatter refuses it.
+local record Refusal
+  layout: string
+  reason: string
+end
+
+--- A layout that is not the file, or not a fixed point, is a fault of the formatter: the file is left as it is, in a
+--- plain run as in a check, with the formatter's reason.
+local function test_a_refusal_never_writes_and_says_why(tmp: string)
+  local source = "local x = 1 -- c\nlocal y = { 1, 2 }\n"
+  local cases: {Refusal} = {
+    { layout = "local x = 1\nlocal y = { 1, 2 }\n", reason = "the layout is not the same as the file" },
+    { layout = "local x = 1 -- c\nlocal y = { 1 }\n", reason = "the layout is not the same as the file" },
+    { layout = "local x = 1 -- c\nlocal y =  { 1, 2 }\n", reason = "not a fixed point" },
+  }
+  for _, case in ipairs(cases) do
+    for _, checking in ipairs({ true, false }) do
+      local done, file = laid_in(tmp, "r.tl", source, checking, nil, giving(case.layout))
+      assert(done.state == "refused", done.state)
+      assert(done.why:find(case.reason, 1, true) ~= nil and done.why:find("r.tl", 1, true) ~= nil, done.why)
+      assert(Fs.read(file) == source, "a refused file was written")
+      assert(done.text == source)
+    end
+  end
+end
+
+--- A file the memo holds as laid out is answered without the formatter, and one it does not is formatted: a memo that
+--- holds the code of another formatter, or another text, misses.
+local function test_the_memo_answers_a_file_it_holds_and_misses_one_it_does_not(tmp: string)
+  local db = assert(Sqlite.memory())
+  local kept = assert(laid.begin(db, "formatter one"))
+  local source = "local x = 1\n"
+  -- The faulty formatter would refuse a file laid out, if it were asked: the first run asks it.
+  local refused = laid_in(tmp, "m.tl", source, false, kept, giving("local x = 2\n"))
+  assert(refused.state == "refused", refused.state)
+  -- Asked without the faulty one, the file is found laid out and kept.
+  assert(laid_in(tmp, "m.tl", source, false, kept).state == "laid")
+  -- A hit is not asked of any formatter.
+  assert(laid_in(tmp, "m.tl", source, false, kept, giving("local x = 2\n")).state == "laid", "a hit asked the formatter")
+  -- Another formatter, or another text, misses.
+  laid.finish(kept, false)
+  local other = assert(laid.begin(db, "formatter two"))
+  assert(laid_in(tmp, "m.tl", source, false, other, giving("local x = 2\n")).state == "refused", "a formatter change hit")
+  laid.finish(other, false)
+  local again = assert(laid.begin(db, "formatter one"))
+  assert(laid_in(tmp, "m.tl", source, false, again, giving("local x = 2\n")).state == "laid")
+  assert(laid_in(tmp, "m.tl", "local x  =  1\n", false, again).state == "written", "a changed text hit")
+  laid.finish(again, false)
+end
+
+--- A declaration file is laid out as one, a program as a program: the dialect is the name's.
+local function test_a_declaration_file_is_laid_out_as_a_declaration_file(tmp: string)
+  local source = "local  record R\n  x:   integer\n  yy:  string\nend\n\nreturn R\n"
+  local done, file = laid_in(tmp, "r.d.tl", source, false)
+  assert(done.state == "written", done.why)
+  assert(Fs.read(file) == "local record R\n  x:   integer\n  yy:  string\nend\n\nreturn R\n", Fs.read(file))
+  local kept = assert(laid.begin(assert(Sqlite.memory()), "s"))
+  assert(laid_in(tmp, "r.d.tl", assert(Fs.read(file)), false, kept).state == "laid")
+  -- Kept for a declaration file, not for a program of the same text.
+  assert(laid_in(tmp, "r.tl", assert(Fs.read(file)), false, kept, giving("local record R\nend\n")).state == "refused")
+end
+
+--- A script that is executable stays so when its layout is written.
+local function test_a_file_written_keeps_its_mode(tmp: string)
+  local file = tmp .. "/script.tl"
+  assert(Fs.write(file, "local   x=1\n"))
+  assert(Fs.chmod(file, 0x1ed))
+  local source = assert(Fs.read(file))
+  local chunk = assert(SyntaxNode.parse(source, file))
+  assert(fix.lay_out_source(file, source, chunk, false, nil).state == "written")
+  assert(Fs.read(file) == "local x = 1\n")
+  assert(assert(Fs.stat(file)).mode & 0xfff == 0x1ed, "the mode was lost")
 end

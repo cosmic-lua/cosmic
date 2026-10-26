@@ -1,5 +1,5 @@
 --- What `cosmic fix` does on a project of its own: whether the tree builds is the new checker's to say, in its words;
---- an `assert(...)` that spills is left alone; a file is read and checked and not laid out; and the fork's grammar, which
+--- an `assert(...)` that spills is left alone; a Teal file is laid out by a fix and noted by a check; and the fork's grammar, which
 --- `COSMIC_GRAMMAR=teal` names, is refused. It declares `tool` because it starts this program.
 
 local Child = require("cosmic.child")
@@ -72,29 +72,63 @@ local NEW_GRAMMAR = 'local Other = require("other")\n\n--- Two, from `Other.thin
 --- A file laid out badly on purpose.
 local BADLY_LAID_OUT = 'local function one(word: string?): integer\n    return #(word or "")\nend\n\nreturn one\n'
 
---- The note the run says once, that it reads and checks and does not lay out.
-local NOTE <const> = "fix: note  Teal is read and checked, not laid out: `cosmic fix` has no layout for the new grammar yet"
+--- The text of NEW_GRAMMAR with its span linked, laid out.
+local NEW_LAID = 'local Other = require("other")\n\n--- Two, from [`Other.thing`].\n' ..
+  'local function two(word: string?): integer\n  return Other.thing() + #(word or "") + 1\nend\n\nreturn two\n'
 
---- A file is read and checked, not laid out, and the run says once that it does not: a file laid out badly passes a check
---- and a fix, and is left as written.
-local function test_a_file_is_read_and_checked_and_not_laid_out(tmp: string)
+--- The text of NEW_GRAMMAR laid out, its span not yet linked.
+local PLAIN_LAID = (NEW_LAID:gsub("%[`Other.thing`%]", "`Other.thing`"))
+
+--- The text of BADLY_LAID_OUT, laid out.
+local ONE_LAID = 'local function one(word: string?): integer\n  return #(word or "")\nend\n\nreturn one\n'
+
+--- A check notes the files that are not laid out, lists them, writes nothing and does not fail; a fix writes their
+--- layout, and a run after it has nothing to note or write.
+local function test_a_check_notes_a_file_that_is_not_laid_out_and_a_fix_writes_it(tmp: string)
   local root = tmp .. "/project"
   assert(Fs.mkdirs(root))
   assert(Fs.write(root .. "/other.tl", OTHER))
   assert(Fs.write(root .. "/laid.tl", BADLY_LAID_OUT))
-  assert(Fs.write(root .. "/new.tl", (NEW_GRAMMAR:gsub("`Other.thing`", "[`Other.thing`]"))))
-  local text = assert(Fs.read(root .. "/new.tl"))
+  local linked = (NEW_GRAMMAR:gsub("`Other.thing`", "[`Other.thing`]"))
+  assert(Fs.write(root .. "/new.tl", linked))
+  local checked, said = fix_new(root, true)
+  assert(checked.ok, said)
+  assert(said:find("fix: note  2 Teal files are not laid out; `cosmic fix` lays them out", 1, true) ~= nil, said)
+  assert(said:find("fix: note  not laid out  laid.tl", 1, true) ~= nil, said)
+  assert(said:find("fix: note  not laid out  new.tl", 1, true) ~= nil, said)
+  assert(said:find("not laid out  other.tl", 1, true) == nil, said)
+  assert(said:find("would fix", 1, true) == nil and said:find("fix: 3 Teal files, 0 to fix", 1, true) ~= nil, said)
+  assert(Fs.read(root .. "/laid.tl") == BADLY_LAID_OUT and Fs.read(root .. "/new.tl") == linked, "a check wrote a file")
+  local written, wrote = fix_new(root, false)
+  assert(written.ok, wrote)
+  assert(wrote:find("fixed  laid.tl", 1, true) ~= nil and wrote:find("fixed  new.tl", 1, true) ~= nil, wrote)
+  assert(wrote:find("fix: 3 Teal files, 2 fixed", 1, true) ~= nil and wrote:find("not laid out", 1, true) == nil, wrote)
+  assert(Fs.read(root .. "/laid.tl") == ONE_LAID, "the file was not laid out")
+  assert(Fs.read(root .. "/new.tl") == NEW_LAID, "the file was not laid out")
   for _, check in ipairs({ true, false }) do
-    local ran, said = fix_new(root, check)
-    assert(ran.ok, said)
-    assert(said:find("would fix", 1, true) == nil and said:find("fixed  ", 1, true) == nil, said)
-    local _, count = said:gsub((NOTE:gsub("%p", "%%%0")), "")
-    assert(count == 1, said)
-    local summary = if check then "fix: 3 Teal files, 0 to fix" else "fix: 3 Teal files, 0 fixed" end
-    assert(said:find(summary, 1, true) ~= nil, said)
+    local again, repeated = fix_new(root, check)
+    assert(again.ok and repeated:find("not laid out", 1, true) == nil and repeated:find("fixed  ", 1, true) == nil, repeated)
+    assert(repeated:find(if check then "fix: 3 Teal files, 0 to fix" else "fix: 3 Teal files, 0 fixed" end, 1, true) ~= nil,
+      repeated)
   end
-  assert(Fs.read(root .. "/new.tl") == text, "the file was rewritten")
-  assert(Fs.read(root .. "/laid.tl") == BADLY_LAID_OUT, "the file was laid out")
+end
+
+--- A declaration file is laid out as one: the header, not the body's padding. A link written into a file that a fix
+--- laid out leaves it laid out.
+local function test_a_declaration_file_is_laid_out_by_a_fix_and_linking_leaves_a_file_laid_out(tmp: string)
+  local root = tmp .. "/project"
+  assert(Fs.mkdirs(root))
+  assert(Fs.write(root .. "/other.tl", OTHER))
+  assert(Fs.write(root .. "/api.d.tl", "local  record Api\n  name:    string\nend\n\nreturn Api\n"))
+  assert(Fs.write(root .. "/new.tl", NEW_GRAMMAR))
+  local _, said = fix_new(root, true)
+  assert(said:find("not laid out  api.d.tl", 1, true) ~= nil, said)
+  local written, wrote = fix_new(root, false)
+  assert(written.ok, wrote)
+  assert(Fs.read(root .. "/api.d.tl") == "local record Api\n  name:    string\nend\n\nreturn Api\n", wrote)
+  assert(Fs.read(root .. "/new.tl") == NEW_LAID, "linking did not leave the file laid out")
+  local again, repeated = fix_new(root, true)
+  assert(again.ok and repeated:find("not laid out", 1, true) == nil and repeated:find("would fix", 1, true) == nil, repeated)
 end
 
 --- `COSMIC_GRAMMAR=teal` names the fork's grammar, which is gone: the run fails saying so and names `cosmic migrate`, and
@@ -117,16 +151,16 @@ local function test_the_links_of_a_file_in_the_new_grammar_are_checked_and_writt
   local root = tmp .. "/project"
   assert(Fs.mkdirs(root))
   assert(Fs.write(root .. "/other.tl", OTHER))
-  assert(Fs.write(root .. "/new.tl", NEW_GRAMMAR))
+  assert(Fs.write(root .. "/new.tl", PLAIN_LAID))
   local checked, said = fix_new(root, true)
   assert(not checked.ok, said)
   assert(said:find("FAIL  new.tl:3: link: `Other.thing` would link to other.thing", 1, true) ~= nil, said)
   assert(said:find("1 plain reference to link", 1, true) ~= nil, said)
-  assert(Fs.read(root .. "/new.tl") == NEW_GRAMMAR, "a check wrote the file")
+  assert(Fs.read(root .. "/new.tl") == PLAIN_LAID, "a check wrote the file")
   local written, wrote = fix_new(root, false)
   assert(written.ok, wrote)
   assert(wrote:find("fixed  new.tl (links)", 1, true) ~= nil, wrote)
-  local expected = (NEW_GRAMMAR:gsub("`Other.thing`", "[`Other.thing`]"))
+  local expected = NEW_LAID
   assert(Fs.read(root .. "/new.tl") == expected, "the file was not the text with the one span linked")
   -- a link that names nothing fails, at the line it is on
   assert(Fs.write(root .. "/new.tl", (expected:gsub("%[`Other.thing`%]", "[`Other.nope`]"))))
@@ -154,17 +188,18 @@ local function test_a_file_neither_parser_reads_fails_in_the_new_parsers_words(t
   end
 end
 
---- The layout note is on a failing run too, not only a clean one: a refused file beside a file read and not laid out,
---- `--check` or not.
+--- The note is on a failing run too, not only a clean one: a refused file beside a file not laid out, and the file
+--- is written by a fix though the tree does not build.
 local function test_the_layout_note_is_on_a_failing_summary(tmp: string)
   local root = tmp .. "/project"
   assert(Fs.mkdirs(root))
   assert(Fs.write(root .. "/other.tl", OTHER))
   assert(Fs.write(root .. "/new.tl", (NEW_GRAMMAR:gsub("`Other.thing`", "it"))))
   assert(Fs.write(root .. "/typed.tl", 'local y: integer = "no"\n\nreturn y\n'))
-  for _, check in ipairs({ true, false }) do
-    local failed, said = fix_new(root, check)
-    assert(not failed.ok, said)
-    assert(said:find("fix: the tree not building, ", 1, true) ~= nil and said:find(NOTE, 1, true) ~= nil, said)
-  end
+  local failed, said = fix_new(root, true)
+  assert(not failed.ok, said)
+  assert(said:find("fix: the tree not building, ", 1, true) ~= nil, said)
+  assert(said:find("fix: note  1 Teal file is not laid out; `cosmic fix` lays it out", 1, true) ~= nil, said)
+  local fixed, wrote = fix_new(root, false)
+  assert(not fixed.ok and wrote:find("fixed  new.tl", 1, true) ~= nil, wrote)
 end

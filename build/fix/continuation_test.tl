@@ -311,7 +311,9 @@ end
 local function test_a_type_that_spans_lines_moves_with_the_line_that_holds_its_first_token()
   lays("    local t: {\n        string\n    } = {}\n", "local t: {\n    string\n} = {}\n")
   lays("do\n      local t: {\n        string\n      } = {}\nend\n", "do\n  local t: {\n    string\n  } = {}\nend\n")
-  lays("local record R\n      f: {\n          string\n      }\nend\n", "local record R\n  f: {\n      string\n  }\nend\n")
+  lays("local class C\n      f: {\n          string\n      }\nend\n", "local class C\n  f: {\n      string\n  }\nend\n")
+  -- A record's body is the author's.
+  lays("local record R\n      f: {\n          string\n      }\nend\n", "local record R\n      f: {\n          string\n      }\nend\n")
 end
 
 --- The lines of a type move as the statement that holds the type moved, not as the line the type begins on.

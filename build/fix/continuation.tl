@@ -305,6 +305,9 @@ function Continuation.of(chunk: Ast.Chunk): Continuation.Plan
         mark(base.first, body.first - 1, true)
       end
     elseif kind == "IfExp" then
+      -- TODO: once the owner settles the layout of a multi-line if expression, lay its `then`, `elseif`, `else` and
+      -- `end` out as continuation lines (two columns in, as the owner's decision names them) or keep them level
+      -- with the line of the `if`, as they are: in a block header the values then stand at 4 and the arms at 0.
       -- The arms after the first begin with an `elseif`, and the value after them with an `else`.
       local last = kids[#kids]
       for i, kid in ipairs(kids) do
