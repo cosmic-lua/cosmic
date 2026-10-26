@@ -2,9 +2,14 @@
 
 #include <float.h>
 #include <math.h>
+#include <stdbool.h>
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
+
+#include "guard.h"
+#include "lauxlib.h"
+#include "process.h"
 
 /* The functions are DETERMINISTIC and may back an expression index, so a
  * result must not depend on whether the compiler fused a*b+c into one
@@ -670,4 +675,514 @@ int cosmic_vector_functions (sqlite3 *db) {
     if (rc != SQLITE_OK) return rc;
   }
   return SQLITE_OK;
+}
+
+/* The Lua side: [`cosmic.internal.vector`]. A corpus is a userdata
+ * holding its vectors in one buffer, with the id of each and, once a
+ * search asks for a binary first pass, a bit vector of each.
+ *
+ * Every buffer is a userdata of its own, held in one of the corpus's
+ * user values, so Lua's allocator owns each byte: the collector counts
+ * them (a corpus of a million vectors is not a 100-byte object to it),
+ * the checked core refuses them like any Lua allocation, and nothing is
+ * left on the C heap for a __gc to release. A buffer never moves while
+ * the corpus holds it, so the pointers below stay valid across a Lua
+ * call that has the corpus on the stack and does not add to it. Growing allocates the bigger
+ * buffer, copies, and only then swaps it in: a refusal raises with the
+ * corpus as it was. */
+
+#define CORPUS_TYPE "cosmic.vector.corpus"
+
+/* The user value each buffer is held in. */
+enum { SLOT_DATA = 1, SLOT_INVERSE, SLOT_IDS, SLOT_BITS, SLOTS = SLOT_BITS };
+
+struct corpus {
+  size_t dims;
+  size_t count;
+  size_t capacity;
+  float *data;         /* count * dims floats */
+  float *inverse;      /* 1 / length of each vector, 0 for a zero vector */
+  int64_t *ids;
+  unsigned char *bits; /* bits_built rows of bytes each, as binary_quantize */
+  size_t bits_built;
+  size_t bytes;
+};
+
+enum metric { INNER_PRODUCT, COSINE, L2 };
+
+static struct corpus *check_corpus (lua_State *L, int arg) {
+  return luaL_checkudata(L, arg, CORPUS_TYPE);
+}
+
+/* Whether a guard of cosmic.signal has caught SIGINT or SIGTERM. It does
+ * not take the signal: the guard's holder still sees it. The long calls
+ * below ask every few hundred rows and, when it is so, stop and answer
+ * `nil, "interrupted"` ([`interrupted`]) as http and socket do. What they
+ * hold is Lua's own, so stopping leaves nothing to release, and the
+ * corpus is left as it was: search never changes the corpus,
+ * and [`ensure_bits`] publishes the bit vectors only after its loop
+ * ends. */
+static bool check_interrupt (void) {
+  return cosmic_signal_caught();
+}
+
+/* The answer of a long call that stopped for a signal: `nil, "interrupted"`. */
+static int interrupted (lua_State *L) {
+  lua_pushnil(L);
+  lua_pushliteral(L, "interrupted");
+  return 2;
+}
+
+/* How often a row loop asks: a power of two minus one, to mask a row
+ * number with: a signal is seen within that many rows' work, which is
+ * milliseconds at thousands of dimensions. */
+#define CHECK_EVERY 255u
+
+/* Reads argument `arg` as a vector of `dims` floats into a freshly
+ * pushed, aligned userdata; raises on another length or a number that
+ * is not finite. */
+static float *check_floats (lua_State *L, int arg, size_t dims) {
+  size_t len;
+  const char *s = luaL_checklstring(L, arg, &len);
+  luaL_argcheck(L, len == dims * sizeof(float), arg,
+                "the vector's length is not the corpus's dimensions");
+  float *out = lua_newuserdatauv(L, len + sizeof(float), 0);
+  memcpy(out, s, len);
+  for (size_t i = 0; i < dims; i++) {
+    luaL_argcheck(L, isfinite(out[i]), arg, "a vector holds finite numbers");
+  }
+  return out;
+}
+
+/* The length of a vector, its squares summed in double as the SQL
+ * functions do: in float the squares of small numbers underflow to a
+ * length of zero and of large ones overflow. */
+static double length_of (const float *v, size_t n) {
+  double squares = 0.0;
+  for (size_t i = 0; i < n; i++) squares += (double)v[i] * (double)v[i];
+  return sqrt(squares);
+}
+
+static int vector_corpus (lua_State *L) {
+  lua_Integer dims = luaL_checkinteger(L, 1);
+  luaL_argcheck(L, dims >= 1 && dims <= MAX_DIMS, 1,
+                "dimensions are from 1 to 16000");
+  struct corpus *c = lua_newuserdatauv(L, sizeof *c, SLOTS);
+  memset(c, 0, sizeof *c);
+  c->dims = (size_t)dims;
+  c->bytes = ((size_t)dims + 7) / 8;
+  luaL_setmetatable(L, CORPUS_TYPE);
+  return 1;
+}
+
+/* Whether n elements of `size` bytes can be asked of the allocator at
+ * all: Lua refuses a block too large itself, but the product must not
+ * wrap first. */
+static bool fits (size_t n, size_t size) {
+  return n <= SIZE_MAX / size;
+}
+
+static int corpus_add (lua_State *L) {
+  struct corpus *c = check_corpus(L, 1);
+  lua_Integer id = luaL_checkinteger(L, 2);
+  float *v = check_floats(L, 3, c->dims);
+  if (c->count == c->capacity) {
+    size_t grown = c->capacity == 0 ? 64 : c->capacity * 2;
+    if (!fits(grown, (c->dims + 2) * sizeof(int64_t))) {
+      return luaL_error(L, "not enough memory");
+    }
+    /* All three first, each held on the stack and so safe from the
+     * collector the next allocation may run; the corpus is changed only
+     * once none can be refused. */
+    float *data = lua_newuserdatauv(L, grown * c->dims * sizeof *data, 0);
+    float *inverse = lua_newuserdatauv(L, grown * sizeof *inverse, 0);
+    int64_t *ids = lua_newuserdatauv(L, grown * sizeof *ids, 0);
+    if (c->count > 0) {
+      memcpy(data, c->data, c->count * c->dims * sizeof *data);
+      memcpy(inverse, c->inverse, c->count * sizeof *inverse);
+      memcpy(ids, c->ids, c->count * sizeof *ids);
+    }
+    lua_setiuservalue(L, 1, SLOT_IDS);
+    lua_setiuservalue(L, 1, SLOT_INVERSE);
+    lua_setiuservalue(L, 1, SLOT_DATA);
+    c->data = data;
+    c->inverse = inverse;
+    c->ids = ids;
+    c->capacity = grown;
+  }
+  memcpy(c->data + c->count * c->dims, v, c->dims * sizeof *v);
+  double length = length_of(v, c->dims);
+  /* A length too small to invert in a float is a vector with no direction. */
+  float inverse = length == 0.0 ? 0.0f : (float)(1.0 / length);
+  c->inverse[c->count] = isfinite(inverse) ? inverse : 0.0f;
+  c->ids[c->count] = id;
+  c->count++;
+  return 0;
+}
+
+static int corpus_count (lua_State *L) {
+  lua_pushinteger(L, (lua_Integer)check_corpus(L, 1)->count);
+  return 1;
+}
+
+static void quantize (const float *v, size_t dims, unsigned char *bits) {
+  memset(bits, 0, (dims + 7) / 8);
+  for (size_t i = 0; i < dims; i++) {
+    if (v[i] > 0.0f) bits[i / 8] |= (unsigned char)(0x80u >> (i % 8));
+  }
+}
+
+/* Brings the bit vectors up to every vector added so far; the corpus is
+ * at stack index 1. Answers false, with the corpus as it was, when a
+ * signal interrupted it. A new buffer is made each time rather than grown in
+ * place: the rows already built are copied, which costs less than the
+ * scan that follows. */
+static bool ensure_bits (lua_State *L, struct corpus *c) {
+  if (c->bits_built == c->count) return true;
+  unsigned char *bits = lua_newuserdatauv(L, c->count * c->bytes, 0);
+  if (c->bits_built > 0) memcpy(bits, c->bits, c->bits_built * c->bytes);
+  for (size_t i = c->bits_built; i < c->count; i++) {
+    if ((i & CHECK_EVERY) == 0 && check_interrupt()) return false;
+    quantize(c->data + i * c->dims, c->dims, bits + i * c->bytes);
+  }
+  lua_setiuservalue(L, 1, SLOT_BITS);
+  c->bits = bits;
+  c->bits_built = c->count;
+  return true;
+}
+
+static unsigned hamming (const unsigned char *a, const unsigned char *b,
+                         size_t len) {
+  unsigned differ = 0;
+  size_t i = 0;
+  for (; i + 8 <= len; i += 8) {
+    uint64_t x, y;
+    memcpy(&x, a + i, 8);
+    memcpy(&y, b + i, 8);
+    differ += (unsigned)popcount64(x ^ y);
+  }
+  for (; i < len; i++) differ += (unsigned)popcount64((uint64_t)(a[i] ^ b[i]));
+  return differ;
+}
+
+/* A hit as the heap holds it: higher key is better, and between equal
+ * keys the lower id. */
+struct hit {
+  float key;
+  size_t row;
+};
+
+struct heap {
+  struct hit *items;
+  size_t size;
+  size_t limit;
+  const int64_t *ids;
+};
+
+static int better (const struct heap *h, struct hit a, struct hit b) {
+  if (a.key != b.key) return a.key > b.key;
+  return h->ids[a.row] < h->ids[b.row];
+}
+
+/* The heap's root is its worst hit, the one to replace. */
+static void sift_down (struct heap *h, size_t at) {
+  for (;;) {
+    size_t worst = at, l = 2 * at + 1, r = l + 1;
+    if (l < h->size && better(h, h->items[worst], h->items[l])) worst = l;
+    if (r < h->size && better(h, h->items[worst], h->items[r])) worst = r;
+    if (worst == at) return;
+    struct hit t = h->items[at];
+    h->items[at] = h->items[worst];
+    h->items[worst] = t;
+    at = worst;
+  }
+}
+
+static void offer (struct heap *h, struct hit hit) {
+  if (h->size < h->limit) {
+    size_t at = h->size++;
+    h->items[at] = hit;
+    while (at > 0) {
+      size_t parent = (at - 1) / 2;
+      if (!better(h, h->items[parent], h->items[at])) break;
+      struct hit t = h->items[at];
+      h->items[at] = h->items[parent];
+      h->items[parent] = t;
+      at = parent;
+    }
+  }
+  else if (h->limit > 0 && better(h, hit, h->items[0])) {
+    h->items[0] = hit;
+    sift_down(h, 0);
+  }
+}
+
+static size_t slot_of (int64_t id, size_t slots) {
+  return (size_t)(((uint64_t)id * UINT64_C(0x9E3779B97F4A7C15)) >> 20)
+         & (slots - 1);
+}
+
+/* The table at `index` of ids as a mask over the corpus's rows, in a
+ * pushed userdata. Sets `*eligible` to the rows it keeps. */
+static unsigned char *allow_mask (lua_State *L, const struct corpus *c,
+                                  int index, size_t *eligible) {
+  size_t n = lua_rawlen(L, index);
+  size_t slots = 16;
+  while (slots < 2 * n) slots *= 2;
+  size_t key_offset = (slots + 7) / 8 * 8;
+  unsigned char *used = lua_newuserdatauv(
+      L, key_offset + slots * sizeof(int64_t), 0);
+  int64_t *keys = (int64_t *)(void *)(used + key_offset);
+  memset(used, 0, slots);
+  for (size_t i = 1; i <= n; i++) {
+    lua_rawgeti(L, index, (lua_Integer)i);
+    int ok;
+    lua_Integer id = lua_tointegerx(L, -1, &ok);
+    if (!ok) luaL_error(L, "allow holds integers");
+    lua_pop(L, 1);
+    size_t at = slot_of(id, slots);
+    while (used[at] && keys[at] != id) at = (at + 1) & (slots - 1);
+    used[at] = 1;
+    keys[at] = id;
+  }
+  unsigned char *mask = lua_newuserdatauv(L, c->count + 1, 0);
+  *eligible = 0;
+  for (size_t row = 0; row < c->count; row++) {
+    int64_t id = c->ids[row];
+    size_t at = slot_of(id, slots);
+    while (used[at] && keys[at] != id) at = (at + 1) & (slots - 1);
+    mask[row] = used[at];
+    *eligible += used[at];
+  }
+  lua_remove(L, -2);
+  return mask;
+}
+
+/* search(corpus, query, k, metric, candidates, allow): the ids and
+ * scores of the k best, best first; `nil, "interrupted"` when a signal
+ * stopped it. */
+static int corpus_search (lua_State *L) {
+  struct corpus *c = check_corpus(L, 1);
+  float *q = check_floats(L, 2, c->dims);
+  lua_Integer k = luaL_checkinteger(L, 3);
+  luaL_argcheck(L, k >= 1, 3, "k is at least 1");
+  const char *name = luaL_checkstring(L, 4);
+  enum metric metric;
+  if (strcmp(name, "inner_product") == 0) metric = INNER_PRODUCT;
+  else if (strcmp(name, "cosine") == 0) metric = COSINE;
+  else if (strcmp(name, "l2") == 0) metric = L2;
+  else return luaL_argerror(L, 4, "a metric is inner_product, cosine or l2");
+  lua_Integer candidates = 0;
+  if (!lua_isnoneornil(L, 5)) {
+    candidates = luaL_checkinteger(L, 5);
+    luaL_argcheck(L, candidates >= 1, 5, "candidates is at least 1");
+  }
+  unsigned char *mask = NULL;
+  size_t eligible = c->count;
+  if (!lua_isnoneornil(L, 6)) {
+    luaL_checktype(L, 6, LUA_TTABLE);
+    mask = allow_mask(L, c, 6, &eligible);
+  }
+
+  size_t dims = c->dims;
+  double qlen = length_of(q, dims);
+  float qinverse = qlen == 0.0 ? 0.0f : (float)(1.0 / qlen);
+
+  size_t limit = (size_t)k < eligible ? (size_t)k : eligible;
+  struct heap heap = {0};
+  heap.items = lua_newuserdatauv(L, (limit + 1) * sizeof *heap.items, 0);
+  heap.limit = limit;
+  heap.ids = c->ids;
+
+  /* The rows to score: all of them, or the best `candidates` by Hamming
+   * distance between the sign bits, the earliest rows among equals. */
+  size_t *rows = NULL;
+  size_t row_count = c->count;
+  if (candidates > 0 && (size_t)candidates < eligible) {
+    if (!ensure_bits(L, c)) return interrupted(L);
+    unsigned char *qbits = lua_newuserdatauv(L, c->bytes + 1, 0);
+    quantize(q, dims, qbits);
+    unsigned *histogram = lua_newuserdatauv(
+        L, (dims + 1) * sizeof *histogram, 0);
+    memset(histogram, 0, (dims + 1) * sizeof *histogram);
+    uint16_t *distance = lua_newuserdatauv(
+        L, c->count * sizeof *distance + 1, 0);
+    for (size_t row = 0; row < c->count; row++) {
+      if ((row & CHECK_EVERY) == 0 && check_interrupt()) return interrupted(L);
+      if (mask != NULL && !mask[row]) continue;
+      unsigned d = hamming(c->bits + row * c->bytes, qbits, c->bytes);
+      distance[row] = (uint16_t)d;
+      histogram[d]++;
+    }
+    size_t below = 0, threshold = 0;
+    while (below + histogram[threshold] < (size_t)candidates) {
+      below += histogram[threshold++];
+    }
+    size_t tied = (size_t)candidates - below;
+    rows = lua_newuserdatauv(L, (size_t)candidates * sizeof *rows, 0);
+    row_count = 0;
+    for (size_t row = 0; row < c->count; row++) {
+      if (mask != NULL && !mask[row]) continue;
+      if (distance[row] < threshold) {
+        rows[row_count++] = row;
+      }
+      else if (distance[row] == threshold && tied > 0) {
+        tied--;
+        rows[row_count++] = row;
+      }
+    }
+  }
+
+  for (size_t at = 0; at < row_count; at++) {
+    if ((at & CHECK_EVERY) == 0 && check_interrupt()) return interrupted(L);
+    size_t row = rows != NULL ? rows[at] : at;
+    if (rows == NULL && mask != NULL && !mask[row]) continue;
+    const float *v = c->data + row * dims;
+    float key;
+    switch (metric) {
+      case INNER_PRODUCT: key = dot(v, q, dims); break;
+      case COSINE:
+      /* A zero vector has no direction, and SQL's cosine_distance of
+       * one is NULL: it ranks below every row that has one. */
+      if (c->inverse[row] == 0.0f || qinverse == 0.0f) key = -INFINITY;
+      else key = dot(v, q, dims) * c->inverse[row] * qinverse;
+      break;
+      default: key = -squared_l2(v, q, dims); break;
+    }
+    /* TODO: once the corpus kernels redo a non-finite (or underflowed)
+     * sum in double, as the SQL distance functions do, behind a hot-path
+     * cost check: they sum in float, so a row can score infinity or be
+     * dropped as NaN here where l2_distance, inner_product and
+     * cosine_distance answer a finite double. */
+    /* A NaN key compares false both ways, which would leave the heap's
+     * order depending on arrival; such a row is not a hit. */
+    if (isnan(key)) continue;
+    struct hit hit = {key, row};
+    offer(&heap, hit);
+  }
+
+  lua_createtable(L, (int)heap.size, 0);
+  int ids = lua_gettop(L);
+  lua_createtable(L, (int)heap.size, 0);
+  int scores = lua_gettop(L);
+  /* Popping the worst first fills the answer from its tail. */
+  size_t n = heap.size;
+  for (size_t j = 0; j < n; j++) {
+    struct hit worst = heap.items[0];
+    heap.items[0] = heap.items[--heap.size];
+    sift_down(&heap, 0);
+    lua_Integer place = (lua_Integer)(n - j);
+    lua_pushinteger(L, (lua_Integer)c->ids[worst.row]);
+    lua_rawseti(L, ids, place);
+    lua_pushnumber(L, metric == L2 ? sqrt(-(double)worst.key)
+                                   : (double)worst.key);
+    lua_rawseti(L, scores, place);
+  }
+  return 2;
+}
+
+static int vector_pack (lua_State *L) {
+  luaL_checktype(L, 1, LUA_TTABLE);
+  size_t n = lua_rawlen(L, 1);
+  luaL_argcheck(L, n >= 1, 1, "a vector has at least 1 dimension");
+  luaL_argcheck(L, n <= MAX_DIMS, 1, "a vector has at most 16000 dimensions");
+  float *out = lua_newuserdatauv(L, n * sizeof *out + 1, 0);
+  for (size_t i = 0; i < n; i++) {
+    lua_rawgeti(L, 1, (lua_Integer)(i + 1));
+    int ok;
+    /* A number, not a string that reads as one. */
+    lua_Number x = lua_tonumberx(L, -1, &ok);
+    if (lua_type(L, -1) != LUA_TNUMBER) ok = 0;
+    /* Compared as a double before the conversion: a double past
+     * FLT_MAX has no float to convert to, and converting is undefined. */
+    luaL_argcheck(L, ok && isfinite(x) && fabs(x) <= (double)FLT_MAX, 1,
+                  "a vector holds finite numbers");
+    out[i] = (float)x;
+    lua_pop(L, 1);
+  }
+  lua_pushlstring(L, (const char *)out, n * sizeof *out);
+  return 1;
+}
+
+static int vector_unpack (lua_State *L) {
+  size_t len;
+  const char *s = luaL_checklstring(L, 1, &len);
+  luaL_argcheck(L, len % sizeof(float) == 0, 1,
+                "a vector is a whole number of 4-byte floats");
+  size_t n = len / sizeof(float);
+  lua_createtable(L, (int)n, 0);
+  for (size_t i = 0; i < n; i++) {
+    float x;
+    memcpy(&x, s + i * sizeof x, sizeof x);
+    lua_pushnumber(L, (lua_Number)x);
+    lua_rawseti(L, -2, (lua_Integer)(i + 1));
+  }
+  return 1;
+}
+
+static int vector_from_json (lua_State *L) {
+  size_t text_len;
+  const char *text = luaL_checklstring(L, 1, &text_len);
+  if (strlen(text) != text_len) {
+    lua_pushnil(L);
+    lua_pushliteral(L, "a vector's text holds no NUL");
+    return 2;
+  }
+  /* The parsed block is the guard's: pushing the answer allocates, and
+   * a raise there must not leak the block. */
+  struct cosmic_guard *guard = cosmic_guard_push(L, sqlite3_free);
+  struct vector v;
+  const char *why = parse_text(text, &v);
+  if (why != NULL) {
+    lua_pushnil(L);
+    lua_pushstring(L, why);
+    return 2;
+  }
+  guard->resource = v.owned;
+  lua_pushlstring(L, (const char *)v.values, v.dims * sizeof(float));
+  cosmic_guard_release(guard);
+  return 1;
+}
+
+static int vector_normalize (lua_State *L) {
+  size_t len;
+  const char *s = luaL_checklstring(L, 1, &len);
+  luaL_argcheck(L, len % sizeof(float) == 0, 1,
+                "a vector is a whole number of 4-byte floats");
+  size_t n = len / sizeof(float);
+  float *in = lua_newuserdatauv(L, len + sizeof(float), 0);
+  memcpy(in, s, len);
+  double norm = length_of(in, n);
+  for (size_t i = 0; i < n; i++) {
+    in[i] = norm == 0.0 || !isfinite(norm) ? 0.0f : (float)((double)in[i] / norm);
+  }
+  lua_pushlstring(L, (const char *)in, len);
+  return 1;
+}
+
+
+static const luaL_Reg corpus_methods[] = {
+  {"add", corpus_add},
+  {"count", corpus_count},
+  {"search", corpus_search},
+  {NULL, NULL},
+};
+
+static const luaL_Reg module[] = {
+  {"corpus", vector_corpus},
+  {"pack", vector_pack},
+  {"unpack", vector_unpack},
+  {"from_json", vector_from_json},
+  {"normalize", vector_normalize},
+  {NULL, NULL},
+};
+
+int cosmic_open_vector (lua_State *L) {
+  luaL_newmetatable(L, CORPUS_TYPE);
+  lua_newtable(L);
+  luaL_setfuncs(L, corpus_methods, 0);
+  lua_setfield(L, -2, "__index");
+  lua_pop(L, 1);
+  luaL_newlib(L, module);
+  return 1;
 }

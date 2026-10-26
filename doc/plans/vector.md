@@ -4,9 +4,10 @@ Embedding search in cosmic: store a model's vectors, find the nearest
 to a query under any filter, and blend that with keyword search, in one
 binary with nothing else running. This plan is the outcome of a design
 discussion ([#3218]) and the record of what is decided, what is built,
-and what comes next. Phase 1 is in the tree; phases 2 to 4 are planned,
-and a prototype of them is in [#3218], not yet merged. Where a phase
-below names a file or a result, it describes that prototype.
+and what comes next. Phases 1 and 2 are in the tree; phases 3 and 4
+are planned, and a prototype of them is in [#3218], not yet merged.
+Where phase 3 or 4 names a file or a result, it describes that
+prototype.
 
 ## Goal and scope
 
@@ -107,14 +108,15 @@ fusion over toy word-hash embeddings. [`cosmic/vector_fuzz_test.tl`]
 holds the text a vector is read from, and every function over arbitrary
 arguments, to references written in Teal.
 
-## Phase 2: `cosmic.vector`, an in-memory corpus (planned; prototyped in [#3218], not yet merged)
+## Phase 2: `cosmic.vector`, an in-memory corpus (built)
 
 For a corpus searched many times: load the vectors once, contiguously,
 and search them with no per-row SQLite overhead.
 
-The module would be `cosmic/vector.tl` over a raw module,
-`cosmic.internal.vector` (declared in `cosmic/internal/vector.d.tl`,
-implemented in C beside the SQL functions). It follows the pattern of
+The module is [`cosmic/vector.tl`] over a raw module,
+[`cosmic.internal.vector`] (declared in
+[`cosmic/internal/vector.d.tl`], implemented in C beside the SQL
+functions in [`core/vector.c`]). It follows the pattern of
 [`cosmic.hash`] over [`cosmic.internal.hash`].
 
 ```text
@@ -162,15 +164,14 @@ Details:
 - **Memory** is allocated through Lua, so the garbage collector sees
   its size: each buffer is a userdata held in a user value of the
   corpus (see the status below).
-- **Long calls can be cancelled.** `search` and `kmeans` ask
-  [`cosmic_signal_caught`] every few hundred rows (and once per
-  centroid and iteration of `kmeans`), as core/http.c and core/socket.c
-  do in their waits. Inside a [`Signal.guard`], a pending SIGINT or
+- **Long calls can be cancelled.** `search` asks
+  [`cosmic_signal_caught`] every few hundred rows, as core/http.c and
+  core/socket.c do in their waits. Inside a [`Signal.guard`], a pending SIGINT or
   SIGTERM answers `nil, "interrupted"` and leaves the corpus as it was;
   the signal is not taken. That is the tree's convention for an
   interrupted operation, which core/http.c and core/socket.c follow,
   and honest returns (doc/design.md) make the result `Vector.Hits?,
-  string` and `{string}?, string`. An earlier draft raised instead,
+  string`. An earlier draft raised instead,
   because a search has no partial answer; the user decided on the
   convention over that. Out of memory and argument-shape errors still
   raise.
@@ -180,26 +181,29 @@ Details:
   - `candidates` recalling the exact top-k on clustered data;
   - `allow`;
   - the refusals;
-  - an example in `cosmic/vector_example.tl`.
+  - an example in [`cosmic/vector_example.tl`].
 - **Target:** under 15 ms for 100k × 768 exact, and under 3 ms with a
   binary first pass. Measure both and state the numbers in the PR.
 
-**Status:** prototyped in [#3218], not yet merged. The corpus's buffers (vectors, inverse lengths, ids
+**Status:** built. The corpus's buffers (vectors, inverse lengths, ids
 and bit vectors) are Lua userdata held in the corpus's user values, so
 the garbage collector counts every byte, the checked core refuses them
-like any Lua allocation (core/allocation_test.tl walks creation, growth
-past the first capacity, a search with `candidates`, `allow`,
-`kmeans` and `nearest_n`), and nothing is left on the C heap. The
-price is that growing allocates the larger buffer beside the old one,
-which lingers until collected, where `realloc` could extend in place:
-a corpus can need up to three times what it holds while it grows.
-A pending signal in a [`Signal.guard`] makes `search` and `kmeans` answer
-`nil, "interrupted"` (see the decision above). Measured on
+like any Lua allocation ([`core/allocation_test.tl`] walks creation,
+growth past the first capacity, and a search with `candidates` and
+`allow`, and that a refused allocation leaves the corpus as it was), and
+nothing is left on the C heap. The price is that growing allocates the
+larger buffer beside the old one, which lingers until collected, where
+`realloc` could extend in place: a corpus can need up to three times
+what it holds while it grows. A pending signal in a [`Signal.guard`]
+makes `search` answer `nil, "interrupted"` (see the decision above;
+tested in [`cosmic/vector_test.tl`]). [`cosmic/vector_fuzz_test.tl`]
+holds `pack`, `unpack`, `normalize`, `from_json` and the corpus's
+`search` and refusals to references written in Teal. Measured on
 100k × 768 on the development VM: exact inner product 52 ms, with
-`candidates = 200` 2.6 ms; recall@10 was 10/10 on clustered synthetic data. Earlier
-measurements: cosine 66 ms, L2 61 ms, 2.5 ms cosine with candidates. The 15
-ms exact target is missed: the scan is bandwidth-bound, at about 5.4 GB/s
-on the test VM.
+`candidates = 200` 2.6 ms; recall@10 was 10/10 on clustered synthetic
+data. Earlier measurements: cosine 66 ms, L2 61 ms, 2.5 ms cosine with
+candidates. The 15 ms exact target is missed: the scan is
+bandwidth-bound, at about 5.4 GB/s on the test VM.
 
 ## Phase 3: IVF over a cluster column (planned; prototyped in [#3218], not yet merged)
 
@@ -338,7 +342,13 @@ A separate track, pulled by its own callers. From the same discussion:
 [`cosmic/sqlite_example.tl`]: ../../cosmic/sqlite_example.tl
 [`cosmic/vector_fuzz_test.tl`]: ../../cosmic/vector_fuzz_test.tl
 [`cosmic/vector_sql_test.tl`]: ../../cosmic/vector_sql_test.tl
+[`cosmic/vector_test.tl`]: ../../cosmic/vector_test.tl
+[`cosmic/vector_example.tl`]: ../../cosmic/vector_example.tl
+[`cosmic/vector.tl`]: ../../cosmic/vector.tl
+[`cosmic/internal/vector.d.tl`]: ../../cosmic/internal/vector.d.tl
+[`core/allocation_test.tl`]: ../../core/allocation_test.tl
 [`doc/guides/sql.md`]: ../guides/sql.md
 
 [`cosmic.internal.hash`]: ../../cosmic/internal/hash.d.tl
+[`cosmic.internal.vector`]: ../../cosmic/internal/vector.d.tl
 [`Signal.guard`]: ../../cosmic/signal.tl

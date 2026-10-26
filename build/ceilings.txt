@@ -4545,6 +4545,8 @@ cosmic/time_fuzz_test.tl any_use 10
 
 cosmic/url_fuzz_test.tl any_use 3
 
+cosmic/vector.tl any_use 1
+
 cosmic/web/app.tl any_use 2
 
 cosmic/web/app_test.tl any_use 5
@@ -5058,6 +5060,8 @@ cosmic/time_tzif_fuzz_test.tl cast_refused 1
 cosmic/time_zone_test.tl cast_refused 7
 
 cosmic/url_test.tl cast_refused 2
+
+cosmic/vector.tl cast_refused 1
 
 cosmic/web/app_test.tl cast_refused 6
 
