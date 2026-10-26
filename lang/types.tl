@@ -9,8 +9,9 @@
 --- `false`, `nil`, `never`, `any` or `invalid`; the others are a [`Named`] type
 --- (a declaration and its arguments), an [`Array`] `{T}` or `mut {T}`, a [`Map`]
 --- `{K: V}` or `mut {K: V}`, a [`Union`] (which also holds `T?`), a function
---- ([`Fn`]) and a type variable ([`Var`]). A type is immutable. The one field a
---- reader may see change is `digest`, which [`Types.digest`] fills once.
+--- ([`Fn`]) and a type variable ([`Var`]). A type is immutable to a reader. The fields it is made
+--- without are `mut`, and only this module writes them: `digest`, which [`Types.digest`] fills once, and the
+--- `id`, `owner` and measures a store sets as it interns the type. A form is told by its `tag`.
 ---
 --- **Identity.** A structural form is interned by its parts, so a store holds
 --- one `{integer}`. A named type is its declaration's path and its arguments: a
@@ -93,8 +94,9 @@ local record Types
     "alias"
   end
 
-  --- What every type holds besides its tag: each form declares `tag` as an enum of its own, which no other form shares
-  --- a value of, and [`Type`] is told apart by it.
+  --- What every type holds besides its tag: each form declares `tag` as an enum of its own, and [`Type`] is told apart
+  --- by it. No value is in the enums of two forms (`untagged_union` otherwise), and a tag is never `mut`. A form repeats
+  --- these fields, since a record lists the fields of an interface alike.
   interface Base
     --- Whether it is an atom, for the code that treats the ten atoms alike without listing their tags.
     atom: boolean
@@ -361,7 +363,7 @@ local record Types
     names: {string}
     --- `names` joined by ".".
     name: string
-    owner: integer
+    mut owner: integer
     --- The path as the text spells it.
     text: string
     --- How many type arguments a use takes, once the declaration or its maker says.
@@ -702,8 +704,9 @@ local function id_text(t: Type): string
   return tostring(t.id)
 end
 
--- A write of a field every form has is made through [`Types.Base`]: the checker refuses one through
--- the union [`Type`], which is the forms it narrows to one.
+-- TODO: write `t.digest = d` and the others of these in place, and drop the four setters, once the checker takes a
+-- write of a field that every member of a union declares `mut` alike (it refuses one through the union now, so a
+-- write is made through [`Types.Base`]).
 
 local function set_digest(b: Base, digest: string)
   b.digest = digest

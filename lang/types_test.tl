@@ -222,6 +222,7 @@ local function describe(t: Types.Type): string
   elseif t.tag == "fn" then
     return "fn of " .. tostring(#t.params)
   end
+  assert(t.atom == true, "a form this test does not know")
   return t.tag
 end
 

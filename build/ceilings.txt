@@ -187,7 +187,6 @@ cosmic/zip.tl interface_disagrees 4
 
 lang/ast.tl interface_disagrees 288
 
-
 # an array of optional elements: a map `{integer: T}` for sparse data
 
 # the raw `thread` type, until coroutines are typed (`Coroutine<Y, R, S>`)
@@ -1627,7 +1626,6 @@ test/sqlite_transaction_test.tl nil_not_allowed 1
 # optional (`owner, why = find()` after `if owner == nil`), so it narrows nothing; the rewrite tests again after the assignment
 
 build/tree_checks.tl narrowing_dropped 7
-
 
 # a local declared with no value and read, or named by a function made, before every path assigns it: the functions declared
 # ahead for mutual recursion (`local expr: function(...)`), which the rewrite makes the functions of a record
@@ -3500,15 +3498,13 @@ lang/relation.tl field_fixed 5
 
 lang/relation_programs.tl field_fixed 19
 
-lang/relation_test.tl field_fixed 1
-
 lang/scopes.tl field_fixed 19
 
 lang/syntax_codes.tl field_fixed 1
 
 lang/translate.tl field_fixed 2
 
-lang/types.tl field_fixed 4
+lang/types.tl field_fixed 3
 
 lang/types_programs.tl field_fixed 2
 
@@ -3543,7 +3539,6 @@ build/syntax_node_test.tl field_unknown 4
 
 build/syntax_receivers.tl field_unknown 21
 
-
 build/syntax_rewrite.tl field_unknown 1
 
 build/syntax_scopes.tl field_unknown 11
@@ -3572,10 +3567,7 @@ lang/ast.tl field_unknown 3
 
 lang/check.tl field_unknown 426
 
-
-
 lang/check_programs.tl field_unknown 2
-
 
 lang/codegen.tl field_unknown 270
 
@@ -3584,7 +3576,6 @@ lang/codegen_test.tl field_unknown 3
 lang/declarations.tl field_unknown 131
 
 lang/declarations_test.tl field_unknown 8
-
 
 lang/load_order.tl field_unknown 6
 
@@ -3602,8 +3593,6 @@ lang/parser_test.tl field_unknown 42
 
 lang/relation.tl field_unknown 8
 
-
-
 lang/scopes.tl field_unknown 177
 
 lang/scopes_cover.tl field_unknown 19
@@ -3620,11 +3609,7 @@ lang/truthy_test.tl field_unknown 2
 
 lang/types.tl field_unknown 17
 
-
 lang/types_programs.tl field_unknown 2
-
-
-
 
 lang/warnings_test.tl field_unknown 16
 
@@ -8539,7 +8524,6 @@ lang/parser.tl literal_unknown 112
 
 lang/scopes.tl literal_unknown 4
 
-
 # a `{}` with no type to make it from: the rewrite declares the local `mut {T}`
 
 build/archive.tl literal_needs_type 1
@@ -8845,7 +8829,6 @@ eval/result_test.tl literal_needs_type 3
 eval/round.tl literal_needs_type 1
 
 eval/summarize.tl literal_needs_type 1
-
 
 lang/declarations.tl literal_needs_type 2
 
@@ -9410,7 +9393,6 @@ build/syntax_analyzer.tl not_assignable 3
 
 build/syntax_contracts.tl not_assignable 4
 
-
 build/test_sandbox_system_confined_test.tl not_assignable 1
 
 build/test_test.tl not_assignable 1
@@ -9493,15 +9475,11 @@ lang/codegen.tl not_assignable 21
 
 lang/declarations.tl not_assignable 10
 
-
 lang/parser.tl not_assignable 8
 
 lang/parser_fuzz_test.tl not_assignable 3
 
 lang/parser_test.tl not_assignable 2
-
-
-
 
 lang/scopes.tl not_assignable 14
 
@@ -9512,10 +9490,6 @@ lang/scopes_fuzz_test.tl not_assignable 2
 lang/scopes_test.tl not_assignable 1
 
 lang/translate.tl not_assignable 19
-
-
-
-
 
 # a call that answers one of several lists used as the value of one name: a `pcall` whose first value is read
 # (`assert(not pcall(f))`, `local ok = pcall(f)`), which the rewrite makes a `match`
@@ -9717,11 +9691,9 @@ cosmic/web/response_test.tl not_assignable 2
 
 cosmic/web/typed.tl not_assignable 1
 
-
 lang/recursive_alias_fuzz_test.tl index_may_be_nil 1
 
 lang/recursive_alias_test.tl alternatives_as_value 3
-
 
 lang/relation.tl or_mix 1
 
