@@ -540,6 +540,29 @@ local function test_deflate_and_inflate_leave_nothing_whenever_an_allocation_fai
   assert(db:close())
 end
 
+--- The vector functions parse, copy and build blobs and text with
+--- SQLite's allocator; a refusal in any of them leaves no block on the C
+--- heap, and with none refused a query answers in full.
+local function test_vector_functions_leave_nothing_whenever_an_allocation_fails()
+  local db = assert(Sqlite.memory())
+  collectgarbage("collect")
+  local bytes, blocks = testing.c_heap()
+  local ended = under_every_failure(function()
+    local rows = assert(Sqlite.rows(db, [[
+      SELECT vector_text(l2_normalize(subvector('[3, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]', 1, 2))),
+             cosine_distance('[1, 2, 3]', '[3, 2, 1]'),
+             hamming_distance(binary_quantize('[1, -1, 2]'), binary_quantize('[1, 1, 2]')),
+             vector_dims(vector('[1, 2, 3, 4, 5]'))
+    ]]))
+    local row = assert(rows[1])
+    assert(row:text(1) == "[0.600000024,0.800000012]")
+    assert(row:integer(3) == 1 and row:integer(4) == 5)
+  end)
+  assert(ended > 0, "a query allocates")
+  assert_c_heap(bytes, blocks, "the vector functions under refusal")
+  assert(db:close())
+end
+
 --- A hasher holds no C memory of the core's own, and a refusal while it
 --- updates or digests leaves none. An HMAC's operation lives inline in
 --- its userdata, so what its walk covers is Lua's side of it: a refusal
