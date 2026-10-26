@@ -2551,6 +2551,54 @@ function tree_checks.pipeline(root: string, build_db: Sqlite.Handle, memo?: Sqli
   end, tree_checks.declared(root, nil, memo), tree_checks.checked(root, nil, memo))
 end
 
+--- The files that may read `package`, tests apart: the table that holds the loaded modules, the searchers that find them, `preload`,
+--- `searchpath`, `loadlib` and the search paths. A module that reads them can load a module by a name it computes, which
+--- the build does not see as an edge, so `require`, the one way the build follows, is the only way the rest load one.
+local packagers: {string: string} = {
+  ["build/link_resolve.tl"] = "refuses a step into `package.loaded` or `package.preload` when it resolves a name",
+  ["build/removed_fix.tl"] = "reads the catalog from `package.loaded`",
+  ["build/sandbox.tl"] = "asks whether the core preloads a module",
+  ["build/sandbox_probe.tl"] = "asks the searchers whether a sandbox can be made",
+  ["build/test_worker.tl"] = "holds `require` to a test's closure through the searchers and `package.loaded`",
+  ["build/udp_fixture.tl"] = "reads the core's raw table through the searchers",
+  ["build/unix_socket.tl"] = "reads the core's raw table through the searchers",
+  ["cosmic/removed_example.tl"] = "shows that `package.loaded` holds a module once required",
+  ["cosmic/store.tl"] = "reads the store's searcher",
+}
+
+--- Each read of `package` in a file of the tree that is not one of `files` (by default [`packagers`]), as
+--- `<file>:<line>: reads \`package\`...`: a name `package` that is no field (`t.package`, `s:package()`, `{ package = 1 }`),
+--- so that an alias (`local p = package`), an index (`package["searchers"]`) and each field are all found.
+function tree_checks.package_readers(root: string, files?: {string: string}): {string}
+  local sources, trouble = sources_of(root)
+  if sources == nil then
+    return { "reading the sources: " .. trouble }
+  end
+  local permitted = files or packagers
+  local out: mut {string} = {}
+  for _, entry in ipairs(sources) do
+    local file, text = entry[1], entry[2]
+    -- A test is held to its closure by the worker, which makes the case of the many that read the core's raw tables through
+    -- the searchers to test a binding; it is no module a program carries.
+    if file ~= nil and text ~= nil and permitted[file] == nil and file:match("_test%.tl$") == nil and
+        text:find("package", 1, true) ~= nil then
+      local tokens = Lexer.lex(text, file).tokens
+      for i, word in ipairs(tokens.text) do
+        if word == "package" and tokens.kind[i] == "identifier" then
+          local before, after = tokens.text[i - 1], tokens.text[i + 1]
+          local is_field = before == "." or before == ":" or ((before == "{" or before == ",") and after == "=")
+          if not is_field then
+            out[#out + 1] = file .. ":" .. tostring(tokens.y[i]) .. ": reads `package`, which only the files " ..
+              "build/tree_checks.tl's `packagers` names may: a module loads what it needs by `require` of a " ..
+              "literal name, which the build follows, and not through the searchers or the table of loaded modules"
+          end
+        end
+      end
+    end
+  end
+  return out
+end
+
 --- The calls the new checker gave no function, which no rule of the discipline judged ([`build.syntax_contracts`]'s
 --- `untyped`), counted per file of the tree and held to `pinned` (by default the `[untyped]` ceilings): a file with fewer,
 --- and a pin for a file with none, is told to lower the pin; one with more is listed, as the build itself refuses it

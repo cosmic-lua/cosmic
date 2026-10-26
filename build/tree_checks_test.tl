@@ -425,6 +425,34 @@ local function test_a_module_requiring_the_loader_outside_the_entry_and_the_work
   assert(all:find("\nbuild%.plugin: requires") ~= nil and all:find("\nbuild%.probing: requires") ~= nil, all)
 end
 
+--- A module outside the list that reads `package` is refused, whether it indexes it, reads a field or holds it under
+--- another name; a field called `package`, a table key and text are no read; a test is not held to the list.
+local function test_a_module_reading_package_outside_the_list_is_refused(dir: string)
+  local function put(file: string, text: string)
+    assert(Fs.mkdirs(dir .. "/build"))
+    assert(Fs.write(dir .. "/" .. file, text))
+  end
+  put("build/allowed.tl", "local x = package.searchers\nreturn x\n")
+  put("build/alias.tl", "local p = package\nreturn p\n")
+  put("build/indexed.tl", "local s = package[\"searchers\"]\nreturn s\n")
+  put("build/searchers.tl", "local s = package.searchers\nreturn s\n")
+  put("build/preload.tl", "local s = package.preload\nreturn s\n")
+  put("build/searchpath.tl", "local s = package.searchpath\nreturn s\n")
+  put("build/loadlib.tl", "local s = package.loadlib\nreturn s\n")
+  put("build/path.tl", "package.cpath = \"\"\npackage.path = \"\"\n")
+  put("build/loaded.tl", "local s = package.loaded\nreturn s\n")
+  put("build/fine.tl", "local t = { package = 1 }\n-- package.searchers\nlocal s = \"package.loaded\"\nreturn t.package, s\n")
+  put("build/probe_test.tl", "local s = package.searchers\nreturn s\n")
+  local found = tree_checks.package_readers(dir, { ["build/allowed.tl"] = "needs it" })
+  local files: mut {string} = {}
+  for _, line in ipairs(found) do
+    files[#files + 1] = line:match("^([^:]+):%d+: reads `package`") or line
+  end
+  table.sort(files)
+  assert(table.concat(files, " ") == "build/alias.tl build/indexed.tl build/loaded.tl build/loadlib.tl build/path.tl " ..
+      "build/path.tl build/preload.tl build/searchers.tl build/searchpath.tl", table.concat(found, "\n"))
+end
+
 --- A declaration that requires only declarations passes; one that requires a module is refused.
 local function test_a_declaration_that_requires_a_module_is_refused(dir: string)
   local db = fixture.database(dir, {

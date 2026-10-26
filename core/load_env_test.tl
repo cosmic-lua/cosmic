@@ -25,17 +25,22 @@ end
 local function test_the_environment_has_no_metatable_that_leads_back_to_the_globals()
   assert(run("return getmetatable(_ENV)") == nil, "the environment has a metatable")
   assert(run("return select('#', getmetatable('x'))") == 1)
-  -- The string metatable reaches the string library alone.
-  assert(run("return getmetatable('x').__index == string") == true)
+  -- The string metatable a chunk reads is a copy that reaches a copy of the string library alone.
+  assert(run("return getmetatable('x').__index == string") == false)
+  assert(run("return type(getmetatable('x').__index.rep)") == "function")
   assert(run("return getmetatable(print)") == nil)
 end
 
 --- The chunk walks its own environment and the tables in it, and answers the first name that reaches the globals, `require` or
 --- `package` (given as its arguments), or nil.
 local WALK <const> = [[
-local globals, require_function, package_table = ...
+local globals, require_function, package_table, host = ...
 local function reaches(value)
-  return value == globals or value == require_function or value == package_table
+  if value == globals or value == require_function or value == package_table then return true end
+  for _, held in ipairs(host) do
+    if value == held then return true end
+  end
+  return false
 end
 local count = 0
 for name, value in pairs(_ENV) do
@@ -55,7 +60,11 @@ local function test_nothing_the_environment_holds_is_the_globals_or_require_or_p
   local globals = Globals.table()
   assert(globals["require"] ~= nil and globals["package"] ~= nil and globals["_G"] ~= nil)
   local chunk = assert(load(WALK, "=walk", "t"))
-  local found: any = chunk(globals, globals["require"], globals["package"])
+  -- The host's libraries and the metatable of its strings, which a chunk must not be handed or write to.
+  local host_chunk = assert(load("return { string, table, math, utf8, coroutine, getmetatable(''), " ..
+    "getmetatable('').__index }", "=host_values", "t", globals))
+  local host: any = host_chunk()
+  local found: any = chunk(globals, globals["require"], globals["package"], host)
   assert(found == nil, tostring(found))
 end
 
@@ -74,4 +83,32 @@ local function test_a_chunk_given_an_environment_reads_what_it_names()
   local bare = assert(load("return require", "=bare", "t", {}))
   local none: any = bare()
   assert(none == nil, "an environment that names nothing gives nothing")
+end
+
+--- What the host reads of `name` in its own libraries, with the globals as the chunk's environment.
+local function host_reads(source: string): any
+  local chunk = assert(load(source, "=host", "t", Globals.table()))
+  local value: any = chunk()
+  return value
+end
+
+local function test_a_chunk_that_writes_into_a_library_changes_its_own_copy_and_not_the_hosts()
+  run("string.rep = function() return 'POISON' end")
+  assert(host_reads("return ('a'):rep(2)") == "aa", "string.rep reached the host")
+  run("table.insert = function() error('POISON') end math.floor = function() return -1 end")
+  run("utf8.char = function() return 'POISON' end coroutine.wrap = function() return 'POISON' end")
+  assert(host_reads("local t = {} table.insert(t, 1) return #t") == 1, "table.insert reached the host")
+  assert(host_reads("return math.floor(1.5)") == 1, "math.floor reached the host")
+  assert(host_reads("return utf8.char(65)") == "A", "utf8.char reached the host")
+  assert(host_reads("return type(coroutine.wrap(function() end))") == "function", "coroutine.wrap reached the host")
+  -- The next chunk starts from the libraries as they were.
+  assert(run("return string.rep('a', 2)") == "aa", "a chunk saw what another wrote")
+end
+
+local function test_a_chunk_that_writes_through_a_strings_metatable_changes_a_copy()
+  run("getmetatable('').__index.rep = function() return 'POISON' end")
+  run("getmetatable('').__index = {}")
+  run("rawset(getmetatable(''), '__index', nil)")
+  assert(host_reads("return ('a'):rep(2)") == "aa", "the string metatable reached the host")
+  assert(host_reads("return getmetatable('').__index == string") == true, "the host's string metatable changed")
 end
