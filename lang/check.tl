@@ -2289,6 +2289,8 @@ local function string_operand(ctx: Ctx, node: Ast.Node, t: Type): boolean
     return true
   end
   -- A union of enums and strings, none of it nil, is a string whichever member it is.
+  -- TODO: take the same union as the operand of `#` and of the orderings, which [`is_text`] refuses where it is not one enum or
+  -- `string`, once a program of the tree writes one.
   if (t.tag == "union") and not t.nilable then
     local text = true
     for _, m in ipairs(t.members) do
