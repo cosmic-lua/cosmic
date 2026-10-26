@@ -9,7 +9,8 @@
 --- * `string`: "string"; an enum: "string", and its values in `strings`
 --- * `boolean`, `true`, `false`: "boolean"
 --- * `nil`, and a union that holds `nil`: "nil"
---- * an array, a map, a record, an interface, a declaration used as a value: "table"
+--- * an array, a map, a record, a declaration used as a value: "table"
+--- * an interface: "table" and "userdata", since a userdata record may implement one
 --- * a class instance: "table", and its declaration in `classes`
 --- * a userdata record: "userdata"
 --- * a function: "function"
@@ -109,10 +110,14 @@ local function add(seen: Seen, t: Types.Type)
           seen.strings[#seen.strings + 1] = value
         end
       end
-    elseif kind == "userdata" then
+    elseif kind == "userdata" and not current.value then
       seen.found["userdata"] = true
     else
       seen.found["table"] = true
+      -- A userdata record may implement an interface, so a value of one is also a userdata.
+      if kind == "interface" then
+        seen.found["userdata"] = true
+      end
       if kind == "class" and not current.value then
         seen.classes[#seen.classes + 1] = current.decl
       else
@@ -175,6 +180,8 @@ function Boundaries.spec(kinds: Boundaries.Kinds?): string
   return table.concat(kinds.list, "|")
 end
 
+-- TODO: once lang/stdlib.d.tl declares `Coroutine` as the thread the runtime makes of it (its own TODO there), map it to
+-- a kind of its own: it is a record there, so a boundary typed with it would be "table" and a thread is none.
 -- TODO: once lang/codegen.tl writes a boundary check from the checker's list of declared parameters, returns and fields
 -- (the next step of the boundary checks in doc/plans/strict-teal.md), call [`Boundaries.kinds`] and [`Boundaries.spec`]
 -- there: nothing outside the tests calls them yet.

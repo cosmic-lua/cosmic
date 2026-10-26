@@ -87,10 +87,13 @@ local function test_collections_records_and_interfaces_are_tables()
   same(spec(w.store:array(w.store.integer, true)), "table")
   same(spec(w.store:map(w.store.string, w.store.integer)), "table")
   same(spec(named(w, "Node")), "table")
-  same(spec(named(w, "Stream.Reader")), "table")
   same(spec(named(w, "List", { w.store.string })), "table")
   -- A declaration used as a value is the table of its functions.
   same(spec(w.store:named(decl_of(w, "Node"), nil, true)), "table")
+  -- A userdata record may implement an interface, so a value of the interface may be one.
+  same(spec(named(w, "Stream.Reader")), "table|userdata")
+  -- The userdata record used as a value is the table of its functions.
+  same(spec(w.store:named(decl_of(w, "Handle"), nil, true)), "table")
   local record_kinds = Boundaries.kinds(named(w, "Node"))
   assert(record_kinds ~= nil and record_kinds.classes == nil)
 end
