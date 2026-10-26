@@ -103,8 +103,8 @@ fusion over toy word-hash embeddings.
 For a corpus searched many times: load the vectors once, contiguously,
 and search them with no per-row SQLite overhead.
 
-The module is `cosmic/vector.tl` over a raw module,
-`cosmic.internal.vector` (declared in `cosmic/internal/vector.d.tl`,
+The module is [`cosmic/vector.tl`] over a raw module,
+[`cosmic.internal.vector`] (declared in [`cosmic/internal/vector.d.tl`],
 implemented in C beside the SQL functions). It follows the pattern of
 [`cosmic.hash`] over [`cosmic.internal.hash`].
 
@@ -158,7 +158,7 @@ Details:
   - `candidates` recalling the exact top-k on clustered data;
   - `allow`;
   - the refusals;
-  - an example in `cosmic/vector_example.tl`.
+  - an example in [`cosmic/vector_example.tl`].
 - **Target:** under 15 ms for 100k × 768 exact, and under 3 ms with a
   binary first pass. Measure both and state the numbers in the PR.
 
@@ -273,3 +273,7 @@ A separate track, pulled by its own callers. From the same discussion:
 [`doc/guides/sql.md`]: ../guides/sql.md
 
 [`cosmic.internal.hash`]: ../../cosmic/internal/hash.d.tl
+[`cosmic.internal.vector`]: ../../cosmic/internal/vector.d.tl
+[`cosmic/internal/vector.d.tl`]: ../../cosmic/internal/vector.d.tl
+[`cosmic/vector.tl`]: ../../cosmic/vector.tl
+[`cosmic/vector_example.tl`]: ../../cosmic/vector_example.tl
