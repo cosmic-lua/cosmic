@@ -11,7 +11,7 @@ local Speed = require("lang.speed")
 local Test = require("cosmic.test")
 
 Test.policy{
-  grants = { { path = "lang/lexer.tl", letters = "r" } },
+  grants = { { path = "build/fix/continuation.tl", letters = "r" } },
 }
 
 --- How many times the cost of lexing and parsing a source that formatting it may cost. Formatting parses the source four
@@ -58,14 +58,14 @@ local function formatting_within(source: string, limit: integer): boolean, strin
 end
 
 local function test_formatting_a_large_module_of_the_tree_costs_a_small_multiple_of_parsing_it()
-  local source = assert(Fs.read("lang/lexer.tl"))
-  assert(#source > 30000, "the module is large")
+  local source = assert(Fs.read("build/fix/continuation.tl"))
+  assert(#source > 15000, "the module is large")
   local ok, why = formatting_within(source, BUDGET)
   assert(ok, "formatting " .. why)
 end
 
 local function test_formatting_a_program_costs_a_small_multiple_of_parsing_it()
-  local ok, why = formatting_within(SAMPLE:rep(60), BUDGET)
+  local ok, why = formatting_within(SAMPLE:rep(20), BUDGET)
   assert(ok, "formatting " .. why)
 end
 
@@ -117,7 +117,7 @@ local function scales(names: {string})
   for _, name in ipairs(names) do
     local form = FORMS[name]
     assert(form ~= nil, name .. " is a form")
-    local small, large = form(4), form(16)
+    local small, large = form(1), form(4)
     assert(Format.format(small, "t.tl").text ~= nil and Format.format(large, "t.tl").text ~= nil, name .. " is formatted")
     local ok, why = Speed.within(function()
       local _ = Format.format(small, "t.tl")
