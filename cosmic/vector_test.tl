@@ -404,8 +404,8 @@ local function test_from_json_reads_no_text_with_a_nul()
 end
 
 local function test_pack_takes_no_string_for_a_number()
-  local chunk = assert(load("local Vector = require('cosmic.vector'); return pcall(Vector.pack, { '1', 2 })",
+  local chunk = assert(load("local Vector = ...; return pcall(Vector.pack, { '1', 2 })",
     "=string_entry", "t"))
-  local ok, why = chunk()
+  local ok, why = chunk(Vector)
   assert(ok == false and tostring(why):find("finite numbers", 1, true) ~= nil, tostring(why))
 end

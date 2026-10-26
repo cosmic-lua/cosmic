@@ -788,8 +788,7 @@ end
 --- Calls [`Vector.pack`] on a list built here from kinds, in a chunk of
 --- plain Lua since a typed caller cannot build a list of mixed things.
 local PACK_CHUNK <const> = [[
-  local Vector = require("cosmic.vector")
-  local kinds, tokens = ...
+  local Vector, kinds, tokens = ...
   local list = {}
   for i = 1, #kinds do
     local kind, token = kinds[i], tokens[i]
@@ -891,7 +890,7 @@ local function check_pack(input: string): boolean, string
       want[#want + 1] = f32(x)
     end
   end
-  local ok, packed = run_pack(kinds, tokens)
+  local ok, packed = run_pack(Vector, kinds, tokens)
   if not (ok is boolean and packed is string) then return false, "the chunk answered oddly" end
   if ok == refuses then
     return false, ("Vector.pack %s a list of %d (%s)"):format(
@@ -1271,8 +1270,7 @@ end
 --- Hostile calls, in plain Lua so that a typed caller need not build
 --- their arguments. Each case says whether it raises.
 local REFUSAL_CHUNK <const> = [[
-  local Vector = require("cosmic.vector")
-  local dims, ops = ...
+  local Vector, dims, ops = ...
   local good = {}
   for i = 1, dims do good[i] = 1 end
   good = Vector.pack(good)
@@ -1368,7 +1366,7 @@ local function check_refusals(input: string): boolean, string
   local dims = to_int(assert(fields[1]))
   local ops: mut {string} = {}
   for at = 2, #fields do ops[#ops + 1] = assert(fields[at]) end
-  local answer = run_refusals(dims, ops)
+  local answer = run_refusals(Vector, dims, ops)
   if not (answer is string) then return false, "the chunk answered oddly" end
   if answer ~= "ok" then return false, ("dims %d, %s: %s"):format(dims, table.concat(ops, " "), answer) end
   Fuzz.label("refused")
