@@ -1479,7 +1479,8 @@ eval/summarize.tl nil_not_allowed 14
 
 eval/summarize_test.tl nil_not_allowed 2
 
-lang/ast.tl nil_not_allowed 12
+lang/ast.tl nil_not_allowed 1
+
 
 lang/ast_dump.tl nil_not_allowed 5
 
@@ -2198,7 +2199,8 @@ eval/round.tl index_may_be_nil 2
 
 eval/solve.tl index_may_be_nil 1
 
-lang/ast.tl index_may_be_nil 4
+lang/ast.tl index_may_be_nil 1
+
 
 lang/ast_dump.tl index_may_be_nil 3
 
@@ -3760,8 +3762,6 @@ eval/solve.tl map_field 5
 
 eval/solve_test.tl map_field 6
 
-lang/ast.tl map_field 3
-
 lang/ast_dump.tl map_field 2
 
 lang/check_programs.tl map_field 9
@@ -4457,8 +4457,6 @@ eval/round.tl any_use 1
 
 eval/summarize_test.tl any_use 52
 
-lang/ast.tl any_use 146
-
 lang/check_programs.tl any_use 14
 
 lang/codegen_fuzz_test.tl any_use 3
@@ -5051,8 +5049,6 @@ eval/result.tl is_on_record 6
 eval/round.tl is_on_record 2
 
 eval/summarize.tl is_on_record 9
-
-lang/ast.tl is_on_record 8
 
 lang/ast_dump.tl is_on_record 3
 
@@ -8762,7 +8758,8 @@ cosmic/web/router.tl array_hole 6
 
 cosmic/web/session/cookie_test.tl array_hole 2
 
-lang/ast.tl array_hole 4
+lang/ast.tl array_hole 2
+
 
 lang/ast_dump.tl array_hole 1
 
@@ -8794,8 +8791,6 @@ cosmic/json_test.tl float_key 2
 cosmic/shape_test.tl float_key 1
 
 cosmic/time.tl float_key 1
-
-lang/ast.tl float_key 3
 
 lang/declarations.tl float_key 2
 
