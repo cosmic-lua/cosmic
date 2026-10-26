@@ -196,8 +196,8 @@ end
 --- reaches and the host never sees.
 function Solve.unveil(arena: string, program: Solve.Program, host_reads: {string},
                       exists: function(string): boolean): Child.Unveil
-  local reads: {string} = {}
-  local seen: {string:boolean} = {}
+  local reads: mut {string} = {}
+  local seen: mut {string:boolean} = {}
   local function add(path: string)
     if seen[path] or not exists(path) then return end
     seen[path] = true
