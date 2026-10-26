@@ -9034,8 +9034,6 @@ lang/declarations.tl not_assignable 1
 
 lang/parser.tl not_assignable 1
 
-lang/parser_fuzz_test.tl not_assignable 3
-
 lang/translate.tl not_assignable 1
 
 # a call that answers one of several lists used as the value of one name: a `pcall` whose first value is read
