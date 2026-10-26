@@ -2,8 +2,8 @@
 --- the text the previous formatter wrote for the same construct. Every case goes through
 --- [`build.fix.layout_check`], which also holds it to the properties of any source: no token, comment or node
 --- changes, no break moves, and laying out what is laid out changes nothing. The lines, blocks and comments are
---- [`build.fix.layout_blocks_test`]'s, and the properties over many spoilt sources
---- [`build.fix.layout_property_test`]'s.
+--- [`build.fix.layout_blocks_test`]'s, the lines that continue a statement [`build.fix.continuation_test`]'s, and
+--- the properties over many spoilt sources [`build.fix.layout_property_test`]'s.
 local Check = require("build.fix.layout_check")
 local Layout = require("build.fix.layout")
 local Test = require("cosmic.test")
@@ -58,9 +58,12 @@ local function test_other_unary_operators_hug_each_other_unless_they_would_join(
 end
 
 local function test_a_table_argument_is_spaced_from_the_function_it_is_passed_to()
-  lays("x.y:z{}\n", "x.y:z {}\n")
-  lays("f{1}\n", "f { 1 }\n")
-  lays("f{ a = 1 }\n", "f { a = 1 }\n")
+  lays("x.y:z {}\n", "x.y:z{}\n")
+  lays("f {1}\n", "f{ 1 }\n")
+  lays("f  { a = 1 }\n", "f{ a = 1 }\n")
+  lays("Test.policy {\n  a = 1,\n}\n", "Test.policy{\n  a = 1,\n}\n")
+  lays("local app = Web.app{ routes = { Web.get(\"/\", h) }, mw = Web.log{ q = true } }\n",
+    "local app = Web.app{ routes = { Web.get(\"/\", h) }, mw = Web.log{ q = true } }\n")
 end
 
 local function test_table_literal_keys_and_brace_gaps()
@@ -71,7 +74,7 @@ local function test_table_literal_keys_and_brace_gaps()
   lays("local t = {{},{ }}\n", "local t = { {}, {} }\n")
   lays("f({1}, {})\n", "f({ 1 }, {})\n")
   lays("t = { -- c\n}\n", "t = { -- c\n}\n")
-  lays("t = { 1, 2, }\n", "t = { 1, 2, }\n")
+  lays("t = { 1, 2, }\n", "t = { 1, 2 }\n")
 end
 
 local function test_a_key_or_index_that_begins_with_a_long_string_stands_off_its_brackets()
@@ -112,7 +115,9 @@ local function test_function_signatures()
   lays("local function f(a:integer,b?:string,...:any)  :  integer, string return a, b end\n",
     "local function f(a: integer, b?: string, ...: any): integer, string return a, b end\n")
   lays("local M = {}\nfunction M.go(self: any) end\n", "local M = {}\nfunction M.go(self: any) end\n")
-  lays("local function k<T , U>(t:T):T return t end\n", "local function k<T, U>(t: T): T return t end\n")
+  lays("local function k<T,U>(t:T):T return t end\n", "local function k<T,U>(t: T): T return t end\n")
+  lays("local type Input<P,Q,B> = Types.Input<P,Q,B>\n", "local type Input<P,Q,B> = Types.Input<P,Q,B>\n")
+  lays("local type L< X , Y > = {X}\n", "local type L< X , Y > = {X}\n")
   lays("local f = function( a , b ) return a end\n", "local f = function(a, b) return a end\n")
   lays("g(function ( v ) return v end)\n", "g(function(v) return v end)\n")
 end
@@ -150,7 +155,7 @@ end
 local function test_a_comment_keeps_its_line_and_a_trailing_one_follows_one_space_after_the_code()
   lays("x=1   -- why\n", "x = 1 -- why\n")
   lays("-- a\nx=1\n--b\n", "-- a\nx = 1\n--b\n")
-  lays("f(a,\n b) -- t\n", "f(a,\nb) -- t\n")
+  lays("f(a,\n b) -- t\n", "f(a,\n  b) -- t\n")
   lays("-- only", "-- only\n")
 end
 

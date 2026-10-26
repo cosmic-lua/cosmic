@@ -573,7 +573,8 @@ end
 --- A corpus holds each buffer as a userdata of Lua's own, so a refusal
 --- anywhere in making one, growing it past its first capacity of 64,
 --- filtering, searching with a first pass (which builds the bit vectors
---- lazily) raises "not enough memory" and leaves nothing on the C heap.
+--- lazily), clustering or ranking centroids raises "not enough memory"
+--- and leaves nothing on the C heap.
 local function test_a_corpus_leaves_nothing_whenever_an_allocation_fails()
   local blobs: mut {string} = {}
   for i = 1, 70 do blobs[#blobs + 1] = corpus_vector(i) end
@@ -589,6 +590,9 @@ local function test_a_corpus_leaves_nothing_whenever_an_allocation_fails()
     assert(#exact.ids == 3)
     local first_pass = assert(corpus:search(query, 3, { candidates = 10, allow = allowed }))
     assert(#first_pass.ids == 3)
+    local centroids = assert(Vector.kmeans(corpus, 3, { seed = 2, iterations = 3 }))
+    assert(#centroids == 3)
+    assert(#Vector.nearest_n(centroids, query, 2) == 2)
   end)
   assert(ended > 0, "a corpus allocates")
   assert_c_heap(bytes, blocks, "the corpus under refusal")
@@ -624,6 +628,22 @@ local function test_a_corpus_is_intact_after_a_refused_allocation()
   end)
   assert(ended > 0, "growing a corpus allocates")
   assert(corpus:count() == 65)
+end
+
+--- Ranking the centroids a corpus made allocates only Lua's scratch.
+local function test_nearest_n_leaves_nothing_whenever_an_allocation_fails()
+  local centroids: mut {string} = {}
+  for i = 1, 5 do centroids[#centroids + 1] = corpus_vector(i) end
+  local query = corpus_vector(2)
+  collectgarbage("collect")
+  local bytes, blocks = testing.c_heap()
+  local ended = under_every_failure(function()
+    local near = Vector.nearest_n(centroids, query, 3)
+    assert(#near == 3)
+    assert(Vector.nearest(centroids, query) >= 1)
+  end)
+  assert(ended > 0, "ranking centroids allocates")
+  assert_c_heap(bytes, blocks, "nearest_n under refusal")
 end
 
 --- A hasher holds no C memory of the core's own, and a refusal while it
