@@ -649,18 +649,20 @@ local function among_joined(tags: string, field: any): boolean
   return set[field] == true
 end
 
-local function fact(v: any, taken: string, name: string, strings?: {string}, classes?: {any}, tag?: string,
+local function fact(v: any, taken?: string, name: string, strings?: {string}, classes?: {any}, tag?: string,
                     tags?: {string} | string, at?: string): any
-  if lua_type(taken) ~= "string" then return v end
-  local kind = lua_type(v)
-  -- The common read, of a member of a tagged union that holds: answered before anything is built to say what failed.
-  if lua_find(taken, kind, 1, true) ~= nil then
-    local actual = kind
-    if kind == "number" then actual = shown(v) end
-    fact_broken(at or raw_errors.where(2) or "?", name, "not " .. (lua_gsub(taken, ",", "|")), actual)
-  end
-  if strings ~= nil and kind == "string" and not among_strings(strings, v) then
-    fact_broken(at or raw_errors.where(2) or "?", name, "one of " .. lua_concat(strings, "|"), shown(v))
+  if taken == nil then return v end
+  -- A read of a tagged union has no kind taken, and no string: nothing here asks the kind of the value.
+  if taken ~= "" or strings ~= nil then
+    local kind = lua_type(v)
+    if lua_find(taken, kind, 1, true) ~= nil then
+      local actual = kind
+      if kind == "number" then actual = shown(v) end
+      fact_broken(at or raw_errors.where(2) or "?", name, "not " .. (lua_gsub(taken, ",", "|")), actual)
+    end
+    if strings ~= nil and kind == "string" and not among_strings(strings, v) then
+      fact_broken(at or raw_errors.where(2) or "?", name, "one of " .. lua_concat(strings, "|"), shown(v))
+    end
   end
   if v is {string:any} then
     if classes ~= nil and not of_class(v, classes) then

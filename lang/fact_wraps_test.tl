@@ -70,3 +70,123 @@ local function test_a_string_with_a_newline_or_a_quote_is_one_line_of_lua()
   local chunk = assert(load("local t = {" .. text .. "}\nreturn t[2] == \"a\\\"b\\nc\" and t[3][2] == \"n\\n\" and t[4] == nil"))
   assert(chunk() == true, text)
 end
+
+local TAGGED <const> = table.concat({
+  "local enum A_kind \"a\" end",
+  "local enum B_kind \"b\" end",
+  "local record A",
+  "  kind: A_kind",
+  "  n: integer",
+  "end",
+  "local record B",
+  "  kind: B_kind",
+  "  s: string",
+  "end",
+  "local type U = A | B",
+  "",
+}, "\n")
+
+--- The calls of `__fact` in the Lua of `body` after the declarations of a tagged union, run with its facts checked, and the
+--- Lua.
+local function facts_of(body: string): integer, string
+  local ran = Programs.execute(TAGGED .. body, true)
+  assert(ran.ran and ran.fault == nil, tostring(ran.fault) .. " in " .. body)
+  local count = 0
+  for _ in ran.lua:gmatch("__fact%(") do
+    count = count + 1
+  end
+  return count, ran.lua
+end
+
+local function test_a_narrowing_is_checked_once_for_reads_that_nothing_comes_between()
+  local count = facts_of(table.concat({
+    "local function f(u: U): integer",
+    "  if u.kind == \"a\" then",
+    "    return u.n + u.n + u.n",
+    "  end",
+    "  return 0",
+    "end",
+    "print(f({ kind = \"a\", n = 2 }))",
+    "",
+  }, "\n"))
+  assert(count == 1, tostring(count))
+end
+
+local function test_a_narrowing_is_checked_again_after_a_call_or_a_write()
+  local called = facts_of(table.concat({
+    "local function f(u: U, h: function()): integer",
+    "  if u.kind == \"a\" then",
+    "    local before = u.n",
+    "    h()",
+    "    return before + u.n",
+    "  end",
+    "  return 0",
+    "end",
+    "print(f({ kind = \"a\", n = 2 }, function() end))",
+    "",
+  }, "\n"))
+  assert(called == 2, tostring(called))
+  local written = facts_of(table.concat({
+    "local function f(u: U, v: U): integer",
+    "  if u.kind == \"a\" then",
+    "    local before = u.n",
+    "    u = v",
+    "    if u.kind == \"a\" then",
+    "      return before + u.n",
+    "    end",
+    "  end",
+    "  return 0",
+    "end",
+    "print(f({ kind = \"a\", n = 2 }, { kind = \"a\", n = 3 }))",
+    "",
+  }, "\n"))
+  assert(written == 2, tostring(written))
+end
+
+local function test_a_read_in_a_branch_that_may_not_run_is_not_covered_by_one_after_it()
+  local count = facts_of(table.concat({
+    "local function f(u: U, c: boolean): integer",
+    "  if u.kind == \"a\" then",
+    "    local first = 0",
+    "    if c then",
+    "      first = u.n",
+    "    end",
+    "    return first + u.n",
+    "  end",
+    "  return 0",
+    "end",
+    "print(f({ kind = \"a\", n = 2 }, false))",
+    "",
+  }, "\n"))
+  assert(count == 2, tostring(count))
+end
+
+local function test_the_remainder_of_a_chain_is_checked_where_a_read_relies_on_it()
+  local count, lua = facts_of(table.concat({
+    "local function f(u: U): string",
+    "  if u.kind == \"a\" then",
+    "    return \"a\"",
+    "  else",
+    "    return u.s",
+    "  end",
+    "end",
+    "print(f({ kind = \"b\", s = \"x\" }))",
+    "",
+  }, "\n"))
+  assert(count == 1 and lua:find("\"kind\", \"b\"", 1, true) ~= nil, lua)
+end
+
+local function test_the_read_of_a_tag_is_not_checked_since_every_member_has_it()
+  local count = facts_of(table.concat({
+    "local function f(u: U): string",
+    "  if u.kind == \"a\" then",
+    "    return \"a\"",
+    "  elseif u.kind == \"b\" then",
+    "    return u.s",
+    "  end",
+    "end",
+    "print(f({ kind = \"b\", s = \"x\" }))",
+    "",
+  }, "\n"))
+  assert(count == 1, tostring(count))
+end

@@ -200,7 +200,7 @@ function compile_grammar.emit(build: Driver.Build, result: Driver.Outcome, facts
   local kinds, refusals = type_facts(build.program, result, lowered, counted)
   local wraps: {integer: string}? = nil
   if facts == true then
-    wraps = FactWraps.of(checked.narrowed, result.text, result.source.filename)
+    wraps = FactWraps.of(checked.narrowed, result.text, result.source.filename, result.chunk)
   end
   local generated = Codegen.generate(result.chunk, result.scoped, result.never_false, classes, Check.enums(lowered), wraps, kinds, served == true)
   local lines: mut {string} = {}

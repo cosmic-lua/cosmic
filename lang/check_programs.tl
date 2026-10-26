@@ -532,7 +532,7 @@ function Programs.execute(source: string, facts: boolean, modules?: {string: str
   end
   local wraps: {integer: string} = {}
   if facts then
-    wraps = FactWraps.of(run.result.narrowed, source, "t")
+    wraps = FactWraps.of(run.result.narrowed, source, "t", run.chunk)
   end
   done.lua = generated(run, wraps, kind_only)
   local loader: function(name: string): any
