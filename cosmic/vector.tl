@@ -175,7 +175,7 @@ local function add_row(held: Vector.Corpus?, id: integer, blob: string): Vector.
   else
     target = held
   end
-  local added, err = pcall(target.add, target, id, blob)
+  local added, err = pcall(corpus_add, target, id, blob)
   if not added then
     return nil, at .. tostring(err)
   end
