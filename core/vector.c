@@ -1245,8 +1245,9 @@ static int vector_nearest (lua_State *L) {
     lua_rawgeti(L, 1, (lua_Integer)(j + 1));
     size_t len = 0;
     const char *s = lua_type(L, -1) == LUA_TSTRING ? lua_tolstring(L, -1, &len) : NULL;
-    luaL_argcheck(L, s != NULL && len == vlen, 1,
-                  "a centroid is not a vector of the query's length");
+    if (s == NULL || len != vlen) {
+      return luaL_argerror(L, 1, "a centroid is not a vector of the query's length");
+    }
     memcpy(row, s, len);
     lua_pop(L, 1);
     for (size_t i = 0; i < dims; i++) {
