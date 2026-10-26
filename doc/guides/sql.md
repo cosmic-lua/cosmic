@@ -360,7 +360,8 @@ in a database file may use them.
 - `vector(X)`: X as a blob of floats, so a text is parsed once.
 - `vector_text(X)`: X as text, `[1,2.5,-3]`.
 - `vector_dims(X)`: the number of dimensions, at most 16000.
-- `l2_distance(A, B)`, `l1_distance(A, B)`: Euclidean and taxicab distance.
+- `l2_distance(A, B)`: the Euclidean distance.
+- `l1_distance(A, B)`: the taxicab distance, the sum of the differences.
 - `inner_product(A, B)`: the dot product; the cosine, for normalized vectors.
 - `cosine_distance(A, B)`: one minus the cosine, from 0 to 2; NULL for a
   vector of zeros.
@@ -369,8 +370,10 @@ in a database file may use them.
   head of a Matryoshka embedding.
 - `binary_quantize(X)`: a bit per dimension, set where it is above zero,
   the first in the high bit of the first byte.
-- `hamming_distance(A, B)`, `jaccard_distance(A, B)`: over two bit
-  vectors of the same length.
+- `hamming_distance(A, B)`: how many bits two bit vectors of the same
+  length differ in.
+- `jaccard_distance(A, B)`: one minus the share of set bits two bit
+  vectors of the same length have in common.
 
 A search is an `ORDER BY` over every row a `WHERE` keeps, so a filter
 never loses a match, and a hybrid search blends it with FTS5's ranking.

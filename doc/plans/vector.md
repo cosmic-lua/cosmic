@@ -103,7 +103,7 @@ and search them with no per-row SQLite overhead.
 The module is `cosmic/vector.tl` over a raw module,
 `cosmic.internal.vector` (declared in `cosmic/internal/vector.d.tl`,
 implemented in C beside the SQL functions). It follows the pattern of
-[`cosmic.hash`] over `cosmic.internal.hash`.
+[`cosmic.hash`] over [`cosmic.internal.hash`].
 
 ```text
 local Vector = require("cosmic.vector")
@@ -268,3 +268,5 @@ A separate track, pulled by its own callers. From the same discussion:
 [`cosmic/sqlite_example.tl`]: ../../cosmic/sqlite_example.tl
 [`cosmic/vector_sql_test.tl`]: ../../cosmic/vector_sql_test.tl
 [`doc/guides/sql.md`]: ../guides/sql.md
+
+[`cosmic.internal.hash`]: ../../cosmic/internal/hash.d.tl
