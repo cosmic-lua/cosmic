@@ -649,7 +649,7 @@ end
 local function test_the_roots_output_is_never_looked_at()
   local context = world({ ["/p/o/y.md"] = "" })
   local kind = context.kind
-  local asked: {string} = {}
+  local asked: mut {string} = {}
   context.kind = function(path: string): string?
     asked[#asked + 1] = path
     return kind(path)

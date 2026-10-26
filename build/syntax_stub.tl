@@ -267,7 +267,7 @@ end
 
 function Stub.made(chunk: Ast.Chunk, every?: boolean): Stub.Made
   local tokens = chunk.tokens
-  local bodies: {Span} = {}
+  local bodies: mut {Span} = {}
   for _, s in ipairs(chunk.body.stats) do
     bodies_of(chunk, s, bodies)
   end
@@ -291,7 +291,7 @@ function Stub.made(chunk: Ast.Chunk, every?: boolean): Stub.Made
       instead[span.first] = span.instead
     end
   end
-  local out: {string} = {}
+  local out: mut {string} = {}
   local cursor: Cursor = { y = 1, x = 1 }
   local function put(at_y: integer, at_x: integer, text: string)
     if at_y > cursor.y then
@@ -336,7 +336,7 @@ end
 
 local function reached(program: Declarations.Program, module: string): Reached
   local out: Reached = { decls = {}, order = {}, value = "", statics = {} }
-  local seen: {integer: boolean} = {}
+  local seen: mut {integer: boolean} = {}
   local add: function(d: Types.Decl)
   local function walk(t: Types.Type)
     if seen[t.id] then

@@ -124,6 +124,30 @@ local FORMS <const>: {string: function(n: integer)} = {
     local reason = judge:refuse(store.integer, union)
     assert(reason ~= nil and reason.code == "union_none")
   end,
+  ["a union of 72 records asked about records in it and outside it"] = function(n: integer)
+    -- The syntax tree's union has 72 members and is asked about every member and about records that are none of them: a
+    -- member is found by its id, and a record outside is compared with each of the 72, so the cost grows with the asks.
+    local store = Types.new()
+    local judge = Relation.new(store)
+    local members = populate(store, 72)
+    local union = store:union(members)
+    local outside = populate(store, n * 10 + 72)
+    for _ = 1, n do
+      for _, member in ipairs(members) do
+        assert(judge:subtype(member, union))
+      end
+    end
+    local last = union
+    for i, stranger in ipairs(outside) do
+      if i > 72 then
+        assert(not judge:subtype(stranger, union))
+        last = stranger
+      end
+    end
+    local reason = judge:refuse(last, union)
+    assert(reason ~= nil and reason.code == "union_none")
+    assert(judge:subtype(union, store:union(outside)))
+  end,
   ["a deep nest"] = function(n: integer)
     local store = Types.new()
     local judge = Relation.new(store)

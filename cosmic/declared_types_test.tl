@@ -150,7 +150,7 @@ end
 --- A typed route reads no slot it declares none for, and is given an
 --- empty [`Web.None`] for each, never nil.
 local function test_a_typed_route_is_given_an_empty_none_for_an_absent_slot()
-  local seen: {string} = {}
+  local seen: mut {string} = {}
   honest("web", function()
     local app = Web.app{ routes = {
       Web.get_typed("/a", Web.input(Web.NONE, Web.NONE, Web.no_body),

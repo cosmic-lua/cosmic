@@ -9,8 +9,9 @@
 --- `false`, `nil`, `never`, `any` or `invalid`; the others are a [`Named`] type
 --- (a declaration and its arguments), an [`Array`] `{T}` or `mut {T}`, a [`Map`]
 --- `{K: V}` or `mut {K: V}`, a [`Union`] (which also holds `T?`), a function
---- ([`Fn`]) and a type variable ([`Var`]). A type is immutable. The one field a
---- reader may see change is `digest`, which [`Types.digest`] fills once.
+--- ([`Fn`]) and a type variable ([`Var`]). A type is immutable to a reader. The fields it is made
+--- without are `mut`, and only this module writes them: `digest`, which [`Types.digest`] fills once, and the
+--- `id`, `owner` and measures a store sets as it interns the type. A form is told by its `tag`.
 ---
 --- **Identity.** A structural form is interned by its parts, so a store holds
 --- one `{integer}`. A named type is its declaration's path and its arguments: a
@@ -76,36 +77,10 @@
 --- body. A refused decode leaves the store as it was, and says why in a message that begins
 --- `types:`.
 
--- TODO: replace each blanked `where` clause of a record here with the single-member enum tag the plan's tagged unions
--- use, and write each test `t.tag == "named"` and the others of this union (here and in the modules that import it) as a
--- tag test or a `match`: the translation of the tree dropped the clauses and wrote each test `t is Named`, `t is
--- Types.Atom` as a compare of `tag`, since the code generator writes such a test as one for a table once the clause is
--- gone (lang/ast.tl has the same gap). Waits on a change of its own that rewrites those sites together (the switch landed
--- without it, doc/plans/strict-teal.md, "the switch").
 local Hash = require("cosmic.hash")
 local Lexer = require("lang.lexer")
 
 local record Types
-  --- A form of type. The first ten are the atoms.
-  enum Tag
-    "integer"
-    "number"
-    "string"
-    "boolean"
-    "true"
-    "false"
-    "nil"
-    "never"
-    "any"
-    "invalid"
-    "named"
-    "array"
-    "map"
-    "union"
-    "fn"
-    "var"
-  end
-
   --- What a declaration declares. An `alias` is the name a recursive alias is given: `type Json = string |
   --- {Json}` reaches itself through the element of an array, which a type could not hold without a name, so
   --- the store holds a [`Named`] of kind `alias` whose body is the type the alias names. Nothing but the
@@ -119,40 +94,75 @@ local record Types
     "alias"
   end
 
-  --- What every type holds.
+  --- What every type holds besides its tag: each form declares `tag` as an enum of its own, and [`Type`] is told apart
+  --- by it. No value is in the enums of two forms (`untagged_union` otherwise), and a tag is never `mut`. A form repeats
+  --- these fields, since a record lists the fields of an interface alike.
   interface Base
-    tag: Tag
-    --- Whether it is an atom. [`Atom`] is told from the other forms by it, since a `where` clause
-    --- may read `self` once.
+    --- Whether it is an atom, for the code that treats the ten atoms alike without listing their tags.
     atom: boolean
     --- Its position among the types of its store, from 1, in the order they were made.
     --- Store-local: nothing outside the store keeps one.
-    id: integer
+    mut id: integer
     --- The store it belongs to.
-    owner: integer
+    mut owner: integer
     --- Filled by [`Types.digest`]; "" until then.
-    digest: string
+    mut digest: string
     --- How many binders outside this type its variables reach: 0 where it is closed.
-    open: integer
+    mut open: integer
     --- Whether a view of it differs from it: it holds a `mut` collection that a view reaches
     --- through collections and unions, and not through a named type or a function.
-    has_mut: boolean
+    mut has_mut: boolean
     --- How many types its text has, a type that is held twice counted twice, saturating at
     --- 2^40: a type that shares its parts has far more text than it has types.
-    weight: integer
+    mut weight: integer
     --- How deeply it nests, 1 for an atom. A store refuses a type that nests past 1000.
-    height: integer
+    mut height: integer
+  end
+
+  --- The tag of an [`Atom`]: its name. Ten values in one member, which no other member shares.
+  enum Atom_tag
+    "integer"
+    "number"
+    "string"
+    "boolean"
+    "true"
+    "false"
+    "nil"
+    "never"
+    "any"
+    "invalid"
   end
 
   --- `integer`, `number`, `string`, `boolean`, `true`, `false`, `nil`, `never`, `any` or
   --- `invalid` (what a type that failed to lower becomes). The tag is the name.
   record Atom is Base
+    tag: Atom_tag
+    atom: boolean
+    mut id: integer
+    mut owner: integer
+    mut digest: string
+    mut open: integer
+    mut has_mut: boolean
+    mut weight: integer
+    mut height: integer
+  end
 
+  --- The tag of a [`Named`].
+  enum Named_tag
+    "named"
   end
 
   --- A use of a declaration and its type arguments, or the declaration itself as a value.
   record Named is Base
-
+    tag: Named_tag
+    atom: boolean
+    mut id: integer
+    mut owner: integer
+    mut digest: string
+    mut open: integer
+    mut has_mut: boolean
+    mut weight: integer
+    mut height: integer
     decl: Decl
     args: {Type}
     --- Whether it is the declaration used as a value (`Circle` in `Circle.make()`): the table of its
@@ -161,32 +171,84 @@ local record Types
     value: boolean
   end
 
+  --- The tag of an [`Array`].
+  enum Array_tag
+    "array"
+  end
+
   --- `{T}`, or `mut {T}` where `mut`.
   record Array is Base
-
+    tag: Array_tag
+    atom: boolean
+    mut id: integer
+    mut owner: integer
+    mut digest: string
+    mut open: integer
+    mut has_mut: boolean
+    mut weight: integer
+    mut height: integer
     element: Type
     mut: boolean
   end
 
+  --- The tag of a [`Map`].
+  enum Map_tag
+    "map"
+  end
+
   --- `{K: V}`, or `mut {K: V}` where `mut`.
   record Map is Base
-
+    tag: Map_tag
+    atom: boolean
+    mut id: integer
+    mut owner: integer
+    mut digest: string
+    mut open: integer
+    mut has_mut: boolean
+    mut weight: integer
+    mut height: integer
     key: Type
     value: Type
     mut: boolean
   end
 
+  --- The tag of a [`Union`].
+  enum Union_tag
+    "union"
+  end
+
   --- Two or more types, or one and `nil`. `members` are never `nil`, `never`, `any` or a
   --- union, hold at least one type, and are in digest order; `nilable` is the `nil`.
   record Union is Base
-
+    tag: Union_tag
+    atom: boolean
+    mut id: integer
+    mut owner: integer
+    mut digest: string
+    mut open: integer
+    mut has_mut: boolean
+    mut weight: integer
+    mut height: integer
     members: {Type}
     nilable: boolean
   end
 
+  --- The tag of a [`Var`].
+  enum Var_tag
+    "var"
+  end
+
   --- A type variable ([`Types`] has the numbering).
   record Var is Base
-
+    tag: Var_tag
+    atom: boolean
+    mut id: integer
+    mut owner: integer
+    mut digest: string
+    mut open: integer
+    mut has_mut: boolean
+    mut weight: integer
+    mut height: integer
     depth: integer
     index: integer
   end
@@ -232,10 +294,23 @@ local record Types
     rets?: {Alt}
   end
 
+  --- The tag of an [`Fn`].
+  enum Fn_tag
+    "fn"
+  end
+
   --- A function type. `rets` is a set of alternatives: no repeats, in digest order, none with a
   --- `never` in it.
   record Fn is Base
-
+    tag: Fn_tag
+    atom: boolean
+    mut id: integer
+    mut owner: integer
+    mut digest: string
+    mut open: integer
+    mut has_mut: boolean
+    mut weight: integer
+    mut height: integer
     tparams: {TParam}
     params: {Param}
     rest?: Type
@@ -288,7 +363,7 @@ local record Types
     names: {string}
     --- `names` joined by ".".
     name: string
-    owner: integer
+    mut owner: integer
     --- The path as the text spells it.
     text: string
     --- How many type arguments a use takes, once the declaration or its maker says.
@@ -353,7 +428,7 @@ local record Types
 
     --- The atom of this name: `integer`, `number`, `string`, `boolean`, `true`, `false`, `nil`,
     --- `never`, `any` or `invalid`.
-    atom: function(Store, name: Tag): Type
+    atom: function(Store, name: Atom_tag): Type
     --- `{T}`, or `mut {T}` where `mut`.
     array: function(Store, element: Type, mutable?: boolean): Type
     --- `{K: V}`, or `mut {K: V}` where `mut`.
@@ -457,11 +532,12 @@ local type Param = Types.Param
 local type TParam = Types.TParam
 local type Body = Types.Body
 local type DeclParam = Types.DeclParam
-local type Tag = Types.Tag
+local type Atom_tag = Types.Atom_tag
+local type Base = Types.Base
 local type FnSpec = Types.FnSpec
 local type Loader = Types.Loader
 
-local ATOMS <const>: {Tag} = {
+local ATOMS <const>: {Atom_tag} = {
   "integer", "number", "string", "boolean", "true", "false", "nil", "never", "any", "invalid",
 }
 
@@ -551,7 +627,7 @@ local function render(t: Type, sub: function(Type): string): string
     parts[#parts + 1] = ")"
     return table.concat(parts)
   elseif (t.tag == "var") then
-    return "(var " .. t.depth .. " " .. t.index .. ")"
+    return "(var " .. tostring(t.depth) .. " " .. tostring(t.index) .. ")"
   elseif not ((t.tag == "fn")) then
     return ""
   end
@@ -582,13 +658,13 @@ end
 local function parts_of(t: Type): {Type}
   local parts: mut {Type} = {}
   if (t.tag == "named") then
-    parts = t.args
+    return t.args
   elseif (t.tag == "array") then
     parts = { t.element }
   elseif (t.tag == "map") then
     parts = { t.key, t.value }
   elseif (t.tag == "union") then
-    parts = t.members
+    return t.members
   elseif (t.tag == "fn") then
     for _, tp in ipairs(t.tparams) do
       local bound = tp.bound
@@ -628,13 +704,36 @@ local function id_text(t: Type): string
   return tostring(t.id)
 end
 
+-- TODO: write `t.digest = d` and the others of these in place, and drop the four setters, once the checker takes a
+-- write of a field that every member of a union declares `mut` alike (it refuses one through the union now, so a
+-- write is made through [`Types.Base`]).
+
+local function set_digest(b: Base, digest: string)
+  b.digest = digest
+end
+
+local function set_id(b: Base, id: integer)
+  b.id = id
+end
+
+local function set_owner(b: Base, owner: integer)
+  b.owner = owner
+end
+
+local function set_measure(b: Base, open: integer, has_mut: boolean, weight: integer, height: integer)
+  b.open = open
+  b.has_mut = has_mut
+  b.weight = weight
+  b.height = height
+end
+
 local function digest_text(t: Type): string
   local cached = t.digest
   if cached ~= "" then
     return cached
   end
   local d = Hash.hex_sha256(render(t, digest_text)):sub(1, DIGEST_LENGTH)
-  t.digest = d
+  set_digest(t, d)
   return d
 end
 
@@ -648,7 +747,7 @@ local function written(t: Type): string
   -- type that shares its parts is as large as the type, once a declaration in the tree has text
   -- past the limit: until then the limit stands in (doc/plans/new-checker-types.md, "rows").
   if t.weight > TEXT_LIMIT then
-    error("types: the text of " .. Types.display(t) .. " is too large, " .. t.weight .. " types", 3)
+    error("types: the text of " .. Types.display(t) .. " is too large, " .. tostring(t.weight) .. " types", 3)
   end
   return render(t, encode_text)
 end
@@ -684,7 +783,10 @@ local function declared_names(root: Type): {string: boolean}
       seen[t.id] = true
       if (t.tag == "named") then
         -- The first name of a dotted one is what the text writes first.
-        taken[t.decl.names[1]] = true
+        local first = t.decl.names[1]
+        if first ~= nil then
+          taken[first] = true
+        end
       end
       for _, part in ipairs(parts_of(t)) do
         stack[#stack + 1] = part
@@ -957,7 +1059,7 @@ show = function(t: Type, names: Names, parenthesized: boolean): string
   elseif (t.tag == "var") then
     local binder = names.binders[#names.binders - t.depth]
     local name = binder ~= nil and binder[t.index + 1] or nil
-    return name or "?" .. t.depth .. "." .. t.index
+    return name or "?" .. tostring(t.depth) .. "." .. tostring(t.index)
   elseif (t.tag == "fn") then
     local text = show_fn(t, names)
     return if parenthesized then "(" .. text .. ")" else text end
@@ -1002,10 +1104,7 @@ local function measure(t: Type)
     open = #t.tparams > 0 and math.max(0, open - 1) or open
   end
   -- A view does not reach through a named type or a function.
-  t.open = open
-  t.has_mut = changes and not ((t.tag == "named") or (t.tag == "fn"))
-  t.weight = weight
-  t.height = height + 1
+  set_measure(t, open, changes and not ((t.tag == "named") or (t.tag == "fn")), weight, height + 1)
 end
 
 --- The one type of a store with the parts of `candidate`: `candidate` itself, numbered, if it is
@@ -1022,13 +1121,13 @@ local function intern(store: Store, candidate: Type): Type
     error("types: a type nested deeper than " .. MAX_DEPTH, 3)
   end
   store.count = store.count + 1
-  candidate.id = store.count
+  set_id(candidate, store.count)
   store.types[store.count] = candidate
   store.interned[key] = candidate
   return candidate
 end
 
-local function atom_of(store: Store, name: Tag): Type
+local function atom_of(store: Store, name: Atom_tag): Type
   local found = store.atoms[name]
   if found == nil then
     error("types: no atom named " .. tostring(name), 2)
@@ -1132,14 +1231,14 @@ local function unbound(t: Type, level: integer, count: integer, seen: mut {strin
   if t.open <= level then
     return ""
   end
-  local mark = t.id .. ":" .. level
+  local mark = tostring(t.id) .. ":" .. level
   if seen[mark] then
     return ""
   end
   seen[mark] = true
   if (t.tag == "var") then
     if t.depth == level and t.index >= count then
-      return "the variable " .. t.depth .. " " .. t.index .. " names a type parameter its binder lacks, which has " .. count
+      return "the variable " .. tostring(t.depth) .. " " .. tostring(t.index) .. " names a type parameter its binder lacks, which has " .. count
     end
     return ""
   end
@@ -1162,7 +1261,7 @@ local function bound_ok(store: Store, bound: Type)
   end
 end
 
-Types.Store.atom = function(self: Store, name: Tag): Type
+Types.Store.atom = function(self: Store, name: Atom_tag): Type
   return atom_of(self, name)
 end
 
@@ -1456,7 +1555,10 @@ end
 function Types.unfold(t: Type): Type
   if (t.tag == "named") and t.decl.kind == "alias" then
     local body = t.decl.body
-    local named = body ~= nil and body.alias or nil
+    local named: Type? = nil
+    if body ~= nil then
+      named = body.alias
+    end
     if named ~= nil then
       return named
     end
@@ -2105,8 +2207,9 @@ local function roll_back(store: Store, mark: Mark)
   end
   for id = store.count, mark.count + 1, -1 do
     local t = store.types[id]
+    assert(t ~= nil)
     store.interned[render(t, id_text)] = nil
-    t.owner = 0
+    set_owner(t, 0)
     store.types[id] = nil
   end
   store.count = mark.count

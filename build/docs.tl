@@ -71,12 +71,12 @@ local record docs
     --- [`use_key`] -- computed on demand, once per command, by
     --- [`effective_counts`], and cached here so several entries or
     --- renders naming the same symbol query `uses` only once.
-    use_counts: {string: integer}
+    use_counts: mut {string: integer}
     --- How many links name a module/symbol pair, as `use_counts`.
-    link_counts: {string: integer}
+    link_counts: mut {string: integer}
     --- The record each module's value is typed as (`""` for none), by
     --- module, as [`value_record`] reads it, cached as `use_counts` is.
-    value_records: {string: string}
+    value_records: mut {string: string}
     --- The module each module binds each name to, by module and name,
     --- as [`symbol_index.add_bound`] reads them: nil until a type's
     --- reference asks, then cached as `use_counts` is.
@@ -125,6 +125,13 @@ local record docs
     --- Whether no entry carries every word of the query, and these carry
     --- some of them (see `closest`).
     closest: boolean
+    --- The verb `cosmic <query>` when the query names a library module of
+    --- the same name: [`page`] ends the module's entries with a line
+    --- pointing to it, and it is not one of the entries. Nil otherwise.
+    mut verb?: Entry
+    --- How many entries, from the first, are the modules the query names;
+    --- the line for `verb` follows them. 0 when there are none.
+    mut modules: integer
   end
 
   --- What `cosmic docs` prints for its words, short of its summary:
@@ -315,7 +322,7 @@ end
 --- line in column one that does not close the one before. `code` is a
 --- piece's first line that is not a comment.
 local function pieces_of(head: string): {{string}}
-  local out: {{string}} = {}
+  local out: mut {{string}} = {}
   -- The piece being read: its lines so far and its first line of code.
   local current: Piece = { lines = {}, code = "" }
   local function finish()
@@ -1342,7 +1349,7 @@ end
 --- `entries` as a lookup's answer, with the entries of `ahead` standing before them.
 local function lookup(entries: {docs.Entry}, exact: boolean, count: integer,
                       partial?: boolean, ahead?: {docs.Entry}): docs.Lookup
-  local out: docs.Lookup = { exact = exact, named = count, closest = partial == true }
+  local out: docs.Lookup = { exact = exact, named = count, closest = partial == true, modules = 0 }
   local at = 0
   local first: {docs.Entry} = {}
   if ahead ~= nil then
@@ -1439,7 +1446,7 @@ local removed_by: function(view: docs.View, query: string): {docs.Entry}?, strin
 --- What `query` names, across `databases`, by the first rule that
 --- answers:
 --- - the public module a bare lowercase name ends (`json`, `fs`), with
----   its verb first if it is one (`test`);
+---   its verb, if it is one (`test`), as a see-also line after it;
 --- - its exact matches, when it names a symbol or a module, a member of
 ---   a type an alias stands for, or a module's member written in full
 ---   ([`cosmic.fs.read`]) or from its last name ([`Cli.order`]);
@@ -1480,27 +1487,39 @@ local function lookup_names(view: docs.View, query: string): docs.Lookup?, strin
     for _, entry in ipairs(modules) do
       seen[entry.module .. "\n" .. entry.symbol] = true
     end
-    -- The verb `cosmic <query>` names answers first, as `cosmic docs
-    -- test` says it does, then the modules, then the other symbols.
+    -- With a library module of the name, the module answers first, then
+    -- the other symbols, and the verb `cosmic <query>` names is a
+    -- see-also line after the modules. Otherwise (a tool's or a
+    -- project's own module of the name) the verb answers first, as
+    -- `cosmic docs sql` says it does.
     local answers: mut {docs.Entry} = {}
     local rest: mut {docs.Entry} = {}
+    local verb: docs.Entry? = nil
+    local library = false
+    for _, entry in ipairs(modules) do
+      if symbols.is_public_module(entry.module) then library = true end
+    end
     for _, entry in ipairs(exact) do
       local internal = entry.module:sub(1, 16) == "cosmic.internal." and
         entry.symbol == query
       if entry.module == "cosmic.cli" and entry.symbol == "Cli." .. query then
-        answers[#answers + 1] = entry
+        if library then verb = entry else answers[#answers + 1] = entry end
         seen[entry.module .. "\n" .. entry.symbol] = true
       elseif not internal and not seen[entry.module .. "\n" .. entry.symbol] then
         rest[#rest + 1] = entry
       end
     end
     for _, entry in ipairs(modules) do answers[#answers + 1] = entry end
+    local module_count = #answers
     for _, entry in ipairs(rest) do answers[#answers + 1] = entry end
     local counted, count_trouble = effective_counts(view, answers)
     if not counted then
       return nil, count_trouble
     end
-    return lookup(answers, true, #answers), ""
+    local found = lookup(answers, true, #answers)
+    found.verb = verb
+    found.modules = module_count
+    return found, ""
   end
   if #exact > 0 then
     local named_count = #exact
@@ -1648,7 +1667,10 @@ function docs.lookup(view: docs.View, query: string): docs.Lookup?, string
   if not names.exact then
     return lookup(rule, true, #rule), ""
   end
-  return lookup(names, true, names.named + #rule, false, rule), ""
+  local ruled = lookup(names, true, names.named + #rule, false, rule)
+  ruled.verb = names.verb
+  ruled.modules = if names.verb ~= nil then names.modules + #rule else 0 end
+  return ruled, ""
 end
 
 --- The first sentence of `documented`'s first paragraph, on one line:
@@ -2222,7 +2244,7 @@ end
 --- lists what it inherits after its own. Empty for a declaration that
 --- stands for nothing.
 local function inherited_lines(view: docs.View, entry: docs.Entry): {string}?, string
-  local lines: {string} = {}
+  local lines: mut {string} = {}
   local references = entry.symbol ~= "" and alias_members.references(entry) or {}
   if #references == 0 then
     return lines
@@ -2601,6 +2623,12 @@ local function page(view: docs.View, found: docs.Lookup,
       return nil, trouble
     end
     for _, line in ipairs(rendered) do lines[#lines + 1] = line end
+    local verb = found.verb
+    if verb ~= nil and index == found.modules then
+      lines[#lines + 1] = ""
+      lines[#lines + 1] = "See also: the command `cosmic " .. query .. "` (`cosmic docs " ..
+        verb.source_symbol .. "`, `cosmic help " .. query .. "`)."
+    end
   end
   if #found > whole then
     lines[#lines + 1] = ""

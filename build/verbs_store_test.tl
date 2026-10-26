@@ -367,7 +367,7 @@ local function test_sql_never_stages_the_tree(tmp: string)
   assert((staged.stderr or ""):find("file is not a database", 1, true), staged.stderr)
   -- Every listing `sql` makes, through [`cosmic.sys`]'s shared table,
   -- which `Fs` lists through: it runs in-process.
-  local listed: {string} = {}
+  local listed: mut {string} = {}
   local calls = sys as {string:any}
   local readdir = calls.readdir as function(...: any): any...
   calls.readdir = function(...: any): any...

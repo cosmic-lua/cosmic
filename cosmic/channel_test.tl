@@ -120,8 +120,8 @@ end
 local function test_a_waiting_receiver_is_woken_by_send()
   Poll.run(function()
     local queue: Channel.Queue<integer> = Channel.new()
-    local got: {integer} = {}
-    local last: {string} = {}
+    local got: mut {integer} = {}
+    local last: mut {string} = {}
     local task = consumer(queue, got, last)
     assert(Poll.delay(0))
     assert(#got == 0)
@@ -138,7 +138,7 @@ local function test_a_waiting_sender_is_woken_by_receive()
   Poll.run(function()
     local queue: Channel.Queue<integer> = Channel.new({ capacity = 1 })
     assert(queue:send(1))
-    local result: {string} = {}
+    local result: mut {string} = {}
     local sender = Poll.spawn(function()
       local ok, why = queue:send(2)
       result[#result + 1] = tostring(ok) .. ":" .. why
@@ -167,13 +167,13 @@ end
 local function test_a_cancelled_waiter_answers_cancelled_and_loses_nothing()
   Poll.run(function()
     local queue: Channel.Queue<integer> = Channel.new({ capacity = 1 })
-    local reasons: {string} = {}
+    local reasons: mut {string} = {}
     local receiver = Poll.spawn(function()
       local _, why = queue:receive()
       reasons[#reasons + 1] = why
     end)
-    local second_got: {integer} = {}
-    local second_last: {string} = {}
+    local second_got: mut {integer} = {}
+    local second_last: mut {string} = {}
     local second = consumer(queue, second_got, second_last)
     assert(Poll.delay(0))
     receiver:cancel()
@@ -250,9 +250,9 @@ end
 local function test_a_killed_receiver_passes_the_item_to_the_next()
   Poll.run(function()
     local queue: Channel.Queue<integer> = Channel.new()
-    local got1: {integer} = {}
-    local got2: {integer} = {}
-    local last: {string} = {}
+    local got1: mut {integer} = {}
+    local got2: mut {integer} = {}
+    local last: mut {string} = {}
     local first = consumer(queue, got1, last)
     local second = consumer(queue, got2, last)
     assert(Poll.delay(0))
@@ -270,7 +270,7 @@ local function test_a_killed_sender_passes_the_room_to_the_next()
   Poll.run(function()
     local queue: Channel.Queue<integer> = Channel.new({ capacity = 1 })
     assert(queue:send(0))
-    local sent: {integer} = {}
+    local sent: mut {integer} = {}
     local function sender(item: integer): Poll.Task
       return Poll.spawn(function()
         if queue:send(item) then sent[#sent + 1] = item end
@@ -290,7 +290,7 @@ end
 local function test_close_wakes_receivers_and_senders_and_drains_first()
   Poll.run(function()
     local idle: Channel.Queue<integer> = Channel.new()
-    local reasons: {string} = {}
+    local reasons: mut {string} = {}
     local receivers: mut {Poll.Task} = {}
     for _ = 1, 3 do
       receivers[#receivers + 1] = Poll.spawn(function()
@@ -331,8 +331,8 @@ local function test_close_from_a_close_handler_wakes_a_waiter()
   Poll.run(function()
     local queue: Channel.Queue<integer> = Channel.new()
     local closing_mt: metatable<Closer> = { __close = function() queue:close() end }
-    local got: {integer} = {}
-    local last: {string} = {}
+    local got: mut {integer} = {}
+    local last: mut {string} = {}
     local waiter = consumer(queue, got, last)
     assert(Poll.delay(0))
     local victim = Poll.spawn(function()
@@ -348,7 +348,7 @@ end
 
 local function test_many_producers_and_consumers_lose_and_repeat_nothing()
   local producers, consumers, per = 5, 4, 40
-  local seen: {integer: integer} = {}
+  local seen: mut {integer: integer} = {}
   Poll.run(function()
     local queue: Channel.Queue<integer> = Channel.new({ capacity = 3 })
     local makers: mut {Poll.Task} = {}
@@ -385,7 +385,7 @@ local function test_one_consumer_sees_each_producers_items_in_order()
   local got: {integer} = {}
   Poll.run(function()
     local queue: Channel.Queue<integer> = Channel.new({ capacity = 2 })
-    local last: {string} = {}
+    local last: mut {string} = {}
     local task = consumer(queue, got, last)
     local makers: mut {Poll.Task} = {}
     for p = 1, 3 do

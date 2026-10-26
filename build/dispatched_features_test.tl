@@ -193,7 +193,7 @@ end
 --- Each file under the trees build.zig compiles C from that holds a
 --- needle, as a path of the tree, with its lines that do (`asking`).
 local function sites(): {string:{string}}
-  local found: {string:{string}} = {}
+  local found: mut {string:{string}} = {}
   local function scan(path: string)
     local lines = asking((assert(Fs.read(path))))
     if #lines > 0 then found[path] = lines end
@@ -288,7 +288,7 @@ local function test_every_site_that_asks_the_processor_is_named()
 end
 
 local function test_every_feature_a_site_reads_is_keyed()
-  local want: {string:{string:boolean}} = {}
+  local want: mut {string:{string:boolean}} = {}
   local function add(machine: string, flags: {string})
     want[machine] = want[machine] or {}
     for _, flag in ipairs(flags) do want[machine][flag] = true end

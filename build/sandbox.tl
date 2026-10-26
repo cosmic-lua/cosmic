@@ -185,7 +185,7 @@ end
 
 --- The policy `parsed` names, as the table a policy's JSON holds.
 local function table_of(parsed: Flags.Parsed): {string:any}?, string
-  local policy: {string:any} = {}
+  local policy: mut {string:any} = {}
   local function list(name: string): {string}
     return parsed.all[name] or {}
   end
@@ -432,7 +432,7 @@ end
 --- of this run's own ([`scratch`]), and answers the database's path there,
 --- or why not, and whether the command line is to blame (a name no store
 --- holds).
-local function sealed(names: {string}, opts: Store.SealOptions, held: {string}): Sealing
+local function sealed(names: {string}, opts: Store.SealOptions, held: mut {string}): Sealing
   local dir, dir_why = scratch(held)
   if dir == nil then return { why = dir_why, refused = false } end
   local path = dir .. "/program.db"
@@ -449,7 +449,7 @@ end
 --- the modules its source requires by a literal name (not a type-only
 --- require, which Teal erases), and the file compiled as the standalone
 --- compiler does, as the main. The database's path, or why not.
-local function seal_script(file: string, cwd: string?, held: {string}): Sealing
+local function seal_script(file: string, cwd: string?, held: mut {string}): Sealing
   local at = file
   if cwd ~= nil and file:sub(1, 1) ~= "/" then at = cwd .. "/" .. file end
   local source, read_trouble = Fs.read(at)
@@ -594,7 +594,7 @@ local standard: verb.Io = { err = bare.err, run = run_here }
 
 --- [`verb.run`], with the directories it makes for a sealed database put
 --- in `held`.
-local function execute(argv: {string}, io: verb.Io?, held: {string}): integer
+local function execute(argv: {string}, io: verb.Io?, held: mut {string}): integer
   local to = io or standard
   local complain = bare.complainer("sandbox", to.err)
   -- The word right after the verb is the relay's client, the command ssh's
@@ -680,7 +680,7 @@ end
 function verb.run(argv: {string}, io?: verb.Io): integer
   -- The directory a sealed database was written in, removed whatever the
   -- run's end.
-  local held: {string} = {}
+  local held: mut {string} = {}
   local status = execute(argv, io, held)
   if held[1] ~= nil then
     local _, _ = Fs.remove_tree(held[1])

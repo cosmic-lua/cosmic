@@ -625,7 +625,7 @@ local function walk_steps(where: string, steps: {{string: any}}, holders: {{stri
       end
     end
     for _, text in ipairs(texts) do
-      local hashed: {string} = {}
+      local hashed: mut {string} = {}
       local rest = text:gsub("hashFiles%b()", function(call: string): string
         hashed[#hashed + 1] = call
         return ""

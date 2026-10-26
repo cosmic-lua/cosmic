@@ -220,7 +220,7 @@ local record Types
     pipeline?: Pipeline
     --- A block's arms in order: a `with` or `range` has its own first and
     --- then its `else`, if any.
-    branches: {Branch}
+    branches: mut {Branch}
     --- Where an interpolation's value lands, once `context` has run.
     ctx: Slot
   end

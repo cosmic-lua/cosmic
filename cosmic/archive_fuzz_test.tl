@@ -212,7 +212,7 @@ local function test_extraction_stays_inside_its_destination(tmp: string)
       end
       local real_dest = Fs.absolute(dest)
       if real_dest == nil then return true, "" end
-      local links: {string} = {}
+      local links: mut {string} = {}
       links_under(real_dest, links)
       for _, link in ipairs(links) do
         local target = Fs.readlink(link)

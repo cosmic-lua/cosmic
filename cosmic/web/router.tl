@@ -45,7 +45,7 @@ local record Router
     --- The names of the whole tree.
     names: {string: Types.ReverseEntry}
     --- The methods of the whole tree.
-    verbs: {string:boolean}
+    verbs: mut {string:boolean}
   end
 end
 

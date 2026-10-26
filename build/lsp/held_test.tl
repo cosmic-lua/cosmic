@@ -56,7 +56,7 @@ end
 
 --- Serves `messages` to the session `s` in one stream, and answers the program it held as each message went out, once it held one.
 local function programs_of(s: session.State, messages: {string}): {held.Program}
-  local seen: {held.Program} = {}
+  local seen: mut {held.Program} = {}
   session.serve(s, Stream.from_string(session_fixture.framed(messages)), function(_: string): boolean, string
     local program = s.checker.program
     if program ~= nil then seen[#seen + 1] = program end

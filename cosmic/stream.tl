@@ -1469,7 +1469,7 @@ function Stream.run(t: Stream.Transform, data: string, max_bytes?: integer): str
   if max_bytes ~= nil and (math.type(max_bytes) ~= "integer" or max_bytes < 0) then
     error("stream: max_bytes must be an integer of at least 0", 2)
   end
-  local parts: {string} = {}
+  local parts: mut {string} = {}
   local kept = { bytes = 0 }
   --- Keeps `out`, or answers false when it takes the total past the bound.
   local function keep(out: string): boolean

@@ -36,9 +36,9 @@ local record Testing
     --- they belong to. A browser keys a cookie by name, domain and path;
     --- this jar by name alone, as the client speaks to one host, so two
     --- cookies of a name at different paths replace each other.
-    jar: {string:string}
+    jar: mut {string:string}
     --- What the jar knows of each cookie's `Path`, `Secure` and expiry, by name.
-    attrs: {string:JarEntry}
+    attrs: mut {string:JarEntry}
     --- "http" (the default) or "https": whether the client acts as a browser
     --- on an https page. A `Secure` cookie is sent only when it is "https",
     --- which also adds `X-Forwarded-Proto: https` for an app with
@@ -139,7 +139,7 @@ local record Prepared
   target: string
   path: string
   query: string
-  headers: {string:string}
+  headers: mut {string:string}
   body: string
 end
 

@@ -150,7 +150,7 @@ end
 
 local function test_a_stream_sends_retry_events_and_heartbeats_then_ends_with_its_source()
   local queue = { value = nil as Channel.Queue<Sse.Event>? }
-  local closed: {string} = {}
+  local closed: mut {string} = {}
   local app = Web.app{ routes = { Web.get("/s", function(req: Web.Request): Web.Response
     local source: Channel.Queue<Sse.Event> = Channel.new()
     queue.value = source
@@ -180,7 +180,7 @@ local function test_a_stream_sends_retry_events_and_heartbeats_then_ends_with_it
 end
 
 local function test_a_source_that_fails_ends_the_stream_and_says_why()
-  local closed: {string} = {}
+  local closed: mut {string} = {}
   local app = Web.app{ routes = { Web.get("/s", function(req: Web.Request): Web.Response
     local source: Sse.EventSource = {
       next = function(_self: Sse.EventSource, _t?: integer): Sse.Event?, string
@@ -486,7 +486,7 @@ end
 local function test_stopping_the_server_ends_every_stream_long_before_the_grace()
   local hub = Sse.new_hub({})
   local queue = { value = nil as Channel.Queue<Sse.Event>? }
-  local ended: {string} = {}
+  local ended: mut {string} = {}
   local app = hub_app(hub, { heartbeat_ns = Clock.seconds(30), retry_ms = 100 }, { hubs = { hub } })
   local routes = assert(app.spec.routes)
   routes[#routes + 1] = Web.get("/queue", function(req: Web.Request): Web.Response
@@ -512,7 +512,7 @@ local function test_stopping_the_server_ends_every_stream_long_before_the_grace(
 end
 
 local function test_a_stream_that_ignores_its_close_is_killed_at_the_grace_and_released()
-  local closed: {string} = {}
+  local closed: mut {string} = {}
   local stuck: Sse.EventSource = {
     next = function(_self: Sse.EventSource, _t?: integer): Sse.Event?, string
       local _, _ = Poll.delay(Clock.seconds(60))
@@ -567,7 +567,7 @@ end
 
 local function test_a_response_the_handler_never_returns_releases_its_stream()
   local hub = Sse.new_hub({})
-  local closed: {string} = {}
+  local closed: mut {string} = {}
   local app = Web.app{ routes = { Web.get("/raises", function(req: Web.Request): Web.Response
     local sub = assert(hub:subscribe({ "t" }))
     local _ = Sse.EventStream(req, sub, { on_close = function(why: string)
@@ -599,7 +599,7 @@ local function test_a_response_middleware_replaces_releases_its_stream()
 end
 
 local function test_a_bad_option_closes_the_source_it_was_given()
-  local queues: {Channel.Queue<Sse.Event>} = {}
+  local queues: mut {Channel.Queue<Sse.Event>} = {}
   local app = Web.app{ routes = { Web.get("/s", function(req: Web.Request): Web.Response
     local queue: Channel.Queue<Sse.Event> = Channel.new()
     queues[#queues + 1] = queue

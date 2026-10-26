@@ -43,8 +43,8 @@ end
 local function run(words: {string}, script?: {string}, fail_out?: string): Ran
   local argv: mut {string} = { "fetch" }
   for _, word in ipairs(words) do argv[#argv + 1] = word end
-  local out: {string} = {}
-  local err: {string} = {}
+  local out: mut {string} = {}
+  local err: mut {string} = {}
   local code = fetch.run(argv, {
     script = script,
     out = function(text: string): boolean, string
@@ -268,7 +268,7 @@ end
 local function test_a_cancelled_download_leaves_no_file_and_fails(tmp: string)
   local path = tmp .. "/got.txt"
   local argv: {string} = { "fetch", url, "-o", path }
-  local err: {string} = {}
+  local err: mut {string} = {}
   local code = fetch.run(argv, {
     script = { reply("200 OK", "", string.rep("y", 200000)) },
     out = function(_text: string): boolean, string return true, "" end,

@@ -525,7 +525,7 @@ function tree_checks.unnamed_types(db: Sqlite.Handle): {string}
         tops[row:text(2)] = row
       end
     end
-    local reached: {string:boolean} = {}
+    local reached: mut {string:boolean} = {}
     local pending: mut {string} = {}
     local function names_in(signature: string)
       for name in pairs(tops) do
@@ -603,7 +603,7 @@ local anchors_expected: {string} = { "cosmic.cli Cli", "cosmic.layout Layout",
 --- `X.read`, by design -- so a real member that shares an anchor's name
 --- ([`Proc.Relaunch.argv`] beside [`Entrypoint.argv`]) is listed beside it
 --- as any two members are. What is refused is two anchors sharing one:
---- a reader asking for the verb `test` would also be shown the layout
+--- a reader asking for `test` would also be shown the layout
 --- rule for test files.
 ---
 --- A doc anchor is a record of a public `cosmic/` module that exists to

@@ -14,7 +14,7 @@ Test.policy{ loopback = { "127.0.0.1" } }
 
 --- A sink that keeps its lines.
 local function recording(): Web.Sink, {string}
-  local lines: {string} = {}
+  local lines: mut {string} = {}
   local sink: Web.Sink = { line = function(_self: Web.Sink, text: string)
     lines[#lines + 1] = text
   end }
@@ -125,7 +125,7 @@ local function test_a_failure_inside_the_client_function_is_raised_after_the_ser
 end
 
 local function test_stopping_ends_a_stream_and_runs_the_stop_functions_in_order()
-  local events: {string} = {}
+  local events: mut {string} = {}
   local app = Web.app{
     routes = { Web.get("/events", function(req: Web.Request): Web.Response
       local sent = { value = false }
@@ -206,7 +206,7 @@ local function test_serve_refuses_an_option_it_does_not_have()
 end
 
 local function test_serve_gives_the_server_a_grace_of_ten_seconds_unless_told_otherwise()
-  local graces: {integer} = {}
+  local graces: mut {integer} = {}
   local real = Server.serve
   Server.serve = function(spec: Server.ServeSpec): boolean, string
     graces[#graces + 1] = spec.grace_ns

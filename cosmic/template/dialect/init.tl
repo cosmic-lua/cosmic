@@ -30,9 +30,9 @@ local record Dialect
     --- The name families also read with a `data-` prefix.
     families: {string}
     --- What `classify` has answered: the rule of each attribute that has one.
-    known: {string: Rule}
+    known: mut {string: Rule}
     --- What `classify` has answered of an attribute that has none.
-    plain: {string: boolean}
+    plain: mut {string: boolean}
   end
 
   --- The dialects `{{use name}}` names, by name.

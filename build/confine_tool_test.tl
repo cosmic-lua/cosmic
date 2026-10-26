@@ -136,7 +136,7 @@ local function test_a_confined_process_has_somewhere_to_write(tmp: string)
   if sees(probe, own, own .. "/hidden") then return end -- the kernel confines none
   local chosen = own .. "/chosen"
   local inherited = Env.get("TMPDIR")
-  local said: {string} = {}
+  local said: mut {string} = {}
   local ran = confine.call(function()
     confine.confine({ reads = { probe } })
     for _, environment in ipairs({ {} as {string:string}, { TMPDIR = chosen },
@@ -170,7 +170,7 @@ local function test_a_confined_process_has_its_portable_cache_by_where_it_leads(
   assert(Fs.write(real .. "/core", "core"))
   assert(Fs.symlink(own .. "/real", tmp .. "/linked"))
   local resolved = assert(sys.realpath(real))
-  local said: {string} = {}
+  local said: mut {string} = {}
   local ran = confine.call(function()
     confine.confine({ reads = { real .. "/core", probe } })
     for _, cache in ipairs({ tmp .. "/linked/cache", resolved, tmp .. "/linked/fresh/cache" }) do

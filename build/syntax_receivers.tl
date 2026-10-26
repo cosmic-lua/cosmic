@@ -45,8 +45,8 @@ end
 
 function Receivers.references(subject: Report.Subject): {Receivers.Reference}
   local out: mut {Receivers.Reference} = {}
-  local seen: {string: boolean} = {}
-  local targets: {integer: boolean} = {}
+  local seen: mut {string: boolean} = {}
+  local targets: mut {integer: boolean} = {}
   local program = subject.program
   --- The use of the field `name` of `object`, written on `line`; `written_call` when it is the method of `object:name(...)`, the
   --- only use of a record that is no one's nested record ([`Report.home_of`]), and a read of a class's method is as a call.
@@ -146,7 +146,7 @@ function Receivers.references(subject: Report.Subject): {Receivers.Reference}
 end
 
 function Receivers.blind(subject: Report.Subject): {integer}
-  local lines: {integer: boolean} = {}
+  local lines: mut {integer: boolean} = {}
   Node.walk(subject.chunk, function(node: Ast.Node)
     if (node.kind == "Field") then
       local t = subject.types[Node.base(node.object).id]
@@ -169,7 +169,7 @@ function Receivers.blind(subject: Report.Subject): {integer}
 end
 
 function Receivers.known(subject: Report.Subject, wanted: {string: boolean}): {string}
-  local found: {string: boolean} = {}
+  local found: mut {string: boolean} = {}
   local function note(object: Ast.Exp, name: string, line: integer)
     local at = tostring(line) .. " " .. name
     local t = subject.types[Node.base(object).id]

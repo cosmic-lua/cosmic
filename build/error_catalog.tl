@@ -135,8 +135,8 @@ local function stage_of(stage: SyntaxCodes.Stage): ErrorCatalog.Stage
 end
 
 function ErrorCatalog.emitted(): {ErrorCatalog.Emitted}
-  local out: {ErrorCatalog.Emitted} = {}
-  local seen: {string: boolean} = {}
+  local out: mut {ErrorCatalog.Emitted} = {}
+  local seen: mut {string: boolean} = {}
   local function add(code: string, stage: ErrorCatalog.Stage)
     if seen[code] ~= true then
       seen[code] = true

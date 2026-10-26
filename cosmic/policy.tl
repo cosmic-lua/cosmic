@@ -138,7 +138,7 @@ function PolicyJson.encode(p: Sandbox.Policy): string
   local digests: mut {string:string} = {}
   for name, digest in pairs(merged.set_env_digests or {}) do digests[name] = digest end
   for name, value in pairs(merged.set_env or {}) do digests[name] = digest_of(value) end
-  local fields: {string:any} = {}
+  local fields: mut {string:any} = {}
   local function put(name: string, list: {any})
     if #list > 0 then fields[name] = list end
   end

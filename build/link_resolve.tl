@@ -46,10 +46,10 @@ local record link_resolve
   --- Resolves links, remembering what it looked up.
   record Resolver
     context: Context
-    kinds: {string: string}
-    headings: {string: {string: boolean}}
-    symbols: {string: {Symbol}}
-    members: {string: {Symbol}}
+    kinds: mut {string: string}
+    headings: mut {string: {string: boolean}}
+    symbols: mut {string: {Symbol}}
+    members: mut {string: {Symbol}}
     trouble: string?
     --- The root with its links followed, once asked.
     real_root: string?
@@ -137,7 +137,7 @@ end
 --- and each `<a id>` or `<a name>`.
 function link_resolve.anchors(text: string): {string: boolean}
   local out: mut {string: boolean} = {}
-  local count: {string: integer} = {}
+  local count: mut {string: integer} = {}
   local function heading(line: string)
     local slug = slug_of((line:gsub("%s+#+%s*$", "")))
     local seen = count[slug]

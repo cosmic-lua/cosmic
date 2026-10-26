@@ -125,7 +125,7 @@ function Node.span(chunk: Ast.Chunk, node: Ast.Node): Ast.Span
 end
 
 function Node.children(node: Ast.Node): {Ast.Node}
-  local out: {Ast.Node} = {}
+  local out: mut {Ast.Node} = {}
   Ast.children(node, function(child: Ast.Node)
     out[#out + 1] = child
   end)
@@ -157,7 +157,7 @@ function Node.walk(root: Ast.Node, visit: function(Ast.Node))
 end
 
 function Node.parents(root: Ast.Node): {integer: Ast.Node}
-  local out: {integer: Ast.Node} = {}
+  local out: mut {integer: Ast.Node} = {}
   Node.walk(root, function(node: Ast.Node)
     Ast.children(node, function(child: Ast.Node)
       out[Node.base(child).id] = node
@@ -186,7 +186,7 @@ function Node.require_sites(chunk: Ast.Chunk): {Node.Site}
   table.sort(found, function(a: Ast.Require, b: Ast.Require): boolean
     return a.node < b.node
   end)
-  local nodes: {integer: Ast.Base} = {}
+  local nodes: mut {integer: Ast.Base} = {}
   Node.walk(chunk, function(node: Ast.Node)
     local base = Node.base(node)
     if wanted[base.id] == true then nodes[base.id] = base end
