@@ -111,9 +111,9 @@ local record rules
     file: string
     --- The functions it defines that a header declares, neither static
     --- nor inline, to where that declaration is.
-    defines: {string: rules.Place}
+    defines: mut {string: rules.Place}
     --- The names of the functions it refers to anywhere.
-    refers: {string: boolean}
+    refers: mut {string: boolean}
   end
 
   --- What core/syscalls.h or core/process.h declares a binding returns:
@@ -935,8 +935,8 @@ local function functions(decls: {Node}): {Function}
         local static, inline = storage(decl)
         local prototype = prototypes[name]
         if prototype == decl then prototype = nil end
-        local nodes: {Node} = {}
-        local returns: {Node} = {}
+        local nodes: mut {Node} = {}
+        local returns: mut {Node} = {}
         collect(body, nodes, returns)
         out[#out + 1] = {
           nodes = nodes, returns = returns,
@@ -1338,7 +1338,7 @@ local function descriptor_arguments(ctx: Context, fn: Function, byname: {string:
   local call = fn.name:match("^cosmic_sys_(.+)$")
   local d = call ~= nil and declared[call] or nil
   if d == nil or d.descriptors == nil or #d.descriptors == 0 then return end
-  local out: {integer: boolean} = {}
+  local out: mut {integer: boolean} = {}
   checked_positions(fn, {}, byname, out, {})
   for _, at in ipairs(d.descriptors) do
     if not out[at] then

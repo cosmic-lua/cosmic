@@ -117,8 +117,8 @@ local function test_a_run_keeps_what_the_phases_after_the_parse_read(tmp: string
     "",
   }, "\n")
   local chunk = assert(SyntaxNode.parse(text, "build/paths.tl"))
-  local facts: {string: links.Facts} = {}
-  local ready: {string: {near.Candidate}} = {}
+  local facts: mut {string: links.Facts} = {}
+  local ready: mut {string: {near.Candidate}} = {}
   local plurals: {string: tree_checks.Plurals} = {}
   fix.read_off("./build/paths.tl", chunk, text, facts, ready, plurals)
   assert(assert(facts["./build/paths.tl"]).source == text)

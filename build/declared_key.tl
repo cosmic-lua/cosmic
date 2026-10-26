@@ -206,12 +206,12 @@ local record declared_key
     real_output: string
     --- Each file's hash by its absolute path, with what `lstat` said of
     --- it when it was hashed: `signature` .. "\0" .. hex sha256.
-    hashed: {string:string}
+    hashed: mut {string:string}
     --- The paths of `hashed` this run looked up, which `kept` answers.
-    used: {string:boolean}
+    used: mut {string:boolean}
     --- Each program's key (`program`) too fresh to keep in `hashed`, as
     --- `hashed` holds it, for this run alone.
-    this_run: {string:string}
+    this_run: mut {string:string}
     --- While set, each answer by what asked for it: the whole
     --- selection of a run keys its tests before any of them starts, so
     --- one answer serves them all. Nil after, when each asks again.
@@ -749,7 +749,7 @@ local function tree(digests: declared_key.Digests, path: string, programs?: bool
   return once(digests, tag, function(): string
     local kind, answer = entry(digests, path, true, programs)
     if kind ~= "dir" then return answer end
-    local lines: {string} = {}
+    local lines: mut {string} = {}
     -- What the first link that leads out of the bounds says, if one does.
     local refused: {string} = {}
     local function walk(directory: string, prefix: string, depth: integer)
@@ -1253,8 +1253,8 @@ end
 -- about twice its walk (a second of /usr's 85,000 entries on an idle
 -- host), paid wherever [`remembered_walk`] cannot answer.
 local function walk_system(paths: {string}): string, {string}, integer
-  local lines: {string} = {}
-  local directories: {string} = {}
+  local lines: mut {string} = {}
+  local directories: mut {string} = {}
   local newest = { mtime_ns = 0 }
   local function walk(path: string, dev: integer?)
     local st, trouble = sys.lstat(path)

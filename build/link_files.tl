@@ -42,7 +42,7 @@ local never: {string: boolean} = { ["o"] = true, ["vendor"] = true, ["patch"] = 
 --- verbatim ([`cosmic.layout`]'s `static`), so what is written in it is no
 --- source of the tree's.
 function link_files.skipper(dir: string): function(string): boolean
-  local checkouts: {string: boolean} = {}
+  local checkouts: mut {string: boolean} = {}
   local function checkout(path: string): boolean
     local known = checkouts[path]
     if known == nil then

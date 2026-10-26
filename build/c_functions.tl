@@ -22,7 +22,7 @@ local record c_functions
   --- How a run's hits measure up against every C function.
   record Tally
     --- The functions no test entered and none exempts, by [`key_of`], sorted.
-    unentered: {string}
+    unentered: mut {string}
     --- How many were entered.
     entered: integer
     --- How many are exempt and were not entered.
@@ -31,10 +31,10 @@ local record c_functions
     total: integer
     --- The exempt functions a test entered after all, by [`key_of`], sorted:
     --- this core no longer needs their exemption, though another may.
-    stale: {string}
+    stale: mut {string}
     --- The functions this host cannot enter, each with its missing
     --- requirement and the probe's reason. An entered function stays entered.
-    unavailable: {string}
+    unavailable: mut {string}
   end
 end
 

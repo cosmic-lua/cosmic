@@ -465,7 +465,7 @@ end
 --- writes, and an `input` fed through to a captured stdout.
 local function test_streams_in_a_task_let_the_others_run()
   for _, module in ipairs(both()) do
-    local got: {string} = {}
+    local got: mut {string} = {}
     local fed = { value = nil as Child.Result? }
     local input = string.rep("0123456789", 20000)
     local ticks = ticking(function()

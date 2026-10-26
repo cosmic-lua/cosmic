@@ -64,12 +64,12 @@ local record importer
     -- One message per `kind = "test"` module refused compilation
     -- because it both defines its own tests and returns its own value;
     -- every module NOT in this list compiled and is in `modules`.
-    refused: {string}
+    refused: mut {string}
     --- One line per module a file run ([`importer.compile_for`]) left
     --- out, since it does not parse or compile and the file does not
     --- reach it. A module left out only because it requires one of
     --- these has no line, nor is it in `modules`.
-    left_out: {string}
+    left_out: mut {string}
     -- How many modules were compiled this run, and how many came back
     -- from `compiled` under a key that stood.
     compiled: integer

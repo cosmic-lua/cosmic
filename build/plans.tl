@@ -237,7 +237,7 @@ local function identify_in(known: Graph, name: string, file: string,
                            tool: string, line_of: function(string, Dependency): string):
     Keys?, string
   local dependencies, resolve = known.dependencies, known.resolve
-  local seen: {string:boolean} = {}
+  local seen: mut {string:boolean} = {}
   local graph: mut {string} = {}
   local function visit(slot: string, display: string): boolean, string
     if seen[slot] then
@@ -334,7 +334,7 @@ end
 --- kept. Nil and why where a name cannot be resolved, "" for no node.
 local function fragments_in(known: Graph, line_of: function(string, Dependency): string):
     function(string): Fragment?, string
-  local made: {string:Fragment} = {}
+  local made: mut {string:Fragment} = {}
   return function(slot: string): Fragment?, string
     local kept = made[slot]
     if kept ~= nil then return kept, "" end
@@ -722,8 +722,8 @@ function plans.ordered(modules: {Module}): {Module}?, string
     by_path[m.path] = m
   end
 
-  local out: {Module} = {}
-  local state: {string:string} = {}
+  local out: mut {Module} = {}
+  local state: mut {string:string} = {}
 
   local function visit(m: Module): boolean, string
     if state[m.path] == "done" then

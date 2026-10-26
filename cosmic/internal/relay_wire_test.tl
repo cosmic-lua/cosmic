@@ -850,7 +850,7 @@ local function string_work(work: function()): integer
     name: string
     original: any
   end
-  local saved: {Patched} = {}
+  local saved: mut {Patched} = {}
   --- Replaces `host[name]` with a wrapper that adds `cost(result, args)`.
   local function patch(host: mut {string: any}, name: string, cost: function({any}, {any}): integer)
     local original = host[name] as function(...: any): any...

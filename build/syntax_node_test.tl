@@ -34,8 +34,8 @@ end
 
 local function test_walk_visits_each_node_once_in_source_order()
   local chunk = parsed("local a = 1\nif a then\n  print(a)\nend\n")
-  local kinds: {string} = {}
-  local ids: {integer} = {}
+  local kinds: mut {string} = {}
+  local ids: mut {integer} = {}
   Node.walk(chunk, function(node: Ast.Node)
     kinds[#kinds + 1] = Node.base(node).kind
     ids[#ids + 1] = Node.base(node).id
@@ -49,7 +49,7 @@ end
 
 local function test_a_walk_can_leave_a_subtree_alone()
   local chunk = parsed("local f = function() return 1 end\nreturn f\n")
-  local seen: {string} = {}
+  local seen: mut {string} = {}
   Node.walk_until(chunk, function(node: Ast.Node): boolean
     seen[#seen + 1] = Node.base(node).kind
     return not ((node.kind == "FunctionLit"))

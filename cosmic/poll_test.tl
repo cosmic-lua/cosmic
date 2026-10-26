@@ -42,7 +42,7 @@ local function test_milliseconds_round_a_timeout_up_and_no_limit_is_minus_one()
 end
 
 local function test_tasks_take_turns_as_each_waits()
-  local seen: {string} = {}
+  local seen: mut {string} = {}
   Poll.run(function()
     local a = Poll.spawn(function()
       seen[#seen + 1] = "a1"
@@ -65,7 +65,7 @@ end
 --- lie far enough apart that a host stalling less than 50 ms in all
 --- while it arms them still sees them end in order.
 local function test_delays_end_in_the_order_of_their_times()
-  local order: {integer} = {}
+  local order: mut {integer} = {}
   Poll.run(function()
     for _, ms in ipairs({ 150, 50, 100 }) do
       Poll.spawn(function()
@@ -122,7 +122,7 @@ end
 --- so the task unwinds on its own terms.
 local function test_cancel_ends_a_wait_and_every_later_one(tmp: string)
   local reader, writer = fifo(tmp, "p")
-  local answers: {string} = {}
+  local answers: mut {string} = {}
   Poll.run(function()
     local task = Poll.spawn(function()
       local _, why = Poll.readable(reader)
@@ -245,7 +245,7 @@ local function test_many_tasks_wait_on_descriptors_at_once(tmp: string)
   local readers: mut {integer} = {}
   local writers: mut {integer} = {}
   for i = 1, count do readers[i], writers[i] = fifo(tmp, "p" .. i) end
-  local got: {integer: string} = {}
+  local got: mut {integer: string} = {}
   Poll.run(function()
     for i = 1, count do
       Poll.spawn(function()
@@ -337,7 +337,7 @@ end
 --- A cancel lands wherever the task is: not yet started, cancelling
 --- itself, or after the run has ended.
 local function test_cancel_before_a_start_or_of_itself_or_after_the_run()
-  local answers: {string} = {}
+  local answers: mut {string} = {}
   local kept = { value = nil as Poll.Task? }
   Poll.run(function()
     local early = Poll.spawn(function()
@@ -532,7 +532,7 @@ end
 --- answered but not yet run, whether in the ready queue or in the batch
 --- the run is resuming -- never runs again.
 local function test_kill_takes_a_ready_task_from_the_queue()
-  local ran: {string} = {}
+  local ran: mut {string} = {}
   Poll.run(function()
     local unstarted = Poll.spawn(function() ran[#ran + 1] = "unstarted" end)
     unstarted:kill()
@@ -731,7 +731,7 @@ end
 local function test_joins_a_timeout_answers_are_not_kept()
   local early = { value = 0.0 }
   local late = { value = 0.0 }
-  local order: {string} = {}
+  local order: mut {string} = {}
   Poll.run(function()
     local sleeper = Poll.spawn(function()
       local _, _ = Poll.delay(Clock.minutes(60))
@@ -850,8 +850,8 @@ local function test_waits_sharing_descriptors_come_and_go(tmp: string)
   for i = 1, count do readers[i], writers[i] = fifo(tmp, "p" .. i) end
   Poll.run(function()
     for round = 1, 20 do
-      local seen: {string} = {}
-      local answers: {integer:{integer}} = {}
+      local seen: mut {string} = {}
+      local answers: mut {integer:{integer}} = {}
       local waiting: mut {integer:{Poll.Task}} = {}
       for i = 1, count do
         waiting[i] = {}
@@ -954,7 +954,7 @@ end
 --- after the shield answers CANCELLED. Shields nest, and one left by a
 --- raise is let go.
 local function test_a_shielded_wait_outlasts_a_cancel()
-  local seen: {string} = {}
+  local seen: mut {string} = {}
   Poll.run(function()
     local ticks = { value = 0 }
     local ticker = Poll.spawn(function()
@@ -1282,8 +1282,8 @@ local function test_a_killed_waiter_is_removed_and_the_next_one_is_woken()
 end
 
 local function test_a_queue_pattern_loses_no_item()
-  local queue: {integer} = {}
-  local got: {integer} = {}
+  local queue: mut {integer} = {}
+  local got: mut {integer} = {}
   Poll.run(function()
     local notifier = Poll.notifier()
     local consumer = Poll.spawn(function()
@@ -1345,7 +1345,7 @@ local function test_a_notifier_is_one_runs_and_waits_only_in_a_task()
 end
 
 local function test_a_notice_for_a_waiter_killed_before_it_runs_passes_on()
-  local woken: {integer} = {}
+  local woken: mut {integer} = {}
   Poll.run(function()
     local notifier = Poll.notifier()
     local tasks: mut {Poll.Task} = {}
@@ -1363,7 +1363,7 @@ local function test_a_notice_for_a_waiter_killed_before_it_runs_passes_on()
 end
 
 local function test_a_notice_for_a_waiter_killed_in_the_same_batch_passes_on()
-  local woken: {integer} = {}
+  local woken: mut {integer} = {}
   Poll.run(function()
     local notifier = Poll.notifier()
     local tasks: mut {Poll.Task} = {}
@@ -1398,7 +1398,7 @@ local function test_a_waiter_cancelled_after_its_notice_still_answers_true()
 end
 
 local function test_a_notice_beats_a_timeout_reached_in_the_same_tick()
-  local answers: {string} = {}
+  local answers: mut {string} = {}
   Poll.run(function()
     local notifier = Poll.notifier()
     local task = Poll.spawn(function()
@@ -1417,7 +1417,7 @@ local function test_a_notice_beats_a_timeout_reached_in_the_same_tick()
 end
 
 local function test_a_timeout_beats_a_notice_sent_in_the_same_tick()
-  local answers: {string} = {}
+  local answers: mut {string} = {}
   local spare = { value = false }
   Poll.run(function()
     local notifier = Poll.notifier()

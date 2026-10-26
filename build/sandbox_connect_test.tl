@@ -272,7 +272,7 @@ end
 
 local function test_it_refuses_a_command_line_or_environment_that_is_not_a_sandboxs()
   local function refused(args: {string}, env: {string:string}, why: string)
-    local complaints: {string} = {}
+    local complaints: mut {string} = {}
     local code = connect.run(args, {
       getenv = function(name: string): string? return env[name] end,
       err = function(line: string) complaints[#complaints + 1] = line end,
@@ -320,7 +320,7 @@ local function test_nothing_listening_is_a_failure_naming_the_relay(_: string)
     assert(listener:close())
   end)
   local closed = assert(port.value, "the listener was made")
-  local complaints: {string} = {}
+  local complaints: mut {string} = {}
   local code = connect.run({ "host", "22" }, {
     getenv = function(name: string): string?
       if name == "ALL_PROXY" then return proxy_at(closed) end
@@ -431,7 +431,7 @@ end
 local function test_a_userinfo_that_cannot_be_used_is_refused_and_never_echoed()
   local secret <const> = "SECRET-token-1234"
   local function refused(value: string, why: string)
-    local complaints: {string} = {}
+    local complaints: mut {string} = {}
     local code = connect.run({ "host", "22" }, {
       getenv = function(name: string): string?
         if name == "ALL_PROXY" then return value end

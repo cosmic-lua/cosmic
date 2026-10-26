@@ -134,7 +134,7 @@ end
 --- started anew for an adopted stream.
 local function test_a_public_connector_that_ended_tells_lost()
   require_native_connector()
-  local told: {string} = {}
+  local told: mut {string} = {}
   Poll.run(function()
     local listener = assert(Net.listen(Net.tcp("127.0.0.1", 0)))
     local port = assert(listener.address.port)
@@ -174,8 +174,8 @@ end
 --- however many lookups follow.
 local function test_a_lookup_through_an_ended_name_servers_connector_tells_lost()
   require_native_connector()
-  local told: {string} = {}
-  local statuses: {string} = {}
+  local told: mut {string} = {}
+  local statuses: mut {string} = {}
   Poll.run(function()
     local dns = assert(Net.connector({ { host = "127.0.0.1", port = 53 } }))
     assert(dns:close())
@@ -347,7 +347,7 @@ local function test_the_upstream_is_resolved_once_and_an_ungranted_name_never(tm
   assert(Fs.write(script, SCRIPT))
   local queries: mut {string} = {}
   local datagrams = { value = 0 }
-  local lines: {string} = {}
+  local lines: mut {string} = {}
   Poll.run(function()
     local listener = assert(Net.listen(Net.tcp("127.0.0.1", 0)))
     local port = assert(listener.address.port)

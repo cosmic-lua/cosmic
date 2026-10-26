@@ -41,7 +41,7 @@ local function test_the_origin_of_a_url_ignores_its_path_but_not_its_userinfo()
 end
 
 local function test_the_origin_of_a_request_is_its_scheme_and_host()
-  local seen: {string} = {}
+  local seen: mut {string} = {}
   local app = Web.app{ routes = { Web.get("/", function(req: Web.Request): Web.Response
     seen[#seen + 1] = Origin.of_request(req) or "-"
     return Web.text("ok")

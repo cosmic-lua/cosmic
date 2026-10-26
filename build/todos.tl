@@ -241,7 +241,7 @@ end
 
 --- A [`Blamer`] that starts the system's git `program` in `root`.
 local function spawning(program: string, root: string): Blamer
-  local run_of: {Child.Handle:BlameRun} = {}
+  local run_of: mut {Child.Handle:BlameRun} = {}
   return {
     start = function(file: string, args: {string}): BlameRun?
       local argv: mut {string} = { program, "-C", root }

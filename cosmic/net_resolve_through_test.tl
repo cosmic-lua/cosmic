@@ -648,7 +648,7 @@ end
 --- as out of time, by its deadline, one connector wait and the grace.
 local function silent_lookup(count: integer, lookup_ms: integer)
   require_native_connector()
-  local held: {function()} = {}
+  local held: mut {function()} = {}
   local endpoints: mut {Resolv.Endpoint} = {}
   for _ = 1, count do
     local port = stuck_server(held)[1]

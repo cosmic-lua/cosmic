@@ -67,9 +67,9 @@ local record link_index
   --- a real path, each in a table of its own so that none is kept as an
   --- answer too.
   record Memo
-    kinds: {string: string}
+    kinds: mut {string: string}
     reads: {string: {string}}
-    reals: {string: {string}}
+    reals: mut {string: {string}}
   end
 
   --- One row of the projection's `links` ([`build.schema`]).
@@ -555,7 +555,7 @@ end
 --- [`link_index.fill`] without the memory of its last answer.
 local function resolve_and_write(db: Sqlite.Handle, pending: link_index.Pending,
                                  qualifier: string): boolean, string
-  local held: {string: boolean} = {}
+  local held: mut {string: boolean} = {}
   local indexed, index_trouble = index_of(db, qualifier, held)
   if indexed == nil then
     return false, index_trouble

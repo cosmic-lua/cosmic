@@ -645,7 +645,7 @@ end
 
 --- The comments of `text`, as `problems` finds them.
 function flow.comments(text: string): {string}
-  local found: {string} = {}
+  local found: mut {string} = {}
   scan(text, found)
   return found
 end
@@ -654,13 +654,13 @@ end
 --- subset, or whose form would leave it, read as another value, lose a
 --- comment, or change again on a second pass.
 function flow.format(text: string): string?, string
-  local before_comments: {string} = {}
+  local before_comments: mut {string} = {}
   local found = scan(text, before_comments)
   if #found > 0 then return nil, found[1] end
   local doc, trouble = flow.parse(text)
   if doc == nil then return nil, trouble end
   local out = flow.render(doc)
-  local after_comments: {string} = {}
+  local after_comments: mut {string} = {}
   found = scan(out, after_comments)
   if #found > 0 then return nil, "laid out, it would leave the subset: " .. found[1] end
   local before, before_trouble = value_of(text)

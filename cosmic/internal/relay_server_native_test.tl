@@ -82,7 +82,7 @@ local function test_the_relay_connects_through_the_native_connector()
     local _, _ = free:close()
     local asked = { value = 0 }
     local connector = assert(Net.connector({}, { public = { deny = {} } }))
-    local log: {string} = {}
+    local log: mut {string} = {}
     local relay = Relay.start({
       http = front, grants = { "127.0.0.1:" .. port, "127.0.0.1:" .. closed },
       connector = function(address: string, to: integer, timeout_ns: integer): Net.Conn?, string

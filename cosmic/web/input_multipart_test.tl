@@ -574,7 +574,7 @@ local function test_a_long_filename_is_cut_to_its_last_component_in_linear_time(
   local parts: mut {string} = {}
   for i = 1, 100 do parts[i] = file("f", name, "data") end
   local start = Clock.monotonic_ns()
-  local names: {string} = {}
+  local names: mut {string} = {}
   post(body_of(table.concat(parts)), function(req: Web.Request): Web.Response
     local read = Input.multipart(req, { dir = tmp, max_parts = 200, max_files = 200 })
     local invalid = read.invalid

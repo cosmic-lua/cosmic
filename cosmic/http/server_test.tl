@@ -126,7 +126,7 @@ end
 --- and stops it once `client` returns. Answers what went to on_error.
 local function serving(handle: function(Server.Request): Server.Reply,
                        client: function(Net.Address), spec?: Server.ServeSpec): {string}
-  local troubles: {string} = {}
+  local troubles: mut {string} = {}
   local given: Server.ServeSpec = spec or {}
   given.listeners = { Net.tcp("127.0.0.1", 0) }
   given.handle = handle
@@ -629,7 +629,7 @@ end
 --- connection after the reply, however cleanly that Reader ends: the
 --- bytes after it are no request to serve.
 local function test_a_body_failing_under_the_reply_closes_the_connection()
-  local paths: {string} = {}
+  local paths: mut {string} = {}
   local record Lenient is Stream.Reader
     source: Stream.Reader
     read: function(Lenient, max_bytes?: integer): string?, string

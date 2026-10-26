@@ -124,8 +124,8 @@ local function ordered(index: Driver.Index, modules: {string}): {string}
   for _, module in ipairs(modules) do
     wanted[module] = true
   end
-  local out: {string} = {}
-  local state: {string: boolean} = {}
+  local out: mut {string} = {}
+  local state: mut {string: boolean} = {}
   local function visit(module: string)
     if state[module] == true or wanted[module] ~= true then
       return

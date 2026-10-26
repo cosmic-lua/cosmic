@@ -219,7 +219,7 @@ local function test_a_corpus_input_is_checked_before_any_draw(tmp: string)
   assert(Fs.mkdirs(corpus))
   assert(Fs.write(corpus .. "/a.input", "fine"))
   assert(Fs.write(corpus .. "/README", "not an input!"))
-  local checked: {string} = {}
+  local checked: mut {string} = {}
   local function no_bang(input: string): boolean, string
     checked[#checked + 1] = input
     return input:find("!", 1, true) == nil, "a bang"
@@ -352,7 +352,7 @@ end
 -- that one input -- the one that failed -- and nothing else: not the
 -- other iterations, not another property, not a corpus.
 local function test_a_case_checks_the_one_input_it_names(tmp: string)
-  local seen: {string} = {}
+  local seen: mut {string} = {}
   local function no_nul(input: string): boolean, string
     seen[#seen + 1] = input
     return input:find("\0", 1, true) == nil, "a NUL"

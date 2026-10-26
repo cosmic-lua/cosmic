@@ -31,9 +31,9 @@ local record maintenance
     before_bytes?: integer
     after_bytes?: integer
     reached?: boolean
-    unknown_tables: {string}
-    unstamped_tables: {string}
-    removed_set_aside: {string}
+    unknown_tables: mut {string}
+    unstamped_tables: mut {string}
+    removed_set_aside: mut {string}
   end
   record Result
     report: Report
@@ -41,7 +41,7 @@ local record maintenance
   end
   record Report
     version: integer
-    files: {File}
+    files: mut {File}
     digest?: string
     fresh?: integer
     warnings: {string}
