@@ -15,7 +15,18 @@ local Fuzz = require("build.fuzz")
 local Sqlite = require("cosmic.sqlite")
 local Vector = require("cosmic.vector")
 
-local handle = assert(Sqlite.memory())
+-- The in-memory database the SQL-reading properties ask; each opens it
+-- before its run and closes it after.
+local held: mut {string: Sqlite.Handle} = {}
+
+local function open_database()
+  held["db"] = assert(Sqlite.memory())
+end
+
+local function close_database()
+  assert(held["db"]):close()
+  held["db"] = nil
+end
 
 --- The largest finite float, as a double.
 local FLT_MAX <const> = 3.4028234663852886e38
@@ -65,7 +76,7 @@ local record Answer
 end
 
 local function ask(sql: string, values: {Sqlite.Value}): Answer
-  local rows, why = Sqlite.rows(handle, sql, values)
+  local rows, why = Sqlite.rows(assert(held["db"], "no database open"), sql, values)
   if rows == nil then
     return { kind = "error", bytes = "", number = 0, why = why }
   end
@@ -257,6 +268,7 @@ local function check_text(input: string): boolean, string
 end
 
 local function test_vector_reads_text_exactly_or_refuses(tmp: string)
+  open_database()
   Fuzz.run({
     name = "vector text",
     dir = tmp,
@@ -265,6 +277,7 @@ local function test_vector_reads_text_exactly_or_refuses(tmp: string)
     requires = { "read", "refused", "clean read", "clean refused", "hex", "exponent", "nul" },
     shares = { read = 0.1, refused = 0.1, ["clean read"] = 0.05, ["clean refused"] = 0.1 },
   })
+  close_database()
 end
 
 --------------------------------------------------------------------------
@@ -504,10 +517,13 @@ local function check_distance(fn: string, a: Arg, b: Arg): boolean, string
   if fn == "l2_distance" or fn == "l1_distance" then
     if ans.number < 0 then return false, fn .. " answered " .. tostring(ans.number) end
   end
-  if not (ordinary(fa) and ordinary(fb)) then
-    Fuzz.label("distance of extremes")
-    return true, ""
-  end
+  -- Past the ordinary band the reference is the same sums in double,
+  -- which the float ones may not match (they overflow or underflow, and
+  -- the function redoes them in double): a wrong but finite answer fails
+  -- here, as does one that underflowed to zero. A result near zero is
+  -- held to the relative tolerance alone, with no absolute floor.
+  local band = ordinary(fa) and ordinary(fb)
+  local floor = if band then 1e-9 else 0.0 end
   local dot, abs_dot, squares, l1, na, nb = 0.0, 0.0, 0.0, 0.0, 0.0, 0.0
   for i = 1, #fa do
     local x, y = assert(fa[i]), assert(fb[i])
@@ -521,12 +537,12 @@ local function check_distance(fn: string, a: Arg, b: Arg): boolean, string
   local want: number
   local tolerance: number
   if fn == "inner_product" then
-    want, tolerance = dot, 1e-5 * abs_dot + 1e-9
+    want, tolerance = dot, 1e-5 * abs_dot + floor
   elseif fn == "l2_distance" then
     want = math.sqrt(squares)
-    tolerance = 1e-5 * want + 1e-9
+    tolerance = 1e-5 * want + floor
   elseif fn == "l1_distance" then
-    want, tolerance = l1, 1e-5 * l1 + 1e-9
+    want, tolerance = l1, 1e-5 * l1 + floor
   else
     want = 1 - math.max(-1, math.min(1, dot / math.sqrt(na * nb)))
     tolerance = 1e-4
@@ -534,7 +550,7 @@ local function check_distance(fn: string, a: Arg, b: Arg): boolean, string
   if math.abs(ans.number - want) > tolerance then
     return false, ("%s answered %.9g, not %.9g"):format(fn, ans.number, want)
   end
-  Fuzz.label("distance compared")
+  Fuzz.label(if band then "distance compared" else "distance of extremes" end)
   return true, ""
 end
 
@@ -724,6 +740,7 @@ local function check_functions(input: string): boolean, string
 end
 
 local function test_sql_functions_answer_or_refuse_by_a_reference(tmp: string)
+  open_database()
   Fuzz.run({
     name = "vector sql functions",
     dir = tmp,
@@ -735,6 +752,7 @@ local function test_sql_functions_answer_or_refuse_by_a_reference(tmp: string)
     shares = { ["distance compared"] = 0.1, quantized = 0.1, converted = 0.1, ["subvector clipped"] = 0.05,
       ["bits compared"] = 0.05 },
   })
+  close_database()
 end
 
 --------------------------------------------------------------------------
@@ -910,6 +928,7 @@ local function check_pack(input: string): boolean, string
 end
 
 local function test_pack_takes_numbers_and_nothing_else(tmp: string)
+  open_database()
   Fuzz.run({
     name = "vector pack",
     dir = tmp,
@@ -918,6 +937,7 @@ local function test_pack_takes_numbers_and_nothing_else(tmp: string)
     requires = { "pack refused", "packed" },
     shares = { ["pack refused"] = 0.2, packed = 0.1 },
   })
+  close_database()
 end
 
 local function gen_bytes_input(src: Fuzz.Source): string
@@ -964,6 +984,7 @@ local function check_bytes(blob: string): boolean, string
 end
 
 local function test_unpack_and_normalize_read_any_whole_floats(tmp: string)
+  open_database()
   Fuzz.run({
     name = "vector unpack and normalize",
     dir = tmp,
@@ -972,6 +993,7 @@ local function test_unpack_and_normalize_read_any_whole_floats(tmp: string)
     requires = { "unaligned", "aligned", "agreed with sql" },
     shares = { unaligned = 0.05, aligned = 0.2 },
   })
+  close_database()
 end
 
 --------------------------------------------------------------------------
@@ -1132,6 +1154,9 @@ local function check_search(input: string): boolean, string
   if #hits.ids ~= #hits.scores then return false, who .. ": ids and scores differ in length" end
   if kind == 4 then
     -- Sums that overflow: no reference, but an answer still holds together.
+    -- TODO: once the corpus kernels redo a non-finite sum in double (see
+    -- the TODO at the score loop in core/vector.c), hold this to a
+    -- reference too; until then only the structure is checked.
     Fuzz.label("overflowing")
     local seen: mut {integer: boolean} = {}
     for _, id in ipairs(hits.ids) do seen[id] = true end
@@ -1465,7 +1490,8 @@ local function check_nearest(input: string): boolean, string
   for i = 1, math.min(n, #order) do want[#want + 1] = tostring(assert(order[i]).id) end
   if overflow then
     -- Scores that overflow in float have no reference here: the answer must
-    -- still be distinct indexes of centroids.
+    -- still be distinct indexes of centroids. They await the TODO at the
+    -- score loop in core/vector.c (the corpus kernels sum in float).
     local seen: mut {integer: boolean} = {}
     local count = 0
     for token in many:gmatch("[^,]+") do

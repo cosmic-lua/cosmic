@@ -308,7 +308,12 @@ static void l2_distance_function (sqlite3_context *ctx, int argc,
   struct vector a, b;
   if (!read_pair(ctx, argv, &a, &b)) return;
   double squares = (double)squared_l2(a.values, b.values, a.dims);
-  if (!isfinite(squares)) squares = squared_l2_wide(a.values, b.values, a.dims);
+  /* A float sum that overflowed, or underflowed to zero or a subnormal
+   * (differences near 1e-30 square to 1e-60), is redone in double; the
+   * double sum of equal vectors is exactly zero, as it was. */
+  if (!isfinite(squares) || squares < FLT_MIN) {
+    squares = squared_l2_wide(a.values, b.values, a.dims);
+  }
   sqlite3_result_double(ctx, sqrt(squares));
   release(&a);
   release(&b);
@@ -323,7 +328,11 @@ static void inner_product_function (sqlite3_context *ctx, int argc,
   struct vector a, b;
   if (!read_pair(ctx, argv, &a, &b)) return;
   double product = (double)dot(a.values, b.values, a.dims);
-  if (!isfinite(product)) product = dot_wide(a.values, b.values, a.dims);
+  /* Redone in double when the float sum overflowed, or when its size is
+   * below a normal float's, where products like 1e-30 * 1e-30 are lost. */
+  if (!isfinite(product) || fabs(product) < FLT_MIN) {
+    product = dot_wide(a.values, b.values, a.dims);
+  }
   sqlite3_result_double(ctx, product);
   release(&a);
   release(&b);
@@ -343,9 +352,10 @@ static void cosine_distance_function (sqlite3_context *ctx, int argc,
   float fab, faa, fbb;
   cosine_parts(a.values, b.values, a.dims, &fab, &faa, &fbb);
   double ab = fab, aa = faa, bb = fbb;
-  /* A sum that underflowed to zero or overflowed is redone in double,
-   * so a vector of 1e-30s or of 1e20s keeps its direction. */
-  if (aa == 0.0 || bb == 0.0 || !isfinite(ab) || !isfinite(aa) || !isfinite(bb)) {
+  /* A sum that underflowed to zero or a subnormal, or overflowed, is
+   * redone in double, so a vector of 1e-30s or of 1e20s keeps its
+   * direction. */
+  if (aa < FLT_MIN || bb < FLT_MIN || !isfinite(ab) || !isfinite(aa) || !isfinite(bb)) {
     ab = dot_wide(a.values, b.values, a.dims);
     aa = dot_wide(a.values, a.values, a.dims);
     bb = dot_wide(b.values, b.values, b.dims);
@@ -1039,6 +1049,11 @@ static int corpus_search (lua_State *L) {
       break;
       default: key = -squared_l2(v, q, dims); break;
     }
+    /* TODO: once the corpus kernels redo a non-finite (or underflowed)
+     * sum in double, as the SQL distance functions do, behind a hot-path
+     * cost check: they sum in float, so a row can score infinity or be
+     * dropped as NaN here where l2_distance, inner_product and
+     * cosine_distance answer a finite double. */
     /* A NaN key compares false both ways, which would leave the heap's
      * order depending on arrival; such a row is not a hit. */
     if (isnan(key)) continue;

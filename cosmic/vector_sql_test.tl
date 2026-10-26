@@ -367,3 +367,29 @@ local function test_distances_of_huge_or_tiny_vectors_stay_finite()
   assert(text_of(db, "SELECT typeof(cosine_distance(?1, ?2))", { v, zeros }) == "null")
   db:close()
 end
+
+local function test_distances_do_not_underflow_to_zero_in_float()
+  local db = assert(Sqlite.memory())
+  local function near(got: number, want: number): boolean
+    return math.abs(got - want) <= 1e-5 * math.abs(want)
+  end
+  local tiny: Sqlite.Value = { blob = blob_of({ 1e-30, 0 }) }
+  local zeros: Sqlite.Value = { blob = blob_of({ 0, 0 }) }
+  -- The squares of 1e-30 are 1e-60: zero in float, an ordinary double.
+  local l2 = number_of(db, "SELECT l2_distance(?1, ?2)", { tiny, zeros })
+  assert(near(l2, 1e-30), tostring(l2))
+  local product = number_of(db, "SELECT inner_product(?1, ?1)", { tiny })
+  assert(near(product, 1e-60), tostring(product))
+  -- A sum that falls in the subnormals has lost most of its digits.
+  local small: Sqlite.Value = { blob = blob_of({ 1e-20, 1e-20 }) }
+  local axis: Sqlite.Value = { blob = blob_of({ 1e-20, 0 }) }
+  local cosine = number_of(db, "SELECT cosine_distance(?1, ?2)", { small, axis })
+  assert(near(cosine, 1 - math.sqrt(0.5)), tostring(cosine))
+  -- Equal vectors are still at distance zero, and orthogonal ones at zero
+  -- product.
+  assert(number_of(db, "SELECT l2_distance(?1, ?1)", { tiny }) == 0)
+  assert(number_of(db, "SELECT l2_distance(?1, ?1)", { zeros }) == 0)
+  local other: Sqlite.Value = { blob = blob_of({ 0, 1e-30 }) }
+  assert(number_of(db, "SELECT inner_product(?1, ?2)", { tiny, other }) == 0)
+  db:close()
+end
