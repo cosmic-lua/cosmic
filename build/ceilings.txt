@@ -2347,7 +2347,7 @@ build/fetch_test.tl view_written 1
 
 build/fix/grammar_tool_test.tl view_written 1
 
-build/fix/init.tl view_written 15
+build/fix/init.tl view_written 9
 
 build/fix/near.tl view_written 2
 
@@ -2529,7 +2529,7 @@ cosmic/poll.tl view_written 19
 
 cosmic/poll_test.tl view_written 1
 
-cosmic/seatbelt_network_probe_test.tl view_written 30
+cosmic/seatbelt_network_probe_test.tl view_written 27
 
 cosmic/signal.tl view_written 2
 
@@ -2697,7 +2697,7 @@ cosmic/poll.tl view_as_mut 4
 
 cosmic/poll_test.tl view_as_mut 3
 
-cosmic/seatbelt_network_probe_test.tl view_as_mut 6
+cosmic/seatbelt_network_probe_test.tl view_as_mut 3
 
 cosmic/signal.tl view_as_mut 1
 
