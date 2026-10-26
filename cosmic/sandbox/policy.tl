@@ -441,7 +441,7 @@ end
 local record Joined
   path: string
   from: string
-  letters: {string:boolean}
+  letters: mut {string:boolean}
 end
 
 --- The paths of the "system" profile on Linux and what each is for, read and

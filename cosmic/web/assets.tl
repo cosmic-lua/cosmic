@@ -124,7 +124,7 @@ end
 --- them (the type by `path` otherwise).
 local function make(path: string, data: string, known: Known): Assets.Asset
   local sha256 = known.sha256 or Hash.hex_sha256(data)
-  local kept: {string:string} = {}
+  local kept: mut {string:string} = {}
   local asset: Assets.Asset = {
     path = path, data = data, size = #data, sha256 = sha256,
     etag = '"' .. sha256:sub(1, 32) .. '"',
@@ -210,7 +210,7 @@ function Assets.directory(root: string): Assets.Source
   if not root is string or root == "" then
     error("web: assets: directory: root is not a path", 2)
   end
-  local seen: {string:Seen} = {}
+  local seen: mut {string:Seen} = {}
   local source: Assets.Source = {}
   source.get = function(_self: Assets.Source, path: string): Assets.Asset?, string
     local why = path_refusal(path)
@@ -265,7 +265,7 @@ end
 --- `static/`. A program built without `static/` holds none.
 --- @return Assets.Source The source
 function Assets.embedded(): Assets.Source
-  local held: {string:Assets.Asset} = {}
+  local held: mut {string:Assets.Asset} = {}
   local source: Assets.Source = {}
   source.get = function(_self: Assets.Source, path: string): Assets.Asset?, string
     local why = path_refusal(path)

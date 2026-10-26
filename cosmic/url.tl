@@ -57,9 +57,9 @@ local record Url
   --- each name's values in that order.
   record Query
     --- Every pair, in the order sent.
-    pairs: {Pair}
+    pairs: mut {Pair}
     --- Each name's values in the order sent; every name in `pairs` is a key.
-    by_name: {string:{string}}
+    by_name: mut {string:{string}}
   end
 
   --- What [`Url.decode_query`] is told; each field is optional.

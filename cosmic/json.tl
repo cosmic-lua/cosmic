@@ -1244,7 +1244,7 @@ end
 --- Applies `seg` to `node` and to every value beneath it, the node
 --- before its children and an array's in order, as RFC 9535 visits
 --- them; `depth` counts the levels walked, up to `limit`.
-local function descend(seg: Json.Segment, node: Json.Match, out: {Json.Match}, depth: integer,
+local function descend(seg: Json.Segment, node: Json.Match, out: mut {Json.Match}, depth: integer,
                        limit: integer): boolean, string
   local ok, why = apply(seg, node, out)
   if not ok then return false, why end
@@ -1284,7 +1284,7 @@ function Json.select(value: any, query: Json.Query, opts?: Json.SelectOptions): 
   end
   local nodes: {Json.Match} = { { steps = {}, value = value } }
   for _, seg in ipairs(query.segments) do
-    local out: {Json.Match} = {}
+    local out: mut {Json.Match} = {}
     for _, node in ipairs(nodes) do
       local ok, why: boolean, string
       if seg.descendant then
@@ -1313,7 +1313,7 @@ local record Frame
   --- An object's last key.
   key?: string
   --- An object's keys, unless duplicate keys are read.
-  seen: {string: boolean}
+  seen: mut {string: boolean}
 end
 
 --- Where the reader is, for a message, as every message of this module

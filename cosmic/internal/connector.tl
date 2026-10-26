@@ -684,7 +684,7 @@ end
 
 -- Every connector this module made, held weakly: what a lookup through a
 -- connector finds its [`Served`] by.
-local made: {Connection.Connector: Served} = setmetatable({}, { __mode = "k" })
+local made: mut {Connection.Connector: Served} = setmetatable({}, { __mode = "k" })
 
 local record Leaf
   type Process = Process
