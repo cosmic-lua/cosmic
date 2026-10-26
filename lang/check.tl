@@ -195,17 +195,16 @@ local record Members
   array: Type?
 end
 
---- A loop being walked: where its `break`s and `continue`s leave from.
 --- What a numeric loop `for i = 1, #t do` whose body leaves the length of `t` alone knows: `i` is a key `t` has for as long
 --- as the body runs, so a non-nil value written at it overwrites a slot and leaves no hole ([`Writes.leaves_no_hole`]).
 local record Fill
   --- The id of the binding of `i`.
   var: integer
-  --- The id of the binding of `t`, and the name that reads it where the loop is written.
-  array: integer
+  --- The local `t`, as the loop writes it.
   object: Ast.Exp
 end
 
+--- A loop being walked: where its `break`s and `continue`s leave from.
 local record Loop
   --- The states at the `break`s, met: nil where none.
   breaks: Flow.State?
@@ -5501,10 +5500,10 @@ function Writes.is_append(target: Ast.Index): boolean
   return false
 end
 
---- Whether a value of type `t` is never nil where it is written: the nil group's own rules judge the rest.
+--- Whether a value of type `t` is known not to be nil: an optional is not, nor is `any`, nor a type with no value.
 function Writes.present(t: Type): boolean
   local tag = t.tag
-  return not nilable(t) and tag ~= "any" and tag ~= "var" and tag ~= "invalid" and tag ~= "never"
+  return not nilable(t) and tag ~= "any" and tag ~= "invalid" and tag ~= "never"
 end
 
 --- An index write to a `mut` array that is not an append, whose verdict waits for the values of its statement, which say
@@ -5518,19 +5517,31 @@ local record Pending
 end
 
 --- Whether the statements `body` of a loop leave the number of elements of the array held by the local `array` from falling
---- below what it was before them, and never assign the local `var`, the index of the loop.
+--- below what it was before them, and never assign the local `var`, the index of the loop. The code that may shorten the
+--- array is a call, an iterator of a generic `for` (a call of its own) and the `__close` of a `<close>` local, and a
+--- write of a nil or of the array's name. Lua code that runs with no such form in the body, the metamethod of a record that
+--- names one (`__add`, `__index`), is not followed, as nothing of the checker follows it.
 function Writes.keeps_length(body: Ast.Node, array: integer, var: integer): boolean
-  -- A closure may not assign a local of its function, so a way the body may change the length is a mark in a list.
+  -- A closure may not assign a local of its function, so a way the body may change the length is a mark in a list. The
+  -- statements wait in a list too, so that a body of any depth is read without recursion.
   local marks: mut {boolean} = {}
-  local function visit(node: Ast.Node)
-    if #marks > 0 then
-      return
-    end
-    if (node.kind == "Call") or (node.kind == "MethodCall") then
-      -- A call may take an element out of the array, through a name it holds or through one it reaches.
+  local waiting: mut {Ast.Node} = { body }
+  local function wait(child: Ast.Node)
+    waiting[#waiting + 1] = child
+  end
+  while #waiting > 0 and #marks == 0 do
+    local node = assert(waiting[#waiting])
+    waiting[#waiting] = nil
+    if (node.kind == "Call") or (node.kind == "MethodCall") or (node.kind == "ForIn") then
       -- TODO: let a call that cannot change the length of an array (a function of the standard library that is passed
       -- no function, `string.format`, `math.max`) stand in the body, once the checker says which calls those are.
       marks[#marks + 1] = true
+    elseif (node.kind == "Local") then
+      for _, binding in ipairs(node.bindings) do
+        if binding.attr == "close" then
+          marks[#marks + 1] = true
+        end
+      end
     elseif (node.kind == "Assign") then
       for i, target in ipairs(node.targets) do
         local value = node.values[i]
@@ -5554,9 +5565,8 @@ function Writes.keeps_length(body: Ast.Node, array: integer, var: integer): bool
         end
       end
     end
-    Ast.children(node, visit)
+    Ast.children(node, wait)
   end
-  visit(body)
   return #marks == 0
 end
 
@@ -5587,7 +5597,7 @@ function Writes.fill_of(s: Ast.ForNum): Fill?
   if held == nil or not Writes.keeps_length(s.body, held, s.var.id) then
     return nil
   end
-  return { var = s.var.id, array = held, object = object }
+  return { var = s.var.id, object = object }
 end
 
 --- The type of `object` to write a member of, after reporting what it may not be.

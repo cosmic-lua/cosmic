@@ -325,8 +325,9 @@ expected)` verifies against one and uses it to type a literal. errors are in
   of the same name (`s:upper()` finds `string.upper`).
 - **a write** `r.f = v` needs `f` declared `mut` and `v <:` its type. `a[i] =
   v` needs `a: mut {T}`, `v <: T` and an index that cannot make a hole (the
-  append `a[#a + 1]`; [index writes append](#index-writes-append)). `m[k] = v` needs `m: mut
-  {K:V}`; `m[k] = nil` deletes the key and is the only write of nil.
+  append `a[#a + 1]`, a value at 1 or at the index of a loop over `1` to `#a`, and `a[#a] = nil`, the one write of
+  nil to an array; [index writes append](#index-writes-append)). `m[k] = v` needs `m: mut
+  {K:V}`; `m[k] = nil` deletes the key and is the only write of nil to a map.
 
 ### table literals
 
@@ -714,14 +715,15 @@ makes), a value that is not nil written at `1` (an append where `t` is empty,
 an overwrite where it is not), the same at the index of `for i = 1, #t do`
 (from a literal of 1 or more by a literal step of 1 or more) over a local
 `t` that the body does not assign, append to, shorten with a nil, or pass to a
-call, which holds `i` among the keys of `t` at each pass. a value that is
-nil, `any`, a type parameter or optional never stands (a nil at a loop index
-takes an element from the middle). *not adopted:* any integer
+call, a generic `for` or a `<close>` local, which holds `i` among the keys of
+`t` at each pass. a value that is nil, `any` or optional never stands (a nil at
+a loop index takes an element from the middle). *not adopted:* any integer
 index, which breaks [arrays are dense]; `t[#t] = v`, which is a write at 0
 where `t` is empty; the swap `t[i], t[j] = t[j], t[i]`, which would stand
 when both reads are not nil, and a read of an index is `T?` after any test; a
 call in the body of the loop, which may take elements out of `t` through a
-name the checker does not follow.
+name the checker does not follow (the metamethod of a record that names one
+is not followed either, here or by any other rule).
 
 ### overloads take the first match
 

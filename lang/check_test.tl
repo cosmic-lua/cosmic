@@ -891,6 +891,10 @@ local function test_a_chain_of_any_length_is_checked_without_recursion()
   end
   local c = Programs.run("local record Node\n  next: Node\nend\nlocal function chase(n: Node)\n  local deep = n" .. table.concat(hops) .. "\nend\n")
   assert(#c.before == 0 and #c.errors == 0 and Types.display(Programs.var(c, "deep")) == "Node", Programs.codes(c))
+  -- the body of a loop over the keys of an array is read for what it does to the array, and a chain in it is no recursion
+  local d = Programs.run("local xs: mut {integer} = {}\nlocal a: integer = 1\nfor n = 1, #xs do\n  xs[n] = " ..
+      table.concat(terms, " + ") .. "\nend\n")
+  assert(#d.before == 0 and #d.errors == 0, Programs.codes(d) .. (d.before[1] or ""))
 end
 
 -- holes a review found ----------------------------------------------------------------------------------
@@ -1016,13 +1020,13 @@ local function test_a_write_to_an_array_that_leaves_no_hole_stands()
   assert(codes_of(head .. "xs[1] = v\nxs[1] = 4\n") == "")
   -- the last element goes, and an append at the end is the write that grows
   assert(codes_of(head .. "xs[#xs] = nil\nxs[#xs + 1] = v\n") == "")
-  -- a path of fields and indexes that has no call is the same table on both sides
+  -- a path of fields that has no call is the same table on both sides
   local record_head = "local record Box\n  mut items: mut {integer}\nend\nlocal box: Box = { items = {} }\n"
   assert(codes_of(record_head .. "box.items[#box.items] = nil\nbox.items[#box.items + 1] = 1\n") == "")
   -- a loop over the keys of the array whose body leaves its length alone writes a value that is not nil at them
   assert(codes_of(head .. "for n = 1, #xs do\n  xs[n] = n * 2\nend\n") == "")
   assert(codes_of(head .. "for n = 2, #xs, 2 do\n  xs[n] = v\n  local m = xs[n]\nend\n") == "")
-  -- an inner loop, and a write that is not at the index after another that is
+  -- an inner loop
   assert(codes_of(head .. "for n = 1, #xs do\n  for m = 1, 2 do\n    xs[n] = m\n  end\nend\n") == "")
 end
 
@@ -1047,7 +1051,8 @@ local function test_a_write_that_may_leave_a_hole_is_refused_with_its_fix()
 end
 
 local function test_a_loop_over_the_keys_of_an_array_writes_them_only_while_it_leaves_the_length_alone()
-  local head = "local xs: mut {integer} = {}\nlocal v: integer = 3\nlocal m: integer? = nil\n"
+  local head = "local xs: mut {integer} = {}\nlocal v: integer = 3\nlocal m: integer? = nil\n" ..
+    "local function shrink(): integer?\n  xs[#xs] = nil\n  return nil\nend\n"
   local function in_loop(header: string, body: string): string
     return codes_of(head .. header .. "\n" .. body .. "\nend\n")
   end
@@ -1066,6 +1071,11 @@ local function test_a_loop_over_the_keys_of_an_array_writes_them_only_while_it_l
   assert(has(in_loop("for n = 1, #xs do", "  local put = function()\n    xs[n] = v\n  end"), "array_hole"))
   -- another table is another table, and an alias may be shortened where the array is not named
   assert(has(in_loop("for n = 1, #xs do", "  local ys: mut {integer} = xs\n  ys[#ys] = nil\n  xs[n] = v"), "array_hole"))
+  -- a generic `for` calls its iterator, and a `<close>` local its `__close`, neither of which is a call to read
+  assert(has(in_loop("for n = 1, #xs do", "  xs[n] = v\n  for _ in shrink do\n  end"), "array_hole"))
+  assert(has(in_loop("for n = 1, #xs do", "  xs[n] = v\n  local closing <close> = nil"), "array_hole"))
+  -- the index of an inner loop is no key of the array the outer one counts
+  assert(has(in_loop("for n = 1, #xs do", "  for k = 1, 2 do\n    xs[k] = v\n  end"), "array_hole"))
   -- a loop that counts something else, or from before the first key, or past the end, or backwards
   assert(has(in_loop("for n = 1, #xs + 1 do", "  xs[n] = v"), "array_hole"))
   assert(has(in_loop("for n = 0, #xs do", "  xs[n] = v"), "array_hole"))

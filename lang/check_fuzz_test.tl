@@ -314,7 +314,7 @@ local MISTAKES <const>: {string} = {
   "local bad = s0 .. i0",
   "if i0 then\nend",
   "local bad = p0.z",
-  "a0[1] = 2",
+  "a0[2] = 2",
   "local bad = f0(1, 2)",
   "local bad: Color = \"blue\"",
   "local bad: {integer} = { 1, \"a\" }",
