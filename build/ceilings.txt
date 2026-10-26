@@ -2602,14 +2602,6 @@ cosmic/web/testing.tl view_written 4
 
 cosmic/zip_fuzz_test.tl view_written 1
 
-eval/round.tl view_written 2
-
-eval/round_test.tl view_written 1
-
-eval/solve.tl view_written 2
-
-eval/summarize.tl view_written 1
-
 lang/ast.tl view_written 2
 
 lang/check.tl view_written 8
