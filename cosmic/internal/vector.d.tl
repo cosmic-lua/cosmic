@@ -13,6 +13,9 @@ local record vector
     -- "inner_product", "cosine" or "l2" (the score is the distance);
     -- `candidates` and `allow` may be nil. Raises on k < 1, a vector of
     -- another length, or another metric.
+    -- k centroids by spherical k-means (k-means++ seeding from `seed`).
+    -- Raises on k outside 1 to count.
+    kmeans: function(Corpus, k: integer, seed: integer, iterations: integer): {string}
     search: function(Corpus, query: string, k: integer, metric: string,
       candidates: integer?, allow: {integer}?): {integer}, {number}
   end
@@ -25,6 +28,8 @@ local record vector
   unpack: function(v: string): {number}
   -- The vector `[0.1, 0.2]` spells, or nil and why not.
   from_json: function(text: string): string?, string
+  -- The 1-based indexes of the n centroids nearest v by inner product.
+  nearest: function(centroids: {string}, v: string, n: integer): {integer}
   -- The vector scaled to length 1; all zeros stays all zeros.
   normalize: function(v: string): string
 end

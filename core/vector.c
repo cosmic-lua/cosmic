@@ -1053,7 +1053,170 @@ static int vector_normalize (lua_State *L) {
   return 1;
 }
 
+
+/* k-means over a corpus, for the IVF scheme of doc/plans/vector.md. The
+ * algorithm is Lloyd's with k-means++ seeding on the unit-length
+ * vectors (spherical k-means); no code is taken from pgvector. All
+ * scratch lives in one Lua userdata, so nothing is held across a raise. */
+
+static uint64_t splitmix (uint64_t *state) {
+  uint64_t z = (*state += 0x9E3779B97F4A7C15ULL);
+  z = (z ^ (z >> 30)) * 0xBF58476D1CE4E5B9ULL;
+  z = (z ^ (z >> 27)) * 0x94D049BB133111EBULL;
+  return z ^ (z >> 31);
+}
+
+/* Writes row i scaled to length 1 into out. */
+static void unit_row (const struct corpus *c, size_t i, float *out) {
+  const float *x = c->data + i * c->dims;
+  for (size_t d = 0; d < c->dims; d++) out[d] = x[d] * c->inverse[i];
+}
+
+static void normalize_in_place (float *v, size_t n) {
+  double norm = sqrt((double)dot(v, v, n));
+  if (norm == 0.0) return;
+  for (size_t d = 0; d < n; d++) v[d] = (float)((double)v[d] / norm);
+}
+
+/* corpus:kmeans(k, seed, iterations): a table of k centroid strings. */
+static int corpus_kmeans (lua_State *L) {
+  struct corpus *c = check_corpus(L, 1);
+  lua_Integer k = luaL_checkinteger(L, 2);
+  uint64_t rng = (uint64_t)luaL_checkinteger(L, 3);
+  lua_Integer iterations = luaL_checkinteger(L, 4);
+  luaL_argcheck(L, k >= 1 && (size_t)k <= c->count, 2,
+                "k is from 1 to the number of vectors");
+  luaL_argcheck(L, iterations >= 1, 4, "iterations is at least 1");
+  size_t dims = c->dims, n = c->count, kk = (size_t)k;
+  luaL_argcheck(L, kk * dims <= ((size_t)1 << 30) && n <= ((size_t)1 << 30), 2,
+                "too large");
+  size_t words = 2 * kk * dims + n + n + kk;
+  float *scratch = lua_newuserdatauv(L, words * sizeof(float), 0);
+  float *cent = scratch;
+  float *sums = cent + kk * dims;
+  float *best = sums + kk * dims;
+  int32_t *assign = (int32_t *)(best + n);
+  uint32_t *counts = (uint32_t *)(assign + n);
+
+  /* k-means++: each next centroid is drawn in proportion to its
+   * squared distance (2 - 2 * similarity) from the nearest chosen. */
+  unit_row(c, splitmix(&rng) % n, cent);
+  for (size_t i = 0; i < n; i++) {
+    float m = 2.0f - 2.0f * c->inverse[i] * dot(c->data + i * dims, cent, dims);
+    best[i] = m < 0 ? 0 : m;
+  }
+  for (size_t j = 1; j < kk; j++) {
+    double total = 0;
+    for (size_t i = 0; i < n; i++) total += best[i];
+    size_t pick = splitmix(&rng) % n;
+    if (total > 0) {
+      double r = (double)(splitmix(&rng) >> 11) * (1.0 / 9007199254740992.0) * total;
+      pick = n - 1;
+      for (size_t i = 0; i < n; i++) {
+        r -= best[i];
+        if (r < 0) { pick = i; break; }
+      }
+    }
+    float *cj = cent + j * dims;
+    unit_row(c, pick, cj);
+    for (size_t i = 0; i < n; i++) {
+      float m = 2.0f - 2.0f * c->inverse[i] * dot(c->data + i * dims, cj, dims);
+      if (m < 0) m = 0;
+      if (m < best[i]) best[i] = m;
+    }
+  }
+
+  for (size_t i = 0; i < n; i++) assign[i] = -1;
+  for (lua_Integer it = 0; it < iterations; it++) {
+    size_t changed = 0;
+    for (size_t i = 0; i < n; i++) {
+      const float *x = c->data + i * dims;
+      float top = -INFINITY;
+      int32_t at = 0;
+      for (size_t j = 0; j < kk; j++) {
+        float sim = dot(x, cent + j * dims, dims);
+        if (sim > top) { top = sim; at = (int32_t)j; }
+      }
+      best[i] = top * c->inverse[i];
+      if (assign[i] != at) { assign[i] = at; changed++; }
+    }
+    if (changed == 0) break;
+    memset(sums, 0, kk * dims * sizeof *sums);
+    memset(counts, 0, kk * sizeof *counts);
+    for (size_t i = 0; i < n; i++) {
+      float *sum = sums + (size_t)assign[i] * dims;
+      const float *x = c->data + i * dims;
+      for (size_t d = 0; d < dims; d++) sum[d] += x[d] * c->inverse[i];
+      counts[assign[i]]++;
+    }
+    for (size_t j = 0; j < kk; j++) {
+      float *cj = cent + j * dims;
+      if (counts[j] == 0) {
+        /* An empty cluster takes the vector worst served by its own. */
+        size_t far = 0;
+        for (size_t i = 1; i < n; i++) if (best[i] < best[far]) far = i;
+        unit_row(c, far, cj);
+        best[far] = 1.0f;
+      } else {
+        float *sum = sums + j * dims;
+        normalize_in_place(sum, dims);
+        memcpy(cj, sum, dims * sizeof *cj);
+      }
+    }
+  }
+
+  lua_createtable(L, (int)kk, 0);
+  for (size_t j = 0; j < kk; j++) {
+    lua_pushlstring(L, (const char *)(cent + j * dims), dims * sizeof(float));
+    lua_rawseti(L, -2, (lua_Integer)(j + 1));
+  }
+  return 1;
+}
+
+/* nearest(centroids, v, n): the 1-based indexes of the n centroids with
+ * the highest inner product with v, best first, ties to the lower. */
+static int vector_nearest (lua_State *L) {
+  luaL_checktype(L, 1, LUA_TTABLE);
+  size_t vlen;
+  const char *vs = luaL_checklstring(L, 2, &vlen);
+  lua_Integer want = luaL_checkinteger(L, 3);
+  size_t k = lua_rawlen(L, 1);
+  luaL_argcheck(L, k >= 1, 1, "there are no centroids");
+  luaL_argcheck(L, vlen % sizeof(float) == 0 && vlen > 0, 2,
+                "a vector is a whole number of 4-byte floats");
+  luaL_argcheck(L, want >= 1, 3, "n is at least 1");
+  if ((size_t)want > k) want = (lua_Integer)k;
+  size_t dims = vlen / sizeof(float);
+  float *q = lua_newuserdatauv(L, vlen + sizeof(float), 0);
+  memcpy(q, vs, vlen);
+  float *sims = lua_newuserdatauv(L, k * sizeof *sims, 0);
+  float *row = lua_newuserdatauv(L, vlen + sizeof(float), 0);
+  for (size_t j = 0; j < k; j++) {
+    lua_rawgeti(L, 1, (lua_Integer)(j + 1));
+    size_t len;
+    const char *s = lua_tolstring(L, -1, &len);
+    luaL_argcheck(L, s != NULL && len == vlen, 1,
+                  "a centroid is not a vector of the query's length");
+    memcpy(row, s, len);
+    lua_pop(L, 1);
+    sims[j] = dot(q, row, dims);
+  }
+  lua_createtable(L, 0, 0);
+  for (lua_Integer r = 1; r <= want; r++) {
+    size_t at = k;
+    for (size_t j = 0; j < k; j++) {
+      if (sims[j] == -INFINITY) continue;
+      if (at == k || sims[j] > sims[at]) at = j;
+    }
+    sims[at] = -INFINITY;
+    lua_pushinteger(L, (lua_Integer)(at + 1));
+    lua_rawseti(L, -2, r);
+  }
+  return 1;
+}
+
 static const luaL_Reg corpus_methods[] = {
+  {"kmeans", corpus_kmeans},
   {"add", corpus_add},
   {"count", corpus_count},
   {"search", corpus_search},
@@ -1066,6 +1229,7 @@ static const luaL_Reg module[] = {
   {"unpack", vector_unpack},
   {"from_json", vector_from_json},
   {"normalize", vector_normalize},
+  {"nearest", vector_nearest},
   {NULL, NULL},
 };
 
