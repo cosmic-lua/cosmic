@@ -6,7 +6,8 @@
 --- - Laying out what is laid out changes nothing.
 --- - The whitespace outside a type does not reach the result: the spaces and tabs between tokens, the indentation
 ---   of a line (a comment on its own line lined up with the code after it), and a break moved to another gap leave a
----   source that lays out as the one with the break moved would.
+---   source that lays out as the one with the break moved would. A line of a type is the exception: the author's
+---   spacing of a type includes the columns of its lines, relative to the line that holds its first token.
 --- A comment on a line of its own that is not lined up with the code after it keeps its column, so what it was
 --- written at does reach the result; [`build.fix.layout_blocks_test`] holds that.
 --- Indentation is whitespace to a Teal source, as it is to Lua, but for the bytes of a long string; the cases
@@ -20,6 +21,7 @@ Test.policy{
     { path = "build/fix/trivia.tl", letters = "r" }, { path = "build/fix/roles.tl", letters = "r" },
     { path = "build/fix/blocks.tl", letters = "r" }, { path = "build/fix/layout.tl", letters = "r" },
     { path = "build/fix/layout_check.tl", letters = "r" }, { path = "build/fix/near.tl", letters = "r" },
+    { path = "build/fix/continuation.tl", letters = "r" },
     { path = "build/fix/init.tl", letters = "r" }, { path = "build/codec.tl", letters = "r" },
     { path = "build/paths.tl", letters = "r" }, { path = "lang/ast_dump.tl", letters = "r" },
     { path = "lang/literals.tl", letters = "r" }, { path = "lang/flow.tl", letters = "r" },
@@ -55,6 +57,24 @@ local CANON <const>: {string} = {
   "if x then\n  local s = [[\n  a\n b]]\n  y = [==[\n]==]\nend\n",
   "do\n  do\n    -- c\n    z()\n  end\nend\n",
   "#!/bin/cosmic\n\nx = 1\n",
+  "local t = {\n  a = 1,\n  b = f(x,\n    y),\n  c = {\n    1,\n  },\n}\n",
+  "local function h(a: integer,\n                 b: string)\n  return a\nend\n",
+  "if a and\n    b then\n  f()\nelseif c or\n    d then\n  g()\nend\n",
+  "run(a,\n  function(v)\n    return v\n  end)\n",
+  "local x = a and\n  b -- c\nlocal w = (a ==\n  b)\n",
+  "local y: {\n  string\n} = {}\n",
+  "local class C\n  function add(self, a,\n               b): integer\n    return a +\n      b\n  end\nend\n",
+  "match f(x) do\n| (true,\n    v) then\n  print(v)\nend\n",
+  "local function f(\n    a: integer,\n    b: integer): integer\n  return a\nend\n",
+  "local u = {\n  -- c\n  1,\n  2, -- d\n  {\n    3,\n  },\n}\n",
+  "Test.policy{ grants = { { path = \"x\", letters = \"r\" } } }\n",
+  "local type Input<P,Q> = Types.Input<P,Q>\nlocal function g<T ,U>(a: T) end\n",
+  "local x = a or -- t\n  -- own\n  b\n",
+  "local x = a\n  -- own\n  or -- t\n  b\n",
+  "local x = a -- one\n  or -- two\n  b\n",
+  "local x = a and\n  b or\n  c\nlocal y = {\n  p ..\n    q, -- r\n}\n",
+  "local t = {\n  x as function(): integer\n}\n",
+  "local function f(a: {\n    string\n  }): integer\n  return 1\nend\n",
 }
 
 local function test_laid_out_sources_are_fixed_points()
@@ -126,12 +146,12 @@ local function lines_of(text: string): integer
   return count
 end
 
---- Modules of the tree, which are laid out as the previous formatter wrote them but for the lines that continue a
---- statement: they hold every construct a file has.
+--- Modules of the tree: they hold every construct a file has.
 local MODULES <const>: {string} = {
   "build/fix/trivia.tl", "build/fix/roles.tl", "build/fix/blocks.tl", "build/fix/layout.tl",
   "build/fix/layout_check.tl", "build/fix/near.tl", "build/fix/init.tl", "build/codec.tl", "build/paths.tl",
   "lang/ast_dump.tl", "lang/literals.tl", "lang/flow.tl", "build/lsp/session_fixture.tl", "cosmic/string.tl",
+  "build/fix/continuation.tl",
 }
 
 local function test_real_modules_keep_their_tokens_comments_and_tree_and_lay_out_to_a_fixed_point()

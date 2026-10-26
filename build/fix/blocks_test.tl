@@ -52,7 +52,7 @@ end
 
 local function test_the_arms_of_a_match_are_level_with_it()
   local got = levels_of("match f() do\n| (true) then x()\n| (false) then end")
-  assert(got == "match0 f0 (0 )0 do0 |0 (0 true0 )0 then0 x1 (1 )1 |0^11 (0 false0 )0 then0 end0^18", got)
+  assert(got == "match0 f0 (0 )0 do0 |0 (0 true0 )0 then0 x1 (1 )1 |0^11 (0 false0 )0 then0 end0^1", got)
 end
 
 local function test_the_members_of_a_declaration_are_a_level_in()
@@ -67,11 +67,44 @@ local function test_a_method_of_a_class_has_its_body_a_level_further()
   assert(got == "local0 class0 C0 function1 m1 (1 self1 )1 return2 12 end1^9 end0^4", got)
 end
 
-local function test_a_body_with_nothing_in_it_is_measured_by_the_token_that_opened_it()
+local function test_a_body_with_nothing_in_it_is_measured_by_the_statement_that_holds_it()
   local got = levels_of("if a then end")
-  assert(got == "if0 a0 then0 end0^3", got)
+  assert(got == "if0 a0 then0 end0^1", got)
   got = levels_of("local record R end")
-  assert(got == "local0 record0 R0 end0^3", got)
+  assert(got == "local0 record0 R0 end0^1", got)
+  got = levels_of("do if a then end end")
+  assert(got == "do0 if1 a1 then1 end1^2 end0^2", got)
+  got = levels_of("if a then x() elseif b then else end")
+  assert(got == "if0 a0 then0 x1 (1 )1 elseif0^4 b0 then0 else0^1 end0^1", got)
+end
+
+local function test_a_function_written_in_an_expression_with_nothing_in_it_is_measured_by_its_function()
+  local got = levels_of("f(function() end)")
+  assert(got == "f0 (0 function0 (0 )0 end0^3 )0", got)
+  got = levels_of("x = f(\n  function() end)")
+  assert(got == "x0 =0 f0 (0 function0 (0 )0 end0^5 )0", got)
+end
+
+--- The tokens of `source` that begin a line whatever the source did, as one line of their text.
+local function starts_of(source: string): string
+  local lexed = Lexer.lex(source, "f.tl")
+  local parsed = Parser.parse(lexed, "f.tl", "tl")
+  local levels = Blocks.of(parsed.chunk)
+  local out: mut {string} = {}
+  for i = 1, Lexer.count(lexed.tokens) - 1 do
+    if levels.starts[i] == true then
+      out[#out + 1] = Lexer.text(lexed.tokens, i)
+    end
+  end
+  return table.concat(out, " ")
+end
+
+local function test_a_statement_a_member_a_value_a_match_arm_and_a_closer_begin_a_line()
+  assert(starts_of("if a then b() else c() end d()") == "if b else c end d")
+  assert(starts_of("local record R x: integer record I y: integer end end") == "local x record y end end")
+  assert(starts_of("local enum E \"a\" \"b\" end") == "local \"a\" \"b\" end")
+  assert(starts_of("match f() do | (true) then x() | (false) then y() end") == "match | x | y end")
+  assert(starts_of("f(function() return 1 end)") == "f return end")
 end
 
 local function test_a_chunk_without_a_statement_has_the_anchor_zero()

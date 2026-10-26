@@ -10,7 +10,8 @@
 --- body one level past the line `f` begins; where that line is a continuation of a statement is the layout of
 --- continuation lines, which is not laid out here.
 ---
---- The words that close a body also say how a comment before one is moved: [`Blocks.Levels.anchors`].
+--- The words that close a body also say how a comment before one is moved: [`Blocks.Levels.anchors`]. The tokens
+--- that begin a line by the structure alone, whatever the source did with them, are [`Blocks.Levels.starts`].
 local Ast = require("lang.ast")
 local Lexer = require("lang.lexer")
 
@@ -19,11 +20,14 @@ local record Blocks
     --- The level of a line that begins with each token, by the index [`Lexer.Tokens`] numbers them with: the
     --- number of bodies the token is in.
     depths: {integer}
-    --- For the token that closes a body, the token of the line the body is measured by, which a comment before the
-    --- closer moves as: the first token of the body's last statement, member or value, or, where it has none, the
-    --- token before the closer (the `then`, `do` or `)` that opened the body), or 0 for the end of a chunk with
-    --- no statement. Nil for any other token.
+    --- For the token that closes a body, the token a comment before the closer is moved with: the first token of
+    --- the body's last statement, member or value, or, where it has none, the first token of the statement or
+    --- member that holds the body (the `function` of a function written in an expression, which is laid out from
+    --- the line it is written on), or 0 for the end of a chunk with no statement. Nil for any other token.
     anchors: {integer: integer}
+    --- The tokens that begin a line whatever the source did: the first token of a statement, member or value, the
+    --- first `|` of a `match`, and each token that closes a body (those with an anchor).
+    starts: {integer: boolean}
   end
 
   --- The levels of the tokens of `chunk`, a parse without errors.
@@ -44,10 +48,12 @@ local function base_of(node: Ast.Node): Ast.Base
 end
 
 function Blocks.of(chunk: Ast.Chunk): Blocks.Levels
-  local count = Lexer.count(chunk.tokens)
+  local tokens = chunk.tokens
+  local count = Lexer.count(tokens)
   -- The change of level before each token, summed in token order at the end.
   local delta: mut {integer: integer} = {}
   local anchors: mut {integer: integer} = {}
+  local starts: mut {integer: boolean} = {}
 
   --- Raises the level of tokens `first` to `last`.
   local function raise(first: integer, last: integer)
@@ -57,17 +63,29 @@ function Blocks.of(chunk: Ast.Chunk): Blocks.Levels
     end
   end
 
+  -- Each node waits with the token its body is measured by where it has no statement: that of the statement or
+  -- member that holds it.
   local queue: mut {Ast.Node} = { chunk }
-  for _, node in ipairs(queue) do
+  local owners: mut {integer} = { 0 }
+  for at, node in ipairs(queue) do
     local base = base_of(node)
+    local owner = owners[at] or 0
     local kids: mut {Ast.Base} = {}
     -- Only a block and a declaration read their children's places; every node's go on the queue.
     local reads = base.kind == "Block" or DECLARATIONS[base.kind] == true
     Ast.children(node, function(child: Ast.Node)
+      local kid = base_of(child)
       if reads then
-        kids[#kids + 1] = base_of(child)
+        kids[#kids + 1] = kid
       end
       queue[#queue + 1] = child
+      if base.kind == "Block" or (DECLARATIONS[base.kind] == true and MEMBERS[kid.kind] == true) then
+        owners[#owners + 1] = kid.first
+      elseif base.kind == "FunctionLit" then
+        owners[#owners + 1] = base.first
+      else
+        owners[#owners + 1] = owner
+      end
     end)
     local last_kid = kids[#kids]
     if base.kind == "Block" then
@@ -79,17 +97,28 @@ function Blocks.of(chunk: Ast.Chunk): Blocks.Levels
         if not is_chunk then
           raise(base.first, close - 1)
         end
-        anchors[close] = if last_kid ~= nil then last_kid.first elseif is_chunk then 0 else close - 1 end
+        for _, kid in ipairs(kids) do
+          starts[kid.first] = true
+        end
+        starts[close] = true
+        anchors[close] = if last_kid ~= nil then last_kid.first elseif is_chunk then 0 else owner end
       end
     elseif DECLARATIONS[base.kind] == true then
       local last_member: Ast.Base? = nil
       for _, kid in ipairs(kids) do
         if MEMBERS[kid.kind] == true then
           raise(kid.first, kid.last)
+          starts[kid.first] = true
           last_member = kid
         end
       end
-      anchors[base.last] = if last_member ~= nil then last_member.first else base.last - 1 end
+      starts[base.last] = true
+      anchors[base.last] = if last_member ~= nil then last_member.first else owner end
+    elseif base.kind == "MatchArm" then
+      -- The `|` before the first arm closes nothing; the others close the arm before.
+      if base.first > 1 and Lexer.text(tokens, base.first - 1) == "|" then
+        starts[base.first - 1] = true
+      end
     end
   end
 
@@ -99,7 +128,7 @@ function Blocks.of(chunk: Ast.Chunk): Blocks.Levels
     level = level + (delta[i] or 0)
     depths[#depths + 1] = level
   end
-  return { depths = depths, anchors = anchors }
+  return { depths = depths, anchors = anchors, starts = starts }
 end
 
 return Blocks
