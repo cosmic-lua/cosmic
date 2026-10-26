@@ -11,7 +11,7 @@
 --- - a closing bracket that begins a line stands level with the line that opened its bracket;
 --- - a parameter list whose first parameter follows its `(` lines the rest up under that one;
 --- - an `if` expression is a bracket from its `if` to its `end`: the values of its arms are its entries, and its
----   `elseif`, `else` and `end` stand level with the line the `if` is written on;
+---   `then`, `elseif`, `else` and `end` stand level with the line the `if` is written on when they begin a line;
 --- - outside any bracket a line continues its statement two columns in from the statement, four in a header;
 --- - the body of a function written in an expression is indented from the line the `function` is written on, and
 ---   its `end` returns to that line's indentation, so a function opens wherever its line sits;
@@ -61,7 +61,7 @@ local record Continuation
     --- leaves.
     block_opens: {integer: boolean}
     block_closes: {integer: boolean}
-    --- The `elseif` and `else` of an `if` expression.
+    --- The `then`, `elseif` and `else` of an `if` expression.
     mids: {integer: boolean}
     --- The `function` and the `end` of a function written in an expression.
     literal_opens: {integer: boolean}
@@ -314,6 +314,9 @@ function Continuation.of(chunk: Ast.Chunk): Continuation.Plan
       end
       bracket(base.first, base.last, "if", if last ~= nil then { last } else {} end, false, false)
     elseif kind == "ExpArm" then
+      if head ~= nil and spells(head.last + 1, "then") then
+        mids[head.last + 1] = true
+      end
       local value = kids[2]
       if value ~= nil then
         entries[value.first] = true

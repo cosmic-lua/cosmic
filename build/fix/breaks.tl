@@ -14,16 +14,22 @@
 --- - the whole of it from the first statement on is on one line in the source (and each piece shares that line);
 --- - each body holds at most one statement, that statement is no block (an `if`, loop, `do`, `repeat`, function,
 ---   `match` or declaration), and an `if` has at most two branches;
---- - every block inside it, a function written in an expression, holds to the same;
+--- - every block inside it, a function written in an expression, holds to the same (but for those written as they
+---   stand, below);
 --- - the layout writes it to end by column 100 (bytes).
 --- The arm of a `match` is opened when it holds more than one statement or a block, and is otherwise left as the
---- source has it, as are the `if` expression and the members of a declaration: no width is applied to them.
+--- source has it.
+---
+--- Some code is written as it stands, with no break added in it and no width applied:
+--- - an `if` expression and everything in it, a function written in one among them (it keeps the breaks the source
+---   gave it, and a source that has the whole on one line keeps it so);
+--- - a record, interface, class or enum that is written on one line, and everything in it: its members stay on the
+---   line they share, and no method in it is opened. One that spans lines is not frozen, and a method in it is judged
+---   as any function is. A declaration is no block statement: a block that holds one on its line stays on it.
+---
+--- Widths are counted in bytes, a multibyte character as many as it has, as the previous formatter counted.
 local Ast = require("lang.ast")
 local Lexer = require("lang.lexer")
-
--- TODO: the members of a record, interface, class or enum that share a line (`local record R x: integer y: string
--- end`) keep that line, and a method opened inside such a line leaves the declaration's own line as it is. Part them
--- one to a line once the style of a declaration written on one line is decided.
 
 local record Breaks
   --- A block, at the first of its pieces.
@@ -63,15 +69,20 @@ local record Breaks
   candidates: function(plan: Plan): {integer: boolean}
 end
 
---- The column by which a block on one line ends, counted in bytes.
+--- The column by which a block on one line ends, counted in bytes (not characters or display cells), so that a line
+--- of text with multibyte characters ends earlier than it looks.
 local WIDTH <const>: integer = 100
 
---- The kinds of statement that are a block of their own, or a declaration with a body: a block that holds one is
---- opened.
+--- The kinds of statement that are a block of their own: a block that holds one is opened. A declaration is not
+--- among them: a record, interface, class or enum written on one line stays on it (the previous formatter wrote the
+--- bodies of declarations as they were).
 local BLOCK_STATEMENTS <const>: {string: boolean} = {
   If = true, While = true, Repeat = true, Do = true, ForNum = true, ForIn = true, LocalFunction = true,
-  Function = true, Match = true, Record = true, Interface = true, Class = true, Enum = true,
+  Function = true, Match = true,
 }
+
+--- The kinds of node written as they are, when on one line, with all they hold.
+local DECLARATIONS <const>: {string: boolean} = { Record = true, Interface = true, Class = true, Enum = true }
 
 local function base_of(node: Ast.Node): Ast.Base
   return node
@@ -112,6 +123,8 @@ function Breaks.of(chunk: Ast.Chunk): Breaks.Plan
   -- By place in the queue: the construct a node is, and whether it or a block inside it is not flat.
   local made: mut {integer: Breaks.Construct} = {}
   local spoilt: mut {integer: boolean} = {}
+  -- By place in the queue: whether the node is written as it stands.
+  local frozen: mut {integer: boolean} = {}
 
   --- Notes the block `body` of the node at `at`, whose statements and end are those of the construct.
   --- `bodies` are all its bodies; `last` is its last token.
@@ -154,11 +167,15 @@ function Breaks.of(chunk: Ast.Chunk): Breaks.Plan
   for at, node in ipairs(queue) do
     local base = base_of(node)
     local kids = kids_of(node)
+    -- The nodes below an `if` expression, or a declaration on one line, are written as they stand.
+    local holds = frozen[at] == true or base.kind == "IfExp" or
+      (DECLARATIONS[base.kind] == true and Lexer.y(tokens, base.first) == Lexer.yend(tokens, base.last))
     for _, kid in ipairs(kids) do
       queue[#queue + 1] = kid
       parents[#parents + 1] = at
+      frozen[#queue] = holds
     end
-    local kind = base.kind
+    local kind = if frozen[at] == true then "" else base.kind end
     if kind == "Block" then
       for i = 2, #kids do
         local stat = kids[i]

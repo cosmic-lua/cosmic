@@ -340,6 +340,15 @@ local function test_an_if_expression_is_a_bracket_whose_elseif_else_and_end_stan
   lays("if (if a then\n b\n else\n c\n end) then\n  f()\nend\n", "if (if a then\n    b\nelse\n    c\nend) then\n  f()\nend\n")
 end
 
+--- The `then`, `elseif` and `else` of an `if` expression that begin a line stand level with each other.
+local function test_the_then_of_an_if_expression_that_begins_a_line_is_level_with_its_else()
+  lays("local x = if a\n  then b\n  else c end\n", "local x = if a\nthen b\nelse c end\n")
+  lays("local x = if a\n    then b\n  elseif c\n then d\n else e\n end\n", "local x = if a\nthen b\nelseif c\nthen d\nelse e\nend\n")
+  lays("do\n  local x = if a\n      then b\n      else c end\nend\n", "do\n  local x = if a\n  then b\n  else c end\nend\n")
+  lays("f(if a\n    then b\n    else c end)\n", "f(if a\nthen b\nelse c end)\n")
+  lays("local x = if a and\n b then\n  c\nelse\n  d\nend\n", "local x = if a and\n    b then\n  c\nelse\n  d\nend\n")
+end
+
 local function test_a_match_arm_pattern_and_its_body_continue_like_those_of_an_if()
   lays("match f(x) do\n| (true,\n v) then\n  print(v)\nend\n", "match f(x) do\n| (true,\n    v) then\n  print(v)\nend\n")
   lays("if y then\n  match f(x,\n  z) do\n  | (true, v) then\n    print(v,\n    1)\n  end\nend\n",

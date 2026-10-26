@@ -24,6 +24,7 @@ Test.policy{
     { path = "build/fix/blocks.tl", letters = "r" }, { path = "build/fix/layout.tl", letters = "r" },
     { path = "build/fix/layout_check.tl", letters = "r" }, { path = "build/fix/near.tl", letters = "r" },
     { path = "build/fix/continuation.tl", letters = "r" }, { path = "build/fix/breaks.tl", letters = "r" },
+    { path = "build/fix/equiv.tl", letters = "r" }, { path = "build/fix/format.tl", letters = "r" },
     { path = "build/fix/init.tl", letters = "r" }, { path = "build/codec.tl", letters = "r" },
     { path = "build/paths.tl", letters = "r" }, { path = "lang/ast_dump.tl", letters = "r" },
     { path = "lang/literals.tl", letters = "r" }, { path = "lang/flow.tl", letters = "r" },
@@ -168,7 +169,7 @@ local MODULES <const>: {string} = {
   "build/fix/trivia.tl", "build/fix/roles.tl", "build/fix/blocks.tl", "build/fix/layout.tl",
   "build/fix/layout_check.tl", "build/fix/near.tl", "build/fix/init.tl", "build/codec.tl", "build/paths.tl",
   "lang/ast_dump.tl", "lang/literals.tl", "lang/flow.tl", "build/lsp/session_fixture.tl", "cosmic/string.tl",
-  "build/fix/continuation.tl", "build/fix/breaks.tl",
+  "build/fix/continuation.tl", "build/fix/breaks.tl", "build/fix/equiv.tl", "build/fix/format.tl",
 }
 
 local function test_real_modules_keep_their_tokens_comments_and_tree_and_lay_out_to_a_fixed_point()

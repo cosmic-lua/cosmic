@@ -52,6 +52,7 @@
 --- on one line. A statement that moves takes its continuation lines with it, as they are indented from the line the
 --- statement is on. The layout does not wrap, and removes no break.
 
+local Ast = require("lang.ast")
 local Blocks = require("build.fix.blocks")
 local Breaks = require("build.fix.breaks")
 local Continuation = require("build.fix.continuation")
@@ -62,8 +63,9 @@ local Trivia = require("build.fix.trivia")
 
 local record Layout
   --- `source` laid out and "", or nil and why it is refused: the first lexical or syntax error, worded
-  --- `name:line:column: message`. It does not wrap or join lines, so it is no formatter of a file yet.
-  of: function(source: string, name: string): string?, string
+  --- `name:line:column: message`. It does not wrap or join lines, and checks nothing of what it writes: the
+  --- formatter of a file is [`build.fix.format`]. A declaration file is read as `dialect` "decl" (`tl` by default).
+  of: function(source: string, name: string, dialect?: Ast.Dialect): string?, string
 end
 
 --- The roles after which the next token is closed up to it.
@@ -375,9 +377,9 @@ local function laid_out(source: string, placed: {Placed}, shebang: string?, toke
   return table.concat(out)
 end
 
-function Layout.of(source: string, name: string): string?, string
+function Layout.of(source: string, name: string, dialect?: Ast.Dialect): string?, string
   local lexed = Lexer.lex(source, name)
-  local parsed = Parser.parse(lexed, name, "tl")
+  local parsed = Parser.parse(lexed, name, dialect or "tl")
   local first = parsed.errors[1]
   if first ~= nil then
     return nil, string.format("%s:%d:%d: %s", name, first.y, first.x, first.msg)
