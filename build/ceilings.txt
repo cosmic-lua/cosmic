@@ -216,7 +216,7 @@ build/c/rules.tl 3
 
 build/c_functions.tl 1
 
-build/cache_maintenance.tl 1
+build/cache_maintenance.tl 2
 
 build/check_memo.tl 1
 
@@ -260,6 +260,8 @@ build/rand.tl 2
 
 build/rebuild_lock.tl 2
 
+build/release.tl 1
+
 build/sandbox.tl 3
 
 build/shared_compiles.tl 2
@@ -281,6 +283,8 @@ build/term_filter.tl 1
 build/term_relay.tl 2
 
 build/test.tl 1
+
+build/test_key.tl 1
 
 build/test_worker.tl 7
 
@@ -405,7 +409,7 @@ build/compile_grammar_test.tl setmetatable_call 1
 
 build/fact_hook_test.tl setmetatable_call 4
 
-build/c/inputs.tl view_written 1
+build/c/inputs.tl view_written 3
 
 build/json_query_test.tl setmetatable_call 1
 
@@ -2304,37 +2308,57 @@ test/sqlite_row_test.tl index_may_be_nil 1
 # an index write through a collection that is a view: the translator writes `mut` on the parameters a function
 # changes and not yet on the locals, which are declared `{T}`
 
-build/archive.tl view_written 3
+build/archive.tl view_written 4
+
+build/archive_test.tl view_written 1
+
+build/bare_test.tl view_written 3
+
+build/bom.tl view_written 1
 
 build/boot_test.tl view_written 1
 
-build/c/init.tl view_written 3
+build/c/init.tl view_written 8
 
-build/c/rules.tl view_written 1
+build/c/rules.tl view_written 3
 
-build/c_functions.tl view_written 1
+build/c/tree.tl view_written 1
+
+build/c_functions.tl view_written 4
 
 build/c_functions_test.tl view_written 1
 
-build/cache_lifetime.tl view_written 7
+build/cache_lifetime.tl view_written 10
 
-build/cache_maintenance.tl view_written 5
+build/cache_maintenance.tl view_written 9
 
-build/ceilings.tl view_written 1
+build/caches.tl view_written 1
+
+build/ceilings.tl view_written 2
 
 build/check_draws.tl view_written 4
 
-build/closure_store.tl view_written 4
+build/closure_store.tl view_written 14
 
-build/plans.tl view_written 9
+build/codec_test.tl view_written 1
 
-build/compile_grammar_test.tl view_written 1
+build/plans.tl view_written 14
+
+build/compile_grammar.tl view_written 1
+
+build/compile_grammar_test.tl view_written 2
 
 build/compile_test.tl view_written 1
 
-build/confine.tl view_written 1
+build/confine.tl view_written 9
+
+build/confine_tool_test.tl view_written 2
 
 build/coverage/init.tl view_written 1
+
+build/coverage/syntax_lines.tl view_written 1
+
+build/database_start_fixture.tl view_written 3
 
 build/databases.tl view_written 1
 
@@ -2344,11 +2368,11 @@ build/dataset_fuzz_test.tl view_written 1
 
 build/dataset_test.tl view_written 1
 
-build/declared_key.tl view_written 2
+build/declared_key.tl view_written 21
 
 build/declared_key_fuzz_test.tl view_written 6
 
-build/declared_key_test.tl view_written 2
+build/declared_key_test.tl view_written 9
 
 build/dependency_keys_test.tl view_written 1
 
@@ -2356,19 +2380,27 @@ build/derivation.tl view_written 6
 
 build/dispatch.tl view_written 5
 
-build/dispatched_features_test.tl view_written 1
+build/dispatched_features_test.tl view_written 3
 
-build/docs.tl view_written 9
+build/docs.tl view_written 16
+
+build/docs_checks.tl view_written 4
 
 build/docs_checks_test.tl view_written 3
 
-build/driver.tl view_written 6
+build/driver.tl view_written 28
+
+build/driver_test.tl view_written 1
+
+build/error_catalog.tl view_written 2
 
 build/example_checks.tl view_written 3
 
 build/fact_hook_tool_test.tl view_written 3
 
-build/fetch_test.tl view_written 1
+build/fetch.tl view_written 2
+
+build/fetch_test.tl view_written 4
 
 build/fix/grammar_tool_test.tl view_written 1
 
@@ -2380,41 +2412,69 @@ build/flow.tl view_written 9
 
 build/flow_test.tl view_written 2
 
+build/fuzz/fuzz_test.tl view_written 2
+
 build/fuzz/init.tl view_written 1
 
 build/fuzz/shrink.tl view_written 3
 
+build/fuzz/shrink_test.tl view_written 1
+
 build/harness_epoch_test.tl view_written 2
+
+build/hash.tl view_written 2
+
+build/host_features_test.tl view_written 4
 
 build/host_names.tl view_written 1
 
+build/host_requires.tl view_written 1
+
 build/identity.tl view_written 2
 
-build/importer.tl view_written 3
+build/importer.tl view_written 7
+
+build/invoke.tl view_written 1
 
 build/json.tl view_written 2
 
-build/json_query.tl view_written 2
+build/json_query.tl view_written 3
 
 build/json_query_test.tl view_written 1
 
-build/link_index.tl view_written 3
+build/link_files.tl view_written 8
+
+build/link_index.tl view_written 8
+
+build/link_resolve.tl view_written 7
+
+build/link_text.tl view_written 1
 
 build/links.tl view_written 3
 
+build/links_test.tl view_written 1
+
 build/lookups_new_grammar_tool_test.tl view_written 4
 
-build/lsp/check.tl view_written 2
+build/lsp/check.tl view_written 3
 
 build/lsp/dependents_test.tl view_written 1
 
 build/lsp/graph.tl view_written 1
 
-build/lsp/source.tl view_written 1
+build/lsp/held_test.tl view_written 1
+
+build/lsp/session.tl view_written 2
+
+build/lsp/session_fixture.tl view_written 9
+
+build/lsp/source.tl view_written 2
 
 build/lsp/syntax_read.tl view_written 1
 
 build/lsp/tool_test.tl view_written 1
+
+build/memprobe_test.tl view_written 2
 
 build/must_confine_sandboxed_test.tl view_written 1
 
@@ -2422,7 +2482,9 @@ build/must_confine_test.tl view_written 1
 
 build/pipeline.tl view_written 3
 
-build/pipeline_check.tl view_written 1
+build/pipeline_check.tl view_written 3
+
+build/plural_sites.tl view_written 2
 
 build/policy_rules.tl view_written 2
 
@@ -2432,9 +2494,17 @@ build/project_new_grammar_tool_test.tl view_written 4
 
 build/rand.tl view_written 2
 
-build/reboot.tl view_written 1
+build/reboot.tl view_written 2
+
+build/refresh.tl view_written 2
 
 build/refresh_store_test.tl view_written 4
+
+build/relay_wire_fixture.tl view_written 1
+
+build/release.tl view_written 2
+
+build/release_test.tl view_written 3
 
 build/roots.tl view_written 4
 
@@ -2442,61 +2512,103 @@ build/run_file_tool_test.tl view_written 2
 
 build/runtime_checks_tool_test.tl view_written 1
 
-build/sandbox_probe.tl view_written 1
+build/sandbox.tl view_written 1
+
+build/sandbox_connect_test.tl view_written 3
+
+build/sandbox_connect_tool_test.tl view_written 1
+
+build/sandbox_probe.tl view_written 2
 
 build/sandbox_seal_tool_test.tl view_written 1
 
 build/sealed_nests_worker_test.tl view_written 1
 
-build/shared_compiles.tl view_written 1
+build/shared_compiles.tl view_written 5
 
-build/sql.tl view_written 1
+build/sql.tl view_written 2
 
-build/symbol_index.tl view_written 8
+build/sql_test.tl view_written 2
 
-build/syntax_analyzer.tl view_written 2
+build/stand_in_probe.tl view_written 2
 
-build/syntax_contracts.tl view_written 8
+build/symbol_index.tl view_written 11
 
-build/syntax_link_text.tl view_written 2
+build/syntax_analyzer.tl view_written 6
 
-build/syntax_typed_fixture.tl view_written 3
+build/syntax_contracts.tl view_written 26
 
-build/test.tl view_written 36
+build/syntax_link_text.tl view_written 9
 
-build/test_inputs.tl view_written 7
+build/syntax_match.tl view_written 1
+
+build/syntax_node.tl view_written 3
+
+build/syntax_node_test.tl view_written 3
+
+build/syntax_receivers.tl view_written 5
+
+build/syntax_scopes.tl view_written 7
+
+build/syntax_stub.tl view_written 4
+
+build/syntax_typed_fixture.tl view_written 5
+
+build/test.tl view_written 48
+
+build/test_inputs.tl view_written 8
 
 build/test_inputs_test.tl view_written 6
 
-build/test_key.tl view_written 12
+build/test_key.tl view_written 38
 
 build/test_no_assert_tool_test.tl view_written 1
 
+build/test_policy_plan_tool_test.tl view_written 1
+
 build/test_requires_tool_test.tl view_written 1
+
+build/test_sandbox.tl view_written 1
 
 build/test_sandbox_probe.tl view_written 1
 
-build/test_sandbox_tool_test.tl view_written 1
+build/test_sandbox_test.tl view_written 1
+
+build/test_sandbox_tool_test.tl view_written 2
 
 build/test_skip_tool_test.tl view_written 1
 
 build/test_test.tl view_written 1
 
-build/test_worker.tl view_written 8
+build/test_worker.tl view_written 16
 
 build/time.tl view_written 2
 
-build/tree_checks.tl view_written 10
+build/todos.tl view_written 1
+
+build/todos_test.tl view_written 1
+
+build/tree_checks.tl view_written 11
 
 build/tree_checks_test.tl view_written 1
 
+build/tree_program.tl view_written 3
+
+build/tree_program_test.tl view_written 1
+
 build/verb_cases.tl view_written 1
 
-build/work.tl view_written 3
+build/verbs_store_test.tl view_written 1
+
+build/work.tl view_written 6
 
 build/work_test.tl view_written 2
 
-build/workflows_test.tl view_written 3
+build/workflows_test.tl view_written 4
+
+build/zig_fetch_test.tl view_written 2
+
+build/zig_test.tl view_written 2
 
 core/connector_public_fuzz_test.tl view_written 2
 
@@ -2506,21 +2618,33 @@ core/startup_test.tl view_written 3
 
 core/syscalls_tool_test.tl view_written 1
 
-cosmic/archive.tl view_written 1
+cosmic/channel_test.tl view_written 7
 
-cosmic/child.tl view_written 14
+cosmic/child.tl view_written 8
 
 cosmic/child_policy_anywhere_test.tl view_written 2
 
 cosmic/child_relay_seatbelt_test.tl view_written 2
 
+cosmic/child_relay_test.tl view_written 2
+
 cosmic/child_sandbox_tool_test.tl view_written 6
 
-cosmic/child_task_tool_test.tl view_written 3
+cosmic/child_task_tool_test.tl view_written 4
 
 cosmic/child_tool_test.tl view_written 1
 
-cosmic/flags.tl view_written 7
+cosmic/declared_types_test.tl view_written 2
+
+cosmic/flags.tl view_written 3
+
+cosmic/flags_test.tl view_written 4
+
+cosmic/fs_test.tl view_written 1
+
+cosmic/http/server_test.tl view_written 2
+
+cosmic/http/server_tool_test.tl view_written 3
 
 cosmic/http/wire.tl view_written 6
 
@@ -2528,113 +2652,131 @@ cosmic/http_store_test.tl view_written 1
 
 cosmic/http_test.tl view_written 2
 
-cosmic/internal/connector.tl view_written 2
+cosmic/internal/connector_test.tl view_written 5
 
-cosmic/internal/connector_test.tl view_written 2
+cosmic/internal/relay_config.tl view_written 1
 
-cosmic/internal/relay_config.tl view_written 4
+cosmic/internal/relay_handed_lost_test.tl view_written 2
+
+cosmic/internal/relay_handed_test.tl view_written 4
 
 cosmic/internal/relay_server.tl view_written 2
 
-cosmic/internal/relay_start.tl view_written 1
+cosmic/internal/relay_server_native_test.tl view_written 1
+
+cosmic/internal/relay_server_test.tl view_written 7
 
 cosmic/internal/relay_start_test.tl view_written 1
 
 cosmic/internal/relay_wire.tl view_written 3
 
-cosmic/internal/relay_wire_test.tl view_written 1
+cosmic/internal/relay_wire_test.tl view_written 2
 
-cosmic/json.tl view_written 9
+cosmic/json.tl view_written 8
 
 cosmic/json_fuzz_test.tl view_written 2
 
-cosmic/json_path_fuzz_test.tl view_written 3
+cosmic/json_path_fuzz_test.tl view_written 4
+
+cosmic/json_reader_fuzz_test.tl view_written 1
 
 cosmic/json_test.tl view_written 3
 
-cosmic/net_connector_test.tl view_written 1
+cosmic/net_connector_test.tl view_written 2
 
-cosmic/net_serve_test.tl view_written 2
+cosmic/net_serve_test.tl view_written 15
 
-cosmic/policy.tl view_written 1
+cosmic/net_tcp_test.tl view_written 5
 
-cosmic/poll.tl view_written 27
+cosmic/net_test.tl view_written 1
 
-cosmic/poll_test.tl view_written 1
+cosmic/poll.tl view_written 19
 
-cosmic/sandbox/policy.tl view_written 1
-
-cosmic/sandbox/seatbelt.tl view_written 3
+cosmic/poll_test.tl view_written 32
 
 cosmic/seatbelt_network_probe_test.tl view_written 30
 
 cosmic/signal.tl view_written 2
 
+cosmic/signal_test.tl view_written 2
+
 cosmic/sqlite.tl view_written 9
 
-cosmic/stream.tl view_written 1
-
-cosmic/template/codegen.tl view_written 4
+cosmic/stream_fd_test.tl view_written 1
 
 cosmic/template/context.tl view_written 3
 
-cosmic/template/dialect/init.tl view_written 2
+cosmic/template/parse.tl view_written 1
 
-cosmic/template/parse.tl view_written 2
+cosmic/template_check_test.tl view_written 1
 
 cosmic/template_fuzz_test.tl view_written 1
 
-cosmic/time.tl view_written 7
+cosmic/template_html5lib_tree_test.tl view_written 1
+
+cosmic/test_test.tl view_written 1
+
+cosmic/time.tl view_written 1
 
 cosmic/url.tl view_written 1
 
 cosmic/url_test.tl view_written 1
 
-cosmic/web/app.tl view_written 1
+cosmic/web/app_test.tl view_written 4
 
-cosmic/web/assets.tl view_written 3
+cosmic/web/assets_test.tl view_written 2
 
 cosmic/web/builtin.tl view_written 1
 
-cosmic/web/csrf_test.tl view_written 2
+cosmic/web/cors_test.tl view_written 1
 
-cosmic/web/dev_supervise_test.tl view_written 1
+cosmic/web/csrf_test.tl view_written 6
+
+cosmic/web/dev_supervise_test.tl view_written 4
 
 cosmic/web/dev_test.tl view_written 1
 
-cosmic/web/htmx.tl view_written 1
+cosmic/web/htmx_test.tl view_written 1
 
-cosmic/web/input.tl view_written 10
+cosmic/web/input.tl view_written 3
 
-cosmic/web/input_fuzz_test.tl view_written 3
+cosmic/web/input_fuzz_test.tl view_written 1
 
-cosmic/web/input_test.tl view_written 5
+cosmic/web/input_multipart_test.tl view_written 1
 
-cosmic/web/request_test.tl view_written 1
+cosmic/web/input_test.tl view_written 3
+
+cosmic/web/origin_test.tl view_written 1
+
+cosmic/web/request_test.tl view_written 2
 
 cosmic/web/response.tl view_written 1
 
-cosmic/web/router.tl view_written 3
-
 cosmic/web/router_fuzz_test.tl view_written 2
+
+cosmic/web/serve_test.tl view_written 9
 
 cosmic/web/session/csrf_example.tl view_written 5
 
-cosmic/web/session/init.tl view_written 7
+cosmic/web/session/init.tl view_written 6
 
 cosmic/web/session/session_example.tl view_written 1
 
-cosmic/web/session/sqlite.tl view_written 2
+cosmic/web/session/session_test.tl view_written 6
 
-cosmic/web/sse.tl view_written 5
+cosmic/web/session/sqlite.tl view_written 1
 
-cosmic/web/sse_test.tl view_written 1
+cosmic/web/sse_test.tl view_written 7
 
 cosmic/web/static.tl view_written 2
 
-cosmic/web/testing.tl view_written 13
+cosmic/web/testing.tl view_written 4
 
-cosmic/zip_fuzz_test.tl view_written 1
+cosmic/web/typed_test.tl view_written 1
+
+cosmic/zip_fuzz_test.tl view_written 2
+
+cosmic/zip_test.tl view_written 1
 
 eval/round.tl view_written 2
 
@@ -2708,11 +2850,15 @@ test/coverage_cache_test.tl view_written 2
 
 # a view passed where a `mut` collection is wanted: the same locals and fields, declared `mut` by the rewrite
 
+build/archive.tl view_as_mut 1
+
 build/c/init.tl view_as_mut 1
 
-build/c/rules.tl view_as_mut 1
+build/c/rules.tl view_as_mut 4
 
 build/check_draws.tl view_as_mut 8
+
+build/confine.tl view_as_mut 1
 
 build/declared_key_fuzz_test.tl view_as_mut 2
 
@@ -2720,15 +2866,33 @@ build/fix/fix_test.tl view_as_mut 5
 
 build/fix/init.tl view_as_mut 2
 
+build/fix/notes_test.tl view_as_mut 2
+
+build/flow.tl view_as_mut 3
+
+build/fuzz/init.tl view_as_mut 2
+
 build/gen_syscalls.tl view_as_mut 3
+
+build/link_index.tl view_as_mut 1
+
+build/perf_validation.tl view_as_mut 13
 
 build/progress.tl view_as_mut 1
 
+build/progress_test.tl view_as_mut 2
+
+build/sandbox.tl view_as_mut 1
+
 build/symbol_index.tl view_as_mut 10
 
-build/syntax_analyzer.tl view_as_mut 1
+build/syntax_analyzer.tl view_as_mut 4
+
+build/syntax_report.tl view_as_mut 1
 
 build/syntax_shape_specs.tl view_as_mut 1
+
+build/syntax_stub.tl view_as_mut 1
 
 build/test_worker.tl view_as_mut 3
 
@@ -2736,13 +2900,19 @@ build/tree_checks.tl view_as_mut 3
 
 build/tree_program.tl view_as_mut 1
 
-build/work.tl view_as_mut 2
+build/work.tl view_as_mut 3
+
+build/zig_fetch_test.tl view_as_mut 12
 
 core/declarations_test.tl view_as_mut 1
 
-cosmic/channel_test.tl view_as_mut 1
+cosmic/archive_fuzz_test.tl view_as_mut 1
+
+cosmic/channel_test.tl view_as_mut 12
 
 cosmic/child.tl view_as_mut 11
+
+cosmic/http/wire_fuzz_test.tl view_as_mut 2
 
 cosmic/internal/relay_handed_lost_test.tl view_as_mut 5
 
@@ -2750,25 +2920,23 @@ cosmic/internal/relay_handed_test.tl view_as_mut 1
 
 cosmic/internal/relay_server_test.tl view_as_mut 2
 
-cosmic/json.tl view_as_mut 2
-
 cosmic/json_path_fuzz_test.tl view_as_mut 2
 
-cosmic/net_resolve_through_test.tl view_as_mut 3
+cosmic/net_resolve_through_test.tl view_as_mut 4
 
 cosmic/poll.tl view_as_mut 4
 
-cosmic/poll_test.tl view_as_mut 3
+cosmic/poll_test.tl view_as_mut 4
 
 cosmic/seatbelt_network_probe_test.tl view_as_mut 6
 
 cosmic/signal.tl view_as_mut 1
 
-cosmic/template/lex.tl view_as_mut 1
+cosmic/template_fuzz_test.tl view_as_mut 1
+
+cosmic/web/app_test.tl view_as_mut 13
 
 cosmic/web/router.tl view_as_mut 2
-
-cosmic/web/session/init.tl view_as_mut 3
 
 lang/ast_dump.tl view_as_mut 1
 
@@ -4094,6 +4262,8 @@ build/assertions_test.tl overload_none 4
 
 build/c_functions.tl overload_none 1
 
+build/cache_maintenance.tl overload_none 1
+
 build/confine.tl overload_none 1
 
 build/dataset_fuzz_test.tl overload_none 2
@@ -4122,6 +4292,8 @@ build/rand_test.tl overload_none 2
 
 build/reboot_test.tl overload_none 1
 
+build/release.tl overload_none 1
+
 build/shared_compiles.tl overload_none 2
 
 build/stand_in_probe.tl overload_none 1
@@ -4131,6 +4303,8 @@ build/syntax_contracts.tl overload_none 1
 build/syntax_rewrite.tl overload_none 2
 
 build/test_closure_diagnostic_test.tl overload_none 1
+
+build/test_key.tl overload_none 1
 
 build/test_policy_plan_tool_test.tl overload_none 1
 
@@ -4143,6 +4317,8 @@ build/todos.tl overload_none 2
 build/tree_checks.tl overload_none 3
 
 build/tree_program_test.tl overload_none 1
+
+build/work_test.tl overload_none 1
 
 build/zig_lock_test.tl overload_none 2
 
