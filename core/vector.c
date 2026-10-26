@@ -159,6 +159,12 @@ static int read_vector (sqlite3_context *ctx, sqlite3_value *value,
         sqlite3_result_error_nomem(ctx);
         return 0;
       }
+      /* The parser reads to the first NUL, so a text with one would be
+       * read as only its head: `[1]` NUL junk is not the vector `[1]`. */
+      if (strlen(text) != (size_t)sqlite3_value_bytes(value)) {
+        why = "a vector's text holds no NUL";
+        break;
+      }
       why = parse_text(text, v);
       break;
     }
@@ -266,6 +272,33 @@ static void cosine_parts (const float *a, const float *b, size_t n,
   }
 }
 
+/* The same sums in double, for the vectors whose float sums leave the
+ * range of a float: the squares of numbers past 1.8e19, or the products
+ * and differences of numbers near FLT_MAX, are infinity (or, with their
+ * signs mixed, not a number) in float, but ordinary doubles. They are
+ * tried only after the float sums fail, so a scan of ordinary vectors
+ * pays nothing for them. */
+static double dot_wide (const float *a, const float *b, size_t n) {
+  double total = 0.0;
+  for (size_t i = 0; i < n; i++) total += (double)a[i] * (double)b[i];
+  return total;
+}
+
+static double squared_l2_wide (const float *a, const float *b, size_t n) {
+  double total = 0.0;
+  for (size_t i = 0; i < n; i++) {
+    double d = (double)a[i] - (double)b[i];
+    total += d * d;
+  }
+  return total;
+}
+
+static double l1_wide (const float *a, const float *b, size_t n) {
+  double total = 0.0;
+  for (size_t i = 0; i < n; i++) total += fabs((double)a[i] - (double)b[i]);
+  return total;
+}
+
 static void l2_distance_function (sqlite3_context *ctx, int argc,
                                   sqlite3_value **argv) {
   if (any_null(argc, argv)) {
@@ -274,8 +307,9 @@ static void l2_distance_function (sqlite3_context *ctx, int argc,
   }
   struct vector a, b;
   if (!read_pair(ctx, argv, &a, &b)) return;
-  sqlite3_result_double(ctx, sqrt((double)squared_l2(a.values, b.values,
-                                                     a.dims)));
+  double squares = (double)squared_l2(a.values, b.values, a.dims);
+  if (!isfinite(squares)) squares = squared_l2_wide(a.values, b.values, a.dims);
+  sqlite3_result_double(ctx, sqrt(squares));
   release(&a);
   release(&b);
 }
@@ -288,7 +322,9 @@ static void inner_product_function (sqlite3_context *ctx, int argc,
   }
   struct vector a, b;
   if (!read_pair(ctx, argv, &a, &b)) return;
-  sqlite3_result_double(ctx, (double)dot(a.values, b.values, a.dims));
+  double product = (double)dot(a.values, b.values, a.dims);
+  if (!isfinite(product)) product = dot_wide(a.values, b.values, a.dims);
+  sqlite3_result_double(ctx, product);
   release(&a);
   release(&b);
 }
@@ -304,16 +340,24 @@ static void cosine_distance_function (sqlite3_context *ctx, int argc,
   }
   struct vector a, b;
   if (!read_pair(ctx, argv, &a, &b)) return;
-  float ab, aa, bb;
-  cosine_parts(a.values, b.values, a.dims, &ab, &aa, &bb);
+  float fab, faa, fbb;
+  cosine_parts(a.values, b.values, a.dims, &fab, &faa, &fbb);
+  double ab = fab, aa = faa, bb = fbb;
+  /* A sum that underflowed to zero or overflowed is redone in double,
+   * so a vector of 1e-30s or of 1e20s keeps its direction. */
+  if (aa == 0.0 || bb == 0.0 || !isfinite(ab) || !isfinite(aa) || !isfinite(bb)) {
+    ab = dot_wide(a.values, b.values, a.dims);
+    aa = dot_wide(a.values, a.values, a.dims);
+    bb = dot_wide(b.values, b.values, b.dims);
+  }
   release(&a);
   release(&b);
-  double norms = sqrt((double)aa * (double)bb);
+  double norms = sqrt(aa * bb);
   if (norms == 0.0) {
     sqlite3_result_null(ctx);
     return;
   }
-  double similarity = (double)ab / norms;
+  double similarity = ab / norms;
   /* Rounding can carry the cosine just past 1 or -1. */
   if (similarity > 1.0) similarity = 1.0;
   if (similarity < -1.0) similarity = -1.0;
@@ -328,7 +372,9 @@ static void l1_distance_function (sqlite3_context *ctx, int argc,
   }
   struct vector a, b;
   if (!read_pair(ctx, argv, &a, &b)) return;
-  sqlite3_result_double(ctx, (double)l1(a.values, b.values, a.dims));
+  double total = (double)l1(a.values, b.values, a.dims);
+  if (!isfinite(total)) total = l1_wide(a.values, b.values, a.dims);
+  sqlite3_result_double(ctx, total);
   release(&a);
   release(&b);
 }
@@ -376,7 +422,14 @@ static void vector_text_function (sqlite3_context *ctx, int argc,
   sqlite3_str_appendchar(out, 1, '[');
   for (size_t i = 0; i < v.dims; i++) {
     if (i > 0) sqlite3_str_appendchar(out, 1, ',');
-    sqlite3_str_appendf(out, "%.9g", (double)v.values[i]);
+    /* SQLite's printf writes the zero of -0.0 without its sign, which
+     * would read back as a different blob. */
+    if (v.values[i] == 0.0f && signbit(v.values[i])) {
+      sqlite3_str_appendall(out, "-0");
+    }
+    else {
+      sqlite3_str_appendf(out, "%.9g", (double)v.values[i]);
+    }
   }
   sqlite3_str_appendchar(out, 1, ']');
   release(&v);
@@ -993,7 +1046,9 @@ static int vector_pack (lua_State *L) {
   for (size_t i = 0; i < n; i++) {
     lua_rawgeti(L, 1, (lua_Integer)(i + 1));
     int ok;
+    /* A number, not a string that reads as one. */
     lua_Number x = lua_tonumberx(L, -1, &ok);
+    if (lua_type(L, -1) != LUA_TNUMBER) ok = 0;
     /* Compared as a double before the conversion: a double past
      * FLT_MAX has no float to convert to, and converting is undefined. */
     luaL_argcheck(L, ok && isfinite(x) && fabs(x) <= (double)FLT_MAX, 1,
@@ -1022,7 +1077,13 @@ static int vector_unpack (lua_State *L) {
 }
 
 static int vector_from_json (lua_State *L) {
-  const char *text = luaL_checkstring(L, 1);
+  size_t text_len;
+  const char *text = luaL_checklstring(L, 1, &text_len);
+  if (strlen(text) != text_len) {
+    lua_pushnil(L);
+    lua_pushliteral(L, "a vector's text holds no NUL");
+    return 2;
+  }
   /* The parsed block is the guard's: pushing the answer allocates, and
    * a raise there must not leak the block. */
   struct cosmic_guard *guard = cosmic_guard_push(L, sqlite3_free);
