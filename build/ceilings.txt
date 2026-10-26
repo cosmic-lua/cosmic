@@ -254,9 +254,7 @@ build/sql.tl 1
 
 build/stand_in_probe.tl 1
 
-build/syntax_analyzer.tl 3
-
-build/syntax_link_text.tl 2
+build/syntax_link_text.tl 1
 
 build/syntax_rewrite.tl 4
 
