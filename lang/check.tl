@@ -2402,6 +2402,26 @@ local function subsume(ctx: Ctx, t: Type): Type
     return t
   end
   local members = members_of(ctx.store, t)
+  -- A record or a class is nominal: it is below another named type only when that is an interface it lists, or its own
+  -- declaration ([`lang.relation`]). Members that are all records and classes of declarations apart (a tagged union
+  -- is one), and `nil`, are below none of each other, and the pairs need not be asked: for a union of many members
+  -- that is all the cost of a join, and a left fold of joins asks every pair of every union it makes.
+  local declared: mut {Decl: boolean} = {}
+  local apart = true
+  for _, m in ipairs(members) do
+    if m.tag == "nil" then
+      -- Kept, whatever it is beside.
+    elseif m.tag == "named" and not m.value and (m.decl.kind == "record" or m.decl.kind == "class") and
+        declared[m.decl] == nil then
+      declared[m.decl] = true
+    else
+      apart = false
+      break
+    end
+  end
+  if apart then
+    return t
+  end
   local kept: mut {Type} = {}
   for i, m in ipairs(members) do
     local covered = false
@@ -2881,13 +2901,19 @@ local function tag_edges(ctx: Ctx, f: Flow.State, field: Ast.Field, lit: string)
   -- A member that is not one of the declared type's (a narrowing is a union of the declared members, so none is believed
   -- to be) has no key, "": nothing is noted of it and nothing is read, so it stays in both branches and keeps every value.
   local whole = members_of(store, store:non_nil(p.declared))
-  local function tag_key(m: Type, value: string): string
-    for i, member in ipairs(whole) do
-      if member == m then
-        return p.key .. ".#" .. tostring(i) .. "." .. field.name .. "=" .. value
-      end
+  -- The place of each by its id (a map is not keyed by a type), made once for the walks over the members below.
+  local placed: mut {integer: integer} = {}
+  for i, member in ipairs(whole) do
+    if placed[member.id] == nil then
+      placed[member.id] = i
     end
-    return ""
+  end
+  local function tag_key(m: Type, value: string): string
+    local i = placed[m.id]
+    if i == nil or whole[i] ~= m then
+      return ""
+    end
+    return p.key .. ".#" .. tostring(i) .. "." .. field.name .. "=" .. value
   end
   local members = members_of(store, store:non_nil(current(f, p)))
   local yes: mut {Type} = {}
