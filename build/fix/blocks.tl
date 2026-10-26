@@ -39,10 +39,6 @@ local MEMBERS <const>: {string: boolean} = {
 --- The kinds of node with a body of members, closed by their own last token.
 local DECLARATIONS <const>: {string: boolean} = { Record = true, Interface = true, Class = true, Enum = true }
 
-local function base_of(node: Ast.Node): Ast.Base
-  return node
-end
-
 function Blocks.of(chunk: Ast.Chunk): Blocks.Levels
   local count = Lexer.count(chunk.tokens)
   -- The change of level before each token, summed in token order at the end.
@@ -59,37 +55,36 @@ function Blocks.of(chunk: Ast.Chunk): Blocks.Levels
 
   local queue: mut {Ast.Node} = { chunk }
   for _, node in ipairs(queue) do
-    local base = base_of(node)
-    local kids: mut {Ast.Base} = {}
+    local kids: mut {Ast.Node} = {}
     -- Only a block and a declaration read their children's places; every node's go on the queue.
-    local reads = base.kind == "Block" or DECLARATIONS[base.kind] == true
+    local reads = node.kind == "Block" or DECLARATIONS[node.kind] == true
     Ast.children(node, function(child: Ast.Node)
       if reads then
-        kids[#kids + 1] = base_of(child)
+        kids[#kids + 1] = child
       end
       queue[#queue + 1] = child
     end)
     local last_kid = kids[#kids]
-    if base.kind == "Block" then
+    if node.kind == "Block" then
       -- The statements tile the block, so it closes at the token after the last (at its first, with none).
-      local close = if last_kid == nil then base.first else last_kid.last + 1 end
+      local close = if last_kid == nil then node.first else last_kid.last + 1 end
       if close <= count then
         -- The statements of the chunk are not in a body.
-        local is_chunk = base.first == 1 and close == count
+        local is_chunk = node.first == 1 and close == count
         if not is_chunk then
-          raise(base.first, close - 1)
+          raise(node.first, close - 1)
         end
         anchors[close] = if last_kid ~= nil then last_kid.first elseif is_chunk then 0 else close - 1 end
       end
-    elseif DECLARATIONS[base.kind] == true then
-      local last_member: Ast.Base? = nil
+    elseif DECLARATIONS[node.kind] == true then
+      local last_member: Ast.Node? = nil
       for _, kid in ipairs(kids) do
         if MEMBERS[kid.kind] == true then
           raise(kid.first, kid.last)
           last_member = kid
         end
       end
-      anchors[base.last] = if last_member ~= nil then last_member.first else base.last - 1 end
+      anchors[node.last] = if last_member ~= nil then last_member.first else node.last - 1 end
     end
   end
 

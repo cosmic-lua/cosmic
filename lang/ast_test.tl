@@ -93,7 +93,7 @@ end
 
 -- The checker (`untagged_union`, `interface_disagrees`) and the seed build already refuse a kind two records share and a
 -- `mut` kind, so the two tests below that say so cannot fail on their own: they name the rule where it is read from the
--- source, and hold `Ast.Kind` and the tables to the same records.
+-- source, and hold [`Ast.Kind`] and the tables to the same records.
 local function test_each_record_with_a_kind_has_one_value_of_its_own()
   local d = declared()
   local owner: mut {string: string} = {}
