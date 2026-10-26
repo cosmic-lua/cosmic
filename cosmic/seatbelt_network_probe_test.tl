@@ -605,7 +605,7 @@ local OUTBOUND <const> = "(allow network-outbound (remote ip \"*:*\"))"
 local function test_what_a_resolver_is_refused_with_network_and_resolver_files(tmp: string)
   macos_only()
   network_or_skip()
-  local report = new_report()
+  local report: mut {string} = new_report()
   local text = profile(strict(), { OUTBOUND })
   local no_files = profile(strict(), { OUTBOUND })
   local bare, _ = resolve_under(tmp, no_files, report, "network, no resolver files")
@@ -644,7 +644,7 @@ end
 local function test_which_mach_services_a_resolver_needs(tmp: string)
   macos_only()
   network_or_skip()
-  local report = new_report()
+  local report: mut {string} = new_report()
   local base: {string} = { OUTBOUND, table.concat(resolver_files(nil), "\n") }
   local function with(more: {string}): string
     local lines: mut {string} = {}
@@ -690,7 +690,7 @@ end
 local function test_which_resolver_files_and_network_a_resolver_needs(tmp: string)
   macos_only()
   network_or_skip()
-  local report = new_report()
+  local report: mut {string} = new_report()
   local function with(files: {string}, network: string): string
     local lines: mut {string} = { network, "(allow mach-lookup (global-name \"com.apple.SystemConfiguration.DNSConfiguration\"))" }
     for _, line in ipairs(files) do lines[#lines + 1] = line end
