@@ -8,6 +8,9 @@
 # What it does not cover: a file a CI step runs with the pinned release, which holds it to its own rules (the
 # bootstrap scripts below are run by it too, and are listed for the product that follows its pin), and a Teal
 # source a test writes into a fixture of its own, which its own test runs.
+#
+# build/ci_tree_test.tl holds the list to ci/cosmic_ci/islands.tl's Islands.scripts and runtime_setup.tl's artifact_row,
+# which it repeats.
 
 # test/portable/probe.tl and what it requires, run from the tree ci/fixtures/runtime_test.tl and identity_test.tl unpack
 # (ci/cosmic_ci/runtime_setup.tl): the checkout's build/artifact.tl, which takes the raw store as its loader's argument,
@@ -16,11 +19,15 @@ test/portable/probe.tl
 test/portable/init.tl
 ci/testdata/portable/artifact_row.tl
 
-# Run by path from ci/fixtures/self_driven_test.tl.
+# The helper those fixtures run by path from the checkout (ci/cosmic_ci/runtime_setup.tl's Fixture.run calls).
+test/portable/tool.tl
+
+# Run by path from ci/fixtures/self_driven_test.tl: every file of test/terminal, which build/ci_tree_test.tl walks.
 test/terminal/pty.tl
 test/terminal/relay.tl
 
-# The portable fixtures' own sources (ci/cosmic_ci/runtime_setup.tl, product_setup.tl, ci/fixtures/runtime_test.tl).
+# The portable fixtures' own sources, every file under ci/testdata/portable, which build/ci_tree_test.tl walks
+# (ci/cosmic_ci/runtime_setup.tl, product_setup.tl, ci/fixtures/runtime_test.tl).
 ci/testdata/portable/retained_probe.tl
 ci/testdata/portable/work_db_integrity.tl
 ci/testdata/portable/runtime_test.tl

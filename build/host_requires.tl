@@ -178,7 +178,7 @@ local record host_requires
   --- The probes of one run: each requirement is asked of the host once.
   record Host
     context: Context
-    found: {string:host_requires.Answer}
+    found: mut {string:host_requires.Answer}
   end
 
 end

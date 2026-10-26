@@ -592,7 +592,7 @@ local record Rules
 end
 
 --- Each zone's rules, kept apart from the record a caller holds.
-local rules_of: {Time.Zone:Rules} = setmetatable({}, { __mode = "k" })
+local rules_of: mut {Time.Zone:Rules} = setmetatable({}, { __mode = "k" })
 
 --- A zone for `rules`, named `name`. Zones are shared -- `zone` answers
 --- one per name, to every caller in the process -- so the record is
@@ -713,8 +713,8 @@ end
 --- change or not.
 local function offsets_near(rules: Rules, s: integer): {integer}
   local lo, hi = s - 2 * DAY, s + 2 * DAY
-  local seen: {integer:boolean} = {}
-  local out: {integer} = {}
+  local seen: mut {integer:boolean} = {}
+  local out: mut {integer} = {}
   local function add(kind: Kind)
     if not seen[kind.offset] then
       seen[kind.offset] = true
@@ -1094,7 +1094,7 @@ local function writable(name: string): boolean
 end
 
 --- Every zone `zone` has loaded, by name.
-local zones: {string:Time.Zone} = {}
+local zones: mut {string:Time.Zone} = {}
 
 --- Why each name `zone` found no zone for was refused, so text naming
 --- unknown zones over and over looks none up twice; emptied when it
@@ -1272,7 +1272,7 @@ end
 
 --- Every zone [`local_zone`] has answered with no options, by `TZ`, and
 --- the one for `TZ` unset.
-local locals: {string:Time.Zone} = {}
+local locals: mut {string:Time.Zone} = {}
 local unset_local: {Time.Zone} = {}
 
 --- The host's own zone, as Java and ICU find it: the host names a zone
@@ -1688,7 +1688,7 @@ end
 
 --- The zones a numeric RFC 9557 suffix names, by offset: each always
 --- that offset, named as the suffix spells it.
-local fixed: {integer:Time.Zone} = {}
+local fixed: mut {integer:Time.Zone} = {}
 
 local function fixed_zone(offset: integer): Time.Zone
   local zone = fixed[offset]

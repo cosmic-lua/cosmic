@@ -157,7 +157,7 @@ local function line_of(chunk: Ast.Chunk, node: Ast.Exp): integer
 end
 
 function PluralSites.of_chunk(chunk: Ast.Chunk): {{string}}
-  local sites: {{string}} = {}
+  local sites: mut {{string}} = {}
   Node.walk(chunk, function(node: Ast.Node)
     if (node.kind == "Binary") and node.op == ".." then
       local left, right = node.left, node.right

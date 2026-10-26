@@ -58,7 +58,7 @@ local record tree
     --- Everything the line prints after its range and position: types,
     --- names, a cast's kind, an operator.
     text: string
-    children: {tree.Node}
+    children: mut {tree.Node}
     parent?: tree.Node
     --- What [`referent`], [`callee`], [`canonical_type`] and [`operator`]
     --- answered the first time, so a rule that asks again reads it.

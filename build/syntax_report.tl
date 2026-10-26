@@ -173,7 +173,7 @@ local function listed(decl: Types.Decl, out: mut {Types.Decl}, seen: mut {Types.
 end
 
 function Report.declaring(decl: Types.Decl, name: string): Types.Decl?
-  local all: {Types.Decl} = {}
+  local all: mut {Types.Decl} = {}
   local seen: mut {Types.Decl: boolean} = {}
   seen[decl] = true
   listed(decl, all, seen)

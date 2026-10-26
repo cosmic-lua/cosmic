@@ -355,10 +355,10 @@ local record Fact
   mut integral: boolean
 end
 
-local checks: {string:Check} = {}
-local facts: {string:Fact} = {}
-local malformed: {string:boolean} = {}
-local found: {worker.Violation} = {}
+local checks: mut {string:Check} = {}
+local facts: mut {string:Fact} = {}
+local malformed: mut {string:boolean} = {}
+local found: mut {worker.Violation} = {}
 local tally = { dropped = 0 }
 -- The place that sent a value is asked of the stack for every violation of
 -- a parameter, in constant time, so the report names it however often a
@@ -783,7 +783,7 @@ local record DecodedHit
   path: string
   lines: {integer:boolean}
 end
-local decoded_hits: {string:DecodedHit} = {}
+local decoded_hits: mut {string:DecodedHit} = {}
 
 --- Reads a report back; nil and why when it is not a whole one. The
 --- tables of its `load_hits` and `test_hits` are shared with every other
@@ -1196,7 +1196,7 @@ local not_found = sys.errno_message(sys.ENOENT)
 --- line each, but for what the message says already. A bare `assert`
 --- on a start's result says nothing of it itself.
 local function unseen_note(message: string, heard: {string}): string
-  local lines: {string} = {}
+  local lines: mut {string} = {}
   local function add(why: string)
     if message:find(why, 1, true) ~= nil then return end
     for _, line in ipairs(lines) do
@@ -1388,7 +1388,7 @@ function worker.run(argv: {string}): integer
   -- is refused.
   local handed_over: Given = { deliberate = "" }
   -- Each reason the test gives [`Test.skip`], once, in order.
-  local reasons: {string} = {}
+  local reasons: mut {string} = {}
   -- What [`Test.skip`] raises to end its test. Only this table counts as
   -- a skip; any other error is a failure, and a test cannot make this one.
   local ended_by_skip: {string:string} = {}

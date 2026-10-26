@@ -42,7 +42,7 @@ local record test_inputs
   --- What one test module's tests may read.
   record Effective
     --- The import closure's source files, by path of the tree.
-    files: {string:boolean}
+    files: mut {string:boolean}
     --- Paths of the tree, each a file or a directory and all beneath
     --- it: the fuzz corpora, and what the module declares.
     reads: {string}

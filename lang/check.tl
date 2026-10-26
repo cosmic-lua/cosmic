@@ -112,8 +112,8 @@ local record Check
     strings: {string}?
     --- Where the read is of classes: their names, a table there has the metatable of one. Nil where it says no more.
     classes: {string}?
-    --- Where the read is of members of a union that a field with one value each tells apart: the field, and the values
-    --- of the members the read is of.
+    --- Where the read is of members of a union that a field with values of its own in each tells apart: the field, and
+    --- the values of the members the read is of (all of a member's, where its enum has several).
     tag: string?
     tags: {string}?
   end
@@ -640,7 +640,10 @@ local function takes_receiver(ctx: Ctx, decl: Decl, given: Type): boolean
     return false
   end
   local first = ft.params[1]
-  local receiver = first ~= nil and first.type or nil
+  local receiver: Type? = nil
+  if first ~= nil then
+    receiver = first.type
+  end
   return receiver ~= nil and (receiver.tag == "named") and receiver.decl == decl
 end
 
@@ -845,7 +848,12 @@ local function refused(ctx: Ctx, node: Ast.Node, got: Type, want: Type, r: Relat
         " is wanted" .. where .. "): a receiver could store another element type through a `mut` collection",
       "pass a view, or declare the receiver's type " .. quoted(g) .. " as the argument has it", shown)
   elseif code == "declaration_value" then
-    local decl: Decl? = (from.tag == "named") and from.decl or (into.tag == "named") and into.decl or nil
+    local decl: Decl? = nil
+    if from.tag == "named" then
+      decl = from.decl
+    elseif into.tag == "named" then
+      decl = into.decl
+    end
     local name, kind = g, "record"
     if decl ~= nil then
       name, kind = decl.name, decl.kind
@@ -1122,7 +1130,11 @@ local function string_value(ctx: Ctx, node: Ast.Node, value: string, expected: T
     if (m.tag == "named") and m.decl.kind == "enum" then
       enums = enums + 1
       local body = m.decl.body
-      for _, v in ipairs(body ~= nil and body.values or {}) do
+      local enum_values: {string} = {}
+      if body ~= nil then
+        enum_values = body.values
+      end
+      for _, v in ipairs(enum_values) do
         if v == value then
           return m
         end
@@ -1683,21 +1695,32 @@ local function literal_member(ctx: Ctx, e: Ast.Table, u: Union, written: Type): 
   if #candidates == 1 then
     return candidates[1]
   end
-  -- A tag: a named item whose string value is the one value of an enum a member's field of that name has.
+  -- A tag: a named item whose string value is a value of the enum a member's field of that name has, where every
+  -- candidate has an enum there, as a tag is. Another member with the value too is `untagged_union` where the union is
+  -- declared, and leaves the literal ambiguous here.
   for _, item in ipairs(e.items) do
     local name = item_name(item)
     local value = (item.kind == "Named") and peel(item.value) or (item.kind == "Keyed") and peel(item.value) or nil
     if name ~= nil and value ~= nil and (value.kind == "String") then
       local tagged: mut {Type} = {}
+      local everywhere = true
       for _, m in ipairs(candidates) do
         local field = (m.tag == "named") and plain_field(ctx, m, name) or nil
         local t = field ~= nil and field.type or nil
-        local body = t ~= nil and (t.tag == "named") and t.decl.body or nil
-        if body ~= nil and #body.values == 1 and body.values[1] == value.value then
-          tagged[#tagged + 1] = m
+        local body = t ~= nil and (t.tag == "named") and t.decl.kind == "enum" and t.decl.body or nil
+        if body == nil then
+          everywhere = false
+        else
+          local has = false
+          for _, v in ipairs(body.values) do
+            has = has or v == value.value
+          end
+          if has then
+            tagged[#tagged + 1] = m
+          end
         end
       end
-      if #tagged == 1 then
+      if everywhere and #tagged == 1 then
         return tagged[1]
       end
     end
@@ -1884,13 +1907,9 @@ local function field_unknown(ctx: Ctx, node: Ast.Node, t: Type, name: string)
   end
   local owner = (t.tag == "named") and quoted(t.decl.name) or tq(ctx, t)
   if is_enum(t) then
-    -- TODO: let a value of an enum call the functions of `string` (`k:upper()`), as the fork did, once it is decided whether
-    -- an enum is a string for its methods and not only where a string is wanted: the member `upper` is on `string`, not in
-    -- the enum, so a value of it has no methods today.
-    report(ctx, "field_unknown", node, owner .. " is an enum, whose values have no fields or methods: " .. quoted(name) ..
-        " is not one",
-      "make it a string first, `tostring(v):" .. name .. "(...)` or `string." .. name .. "(tostring(v), ...)`, or compare it " ..
-        "with `==` to a member", { show(ctx, t) })
+    -- A method call on an enum is served by `string` and never gets here: this reads a field, or a function as a value.
+    report(ctx, "field_unknown", node, owner .. " is an enum, whose values have no fields: " .. quoted(name) .. " is not one",
+      "call a function of `string` on it, `v:" .. name .. "(...)`, or compare it with `==` to a member", { show(ctx, t) })
     return
   end
   local names: {string} = {}
@@ -1909,7 +1928,9 @@ end
 local function member_read(ctx: Ctx, node: Ast.Node, t: Type, name: string): Type
   local store = ctx.store
   ctx.member_module, ctx.member_node = "", node
-  if (t.tag == "named") then
+  -- A method call on an enum value is a call in `string`, which each enum is below; the read of a member as a value is not.
+  local called = (node.kind == "MethodCall")
+  if (t.tag == "named") and not (is_enum(t) and called) then
     local decl = t.decl
     ctx.member_module = decl.module
     local waiting = ctx.pending[decl]
@@ -1934,7 +1955,7 @@ local function member_read(ctx: Ctx, node: Ast.Node, t: Type, name: string): Typ
       return ctx.invalid
     end
     local first = assert(list[1])
-    if t.decl.kind == "interface" and not ((node.kind == "MethodCall")) and not first.method and ctx.probes[node.id] ~= true and
+    if t.decl.kind == "interface" and not called and not first.method and ctx.probes[node.id] ~= true and
         takes_receiver(ctx, t.decl, first.type) then
       -- The implementation depends on the receiver, which agreement fixes to the implementing type: read as a value, it
       -- would be called with another implementer.
@@ -1961,7 +1982,7 @@ local function member_read(ctx: Ctx, node: Ast.Node, t: Type, name: string): Typ
     return put_in(ctx, t, list[1].type)
   elseif (t.tag == "union") then
     -- Read as a value, the member is the union of their types; a call is typed by [`union_method`] and not by this.
-    local key = t.id .. "." .. name
+    local key = tostring(t.id) .. "." .. name
     local held = ctx.union_fields[key]
     if held ~= nil then
       return held
@@ -1970,6 +1991,12 @@ local function member_read(ctx: Ctx, node: Ast.Node, t: Type, name: string): Typ
     for _, m in ipairs(t.members) do
       if (m.tag == "named") and member_types(ctx, m, name) ~= nil then
         types[#types + 1] = member_read(ctx, node, m, name)
+      elseif is_enum(m) then
+        report(ctx, "field_unknown", node, quoted(name) .. " is not a field of " .. tq(ctx, m) ..
+            ", an enum and a member of " .. tq(ctx, t),
+          "call a function of `string` on it, `v:" .. name .. "(...)`, or narrow the value to the member that has it " ..
+            "(`x is T`)", { show(ctx, t) })
+        return ctx.invalid
       else
         report(ctx, "field_unknown", node, quoted(name) .. " is not a field of " .. tq(ctx, m) ..
             ", a member of " .. tq(ctx, t),
@@ -1993,7 +2020,8 @@ local function member_read(ctx: Ctx, node: Ast.Node, t: Type, name: string): Typ
     local index = decl ~= nil and members_index(ctx, decl, false) or nil
     local list = index ~= nil and index.by_name[name] or nil
     if list == nil then
-      report(ctx, "field_unknown", node, "a string has no field " .. quoted(name),
+      report(ctx, "field_unknown", node, (if is_enum(t) then tq(ctx, t) .. " is an enum, a string with no method " else
+          "a string has no field " end) .. quoted(name),
         "call a function of `string` on it: `s:upper()`, `s:sub(i, j)`", { show(ctx, t) })
       return ctx.invalid
     end
@@ -2032,8 +2060,10 @@ local function union_method(ctx: Ctx, node: Ast.MethodCall, u: Union): Type?, {T
   local store = ctx.store
   local common: {Type}? = nil
   local first: Type? = nil
+  local first_declared: Type = ctx.invalid
   for _, m in ipairs(u.members) do
-    if not ((m.tag == "named")) or member_types(ctx, m, node.name) == nil then
+    -- A member that is text (an enum or `string`) has the functions of `string`, which only a call reaches.
+    if not is_text(m) and (not ((m.tag == "named")) or member_types(ctx, m, node.name) == nil) then
       report(ctx, "field_unknown", node, quoted(node.name) .. " is not a field of " .. tq(ctx, m) .. ", a member of " ..
           tq(ctx, u),
         "narrow the value to the member that has it (`x.kind == \"...\"` or `x is T`), or declare " .. quoted(node.name) ..
@@ -2053,12 +2083,16 @@ local function union_method(ctx: Ctx, node: Ast.MethodCall, u: Union): Type?, {T
     local replaced: mut {Type} = {}
     for i, each in ipairs(declared) do
       local f = each
-      if (f.tag == "fn") and f.params[1] ~= nil and f.params[1].type == m then
+      local receiver: Types.Param? = nil
+      if f.tag == "fn" then
+        receiver = f.params[1]
+      end
+      if (f.tag == "fn") and receiver ~= nil and receiver.type == m and not is_text(m) then
         local params: mut {Types.Param} = {}
         for j, p in ipairs(f.params) do
           params[j] = p
         end
-        params[1] = { type = u, omittable = f.params[1].omittable }
+        params[1] = { type = u, omittable = receiver.omittable }
         f = store:fn({ tparams = f.tparams, params = params, rest = f.rest, rets = f.rets })
       end
       replaced[i] = f
@@ -2067,6 +2101,7 @@ local function union_method(ctx: Ctx, node: Ast.MethodCall, u: Union): Type?, {T
     if held == nil then
       common = replaced
       first = m
+      first_declared = declared[1] or read
     else
       local agree = #held == #replaced
       for i = 1, if agree then #held else 0 end do
@@ -2076,9 +2111,10 @@ local function union_method(ctx: Ctx, node: Ast.MethodCall, u: Union): Type?, {T
         local other = first
         report(ctx, "not_callable", node, subject(ctx, node) .. " calls the method " .. quoted(node.name) .. " of each member " ..
             "of " .. tq(ctx, u) .. ", and " .. tq(ctx, other ~= nil and other or m) .. " and " .. tq(ctx, m) ..
-            " declare it differently: " .. quoted(show(ctx, held[1])) .. " and " .. quoted(show(ctx, replaced[1])),
+            " declare it differently: " .. quoted(show(ctx, first_declared)) .. " and " ..
+            quoted(show(ctx, declared[1] or read)),
           "narrow the value to one member first (`x.kind == \"...\"` or `x is T`), or declare " .. quoted(node.name) ..
-            " the same in every member", { show(ctx, held[1]), show(ctx, replaced[1]) })
+            " the same in every member", { show(ctx, first_declared), show(ctx, declared[1] or read) })
         return nil
       end
     end
@@ -2132,11 +2168,19 @@ local function index_read(ctx: Ctx, node: Ast.Index, object: Type): Type
   if (t.tag == "array") then
     local k = expr(ctx, node.key, store.integer)
     local _ = key_ok(ctx, node.key, k, store.integer, subject(ctx, node.object))
-    return store:optional(t.mut and t.element or view(store, t.element))
+    local element = t.element
+    if not t.mut then
+      element = view(store, element)
+    end
+    return store:optional(element)
   elseif (t.tag == "map") then
     local k = expr(ctx, node.key, t.key)
     local _ = key_ok(ctx, node.key, k, t.key, subject(ctx, node.object))
-    return store:optional(t.mut and t.value or view(store, t.value))
+    local value = t.value
+    if not t.mut then
+      value = view(store, value)
+    end
+    return store:optional(value)
   elseif (t.tag == "named") and (t.decl.kind == "record" or t.decl.kind == "class" or t.decl.kind == "userdata") then
     local k = expr(ctx, node.key, nil)
     if k.tag == "invalid" then
@@ -2561,12 +2605,15 @@ function Tests.kinds_of(ctx: Ctx, t: Type): {string: boolean}?
   return out
 end
 
---- The values of the enum a field of `m` is declared with, or nil where `m` has no such field.
+--- The values of the enum a field of `m` is declared with, or nil where `m` has no such field or the field is `mut`.
 function Tests.tag_values(ctx: Ctx, m: Type, name: string): {string}?
   if not ((m.tag == "named")) or m.value or (m.decl.kind ~= "record" and m.decl.kind ~= "class") then
     return nil
   end
   local field = plain_field(ctx, m, name)
+  if field ~= nil and field.mut == true then
+    return nil
+  end
   local t = field ~= nil and field.type or nil
   local body = t ~= nil and (t.tag == "named") and t.decl.kind == "enum" and t.decl.body or nil
   return body ~= nil and body.values or nil
@@ -2578,7 +2625,10 @@ function Tests.enum_strings(ctx: Ctx, t: Type): {string}?
   local seen: mut {string: boolean} = {}
   for _, m in ipairs(members_of(ctx.store, t)) do
     if Tests.lua_kind(m) == "string" then
-      local body = (m.tag == "named") and m.decl.kind == "enum" and m.decl.body or nil
+      local body: Types.Body? = nil
+      if (m.tag == "named") and m.decl.kind == "enum" then
+        body = m.decl.body
+      end
       if body == nil then
         return nil
       end
@@ -2608,24 +2658,36 @@ function Tests.table_members(ctx: Ctx, t: Type): {Type}?
   return out
 end
 
---- The field that tells the types of `list` apart: one every one declares with an enum of one value, and the values.
+--- The field that tells the types of `list` apart: one every one declares with an enum, no value of which is in two of
+--- them, and the values of the enums.
 function Tests.tag_field(ctx: Ctx, list: {Type}): string?, {string}?
   local first = list[1]
-  local body = first ~= nil and (first.tag == "named") and first.decl.body or nil
+  local body: Types.Body? = nil
+  if first ~= nil and (first.tag == "named") then
+    body = first.decl.body
+  end
   if body == nil then
     return nil
   end
   for _, f in ipairs(body.fields) do
     local values: mut {string} = {}
+    local seen: mut {string: boolean} = {}
+    local apart = true
     for _, m in ipairs(list) do
       local v = Tests.tag_values(ctx, m, f.name)
-      if v == nil or #v ~= 1 then
-        values = {}
+      if v == nil then
+        apart = false
         break
       end
-      values[#values + 1] = v[1]
+      for _, value in ipairs(v) do
+        if seen[value] == true then
+          apart = false
+        end
+        seen[value] = true
+        values[#values + 1] = value
+      end
     end
-    if #values == #list then
+    if apart and #values > 0 then
       return f.name, values
     end
   end
@@ -2674,8 +2736,7 @@ local function note_narrowed(ctx: Ctx, node: Ast.Node, declared: Type, narrowed:
       if tag ~= nil then
         local field = tag
         for _, m in ipairs(old) do
-          local v = Tests.tag_values(ctx, m, field)
-          if v == nil or #v ~= 1 then
+          if Tests.tag_values(ctx, m, field) == nil then
             tag, tags = nil, nil
           end
         end
@@ -2804,36 +2865,65 @@ function Tests.by_kind(ctx: Ctx, cur: Type, kind: string, keep: boolean): Type
   return store:union(out)
 end
 
---- The edges of `field == "lit"` for a field that tells the members of a union of records apart: the members whose
---- tag has the value, and those whose tag has no other.
+--- The edges of `field == "lit"` for a field that tells the members of a union of records apart. The true edge keeps
+--- the members whose tag enum still has the value, each with all its values. The false edge notes that the tag is not
+--- the value, and drops a member once every value of its enum has been noted on the path, so that a chain of tests
+--- over the values of a member leaves the rest.
 local function tag_edges(ctx: Ctx, f: Flow.State, field: Ast.Field, lit: string): Flow.State, Flow.State
   local p = place_of(ctx, f, field.object)
   if p == nil then
     return f, f
   end
   local store = ctx.store
+  -- The key of the fact that a test showed the tag of the place is not `value` in the field being tested while it is the
+  -- member `m`, told by its place among the members of the declared type. The fact is a path from the place, so an
+  -- assignment to the place or to what it is read from takes it away, and a join keeps it only where both paths have it.
+  -- A member that is not one of the declared type's (a narrowing is a union of the declared members, so none is believed
+  -- to be) has no key, "": nothing is noted of it and nothing is read, so it stays in both branches and keeps every value.
+  local whole = members_of(store, store:non_nil(p.declared))
+  local function tag_key(m: Type, value: string): string
+    for i, member in ipairs(whole) do
+      if member == m then
+        return p.key .. ".#" .. tostring(i) .. "." .. field.name .. "=" .. value
+      end
+    end
+    return ""
+  end
   local members = members_of(store, store:non_nil(current(f, p)))
   local yes: mut {Type} = {}
   local no: mut {Type} = {}
+  local noted: mut {Type} = {}
   for _, m in ipairs(members) do
     local values = Tests.tag_values(ctx, m, field.name)
     if values == nil then
       yes[#yes + 1] = m
       no[#no + 1] = m
     else
+      local left = 0
       local has = false
       for _, v in ipairs(values) do
-        has = has or v == lit
+        local key = tag_key(m, v)
+        if key == "" or f.facts[key] == nil then
+          left = left + 1
+          has = has or v == lit
+        end
       end
       if has then
         yes[#yes + 1] = m
       end
-      if not (has and #values == 1) then
+      if not has or left > 1 then
         no[#no + 1] = m
+      end
+      if has and left > 1 and tag_key(m, lit) ~= "" then
+        noted[#noted + 1] = m
       end
     end
   end
-  return when_true(f, p, store:union(yes)), narrowed_flow(f, p, store:union(no))
+  local after = narrowed_flow(f, p, store:union(no))
+  for _, m in ipairs(noted) do
+    after = Flow.narrow(after, tag_key(m, lit), store.boolean, store.integer)
+  end
+  return when_true(f, p, store:union(yes)), after
 end
 
 --- The edges of `type(x) == "kind"`.
@@ -4334,8 +4424,12 @@ local function apply_overloads(ctx: Ctx, node: Ast.Node, callee: string, cands: 
       elseif wrong_count ~= nil then
         failure = wrong_count .. " arguments"
       elseif recv ~= nil and c.params[1] ~= nil and not accepts(ctx, recv, c.params[1].type) then
-        failure = "the receiver is " .. tq(ctx, recv) .. ", where " ..
-          quoted(Calls.shown(ctx, declared, declared.params[1] ~= nil and declared.params[1].type or c.params[1].type)) ..
+        local declared_receiver = declared.params[1]
+        local wanted_receiver = c.params[1].type
+        if declared_receiver ~= nil then
+          wanted_receiver = declared_receiver.type
+        end
+        failure = "the receiver is " .. tq(ctx, recv) .. ", where " .. quoted(Calls.shown(ctx, declared, wanted_receiver)) ..
           " is wanted"
       else
         for i = 1, count do
@@ -4604,7 +4698,13 @@ function Calls.refine_overloads(ctx: Ctx, call: Literals.Call, list: {Type}): {T
   end
   local out: mut {Type} = {}
   for _, each in ipairs(list) do
-    local callback = (each.tag == "fn") and each.params[3] ~= nil and each.params[3].type or nil
+    local callback: Type? = nil
+    if each.tag == "fn" then
+      local third = each.params[3]
+      if third ~= nil then
+        callback = third.type
+      end
+    end
     if (each.tag == "fn") and callback ~= nil and (callback.tag == "fn") then
       if #callback.params <= #given then
         local params: mut {Types.Param} = {}
@@ -4690,8 +4790,8 @@ function Calls.dispatch(ctx: Ctx, node: Ast.Node, callee_node: Ast.Node, callee:
   if cands == nil and nilable(first) and first.tag ~= "nil" then
     report(ctx, "nil_not_allowed", callee_node, quoted(callee) .. " is " .. tq(ctx, first) .. ", so it may be nil, and it is called",
       "test it first (`if " .. callee .. " ~= nil then ... end`), or copy it to a local and test that", { show(ctx, first) })
-    list = { ctx.store:non_nil(first) }
-    first = list[1]
+    first = ctx.store:non_nil(first)
+    list = { first }
   end
   local library = Calls.library_call(ctx, callee_node, node, args, recv, recv_node)
   local key: string? = nil
@@ -5886,12 +5986,13 @@ local function for_generic(ctx: Ctx, s: Ast.ForIn)
     end
     local state, control = vals.types[2], vals.types[3]
     local final = s.iterators[#s.iterators]
-    if state ~= nil and iterator.params[1] ~= nil then
-      local _ = expect_argument(ctx, s.iterators[math.min(2, #s.iterators)], state, iterator.params[1].type,
+    local iterator_state, iterator_control = iterator.params[1], iterator.params[2]
+    if state ~= nil and iterator_state ~= nil then
+      local _ = expect_argument(ctx, s.iterators[math.min(2, #s.iterators)], state, iterator_state.type,
         " as the state of the iterator")
     end
-    if control ~= nil and iterator.params[2] ~= nil then
-      local _ = expect_argument(ctx, s.iterators[math.min(3, #s.iterators)] or final, control, iterator.params[2].type,
+    if control ~= nil and iterator_control ~= nil then
+      local _ = expect_argument(ctx, s.iterators[math.min(3, #s.iterators)] or final, control, iterator_control.type,
         " as the first value of the iterator")
     end
   else
@@ -6114,7 +6215,10 @@ local function arm_against(arm: Ast.MatchArm, alt: Alt): string, integer
   for i, p in ipairs(arm.pats) do
     if (p.kind == "PatBool") then
       local item = alt.items[i]
-      local tag = item ~= nil and item.tag or ""
+      local tag = ""
+      if item ~= nil then
+        tag = item.tag
+      end
       if tag == "true" or tag == "false" then
         if (tag == "true") ~= p.value then
           return "no", i
@@ -6134,7 +6238,11 @@ end
 local function arm_for(alt: Alt): string
   local pats: mut {string} = {}
   for i, item in ipairs(alt.items) do
-    pats[i] = (item.tag == "true" or item.tag == "false") and item.tag or "v" .. i
+    local pat = "v" .. i
+    if item.tag == "true" or item.tag == "false" then
+      pat = item.tag
+    end
+    pats[i] = pat
   end
   if #pats == 0 and alt.tail ~= nil then
     pats[1] = "v1"
@@ -6315,7 +6423,10 @@ end
 function Check.enums(lowered: Declarations.Lowered): {integer: {string}}
   local out: mut {integer: {string}} = {}
   for id, t in pairs(lowered.types) do
-    local body = (t.tag == "named") and not t.value and t.decl.kind == "enum" and t.decl.body or nil
+    local body: Types.Body? = nil
+    if (t.tag == "named") and not t.value and t.decl.kind == "enum" then
+      body = t.decl.body
+    end
     if body ~= nil then
       out[id] = body.values
     end

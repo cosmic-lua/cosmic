@@ -193,8 +193,8 @@ function session_fixture.served_between(root: string, batches: {{string}},
   local framed: mut {string} = {}
   for _, messages in ipairs(batches) do framed[#framed + 1] = session_fixture.framed(messages) end
   local reader: Batches = { batches = framed, following = 1, rest = "", between = between }
-  local wrote: {string} = {}
-  local complaints: {string} = {}
+  local wrote: mut {string} = {}
+  local complaints: mut {string} = {}
   local s = session.new(root, {
     err = function(line: string) complaints[#complaints + 1] = line end,
     store = store,
@@ -211,8 +211,8 @@ end
 --- What a session at `root` answers `messages` with, reading docs from
 --- `store` when given.
 function session_fixture.served(root: string, messages: {string}, store?: {Sqlite.Handle}): Ran
-  local wrote: {string} = {}
-  local complaints: {string} = {}
+  local wrote: mut {string} = {}
+  local complaints: mut {string} = {}
   local s = session.new(root, {
     err = function(line: string) complaints[#complaints + 1] = line end,
     store = store,
@@ -234,9 +234,9 @@ end
 --- dependents were checked as each message was sent.
 function session_fixture.served_arriving(root: string, messages: {string},
                                          arrived: function(checked: integer): string?): Ran
-  local wrote: {string} = {}
-  local checked: {integer} = {}
-  local complaints: {string} = {}
+  local wrote: mut {string} = {}
+  local checked: mut {integer} = {}
+  local complaints: mut {string} = {}
   local s = session.new(root, {
     err = function(line: string) complaints[#complaints + 1] = line end,
     store = nil,
@@ -260,8 +260,8 @@ end
 --- A session at `root` served one batch of messages after another, as an
 --- editor sends them with time between: what it sent, all told.
 function session_fixture.serving(root: string): function(messages: {string}): Ran
-  local wrote: {string} = {}
-  local complaints: {string} = {}
+  local wrote: mut {string} = {}
+  local complaints: mut {string} = {}
   local s = session.new(root, {
     err = function(line: string) complaints[#complaints + 1] = line end,
     store = nil,

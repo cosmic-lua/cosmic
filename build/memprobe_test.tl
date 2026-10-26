@@ -5,7 +5,7 @@ local Test = require("cosmic.test")
 Test.policy{ profiles = { "proc" } }
 
 local function test_a_mark_is_one_line_with_the_label_and_the_sizes_when_the_probe_is_on()
-  local told: {string} = {}
+  local told: mut {string} = {}
   local sink = Memprobe.sink
   local enabled = Memprobe.enabled
   Memprobe.enabled = true
@@ -20,7 +20,7 @@ local function test_a_mark_is_one_line_with_the_label_and_the_sizes_when_the_pro
 end
 
 local function test_a_mark_does_nothing_when_the_probe_is_off()
-  local told: {string} = {}
+  local told: mut {string} = {}
   local sink = Memprobe.sink
   local enabled = Memprobe.enabled
   Memprobe.enabled = false

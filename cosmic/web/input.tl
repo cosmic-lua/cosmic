@@ -1019,35 +1019,51 @@ local function dotted(pointer: string): string
   return table.concat(parts, ".")
 end
 
---- Splits the message of [`Shape.into`], `pointer "/a/b": expected
---- integer, got string`, into its pointer and the rest. A message in
---- another form has no pointer.
+--- Splits the message of [`Shape.into`], `$.a.b[0]: want integer, got
+--- string`, into the JSON Pointer of its path and the rest. A message in
+--- another form has no path.
 local function split_failure(message: string): string, string
-  if message:sub(1, 9) ~= 'pointer "' then return "", message end
-  local i = 10
+  if message:sub(1, 1) ~= "$" then return "", message end
+  local steps: mut {string | integer} = {}
+  local i = 2
   while i <= #message do
     local c = message:sub(i, i)
-    if c == "\\" then
-      i = i + 2
-    elseif c == '"' then
-      break
+    if c == "." then
+      local name = message:match("^[%a_][%w_]*", i + 1)
+      if name == nil then return "", message end
+      steps[#steps + 1] = name
+      i = i + 1 + #name
+    elseif c == "[" and message:sub(i + 1, i + 1) == '"' then
+      local j = i + 2
+      while j <= #message and message:sub(j, j) ~= '"' do
+        j = j + (if message:sub(j, j) == "\\" then 2 else 1 end)
+      end
+      local key, trouble = Json.decode(message:sub(i + 1, j))
+      if not key is string or trouble ~= "" or message:sub(j + 1, j + 1) ~= "]" then return "", message end
+      steps[#steps + 1] = key
+      i = j + 2
+    elseif c == "[" then
+      local index = message:match("^%d+", i + 1)
+      if index == nil or message:sub(i + 1 + #index, i + 1 + #index) ~= "]" then return "", message end
+      steps[#steps + 1] = assert(math.tointeger(index)) + 1
+      i = i + 2 + #index
     else
-      i = i + 1
+      break
     end
   end
-  local pointer, trouble = Json.decode(message:sub(9, i))
-  local rest = message:sub(i + 1):gsub("^: ", "")
-  if not pointer is string or trouble ~= "" then return "", message end
-  return pointer, rest
+  if message:sub(i, i + 1) ~= ": " then return "", message end
+  local pointer, refused = Json.pointer(steps)
+  if pointer == nil or refused ~= "" then return "", message end
+  return pointer, message:sub(i + 2)
 end
 
 --- The code a [`Shape.into`] failure `reason` stands for.
 local function failure_code(reason: string): string
   if reason:find("^unknown key") then return "unknown" end
-  if reason:find("got nothing$") or reason:find("got null$") then return "required" end
-  local wanted = reason:match("^expected (%a+)")
+  if reason == "missing" then return "required" end
+  local wanted = reason:match("^want (%a+)")
   if wanted == "integer" or wanted == "number" or wanted == "boolean" then return wanted end
-  if reason:find("^expected one of") then return "one_of" end
+  if reason:find("^want one of") then return "one_of" end
   return "type"
 end
 

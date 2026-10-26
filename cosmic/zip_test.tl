@@ -566,7 +566,7 @@ end
 --- Everything written to it, kept as a list of pieces; `close` and
 --- `abort` are noted.
 local function recording(): Stream.Writer, {string}
-  local pieces: {string} = {}
+  local pieces: mut {string} = {}
   local w: Stream.Writer = {}
   w.write = function(_self: Stream.Writer, data: string): boolean, string
     pieces[#pieces + 1] = data

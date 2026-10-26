@@ -71,8 +71,8 @@ local record verb
 
   --- What a sums file holds.
   record Sums
-    entries: {Entry}
-    bad: {Bad}
+    entries: mut {Entry}
+    bad: mut {Bad}
   end
 end
 

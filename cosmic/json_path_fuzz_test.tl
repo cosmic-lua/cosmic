@@ -261,7 +261,7 @@ end
 --- What a reference walk visits under a node: its children, an array's
 --- in order to its highest position, an object's in byte order.
 local function reference_children(node: Json.Match): {Json.Match}
-  local out: {Json.Match} = {}
+  local out: mut {Json.Match} = {}
   local v = node.value
   if not (v is {any: any}) then return out end
   local t = v as {any: any}

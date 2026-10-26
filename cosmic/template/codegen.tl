@@ -104,10 +104,10 @@ end
 --- each with the name it is given, and those whose value it reads. The
 --- rest it requires as `local type`, which loads nothing at run time.
 local record Imports
-  order: {string}
-  alias_of: {string: string}
-  taken: {string: boolean}
-  as_value: {string: boolean}
+  order: mut {string}
+  alias_of: mut {string: string}
+  taken: mut {string: boolean}
+  as_value: mut {string: boolean}
 end
 
 --- What generation carries: the text so far, the generated line it is

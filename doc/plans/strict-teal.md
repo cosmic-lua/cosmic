@@ -295,6 +295,14 @@ stack can carry.
   hardening against a misuse of an internal API that no caller makes. a
   prose nit rides with the next change and never starts a round of its
   own. a piece is briefed to its builder in a page, not the whole plan.
+- **a tagged union's member may have a tag of several values, provided
+  no value is in two members (the owner's decision).** the syntax of the
+  types has an `Atom` of ten tags that the rest of the tree tests as one
+  member. the alternatives were ten records for the atoms, which loses
+  "the tag is the name" and rewrites about 400 sites, and a member
+  without a tag, which stops the narrowing at the atom. disjointness is
+  still checked, so the rule stays sound: a literal selects at most one
+  member.
 - **optimize for the strong design; it is easy to rewrite the existing
   code.** rewrite cost is not a reason to choose a weaker rule. a rule is
   chosen for soundness and simplicity, and the tree is rewritten to it.
@@ -706,10 +714,20 @@ and `coroutine.wrap` in the checker go.
 ### tagged unions
 
 an extension. a union of records is legal when each member has the same
-field typed by a distinct single-member enum, and comparing that field
-with a literal narrows the union. a chain of tests that covers every
-member leaves `never` in its final branch, so a function that must return
-can end there. `is` applies to primitive types, enums, `nil`, function and
+fixed field typed by an enum, and no value of any member's enum is in
+another member's: a member's tag may have several values. comparing that
+field with a literal narrows the union: `==` selects the member whose enum
+has the value, and the member keeps all its values; `~=` (and the false
+branch of `==`) rules the value out for the member on that path, and removes the
+member once every value of its enum has been ruled out, so a member of
+`"a" | "b"` stays after a test of `"a"`, and a chain of tests over both values
+leaves the rest and ends a function that must return. what is ruled out is
+kept for the place until it is assigned, and where two paths meet only what both
+ruled out remains. a value in two members is `untagged_union`, and the error
+names both members, in declaration order, and the value. `assert(x.kind == "a")`
+narrows as the test does. a chain of tests that covers every member leaves
+`never` in its final branch, so a function that must return can end there.
+`is` applies to primitive types, enums, `nil`, function and
 table kinds, and classes; `v is R` for a record `R` that is not a class is
 refused, since Lua erases the record, and the error names a tag field or
 a [`cosmic.shape`] validator. `is` on a parenthesized name or field is
@@ -727,6 +745,11 @@ so the union is not assignable to one of its members (`local e: E1 = x` is
 the fork refused the declaration, since it can tell the members of a union
 apart only by `type()`, which answers "string" for all of them; `is` on an
 enum tests the membership of the string, which does.
+
+a method call on a value of an enum, of a union of enums, or of enums and
+`string` resolves in `string` (`k:upper()` is a `string`, never the enum),
+while the read of a member as a value (`k.upper`), a field (`k.x`), an index
+and a write to a member stay refused.
 
 ### literals of the string library are read
 

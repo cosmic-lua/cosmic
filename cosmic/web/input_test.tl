@@ -584,7 +584,7 @@ end
 local function test_a_json_body_reports_where_it_failed()
   local e = json_error('{"title":"t","qty":"x"}')
   assert(e.source == "body" and e.field == "qty" and e.pointer == "/qty" and e.code == "integer")
-  assert(e.message == 'expected integer, got string', e.message)
+  assert(e.message == 'want integer, got string', e.message)
   e = json_error('{"title":"t","qty":1,"address":{"city":5}}')
   assert(e.field == "address.city" and e.pointer == "/address/city" and e.code == "type", e.field)
   e = json_error('{"title":"t","qty":1,"tags":["a",2]}')
@@ -601,7 +601,7 @@ end
 
 local function test_a_json_pointer_with_escapes_is_one_dotted_field()
   local spec = Shape.record({ ["a/b"] = Shape.record({ ["c~d"] = Shape.integer }) })
-  local typed: Shape.Typed<{string:any}> = { spec = spec,
+  local typed: Shape.Typed<{string:any}> = { name = "Escapes", spec = spec,
     into = function(_self: Shape.Typed<{string:any}>, _v: any): {string:any}?, string
       return nil, ""
     end,
@@ -613,6 +613,32 @@ local function test_a_json_pointer_with_escapes_is_one_dotted_field()
     local e = assert(read.invalid).errors[1]
     assert(e.pointer == "/a~1b/c~0d" and e.field == "a/b.c~d", tostring(e.pointer) .. " " .. tostring(e.field))
   end)
+end
+
+local function test_a_json_body_failure_at_an_odd_key_keeps_its_pointer()
+  local cases: {{string}} = {
+    { 'a"b', '/a"b/1', 'a"b.1' },
+    { "", "//1", ".1" },
+    { "x\\y", "/x\\y/1", "x\\y.1" },
+    { "caf\u{e9} 1st", "/caf\u{e9} 1st/1", "caf\u{e9} 1st.1" },
+  }
+  for _, case in ipairs(cases) do
+    local key, want_pointer, want_field = assert(case[1]), assert(case[2]), assert(case[3])
+    local spec = Shape.record({ [key] = Shape.list(Shape.integer) })
+    local typed: Shape.Typed<{string:any}> = { name = "Odd", spec = spec,
+      into = function(_self: Shape.Typed<{string:any}>, _v: any): {string:any}?, string
+        return nil, ""
+      end,
+      decode_into = function(_self: Shape.Typed<{string:any}>, _t: string, _o?: Json.DecodeOptions): {string:any}?, string
+        return nil, ""
+      end }
+    with_request("POST", { json = { [key] = { 1, "x" } } }, function(req: Web.Request)
+      local read = Input.json_into(req, typed)
+      local e = assert(assert(read.invalid).errors[1])
+      assert(e.pointer == want_pointer and e.field == want_field, key .. ": " .. tostring(e.pointer) .. " " .. tostring(e.field))
+      assert(e.code == "integer" and e.message == "want integer, got string", tostring(e.message))
+    end)
+  end
 end
 
 local function test_a_valid_json_body_is_a_record()

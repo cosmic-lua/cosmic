@@ -174,7 +174,7 @@ local record Types
     slots: {any:any}
     --- The stream bodies made for this request ([`Sse.EventStream`]):
     --- the app closes those the final reply does not carry.
-    bodies: {Stream.Reader}
+    bodies: mut {Stream.Reader}
     --- The body once read, nil until then.
     body_text?: string
     --- Why reading the body failed, nil until it did.
@@ -429,7 +429,7 @@ local record Types
   --- The routes that end at one node, by method.
   record Methods
     --- The terminal of each method.
-    by_method: {string: Terminal}
+    by_method: mut {string: Terminal}
   end
 
   --- What a mount makes of the segments after its prefix.
@@ -447,7 +447,7 @@ local record Types
   --- One node of the trie of segments.
   record Node
     --- The children matching one literal segment.
-    literal: {string: Node}
+    literal: mut {string: Node}
     --- The child matching any one segment, parameter names aside.
     param?: Node
     --- The routes whose pattern ends here.
@@ -587,7 +587,7 @@ local record Types
     --- Whether the server has begun to stop.
     stopped: boolean
     --- The functions [`on_stop`] registered.
-    stoppers: {function()}
+    stoppers: mut {function()}
     --- The open event streams: how to end each, by a key of its own. For
     --- [`Sse.EventStream`] alone.
     streams: {any: function()}

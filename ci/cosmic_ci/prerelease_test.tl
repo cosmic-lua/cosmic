@@ -75,6 +75,21 @@ local function test_release_text_is_the_shell_scripts()
       "hashes before publication.\n")
 end
 
+-- TODO: once ci/cosmic-driver.pin names a release whose Shape failures read
+-- `$.a[0].b: want string, got integer`, match that form only.
+
+--- Whether `said` holds the Shape failure at JSON Pointer `at` that wants `expected`
+--- (`string, got integer`), in the form of the release running the test or the tree's.
+local function shape_failure(said: string, at: string, expected: string): boolean
+  if said:find('pointer "' .. at .. '": expected ' .. expected, 1, true) then return true end
+  local path = "$"
+  for segment in at:gmatch("/([^/]*)") do
+    path = path .. (if segment:find("^%d+$") then "[" .. segment .. "]" else "." .. segment end)
+  end
+  local rest = if expected:find(", got nothing$") then "missing" else "want " .. expected end
+  return said:find(path .. ": " .. rest, 1, true) ~= nil
+end
+
 local function test_source_valid()
   local digest = string.rep("ab", 32)
   local function valid(text: string): boolean
@@ -104,7 +119,7 @@ local function test_source_valid()
     local accepted, trouble = Prerelease.source_valid(text, commit, digest, run_prefix)
     assert(not accepted, text)
     assert(trouble:find("source.json is no source record: ", 1, true) and
-        trouble:find('pointer "' .. at .. '": expected ' .. expected, 1, true), trouble)
+        shape_failure(trouble, at, expected), trouble)
   end
   unshaped('{"commit":"' .. commit .. '","digest":"' .. digest .. '","run_url":1}',
     "/run_url", "string, got integer")
@@ -293,10 +308,6 @@ local record GitObjectJson
   type: string
 end
 
--- TODO: go back to [`Shape.record_of`] below, once ci/cosmic-driver.pin names a release whose Shape.record_of reads
--- optional fields: the pinned release's reads `f?: any` as a required field. It is spelled out with [`Shape.record`] and
--- [`Shape.optional`] until then, the call [`Shape.record_of`] would be given.
-
 --- What a request of the publish may send as its JSON body: a field of any.
 local record RequestBody
   ref?: any
@@ -307,10 +318,7 @@ local record RequestBody
   draft?: any
   prerelease?: any
 end
-local REQUEST_BODY <const> = Shape.record_of("RequestBody", Shape.record({
-  ["body"] = Shape.optional(Shape.any), ["draft"] = Shape.optional(Shape.any), ["name"] = Shape.optional(Shape.any),
-  ["prerelease"] = Shape.optional(Shape.any), ["ref"] = Shape.optional(Shape.any), ["sha"] = Shape.optional(Shape.any),
-  ["tag_name"] = Shape.optional(Shape.any) }), function(): RequestBody error("witness") end)
+local REQUEST_BODY <const> = Shape.record_of("RequestBody")
 
 local function reply(status: integer, body: string, headers?: {string:string}): GithubApi.Reply
   return { status = status, headers = headers or {}, body = body }

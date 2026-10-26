@@ -37,7 +37,7 @@ local function problem(reply: Web.TestResponse): {string:any}
 end
 
 local function test_a_typed_get_is_given_its_path_and_query_as_records()
-  local seen: {string} = {}
+  local seen: mut {string} = {}
   local app = Web.app{ routes = {
     Web.get_typed("/items/:id", Web.input(PATH, QUERY, Web.no_body),
       function(_req: Web.Request, p: ItemPath, q: Listing, b: Web.None): Web.Response
@@ -102,10 +102,10 @@ local function test_a_json_route_answers_a_problem_body_with_every_error_listed(
   assert(reply.status == 422)
   local body = problem(reply)
   assert(body.type == "about:blank" and body.title == "Unprocessable Content" and body.status == 422)
-  assert(body.detail == "qty: expected integer, got string", tostring(body.detail))
+  assert(body.detail == "qty: want integer, got string", tostring(body.detail))
   local errors = body.errors as {{string:any}}
   assert(#errors == 1 and errors[1].source == "body" and errors[1].field == "qty" and errors[1].pointer == "/qty")
-  assert(errors[1].code == "integer" and errors[1].message == "expected integer, got string")
+  assert(errors[1].code == "integer" and errors[1].message == "want integer, got string")
   reply = client:post("/items", { json = { title = "t", qty = 1 }, headers = { Accept = "text/html" } })
   assert(reply.status == 204)
   reply = client:post("/items", { json = { title = 5 }, headers = { Accept = "text/html" } })

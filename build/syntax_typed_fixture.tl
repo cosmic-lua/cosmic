@@ -144,10 +144,10 @@ local record Session
   run: function(source: string, module?: string, modules?: {string: string}): Programs.Run
 end
 
-local sessions: {string: Session} = {}
+local sessions: mut {string: Session} = {}
 local counter: {integer} = { 0 }
 local standard: {string} = {}
-local bindings: {string: string} = {}
+local bindings: mut {string: string} = {}
 
 function Fixture.subject(source: string, modules?: {string: string}): Report.Subject
   if standard[1] == nil then

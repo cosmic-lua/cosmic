@@ -326,7 +326,7 @@ local function test_an_encoder_writes_as_it_reads_but_a_decoder_holds_a_chunk()
   input.close = function(_self: Stream.Reader): boolean, string
     return true, ""
   end
-  local seen: {integer} = {}
+  local seen: mut {integer} = {}
   local code = codec.run({ "codec", "hex" }, {
     input = function(): Stream.Reader?, string return input, "" end,
     out = function(_text: string): boolean, string

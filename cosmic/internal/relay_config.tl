@@ -107,7 +107,7 @@ local record relay_config
     config: Config
     --- The starter's ends of the connectors' control streams, by the
     --- descriptor of the relay's each is handed at.
-    fds: {integer: integer}
+    fds: mut {integer: integer}
     --- Ends the connectors and reaps them, once the relay has ended or
     --- will not start. Safe to call more than once.
     close: function()
@@ -200,8 +200,8 @@ function relay_config.proxy_env(loopback: {string}, port?: integer, token?: stri
   local http = "http://" .. userinfo .. "127.0.0.1:" .. (port or relay_config.http_port)
   local socks = "socks5h://" .. userinfo .. "127.0.0.1:" .. (port or relay_config.socks_port)
   local targets = connect or {}
-  local direct: {string} = {}
-  local listed: {string:boolean} = {}
+  local direct: mut {string} = {}
+  local listed: mut {string:boolean} = {}
   local function keep(address: string)
     if not listed[address] and relay_config.naming(targets, address) == "" then
       listed[address] = true
@@ -249,7 +249,7 @@ end
 --- @param if_inet6 string The text of /proc/self/net/if_inet6
 --- @return {string} The addresses
 function relay_config.parse_addresses(fib_trie: string, if_inet6: string): {string}
-  local seen: {string:boolean} = {}
+  local seen: mut {string:boolean} = {}
   local found: mut {string} = {}
   local function add(address: string)
     if not seen[address] then

@@ -61,7 +61,7 @@ end
 --- Connections are served at once, each in a task of its own: the last
 --- to connect is answered while the first still waits to be read.
 local function test_several_connections_are_served_at_once()
-  local answers: {string} = {}
+  local answers: mut {string} = {}
   assert(Net.serve{
     listeners = { Net.tcp("127.0.0.1", 0) },
     serve = echo,
@@ -83,7 +83,7 @@ end
 --- on_error with where it was raised, and the others, and the
 --- listener, are served on.
 local function test_an_error_in_one_connection_leaves_the_others_served()
-  local troubles: {string} = {}
+  local troubles: mut {string} = {}
   local later = { value = "" }
   assert(Net.serve{
     listeners = { Net.tcp("127.0.0.1", 0) },
@@ -295,8 +295,8 @@ end
 --- its `<close>` variables are closed, its connection with them, and
 --- nothing is reported of it.
 local function test_a_protocol_ignoring_failures_is_killed_at_grace_ns()
-  local failures: {string} = {}
-  local errors: {string} = {}
+  local failures: mut {string} = {}
+  local errors: mut {string} = {}
   local started = { value = 0 }
   local closed = { value = 0 }
   local closer_mt: metatable<Closer> = { __close = function() closed.value = closed.value + 1 end }
@@ -338,7 +338,7 @@ end
 --- What a killed protocol's `<close>` handler raises is reported, and
 --- the rest are served on to their end.
 local function test_a_killed_protocols_close_error_is_reported()
-  local errors: {string} = {}
+  local errors: mut {string} = {}
   local started = { value = false }
   local raiser_mt: metatable<Closer> = { __close = function() error("broken close", 0) end }
   local held = { value = nil as Client? }
@@ -368,7 +368,7 @@ end
 --- that reads nothing, and another wait raises, reported; Net.serve
 --- returns soon after grace_ns.
 local function test_a_killed_protocols_close_cannot_wait()
-  local errors: {string} = {}
+  local errors: mut {string} = {}
   local wrote = { value = "" }
   local started = { value = false }
   local returned_at = 0
@@ -642,7 +642,7 @@ end
 local function on_stop_runs_once_at_stop_at(path: string?)
   local calls = { value = 0 }
   local finished = { value = false }
-  local seen: {string} = {}
+  local seen: mut {string} = {}
   local serving = { value = nil as Net.Server? }
   local bound = { value = nil as Net.Address? }
   assert(Net.serve{
@@ -718,7 +718,7 @@ end
 --- for a line and, where `closing`, closing them in on_stop; and what
 --- the idle client read at the end.
 local function stopped_with_an_idle_client(closing: boolean, grace_ns: integer): integer, string
-  local idle: {Net.Conn: boolean} = {}
+  local idle: mut {Net.Conn: boolean} = {}
   local stopped_at = { value = 0 }
   local idle_client = { value = nil as Client? }
   local spec: Net.ServeSpec = {
@@ -771,7 +771,7 @@ end
 --- What on_stop raises goes to on_error, with its stack, and the
 --- server stops all the same.
 local function a_raising_on_stop_reaches_on_error_and_the_server_stops_at(path: string?)
-  local troubles: {string} = {}
+  local troubles: mut {string} = {}
   local bound = { value = nil as Net.Address? }
   local ok, why = Net.serve{
     listeners = { listener_at(path) },

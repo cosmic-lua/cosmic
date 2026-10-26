@@ -88,7 +88,7 @@ local downloaded: Http.DownloadResult = { kind = "downloaded", reason = "" }
 --- advance the clock.
 local function scripted(replies: {string:{Http.DownloadResult}}, calls: mut {string},
                         sleeps: mut {integer}, per_call_ns?: integer, seen?: mut {Http.Options}): ZigFetch.Fetcher
-  local served: {string:integer} = {}
+  local served: mut {string:integer} = {}
   local clock = { value = 0 }
   return {
     download = function(url: string, path: string, opts: Http.Options): Http.DownloadResult
@@ -123,8 +123,8 @@ local function scripted(replies: {string:{Http.DownloadResult}}, calls: mut {str
 end
 
 local function test_fetch_falls_through_a_failing_source_to_the_next(tmp: string)
-  local calls: {string} = {}
-  local sleeps: {integer} = {}
+  local calls: mut {string} = {}
+  local sleeps: mut {integer} = {}
   local path = tmp .. "/zig.tar.xz"
   assert(Fs.write(path, "left over"))
   local ok, trouble = ZigFetch.fetch({ "http://one", "http://two" }, path, "abc", scripted({
@@ -138,8 +138,8 @@ local function test_fetch_falls_through_a_failing_source_to_the_next(tmp: string
 end
 
 local function test_fetch_moves_past_a_sha_mismatch_and_never_asks_that_source_again(tmp: string)
-  local calls: {string} = {}
-  local sleeps: {integer} = {}
+  local calls: mut {string} = {}
+  local sleeps: mut {integer} = {}
   local ok, trouble = ZigFetch.fetch({ "http://bad", "http://slow" }, tmp .. "/z", "abc", scripted({
     ["http://bad"] = { mismatch("z: sha256 mismatch: want abc, got def") },
     ["http://slow"] = { failed("timed out"), downloaded },
@@ -150,8 +150,8 @@ local function test_fetch_moves_past_a_sha_mismatch_and_never_asks_that_source_a
 end
 
 local function test_fetch_names_every_source_when_all_fail(tmp: string)
-  local calls: {string} = {}
-  local sleeps: {integer} = {}
+  local calls: mut {string} = {}
+  local sleeps: mut {integer} = {}
   local ok, trouble = ZigFetch.fetch({ "http://one", "http://two", "http://three" }, tmp .. "/z", "abc",
     scripted({
       ["http://one"] = { failed("couldn't connect") },
@@ -170,8 +170,8 @@ local function test_fetch_names_every_source_when_all_fail(tmp: string)
 end
 
 local function test_fetch_asks_the_fallback_again_after_a_mismatch(tmp: string)
-  local calls: {string} = {}
-  local sleeps: {integer} = {}
+  local calls: mut {string} = {}
+  local sleeps: mut {integer} = {}
   local ok, trouble = ZigFetch.fetch({ "http://mirror", "http://fallback" }, tmp .. "/z", "abc",
     scripted({
       ["http://mirror"] = { mismatch("z: sha256 mismatch: want abc, got def") },
@@ -186,8 +186,8 @@ end
 --- the fallback has none, and once the budget is spent it is tried one
 --- last time on its own.
 local function test_fetch_bounds_mirrors_by_the_budget_and_never_the_fallback(tmp: string)
-  local calls: {string} = {}
-  local sleeps: {integer} = {}
+  local calls: mut {string} = {}
+  local sleeps: mut {integer} = {}
   local seen: {Http.Options} = {}
   -- Each attempt takes five minutes, and the budget is twelve.
   local ok, trouble = ZigFetch.fetch({ "http://mirror", "http://fallback" }, tmp .. "/z", "abc",
@@ -217,7 +217,7 @@ end
 --- A real structured download classifies a scripted wrong body as a
 --- mismatch, so the mirror is barred and the fallback remains retryable.
 local function test_fetch_sees_a_real_mismatch(tmp: string)
-  local calls: {string} = {}
+  local calls: mut {string} = {}
   local fetcher: ZigFetch.Fetcher = {
     download = function(url: string, path: string, opts: Http.Options): Http.DownloadResult
       calls[#calls + 1] = url
@@ -264,8 +264,8 @@ local function test_limits_preserve_native_nanoseconds()
 end
 
 local function test_fetch_classifies_mismatches_independently_of_reason_text(tmp: string)
-  local calls: {string} = {}
-  local sleeps: {integer} = {}
+  local calls: mut {string} = {}
+  local sleeps: mut {integer} = {}
   local ok, why = ZigFetch.fetch({ "wrong", "transport", "status", "fallback" }, tmp .. "/z", "abc", scripted({
     wrong = { mismatch("unexpected bytes") },
     transport = { failed("sha256 mismatch in transport's own diagnostic") },

@@ -183,7 +183,7 @@ local function test_modules_are_streamed_after_the_modules_among_them_that_they_
   local function streamed(modules: {string}): string
     local build = Driver.new({ globals = {}, adjust = nil, external = {}, types = false })
     build:provide(Driver.files(index))
-    local seen: {string} = {}
+    local seen: mut {string} = {}
     local refused = TreeProgram.stream(build, index, modules, true, function(module: string)
       local result = build:result(module, false)
       assert(result == nil or result.lowered ~= nil, module)

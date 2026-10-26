@@ -39,11 +39,11 @@ local function options(store: Session.Store, extra?: Extra): Session.Options
   return o
 end
 
-local seen: {Session.Handle} = {}
+local seen: mut {Session.Handle} = {}
 
 --- An app with routes over the session.
 local function make_app(opts: Session.Options, spec?: Web.AppSpec): Web.App
-  local lines: {string} = {}
+  local lines: mut {string} = {}
   local made: Web.AppSpec = spec or {}
   if made.sink == nil then
     made.sink = { line = function(_self: Web.Sink, text: string)
@@ -264,7 +264,7 @@ local function test_a_cookie_signed_under_a_retired_key_is_reissued_under_the_ne
 end
 
 local function test_a_handler_that_raises_saves_nothing_but_a_4xx_keeps_its_changes()
-  local lines: {string} = {}
+  local lines: mut {string} = {}
   local app = Web.app{
     sink = { line = function(_self: Web.Sink, text: string) lines[#lines + 1] = text end },
     middleware = { Session.middleware(options(cookie_store())) },
@@ -353,7 +353,7 @@ local function test_a_failing_store_is_a_500_and_a_cookie_over_the_limit_is_rais
     end,
     destroy = function(_: Session.Store, _t: string): boolean, string return true, "" end,
   }
-  local lines: {string} = {}
+  local lines: mut {string} = {}
   local spec: Web.AppSpec = { sink = { line = function(_self: Web.Sink, text: string)
     lines[#lines + 1] = text
   end } }
@@ -537,7 +537,7 @@ end
 
 local function test_a_value_at_the_depth_limit_survives_and_one_past_it_raises_at_the_set()
   for _, make in ipairs({ cookie_store, function(): Session.Store return (sqlite_store()) end }) do
-    local reasons: {string} = {}
+    local reasons: mut {string} = {}
     local app = Web.app{
       middleware = { Session.middleware(options(make())) },
       routes = {
@@ -565,7 +565,7 @@ local function test_a_value_at_the_depth_limit_survives_and_one_past_it_raises_a
 end
 
 local function test_a_flash_that_is_not_utf8_raises_at_the_call()
-  local reasons: {string} = {}
+  local reasons: mut {string} = {}
   local app = Web.app{
     middleware = { Session.middleware(options(cookie_store())) },
     routes = { Web.post("/f", function(req: Web.Request): Web.Response

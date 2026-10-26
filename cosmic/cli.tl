@@ -1,7 +1,8 @@
 --- Help for the `cosmic` verbs: `cosmic help` prints an index of them
 --- and `cosmic help <verb>` one verb's full text, generated from one
---- field per verb (`cosmic docs test`, `build`, `fix`, ... answer with
---- the same text, ahead of the module of that name when there is one).
+--- field per verb (`cosmic docs Cli.test`, [`Cli.build`], ... answer with
+--- the same text). Where a module has the verb's name (`json`, `test`),
+--- `cosmic docs json` shows the module and ends with a line pointing here.
 --- This is not an argument parser for a project's own command line: a
 --- project's cmd/<name>/main.tl gets its arguments as a plain array, and
 --- `Flags.parse(argv, 1, spec)` from cosmic.flags reads its options, or

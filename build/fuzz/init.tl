@@ -328,7 +328,7 @@ end
 
 --- Builds the input `values` replay to, with the draws that built it.
 local function build(gen: function(Fuzz.Source): string, values: {integer}): string, {Draw}
-  local draws: {Draw} = {}
+  local draws: mut {Draw} = {}
   local input = gen(replaying(values, draws))
   return input, draws
 end
@@ -385,7 +385,7 @@ local function run(p: Fuzz.Property): integer
   local counts: mut {string: integer} = {}
   local seeds = Rand.new(seed)
   for i = 1, iters do
-    local draws: {Draw} = {}
+    local draws: mut {Draw} = {}
     local mine: {string: boolean} = {}
     local case = case_seed or seeds:int(math.mininteger, math.maxinteger)
     local where = case_name ~= nil and ("FUZZ_CASE=%s:%d"):format(case_name, case) or

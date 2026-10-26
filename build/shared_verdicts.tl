@@ -80,11 +80,11 @@ local record shared_verdicts
     --- Each row it keeps, or stands on unnamed, is stamped with them;
     --- nil for none.
     parts?: string
-    kept: {Kept}
+    kept: mut {Kept}
     --- Keys the run relied on, which stay the longer for it.
-    used: {string}
+    used: mut {string}
     --- Keys the run failed under, whose rows go.
-    failed: {string}
+    failed: mut {string}
     --- The digest of the bytes of each closure store the run keyed a
     --- test by, by the store's address ([`build.closure_store`]'s
     --- `address`): kept, or stamped as relied on, so a checkout without

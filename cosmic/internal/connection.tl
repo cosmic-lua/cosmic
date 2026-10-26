@@ -27,6 +27,13 @@ local record Connection
     timeout_ns?: integer
   end
 
+  --- Which direction of a connection [`Conn.shutdown`] ends.
+  enum Shutdown
+    "read"
+    "write"
+    "both"
+  end
+
   --- A connection, answered by `accept` and [`Net.connect`]: a
   --- [`Stream.Reader`] of what the peer sends and a [`Stream.Writer`] to
   --- it.
@@ -61,8 +68,9 @@ local record Connection
     peer: function(Conn): Address?, string
     --- Ends one direction, or both: after "write" the peer reads the
     --- end of what was sent, and this side can still read its answer.
-    --- A `how` that is none of "read", "write" and "both" raises.
-    shutdown: function(Conn, how: string): boolean, string
+    --- A `how` that is none of "read", "write" and "both" is refused where
+    --- it is written; a caller the checker does not read raises.
+    shutdown: function(Conn, how: Shutdown): boolean, string
     --- Closes the connection. Safe to call more than once.
     close: function(Conn): boolean, string
     --- The same as `close`: nothing sent can be taken back.

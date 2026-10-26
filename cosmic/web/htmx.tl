@@ -319,7 +319,7 @@ end
 --- @return Types.Response | nil The same response, or nil
 --- @return string Why it was refused
 function Htmx.apply(res: Types.Response, reply: Htmx.Reply): Types.Response?, string
-  local lines: {{string}} = {}
+  local lines: mut {{string}} = {}
   local function put(name: string, value: string)
     lines[#lines + 1] = { name, value }
   end

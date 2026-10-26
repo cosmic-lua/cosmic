@@ -78,7 +78,7 @@ local record bom
     --- As `sha256`, for the upstream that publishes SHA3-256.
     sha3_256: string
     license: string
-    notices: {bom.Notice}
+    notices: mut {bom.Notice}
   end
 
   --- One component as the database holds it.

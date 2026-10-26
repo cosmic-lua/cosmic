@@ -139,6 +139,7 @@ local function results_of(f: Types.Type?): {Types.Type}?, boolean
     return nil, false
   end
   local alt = f.rets[1]
+  assert(alt ~= nil)
   local out: mut {Types.Type} = {}
   for _, item in ipairs(alt.items) do
     out[#out + 1] = item
@@ -250,8 +251,8 @@ local record Index
 end
 
 local function index_of(subject: Subject): Index
-  local order: {Ast.Node} = {}
-  local kids: {integer: {Ast.Node}} = {}
+  local order: mut {Ast.Node} = {}
+  local kids: mut {integer: {Ast.Node}} = {}
   Node.walk(subject.chunk, function(n: Ast.Node)
     order[#order + 1] = n
     kids[Node.base(n).id] = Node.children(n)
@@ -312,7 +313,7 @@ end
 --- Every function literal a top-level statement binds, by what it is bound to: `f` in `f = function`, `R.g` in
 --- `R.g = function`, and `t.g` in `local t = { g = function ... end }`.
 local function bound_names(subject: Subject): {integer: string}
-  local out: {integer: string} = {}
+  local out: mut {integer: string} = {}
   --- The function literals of the items of a table constructor bound to `name`, as `name.key`.
   local function items(name: string, table_node: Ast.Table)
     for _, item in ipairs(table_node.items) do
@@ -455,10 +456,10 @@ end
 
 --- The exemptions a check found use for, by table, `"file:function"` each: one never used names nothing it excuses.
 local record Used
-  exempt: {string: boolean}
-  parsing: {string: boolean}
-  casts: {string: boolean}
-  modes: {string: boolean}
+  exempt: mut {string: boolean}
+  parsing: mut {string: boolean}
+  casts: mut {string: boolean}
+  modes: mut {string: boolean}
 end
 
 --- The state one check keeps for its rules.
@@ -491,7 +492,7 @@ end
 
 --- Every return statement that belongs to the function with `body` itself, not to a function nested in it.
 local function returns_of(run: Run, body: Ast.Block): {Ast.Return}
-  local out: {Ast.Return} = {}
+  local out: mut {Ast.Return} = {}
   local function go(n: Ast.Node)
     if (n.kind == "Return") then
       out[#out + 1] = n
@@ -871,7 +872,7 @@ local function check_inspections(run: Run)
   local subject = run.subject
   local index = run.index
   local tokens = subject.chunk.tokens
-  local bindings: {string: {Binding}} = {}
+  local bindings: mut {string: {Binding}} = {}
   local reads: mut {{Ast.Node}} = {}
   --- Binds the name `name` from `at` on. A `local` or an assignment binds after its own right-hand side, which reads the
   --- binding before it.
@@ -1130,7 +1131,9 @@ local function exported_functions(run: Run): {Exported}
           if f ~= nil and (f.tag == "fn") then
             held[1] = f
           elseif f ~= nil and (f.tag == "union") then
-            held = f.members
+            for _, member_type in ipairs(f.members) do
+              held[#held + 1] = member_type
+            end
           end
           for _, one in ipairs(held) do
             if (one.tag == "fn") then
@@ -1449,7 +1452,8 @@ local function stringish(t: Types.Type?): boolean
     return true
   end
   if (t.tag == "union") then
-    return #t.members == 1 and t.members[1].tag == "string"
+    local only = t.members[1]
+    return #t.members == 1 and only ~= nil and only.tag == "string"
   end
   return false
 end
@@ -1457,7 +1461,7 @@ end
 --- Every string field (`stringish`) of every option record (`Options`, `...Options`) the chunk declares at its top level,
 --- nested ones included, by the record's declaration and then the field's name.
 local function string_fields(run: Run): {Types.Decl: {string: Declared}}
-  local out: {Types.Decl: {string: Declared}} = {}
+  local out: mut {Types.Decl: {string: Declared}} = {}
   local subject = run.subject
   local function visit(path: string, at: Ast.Node)
     local decl = subject.lowered.decls[Node.base(at).id]
@@ -1502,10 +1506,10 @@ local function check_modes(run: Run)
   local subject = run.subject
   local index = run.index
   -- Each local function by its name, for a call to bind its parameters.
-  local functions: {string: Ast.Node} = {}
+  local functions: mut {string: Ast.Node} = {}
   -- The names each function binds, and those holding a field's value.
-  local binds: {integer: {string: boolean}} = {}
-  local holding: {integer: {string: Declared}} = {}
+  local binds: mut {integer: {string: boolean}} = {}
+  local holding: mut {integer: {string: Declared}} = {}
   local function bind(scope: Ast.Node, name: string?, field: Declared?)
     if name == nil then
       return
@@ -1530,7 +1534,7 @@ local function check_modes(run: Run)
     end
     return nil
   end
-  local literals: {Declared: {string: boolean}} = {}
+  local literals: mut {Declared: {string: boolean}} = {}
   local function note(field: Declared, literal: Ast.Node?)
     if literal ~= nil and (literal.kind == "String") and literal.value ~= "" then
       local set = literals[field] or {}

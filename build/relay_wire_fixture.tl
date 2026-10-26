@@ -86,7 +86,7 @@ end
 --- the next `sizes[2]`, and the last all that is left. `version` is the
 --- records' legacy version, 0x0301 when nil.
 function relay_wire_fixture.records(message: string, sizes?: {integer}, version?: integer): string
-  local out: {string} = {}
+  local out: mut {string} = {}
   local at = 1
   local function record(payload: string)
     out[#out + 1] = "\22" .. relay_wire_fixture.be(version or 0x0301, 2) .. relay_wire_fixture.be(#payload, 2) .. payload

@@ -94,9 +94,9 @@ local function run(words: {string}, script: {string}, env?: {string:string}, api
   for i, word in ipairs(words) do argv[i + 1] = word end
   local scripts: mut {{string}} = {}
   for i, one in ipairs(script) do scripts[i] = { one } end
-  local out: {string} = {}
-  local err: {string} = {}
-  local asked: {string} = {}
+  local out: mut {string} = {}
+  local err: mut {string} = {}
+  local asked: mut {string} = {}
   local code = release.run(argv, {
     requested = function(url: string) asked[#asked + 1] = url end,
     script = scripts,

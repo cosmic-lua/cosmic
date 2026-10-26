@@ -63,7 +63,7 @@ end
 
 local function test_an_atom_displays_as_it_is_spelled()
   local store = Types.new()
-  local names: {Types.Tag} = { "integer", "number", "string", "boolean", "true", "false", "nil", "never", "any" }
+  local names: {Types.Atom_tag} = { "integer", "number", "string", "boolean", "true", "false", "nil", "never", "any" }
   for _, name in ipairs(names) do
     local t = store:atom(name)
     same(shown(t), name)
@@ -204,6 +204,51 @@ local function test_never_and_any_and_invalid_are_the_forms_they_are()
   local s = Types.new()
   assert(s.never.tag == "never" and s.any.tag == "any" and s.invalid.tag == "invalid")
   assert(s.never ~= s.any and s.any ~= s.invalid)
+end
+
+--- What `t` is, told by its tag alone: each branch reads what only its form has, and the chain covers every form of
+--- [`Types.Type`], so the last return is the atoms'.
+local function describe(t: Types.Type): string
+  if t.tag == "named" then
+    return t.decl.name .. "/" .. tostring(#t.args)
+  elseif t.tag == "array" then
+    return "{" .. describe(t.element) .. "}"
+  elseif t.tag == "map" then
+    return "{" .. describe(t.key) .. ": " .. describe(t.value) .. "}"
+  elseif t.tag == "union" then
+    return "union of " .. tostring(#t.members) .. (if t.nilable then " and nil" else "" end)
+  elseif t.tag == "var" then
+    return "var " .. tostring(t.depth) .. "." .. tostring(t.index)
+  elseif t.tag == "fn" then
+    return "fn of " .. tostring(#t.params)
+  end
+  assert(t.atom == true, "a form this test does not know")
+  return t.tag
+end
+
+local function test_a_type_is_told_from_the_other_forms_by_its_tag()
+  local w = world()
+  local s = w.store
+  same(describe(s.integer), "integer")
+  same(describe(s:atom("invalid")), "invalid")
+  same(describe(named(w, "List", { s.integer })), "List/1")
+  same(describe(s:array(s.string)), "{string}")
+  same(describe(s:map(s.string, s.integer, true)), "{string: integer}")
+  same(describe(s:union({ s.string, s:atom("nil") })), "union of 1 and nil")
+  same(describe(s:union({ s.string, s.boolean })), "union of 2")
+  same(describe(s:var(1, 2)), "var 1.2")
+  same(describe(s:fn({ params = { { type = s.string } }, rets = { { items = { s.integer } } } })), "fn of 1")
+end
+
+local function test_only_the_ten_first_types_of_a_store_are_atoms()
+  local w = world()
+  local s = w.store
+  local _ = named(w, "Node")
+  local _ = s:array(s.string)
+  assert(#s.types > 10)
+  for i, t in ipairs(s.types) do
+    assert((t.atom == true) == (i <= 10), "type " .. tostring(i) .. " " .. shown(t))
+  end
 end
 
 -- interning ----------------------------------------------------------------------

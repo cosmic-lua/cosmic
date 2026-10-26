@@ -209,8 +209,8 @@ end
 local function test_a_failed_write_stops_the_statement()
   local root = project()
   local endless = "WITH RECURSIVE c(x) AS (SELECT 1 UNION ALL SELECT x + 1 FROM c) SELECT x FROM c"
-  local lines: {string} = {}
-  local complaints: {string} = {}
+  local lines: mut {string} = {}
+  local complaints: mut {string} = {}
   local summarized = { value = "" }
   local code = sql.run(argv_of({ endless }), root, {
     out = function(line: string): boolean, string

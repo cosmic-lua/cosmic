@@ -213,7 +213,7 @@ function Lex.lex(src: string, name: string): types.Lexed?, string
       end
     end
     advance(src, cur, open + (if dash then 3 else 2 end))
-    local tokens: {types.Token} = {}
+    local tokens: mut {types.Token} = {}
     local trimmed, why = words(src, cur, tokens, name, line, col)
     if trimmed == nil then
       return nil, why

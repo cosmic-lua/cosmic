@@ -67,7 +67,7 @@ local record link_text
     --- Each name, and each dotted path of a record's field or member:
     --- a set to look up, not to walk, since a Teal file's inherits what
     --- every comment of the file sees (`__index`).
-    names: {string: boolean}
+    names: mut {string: boolean}
     --- Each local bound to `require` of a module, and that module.
     aliases: {string: string}
   end
@@ -733,7 +733,7 @@ end
 --- Comments on consecutive lines, joined into blocks: a definition
 --- holds for the block it is in.
 function link_text.blocks_of(comments: {link_text.Comment}): {link_text.Block}
-  local out: {link_text.Block} = {}
+  local out: mut {link_text.Block} = {}
   -- The block being joined: its lines, and where each starts.
   local open: Joining = { lines = {}, starts = {} }
   local first, next_line = 0, -1

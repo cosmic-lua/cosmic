@@ -62,7 +62,7 @@ end
 --- The module `name` of the files written to `dir`, run with a `require` that finds the others there.
 local function module_of_dir(dir: string, name: string): any
   local env: mut {string: any} = {}
-  local made: {string: any} = {}
+  local made: mut {string: any} = {}
   env["require"] = function(wanted: string): any
     if made[wanted] == nil then
       local text = (assert(Fs.read(dir .. "/" .. wanted .. ".lua")))
