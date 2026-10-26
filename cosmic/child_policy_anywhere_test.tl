@@ -146,7 +146,7 @@ local function test_a_policy_that_is_not_met_fails_naming_the_field(tmp: string)
   skip_where_seatbelt_holds("a policy that is not met")
   local probe = stand_in_of(tmp)
   local base = itself(probe)
-  local function grants(): {Sandbox.Grant}
+  local function grants(): mut {Sandbox.Grant}
     local copy: mut {Sandbox.Grant} = {}
     for i, grant in ipairs(base) do copy[i] = grant end
     return copy

@@ -308,7 +308,7 @@ local function remember(client: Testing.Client, line: string, path: string)
 end
 
 --- The header lines of `reply`, in name order: `{name, value}`.
-local function lines_of(reply: Reply): {{string}}
+local function lines_of(reply: Reply): mut {{string}}
   local out: mut {{string}} = {}
   local headers = reply.headers or {}
   for _, name in ipairs(sorted_names(headers)) do

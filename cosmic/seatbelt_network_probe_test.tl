@@ -54,7 +54,7 @@ local function macos_only()
 end
 
 --- What a test saw, one line each.
-local function new_report(): {string}
+local function new_report(): mut {string}
   return {}
 end
 

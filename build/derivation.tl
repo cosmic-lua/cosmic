@@ -231,8 +231,8 @@ function derivation.packed_parses(db: Sqlite.Handle,
   local list = { text(json_list(hashes)) }
   local chosen = "WHERE source_hash IN (SELECT value FROM json_each(?1)) " ..
     "AND source_hash IN (SELECT source_hash FROM parsed)"
-  local requires: mut {string:{string}} = {}
-  local pieces: mut {string:{string}} = {}
+  local requires: mut {string:mut {string}} = {}
+  local pieces: mut {string:mut {string}} = {}
   local unpackable: mut {string:boolean} = {}
   local names, trouble = Sqlite.text_rows(db,
     "SELECT source_hash, name FROM requires " .. chosen .. " ORDER BY source_hash, ordinal", list)
@@ -246,7 +246,7 @@ function derivation.packed_parses(db: Sqlite.Handle,
     local rows, rows_trouble = Sqlite.rows(db,
       "SELECT * FROM " .. name .. " " .. chosen .. " ORDER BY 1, 2", list)
     if rows == nil then return nil, rows_trouble end
-    local by_hash: mut {string:{string}} = {}
+    local by_hash: mut {string:mut {string}} = {}
     local counts: mut {string:integer} = {}
     for _, row in ipairs(rows) do
       local hash = row:kind(1) == "text" and row:text(1) or ""

@@ -106,7 +106,7 @@ local function host(): {{string}}
 end
 
 --- The system's own paths a shell needs, each where this host has it.
-local function system(): {string}
+local function system(): mut {string}
   local found: mut {string} = {}
   for _, path in ipairs({ "/bin", "/sbin", "/usr", "/lib", "/lib64", "/etc", "/proc",
       "/dev/null" }) do

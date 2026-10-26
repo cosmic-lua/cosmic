@@ -628,7 +628,7 @@ function tree_checks.anchors(db: Sqlite.Handle, expected?: {string}): {string}
       callable[#callable + 1] = r.signature
     end
   end
-  local by_name: mut {string: {Row}} = {}
+  local by_name: mut {string: mut {Row}} = {}
   local found: mut {string: boolean} = {}
   for _, owner in ipairs(all) do
     if owner.kind == "record" then
@@ -2083,7 +2083,7 @@ function tree_checks.scoped(root: string, pinned?: {string: integer}, memo?: Sql
     if outcome.consistent ~= "" then
       out[#out + 1] = file .. ": its scopes are not consistent with its tree: " .. outcome.consistent
     end
-    local by_code: mut {string: {Scopes.Error}} = {}
+    local by_code: mut {string: mut {Scopes.Error}} = {}
     for _, e in ipairs(outcome.errors) do
       local held = by_code[e.code] or {}
       held[#held + 1] = e

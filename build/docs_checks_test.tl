@@ -65,7 +65,7 @@ end
 
 --- A page that breaks no rule: a module, its record and a documented
 --- function.
-local function clean(): {Row}
+local function clean(): mut {Row}
   return {
     row("cosmic.thing", "", "module", "", "Things, made and counted."),
     row("cosmic.thing", "Thing", "record", "local record Thing", ""),
