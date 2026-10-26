@@ -175,6 +175,7 @@ local MARGINS <const>: {string} = { "", " ", "    ", "\t", "      ", "\t\t" }
 function Check.respaced(source: string, seed: integer): string
   local parsed, lexed = parsed_of(source)
   local roled = Roles.of(parsed.chunk)
+  local bare = Continuation.of(parsed.chunk).bare
   local stream = Trivia.of(source, lexed.tokens)
   local out: mut {string} = {}
   local state = seed
@@ -193,6 +194,10 @@ function Check.respaced(source: string, seed: integer): string
       if i == 1 then
         out[#out + 1] = if stream.shebang ~= nil then ("\n"):rep(item.newlines) else "" end
         dropped[item.y] = item.x - 1
+      elseif before ~= nil and item.newlines == 0 and item.kind == "token" and before.kind == "token" and
+          bare[item.token] == true and bare[before.token] == true then
+        -- The author's spacing of the type parameters of a declaration.
+        out[#out + 1] = source:sub(before.offset + #before.text, item.offset - 1)
       elseif continues and item.newlines == 0 and before ~= nil then
         out[#out + 1] = source:sub(before.offset + #before.text, item.offset - 1)
       elseif continues then

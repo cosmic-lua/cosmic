@@ -58,9 +58,12 @@ local function test_other_unary_operators_hug_each_other_unless_they_would_join(
 end
 
 local function test_a_table_argument_is_spaced_from_the_function_it_is_passed_to()
-  lays("x.y:z{}\n", "x.y:z {}\n")
-  lays("f{1}\n", "f { 1 }\n")
-  lays("f{ a = 1 }\n", "f { a = 1 }\n")
+  lays("x.y:z {}\n", "x.y:z{}\n")
+  lays("f {1}\n", "f{ 1 }\n")
+  lays("f  { a = 1 }\n", "f{ a = 1 }\n")
+  lays("Test.policy {\n  a = 1,\n}\n", "Test.policy{\n  a = 1,\n}\n")
+  lays("local app = Web.app{ routes = { Web.get(\"/\", h) }, mw = Web.log{ q = true } }\n",
+    "local app = Web.app{ routes = { Web.get(\"/\", h) }, mw = Web.log{ q = true } }\n")
 end
 
 local function test_table_literal_keys_and_brace_gaps()
@@ -112,7 +115,9 @@ local function test_function_signatures()
   lays("local function f(a:integer,b?:string,...:any)  :  integer, string return a, b end\n",
     "local function f(a: integer, b?: string, ...: any): integer, string return a, b end\n")
   lays("local M = {}\nfunction M.go(self: any) end\n", "local M = {}\nfunction M.go(self: any) end\n")
-  lays("local function k<T , U>(t:T):T return t end\n", "local function k<T, U>(t: T): T return t end\n")
+  lays("local function k<T,U>(t:T):T return t end\n", "local function k<T,U>(t: T): T return t end\n")
+  lays("local type Input<P,Q,B> = Types.Input<P,Q,B>\n", "local type Input<P,Q,B> = Types.Input<P,Q,B>\n")
+  lays("local type L< X , Y > = {X}\n", "local type L< X , Y > = {X}\n")
   lays("local f = function( a , b ) return a end\n", "local f = function(a, b) return a end\n")
   lays("g(function ( v ) return v end)\n", "g(function(v) return v end)\n")
 end

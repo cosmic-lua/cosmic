@@ -67,6 +67,8 @@ local CANON <const>: {string} = {
   "match f(x) do\n| (true,\n    v) then\n  print(v)\nend\n",
   "local function f(\n    a: integer,\n    b: integer): integer\n  return a\nend\n",
   "local u = {\n  -- c\n  1,\n  2, -- d\n  {\n    3,\n  },\n}\n",
+  "Test.policy{ grants = { { path = \"x\", letters = \"r\" } } }\n",
+  "local type Input<P,Q> = Types.Input<P,Q>\nlocal function g<T ,U>(a: T) end\n",
   "local x = a or -- t\n  -- own\n  b\n",
   "local x = a\n  -- own\n  or -- t\n  b\n",
   "local x = a -- one\n  or -- two\n  b\n",

@@ -10,8 +10,9 @@
 ---   closed up;
 --- - a table has its entries one space inside its braces (`{ a = 1, 2 }`) and an empty one is `{}`, and a key is
 ---   `["b"] = 2`, its brackets closed on it unless it begins with a long string (`[ [[x]] ]`);
---- - an attribute has one space before and none inside (`local x <const>`), and sits before the annotation.
---- A type keeps the author's own spacing, byte for byte.
+--- - an attribute has one space before and none inside (`local x <const>`), and sits before the annotation;
+--- - a table given to a call without parentheses is closed up to the callee (`Test.policy{ a = 1 }`).
+--- A type keeps the author's own spacing, byte for byte, as do the type parameters of a declaration (`<P,Q>`).
 ---
 --- A line that begins a statement or a member is indented two columns for each body it is in, as
 --- [`build.fix.blocks`] counts them, and a word that closes a body (`end`, `else`, `elseif`, `until`, the `|` of a
@@ -58,15 +59,6 @@ local record Layout
   --- `name:line:column: message`. It does not wrap or join lines, so it is no formatter of a file yet.
   of: function(source: string, name: string): string?, string
 end
-
--- TODO: decide whether the table a call is given without parentheses is closed up to the callee (`Test.policy{ ... }`,
--- as the previous formatter wrote it and as about 600 lines in about 360 files of build/, cosmic/ and lang/ have it)
--- or spaced from it (`Test.policy { ... }`, as [`build.fix.layout_test`] pins now). Keeping the old style exactly
--- puts `table_open` in TIGHT_BEFORE when it follows a callee. Waits on the owner's decision, before the tree is
--- reformatted.
--- TODO: decide whether the type parameters of a declaration (`type Input<P,Q,B> = ...`, 9 lines in 3 files) keep the
--- author's spacing, which the previous formatter carried as type bytes, or are spaced like a list (`<P, Q, B>`, as
--- now). Waits on the owner's decision, before the tree is reformatted.
 
 --- The roles after which the next token is closed up to it.
 local TIGHT_AFTER <const>: {string: boolean} = {
@@ -121,12 +113,23 @@ local function role_of(placed: Placed, roled: Roles.Roled): Roles.Role
 end
 
 --- The gap between `before` and `placed`, which follow each other on a line.
-local function gap(source: string, before: Placed, placed: Placed, roled: Roles.Roled): string
+local function gap(source: string, before: Placed, placed: Placed, roled: Roles.Roled,
+                   plan: Continuation.Plan): string
   local a, b = before.item, placed.item
   if not before.comma and not placed.comma then
     local region = Roles.region(roled, b.token)
     if region ~= 0 and region == Roles.region(roled, a.token) then
       return source:sub(a.offset + #a.text, b.offset - 1)
+    end
+  end
+  if not before.comma and not placed.comma then
+    -- The author's spacing inside the type parameters of a declaration; a table given to a call without
+    -- parentheses is closed up to the callee.
+    if plan.bare[a.token] == true and plan.bare[b.token] == true then
+      return source:sub(a.offset + #a.text, b.offset - 1)
+    end
+    if plan.sugar[b.token] == true then
+      return ""
     end
   end
   local tight = TIGHT_AFTER[role_of(before, roled)] == true or TIGHT_BEFORE[role_of(placed, roled)] == true
@@ -302,7 +305,7 @@ local function laid_out(source: string, placed: {Placed}, shebang: string?, toke
     elseif item.kind == "comment" then
       put(" ")
     else
-      put(gap(source, before, one, roled))
+      put(gap(source, before, one, roled, cursor.plan))
     end
     if starts_line then
       local column = if item.kind == "comment" then comment_column(item, prev_token) else

@@ -68,6 +68,11 @@ local record Continuation
     literal_closes: {integer: boolean}
     --- The tokens that are the operator of a binary expression.
     operators: {integer: boolean}
+    --- The first token of the argument of a call written without parentheses (`f{ ... }`), which is closed
+    --- up to the callee.
+    sugar: {integer: boolean}
+    --- The tokens from the `<` to the `>` of the type parameters of a declaration, whose spacing is the author's.
+    bare: {integer: boolean}
     --- The tokens that end a function type with return types, after which a `,` is read as another return type.
     swallows: {integer: boolean}
     tables: {Table}
@@ -171,6 +176,8 @@ function Continuation.of(chunk: Ast.Chunk): Continuation.Plan
   local literal_opens: mut {integer: boolean} = {}
   local literal_closes: mut {integer: boolean} = {}
   local operators: mut {integer: boolean} = {}
+  local sugar: mut {integer: boolean} = {}
+  local bare: mut {integer: boolean} = {}
   local mids: mut {integer: boolean} = {}
   local swallows: mut {integer: boolean} = {}
   local tables: mut {Continuation.Table} = {}
@@ -230,6 +237,20 @@ function Continuation.of(chunk: Ast.Chunk): Continuation.Plan
   local function note(base: Ast.Base, kids: {Ast.Base})
     local kind = base.kind
     local head = kids[1]
+    local generics = of_kind(kids, "TypeParam")
+    local first_param, last_param = generics[1], generics[#generics]
+    if first_param ~= nil and last_param ~= nil and spells(first_param.first - 1, "<") and
+        spells(last_param.last + 1, ">") then
+      for i = first_param.first - 1, last_param.last + 1 do
+        bare[i] = true
+      end
+    end
+    if (kind == "Call" or kind == "MethodCall") and kids[2] ~= nil then
+      local callee_end = (head or base).last + (if kind == "Call" then 1 else 3 end)
+      if not spells(callee_end, "(") then
+        sugar[callee_end] = true
+      end
+    end
     if kind == "Block" then
       if #kids > 0 then
         block_opens[base.first] = true
@@ -345,7 +366,7 @@ function Continuation.of(chunk: Ast.Chunk): Continuation.Plan
   return {
     opens = opens, closes = closes, entries = entries, header = header, block_opens = block_opens,
     block_closes = block_closes, literal_opens = literal_opens, literal_closes = literal_closes,
-    operators = operators, swallows = swallows, tables = tables, mids = mids,
+    operators = operators, sugar = sugar, bare = bare, swallows = swallows, tables = tables, mids = mids,
   }
 end
 
