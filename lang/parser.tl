@@ -1302,8 +1302,7 @@ end
 
 --- Whether `e` is the name `text`, written as a single token.
 local function is_name(e: Ast.Exp, text: string): boolean
-  local base = base_of(e)
-  return base.kind == "Name" and S.texts[base.first] == text
+  return e.kind == "Name" and S.texts[e.first] == text
 end
 
 --- Whether the `i`th of `list` is the name `text`.
@@ -1318,9 +1317,8 @@ local function literal_at(list: {Ast.Exp}, i: integer): string?
   if e == nil then
     return nil
   end
-  local base = base_of(e)
-  local from, to = base.first, base.last
-  if base.kind == "Paren" then
+  local from, to = e.first, e.last
+  if e.kind == "Paren" then
     while S.texts[from] == "(" and S.texts[to] == ")" and from < to do
       from, to = from + 1, to - 1
     end

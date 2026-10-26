@@ -1531,7 +1531,7 @@ lang/literals.tl nil_not_allowed 3
 
 lang/literals_test.tl nil_not_allowed 8
 
-lang/parser.tl nil_not_allowed 64
+lang/parser.tl nil_not_allowed 63
 
 lang/parser_cover.tl nil_not_allowed 1
 
