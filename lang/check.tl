@@ -5521,8 +5521,10 @@ end
 --- Whether the statements `body` of a loop leave the number of elements of the array held by the local `array` from falling
 --- below what it was before them, and never assign the local `var`, the index of the loop. The code that may shorten the
 --- array is a call, an iterator of a generic `for` (a call of its own) and the `__close` of a `<close>` local, and a
---- write of a nil or of the array's name. Lua code that runs with no such form in the body, the metamethod of a record that
---- names one (`__add`, `__index`), is not followed, as nothing of the checker follows it.
+--- write of a nil or of the array's name. No other code runs in the body, because no metamethod can: `class_metamethod` lets
+--- a class declare only `__close` and `__tostring` (both reached by the forms above), `setmetatable_call` refuses
+--- `setmetatable`, and `operand_type` refuses an operator on a record. The loop rule must be revisited if any of the three is
+--- relaxed; lang/check_test.tl pins them beside the loop tests.
 function Writes.keeps_length(body: Ast.Node, array: integer, var: integer): boolean
   -- A closure may not assign a local of its function, so a way the body may change the length is a mark in a list. The
   -- statements wait in a list too, so that a body of any depth is read without recursion.
@@ -5721,6 +5723,10 @@ end
 ---   - at the index of a loop over `1` to the length of the array ([`Writes.fill_of`]), which has that element,
 --- overwrites an element and leaves the others where they are. A nil would take an element out of the middle, and a write at
 --- the length (`t[#t] = v`) is at 0 where the array is empty, which is no key of an array.
+---
+--- A write in a function made inside the loop (`saved = function() u[i] = 1 end`) is refused only because the body of a
+--- function does not inherit `ctx.loops` (([`function_body`])), which holds the loop's fill; [`Writes.keeps_length`] does not
+--- decide it. Keep the two apart: a closure may run when the array is shorter.
 function Writes.leaves_no_hole(ctx: Ctx, vals: Values, p: Pending): boolean
   local written = value_at(ctx, vals, p.at)
   if written == nil or not Writes.present(written) then

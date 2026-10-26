@@ -1087,6 +1087,19 @@ local function test_a_loop_over_the_keys_of_an_array_writes_them_only_while_it_l
   assert(has(codes_of(head .. "for n = 1, #xs do\nend\nlocal n: integer = 1\nxs[n] = v\n"), "array_hole"))
 end
 
+local function test_no_metamethod_runs_in_the_body_of_a_fill_loop_while_three_refusals_stand()
+  -- the loop rule reads no code but calls, iterators and `__close`: relax one of these and it must be revisited
+  local declared = Programs.run("local class C\n  function __add(self)\n  end\nend\n")
+  local first = declared.lowered.errors[1]
+  assert(first ~= nil and first.code == "class_metamethod")
+  assert(codes_of("local t = setmetatable({}, {})\n") == "setmetatable_call")
+  local got = codes_of("local record R\n  n: integer\nend\nlocal r: R = { n = 1 }\nlocal x = r + r\n")
+  assert(got == "operand_type operand_type", got)
+  -- a closure made in the loop is refused because a function body has no loop around it, not for what the body does
+  assert(codes_of("local saved: function() = function() end\nlocal u: mut {integer} = { 1, 2, 3 }\nfor i = 1, #u do\n" ..
+      "  saved = function() u[i] = 1 end\nend\n") == "array_hole")
+end
+
 local function test_a_removal_of_the_last_element_is_held_to_a_mut_array_and_a_write_there_is_not_one()
   -- a view cannot be written
   assert(has(codes_of("local function f(xs: {integer})\n  xs[#xs] = nil\nend\n"), "view_written"))
