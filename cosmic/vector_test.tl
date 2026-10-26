@@ -165,9 +165,6 @@ local function test_candidates_recall_the_exact_neighbors_of_clustered_data()
     for i = 1, 10 do
       assert(fast.ids[i] == exact.ids[i], "cluster " .. tostring(c) .. " rank " .. tostring(i))
     end
-    -- A pass as wide as the corpus is the exact search.
-    local wide = corpus:search(q, 10, { candidates = 400 })
-    assert(wide.ids[1] == exact.ids[1])
   end
 end
 
@@ -182,9 +179,148 @@ local function test_allow_restricts_the_ids()
   local few = corpus:search(q, 3, { allow = { 2 } })
   assert(#few.ids == 1 and few.ids[1] == 2)
   assert(#corpus:search(q, 3, { allow = {} }).ids == 0)
-  -- With a binary first pass the filter applies before the pass.
-  local both = corpus:search(q, 2, { allow = { 1, 2, 3, 4, 5 }, candidates = 3 })
-  assert(#both.ids == 2 and assert(both.ids[1]) <= 5 and assert(both.ids[2]) <= 5)
+end
+
+-- Every sign bit of every row matches the query's, so the first pass
+-- cannot tell the rows apart and keeps the earliest; the filter must
+-- have removed the earliest rows (ids 1 to 9) before it chooses.
+local function test_allow_applies_before_the_binary_first_pass()
+  local corpus = Vector.corpus(2)
+  for id = 1, 20 do
+    corpus:add(id, Vector.pack({ id, 1 }))
+  end
+  local q = Vector.pack({ 1, 0 })
+  local hits = corpus:search(q, 2, { allow = { 10, 11, 12, 13, 14 }, candidates = 3 })
+  assert(#hits.ids == 2 and hits.ids[1] == 12 and hits.ids[2] == 11, table.concat(hits.ids, ","))
+end
+
+-- `dims` copies of `value`, but for the first and the last dimension
+-- when `first` and `last` are given.
+local function filled(dims: integer, value: number, first?: number, last?: number): mut {number}
+  local out: mut {number} = {}
+  for d = 1, dims do
+    if d == 1 and first ~= nil then
+      out[#out + 1] = first
+    elseif d == dims and last ~= nil then
+      out[#out + 1] = last
+    else
+      out[#out + 1] = value
+    end
+  end
+  return out
+end
+
+local function test_candidates_can_miss_what_the_exact_search_finds()
+  local dims = 16
+  local corpus = Vector.corpus(dims)
+  for id = 1, 30 do
+    corpus:add(id, Vector.pack(filled(dims, 0.1)))
+  end
+  -- Fifteen of its sixteen signs oppose the query's, but its last
+  -- dimension is so large that its inner product is the best.
+  corpus:add(1000, Vector.pack(filled(dims, -0.01, nil, 100)))
+  local q = Vector.pack(filled(dims, 1))
+  assert(corpus:search(q, 1).ids[1] == 1000)
+  local fast = corpus:search(q, 5, { candidates = 5 })
+  assert(#fast.ids == 5)
+  for _, id in ipairs(fast.ids) do
+    assert(id ~= 1000, "the first pass kept a row 15 bits from the query")
+  end
+  -- Wide enough to keep every row, the pass is the exact search.
+  for _, wide in ipairs({ 31, 100 }) do
+    local all = corpus:search(q, 5, { candidates = wide })
+    local exact = corpus:search(q, 5)
+    for i = 1, 5 do
+      assert(all.ids[i] == exact.ids[i] and all.scores[i] == exact.scores[i])
+    end
+  end
+end
+
+local function test_candidates_see_rows_added_after_a_search()
+  local dims = 8
+  local corpus = Vector.corpus(dims)
+  for id = 1, 40 do
+    corpus:add(id, Vector.pack(filled(dims, -0.1)))
+  end
+  local q = Vector.pack(filled(dims, 1))
+  local before = corpus:search(q, 3, { candidates = 5 })
+  assert(#before.ids == 3)
+  corpus:add(500, Vector.pack(filled(dims, 2)))
+  local after = corpus:search(q, 3, { candidates = 5 })
+  assert(after.ids[1] == 500, table.concat(after.ids, ","))
+  -- And again after a second growth, past the buffers' first capacity.
+  for id = 41, 200 do
+    corpus:add(id, Vector.pack(filled(dims, -0.1)))
+  end
+  corpus:add(501, Vector.pack(filled(dims, 3)))
+  assert(corpus:search(q, 1, { candidates = 5 }).ids[1] == 501)
+end
+
+local function test_candidates_break_a_hamming_tie_by_row_order()
+  local dims = 8
+  local corpus = Vector.corpus(dims)
+  -- Rows 1 to 5 match the query's signs; rows 6 to 55 differ in one
+  -- dimension, and the later of them score higher.
+  for id = 1, 55 do
+    local first: number? = nil
+    if id >= 6 then
+      first = -0.01
+    end
+    corpus:add(id, Vector.pack(filled(dims, id / 10, first)))
+  end
+  local q = Vector.pack(filled(dims, 1))
+  assert(corpus:search(q, 1).ids[1] == 55)
+  local fast = corpus:search(q, 10, { candidates = 10 })
+  assert(#fast.ids == 10)
+  local seen: mut {integer: boolean} = {}
+  for _, id in ipairs(fast.ids) do
+    seen[id] = true
+  end
+  -- The five exact matches, then the earliest five of the 50 tied.
+  for id = 1, 10 do
+    assert(seen[id], "row " .. tostring(id) .. " should be a candidate")
+  end
+end
+
+local function test_cosine_ranks_a_zero_vector_last()
+  local corpus = Vector.corpus(2)
+  corpus:add(1, Vector.pack({ 0, 0 }))
+  corpus:add(2, Vector.pack({ -1, 0.5 }))
+  corpus:add(3, Vector.pack({ 1, 0 }))
+  local hits = corpus:search(Vector.pack({ 1, 0 }), 3, { metric = "cosine" })
+  assert(hits.ids[1] == 3 and hits.ids[2] == 2 and hits.ids[3] == 1, table.concat(hits.ids, ","))
+  assert(hits.scores[3] == -math.huge)
+  assert(#corpus:search(Vector.pack({ 1, 0 }), 2, { metric = "cosine" }).ids == 2)
+  local none = corpus:search(Vector.pack({ 0, 0 }), 3, { metric = "cosine" })
+  assert(#none.ids == 3 and none.ids[1] == 1 and none.scores[1] == -math.huge)
+end
+
+local function test_a_nan_score_is_not_a_hit()
+  local corpus = Vector.corpus(2)
+  corpus:add(1, Vector.pack({ 3e38, 3e38 }))
+  corpus:add(2, Vector.pack({ 1, 1 }))
+  -- 3e38 * 3e38 overflows to +inf and its mirror to -inf: inf - inf.
+  local q = Vector.pack({ 3e38, -3e38 })
+  local hits = corpus:search(q, 5)
+  assert(#hits.ids == 1 and hits.ids[1] == 2, table.concat(hits.ids, ","))
+end
+
+local function test_normalize_agrees_with_sql_l2_normalize()
+  local db = assert(Sqlite.memory())
+  for _, numbers in ipairs({ { 1e-30, 1e-30 }, { 3e30, 4e30 }, { 0.0, 0.0 } }) do
+    local v = Vector.pack(numbers)
+    local param: Sqlite.Value = { blob = v }
+    local rows = assert(Sqlite.map(db, "SELECT l2_normalize(?1)", { param },
+      function(r: Sqlite.Row): string
+        return r:blob(1)
+      end))
+    local want = Vector.unpack(assert(rows[1]))
+    local got = Vector.unpack(Vector.normalize(v))
+    for i = 1, 2 do
+      assert(got[i] == want[i], tostring(numbers[1]) .. " dimension " .. tostring(i))
+    end
+  end
+  assert(db:close())
 end
 
 local function test_shape_errors_raise()
@@ -198,6 +334,8 @@ local function test_shape_errors_raise()
   assert(refusal(function() corpus:search(q, 1, { candidates = 0 }) end):find("candidates", 1, true) ~= nil)
   assert(refusal(function() Vector.corpus(0) end):find("dimensions", 1, true) ~= nil)
   assert(refusal(function() Vector.pack({ 1 / 0 }) end):find("finite", 1, true) ~= nil)
+  assert(refusal(function() Vector.pack({ 1e39 }) end):find("finite", 1, true) ~= nil)
+  assert(refusal(function() Vector.pack({}) end):find("at least 1 dimension", 1, true) ~= nil)
   assert(refusal(function() Vector.unpack("abc") end):find("floats", 1, true) ~= nil)
   assert(corpus:count() == 1)
 end
