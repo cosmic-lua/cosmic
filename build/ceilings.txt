@@ -1481,7 +1481,6 @@ eval/summarize_test.tl nil_not_allowed 2
 
 lang/ast.tl nil_not_allowed 1
 
-
 lang/ast_dump.tl nil_not_allowed 5
 
 lang/check.tl nil_not_allowed 105
@@ -2200,7 +2199,6 @@ eval/round.tl index_may_be_nil 2
 eval/solve.tl index_may_be_nil 1
 
 lang/ast.tl index_may_be_nil 1
-
 
 lang/ast_dump.tl index_may_be_nil 3
 
@@ -8760,7 +8758,6 @@ cosmic/web/session/cookie_test.tl array_hole 2
 
 lang/ast.tl array_hole 2
 
-
 lang/ast_dump.tl array_hole 1
 
 lang/check.tl array_hole 55
@@ -9731,7 +9728,6 @@ cosmic/removed_example.tl alternatives_as_value 1
 cosmic/removed_example.tl any_use 1
 
 cosmic/removed_example.tl cast_refused 1
-
 
 cosmic/removed_example.tl field_unknown 2
 

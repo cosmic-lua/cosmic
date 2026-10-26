@@ -47,6 +47,7 @@ match f() do
   | (true, v) then print(v)
   | (false, _) then print(x)
 end
+local record Seq<T> is {T} end
 local record Pair<K, V is Ordered> is Base<K>
   key: K
   mut value?: V
@@ -62,10 +63,10 @@ local record Pair<K, V is Ordered> is Base<K>
   boo: boolean
   nothing: nil
 end
-local interface Conn is Stream.Reader
+local interface Conn<T> is Stream.Reader
   name: string
 end
-local class Counter is Resettable
+local class Counter<T> is Resettable
   function bump(self, by: integer): integer return by end
 end
 local enum Mode "r" "w" end
@@ -231,7 +232,7 @@ local function dumped_children(text: string): {string}
     local c = text:sub(i, i)
     if c == '"' then
       i = i + 1
-      while text:sub(i, i) ~= '"' do
+      while i <= #text and text:sub(i, i) ~= '"' do
         i = i + (if text:sub(i, i) == "\\" then 2 else 1 end)
       end
     elseif c == "(" then
@@ -247,6 +248,38 @@ local function dumped_children(text: string): {string}
     end
     i = i + 1
   end
+  return out
+end
+
+--- The slots of `text`, the dump of a node: what stands for each of the fields [`Ast.fields`] lists, from the first, `_` for one
+--- that is blank. The last blank ones are left out of a dump.
+local function slots_of(text: string): {string}
+  local out: mut {string} = {}
+  local last = #text
+  local i = 2
+  while i < last do
+    local start = i
+    local depth = 0
+    while i < last do
+      local c = text:sub(i, i)
+      if c == '"' then
+        i = i + 1
+        while i <= last and text:sub(i, i) ~= '"' do
+          i = i + (if text:sub(i, i) == "\\" then 2 else 1 end)
+        end
+      elseif c == "(" or c == "[" then
+        depth = depth + 1
+      elseif c == ")" or c == "]" then
+        depth = depth - 1
+      elseif c == " " and depth == 0 then
+        break
+      end
+      i = i + 1
+    end
+    out[#out + 1] = text:sub(start, i - 1)
+    i = i + 1
+  end
+  table.remove(out, 1)
   return out
 end
 
@@ -380,4 +413,40 @@ local function test_the_fields_of_each_kind_are_the_node_fields_of_its_record()
       end
     end
   end
+end
+
+--- Notes in `filled` each field, as `Kind.field`, that a node of `node` and below holds nodes in.
+local function fill(node: Ast.Node, filled: mut {string: boolean})
+  local kind = tostring(node.kind)
+  local names = Ast.fields[kind]
+  if names ~= nil then
+    for i, slot in ipairs(slots_of(Dump.dump(node))) do
+      local first = slot:sub(1, 1)
+      local name = names[i]
+      if (first == "(" or first == "[") and name ~= nil then
+        filled[kind .. "." .. name] = true
+      end
+    end
+  end
+  Ast.children(node, function(child: Ast.Node)
+    fill(child, filled)
+  end)
+end
+
+local function test_the_corpus_holds_a_node_in_each_field_that_can()
+  local parsed = Parser.parse(Lexer.lex(CORPUS, "corpus.tl"), "corpus.tl", "tl")
+  local filled: mut {string: boolean} = {}
+  fill(parsed.chunk, filled)
+  local d = declared()
+  local missing: mut {string} = {}
+  for record, fields in pairs(node_depths()) do
+    local kind = assert(assert(d.tags[record])[1])
+    for name, depth in pairs(fields) do
+      if depth >= 0 and filled[kind .. "." .. name] == nil then
+        missing[#missing + 1] = record .. "." .. name
+      end
+    end
+  end
+  table.sort(missing)
+  assert(#missing == 0, "CORPUS holds no node in " .. table.concat(missing, ", ") .. ": write one, so that Ast.children is tried on each")
 end
