@@ -212,3 +212,32 @@ local function test_a_tag_read_after_a_test_of_it_and_a_call_is_checked()
   }, "\n"))
   assert(count == 1, tostring(count))
 end
+
+local function test_the_last_test_of_a_chain_that_names_every_member_is_checked()
+  local returned = facts_of(table.concat({
+    "local enum C_kind \"c\" end",
+    "local record C",
+    "  kind: C_kind",
+    "end",
+    "local function f(x: A | B | C): integer",
+    "  if x.kind == \"a\" then return 1 elseif x.kind == \"b\" then return 2 elseif x.kind == \"c\" then return 3 end",
+    "end",
+    "print(f({ kind = \"b\", s = \"x\" }))",
+    "",
+  }, "\n"))
+  assert(returned == 1, tostring(returned))
+  local assigned = facts_of(table.concat({
+    "local enum C_kind \"c\" end",
+    "local record C",
+    "  kind: C_kind",
+    "end",
+    "local function f(x: A | B | C): integer",
+    "  local r: integer",
+    "  if x.kind == \"a\" then r = 1 elseif x.kind == \"b\" then r = 2 elseif x.kind == \"c\" then r = 3 end",
+    "  return r",
+    "end",
+    "print(f({ kind = \"b\", s = \"x\" }))",
+    "",
+  }, "\n"))
+  assert(assigned == 1, tostring(assigned))
+end

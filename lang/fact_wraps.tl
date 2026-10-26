@@ -101,7 +101,7 @@ local record Walk
   --- noted is dropped as the walk leaves it.
   log: mut {mut {string}}
   --- The reads that are the object of a read of their own tag in a test against a string, `x.kind == "a"`: the test
-  --- takes nothing of the narrowing, and every read that does is checked.
+  --- takes nothing of the narrowing, and every read that does is checked; not one whose narrowing is a single member.
   mut exempt: mut {integer: boolean}
   --- The reads that an earlier read in the same run covers.
   skip: mut {integer: boolean}
@@ -206,8 +206,10 @@ local function walk_node(w: Walk, n: Ast.Node)
       local other = assert(sides[3 - i])
       if (side.kind == "Field") and (other.kind == "String") then
         local object = w.want[side.object.id]
+        -- A narrowing to one member is the last test of a chain, whose false side is empty: the checker relies on that
+        -- (a function that ends there returns on every path), and nothing else reads the place.
         if object ~= nil and object.tag == side.name and #object.taken == 0 and object.strings == nil and
-            object.classes == nil then
+            object.classes == nil and #(object.tags or {}) > 1 then
           w.exempt[side.object.id] = true
         end
       end

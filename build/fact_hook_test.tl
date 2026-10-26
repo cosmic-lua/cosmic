@@ -187,6 +187,8 @@ local record Shapes
   area_after: function(any, function()): integer
   area_between: function(any, function()): integer
   tag_only: function(any, function()): string
+  all_return: function(any): integer
+  all_assign: function(any): integer
   pet_after: function(any, function()): string
   dog: function(): any
   cat: function(): any
@@ -330,4 +332,15 @@ local function test_a_class_and_a_tag_planted_false_are_one_row_each()
   assert(not ok_tag and tostring(message_tag):find("fact violated at shapes.tl:", 1, true) == 1 and
       tostring(message_tag):find("kind one of c|b", 1, true) ~= nil, tostring(message_tag))
   assert(#since(before) == 4, tostring(#since(before)) .. " rows")
+  -- The false side of the last test of a chain that names every member is empty, and the checker relies on it: a value
+  -- of no member is met at that test, in the form that returns from each arm and in the form that assigns.
+  local member: TagMember = { kind = "b" }
+  assert(api.all_return(member) == 2 and api.all_assign(member) == 2)
+  assert(#since(before) == 4, "a conclusion that held was recorded")
+  local stray: TagMember = { kind = "zz" }
+  local ok_return, message_return = pcall(api.all_return, stray)
+  assert(not ok_return and tostring(message_return):find("fact violated at shapes.tl:", 1, true) == 1, tostring(message_return))
+  local ok_assign, message_assign = pcall(api.all_assign, stray)
+  assert(not ok_assign and tostring(message_assign):find("fact violated at shapes.tl:", 1, true) == 1, tostring(message_assign))
+  assert(#since(before) == 6, tostring(#since(before)) .. " rows")
 end
