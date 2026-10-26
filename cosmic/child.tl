@@ -780,11 +780,11 @@ end
 
 --- Every pid a handle owns until the handle has settled it. Pids, not
 --- handles, so a dropped handle still reaches its finalizer.
-local owned: {integer:boolean} = {}
+local owned: mut {integer:boolean} = {}
 
 --- Exit statuses an adopting process collected for an owned pid before
 --- its handle asked; the handle takes its own out.
-local reaped: {integer:raw_process.ChildStatus} = {}
+local reaped: mut {integer:raw_process.ChildStatus} = {}
 
 local record Reaping
   --- Whether this process adopts orphaned descendants: nil until the
@@ -2794,7 +2794,7 @@ end
 --- The descriptor open on each shared copy of the core, by its path: one
 --- serves every start, as [`Proc.relaunch`]'s does; a spawn hands a child
 --- only the descriptors it names.
-local shared_fds: {string:integer} = {}
+local shared_fds: mut {string:integer} = {}
 
 --- How a policy's program that is this program starts: by a relaunch of
 --- its core ([`Proc.relaunch`]), past the launcher, which would fork and

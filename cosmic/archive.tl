@@ -478,7 +478,7 @@ local function extract_from(from: string | Archive.Reader, dest: string,
   local tally = { bytes = 0 }
   -- Directories under `dest` known to be real directories (not
   -- symlinks), by dest-relative path: checked with lstat, or made here.
-  local real_dirs: {string:boolean} = {}
+  local real_dirs: mut {string:boolean} = {}
   -- Symlinks still to be made, by dest-relative path; a later entry
   -- at the same path replaces an earlier one.
   local pending: mut {string:PendingLink} = {}

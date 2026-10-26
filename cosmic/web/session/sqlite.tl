@@ -63,7 +63,7 @@ local record Backing
 end
 
 --- The backing of each store made here, which goes with the store.
-local backings: {Session.Store:Backing} = setmetatable({}, { __mode = "k" })
+local backings: mut {Session.Store:Backing} = setmetatable({}, { __mode = "k" })
 
 local function backing(store: Session.Store): Backing
   local found = backings[store]

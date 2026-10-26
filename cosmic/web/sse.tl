@@ -574,8 +574,8 @@ function Sub.dropped(self: Sub): integer return self.queue:dropped() end
 
 --- A topic's subscriptions and replay ring (`first` to `last`, oldest first).
 local record Topic
-  subs: {Sub: boolean}
-  ring: {integer: Entry}
+  subs: mut {Sub: boolean}
+  ring: mut {integer: Entry}
   first: integer
   last: integer
   evicted: integer

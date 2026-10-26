@@ -82,7 +82,7 @@ local record Session
     --- The keys written, with their values.
     set: {string:any}
     --- The keys deleted.
-    removed: {string}
+    removed: mut {string}
     --- Whether everything was removed first (what `set` and `removed` hold
     --- came after).
     cleared?: boolean

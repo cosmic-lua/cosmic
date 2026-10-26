@@ -189,7 +189,7 @@ local record Watched
   watches: {Watch}
   --- How many of `watches` ask each mask: the descriptor's events are
   --- their union.
-  masks: {integer:integer}
+  masks: mut {integer:integer}
 end
 
 -- How a task is made. What a run keeps of a task is one record, which is
@@ -547,7 +547,7 @@ end
 
 --- A run's state while [`Poll.run`] runs; nil otherwise.
 local record Loop
-  tasks: {thread: State}
+  tasks: mut {thread: State}
   live: integer
   ready: {Wake}
   --- What [`sys.poll`] is handed, kept as waits begin and end: each
@@ -555,7 +555,7 @@ local record Loop
   --- by slot.
   fds: {integer}
   events: {integer}
-  watched: {integer:Watched}
+  watched: mut {integer:Watched}
   --- Time waits, a binary heap on `at` then `seq`.
   timers: {Wait}
   --- How many of `timers` are done: each leaves only on reaching the
