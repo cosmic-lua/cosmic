@@ -1979,7 +1979,10 @@ end
 local function note_absent(ctx: Ctx)
   local given: {Decl: {string: boolean}} = {}
   local function note(head: Ast.Exp, field: string)
-    local binding = if (head.kind == "Name") then head.binding else nil end
+    local binding: integer? = nil
+    if (head.kind == "Name") then
+      binding = head.binding
+    end
     local entry = binding ~= nil and ctx.by_binding[binding] or nil
     local decl = entry ~= nil and entry.decl or nil
     if decl ~= nil then
@@ -2811,7 +2814,10 @@ local function declare_values(ctx: Ctx, node: Ast.Local)
       found[1] = ctx.types[annotation.id] or ctx.store.invalid
     elseif value ~= nil and (value.kind == "Field") then
       local head = value.object
-      local binding = if (head.kind == "Name") then head.binding else nil end
+      local binding: integer? = nil
+      if (head.kind == "Name") then
+        binding = head.binding
+      end
       local entry = binding ~= nil and ctx.by_binding[binding] or nil
       local decl = entry ~= nil and entry.decl or nil
       local body = decl ~= nil and decl.body or nil

@@ -190,8 +190,14 @@ local function unneeded(chunk: Ast.Chunk, bodies: {Span}): {Span}?
   local statements = chunk.body.stats
   local tokens = chunk.tokens
   local last = statements[#statements]
-  local value = if last ~= nil and (last.kind == "Return") and #last.values == 1 then last.values[1] else nil end
-  local returned = if value ~= nil and (value.kind == "Name") then value.text else nil end
+  local value: Ast.Exp? = nil
+  if last ~= nil and (last.kind == "Return") and #last.values == 1 then
+    value = last.values[1]
+  end
+  local returned: string? = nil
+  if value ~= nil and (value.kind == "Name") then
+    returned = value.text
+  end
   if returned == nil then
     return nil
   end

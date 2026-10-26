@@ -1401,8 +1401,16 @@ local function class_rewrites(source: string, parsed: Parser.Parsed, hazards: {T
     end
   end
   for _, s in ipairs(stats) do
-    local annotation = if (s.kind == "Local") and #s.types == 1 then s.types[1] else nil end
-    local literal = if (s.kind == "Local") and #s.values == 1 then s.values[1] else nil end
+    local annotation: Ast.Type? = nil
+    local literal: Ast.Exp? = nil
+    if (s.kind == "Local") then
+      if #s.types == 1 then
+        annotation = s.types[1]
+      end
+      if #s.values == 1 then
+        literal = s.values[1]
+      end
+    end
     if annotation ~= nil and (annotation.kind == "TypeName") and #annotation.path == 1 and annotation.path[1] == "metatable" and
         #annotation.args == 1 and literal ~= nil and (literal.kind == "Table") then
       local target = assert(annotation.args[1])
@@ -1613,9 +1621,13 @@ local function literal_rewrites(source: string, parsed: Parser.Parsed): {Rewrite
       returns[#returns + 1] = { rets = node.rets }
     elseif (node.kind == "Local") and #node.bindings == 1 and #node.values == 1 then
       local given = node.types[1]
+      local annotate: Ast.Binding? = nil
+      if given == nil then
+        annotate = node.bindings[1]
+      end
       consider(assert(node.values[1]), function(class: string): boolean
         return given == nil or plain_type(given) == class
-      end, if given == nil then node.bindings[1] else nil end)
+      end, annotate)
     elseif (node.kind == "Return") and #node.values == 1 then
       local frame = returns[#returns]
       local rets = frame ~= nil and frame.rets or nil
