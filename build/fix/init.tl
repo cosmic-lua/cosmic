@@ -1165,7 +1165,8 @@ end
 --- Lays out each Teal file ([`build.fix.format`]), keeping what the parse of its text gives the later phases. A plain run
 --- writes the layout of a file that is not laid out and lists it as changed. `--check` writes nothing and fails on the
 --- files that are not laid out, naming them ([`build.fix.laid`] holds what a file laid out costs a later run). A file the
---- formatter refuses is never written, and is told with the reason: a failure of a plain run and of a check. A file the new parser does not read fails in the new parser's words, with its fix.
+--- formatter refuses is never written, and is told with the reason: a failure of a plain run and of a check.
+--- A file the new parser does not read fails in the new parser's words, with its fix.
 local function lay_out_teal(ctx: Fix)
   local files = assert(ctx.files)
   local failures = copied(assert(ctx.failures))
@@ -1552,7 +1553,7 @@ local function report(ctx: Fix): integer
   local linked_out = assert(ctx.linked_out)
   local checking = ctx.checking
   local failures = assert(ctx.failures)
-  local unlaid = ctx.unlaid or {}
+  local unlaid = assert(ctx.unlaid)
   local findings = assert(ctx.findings)
   local changed = assert(ctx.changed)
   local counted = assert(ctx.counted)
