@@ -62,7 +62,7 @@ local function agree(db: Sqlite.Handle, corpus: Vector.Corpus, q: string, metric
     function(r: Sqlite.Row): {number}
       return { r:integer(1), r:number(2) }
     end))
-  local hits = corpus:search(q, 7, { metric = metric })
+  local hits = assert(corpus:search(q, 7, { metric = metric }))
   assert(#hits.ids == 7 and #hits.scores == 7)
   for i = 1, 7 do
     local want = assert(expected[i])
@@ -107,7 +107,7 @@ local function test_load_reads_a_query()
   local corpus = assert(Vector.load(db, "SELECT id, embedding FROM chunks WHERE tenant = ?1",
     { { text = "a" } }))
   assert(corpus:count() == 2 and corpus.dims == 2)
-  local hits = corpus:search(Vector.pack({ 1, 0 }), 5)
+  local hits = assert(corpus:search(Vector.pack({ 1, 0 }), 5))
   assert(#hits.ids == 2 and hits.ids[1] == 10 and hits.ids[2] == 30)
   local bad, why = Vector.load(db, "SELECT id, tenant FROM chunks")
   assert(bad == nil and why:find("vector blob", 1, true) ~= nil, why)
@@ -126,9 +126,9 @@ local function test_ties_go_to_the_lower_id()
     corpus:add(id, same)
   end
   corpus:add(5, Vector.pack({ 0, 1 }))
-  local hits = corpus:search(same, 3)
+  local hits = assert(corpus:search(same, 3))
   assert(#hits.ids == 3 and hits.ids[1] == 7 and hits.ids[2] == 12 and hits.ids[3] == 31)
-  local all = corpus:search(same, 100)
+  local all = assert(corpus:search(same, 100))
   assert(#all.ids == 6 and all.ids[6] == 5)
 end
 
@@ -161,8 +161,8 @@ local function test_candidates_recall_the_exact_neighbors_of_clustered_data()
   local corpus, centers = clustered(64, 8, 50)
   for c = 1, 8 do
     local q = Vector.normalize(Vector.pack(assert(centers[c])))
-    local exact = corpus:search(q, 10)
-    local fast = corpus:search(q, 10, { candidates = 100 })
+    local exact = assert(corpus:search(q, 10))
+    local fast = assert(corpus:search(q, 10, { candidates = 100 }))
     assert(#fast.ids == 10)
     for i = 1, 10 do
       assert(fast.ids[i] == exact.ids[i], "cluster " .. tostring(c) .. " rank " .. tostring(i))
@@ -176,11 +176,11 @@ local function test_allow_restricts_the_ids()
     corpus:add(id, Vector.pack({ id, 1 }))
   end
   local q = Vector.pack({ 1, 0 })
-  local hits = corpus:search(q, 3, { allow = { 4, 8, 15, 99 } })
+  local hits = assert(corpus:search(q, 3, { allow = { 4, 8, 15, 99 } }))
   assert(#hits.ids == 3 and hits.ids[1] == 15 and hits.ids[2] == 8 and hits.ids[3] == 4)
-  local few = corpus:search(q, 3, { allow = { 2 } })
+  local few = assert(corpus:search(q, 3, { allow = { 2 } }))
   assert(#few.ids == 1 and few.ids[1] == 2)
-  assert(#corpus:search(q, 3, { allow = {} }).ids == 0)
+  assert(#assert(corpus:search(q, 3, { allow = {} })).ids == 0)
 end
 
 -- Every sign bit of every row matches the query's, so the first pass
@@ -192,7 +192,7 @@ local function test_allow_applies_before_the_binary_first_pass()
     corpus:add(id, Vector.pack({ id, 1 }))
   end
   local q = Vector.pack({ 1, 0 })
-  local hits = corpus:search(q, 2, { allow = { 10, 11, 12, 13, 14 }, candidates = 3 })
+  local hits = assert(corpus:search(q, 2, { allow = { 10, 11, 12, 13, 14 }, candidates = 3 }))
   assert(#hits.ids == 2 and hits.ids[1] == 12 and hits.ids[2] == 11, table.concat(hits.ids, ","))
 end
 
@@ -222,16 +222,16 @@ local function test_candidates_can_miss_what_the_exact_search_finds()
   -- dimension is so large that its inner product is the best.
   corpus:add(1000, Vector.pack(filled(dims, -0.01, nil, 100)))
   local q = Vector.pack(filled(dims, 1))
-  assert(corpus:search(q, 1).ids[1] == 1000)
-  local fast = corpus:search(q, 5, { candidates = 5 })
+  assert(assert(corpus:search(q, 1)).ids[1] == 1000)
+  local fast = assert(corpus:search(q, 5, { candidates = 5 }))
   assert(#fast.ids == 5)
   for _, id in ipairs(fast.ids) do
     assert(id ~= 1000, "the first pass kept a row 15 bits from the query")
   end
   -- Wide enough to keep every row, the pass is the exact search.
   for _, wide in ipairs({ 31, 100 }) do
-    local all = corpus:search(q, 5, { candidates = wide })
-    local exact = corpus:search(q, 5)
+    local all = assert(corpus:search(q, 5, { candidates = wide }))
+    local exact = assert(corpus:search(q, 5))
     for i = 1, 5 do
       assert(all.ids[i] == exact.ids[i] and all.scores[i] == exact.scores[i])
     end
@@ -245,17 +245,17 @@ local function test_candidates_see_rows_added_after_a_search()
     corpus:add(id, Vector.pack(filled(dims, -0.1)))
   end
   local q = Vector.pack(filled(dims, 1))
-  local before = corpus:search(q, 3, { candidates = 5 })
+  local before = assert(corpus:search(q, 3, { candidates = 5 }))
   assert(#before.ids == 3)
   corpus:add(500, Vector.pack(filled(dims, 2)))
-  local after = corpus:search(q, 3, { candidates = 5 })
+  local after = assert(corpus:search(q, 3, { candidates = 5 }))
   assert(after.ids[1] == 500, table.concat(after.ids, ","))
   -- And again after a second growth, past the buffers' first capacity.
   for id = 41, 200 do
     corpus:add(id, Vector.pack(filled(dims, -0.1)))
   end
   corpus:add(501, Vector.pack(filled(dims, 3)))
-  assert(corpus:search(q, 1, { candidates = 5 }).ids[1] == 501)
+  assert(assert(corpus:search(q, 1, { candidates = 5 })).ids[1] == 501)
 end
 
 local function test_candidates_break_a_hamming_tie_by_row_order()
@@ -271,8 +271,8 @@ local function test_candidates_break_a_hamming_tie_by_row_order()
     corpus:add(id, Vector.pack(filled(dims, id / 10, first)))
   end
   local q = Vector.pack(filled(dims, 1))
-  assert(corpus:search(q, 1).ids[1] == 55)
-  local fast = corpus:search(q, 10, { candidates = 10 })
+  assert(assert(corpus:search(q, 1)).ids[1] == 55)
+  local fast = assert(corpus:search(q, 10, { candidates = 10 }))
   assert(#fast.ids == 10)
   local seen: mut {integer: boolean} = {}
   for _, id in ipairs(fast.ids) do
@@ -289,11 +289,11 @@ local function test_cosine_ranks_a_zero_vector_last()
   corpus:add(1, Vector.pack({ 0, 0 }))
   corpus:add(2, Vector.pack({ -1, 0.5 }))
   corpus:add(3, Vector.pack({ 1, 0 }))
-  local hits = corpus:search(Vector.pack({ 1, 0 }), 3, { metric = "cosine" })
+  local hits = assert(corpus:search(Vector.pack({ 1, 0 }), 3, { metric = "cosine" }))
   assert(hits.ids[1] == 3 and hits.ids[2] == 2 and hits.ids[3] == 1, table.concat(hits.ids, ","))
   assert(hits.scores[3] == -math.huge)
-  assert(#corpus:search(Vector.pack({ 1, 0 }), 2, { metric = "cosine" }).ids == 2)
-  local none = corpus:search(Vector.pack({ 0, 0 }), 3, { metric = "cosine" })
+  assert(#assert(corpus:search(Vector.pack({ 1, 0 }), 2, { metric = "cosine" })).ids == 2)
+  local none = assert(corpus:search(Vector.pack({ 0, 0 }), 3, { metric = "cosine" }))
   assert(#none.ids == 3 and none.ids[1] == 1 and none.scores[1] == -math.huge)
 end
 
@@ -303,7 +303,7 @@ local function test_a_nan_score_is_not_a_hit()
   corpus:add(2, Vector.pack({ 1, 1 }))
   -- 3e38 * 3e38 overflows to +inf and its mirror to -inf: inf - inf.
   local q = Vector.pack({ 3e38, -3e38 })
-  local hits = corpus:search(q, 5)
+  local hits = assert(corpus:search(q, 5))
   assert(#hits.ids == 1 and hits.ids[1] == 2, table.concat(hits.ids, ","))
 end
 
@@ -353,7 +353,7 @@ local function test_the_collector_counts_the_corpus_buffers()
     for i = 1, rows do
       corpus:add(i, Vector.pack(random_vector(next_number, dims)))
     end
-    corpus:search(Vector.pack(random_vector(next_number, dims)), 1, { candidates = 10 })
+    assert(corpus:search(Vector.pack(random_vector(next_number, dims)), 1, { candidates = 10 }))
     assert(corpus:count() == rows)
     collectgarbage("collect")
     return collectgarbage("count")
@@ -368,8 +368,9 @@ local function test_the_collector_counts_the_corpus_buffers()
 end
 
 --- A guard of cosmic.signal that has caught a signal ends a search or a
---- k-means with an "interrupted" error, and neither changes the corpus:
---- once the signal is taken, the same calls answer as they did before.
+--- k-means with `nil, "interrupted"`, and neither changes the corpus nor
+--- takes the signal: once it is taken, the same calls answer as they did
+--- before.
 local function test_a_caught_signal_interrupts_long_calls_and_leaves_the_corpus()
   local next_number = stream(21)
   local corpus = Vector.corpus(8)
@@ -377,26 +378,30 @@ local function test_a_caught_signal_interrupts_long_calls_and_leaves_the_corpus(
     corpus:add(i, Vector.normalize(Vector.pack(random_vector(next_number, 8))))
   end
   local query = Vector.normalize(Vector.pack(random_vector(next_number, 8)))
-  local exact = corpus:search(query, 5)
-  local approximate = corpus:search(query, 5, { candidates = 50 })
-  local centroids = Vector.kmeans(corpus, 3, { seed = 4, iterations = 5 })
+  local exact = assert(corpus:search(query, 5))
+  local approximate = assert(corpus:search(query, 5, { candidates = 50 }))
+  local centroids = assert(Vector.kmeans(corpus, 3, { seed = 4, iterations = 5 }))
 
   local guard = assert(Signal.guard())
   assert(sys.kill(sys.getpid(), sys.SIGTERM))
-  assert(refusal(function() corpus:search(query, 5) end):find("interrupted", 1, true) ~= nil)
-  assert(refusal(function() corpus:search(query, 5, { candidates = 50 }) end):find("interrupted", 1, true) ~= nil)
-  assert(refusal(function() Vector.kmeans(corpus, 3, { seed = 4, iterations = 5 }) end):find("interrupted", 1, true) ~= nil)
+  local none, why = corpus:search(query, 5)
+  assert(none == nil and why == "interrupted", tostring(why))
+  none, why = corpus:search(query, 5, { candidates = 50 })
+  assert(none == nil and why == "interrupted", tostring(why))
+  local no_centroids: {string}?
+  no_centroids, why = Vector.kmeans(corpus, 3, { seed = 4, iterations = 5 })
+  assert(no_centroids == nil and why == "interrupted", tostring(why))
   -- An add is short and not interruptible: it still lands.
   corpus:add(601, query)
   assert(corpus:count() == 601)
   assert(guard:take() == sys.SIGTERM)
   assert(guard:release() == sys.SIGTERM)
 
-  local again = corpus:search(query, 5)
+  local again = assert(corpus:search(query, 5))
   assert(again.ids[1] == 601 and #again.ids == #exact.ids)
-  local fast = corpus:search(query, 5, { candidates = 50 })
+  local fast = assert(corpus:search(query, 5, { candidates = 50 }))
   assert(#fast.ids == #approximate.ids)
-  local recentred = Vector.kmeans(corpus, 3, { seed = 4, iterations = 5 })
+  local recentred = assert(Vector.kmeans(corpus, 3, { seed = 4, iterations = 5 }))
   assert(#recentred == #centroids)
 end
 

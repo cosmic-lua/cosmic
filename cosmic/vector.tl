@@ -25,14 +25,14 @@
 ---
 --- Interruption: inside a [`Signal.guard`] of [`cosmic.signal`], a pending
 --- SIGINT or SIGTERM ends [`Vector.Corpus.search`] and [`Vector.kmeans`]
---- with an error that reads "interrupted", within a few hundred rows
---- of work (milliseconds at thousands of dimensions; one centroid pass
---- while k-means seeds), without taking the signal (the guard's holder
---- still sees it) and without changing the corpus. They raise rather
---- than answer `nil`: they have no partial answer, and a raise is the
---- one shape a caller who did not expect a signal cannot mistake for a
---- result. Wrap a long one in `pcall` to tell it from a bug by that
---- message. Without a guard open nothing interrupts them.
+--- with `nil, "interrupted"`, within a few hundred rows of work
+--- (milliseconds at thousands of dimensions; one centroid pass while
+--- k-means seeds), without taking the signal (the guard's holder still
+--- sees it) and without changing the corpus. That is the shape every
+--- interrupted operation in the tree answers, as [`cosmic.http`] and
+--- [`cosmic.net`] do; they have no partial answer to give instead.
+--- Out of memory and a wrong argument still raise. Without a guard open
+--- nothing interrupts them.
 
 local Sqlite = require("cosmic.sqlite")
 
@@ -96,9 +96,10 @@ local record Vector
     --- `corpus:count()`: how many vectors the corpus holds.
     count: function(Corpus): integer
     --- `corpus:search(query, k, opts)`: the `k` nearest, as [`Vector.Hits`].
-    --- Raises "interrupted" on a caught signal and "not enough memory"
-    --- when the heap refuses, as the module's description says.
-    search: function(Corpus, query: string, k: integer, opts?: SearchOptions): Hits
+    --- Answers `nil, "interrupted"` on a caught signal, and raises "not
+    --- enough memory" when the heap refuses, as the module's description
+    --- says.
+    search: function(Corpus, query: string, k: integer, opts?: SearchOptions): Hits?, string
   end
 
   record KmeansOptions
@@ -151,13 +152,18 @@ end
 --- The `k` nearest vectors to `query`, best first. Rows of equal score
 --- are ordered by the lower id, so an answer is stable. Raises on a query
 --- of the wrong length, or `k` under 1; a corpus with fewer than `k`
---- rows answers them all.
+--- rows answers them all. Answers `nil, "interrupted"` when a signal
+--- guard caught a signal meanwhile (the corpus unchanged, the signal
+--- untaken).
 local function corpus_search(self: Vector.Corpus, query: string, k: integer,
-    opts?: Vector.SearchOptions): Vector.Hits
+    opts?: Vector.SearchOptions): Vector.Hits?, string
   local o = opts or {}
   local metric: string = o.metric or "inner_product"
   local ids, scores = self.handle:search(query, k, metric, o.candidates, o.allow)
-  return { ids = ids, scores = scores }
+  if scores is string then
+    return nil, scores
+  end
+  return { ids = assert(ids), scores = scores }, ""
 end
 
 --- `k` centroids for IVF search: spherical k-means (k-means++ seeding,
@@ -168,13 +174,18 @@ end
 --- zero vector (or one too short to scale to length 1) has no direction:
 --- it is never a seed and counts toward no cluster, and [`Vector.nearest`]
 --- gives it the first centroid.
---- Cost is count x k x dims per iteration, in C. Raises "interrupted" at
---- the next row or centroid once a [`Signal.guard`] has caught a signal
---- (see the module's description), and "not enough memory" when the heap
---- refuses its scratch; the corpus is unchanged either way.
-function Vector.kmeans(corpus: Vector.Corpus, k: integer, opts?: Vector.KmeansOptions): {string}
+--- Cost is count x k x dims per iteration, in C. Answers `nil,
+--- "interrupted"` at the next row or centroid once a [`Signal.guard`] has
+--- caught a signal (see the module's description), and raises "not enough
+--- memory" when the heap refuses its scratch; the corpus is unchanged
+--- either way.
+function Vector.kmeans(corpus: Vector.Corpus, k: integer, opts?: Vector.KmeansOptions): {string}?, string
   local o = opts or {}
-  return corpus.handle:kmeans(k, o.seed or 1, o.iterations or 20)
+  local centroids, why = corpus.handle:kmeans(k, o.seed or 1, o.iterations or 20)
+  if centroids == nil then
+    return nil, assert(why)
+  end
+  return centroids, ""
 end
 
 --- The 1-based index of the centroid nearest `v` by inner product (the

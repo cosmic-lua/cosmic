@@ -478,8 +478,8 @@ local corpus = assert(Vector.load(db,
   { { integer = model } }))
 local in_pets = ids(db, "SELECT id FROM chunks WHERE doc = 'pets'", {})
 local asked = Vector.normalize(embed("where do cats sleep"))
-local exact = corpus:search(asked, 2, { allow = in_pets })
-local quick = corpus:search(asked, 2, { allow = in_pets, candidates = 5 })
+local exact = assert(corpus:search(asked, 2, { allow = in_pets }))
+local quick = assert(corpus:search(asked, 2, { allow = in_pets, candidates = 5 }))
 print("corpus", table.concat(exact.ids, " "), "candidates", table.concat(quick.ids, " "))
 ```
 
@@ -536,7 +536,7 @@ assert(big:exec("COMMIT"))
 local everything = assert(Vector.load(big,
   "SELECT id, embedding FROM chunks WHERE model = ?1 AND embedding IS NOT NULL",
   { { integer = big_model } }))
-local centroids = Vector.kmeans(everything, 8)
+local centroids = assert(Vector.kmeans(everything, 8))
 
 assert(big:exec([[
   CREATE TABLE centroids (id INTEGER PRIMARY KEY, vector BLOB NOT NULL);
@@ -608,7 +608,7 @@ local function recall(queries: {string}, k: integer, fast: function(string): {in
   local found, total = 0, 0
   for _, q in ipairs(queries) do
     local exact_ids: mut {integer: boolean} = {}
-    for _, id in ipairs(everything:search(q, k).ids) do
+    for _, id in ipairs(assert(everything:search(q, k)).ids) do
       exact_ids[id] = true
     end
     for _, id in ipairs(fast(q)) do
@@ -633,7 +633,7 @@ for _, probes in ipairs({ 1, 2, 4 }) do
 end
 for _, candidates in ipairs({ 100, 200, 400 }) do
   print(string.format("sign bits, %d candidates: %.2f", candidates, recall(queries, 10, function(q: string): {integer}
-    return everything:search(q, 10, { candidates = candidates }).ids
+    return assert(everything:search(q, 10, { candidates = candidates })).ids
   end)))
 end
 ```

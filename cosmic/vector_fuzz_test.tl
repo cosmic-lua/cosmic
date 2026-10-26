@@ -1126,7 +1126,7 @@ local function check_search(input: string): boolean, string
     end
   end
   if corpus:count() ~= #rows then return false, "count is " .. tostring(corpus:count()) end
-  local hits = corpus:search(Vector.pack(query), k, { metric = metric_of(metric), candidates = candidates, allow = allow })
+  local hits = assert(corpus:search(Vector.pack(query), k, { metric = metric_of(metric), candidates = candidates, allow = allow }))
   local who = ("%s k=%d candidates=%s of %d rows (%d eligible), query %s"):format(
     metric, k, tostring(candidates), #rows, #pool, csv(query))
   if #hits.ids ~= #hits.scores then return false, who .. ": ids and scores differ in length" end
@@ -1288,7 +1288,7 @@ local REFUSAL_CHUNK <const> = [[
     search_big_k = { false, function() corpus:search(good, math.maxinteger) end },
     search_everything = { false, function() corpus:search(good, 3, { metric = "cosine", candidates = 1, allow = { 7, -3 } }) end },
     search_allow_empty = { false, function()
-      assert(#corpus:search(good, 3, { allow = {} }).ids == 0)
+      assert(#assert(corpus:search(good, 3, { allow = {} })).ids == 0)
     end },
     search_allow_whole_float = { false, function() corpus:search(good, 1, { allow = { 7.0 } }) end },
     corpus_dims0 = { true, function() Vector.corpus(0) end },
@@ -1317,7 +1317,7 @@ local REFUSAL_CHUNK <const> = [[
       return op .. " left a count of " .. corpus:count() .. ", not " .. count
     end
   end
-  local hits = corpus:search(good, 1)
+  local hits = assert(corpus:search(good, 1))
   if #hits.ids ~= 1 then return "a search after the refusals answered " .. #hits.ids end
   return "ok"
 ]]

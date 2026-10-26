@@ -586,11 +586,11 @@ local function test_a_corpus_leaves_nothing_whenever_an_allocation_fails()
     local corpus = Vector.corpus(4)
     for i, blob in ipairs(blobs) do corpus:add(i, blob) end
     assert(corpus:count() == 70)
-    local exact = corpus:search(query, 3, { metric = "cosine" })
+    local exact = assert(corpus:search(query, 3, { metric = "cosine" }))
     assert(#exact.ids == 3)
-    local first_pass = corpus:search(query, 3, { candidates = 10, allow = allowed })
+    local first_pass = assert(corpus:search(query, 3, { candidates = 10, allow = allowed }))
     assert(#first_pass.ids == 3)
-    local centroids = Vector.kmeans(corpus, 3, { seed = 2, iterations = 3 })
+    local centroids = assert(Vector.kmeans(corpus, 3, { seed = 2, iterations = 3 }))
     assert(#centroids == 3)
     assert(#Vector.nearest_n(centroids, query, 2) == 2)
   end)
@@ -607,7 +607,7 @@ local function test_a_corpus_is_intact_after_a_refused_allocation()
   for i = 1, 64 do corpus:add(i, corpus_vector(i)) end
   local blob = corpus_vector(1000)
   local query = corpus_vector(3)
-  local want = corpus:search(query, 64, { metric = "l2" })
+  local want = assert(corpus:search(query, 64, { metric = "l2" }))
   local ended = under_every_failure(function()
     -- Once the add has landed, a later pass only searches.
     if corpus:count() == 64 then pcall(corpus.add, corpus, 1000, blob) end
@@ -615,7 +615,7 @@ local function test_a_corpus_is_intact_after_a_refused_allocation()
   end, function()
     local n = corpus:count()
     assert(n == 64 or n == 65, "the count became " .. tostring(n))
-    local all = corpus:search(query, 100, { metric = "l2" })
+    local all = assert(corpus:search(query, 100, { metric = "l2" }))
     assert(#all.ids == n)
     local sum = 0
     for _, id in ipairs(all.ids) do sum = sum + id end

@@ -136,7 +136,7 @@ record Vector.Hits
   ids: {integer}
   scores: {number}   -- cosine similarity or inner product, best first
 end
-corpus:search(query: string, k: integer, opts?: Vector.SearchOptions): Vector.Hits
+corpus:search(query: string, k: integer, opts?: Vector.SearchOptions): Vector.Hits?, string
 record Vector.SearchOptions
   metric?: "inner_product" | "cosine" | "l2"      -- inner_product by default
   candidates?: integer   -- a binary first pass of this many, then a rerank
@@ -162,10 +162,14 @@ Details:
   [`cosmic_signal_caught`] every few hundred rows (and once per
   centroid and iteration of `kmeans`), as core/http.c and core/socket.c
   do in their waits. Inside a [`Signal.guard`], a pending SIGINT or
-  SIGTERM raises "interrupted" and leaves the corpus as it was; the
-  signal is not taken. They raise instead of answering `nil, why`
-  because a search has no partial answer worth a second return value,
-  and [`Vector.Hits`] is not optional in any caller.
+  SIGTERM answers `nil, "interrupted"` and leaves the corpus as it was;
+  the signal is not taken. That is the tree's convention for an
+  interrupted operation, which core/http.c and core/socket.c follow,
+  and honest returns (doc/design.md) make the result `Vector.Hits?,
+  string` and `{string}?, string`. An earlier draft raised instead,
+  because a search has no partial answer; the user decided on the
+  convention over that. Out of memory and argument-shape errors still
+  raise.
 - **Tests:**
   - agreement with the SQL functions on the same data;
   - the top-k order on ties;
@@ -185,8 +189,8 @@ past the first capacity, a search with `candidates`, `allow`,
 price is that growing allocates the larger buffer beside the old one,
 which lingers until collected, where `realloc` could extend in place:
 a corpus can need up to three times what it holds while it grows.
-A pending signal in a [`Signal.guard`] interrupts `search` and `kmeans`
-(see the decision above; tested in cosmic/vector_test.tl). Measured on
+A pending signal in a [`Signal.guard`] makes `search` and `kmeans` answer
+`nil, "interrupted"` (see the decision above; tested in cosmic/vector_test.tl). Measured on
 100k × 768 on the development VM: exact inner product 52 ms, with
 `candidates = 200` 2.6 ms; recall@10 was 10/10 on clustered synthetic data. Earlier
 measurements: cosine 66 ms, L2 61 ms, 2.5 ms cosine with candidates. The 15
@@ -226,7 +230,7 @@ scores only the rows of the few centroids nearest to it.
 -- Lloyd's k-means with k-means++ seeding, from an inline splitmix64
 -- stream of opts.seed so a run replays. Answers k packed centroids.
 -- opts is { seed?: integer, iterations?: integer }.
-Vector.kmeans(corpus: Vector.Corpus, k: integer, opts?): {string}
+Vector.kmeans(corpus: Vector.Corpus, k: integer, opts?): {string}?, string
 Vector.nearest(centroids: {string}, v: string): integer  -- 1-based
 Vector.nearest_n(centroids: {string}, v: string, n: integer): {integer}
 ```
@@ -339,4 +343,3 @@ A separate track, pulled by its own callers. From the same discussion:
 [`cosmic/vector_example.tl`]: ../../cosmic/vector_example.tl
 [`cosmic/vector_ivf_test.tl`]: ../../cosmic/vector_ivf_test.tl
 [`Signal.guard`]: ../../cosmic/signal.tl
-[`Vector.Hits`]: ../../cosmic/vector.tl

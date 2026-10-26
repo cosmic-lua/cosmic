@@ -14,7 +14,7 @@ function Example.nearest()
   corpus:add(1, Vector.normalize(Vector.pack({ 0.9, 0.1, 0.0 })))
   corpus:add(2, Vector.normalize(Vector.pack({ 0.7, 0.6, 0.1 })))
   corpus:add(3, Vector.normalize(Vector.pack({ 0.0, 0.2, 0.9 })))
-  local hits = corpus:search(Vector.normalize(Vector.pack({ 0.85, 0.15, 0.05 })), 2)
+  local hits = assert(corpus:search(Vector.normalize(Vector.pack({ 0.85, 0.15, 0.05 })), 2))
   print(hits.ids[1], hits.ids[2]) -- 1  2
   assert(hits.ids[1] == 1 and hits.ids[2] == 2)
   assert(assert(hits.scores[1]) > assert(hits.scores[2]))
@@ -42,7 +42,7 @@ function Example.load_and_filter()
       return r:integer(1)
     end))
   local q = assert(Vector.from_json("[0.85, 0.15, 0.05]"))
-  local hits = corpus:search(Vector.normalize(q), 2, { allow = tenant_a })
+  local hits = assert(corpus:search(Vector.normalize(q), 2, { allow = tenant_a }))
   print(hits.ids[1], hits.ids[2]) -- 1  2
   assert(hits.ids[1] == 1 and hits.ids[2] == 2)
   assert(db:close())
@@ -56,8 +56,8 @@ function Example.binary_first_pass()
   for id = 1, 100 do
     corpus:add(id, Vector.pack({ id % 7 - 3, id % 5 - 2, id % 3 - 1, 1 }))
   end
-  local exact = corpus:search(Vector.pack({ 3, 2, 1, 1 }), 3)
-  local fast = corpus:search(Vector.pack({ 3, 2, 1, 1 }), 3, { candidates = 20 })
+  local exact = assert(corpus:search(Vector.pack({ 3, 2, 1, 1 }), 3))
+  local fast = assert(corpus:search(Vector.pack({ 3, 2, 1, 1 }), 3, { candidates = 20 }))
   print(exact.ids[1], fast.ids[1])
   assert(exact.ids[1] == fast.ids[1])
 end
@@ -76,7 +76,7 @@ function Example.ivf()
   for i, p in ipairs(points) do
     corpus:add(i, Vector.normalize(Vector.pack(p)))
   end
-  local centroids = Vector.kmeans(corpus, 3)
+  local centroids = assert(Vector.kmeans(corpus, 3))
 
   local db = assert(Sqlite.memory())
   assert(db:exec([[

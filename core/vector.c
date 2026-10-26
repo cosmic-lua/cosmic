@@ -704,14 +704,23 @@ static struct corpus *check_corpus (lua_State *L, int arg) {
   return luaL_checkudata(L, arg, CORPUS_TYPE);
 }
 
-/* Raises "interrupted" once a guard of cosmic.signal has caught SIGINT or
- * SIGTERM, without taking the signal: the guard's holder still sees it.
- * The long calls below ask every few hundred rows. What they hold is
- * Lua's own, so the raise leaves nothing to release, and the corpus is
- * left as it was: search and kmeans never change the corpus, and
- * [`ensure_bits`] publishes the bit vectors only after its loop ends. */
-static void check_interrupt (lua_State *L) {
-  if (cosmic_signal_caught()) luaL_error(L, "interrupted");
+/* Whether a guard of cosmic.signal has caught SIGINT or SIGTERM. It does
+ * not take the signal: the guard's holder still sees it. The long calls
+ * below ask every few hundred rows and, when it is so, stop and answer
+ * `nil, "interrupted"` ([`interrupted`]) as http and socket do. What they
+ * hold is Lua's own, so stopping leaves nothing to release, and the
+ * corpus is left as it was: search and kmeans never change the corpus,
+ * and [`ensure_bits`] publishes the bit vectors only after its loop
+ * ends. */
+static bool check_interrupt (void) {
+  return cosmic_signal_caught();
+}
+
+/* The answer of a long call that stopped for a signal: `nil, "interrupted"`. */
+static int interrupted (lua_State *L) {
+  lua_pushnil(L);
+  lua_pushliteral(L, "interrupted");
+  return 2;
 }
 
 /* How often a row loop asks: a power of two minus one, to mask a row
@@ -814,20 +823,22 @@ static void quantize (const float *v, size_t dims, unsigned char *bits) {
 }
 
 /* Brings the bit vectors up to every vector added so far; the corpus is
- * at stack index 1. A new buffer is made each time rather than grown in
+ * at stack index 1. Answers false, with the corpus as it was, when a
+ * signal interrupted it. A new buffer is made each time rather than grown in
  * place: the rows already built are copied, which costs less than the
  * scan that follows. */
-static void ensure_bits (lua_State *L, struct corpus *c) {
-  if (c->bits_built == c->count) return;
+static bool ensure_bits (lua_State *L, struct corpus *c) {
+  if (c->bits_built == c->count) return true;
   unsigned char *bits = lua_newuserdatauv(L, c->count * c->bytes, 0);
   if (c->bits_built > 0) memcpy(bits, c->bits, c->bits_built * c->bytes);
   for (size_t i = c->bits_built; i < c->count; i++) {
-    if ((i & CHECK_EVERY) == 0) check_interrupt(L);
+    if ((i & CHECK_EVERY) == 0 && check_interrupt()) return false;
     quantize(c->data + i * c->dims, c->dims, bits + i * c->bytes);
   }
   lua_setiuservalue(L, 1, SLOT_BITS);
   c->bits = bits;
   c->bits_built = c->count;
+  return true;
 }
 
 static unsigned hamming (const unsigned char *a, const unsigned char *b,
@@ -938,7 +949,8 @@ static unsigned char *allow_mask (lua_State *L, const struct corpus *c,
 }
 
 /* search(corpus, query, k, metric, candidates, allow): the ids and
- * scores of the k best, best first. */
+ * scores of the k best, best first; `nil, "interrupted"` when a signal
+ * stopped it. */
 static int corpus_search (lua_State *L) {
   struct corpus *c = check_corpus(L, 1);
   float *q = check_floats(L, 2, c->dims);
@@ -977,7 +989,7 @@ static int corpus_search (lua_State *L) {
   size_t *rows = NULL;
   size_t row_count = c->count;
   if (candidates > 0 && (size_t)candidates < eligible) {
-    ensure_bits(L, c);
+    if (!ensure_bits(L, c)) return interrupted(L);
     unsigned char *qbits = lua_newuserdatauv(L, c->bytes + 1, 0);
     quantize(q, dims, qbits);
     unsigned *histogram = lua_newuserdatauv(
@@ -986,7 +998,7 @@ static int corpus_search (lua_State *L) {
     uint16_t *distance = lua_newuserdatauv(
         L, c->count * sizeof *distance + 1, 0);
     for (size_t row = 0; row < c->count; row++) {
-      if ((row & CHECK_EVERY) == 0) check_interrupt(L);
+      if ((row & CHECK_EVERY) == 0 && check_interrupt()) return interrupted(L);
       if (mask != NULL && !mask[row]) continue;
       unsigned d = hamming(c->bits + row * c->bytes, qbits, c->bytes);
       distance[row] = (uint16_t)d;
@@ -1012,7 +1024,7 @@ static int corpus_search (lua_State *L) {
   }
 
   for (size_t at = 0; at < row_count; at++) {
-    if ((at & CHECK_EVERY) == 0) check_interrupt(L);
+    if ((at & CHECK_EVERY) == 0 && check_interrupt()) return interrupted(L);
     size_t row = rows != NULL ? rows[at] : at;
     if (rows == NULL && mask != NULL && !mask[row]) continue;
     const float *v = c->data + row * dims;
@@ -1186,7 +1198,8 @@ static size_t nth_directed (const struct corpus *c, size_t pick) {
   return 0;
 }
 
-/* corpus:kmeans(k, seed, iterations): a table of k centroid strings.
+/* corpus:kmeans(k, seed, iterations): a table of k centroid strings, or
+ * `nil, "interrupted"` when a signal stopped it.
  * A row of length zero (or too short to take the inverse of) has no
  * direction: it is never a seed, and counts toward no cluster. A corpus
  * of such rows alone raises. */
@@ -1217,7 +1230,7 @@ static int corpus_kmeans (lua_State *L) {
   unit_row(c, nth_directed(c, splitmix(&rng) % directed), cent);
   for (size_t i = 0; i < n; i++) best[i] = seed_weight(c, i, cent);
   for (size_t j = 1; j < kk; j++) {
-    check_interrupt(L);
+    if (check_interrupt()) return interrupted(L);
     double total = 0;
     size_t last = 0;
     bool any = false;
@@ -1246,9 +1259,9 @@ static int corpus_kmeans (lua_State *L) {
   for (size_t i = 0; i < n; i++) assign[i] = -1;
   for (lua_Integer it = 0; it < iterations; it++) {
     size_t changed = 0;
-    check_interrupt(L);
+    if (check_interrupt()) return interrupted(L);
     for (size_t i = 0; i < n; i++) {
-      if ((i & 63u) == 0) check_interrupt(L);
+      if ((i & 63u) == 0 && check_interrupt()) return interrupted(L);
       if (c->inverse[i] == 0.0f) { best[i] = 1.0f; continue; }
       const float *x = c->data + i * dims;
       float top = -INFINITY;

@@ -59,7 +59,7 @@ end
 local function test_ivf_recall_against_exact_search()
   local points = dataset()
   local corpus = corpus_of(points)
-  local centroids = Vector.kmeans(corpus, CLUSTERS)
+  local centroids = assert(Vector.kmeans(corpus, CLUSTERS))
   assert(#centroids == CLUSTERS)
 
   local db = assert(Sqlite.memory())
@@ -85,7 +85,7 @@ local function test_ivf_recall_against_exact_search()
       -- with fresh noise.
       local base = assert(Vector.unpack(assert(points[(q * 47) % #points + 1])))
       local query = noisy(source, base, 0.2)
-      local exact = corpus:search(query, 10).ids
+      local exact = assert(corpus:search(query, 10)).ids
       local probes = Vector.nearest_n(centroids, query, probes_n)
       local v: Sqlite.Value = { integers = probes }
       local found = assert(Sqlite.map(db, [[
@@ -114,14 +114,14 @@ end
 
 local function test_same_seed_same_centroids()
   local corpus = corpus_of(dataset())
-  local a = Vector.kmeans(corpus, 8, { seed = 5 })
-  local b = Vector.kmeans(corpus, 8, { seed = 5 })
+  local a = assert(Vector.kmeans(corpus, 8, { seed = 5 }))
+  local b = assert(Vector.kmeans(corpus, 8, { seed = 5 }))
   for i = 1, 8 do
     assert(a[i] == b[i], "centroid " .. tostring(i) .. " differs between runs")
   end
   -- Same iterations, so only the seed differs.
-  local one = Vector.kmeans(corpus, 8, { seed = 5, iterations = 1 })
-  local other = Vector.kmeans(corpus, 8, { seed = 6, iterations = 1 })
+  local one = assert(Vector.kmeans(corpus, 8, { seed = 5, iterations = 1 }))
+  local other = assert(Vector.kmeans(corpus, 8, { seed = 6, iterations = 1 }))
   local same = true
   for i = 1, 8 do
     if one[i] ~= other[i] then
@@ -133,7 +133,7 @@ end
 
 local function test_centroids_are_unit_length_and_cover_clusters()
   local corpus = corpus_of(dataset())
-  local centroids = Vector.kmeans(corpus, CLUSTERS)
+  local centroids = assert(Vector.kmeans(corpus, CLUSTERS))
   local used: mut {integer: boolean} = {}
   for _, c in ipairs(centroids) do
     local n = 0.0
@@ -159,8 +159,8 @@ local function test_k_bounds()
   corpus:add(1, Vector.pack({ 1, 0 }))
   corpus:add(2, Vector.pack({ 0, 1 }))
   corpus:add(3, Vector.pack({ -1, 0 }))
-  assert(#Vector.kmeans(corpus, 1) == 1)
-  assert(#Vector.kmeans(corpus, 3) == 3)
+  assert(#assert(Vector.kmeans(corpus, 1)) == 1)
+  assert(#assert(Vector.kmeans(corpus, 3)) == 3)
   assert(refusal(function() Vector.kmeans(corpus, 0) end):find("k is from 1", 1, true))
   assert(refusal(function() Vector.kmeans(corpus, 4) end):find("k is from 1", 1, true))
 end
@@ -226,7 +226,7 @@ end
 
 local function test_kmeans_recovers_the_true_clusters()
   local points = dataset()
-  local centroids = Vector.kmeans(corpus_of(points), CLUSTERS)
+  local centroids = assert(Vector.kmeans(corpus_of(points), CLUSTERS))
   -- Twenty rows of the data themselves, spread through it, as centroids:
   -- what k-means would answer if it did nothing.
   local rows: mut {string} = {}
@@ -254,7 +254,7 @@ local function test_zero_vectors_are_no_cluster()
   for i = 1, #points // 10 do
     corpus:add(100000 + i, zero)
   end
-  local centroids = Vector.kmeans(corpus, CLUSTERS)
+  local centroids = assert(Vector.kmeans(corpus, CLUSTERS))
   for _, c in ipairs(centroids) do
     local n = 0.0
     for _, x in ipairs(Vector.unpack(c)) do
@@ -277,7 +277,7 @@ local function test_a_vector_too_short_to_scale_has_no_direction()
   local corpus = Vector.corpus(2)
   corpus:add(1, Vector.pack({ 1e-39, 1e-39 }))
   corpus:add(2, Vector.pack({ 1, 0 }))
-  local c = Vector.unpack(assert(Vector.kmeans(corpus, 1)[1]))
+  local c = Vector.unpack(assert(assert(Vector.kmeans(corpus, 1))[1]))
   assert(math.abs(assert(c[1]) - 1) < 1e-6 and math.abs(assert(c[2])) < 1e-6,
     "the centroid is the one vector with a direction")
 end
@@ -287,7 +287,7 @@ local function test_k_equal_to_count_with_duplicates()
   for i = 1, 4 do
     corpus:add(i, Vector.pack({ 1, 0 }))
   end
-  local centroids = Vector.kmeans(corpus, 4)
+  local centroids = assert(Vector.kmeans(corpus, 4))
   assert(#centroids == 4)
   for _, c in ipairs(centroids) do
     assert(c == Vector.pack({ 1, 0 }))
@@ -334,7 +334,7 @@ end
 
 local function test_nearest_is_the_best_inner_product_ties_to_the_lower()
   local points = dataset()
-  local found = Vector.kmeans(corpus_of(points), 6)
+  local found = assert(Vector.kmeans(corpus_of(points), 6))
   local centroids: mut {string} = {}
   for _, c in ipairs(found) do
     centroids[#centroids + 1] = c
