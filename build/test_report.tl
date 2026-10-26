@@ -137,8 +137,8 @@ function test_report.build(counts: test_report.Build, elapsed: string): string
     " compiled, " .. counts.cached .. " cached" ..
     (if counts.shared > 0 then ", " .. counts.shared .. " of them taken from another checkout" else "" end) ..
     (if (counts.parsed > 0 or counts.shared_parses > 0) then "; " ..
-      plural.count(counts.parsed, "source") .. " parsed" ..
-      (if counts.shared_parses > 0 then ", " .. counts.shared_parses .. " taken from another checkout" else "" end) else "" end) ..
+        plural.count(counts.parsed, "source") .. " parsed" ..
+        (if counts.shared_parses > 0 then ", " .. counts.shared_parses .. " taken from another checkout" else "" end) else "" end) ..
     "; " .. plural.count(counts.files, "file") .. " staged, " .. counts.read .. " read) in " ..
     elapsed
 end

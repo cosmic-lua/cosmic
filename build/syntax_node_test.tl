@@ -167,7 +167,7 @@ local function test_a_require_whose_name_is_computed_is_refused_naming_it_and_wh
   for _, case in ipairs(cases) do
     local chunk, why = Node.parse(case.source, "t.tl")
     assert(chunk == nil and why:find(case.says, 1, true) ~= nil and
-      why:find("(computed_require): write the module's name as a string", 1, true) ~= nil, case.source .. " -> " .. why)
+        why:find("(computed_require): write the module's name as a string", 1, true) ~= nil, case.source .. " -> " .. why)
   end
   local declaration, trouble = Node.parse("local type T = require(\"m\")\nreturn T\n", "t.d.tl")
   assert(declaration ~= nil, trouble)

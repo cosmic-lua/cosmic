@@ -141,7 +141,9 @@ end
 --- one.
 local function leading_literal_exp(chunk: Ast.Chunk, node: Ast.Exp): string?
   if (node.kind == "String") then return written_text(chunk, node) end
-  if (node.kind == "Binary") and node.op == ".." then return leading_literal_exp(chunk, node.left) end
+  if (node.kind == "Binary") and node.op == ".." then
+    return leading_literal_exp(chunk, node.left)
+  end
   return nil
 end
 

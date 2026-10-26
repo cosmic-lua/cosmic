@@ -22,7 +22,6 @@ local function build_dir(root: string): string
   return (assert(build_paths.prepare(root)))
 end
 
-
 --- Lines as one source file's text.
 local function source(...: string): string
   return table.concat({ ... }, "\n") .. "\n"

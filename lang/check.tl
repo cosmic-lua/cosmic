@@ -1605,9 +1605,9 @@ local function literal_record(ctx: Ctx, e: Ast.Table, n: Named): Type
   if #missing > 0 and shaped then
     report(ctx, "literal_missing", e, "this literal of " .. owner .. " leaves out " .. listed(missing, "and"),
       if is_class then "add " .. listed(missing, "and") .. " to the literal: a class literal names every field, a field " ..
-        "not yet known as its empty value (`fd = -1`) and a `?` field as `name = nil`" else
+          "not yet known as its empty value (`fd = -1`) and a `?` field as `name = nil`" else
         "add " .. listed(missing, "and") .. " to the literal (`name = nil` for a value that may be nil), or declare " ..
-        (if #missing == 1 then "the field" else "them" end) .. " `name?: T`" end)
+          (if #missing == 1 then "the field" else "them" end) .. " `name?: T`" end)
   end
   return n
 end
@@ -1821,7 +1821,7 @@ local function table_literal(ctx: Ctx, e: Ast.Table, expected: Type?): Type
     report(ctx, "literal_shape", e, "a table literal cannot make " .. tq(ctx, want) .. ", " ..
         (if kind == "interface" then "an interface" elseif kind == "enum" then "an enum" else "a userdata record" end),
       if kind == "interface" then "make the value with a class that lists " .. quoted(want.decl.name) ..
-        " (`class C is " .. want.decl.name .. "`)" else "write a value of " .. quoted(want.decl.name) end, { show(ctx, want) })
+          " (`class C is " .. want.decl.name .. "`)" else "write a value of " .. quoted(want.decl.name) end, { show(ctx, want) })
     items_unshaped(ctx, e.items)
     return ctx.invalid
   elseif (want.tag == "array") then
@@ -2021,7 +2021,7 @@ local function member_read(ctx: Ctx, node: Ast.Node, t: Type, name: string): Typ
     local list = index ~= nil and index.by_name[name] or nil
     if list == nil then
       report(ctx, "field_unknown", node, (if is_enum(t) then tq(ctx, t) .. " is an enum, a string with no method " else
-          "a string has no field " end) .. quoted(name),
+        "a string has no field " end) .. quoted(name),
         "call a function of `string` on it: `s:upper()`, `s:sub(i, j)`", { show(ctx, t) })
       return ctx.invalid
     end
@@ -2267,7 +2267,7 @@ local function integer_operand(ctx: Ctx, node: Ast.Node, t: Type, op: string): b
     return false
   end
   local fix = if t.tag == "number" then "convert it with `math.tointeger(" .. text_of(ctx, node) .. ")` or `math.floor(" ..
-    text_of(ctx, node) .. ")`" else "use an integer: " .. quoted(op) .. " converts nothing" end
+      text_of(ctx, node) .. ")`" else "use an integer: " .. quoted(op) .. " converts nothing" end
   bad_operand(ctx, node, t, op, "integers", fix)
   return false
 end
@@ -2302,7 +2302,7 @@ local function length_operand(ctx: Ctx, node: Ast.Node, t: Type): boolean
     end
   end
   bad_operand(ctx, node, t, "#", "a string or an array", if (t.tag == "map") then
-      "a map has no length: keep a count, or use an array" else "take the length of a string or an array" end)
+    "a map has no length: keep a count, or use an array" else "take the length of a string or an array" end)
   return false
 end
 
@@ -4269,7 +4269,7 @@ function Calls.solve(ctx: Ctx, node: Ast.Node, callee: string, c: Fn, args: {Ast
     if loud then
       report(ctx, "infer_conflict", args[k.second_at] or node, msg,
         if same then "narrow " .. Calls.source(k.first_at) .. " to one of its types first (`if v is ... then`), or declare the " ..
-          "parameter as the union" else
+            "parameter as the union" else
           "pass values of one type to " .. name .. ", or convert " .. Calls.source(k.second_at) .. " to " .. tq(ctx, k.first) end,
         { show(ctx, k.first), show(ctx, k.second) })
     end
@@ -4421,7 +4421,7 @@ function Calls.gsub_key(ctx: Ctx, c: Fn, args: {Ast.Exp}, off: integer, key: str
   report(ctx, "gsub_key", table_arg, "the table of `gsub` is looked up with " .. wants .. " as the key, and its keys are " ..
       tq(ctx, declared.key),
     "declare the table `{" .. key .. ": string}`" .. (if key == "string" then ", or capture a position with `()` for " ..
-      "integer keys" else ", or capture text with `( ... )` for string keys" end), { show(ctx, declared) })
+        "integer keys" else ", or capture text with `( ... )` for string keys" end), { show(ctx, declared) })
 end
 
 local function apply_overloads(ctx: Ctx, node: Ast.Node, callee: string, cands: {Type}, args: {Ast.Exp}, recv: Type?,
@@ -4468,7 +4468,7 @@ local function apply_overloads(ctx: Ctx, node: Ast.Node, callee: string, cands: 
           end
           if t ~= nil and (want == nil or not accepts(ctx, t, want)) then
             failure = "argument " .. i .. " is " .. tq(ctx, t) .. (if want ~= nil then ", where " .. wanted ..
-              " is wanted" else ", which it does not take" end)
+                " is wanted" else ", which it does not take" end)
             break
           elseif pending[i] and (want == nil or not literal_fits(ctx, args[i], want)) then
             failure = "argument " .. i .. " is a literal that is not " .. (if want ~= nil then "a " .. wanted else "taken" end)
@@ -5665,8 +5665,8 @@ local function assign_statement(ctx: Ctx, s: Ast.Assign)
       local told = (fact ~= nil and not nilable(fact.type)) or ctx.flow.paths > 0
       local tokens, at = ctx.tokens, base_of(target).first
       ctx.flow = Flow.assign(ctx.flow, id, if told then
-          { y = Lexer.y(tokens, at), x = Lexer.x(tokens, at), offset = Lexer.offset(tokens, at),
-            length = Lexer.length(tokens, at) } else nil end)
+        { y = Lexer.y(tokens, at), x = Lexer.x(tokens, at), offset = Lexer.offset(tokens, at),
+          length = Lexer.length(tokens, at) } else nil end)
       local v = ctx.scoped.vars[id]
       local declared = ctx.vars[id]
       local t = vals ~= nil and value_at(ctx, vals, i) or nil

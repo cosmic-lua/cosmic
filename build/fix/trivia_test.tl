@@ -186,7 +186,11 @@ local function gaps_differ(source: string, stream: Trivia.Stream, tokens: Lexer.
     local low, high = 1, #tokens.line
     while low < high do
       local middle = (low + high + 1) // 2
-      if (tokens.line[middle] or math.maxinteger) <= offset then low = middle else high = middle - 1 end
+      if (tokens.line[middle] or math.maxinteger) <= offset then
+        low = middle
+      else
+        high = middle - 1
+      end
     end
     return low
   end

@@ -77,7 +77,7 @@ function SyntaxLinks.facts(chunk: Ast.Chunk, scoped: Scopes.Scoped, source: stri
         local seen = settled[line]
         if seen == nil then
           error("line " .. tostring(line) .. " is outside every comment block, whose lines alone have their scope settled " ..
-            "(build/links.tl asks only for a line a link or a code span stands on)")
+              "(build/links.tl asks only for a line a link or a code span stands on)")
         end
         return seen
       end,

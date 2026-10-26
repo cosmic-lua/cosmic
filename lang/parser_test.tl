@@ -442,7 +442,7 @@ end
 
 local function test_a_require_with_a_literal_module_is_listed_with_its_node()
   local chunk = clean("local a = require(\"m.one\")\nlocal type t = require(\"m.two\")\nrequire(\"m.three\").f()\n" ..
-    "local ok = pcall(require, \"m.four\")").chunk
+      "local ok = pcall(require, \"m.four\")").chunk
   local modules: mut {string} = {}
   for i, r in ipairs(chunk.requires) do
     modules[i] = r.module
@@ -521,7 +521,7 @@ end
 --- are all fine; a parenthesised literal is a literal.
 local function test_require_as_a_special_form_accepts_only_its_direct_uses()
   local chunk = clean("local a = require((\"m.one\"))\nlocal ok = pcall(require, \"m.two\")\nlocal t = { require = 1 }\n" ..
-    "local u = t.require\nlocal v = t:require()\nreturn a, ok, u, v").chunk
+      "local u = t.require\nlocal v = t:require()\nreturn a, ok, u, v").chunk
   local modules: mut {string} = {}
   for _, r in ipairs(chunk.requires) do
     modules[#modules + 1] = r.module

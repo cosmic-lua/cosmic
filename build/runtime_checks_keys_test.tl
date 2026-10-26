@@ -13,7 +13,6 @@ local work = require("build.work")
 
 Test.policy{ grants = { { path = "core", letters = "r" } } }
 
-
 local library = table.concat({
   "local record Lib",
   "end",

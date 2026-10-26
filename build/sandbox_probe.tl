@@ -177,7 +177,7 @@ local function tried_from_outside(tmp: string, script: string, filters: string?,
     local words = ((text or ""):gsub("%s+", " "):gsub("^ ", ""):gsub(" $", ""))
     return false, (if status.code >= 0 then "exited " .. tostring(status.code) else
       "killed by signal " .. tostring(status.signal) end) .. (if words ~= "" then ": " ..
-        words:sub(1, 200) else "" end)
+          words:sub(1, 200) else "" end)
   end
   if unfiltered then return false, "no seccomp filter of its own" end
   if networked then return false, "a network interface besides lo" end
@@ -218,7 +218,7 @@ function SandboxProbe.run(tmp: string): SandboxProbe.Report
   if status ~= nil then filters = status:match("\nSeccomp_filters:%s*(%d+)") end
   local filtered = "grep -q '^Seccomp:[[:space:]]*2' /proc/self/status" ..
     (if filters then " && test \"$(sed -n 's/^Seccomp_filters:[[:space:]]*//p' /proc/self/status)\" -gt " ..
-      filters else "" end)
+        filters else "" end)
   local parts: mut {SandboxProbe.Part} = {}
   local function add(name: string, needed: boolean, held: boolean, why: string)
     parts[#parts + 1] = { name = name, needed = needed, held = held,

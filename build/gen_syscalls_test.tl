@@ -1,7 +1,6 @@
 local gen_syscalls = require("build.gen_syscalls")
 local analyzer = require("build.syntax_analyzer")
 
-
 local function lines(parts: {string}): string
   return table.concat(parts, "\n") .. "\n"
 end

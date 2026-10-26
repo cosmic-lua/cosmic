@@ -1136,7 +1136,7 @@ function Json.query(text: string): Json.Query?, string
         seg, after = { descendant = descendant, kind = "name", name = name }, next_at
       else
         return query_error(i, if descendant then "after `..` comes a name, `*` or `[`" else
-            "after `.` comes a name or `*`" end)
+          "after `.` comes a name or `*`" end)
       end
     elseif text:sub(at, at) == "[" then
       local piece, why = bracketed(text, at, false)
@@ -1581,7 +1581,7 @@ local function arrive(self: TokenReader): integer?, string
     if f.state == "colon" then
       if c ~= 58 then
         return fail_at(self, self.at, if c == nil then "the text ends before a key's `:`" else
-            "expected `:` after a key" end)
+          "expected `:` after a key" end)
       end
       f.state = "value"
     elseif c == 44 then

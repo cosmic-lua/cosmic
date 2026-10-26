@@ -386,7 +386,7 @@ local function plan_move(tree: string, dest: string, force: boolean, rel: string
           child .. "); nothing written, use --force to replace")
     elseif there.kind == "dir" then
       return fail(bare.refused, why_of(if staged.kind == "link" then ("archive: " .. target .. " is a directory") else
-          (target .. ": Is a directory") end))
+        (target .. ": Is a directory") end))
     else
       steps[#steps + 1] = { rel = child, replace = true, keep = false, mtime = 0, before = 0, backup = "" }
     end

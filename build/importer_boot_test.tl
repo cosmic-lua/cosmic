@@ -26,7 +26,6 @@ local function build_dir(root: string): string
   return (assert(build_paths.prepare(root)))
 end
 
-
 --- A boot carries no database and runs the tree's own code, so it names
 --- the analyzer by the tree ([`importer.tree_code`]). It must name it as
 --- the tool it writes will name its own, from what that tool carries;

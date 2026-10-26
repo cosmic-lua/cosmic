@@ -617,7 +617,7 @@ end
 --- The memo is `keys_memo` of the working database, keyed by
 --- [`keys_fingerprint`], which holds everything the computation reads.
 function plans.dependency_keys(db: Sqlite.Handle, modules: {Module},
-                                     tool: string): {string:Keys}?, string
+                               tool: string): {string:Keys}?, string
   local fingerprint = keys_fingerprint(db, modules, tool)
   if fingerprint ~= nil then
     local kept = remembered_keys(db, fingerprint, modules)
@@ -644,7 +644,7 @@ plans.full_keys = compute_keys
 --- that is no test's has none. What a module it requires reads, the
 --- test declares.
 function plans.policy_refusal(file: string, kind: string,
-                                    inputs: PolicyRules.Declared?): string?
+                              inputs: PolicyRules.Declared?): string?
   if inputs == nil or kind == "test" or kind == "example" then
     return nil
   end
@@ -817,7 +817,7 @@ end
 --- the compile itself, replacing whatever an earlier compile under the
 --- same key left.
 function plans.keep_references(db: Sqlite.Handle, key: string,
-                                     references: {SyntaxReceivers.Reference}): boolean, string
+                               references: {SyntaxReceivers.Reference}): boolean, string
   local ok, why = Sqlite.run(db, "DELETE FROM typed_refs WHERE key = ?1", { text(key) })
   if not ok then
     return false, why

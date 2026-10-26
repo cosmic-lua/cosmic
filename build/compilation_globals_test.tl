@@ -8,7 +8,6 @@ local work = require("build.work")
 
 Test.policy{ grants = { { path = "core", letters = "r" } } }
 
-
 --- What the build says of a global a declaration file of the project declares.
 local REFUSED <const> = ": a global is not allowed in a cosmic build: it reaches other modules by no " ..
   "`require`, which is all a build's cache and its order see -- put the value in a module and " ..

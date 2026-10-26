@@ -155,8 +155,8 @@ local function gen_dirty_text(src: Fuzz.Source): string
   local open, close = "[", "]"
   if src:int(0, 5) == 0 then open = Fuzz.pick(src, { "", "(", "[[", " " }) end
   if src:int(0, 5) == 0 then close = Fuzz.pick(src, { "", ")", "]]", "] ", "]x" }) end
-  local text = Fuzz.pick(src, SPACES) .. open .. table.concat(out, Fuzz.pick(src, SEPARATORS))
-    .. close .. Fuzz.pick(src, SPACES)
+  local text = Fuzz.pick(src, SPACES) .. open .. table.concat(out, Fuzz.pick(src, SEPARATORS)) ..
+    close .. Fuzz.pick(src, SPACES)
   if src:int(0, 4) == 0 then
     local at = src:int(0, #text)
     text = text:sub(1, at) .. "\0" .. text:sub(at + 1)
@@ -243,7 +243,9 @@ local function check_text(input: string): boolean, string
   Fuzz.label("read")
   if text:find("[xX]") then Fuzz.label("hex") end
   if text:find("[eE]") then Fuzz.label("exponent") end
-  if json ~= blob.bytes then return false, "from_json and vector() read " .. text .. " differently" end
+  if json ~= blob.bytes then
+    return false, "from_json and vector() read " .. text .. " differently"
+  end
   local n = #blob.bytes // 4
   if #blob.bytes % 4 ~= 0 or n < 1 or n > 16000 or dims.number ~= n then
     return false, ("a vector of %d bytes, %s dimensions"):format(#blob.bytes, tostring(dims.number))
@@ -321,9 +323,13 @@ local function gen_arg(src: Fuzz.Source, extreme: boolean, want: integer?): stri
   if r == 0 then return "n" end
   if r == 1 then return "i" .. tostring(src:int(-3, 40)) end
   if r <= 3 then return "t" .. gen_chunks(src, extreme, true, want) end
-  if r == 4 then return "x" .. Fuzz.pick(src, { "", "[]", "abc", "[1,", "1,2", "[nan]", "[1] x" }) end
+  if r == 4 then
+    return "x" .. Fuzz.pick(src, { "", "[]", "abc", "[1,", "1,2", "[nan]", "[1] x" })
+  end
   if r <= 6 then return "b" .. Fuzz.bytes(src, 30) end
-  if r == 7 then return "z" .. tostring(Fuzz.pick(src, { 0, 1, 3, 4, 8, 12, 64000, 64004, 100000 })) end
+  if r == 7 then
+    return "z" .. tostring(Fuzz.pick(src, { 0, 1, 3, 4, 8, 12, 64000, 64004, 100000 }))
+  end
   if r == 8 then return "b" .. string.rep("\0\0\0\0", want or src:int(1, 6)) end
   return "b" .. gen_chunks(src, extreme, false, want)
 end
@@ -504,7 +510,9 @@ local function check_distance(fn: string, a: Arg, b: Arg): boolean, string
   end
   local zero = all_zero(fa) or all_zero(fb)
   if fn == "cosine_distance" and zero then
-    if ans.kind ~= "null" then return false, "cosine_distance of a vector of zeros answered a number" end
+    if ans.kind ~= "null" then
+      return false, "cosine_distance of a vector of zeros answered a number"
+    end
     return true, ""
   end
   if ans.kind == "null" then return false, fn .. " answered NULL for finite vectors" end
@@ -577,7 +585,9 @@ local function check_normalize(a: Arg): boolean, string
   if norm ~= 0 then
     local length = 0.0
     for _, x in ipairs(floats_of(ans.bytes)) do length = length + x * x end
-    if math.abs(length - 1) > 1e-4 then return false, "l2_normalize answered a vector of length^2 " .. tostring(length) end
+    if math.abs(length - 1) > 1e-4 then
+      return false, "l2_normalize answered a vector of length^2 " .. tostring(length)
+    end
     Fuzz.label("normalized")
   else
     Fuzz.label("normalized zeros")
@@ -1224,7 +1234,9 @@ local function check_search(input: string): boolean, string
           break
         end
       end
-      if not found then return false, who .. ": a hit is no row's: " .. shown(hits.ids, hits.scores) end
+      if not found then
+        return false, who .. ": a hit is no row's: " .. shown(hits.ids, hits.scores)
+      end
     end
   else
     for i = 1, want do
@@ -1372,7 +1384,9 @@ local function check_refusals(input: string): boolean, string
   for at = 2, #fields do ops[#ops + 1] = assert(fields[at]) end
   local answer = run_refusals(Vector, dims, ops)
   if not (answer is string) then return false, "the chunk answered oddly" end
-  if answer ~= "ok" then return false, ("dims %d, %s: %s"):format(dims, table.concat(ops, " "), answer) end
+  if answer ~= "ok" then
+    return false, ("dims %d, %s: %s"):format(dims, table.concat(ops, " "), answer)
+  end
   Fuzz.label("refused")
   return true, ""
 end
@@ -1493,7 +1507,9 @@ local function check_nearest(input: string): boolean, string
     local count = 0
     for token in many:gmatch("[^,]+") do
       local at = to_int(token)
-      if seen[at] == true or at < 1 or at > #kinds then return false, "nearest_n answered " .. many end
+      if seen[at] == true or at < 1 or at > #kinds then
+        return false, "nearest_n answered " .. many
+      end
       seen[at] = true
       count = count + 1
     end

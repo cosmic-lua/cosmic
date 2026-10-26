@@ -319,7 +319,9 @@ local function test_a_class_and_a_tag_planted_false_are_one_row_each()
   square["kind"] = "square"
   assert(api.area_between(square, nothing) == 8)
   assert(#since(before) == 2, "a conclusion that held was recorded")
-  local ok_between, message_between = pcall(api.area_between, square, function() square["kind"] = "circle" end)
+  local ok_between, message_between = pcall(api.area_between, square, function()
+    square["kind"] = "circle"
+  end)
   assert(not ok_between and tostring(message_between):find("fact violated at shapes.tl:", 1, true) == 1 and
       tostring(message_between):find("the checker proved kind one of square", 1, true) ~= nil, tostring(message_between))
   assert(#since(before) == 3, tostring(#since(before)) .. " rows")

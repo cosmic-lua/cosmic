@@ -333,7 +333,7 @@ nodes = function(p: Parser): {types.Node}?, string
         out[#out + 1] = node
       elseif word == "type" or word == "mode" or word == "use" then
         return nil, refuse(p, item.line, item.col, if word == "type" then
-            "{{type}} must be the first action" else "{{" .. word .. "}} must directly follow {{type}}" ..
+          "{{type}} must be the first action" else "{{" .. word .. "}} must directly follow {{type}}" ..
             (if word == "use" then " or {{mode}}" else "" end) end)
       elseif item.tokens[1] ~= nil and item.tokens[1].kind == "string" then
         local literal = item.tokens[1]

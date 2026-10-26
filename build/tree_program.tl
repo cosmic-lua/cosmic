@@ -63,7 +63,6 @@ local record TreeProgram
   --- name of the text, the module it is, and nothing else. nil and why where one is refused.
   derived_of: function(root: string): {{string}}?, string
 
-
   --- A build over `index` with the global sources and adjustment [`TreeProgram.tree_globals`] answered: the modules of `stubs`,
   --- whose stub is read in place of their source, are answered ahead of the index, and `standard` after it. The bindings of C
   --- that neither declares are left untyped (`external`). With `types` the checker keeps the type of each node.

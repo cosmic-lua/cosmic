@@ -165,7 +165,6 @@ local record Relay
     pre_auth?: integer
   end
 
-
   --- The proxy a caller's `https_proxy` names, and the hosts `no_proxy`
   --- says to reach directly ([`cosmic.internal.relay_config`]'s [`Upstream`]).
   type Upstream = Config.Upstream

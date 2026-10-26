@@ -593,7 +593,6 @@ local class Served is Connection.Connector
   mut channel?: Channel
   mut open: boolean
 
-
   --- The 1-based index of the table's first endpoint that allows `port`
   --- at `host`, or nil for none.
   function find(self, host: string, port: integer): integer?

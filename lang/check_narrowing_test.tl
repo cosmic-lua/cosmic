@@ -1018,7 +1018,6 @@ use()
 ]==], "nil_not_allowed")
 end
 
-
 -- The fork read `goto` as a continue and refused one that was not; the grammar has no `goto` and no label, so both programs
 -- of its tests are refused where they are lexed.
 local function test_a_goto_and_a_label_are_no_part_of_the_grammar()
@@ -1060,4 +1059,3 @@ local function test_an_overloaded_function_ends_the_block_by_the_overload_the_ca
   overloaded('p.g("no")', "")
   overloaded('p.g(1)', "nil_not_allowed")
 end
-

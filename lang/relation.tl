@@ -746,7 +746,7 @@ local function from_named(j: Relation.Judge, a: Named, b: Type, why: boolean): R
       end
       for i, held in ipairs(a.args) do
         local other = b.args[i]
-          if held ~= other and held.tag ~= "invalid" and other ~= nil and other.tag ~= "invalid" then
+        if held ~= other and held.tag ~= "invalid" and other ~= nil and other.tag ~= "invalid" then
           return through(why, "argument", i, leaf(j, why, "invariant_generic", held, other))
         end
       end

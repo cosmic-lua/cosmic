@@ -1530,7 +1530,7 @@ end
 local function pipe_reader(self: Handle, index: integer): Stream.Reader
   local pipe = assert(self._streams)[index]
   local owner: Consumption = setmetatable({ pipes = { pipe }, discard = false }, consumption_mt)
-  local r: PipeReader = 
+  local r: PipeReader =
     { child = self, pipe = pipe, closed = false, failed = "", owner = owner }
   return r
 end

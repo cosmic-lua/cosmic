@@ -16,7 +16,6 @@ local work = require("build.work")
 local writer = require("build.writer")
 local fixture = require("build.docs_fixture")
 
-
 --- Writes a minimal one-module project at `root`, greeting `whom`, so
 --- two projects built from a different `whom` compile to different
 --- module keys and so a different signature.

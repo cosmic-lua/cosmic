@@ -311,7 +311,9 @@ local function test_a_cache_others_could_write_is_refused(tmp: string)
     assert(seen(again):find("stage two: compiled by stage one", 1, true), name .. ": rows were read from a cache others could write")
   end
   refused("group-writable-file", function(cache: string) assert(Fs.chmod(cache, 0x1b0)) end)
-  refused("world-writable-directory", function(cache: string) assert(Fs.chmod(Fs.dirname(cache), 0x1c7)) end)
+  refused("world-writable-directory", function(cache: string)
+    assert(Fs.chmod(Fs.dirname(cache), 0x1c7))
+  end)
   refused("linked-file", function(cache: string)
     assert(Fs.rename(cache, cache .. ".real"))
     assert(Fs.symlink(cache .. ".real", cache))
@@ -406,13 +408,17 @@ local function test_a_tree_changed_while_the_bridge_runs_is_not_kept(tmp: string
       undo = function(tree: string) assert(Fs.remove(tree .. "/lang/note.txt")) end },
     { name = "an edited source", kept = false,
       change = function(tree: string): string return "write:" .. tree .. "/lang/unrelated.tl" end,
-      undo = function(tree: string) assert(Fs.write(tree .. "/lang/unrelated.tl", "-- before\n")) end },
+      undo = function(tree: string)
+        assert(Fs.write(tree .. "/lang/unrelated.tl", "-- before\n"))
+      end },
     { name = "an added source", kept = false,
       change = function(tree: string): string return "write:" .. tree .. "/lang/added.tl" end,
       undo = function(tree: string) assert(Fs.remove(tree .. "/lang/added.tl")) end },
     { name = "a removed source", kept = false,
       change = function(tree: string): string return "remove:" .. tree .. "/lang/unrelated.tl" end,
-      undo = function(tree: string) assert(Fs.write(tree .. "/lang/unrelated.tl", "-- before\n")) end },
+      undo = function(tree: string)
+        assert(Fs.write(tree .. "/lang/unrelated.tl", "-- before\n"))
+      end },
     { name = "an edited header", kept = false,
       change = function(tree: string): string return "write:" .. tree .. "/core/other.h" end,
       undo = function(tree: string) assert(Fs.write(tree .. "/core/other.h", "/* before */\n")) end },

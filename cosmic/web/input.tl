@@ -275,8 +275,8 @@ local function wrong_type(req: Types.Request, kind: string): Types.Invalid?
   if kind == "multipart" then
     if media == "multipart/form-data" then return nil end
     return stop(415, "body", "", "content_type", if media == "" then
-        "the body needs a Content-Type of multipart/form-data" else
-        ("a Content-Type of multipart/form-data is needed, not " .. media) end)
+      "the body needs a Content-Type of multipart/form-data" else
+      ("a Content-Type of multipart/form-data is needed, not " .. media) end)
   end
   local good: boolean
   if kind == "form" then
@@ -291,8 +291,8 @@ local function wrong_type(req: Types.Request, kind: string): Types.Invalid?
       ("a charset of utf-8 is needed, not %s, for %s"):format(params["charset"], media))
   end
   return stop(415, "body", "", "content_type", if media == "" then
-      ("the body needs a Content-Type of " .. wanted) else
-      ("a Content-Type of " .. wanted .. " is needed, not " .. media) end)
+    ("the body needs a Content-Type of " .. wanted) else
+    ("a Content-Type of " .. wanted .. " is needed, not " .. media) end)
 end
 
 --- The status and code a failed body read has.
@@ -1039,12 +1039,16 @@ local function split_failure(message: string): string, string
         j = j + (if message:sub(j, j) == "\\" then 2 else 1 end)
       end
       local key, trouble = Json.decode(message:sub(i + 1, j))
-      if not key is string or trouble ~= "" or message:sub(j + 1, j + 1) ~= "]" then return "", message end
+      if not key is string or trouble ~= "" or message:sub(j + 1, j + 1) ~= "]" then
+        return "", message
+      end
       steps[#steps + 1] = key
       i = j + 2
     elseif c == "[" then
       local index = message:match("^%d+", i + 1)
-      if index == nil or message:sub(i + 1 + #index, i + 1 + #index) ~= "]" then return "", message end
+      if index == nil or message:sub(i + 1 + #index, i + 1 + #index) ~= "]" then
+        return "", message
+      end
       steps[#steps + 1] = assert(math.tointeger(index)) + 1
       i = i + 2 + #index
     else

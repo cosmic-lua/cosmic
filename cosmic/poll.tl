@@ -513,7 +513,9 @@ local class NotifierState is Poll.Notifier
   function wait(self, timeout_ns?: integer): boolean, string
     local task = current("Notifier:wait", 2)
     Poll.checked_ns(timeout_ns, "poll", "timeout_ns", 2)
-    if self.loop ~= ongoing.loop then error("poll: Notifier:wait on a notifier of another run", 2) end
+    if self.loop ~= ongoing.loop then
+      error("poll: Notifier:wait on a notifier of another run", 2)
+    end
     local w: Wait = { task = task, gate = self }
     self.waiters[#self.waiters + 1] = w
     return park(task, w, timeout_ns)
