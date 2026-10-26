@@ -319,7 +319,12 @@ local function visit_union(s: Generics.Solver, pattern: Types.Union, actual: Typ
     return
   end
   local rest: mut {Type} = {}
-  local members = (actual.tag == "union") and actual.members or { actual }
+  local members: {Type}
+  if actual.tag == "union" then
+    members = actual.members
+  else
+    members = { actual }
+  end
   for _, m in ipairs(members) do
     local covered = false
     for _, p in ipairs(plain) do
@@ -444,6 +449,7 @@ visit = function(s: Generics.Solver, pattern: Type, actual: Type, dir: Generics.
     end
     if #pattern.rets == 1 and #actual.rets == 1 then
       local p, a = pattern.rets[1], actual.rets[1]
+      assert(p ~= nil and a ~= nil)
       for i, item in ipairs(p.items) do
         local found = a.items[i]
         if found ~= nil then

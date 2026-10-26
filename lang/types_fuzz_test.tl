@@ -84,7 +84,7 @@ local function label_all(t: Types.Type, seen: mut {integer: boolean})
       Fuzz.label("rest")
     end
     for _, p in ipairs(t.params) do
-      Fuzz.label(if p.omittable then "omittable" else "required" end)
+      Fuzz.label(if p.omittable == true then "omittable" else "required" end)
       label_all(p.type, seen)
     end
     for _, alt in ipairs(t.rets) do
@@ -131,7 +131,7 @@ local function union_not_normal(t: Types.Union): string
   for _, m in ipairs(members) do
     tags[m.tag] = true
     if m.tag == "union" or m.tag == "nil" or m.tag == "never" or m.tag == "any" or m.tag == "invalid" then
-      return "a " .. m.tag .. " is a member of " .. Types.display(t)
+      return "a " .. tostring(m.tag) .. " is a member of " .. Types.display(t)
     end
     if (m.tag == "named") and m.decl.kind == "enum" then
       enum = true
@@ -169,13 +169,17 @@ local function not_normal(t: Types.Type, seen: mut {integer: boolean}): string
     if why ~= "" then
       return why
     end
-    parts = t.members
+    for _, member in ipairs(t.members) do
+      parts[#parts + 1] = member
+    end
   elseif (t.tag == "array") then
     parts = { t.element }
   elseif (t.tag == "map") then
     parts = { t.key, t.value }
   elseif (t.tag == "named") then
-    parts = t.args
+    for _, argument in ipairs(t.args) do
+      parts[#parts + 1] = argument
+    end
   elseif (t.tag == "fn") then
     for _, alt in ipairs(t.rets) do
       for _, item in ipairs(alt.items) do
@@ -190,7 +194,7 @@ local function not_normal(t: Types.Type, seen: mut {integer: boolean}): string
       -- `any` absorbs the nil, so an omittable `any` is `any`.
       local optional = param_type.tag == "nil" or param_type.tag == "any" or param_type.tag == "invalid" or
         ((param_type.tag == "union") and param_type.nilable)
-      if p.omittable and not optional then
+      if p.omittable == true and not optional then
         return "an omittable parameter that is not optional in " .. Types.display(t)
       end
       parts[#parts + 1] = p.type
@@ -279,7 +283,7 @@ local function flags_wrong(t: Types.Type, seen: mut {integer: boolean}): string
   seen[t.id] = true
   local open, changes = flags(t)
   if open ~= t.open or changes ~= t.has_mut then
-    return Types.display(t) .. " has open " .. t.open .. " and has_mut " .. tostring(t.has_mut) ..
+    return Types.display(t) .. " has open " .. tostring(t.open) .. " and has_mut " .. tostring(t.has_mut) ..
       ", worked out " .. open .. " and " .. tostring(changes)
   end
   return ""
@@ -313,7 +317,7 @@ local function test_making_a_type_again_finds_it_and_adds_none(tmp: string)
         return false, why
       end
       if first.open ~= 0 then
-        return false, "a generated type is closed, " .. Types.display(first) .. " reaches " .. first.open
+        return false, "a generated type is closed, " .. Types.display(first) .. " reaches " .. tostring(first.open)
       end
       label_all(first, {})
       return true, ""

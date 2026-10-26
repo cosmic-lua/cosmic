@@ -1147,7 +1147,8 @@ local function test_a_refusal_names_the_position_of_the_alternative_that_failed(
     local r = refusal(w, given, wanted)
     local index = r.path[1].index
     assert(r.path[1].kind == "alternative" and index ~= nil, Relation.trace(r))
-    assert(given.rets[index].items[1] == failing, Relation.trace(r))
+    local alt = given.rets[index]
+    assert(alt ~= nil and alt.items[1] == failing, Relation.trace(r))
     seen[index] = true
   end
   assert(seen[1] and seen[2])
@@ -1363,8 +1364,9 @@ local function test_a_failing_alternative_is_named_by_its_position_whichever_it_
     local reason = refusal(w, one, wanted)
     assert(reason.code == "return_unmatched", Relation.trace(reason))
     local index = reason.path[1].index
-    assert(reason.path[1].kind == "alternative" and index ~= nil and one.rets[index].items[2] == failing,
-      Relation.trace(reason))
+    assert(index ~= nil)
+    local alt = one.rets[index]
+    assert(reason.path[1].kind == "alternative" and alt ~= nil and alt.items[2] == failing, Relation.trace(reason))
     seen[index] = true
   end
   assert(seen[1] and seen[2])

@@ -13,8 +13,8 @@
 # a rewrite removes it and a pin falls with it. A change that adds or sharpens a rule of the lowering may raise some, or
 # add some for a new code, and says why in its message. A file whose translation did not parse, and now does, is
 # pinned at what it has.
-# The program is the one the pipeline reads ([`build.tree_program`]): lang/ast.tl and lang/types.tl have the steps of
-# [`build.lang_proof`] made (their `where` clauses are blanked), so they are pinned at what they have.
+# The program is the one the pipeline reads ([`build.tree_program`]): lang/ast.tl has the steps of
+# [`build.lang_proof`] made (its `where` clauses are blanked), so it is pinned at what it has.
 # a class whose metatable keeps its `__close` as a field, since the metatable also holds a `__gc` that a class has
 # no form for: the process handle becomes a C userdata whose finalizer C owns (doc/plans/strict-teal.md,
 # "compiler-written classes, in the new checker")
@@ -25,8 +25,6 @@ cosmic/internal/connector.tl class_metamethod 1
 lang/ast.tl untagged_union 9
 
 lang/parser.tl untagged_union 1
-
-lang/types.tl untagged_union 1
 
 # a map keyed by `any` (the registry, a decoded table's keys, the shape validators), by a union or by a collection:
 # key by an `integer` or a `string`, or declare an enum or a record for the keys
@@ -189,7 +187,6 @@ cosmic/zip.tl interface_disagrees 4
 
 lang/ast.tl interface_disagrees 288
 
-lang/types.tl interface_disagrees 63
 
 # an array of optional elements: a map `{integer: T}` for sparse data
 
@@ -391,10 +388,10 @@ build/migrate.tl 1
 # it adds to the files it edits. A file whose translation did not parse, and now does, is pinned at what it has: the
 # errors the checker finds in a file it could not see are not a rule newly broken. A source the build writes from another
 # file (a doc guide, a template) is held under the name of that file. The program is the one the pipeline reads
-# ([`build.tree_program`]), so that the pins and the compile agree: lang/ast.tl and lang/types.tl are mended by the steps of
-# [`build.lang_proof`], so that a file which reads them sees unions of records with no tag (their `where` clauses are
+# ([`build.tree_program`]), so that the pins and the compile agree: lang/ast.tl is mended by the steps of
+# [`build.lang_proof`], so that a file which reads it sees unions of records with no tag (its `where` clauses are
 # gone) and is pinned at what that shows, `field_unknown` and `any_use` above all, until a change of its own tags
-# the unions by hand (the TODOs of lang/ast.tl and lang/types.tl); and a call of [`Shape.record_of`] is resolved ([`build.syntax_shape_specs`]), which removes the
+# the unions by hand (the TODO of lang/ast.tl); and a call of [`Shape.record_of`] is resolved ([`build.syntax_shape_specs`]), which removes the
 # `cannot_infer` it was and shows the errors it hid. The pins below are grouped by code, with the rule or the later
 # piece that brings each to zero.
 # a call of `setmetatable`, which the translator writes as the literal of a class where the metatable is a
@@ -1570,7 +1567,7 @@ lang/parser_recovery_test.tl nil_not_allowed 57
 
 lang/parser_test.tl nil_not_allowed 19
 
-lang/relation.tl nil_not_allowed 12
+lang/relation.tl nil_not_allowed 11
 
 lang/relation_fuzz_test.tl nil_not_allowed 6
 
@@ -1600,7 +1597,7 @@ lang/translate_test.tl nil_not_allowed 26
 
 lang/truthy_test.tl nil_not_allowed 1
 
-lang/types.tl nil_not_allowed 43
+lang/types.tl nil_not_allowed 41
 
 lang/types_programs.tl nil_not_allowed 7
 
@@ -1631,7 +1628,6 @@ test/sqlite_transaction_test.tl nil_not_allowed 1
 
 build/tree_checks.tl narrowing_dropped 7
 
-lang/check.tl narrowing_dropped 2
 
 # a local declared with no value and read, or named by a function made, before every path assigns it: the functions declared
 # ahead for mutual recursion (`local expr: function(...)`), which the rewrite makes the functions of a record
@@ -3521,17 +3517,17 @@ lang/warnings.tl field_fixed 2
 # a field the record does not declare: a field an interface gives a record that lists it (declared again by the
 # rewrite), a field of a member of a union read without a test, and a method of the standard library the
 # declarations lack
-build/compile_grammar.tl field_unknown 20
+build/compile_grammar.tl field_unknown 7
 
 build/coverage/syntax_lines.tl field_unknown 2
 
-build/driver_test.tl field_unknown 8
+build/driver_test.tl field_unknown 2
 
 build/plural_sites.tl field_unknown 24
 
 build/syntax_analyzer.tl field_unknown 151
 
-build/syntax_contracts.tl field_unknown 318
+build/syntax_contracts.tl field_unknown 292
 
 build/syntax_globals.tl field_unknown 2
 
@@ -3545,17 +3541,16 @@ build/syntax_node.tl field_unknown 18
 
 build/syntax_node_test.tl field_unknown 4
 
-build/syntax_receivers.tl field_unknown 24
+build/syntax_receivers.tl field_unknown 21
 
-build/syntax_report.tl field_unknown 2
 
 build/syntax_rewrite.tl field_unknown 1
 
 build/syntax_scopes.tl field_unknown 11
 
-build/syntax_shape_specs.tl field_unknown 32
+build/syntax_shape_specs.tl field_unknown 12
 
-build/syntax_stub.tl field_unknown 52
+build/syntax_stub.tl field_unknown 48
 
 core/surface_test.tl field_unknown 2
 
@@ -3575,25 +3570,21 @@ cosmic/stream.tl field_unknown 2
 
 lang/ast.tl field_unknown 3
 
-lang/check.tl field_unknown 862
+lang/check.tl field_unknown 426
 
-lang/check_class_test.tl field_unknown 6
 
-lang/check_generics_test.tl field_unknown 1
 
 lang/check_programs.tl field_unknown 2
 
-lang/check_test.tl field_unknown 1
 
 lang/codegen.tl field_unknown 270
 
 lang/codegen_test.tl field_unknown 3
 
-lang/declarations.tl field_unknown 228
+lang/declarations.tl field_unknown 131
 
-lang/declarations_test.tl field_unknown 14
+lang/declarations_test.tl field_unknown 8
 
-lang/generics.tl field_unknown 84
 
 lang/load_order.tl field_unknown 6
 
@@ -3609,11 +3600,9 @@ lang/parser_recovery_test.tl field_unknown 14
 
 lang/parser_test.tl field_unknown 42
 
-lang/relation.tl field_unknown 130
+lang/relation.tl field_unknown 8
 
-lang/relation_fuzz_test.tl field_unknown 123
 
-lang/relation_test.tl field_unknown 13
 
 lang/scopes.tl field_unknown 177
 
@@ -3629,19 +3618,15 @@ lang/truthy.tl field_unknown 15
 
 lang/truthy_test.tl field_unknown 2
 
-lang/types.tl field_unknown 172
+lang/types.tl field_unknown 17
 
-lang/types_fuzz_test.tl field_unknown 75
 
-lang/types_programs.tl field_unknown 3
+lang/types_programs.tl field_unknown 2
 
-lang/types_speed_test.tl field_unknown 1
 
-lang/types_test.tl field_unknown 38
 
-lang/warnings.tl field_unknown 3
 
-lang/warnings_test.tl field_unknown 25
+lang/warnings_test.tl field_unknown 16
 
 # `m.k` on a map: a table written `{ k = v }` with no record to be, which the rewrite declares as a record
 build/archive.tl map_field 2
@@ -6196,7 +6181,7 @@ lang/codegen.tl condition_type 4
 
 lang/codegen_fuzz_test.tl condition_type 4
 
-lang/declarations.tl condition_type 19
+lang/declarations.tl condition_type 17
 
 lang/declarations_test.tl condition_type 1
 
@@ -8554,7 +8539,6 @@ lang/parser.tl literal_unknown 112
 
 lang/scopes.tl literal_unknown 4
 
-lang/types.tl literal_unknown 63
 
 # a `{}` with no type to make it from: the rewrite declares the local `mut {T}`
 
@@ -8862,7 +8846,6 @@ eval/round.tl literal_needs_type 1
 
 eval/summarize.tl literal_needs_type 1
 
-lang/check.tl literal_needs_type 1
 
 lang/declarations.tl literal_needs_type 2
 
@@ -9393,7 +9376,7 @@ build/database_start_fixture.tl not_assignable 1
 
 build/dataset_fuzz_test.tl not_assignable 1
 
-build/driver_test.tl not_assignable 2
+build/driver_test.tl not_assignable 1
 
 build/fix/init.tl not_assignable 3
 
@@ -9425,9 +9408,8 @@ build/stand_in_probe.tl not_assignable 29
 
 build/syntax_analyzer.tl not_assignable 3
 
-build/syntax_contracts.tl not_assignable 8
+build/syntax_contracts.tl not_assignable 4
 
-build/syntax_shape_specs.tl not_assignable 1
 
 build/test_sandbox_system_confined_test.tl not_assignable 1
 
@@ -9505,13 +9487,12 @@ cosmic/web/sse.tl not_assignable 2
 
 eval/check/grade.tl not_assignable 1
 
-lang/check.tl not_assignable 77
+lang/check.tl not_assignable 40
 
 lang/codegen.tl not_assignable 21
 
-lang/declarations.tl not_assignable 21
+lang/declarations.tl not_assignable 10
 
-lang/generics.tl not_assignable 3
 
 lang/parser.tl not_assignable 8
 
@@ -9519,11 +9500,8 @@ lang/parser_fuzz_test.tl not_assignable 3
 
 lang/parser_test.tl not_assignable 2
 
-lang/relation.tl not_assignable 17
 
-lang/relation_fuzz_test.tl not_assignable 2
 
-lang/relation_test.tl not_assignable 3
 
 lang/scopes.tl not_assignable 14
 
@@ -9535,13 +9513,9 @@ lang/scopes_test.tl not_assignable 1
 
 lang/translate.tl not_assignable 19
 
-lang/types.tl not_assignable 4
 
-lang/types_fuzz_test.tl not_assignable 2
 
-lang/types_programs.tl not_assignable 1
 
-lang/types_test.tl not_assignable 2
 
 # a call that answers one of several lists used as the value of one name: a `pcall` whose first value is read
 # (`assert(not pcall(f))`, `local ok = pcall(f)`), which the rewrite makes a `match`
@@ -9695,7 +9669,7 @@ build/migrate.tl condition_type 8
 
 build/migrate.tl field_fixed 11
 
-build/migrate.tl field_unknown 123
+build/migrate.tl field_unknown 87
 
 build/migrate.tl literal_missing 1
 
@@ -9743,13 +9717,11 @@ cosmic/web/response_test.tl not_assignable 2
 
 cosmic/web/typed.tl not_assignable 1
 
-lang/recursive_alias_fuzz_test.tl field_unknown 13
 
 lang/recursive_alias_fuzz_test.tl index_may_be_nil 1
 
 lang/recursive_alias_test.tl alternatives_as_value 3
 
-lang/recursive_alias_test.tl field_unknown 7
 
 lang/relation.tl or_mix 1
 

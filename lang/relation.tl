@@ -321,7 +321,7 @@ local function rewrite(
   if t.open <= level then
     return t
   end
-  local key = t.id .. ":" .. level
+  local key = tostring(t.id) .. ":" .. level
   local held = memo[key]
   if held ~= nil then
     return held
@@ -495,6 +495,7 @@ local function lists(closure: Relation.Closure, target: Named): boolean
     local same = true
     for i, held in ipairs(listed.args) do
       local other = target.args[i]
+      assert(other ~= nil)
       if held ~= other and held.tag ~= "invalid" and other.tag ~= "invalid" then
         same = false
         break
@@ -746,6 +747,7 @@ local function from_named(j: Relation.Judge, a: Named, b: Type, why: boolean): R
       end
       for i, held in ipairs(a.args) do
         local other = b.args[i]
+        assert(other ~= nil)
         if held ~= other and held.tag ~= "invalid" and other.tag ~= "invalid" then
           return through(why, "argument", i, leaf(j, why, "invariant_generic", held, other))
         end
@@ -1101,8 +1103,6 @@ local function rule(j: Relation.Judge, a: Type, b: Type, why: boolean): Relation
     return into_union(j, a, b, why)
   elseif (b.tag == "var") and not ((a.tag == "var")) and a.tag ~= "nil" then
     return leaf(j, why, "variable", a, b)
-  elseif (a.atom == true) then
-    return from_atom(j, a, b, why)
   elseif (a.tag == "named") then
     return from_named(j, a, b, why)
   elseif (a.tag == "array") then
@@ -1111,8 +1111,10 @@ local function rule(j: Relation.Judge, a: Type, b: Type, why: boolean): Relation
     return from_map(j, a, b, why)
   elseif (a.tag == "fn") then
     return from_fn(j, a, b, why)
+  elseif (a.tag == "var") then
+    return from_var(j, a, b, why)
   end
-  return from_var(j, a, b, why)
+  return from_atom(j, a, b, why)
 end
 
 rel = function(j: Relation.Judge, a: Type, b: Type, why: boolean): Relation.Refusal?

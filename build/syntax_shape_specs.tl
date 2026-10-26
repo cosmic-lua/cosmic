@@ -148,7 +148,7 @@ spec_of = function(t: Type, path: string, shape: string, holding: {Types.Decl: b
     string?, string
   if (t.atom == true) then
     if LEAVES[t.tag] then
-      return shape .. "." .. t.tag, ""
+      return shape .. "." .. tostring(t.tag), ""
     elseif t.tag == "invalid" then
       return nil, path .. ": a type the checker did not resolve"
     end
