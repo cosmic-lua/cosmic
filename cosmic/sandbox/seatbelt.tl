@@ -185,8 +185,8 @@ function Seatbelt.compile(policy: rules.Policy, options?: Seatbelt.Options): Sea
   elseif relay_port ~= nil then
     return refuse("a relay's port is given to a policy with no connect")
   end
-  local grants: {rules.Grant} = {}
-  local directories: {string:boolean} = {}
+  local grants: mut {rules.Grant} = {}
+  local directories: mut {string:boolean} = {}
   local paths = options and options.paths or {}
   local function add(path: string, letters: string): string
     local held = paths[path]
@@ -378,7 +378,7 @@ end
 --- [`Seatbelt.Options.terminal`]. Nil and why where a grant's path is not there.
 function Seatbelt.resolve(policy: rules.Policy, base?: string, executable?: string,
                           core?: string, database?: string, terminal?: string): Seatbelt.Options?, string
-  local paths: {string:Seatbelt.Path} = {}
+  local paths: mut {string:Seatbelt.Path} = {}
   -- "" where `at` was resolved, or why not.
   local function look(name: string, at: string): string
     local real, trouble = sys.realpath(at)

@@ -37,13 +37,13 @@ local record Flags
     --- Each option given that takes no value.
     set: {string:boolean}
     --- Each option given with a value, by name; the last one given wins.
-    values: {string:string}
+    values: mut {string:string}
     --- Each option given with a value, by name: every value it was
     --- given, in order, for an option that may be repeated.
-    all: {string:{string}}
+    all: mut {string:{string}}
     --- Every option given, by name, in order, once each time it was
     --- given: what counts a repeat, or tells which came first.
-    given: {string}
+    given: mut {string}
     --- Every other word, in order.
     words: {string}
   end
