@@ -192,8 +192,8 @@ end
 
 -- TODO: give `Coroutine` and `Yielder` a kind of their own ("thread") once lang/stdlib.d.tl declares a thread type: they
 -- are userdata records there and threads at run time, so a boundary typed with one is not checked.
--- TODO: once lang/codegen.tl writes a boundary check from the checker's list of declared parameters, returns and fields
--- (the next step of the boundary checks in doc/plans/strict-teal.md), call [`Boundaries.kinds`] and [`Boundaries.spec`]
--- there: nothing outside the tests calls them yet.
+-- TODO: once the checker lists the declared returns and fields written as well (the next steps of the boundary checks in
+-- doc/plans/strict-teal.md), have [`lang.boundary_checks`] call [`Boundaries.kinds`] and [`Boundaries.spec`] for them as it
+-- does for a parameter: only the parameters of a function are checked so far.
 
 return Boundaries

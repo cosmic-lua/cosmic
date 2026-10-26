@@ -164,7 +164,7 @@ for _, name in ipairs({ "plan", "name_servers", "upstream_addresses", "resolved_
   allowed["cosmic.internal.relay_start." .. name] = "tested directly: a step of `handover` and " ..
     "`direct_handover`, which are composed from it, each tested over fixtures of its own"
 end
-for _, name in ipairs({ "install_checks", "dropped_violations", "most_kept", "fact" }) do
+for _, name in ipairs({ "install_checks", "dropped_violations", "most_kept", "fact", "cross" }) do
   allowed["build.test_worker." .. name] = "the seam that lets a test run the hook a checked run's Lua calls " ..
     "in its own process, over Lua it compiled with the checks, and read what the hook met; " ..
     "`run` calls them for a worker"
@@ -992,11 +992,10 @@ local requirers: {string: Restriction} = {
       "literal name, `require(\"cosmic.fs\")`, or picks from a table of such requires",
   },
   ["cosmic.internal.globals"] = {
-    files = { "build.dispatch", "build.fact_hook_test", "build.fuzz", "build.load_module",
+    files = { "build.dispatch", "build.fuzz", "build.load_module",
       "build.raw_tables_test", "build.sandbox", "build.sandboxed_verdicts_test", "build.sealed_worker_test", "build.standalone",
       "build.test_closure_diagnostic_test", "build.test_closure_test", "build.type_watch", "core.load_env_test", "core.surface_test",
-      "cosmic.coverage_test", "cosmic.flags_test", "cosmic.test_tool_test", "lang.boundaries_fuzz_test", "lang.boundaries_test",
-      "test.coverage_cache_test" },
+      "cosmic.coverage_test", "cosmic.flags_test", "cosmic.test_tool_test", "test.coverage_cache_test" },
     why = "only the modules that run a program or a hook as a chunk of Lua text take the globals whole, as its " ..
       "environment: it holds `require`, which a chunk loads modules the build does not see by; any other module " ..
       "passes the chunk the few names it needs",

@@ -125,9 +125,12 @@ local record Codegen
   --- `served` says the Lua is for a build that serves every module, as the fork compiles one: it drops every `local type`
   --- import that the file does not read or write as a value. A file compiled alone drops only the imports it uses as a type
   --- and keeps the `require` of the rest.
+  --- `checks` names, by the id of a function's node (an [`Ast.Fn`], or a class's [`Ast.Method`]), the statement that checks
+  --- its parameters ([`lang.boundary_checks`]). It is written on the line of the `)` that ends the parameters, after it, so
+  --- that no line of the program moves and the body is as written: nothing wraps a `return`, and a tail call stays one.
   generate: function(chunk: Ast.Chunk, scoped: Scopes.Scoped, truthy?: function(e: Ast.Exp): boolean,
                      classes?: {integer: string}, enums?: {integer: {string}}, wraps?: {integer: string},
-                     kinds?: {integer: string}, served?: boolean): Generated
+                     kinds?: {integer: string}, served?: boolean, checks?: {integer: string}): Generated
 
   --- `lua`, the Lua of this generator or of the fork's for the same Teal, once the layout of a `continue` is set
   --- aside: the `::continue::` that ends a loop is deleted, since the fork's source has it on a line of its own and
@@ -336,6 +339,8 @@ local record State
   mut kinds: {integer: string}
   --- Whether the build serves every module ([`Codegen.generate`]'s `served`).
   mut served: boolean
+  --- The statement that checks the parameters of a function, by the id of its node.
+  mut checks: {integer: string}
 end
 
 local NO_TOKENS <const>: Lexer.Tokens = Lexer.lex("", "").tokens
@@ -344,6 +349,7 @@ local G: State = {
   tokens = NO_TOKENS, scoped = { vars = {}, list = {}, resolved = {}, globals = {}, global_writes = {}, errors = {} },
   indent = 0, saved = {}, errors = {}, loops = {}, declarations = nil, matches = 0, body = nil,
   truthy = function(_e: Ast.Exp): boolean return false end, guarded = nil, classes = {}, enums = {}, wraps = {}, kinds = {}, served = false,
+  checks = {},
 }
 
 local function base_of(node: Ast.Node): Ast.Base
@@ -823,6 +829,10 @@ local function function_rest(out: Output, y: integer, fn: Ast.Fn)
   local body_y = line_of(body.first)
   add_child(out, params_of(fn.first, fn.params))
   put(out, ")")
+  local check = G.checks[fn.id]
+  if check ~= nil then
+    put(out, " " .. check)
+  end
   add_child(out, block(body), " ")
   indent_out(y, body_y)
   add_child(out, text(line_of(body.close), "end"), " ", G.indent)
@@ -1547,6 +1557,10 @@ local function method_statement(class: Ast.Class, m: Ast.Method): Output
   put(out, "(")
   add_child(out, params_of(m.name.last + 1, m.params))
   put(out, ")")
+  local check = G.checks[m.id]
+  if check ~= nil then
+    put(out, " " .. check)
+  end
   add_child(out, block(body), " ")
   indent_out(y, line_of(body.first))
   add_child(out, text(line_of(body.close), "end"), " ", G.indent)
@@ -1671,8 +1685,9 @@ end
 
 function Codegen.generate(chunk: Ast.Chunk, scoped: Scopes.Scoped, truthy?: function(e: Ast.Exp): boolean,
                           classes?: {integer: string}, enums?: {integer: {string}}, wraps?: {integer: string},
-                          kinds?: {integer: string}, served?: boolean): Codegen.Generated
+                          kinds?: {integer: string}, served?: boolean, checks?: {integer: string}): Codegen.Generated
   G.tokens, G.scoped = chunk.tokens, scoped
+  G.checks = checks or {}
   G.served = served == true
   G.truthy = truthy or syntactically_truthy
   G.classes = classes or {}
@@ -1692,7 +1707,7 @@ function Codegen.generate(chunk: Ast.Chunk, scoped: Scopes.Scoped, truthy?: func
   local errors = G.errors
   G.tokens, G.saved, G.errors, G.loops, G.declarations, G.body, G.classes =
     NO_TOKENS, {}, {}, {}, nil, nil, {}
-  G.enums, G.wraps, G.kinds, G.served = {}, {}, {}, false
+  G.enums, G.wraps, G.kinds, G.served, G.checks = {}, {}, {}, false, {}
   return { text = written, errors = errors }
 end
 

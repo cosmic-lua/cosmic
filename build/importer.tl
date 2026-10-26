@@ -1389,12 +1389,15 @@ end
 --- keyed by it is kept apart from a test run without.
 ---
 --- `wraps` says the checks are the calls of `__fact` that the new checker's code
---- generator writes at the reads a test narrowed ([`lang.fact_wraps`]), and not
---- the fork's `__cosmic_tc`: the Lua of the two differs, so their keys do. A
+--- generator writes at the reads a test narrowed ([`lang.fact_wraps`]) and the calls of
+--- `__cosmic_tc` at the typed parameters of a function ([`lang.boundary_checks`]), and not
+--- the fork's `__cosmic_tc`: the Lua of the two differs, so their keys do. The key holds
+--- what the compile adds, so a list of checks that grows (the returns and the fields written,
+--- later) moves it and no entry compiled with fewer is the answer. A
 --- compile cached with the one is never the answer to a request for the other,
 --- nor for none.
 function importer.checked_tool(tool: string, wraps?: boolean): string
-  return Hash.hex_sha256(tool .. (if wraps == true then "\0fact-wraps" else "\0run-time-checks" end))
+  return Hash.hex_sha256(tool .. (if wraps == true then "\0fact-wraps\0parameter-checks" else "\0run-time-checks" end))
 end
 
 --- What a compile that asked to be reused stood on, and what it made.
@@ -1460,7 +1463,8 @@ end
 ---   ([`importer.derive`]). Finished before this returns, whatever it
 ---   returns, with whatever an earlier derive given them offered.
 --- @param checks whether the compiled Lua checks a value against its declared
----   kind: each read of a place a test narrowed is wrapped in a call of `__fact` ([`lang.fact_wraps`]). It keys every
+---   kind: each read of a place a test narrowed is wrapped in a call of `__fact` ([`lang.fact_wraps`]), and each function
+---   with typed parameters checks them ([`lang.boundary_checks`]). It keys every
 ---   compile by [`importer.checked_tool`], so no cache shares an entry between the two.
 function importer.compile(handle: work.Handle, tool: string, unjudged?: boolean,
                           shared?: importer.Shared, checks?: boolean, again?: boolean): importer.Result?, string

@@ -23,9 +23,10 @@
 --- code before the worker installs the hook (the worker's own libraries) or in a process that defines none (a relay, a
 --- process a test starts) gets the value all the same.
 --
--- A checked run writes the facts alone: the fork's checks of arguments, return values and record fields (its "p", "r" and
--- "f" specs of `__cosmic_tc`) went with it. They reported and failed nothing, and the checker keeps nil out of every type
--- itself, so what they could still report is what an `any` or an unchecked binding lets through.
+-- A checked run writes the facts and the checks of the parameters of a function ([`lang.boundary_checks`]): the fork's checks
+-- of return values and record fields (its "r" and "f" specs of `__cosmic_tc`) went with it and are not written yet. They
+-- reported and failed nothing, and the checker keeps nil out of every type itself, so what they could still report is what an
+-- `any` or an unchecked binding lets through.
 --
 -- TODO: keep the name of the place in the error of a wrapped read, once a test of the suite is found to match one: the full
 -- checked-narrowing run (`cosmic test --check-types`) shows none, but `x + 1` of a wrapped `x` says "attempt to perform

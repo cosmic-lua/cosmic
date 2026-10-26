@@ -28,7 +28,8 @@
 ---
 --- WITH `facts` each read of a place whose type a test narrowed is written as a call of `__fact` that checks what the
 --- checker concluded of it ([`lang.fact_wraps`]), for a run that defines the hook (`cosmic test --check-types`'s worker,
---- [`build.test_worker`]'s `install_checks`). The Lua has the same lines.
+--- [`build.test_worker`]'s `install_checks`), and each function with typed parameters begins with a check of them
+--- ([`lang.boundary_checks`]). The Lua has the same lines.
 ---
 --- The generator keeps state of its own, so this is not re-entrant, like [`lang.codegen`].
 
@@ -37,6 +38,7 @@ local Check = require("lang.check")
 local Codegen = require("lang.codegen")
 local Declarations = require("lang.declarations")
 local Driver = require("build.driver")
+local BoundaryChecks = require("lang.boundary_checks")
 local FactWraps = require("lang.fact_wraps")
 local Lexer = require("lang.lexer")
 local Parser = require("lang.parser")
@@ -199,10 +201,13 @@ function compile_grammar.emit(build: Driver.Build, result: Driver.Outcome, facts
   end
   local kinds, refusals = type_facts(build.program, result, lowered, counted)
   local wraps: {integer: string}? = nil
+  local boundary_checks: {integer: string}? = nil
   if facts == true then
     wraps = FactWraps.of(checked.narrowed, result.text, result.source.filename, result.chunk)
+    boundary_checks = BoundaryChecks.of(checked.boundaries, result.text, result.source.filename)
   end
-  local generated = Codegen.generate(result.chunk, result.scoped, result.never_false, classes, Check.enums(lowered), wraps, kinds, served == true)
+  local generated = Codegen.generate(result.chunk, result.scoped, result.never_false, classes, Check.enums(lowered), wraps, kinds,
+    served == true, boundary_checks)
   local lines: mut {string} = {}
   for _, e in ipairs(generated.errors) do
     lines[#lines + 1] = tostring(e.y) .. ":" .. tostring(e.x) .. ": " .. e.msg .. " (" .. e.code .. "): " .. e.fix

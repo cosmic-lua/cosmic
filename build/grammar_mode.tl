@@ -44,7 +44,7 @@ function GrammarMode.mode(): GrammarMode.Mode?, string
 end
 
 function GrammarMode.tool(tool: string, _mode: GrammarMode.Mode, wraps?: boolean): string
-  return Hash.hex_sha256(tool .. (if wraps == true then "\0grammar-new\0fact-wraps" else "\0grammar-new" end))
+  return Hash.hex_sha256(tool .. (if wraps == true then "\0grammar-new\0fact-wraps\0parameter-checks" else "\0grammar-new" end))
 end
 
 return GrammarMode

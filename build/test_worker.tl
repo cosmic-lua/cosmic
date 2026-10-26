@@ -210,6 +210,12 @@ local record worker
   most_kept: integer
 
   install_checks: function()
+  --- Crosses a boundary by hand, as the Lua of a checked function does by calling the `__cosmic_tc` that [`install_checks`]
+  --- defines ([`lang.boundary_checks`]): `text` is the spec ("p" parameters, "r" return values, "f" a field written) and
+  --- `values` the values crossing it. It answers nothing, where the global answers the values: a test that needs them keeps
+  --- them. A violation of a parameter is placed at the line that called `cross`, where a checked function's is placed at its
+  --- caller's.
+  cross: function(text: string, ...: any)
   --- The `__fact` that [`install_checks`] defines: the hook the calls of [`lang.fact_wraps`] run, for a test that runs
   --- the Lua of a program with them.
   fact: function(v: any, taken: string, place: string, strings?: {string}, classes?: {any}, tag?: string,
@@ -686,6 +692,10 @@ end
 
 worker.most_kept = 2000
 worker.fact = fact
+
+function worker.cross(text: string, ...: any)
+  local _ = hook(2, text, ...)
+end
 
 --- Defines the global `__cosmic_tc` the Lua of a checked run calls, which
 --- records what [`worker.violations`] answers, and `__fact`, which the Lua the

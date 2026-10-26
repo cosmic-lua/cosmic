@@ -304,11 +304,15 @@ and keeps no verdict of it. A held run fails it.
 
 `cosmic test --check-types` (`COSMIC_TEST_CHECK_TYPES=1`) shows where the checker's conclusion from a test is false at
 run time. It compiles the tree with a check at each read of a place a test narrowed (below) and runs every test,
-whatever verdict stands, since only a worker reports. The new checker keeps nil out of every declared type itself and
-writes no check of a parameter, a returned value or a field write, so the run reports rows of kind `fact` and no other.
-The compile is keyed apart from an unchecked one ([`importer.checked_tool`]).
+whatever verdict stands, since only a worker reports. The new checker keeps nil out of every declared type itself. It
+writes a check at the entry of a function for each typed parameter ([`lang.boundary_checks`]): a statement on the line of
+the `)` that ends the parameters, so no line moves and a tail call stays one, which hands the hook the values and the
+kinds the declared types admit. A value of another kind is a row of kind `parameter` at the line of the caller, and the
+function runs on: the check reports and fails nothing. A variadic parameter, `self` and a parameter typed `any` are not
+checked. It writes no check of a returned value or a field write yet, so the run reports rows of kind `fact` and
+`parameter`. The compile is keyed apart from an unchecked one ([`importer.checked_tool`]).
 The tests of declared boundaries (`*_declared_types_test.tl`, through [`build/type_watch.tl`]) skip in every run until a
-compile writes those checks: a pass would check nothing.
+compile writes the checks of returns and fields as well: a pass would check only the parameters.
 
 Three tests compare the bytecode of a module with the binary's
 ([`build/harness_epoch_test.tl`], [`cosmic/store_seal_test.tl`],
@@ -540,6 +544,7 @@ Other rules:
 [`Fuzz.label`]: ../build/fuzz/init.tl
 [`Fuzz.more`]: ../build/fuzz/init.tl
 [`importer.checked_tool`]: ../build/importer.tl
+[`lang.boundary_checks`]: ../lang/boundary_checks.tl
 [`lang.check_programs`]: ../lang/check_programs.tl
 [`lang.check_verdicts`]: ../lang/check_verdicts.tl
 [`lang.codegen`]: ../lang/codegen.tl

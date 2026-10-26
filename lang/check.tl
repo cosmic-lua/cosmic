@@ -118,6 +118,28 @@ local record Check
     tags: {string}?
   end
 
+  enum Role
+    "parameter"
+  end
+
+  --- A value that crosses a typed boundary of the program, for a run that checks it at the boundary
+  --- ([`lang.boundary_checks`]). Only parameters are listed so far: `id` is the id of the node of the function (its [`Fn`],
+  --- or the `Method` of a class), and a function with several checked parameters has a row for each, by `param`.
+  record Boundary
+    id: integer
+    role: Role
+    --- The name of the parameter, and its position among the function's parameters, from 1.
+    name: string
+    param: integer
+    --- The function as the program calls it (`f`, `R.m`, `C.m`, or `function` for one with no name).
+    owner: string
+    --- The type a value must have there: the declared type, with nil where the parameter is optional. It is turned into
+    --- the kinds of Lua value only where a run checks it ([`lang.boundaries`]'s `kinds`).
+    type: Type
+    --- The offset of the first token of the function.
+    at: integer
+  end
+
   --- What checking a module answers.
   record Checked
     --- The errors, in source order.
@@ -130,6 +152,9 @@ local record Check
     --- The reads of a place whose type a test narrowed, in source order: what the checker concluded, for a run
     --- that checks it ([`Check.Narrowed`]).
     narrowed: {Narrowed}
+    --- The typed boundaries the program declares, in source order ([`Check.Boundary`]): the parameters of every function
+    --- whose body was checked, bar the variadic one, a `self`, and one whose type is `any`.
+    boundaries: {Boundary}
     --- The type of each expression that was typed, by the id of its node (empty where the check was asked not to keep them,
     --- `typed` false; kept by default): the type report the readers of the build take ([`build.driver`]). A name, a
     --- literal, a call (the first value of the first list it answers), an operator and each link of a chain has one, as the
@@ -325,6 +350,8 @@ local record Ctx
   unfixed: mut {integer: {integer: boolean}}
   --- The reads of narrowed places, by the offset of the place.
   narrowed: mut {integer: Check.Narrowed}
+  --- The parameters of the functions checked, by the id of the binding of the parameter.
+  boundaries: mut {integer: Check.Boundary}
   --- The type of each expression typed, by the id of its node, and the warnings found.
   types: mut {integer: Type}
   --- The function each call took, by the id of the call node ([`Check.Checked.callees`]).
@@ -3614,7 +3641,7 @@ end
 --- facts of the code around it that hold inside it ([`Flow.State`]'s `enter`), and a function that answers values
 --- reaches its end only where the flow does not.
 local function function_body(ctx: Ctx, params: {Ast.Param}, body: Ast.Block, ft: Type, names: {string}, whole: Ast.Node,
-                             declared: boolean, fn_id: integer)
+                             declared: boolean, fn_id: integer, owner: string)
   read_at_creation(ctx, fn_id, whole)
   if ctx.quiet > 0 then
     -- A pass that is settling a loop reports nothing, and a function's body changes nothing of the code around it.
@@ -3642,6 +3669,20 @@ local function function_body(ctx: Ctx, params: {Ast.Param}, body: Ast.Block, ft:
       local binding = p.name
       if binding ~= nil then
         ctx.vars[binding.id] = f ~= nil and f.params[j] ~= nil and f.params[j].type or ctx.invalid
+        local given: Types.Param? = nil
+        if f ~= nil then
+          given = f.params[j]
+        end
+        if given ~= nil and given.type.tag ~= "any" and binding.name ~= "self" then
+          local t = given.type
+          if p.optional or given.omittable == true then
+            t = ctx.store:optional(t)
+          end
+          ctx.boundaries[binding.id] = {
+            id = fn_id, role = "parameter", name = binding.name, param = j, owner = owner, type = t,
+            at = Lexer.offset(ctx.tokens, whole.first),
+          }
+        end
         if narrows ~= nil and narrows.param == j then
           narrowed_id, narrowed_name, narrowed_type = binding.id, binding.name, ctx.vars[binding.id]
           local assigned = ctx.scoped.vars[binding.id]
@@ -3712,7 +3753,7 @@ end
 --- A function literal: its type, and its body checked.
 local function function_literal(ctx: Ctx, e: Ast.FunctionLit, expected: Type?): Type
   local ft = function_type(ctx, e.fn, expected, "this function")
-  function_body(ctx, e.fn.params, e.fn.body, ft, {}, e, e.fn.rets ~= nil, e.fn.id)
+  function_body(ctx, e.fn.params, e.fn.body, ft, {}, e, e.fn.rets ~= nil, e.fn.id, "function")
   if ctx.load.waiting > 0 and ctx.load.given[e.id] ~= true then
     LoadOrder.mention(ctx.load, ctx.within, e, LoadOrder.of_function(e.fn.id, "the function written here"))
   end
@@ -6297,7 +6338,8 @@ local function declaration_bodies(ctx: Ctx, node: Ast.Node, decl: Decl?)
   for _, m in ipairs(members) do
     if (m.kind == "Method") then
       local ft = ctx.lowered.types[m.id] or ctx.invalid
-      function_body(ctx, m.params, m.body, ft, {}, m, m.rets ~= nil, m.id)
+      function_body(ctx, m.params, m.body, ft, {}, m, m.rets ~= nil, m.id,
+        (if decl ~= nil then decl.name else "?" end) .. "." .. m.name.name)
     elseif (m.kind == "Record") or (m.kind == "Interface") or (m.kind == "Class") then
       local nested = ctx.lowered.decls[m.id]
       if nested ~= nil then
@@ -6327,7 +6369,7 @@ local function function_statement(ctx: Ctx, s: Ast.Function)
   if head == nil then
     -- The parser said the statement has no name; its body is still checked.
     function_body(ctx, s.fn.params, s.fn.body, function_type(ctx, s.fn, nil, "this function"), {}, s, s.fn.rets ~= nil,
-      s.fn.id)
+      s.fn.id, "function")
     return
   end
   local owner = name_value(ctx, head)
@@ -6362,7 +6404,7 @@ local function function_statement(ctx: Ctx, s: Ast.Function)
   if (owner.tag == "named") and #s.path == 2 then
     LoadOrder.define(ctx.load, owner.decl, s.path[2].text, s.fn.id)
   end
-  function_body(ctx, s.fn.params, s.fn.body, ft, names_of_params(s.typeparams), s, s.fn.rets ~= nil, s.fn.id)
+  function_body(ctx, s.fn.params, s.fn.body, ft, names_of_params(s.typeparams), s, s.fn.rets ~= nil, s.fn.id, text)
 end
 
 --- `if`: each arm is walked under the state where its condition holds and those before it do not, and what follows is
@@ -6596,7 +6638,8 @@ local function stat(ctx: Ctx, s: Ast.Stat)
     if ctx.load.waiting > 0 then
       LoadOrder.hold(ctx.load, s.name.id, s.fn.id)
     end
-    function_body(ctx, s.fn.params, s.fn.body, ft, names_of_params(s.typeparams), s, s.fn.rets ~= nil, s.fn.id)
+    function_body(ctx, s.fn.params, s.fn.body, ft, names_of_params(s.typeparams), s, s.fn.rets ~= nil, s.fn.id,
+      s.name.name)
   elseif (s.kind == "Function") then
     function_statement(ctx, s)
   elseif (s.kind == "While") then
@@ -6671,7 +6714,7 @@ function Check.check(program: Declarations.Program, input: Declarations.Input, l
     end, function(_node: Ast.Node, _spelled: string, _found: LoadOrder.Found) end),
     literals = {}, declared = {}, union_fields = {}, spine = {},
     top = 0, ternaries = {}, invalid = store.invalid, nil_type = store:atom("nil"), flow = Flow.start(), unfixed_now = {}, assigning = {}, quiet = 0, callee_module = "", member_module = "",
-    loops = {}, keys = {}, edges = {}, guards = {}, reads = {}, unfixed = {}, narrowed = {}, types = {}, callees = {}, consts = {}, library = {}, typed = typed ~= false, warnings = {},
+    loops = {}, keys = {}, edges = {}, guards = {}, reads = {}, unfixed = {}, narrowed = {}, boundaries = {}, types = {}, callees = {}, consts = {}, library = {}, typed = typed ~= false, warnings = {},
     unite = function(a: Type, b: Type): Type
       return store:union({ a, b })
     end,
@@ -6772,9 +6815,22 @@ function Check.check(program: Declarations.Program, input: Declarations.Input, l
   table.sort(warnings, function(a: Warnings.Warning, b: Warnings.Warning): boolean
     return a.offset < b.offset
   end)
+  local boundaries: mut {Check.Boundary} = {}
+  for _, b in pairs(ctx.boundaries) do
+    boundaries[#boundaries + 1] = b
+  end
+  table.sort(boundaries, function(a: Check.Boundary, b: Check.Boundary): boolean
+    if a.at ~= b.at then
+      return a.at < b.at
+    end
+    if a.id ~= b.id then
+      return a.id < b.id
+    end
+    return a.param < b.param
+  end)
   return {
-    errors = ctx.errors, vars = ctx.vars, literals = ctx.literals, narrowed = narrowed, types = ctx.types,
-    callees = ctx.callees, warnings = warnings,
+    errors = ctx.errors, vars = ctx.vars, literals = ctx.literals, narrowed = narrowed, boundaries = boundaries,
+    types = ctx.types, callees = ctx.callees, warnings = warnings,
   }
 end
 

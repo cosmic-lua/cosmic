@@ -2,7 +2,6 @@
 --- accepted by the kinds [`Boundaries.kinds`] answers for it, as the worker's `__cosmic_tc` reads them, and a mapping that
 --- leaves a kind out is caught. `FUZZ_SEED` and `FUZZ_ITERS` pick the inputs (build/fuzz/init.tl).
 local Boundaries = require("lang.boundaries")
-local Globals = require("cosmic.internal.globals")
 local Fuzz = require("build.fuzz")
 local Hash = require("cosmic.hash")
 local Programs = require("lang.types_programs")
@@ -133,10 +132,8 @@ end
 --- The call of the worker's hook for a boundary of one value: `__cosmic_tc(2, text, value)`.
 local function hook_of(): function(text: string, value: any)
   worker.install_checks()
-  local make = assert(load("local text, value = ... __cosmic_tc(2, text, value)", "=boundaries_fuzz_test", "t",
-    Globals.table()))
   return function(text: string, value: any)
-    make(text, value)
+    worker.cross(text, value)
   end
 end
 

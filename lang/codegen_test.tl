@@ -6,6 +6,7 @@
 --- case of a meaning or a new construct (`match`, `class`) is run or refused instead.
 
 local Ast = require("lang.ast")
+local BoundaryChecks = require("lang.boundary_checks")
 local Codegen = require("lang.codegen")
 local Forked = require("lang.forked")
 local Programs = require("lang.check_programs")
@@ -1355,4 +1356,132 @@ local function test_a_name_of_another_module_is_tested_for_what_the_checker_reso
   local with = Codegen.generate(parsed.chunk, scoped, nil, nil, nil, nil, kinds)
   assert(with.text:find('type(v) == "string"', 1, true) and with.text:find('math.type(v) == "integer"', 1, true), with.text)
   assert(with.text:find("return v == true", 1, true), with.text)
+end
+
+-- Checks of the parameters ----------------------------------------------------------------------------------------------
+
+--- The Lua of `source` (a module `t.tl` the checker takes) with the parameter checks of [`lang.boundary_checks`], and without.
+local function with_and_without_checks(source: string): string, string
+  local checked = Programs.run(source)
+  assert(Programs.codes(checked) == "", Programs.codes(checked))
+  local checks = BoundaryChecks.of(checked.result.boundaries, source, "t.tl")
+  local with = Codegen.generate(checked.chunk, checked.scoped, nil, nil, nil, nil, nil, nil, checks)
+  assert(#with.errors == 0)
+  return with.text, Programs.lua(checked)
+end
+
+--- Lines of `text` with the checks taken out, as the unchecked Lua is.
+local function without_checks(text: string): string
+  return (text:gsub(" if __cosmic_tc then [^\n]- end", ""))
+end
+
+local function test_a_check_is_a_statement_on_the_line_of_the_header_and_no_line_moves()
+  local source = table.concat({
+    "local function f(a: integer, b: string?): string",
+    "  return b or \"x\"",
+    "end",
+    "",
+  }, "\n")
+  local with, without = with_and_without_checks(source)
+  local first = assert(with:match("^[^\n]*"))
+  assert(first == 'local function f(a, b) if __cosmic_tc then __cosmic_tc(2, "p;t.tl:1;f;a=integer;b=string|nil", a, b) end',
+    first)
+  assert(without_checks(with) == without, with)
+  local _, lines = with:gsub("\n", "")
+  local _, plain = without:gsub("\n", "")
+  assert(lines == plain)
+end
+
+local function test_a_return_that_is_a_tail_call_stays_one()
+  local source = table.concat({
+    "local function g(n: integer): integer",
+    "  return n",
+    "end",
+    "local function f(n: integer): integer",
+    "  return g(n)",
+    "end",
+    "",
+  }, "\n")
+  local with = with_and_without_checks(source)
+  -- Nothing wraps the `return`, so the call is the last thing the function does.
+  assert(with:find("return g(n)\nend", 1, true) ~= nil, with)
+end
+
+local function test_a_variadic_parameter_self_and_an_any_parameter_get_no_check()
+  local source = table.concat({
+    "local record R",
+    "  n: integer",
+    "end",
+    "local function loose(a: any, ...: integer): integer",
+    "  return 1",
+    "end",
+    "function R.bump(self: R, by: integer): integer",
+    "  return self.n + by",
+    "end",
+    "",
+  }, "\n")
+  local with = with_and_without_checks(source)
+  assert(with:find("local function loose(a, ...)\n", 1, true) ~= nil, with)
+  assert(with:find('function R.bump(self, by) if __cosmic_tc then __cosmic_tc(2, "p;t.tl:7;R.bump;by=integer", by) end',
+    1, true) ~= nil, with)
+end
+
+local function test_a_method_of_a_class_checks_its_parameters_but_not_self()
+  local source = table.concat({
+    "local class Counter",
+    "  mut total: integer",
+    "  function add(self: Counter, by: integer, label: string?)",
+    "    self.total = self.total + by",
+    "  end",
+    "end",
+    "",
+  }, "\n")
+  local with = with_and_without_checks(source)
+  assert(with:find('Counter.add(self, by, label) if __cosmic_tc then __cosmic_tc(2, "p;t.tl:3;Counter.add;by=integer;label=string|nil", by, label) end',
+    1, true) ~= nil, with)
+end
+
+local function test_a_header_over_several_lines_is_checked_on_its_last_line()
+  local source = table.concat({
+    "local function f(",
+    "  a: integer,",
+    "  b: boolean",
+    "): integer",
+    "  return a",
+    "end",
+    "",
+  }, "\n")
+  local with, without = with_and_without_checks(source)
+  assert(with:find('b) if __cosmic_tc then __cosmic_tc(2, "p;t.tl:1;f;a=integer;b=boolean", a, b) end\n', 1, true) ~= nil, with)
+  assert(without_checks(with) == without, with)
+end
+
+local function test_a_function_literal_and_its_parameters_are_checked_in_place()
+  local source = table.concat({
+    "local inc = function(n: integer): integer return n + 1 end",
+    "",
+  }, "\n")
+  local with = with_and_without_checks(source)
+  assert(with:find('local inc = function(n) if __cosmic_tc then __cosmic_tc(2, "p;t.tl:1;function;n=integer", n) end return n + 1 end',
+    1, true) ~= nil, with)
+end
+
+--- The check calls the hook with the values and the function runs on; where no hook is defined it does nothing.
+local function test_the_check_calls_the_hook_with_the_values_and_the_function_runs_on()
+  local source = table.concat({
+    "local function f(a: integer, b: string): integer",
+    "  return a",
+    "end",
+    "local _ = f",
+    "",
+  }, "\n")
+  local with = with_and_without_checks(source)
+  -- The hook is defined by the chunk that runs the module, in an environment of its own that holds nothing else.
+  local hook = "local log = {} __cosmic_tc = function(n, spec, a, b) log[#log + 1] = n .. ' ' .. spec .. ' ' .. a .. ' ' .. b " ..
+    "return a end local result = (function() "
+  local chunk = assert(load(hook .. with .. "\nreturn f(7, 's') end)() return result, log[1], #log", "=t", "t", {}))
+  local result, seen, count = chunk()
+  assert(result == 7 and count == 1, tostring(count))
+  assert(seen == "2 p;t.tl:1;f;a=integer;b=string 7 s", tostring(seen))
+  assert(assert(load(with .. "\nreturn f(7, 's')", "=t", "t", {}))() == 7)
 end

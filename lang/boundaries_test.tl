@@ -1,7 +1,6 @@
 --- Tests of [`lang.boundaries`]: the kinds each form of type admits, the spelling the worker's `__cosmic_tc` reads, and that
 --- the hook takes that spelling. The property over random types is in [`lang.boundaries_fuzz_test`].
 local Boundaries = require("lang.boundaries")
-local Globals = require("cosmic.internal.globals")
 local Programs = require("lang.types_programs")
 local Test = require("cosmic.test")
 local Types = require("lang.types")
@@ -170,10 +169,8 @@ end
 --- The call of the worker's hook for a boundary of one value: `__cosmic_tc(2, text, value)`.
 local function crossing(): function(text: string, value: any)
   worker.install_checks()
-  local make = assert(load("local text, value = ... __cosmic_tc(2, text, value)", "=boundaries_test", "t",
-    Globals.table()))
   return function(text: string, value: any)
-    make(text, value)
+    worker.cross(text, value)
   end
 end
 
