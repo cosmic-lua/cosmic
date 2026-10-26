@@ -223,6 +223,17 @@ local function test_a_table_entry_that_ends_in_a_function_type_with_return_types
   lays("local t = {\n  x is string\n}\n", "local t = {\n  x is string,\n}\n")
 end
 
+--- A return list in parentheses ends at its `)`, and a `,` after it is the table's.
+local function test_a_table_entry_that_ends_in_a_parenthesised_return_list_gets_a_comma()
+  lays("local t = {\n  x as function(): (A, B)\n}\n", "local t = {\n  x as function(): (A, B),\n}\n")
+  lays("local t = {\n  x as function(): (string)\n}\n", "local t = {\n  x as function(): (string),\n}\n")
+  lays("local t = {\n  x as function(): (true, R) | (false, E)\n}\n",
+    "local t = {\n  x as function(): (true, R) | (false, E),\n}\n")
+  lays("local t = {\n  x as function(): (A | B)\n}\n", "local t = {\n  x as function(): (A | B),\n}\n")
+  lays("local t = {\n  x as function(): (A) | B\n}\n", "local t = {\n  x as function(): (A) | B,\n}\n")
+  lays("local t = {\n  x as function(): A, B\n}\n", "local t = {\n  x as function(): A, B\n}\n")
+end
+
 local function test_an_operator_that_begins_a_line_moves_to_the_line_before_and_its_operand_takes_the_line()
   lays("local x = a\n  and b\n", "local x = a and\n  b\n")
   lays("local s = a\n  .. b\n  .. c\n", "local s = a ..\n  b ..\n  c\n")
@@ -285,7 +296,7 @@ end
 
 local function test_a_line_after_a_long_string_is_measured_from_its_own_bytes()
   lays("do\n      x = [[a\n]] .. f(a as {\n         string\n      })\nend\n",
-    "do\n  x = [[a\n]] .. f(a as {\n         string\n      })\nend\n")
+    "do\n  x = [[a\n]] .. f(a as {\n     string\n  })\nend\n")
 end
 
 local function test_a_signature_apart_from_the_function_it_names_continues_four_in()
@@ -303,9 +314,12 @@ local function test_a_type_that_spans_lines_moves_with_the_line_that_holds_its_f
   lays("local record R\n      f: {\n          string\n      }\nend\n", "local record R\n  f: {\n      string\n  }\nend\n")
 end
 
-local function test_a_type_on_a_continuation_line_keeps_its_own_lines_relative_to_it()
+--- The lines of a type move as the statement that holds the type moved, not as the line the type begins on.
+local function test_a_type_on_a_continuation_line_moves_with_its_statement()
   lays("f(a,\n  b as {\n     string\n  })\n", "f(a,\n  b as {\n     string\n  })\n")
-  lays("f(a,\n        b as {\n             string\n        })\n", "f(a,\n  b as {\n       string\n  })\n")
+  lays("f(a,\n        b as {\n             string\n        })\n", "f(a,\n  b as {\n             string\n        })\n")
+  lays("do\n      f(a,\n        b as {\n             string\n        })\nend\n",
+    "do\n  f(a,\n    b as {\n         string\n    })\nend\n")
 end
 
 local function test_a_type_alone_on_its_line_after_a_colon_is_a_continuation()

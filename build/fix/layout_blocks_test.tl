@@ -67,7 +67,6 @@ end
 
 local function test_a_one_line_block_is_left_on_its_line()
   lays("if x then return 1 end\n", "if x then return 1 end\n")
-  lays("if x then   return 1\n   end\n", "if x then return 1\nend\n")
   lays("local function h() end\n", "local function h() end\n")
   lays("local record R x: integer end\n", "local record R x: integer end\n")
 end
@@ -142,14 +141,14 @@ local function test_a_comment_in_an_empty_body_moves_as_the_statement_that_holds
 end
 
 --- A comment before a closer moves by the shift of the body's last statement, a statement being laid out where it
---- is written: after another statement on the line, after the `]]` of a string. The shift is how far the statement
---- moved, whether or not it began its line.
+--- is written: after another statement on the line, after the `]]` of a string. A statement that took a line of its
+--- own from [`build.fix.breaks`] moves as the line it left moved.
 local function test_a_comment_before_a_closer_moves_as_the_last_statement_moved_though_it_did_not_begin_its_line()
-  lays("do\n      if x then a()\n          -- c\n      end\nend\n", "do\n  if x then a()\n      -- c\n  end\nend\n")
+  lays("do\n      if x then a()\n          -- c\n      end\nend\n", "do\n  if x then\n    a()\n      -- c\n  end\nend\n")
   lays("do\n      local f = 1    if x then a()\n          -- c\n      end\nend\n",
-    "do\n  local f = 1 if x then a()\n   -- c\n  end\nend\n")
-  lays("do\n      do a()\n          -- c\n      end\n   end\n", "do\n  do a()\n      -- c\n  end\nend\n")
-  lays("do\n  x = [[\n]] if y then a()\n       -- c\n  end\nend\n", "do\n  x = [[\n]] if y then a()\n       -- c\n  end\nend\n")
+    "do\n  local f = 1\n  if x then\n    a()\n      -- c\n  end\nend\n")
+  lays("do\n      do a()\n          -- c\n      end\n   end\n", "do\n  do\n    a()\n      -- c\n  end\nend\n")
+  lays("do\n  x = [[\n]] if y then a()\n       -- c\n  end\nend\n", "do\n  x = [[\n]]\n  if y then\n    a()\n       -- c\n  end\nend\n")
 end
 
 --- A comment inside a body, less indented than the code of the body, moves by the shift of that code, so it comes

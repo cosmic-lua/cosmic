@@ -2,7 +2,9 @@
 --- keep their meaning: the whitespace within a line, the indentation of each line, and the line breaks themselves.
 ---
 --- - Nothing is added, removed or changed: the tokens and comments (kind and text, a long string's bytes and a
----   comment's trailing whitespace among them), the tree and the line breaks that are there are the same after.
+---   comment's trailing whitespace among them) and the tree are the same after, and so are the line breaks that are
+---   there. A break is added only before a token [`build.fix.breaks`] names, and each one alone leaves the tree as it
+---   was.
 --- - Laying out what is laid out changes nothing.
 --- - The whitespace outside a type does not reach the result: the spaces and tabs between tokens, the indentation
 ---   of a line (a comment on its own line lined up with the code after it), and a break moved to another gap leave a
@@ -21,7 +23,7 @@ Test.policy{
     { path = "build/fix/trivia.tl", letters = "r" }, { path = "build/fix/roles.tl", letters = "r" },
     { path = "build/fix/blocks.tl", letters = "r" }, { path = "build/fix/layout.tl", letters = "r" },
     { path = "build/fix/layout_check.tl", letters = "r" }, { path = "build/fix/near.tl", letters = "r" },
-    { path = "build/fix/continuation.tl", letters = "r" },
+    { path = "build/fix/continuation.tl", letters = "r" }, { path = "build/fix/breaks.tl", letters = "r" },
     { path = "build/fix/init.tl", letters = "r" }, { path = "build/codec.tl", letters = "r" },
     { path = "build/paths.tl", letters = "r" }, { path = "lang/ast_dump.tl", letters = "r" },
     { path = "lang/literals.tl", letters = "r" }, { path = "lang/flow.tl", letters = "r" },
@@ -123,6 +125,21 @@ local function test_a_source_with_its_breaks_moved_is_laid_out_with_them_where_t
   assert(moved > 20, "the breaks were moved in only " .. tostring(moved) .. " sources")
 end
 
+local function test_a_source_with_every_break_joined_is_laid_out_with_breaks_added_only_where_a_rule_asks()
+  local changed = 0
+  for _, source in ipairs(CANON) do
+    local joined = Check.joined(source)
+    if joined ~= source then
+      changed = changed + 1
+    end
+    -- `laid` holds the result to the breaks of `joined` and the ones a rule adds, each alone leaving the tree.
+    local got = laid(joined)
+    lays(Check.reindented(joined, 1), got)
+    lays(Check.respaced(joined, 2), got)
+  end
+  assert(changed > 20, "the breaks were joined in only " .. tostring(changed) .. " sources")
+end
+
 local function test_a_long_string_and_the_text_of_a_comment_are_never_touched_by_the_indentation_around_them()
   local source = "if a then\n  local s = [[\n\t  x  \n]]  .. 'q'\n  -- see [[ this ]] and --[==[ that\n" ..
     "  y = '--[[ z ]]'\nend\n"
@@ -151,7 +168,7 @@ local MODULES <const>: {string} = {
   "build/fix/trivia.tl", "build/fix/roles.tl", "build/fix/blocks.tl", "build/fix/layout.tl",
   "build/fix/layout_check.tl", "build/fix/near.tl", "build/fix/init.tl", "build/codec.tl", "build/paths.tl",
   "lang/ast_dump.tl", "lang/literals.tl", "lang/flow.tl", "build/lsp/session_fixture.tl", "cosmic/string.tl",
-  "build/fix/continuation.tl",
+  "build/fix/continuation.tl", "build/fix/breaks.tl",
 }
 
 local function test_real_modules_keep_their_tokens_comments_and_tree_and_lay_out_to_a_fixed_point()

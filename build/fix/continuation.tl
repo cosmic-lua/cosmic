@@ -73,7 +73,8 @@ local record Continuation
     sugar: {integer: boolean}
     --- The tokens from the `<` to the `>` of the type parameters of a declaration, whose spacing is the author's.
     bare: {integer: boolean}
-    --- The tokens that end a function type with return types, after which a `,` is read as another return type.
+    --- The tokens that end a function type with return types that are not in parentheses, after which a `,` is
+    --- read as another return type.
     swallows: {integer: boolean}
     tables: {Table}
   end
@@ -318,7 +319,9 @@ function Continuation.of(chunk: Ast.Chunk): Continuation.Plan
         entries[value.first] = true
       end
     elseif kind == "TypeFunction" then
-      if #of_kind(kids, "Rets") > 0 then
+      -- A return list in parentheses ends at its `)`; one without reads on through a `,`.
+      local rets = of_kind(kids, "Rets")[1]
+      if rets ~= nil and not spells(rets.first, "(") then
         swallows[base.last] = true
       end
     elseif kind == "FunctionLit" then
