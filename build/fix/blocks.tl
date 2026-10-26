@@ -1,0 +1,105 @@
+--- How deep each token of a parsed source sits in blocks: the layer of the Teal formatter that says where a line
+--- begins, between [`build.fix.roles`] (the part each token plays on its line) and [`build.fix.layout`] (which
+--- writes the lines).
+---
+--- A body is indented one level past the construct that opens it: the statements of a block, the members of a
+--- `record`, `interface` or `class`, the values of an `enum`. The words that end a body are not in it: the `end`,
+--- `else`, `elseif`, `until` and `|` that close a block, and the `end` of a record, stand level with the construct
+--- (`|` begins an arm of a `match` as `elseif` begins an arm of an `if`). The statements of a chunk are at level
+--- 0. A function written in an expression opens a body as a statement does, so `f(function() ... end)` indents its
+--- body one level past the line `f` begins; where that line is a continuation of a statement is the layout of
+--- continuation lines, which is not laid out here.
+---
+--- The words that close a body also say how a comment before one is moved: [`Blocks.Levels.anchors`].
+local Ast = require("lang.ast")
+local Lexer = require("lang.lexer")
+
+local record Blocks
+  record Levels
+    --- The level of a line that begins with each token, by the index [`Lexer.Tokens`] numbers them with: the
+    --- number of bodies the token is in.
+    depths: {integer}
+    --- For the token that closes a body, the token of the line the body is measured by, which a comment before the
+    --- closer moves as: the first token of the body's last statement, member or value, or, where it has none, the
+    --- token before the closer (the `then`, `do` or `)` that opened the body), or 0 for the end of a chunk with
+    --- no statement. Nil for any other token.
+    anchors: {integer: integer}
+  end
+
+  --- The levels of the tokens of `chunk`, a parse without errors.
+  of: function(chunk: Ast.Chunk): Levels
+end
+
+--- The kinds of node that are members of a `record`, `interface` or `class`, or the values of an `enum`.
+local MEMBERS <const>: {string: boolean} = {
+  FieldDecl = true, Record = true, Interface = true, Class = true, Enum = true, Alias = true, Import = true,
+  Method = true, Userdata = true, Error = true, EnumValue = true,
+}
+
+--- The kinds of node with a body of members, closed by their own last token.
+local DECLARATIONS <const>: {string: boolean} = { Record = true, Interface = true, Class = true, Enum = true }
+
+local function base_of(node: Ast.Node): Ast.Base
+  return node
+end
+
+function Blocks.of(chunk: Ast.Chunk): Blocks.Levels
+  local count = Lexer.count(chunk.tokens)
+  -- The change of level before each token, summed in token order at the end.
+  local delta: mut {integer: integer} = {}
+  local anchors: mut {integer: integer} = {}
+
+  --- Raises the level of tokens `first` to `last`.
+  local function raise(first: integer, last: integer)
+    if first <= last then
+      delta[first] = (delta[first] or 0) + 1
+      delta[last + 1] = (delta[last + 1] or 0) - 1
+    end
+  end
+
+  local queue: mut {Ast.Node} = { chunk }
+  for _, node in ipairs(queue) do
+    local base = base_of(node)
+    local kids: mut {Ast.Base} = {}
+    -- Only a block and a declaration read their children's places; every node's go on the queue.
+    local reads = base.kind == "Block" or DECLARATIONS[base.kind] == true
+    Ast.children(node, function(child: Ast.Node)
+      if reads then
+        kids[#kids + 1] = base_of(child)
+      end
+      queue[#queue + 1] = child
+    end)
+    local last_kid = kids[#kids]
+    if base.kind == "Block" then
+      -- The statements tile the block, so it closes at the token after the last (at its first, with none).
+      local close = if last_kid == nil then base.first else last_kid.last + 1 end
+      if close <= count then
+        -- The statements of the chunk are not in a body.
+        local is_chunk = base.first == 1 and close == count
+        if not is_chunk then
+          raise(base.first, close - 1)
+        end
+        anchors[close] = if last_kid ~= nil then last_kid.first elseif is_chunk then 0 else close - 1 end
+      end
+    elseif DECLARATIONS[base.kind] == true then
+      local last_member: Ast.Base? = nil
+      for _, kid in ipairs(kids) do
+        if MEMBERS[kid.kind] == true then
+          raise(kid.first, kid.last)
+          last_member = kid
+        end
+      end
+      anchors[base.last] = if last_member ~= nil then last_member.first else base.last - 1 end
+    end
+  end
+
+  local depths: mut {integer} = {}
+  local level = 0
+  for i = 1, count do
+    level = level + (delta[i] or 0)
+    depths[#depths + 1] = level
+  end
+  return { depths = depths, anchors = anchors }
+end
+
+return Blocks
