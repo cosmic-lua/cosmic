@@ -43,7 +43,13 @@ end
 
 local HOVER_SENT <const>: Shape.Typed<HoverSent> = Shape.record_of("HoverSent")
 
+local record Spot
+  line: integer
+  character: integer
+end
+
 local record Edit
+  range: {string: Spot}
   newText: string
 end
 
@@ -181,18 +187,103 @@ local function test_hover_counts_utf16_units_before_the_cursor()
   assert(after_two:find("cosmic.fs.read", 1, true) ~= nil, after_two)
 end
 
---- `cosmic fix` checks Teal and does not lay it out, so the session offers
---- no formatting and answers a request for it with no edits.
-local function test_formatting_answers_no_edits()
+--- The edits the answer `body` to a formatting request holds.
+local function edits_of(body: string): {Edit}
+  return assert(FORMAT_SENT:decode_into(body)).result
+end
+
+--- The `side` ("start" or "end") of the range of `edit`.
+local function spot(edit: Edit, side: string): Spot
+  return assert(edit.range[side])
+end
+
+--- How many `window/showMessage` notifications `ran` sent that say `part`.
+local function shown_with(ran: Ran, part: string): integer
+  local n = 0
+  for _, body in ipairs(ran.sent) do
+    if sent_of(body).method == "window/showMessage" and body:find(part, 1, true) ~= nil then
+      n = n + 1
+    end
+  end
+  return n
+end
+
+local function test_formatting_replaces_the_buffer_with_its_layout()
   local root = session_fixture.project()
+  -- The file on disk is laid out; the buffer is not, and is what is formatted.
+  assert(Fs.write(root .. "/main.tl", "local n = 1\nreturn n\n"))
   local ran = served(root, { initialize(root), open(root, "main.tl", "local   n =  1\nreturn n\n"),
     format(2, root, "main.tl"), format(3, root, "absent.tl") })
-  local body = answer(ran, 2)
-  local formatted = assert(FORMAT_SENT:decode_into(body))
-  assert(#formatted.result == 0, body)
-  assert(body:find('"result":[]', 1, true), body)
+  assert(initialized(answer(ran, 1)).capabilities.documentFormattingProvider == true)
+  local edits = edits_of(answer(ran, 2))
+  assert(#edits == 1)
+  local edit = assert(edits[1])
+  assert(edit.newText == "local n = 1\nreturn n\n", edit.newText)
+  assert(spot(edit, "start").line == 0 and spot(edit, "start").character == 0)
+  -- The text ends with a newline, so its end is the start of the line after the last.
+  assert(spot(edit, "end").line == 2 and spot(edit, "end").character == 0)
   assert(failed(answer(ran, 3)) == -32803)
-  assert(initialized(answer(ran, 1)).capabilities.documentFormattingProvider == nil)
+  assert(shown_with(ran, "not formatted") == 0)
+end
+
+local function test_formatting_a_laid_out_buffer_gives_no_edit()
+  local root = session_fixture.project()
+  local ran = served(root, { initialize(root), open(root, "main.tl", "local n = 1\nreturn n\n"),
+    format(2, root, "main.tl") })
+  local body = answer(ran, 2)
+  assert(#edits_of(body) == 0 and body:find('"result":[]', 1, true) ~= nil, body)
+  assert(shown_with(ran, "not formatted") == 0)
+end
+
+local function test_a_refused_buffer_gives_no_edit_and_a_message()
+  local root = session_fixture.project()
+  local ran = served(root, { initialize(root), open(root, "bad.tl", "local   x: = 2\nreturn x\n"),
+    format(2, root, "bad.tl") })
+  local body = answer(ran, 2)
+  assert(body:find('"result":[]', 1, true) ~= nil and body:find('"error"', 1, true) == nil, body)
+  assert(shown_with(ran, "not formatted: bad.tl:1:") == 1, table.concat(ran.sent, "\n"))
+end
+
+local function test_a_declaration_file_is_laid_out_as_one()
+  local root = session_fixture.project()
+  local ran = served(root, { initialize(root), open(root, "box.d.tl", "local  record Box\n  n:integer\nend\n"),
+    format(2, root, "box.d.tl"), open(root, "prog.d.tl", "local record R\nend\nx = 1\n"), format(3, root, "prog.d.tl"),
+    open(root, "prog.tl", "local record R\nend\nx = 1\n"), format(4, root, "prog.tl") })
+  local edits = edits_of(answer(ran, 2))
+  assert(#edits == 1, answer(ran, 2))
+  assert(assert(edits[1]).newText == "local record Box\n  n:integer\nend\n", assert(edits[1]).newText)
+  -- A statement is a syntax error of a declaration file and none of a program.
+  assert(#edits_of(answer(ran, 3)) == 0)
+  assert(shown_with(ran, "not formatted: prog.d.tl:") == 1, table.concat(ran.sent, "\n"))
+  assert(#edits_of(answer(ran, 4)) == 0)
+  assert(shown_with(ran, "not formatted") == 1)
+end
+
+local function test_formatting_ends_the_range_after_a_carriage_return_and_leaves_other_files_alone()
+  local root = session_fixture.project()
+  local ran = served(root, { initialize(root), open(root, "crlf.tl", "local   n = 1\r\nreturn n\r\n"),
+    format(2, root, "crlf.tl"), open(root, "page.tmpl", "<p>  {{ x }}"), format(3, root, "page.tmpl") })
+  local edit = assert(edits_of(answer(ran, 2))[1])
+  assert(edit.newText == "local n = 1\nreturn n\n", edit.newText)
+  assert(spot(edit, "end").line == 2 and spot(edit, "end").character == 0)
+  assert(#edits_of(answer(ran, 3)) == 0 and shown_with(ran, "not formatted") == 0)
+end
+
+--- The last line has no newline and holds a character of one UTF-16 unit (e acute, two bytes) and one of two (a
+--- surrogate pair, four bytes), so its end is 13 units in and 16 bytes in.
+local TEXT_WITHOUT_NEWLINE <const> = 'local   a = 1\nlocal b =  "caf\u{e9}"\nreturn  "\u{1F600}\u{e9}"'
+
+local function test_the_range_covers_a_last_line_with_no_newline_in_the_encoding_negotiated()
+  local root = session_fixture.project()
+  local wide = served(root, { initialize(root), open(root, "u.tl", TEXT_WITHOUT_NEWLINE), format(2, root, "u.tl") })
+  local edits = edits_of(answer(wide, 2))
+  local edit = assert(edits[1])
+  assert(edit.newText == 'local a = 1\nlocal b = "caf\u{e9}"\nreturn "\u{1F600}\u{e9}"\n', edit.newText)
+  assert(spot(edit, "end").line == 2 and spot(edit, "end").character == 13, tostring(spot(edit, "end").character))
+  local narrow = served(root, { initialize(root, '{"general":{"positionEncodings":["utf-8"]}}'),
+    open(root, "u.tl", TEXT_WITHOUT_NEWLINE), format(2, root, "u.tl") })
+  local bytes = assert(edits_of(answer(narrow, 2))[1])
+  assert(spot(bytes, "end").line == 2 and spot(bytes, "end").character == 16, tostring(spot(bytes, "end").character))
 end
 
 local function test_the_lifecycle_is_held_to()
