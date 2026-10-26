@@ -392,7 +392,9 @@ the floats, costs the same. Bit vectors in a table of their own pack
 about 40 rows to a page, which a first pass reads without touching the
 floats.
 `Example.vector_search` in [`cosmic/sqlite_example.tl`] runs one end to
-end.
+end. The [semantic search guide](semantic-search.md) builds a whole
+corpus: embeddings from an API, chunking, hybrid search, an in-memory
+corpus and IVF.
 
 ```text
 CREATE TABLE chunks (id INTEGER PRIMARY KEY, body TEXT, tenant TEXT, embedding BLOB);
