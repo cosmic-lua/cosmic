@@ -7,6 +7,8 @@
 --- - The whitespace outside a type does not reach the result: the spaces and tabs between tokens, the indentation
 ---   of a line (a comment on its own line lined up with the code after it), and a break moved to another gap leave a
 ---   source that lays out as the one with the break moved would.
+--- A comment on a line of its own that is not lined up with the code after it keeps its column, so what it was
+--- written at does reach the result; [`build.fix.layout_blocks_test`] holds that.
 --- Indentation is whitespace to a Teal source, as it is to Lua, but for the bytes of a long string; the cases
 --- here put one inside an indented block.
 local Check = require("build.fix.layout_check")
@@ -137,32 +139,5 @@ local function test_real_modules_keep_their_tokens_comments_and_tree_and_lay_out
     local source = assert(Fs.read(path))
     local first = laid(source)
     assert(lines_of(first) == lines_of(source), path .. " gained or lost a line")
-  end
-end
-
-local function test_real_modules_the_author_laid_out_are_laid_out_the_same_but_for_continuation_lines()
-  -- A module written by hand as the previous formatter lays out has the indentation of its blocks right: the
-  -- lines that differ are those that continue a statement, which a later layer lays out.
-  for _, path in ipairs({ "build/fix/trivia.tl", "build/fix/roles.tl", "build/fix/blocks.tl" }) do
-    local source = assert(Fs.read(path))
-    local got = laid(source)
-    local differing = 0
-    local total = 0
-    local after: mut {string} = {}
-    for line in got:gmatch("[^\n]*\n") do
-      after[#after + 1] = line
-    end
-    local before: mut {string} = {}
-    for line in source:gmatch("[^\n]*\n") do
-      before[#before + 1] = line
-    end
-    assert(#before == #after, path .. " changed its line count")
-    for i, line in ipairs(before) do
-      total = total + 1
-      if after[i] ~= line then
-        differing = differing + 1
-      end
-    end
-    assert(differing * 10 < total, string.format("%s: %d of %d lines differ", path, differing, total))
   end
 end

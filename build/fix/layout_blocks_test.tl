@@ -107,6 +107,11 @@ local function test_a_comment_on_its_own_line_takes_the_indentation_of_the_code_
   lays("-- hello\n--#region\nprint(1)\n--#endregion\n", "-- hello\n--#region\nprint(1)\n--#endregion\n")
 end
 
+local function test_a_tab_indented_source_is_laid_out_with_spaces()
+  lays("if x then\n\t-- c\n\ty() -- t\n\tif z then\n\t\tw()\n\t\t-- d\n\tend\n\t-- e\nend\n",
+    "if x then\n  -- c\n  y() -- t\n  if z then\n    w()\n    -- d\n  end\n  -- e\nend\n")
+end
+
 local function test_a_comment_not_lined_up_with_the_code_after_it_keeps_its_column_moved_with_the_code()
   lays("x = 1\n      -- apart\ny = 2\n", "x = 1\n      -- apart\ny = 2\n")
   lays("if x then\n      -- apart\n      y()\nend\n", "if x then\n  -- apart\n  y()\nend\n")

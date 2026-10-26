@@ -23,6 +23,7 @@
 --- - any other keeps its column, moved as the code after it moved. Before the word that closes a body that code is the
 ---   last statement of the body (the line that opened it, where there is none), so a comment inside a body does not
 ---   come out on the side of the closer;
+--- - a column is a count of bytes, a tab one of them, as the lexer counts it;
 --- - its bytes are never changed, trailing whitespace included: a comment is the author's text, and the previous
 ---   formatter wrote it as it found it.
 ---

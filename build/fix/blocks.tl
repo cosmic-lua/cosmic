@@ -61,8 +61,12 @@ function Blocks.of(chunk: Ast.Chunk): Blocks.Levels
   for _, node in ipairs(queue) do
     local base = base_of(node)
     local kids: mut {Ast.Base} = {}
+    -- Only a block and a declaration read their children's places; every node's go on the queue.
+    local reads = base.kind == "Block" or DECLARATIONS[base.kind] == true
     Ast.children(node, function(child: Ast.Node)
-      kids[#kids + 1] = base_of(child)
+      if reads then
+        kids[#kids + 1] = base_of(child)
+      end
       queue[#queue + 1] = child
     end)
     local last_kid = kids[#kids]

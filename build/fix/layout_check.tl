@@ -25,7 +25,7 @@ local record Check
   --- after it, so it stays lined up. A comment past the last token is left as it is.
   reindented: function(source: string, seed: integer): string
   --- `source` with line breaks moved: some gaps on a line become a break and some breaks a space, each only where
-  --- the tree stays the same.
+  --- the tree stays the same. It parses the source once for each gap it moves, so it is for tiny sources.
   rebroken: function(source: string, seed: integer): string
 end
 
