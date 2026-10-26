@@ -192,6 +192,59 @@ local function test_a_method_is_a_block()
   lays("local class C\n  function bump(self) a() b() end\nend\n", "local class C\n  function bump(self)\n    a()\n    b()\n  end\nend\n")
 end
 
+--- A declaration is no block statement: a block that holds one on its own line stays on that line, as the previous
+--- formatter left it, and the declaration's members keep the line they share.
+local function test_a_block_that_holds_a_declaration_on_one_line_stays_on_its_line()
+  keeps("if x then local record R x: integer end end\n")
+  keeps("if x then local interface I x: integer end end\n")
+  keeps("if x then local class C x: integer end end\n")
+  keeps("if x then local enum E \"a\" \"b\" end end\n")
+  keeps("do local record R x: integer y: string end end\n")
+  keeps("local function f() local record R x: integer end end\n")
+  -- A declaration over several lines is not on one, and opens the block that holds it.
+  lays("if x then local record R\n  x: integer\nend end\n", "if x then\n  local record R\n    x: integer\n  end\nend\n")
+  -- A block still opens for the statements it holds beside the declaration.
+  lays("if x then local record R x: integer end y() end\n", "if x then\n  local record R x: integer end\n  y()\nend\n")
+end
+
+--- A class written on one line is written as it is, as a record is: no method in it is opened, however many statements
+--- it holds or wide the line is.
+local function test_a_class_on_one_line_stays_as_written_and_no_method_in_it_is_opened()
+  keeps("local class C function get(self): integer return self.x end end\n")
+  keeps("local class C x: integer function bump(self) a() b() end end\n")
+  keeps("local class C function m(self) a() b() end function n(self) if x then c() d() end end end\n")
+  keeps("if x then local class C function m(self) a() b() end end end\n")
+  keeps("local class C function a_rather_long_method(self, first: integer, second: integer): integer return first + second + self.count end end\n")
+  keeps("local record R x: function(): integer y: string end\n")
+  keeps("local enum E \"a\" \"b\" end\n")
+  -- Over several lines a method is a block like any.
+  lays("local class C\n  x: integer function m(self) a() b() end\nend\n",
+    "local class C\n  x: integer function m(self)\n    a()\n    b()\n  end\nend\n")
+end
+
+--- An `if` expression keeps its breaks, and so does a function written in it: the function is not opened, or its
+--- statements parted, whatever it holds.
+local function test_a_function_written_in_an_if_expression_stays_as_written()
+  keeps("local v = if a then function() b() c() end else d end\n")
+  keeps("local v = if a then function() return 1 end else function() b() c() end end\n")
+  keeps("local v = if a then f(function() b() c() end) elseif e then g() else function(x) if x then y() z() end end end\n")
+  keeps("local v = if a then function()\n  b() c()\nend else d end\n")
+  keeps("f(if a then function() b() c() end else d end)\n")
+  -- A function beside the expression is judged as any is.
+  lays("local v = if a then b else c end f(function() d() e() end)\n",
+    "local v = if a then b else c end\nf(function()\n  d()\n  e()\nend)\n")
+end
+
+local function test_the_width_of_a_block_on_one_line_counts_bytes()
+  -- Forty characters of two bytes make a line of 100 bytes, 60 characters: it ends at column 100 and stays. One more
+  -- makes it 102 bytes, which opens it, though it is 61 characters long.
+  local fits = "if x then y = \"" .. ("é"):rep(40) .. "\" end"
+  assert(#fits == 100, tostring(#fits))
+  keeps(fits .. "\n")
+  local over = "if x then y = \"" .. ("é"):rep(41) .. "\" end"
+  lays(over .. "\n", "if x then\n  y = \"" .. ("é"):rep(41) .. "\"\nend\n")
+end
+
 local function test_a_source_with_no_break_to_add_is_left_alone()
   keeps("local x = 1\n")
   keeps("")

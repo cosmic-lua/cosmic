@@ -36,9 +36,10 @@
 --- covers, and each Markdown and Zig file, which it never lays out. A plain code span that would link to one thing is made a
 --- link ([`build.links`]'s `rewrite`), and `--check` fails on one it would link.
 
--- TODO: lay out Teal in the new grammar, in [`lay_out_teal`], once a formatter is written over the new syntax tree
--- ([`build.syntax_node`]): the fork's was deleted with it (the owner's decision 1b of doc/plans/strict-teal.md), so `cosmic
--- fix --check` cannot tell a file that is badly laid out.
+-- TODO: lay out Teal in the new grammar, in [`lay_out_teal`], by calling [`build.fix.format`] (the formatter over the
+-- new syntax tree, which refuses rather than write a layout that is not the same or not a fixed point) once the change
+-- that wires it into `fix` lands: the fork's formatter was deleted with the fork (the owner's decision 1b of
+-- doc/plans/strict-teal.md), so `cosmic fix --check` cannot tell a file that is badly laid out.
 local build_paths = require("build.paths")
 local Cli = require("cosmic.cli")
 local Flags = require("cosmic.flags")
