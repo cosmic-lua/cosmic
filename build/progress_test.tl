@@ -17,7 +17,7 @@ end
 --- A phase that ends within ten seconds says nothing; one that runs past
 --- says where it is, and how far.
 local function test_a_phase_says_nothing_until_it_has_run_ten_seconds()
-  local lines: {string} = {}
+  local lines: mut {string} = {}
   local at = 0
   local phase = phase_on(true, lines, function(): integer return at end)
   at = Clock.seconds(9)
@@ -32,7 +32,7 @@ end
 --- is a log each thirty, so that a CI log holds a few lines a minute.
 local function test_lines_come_at_the_rate_the_stream_asks_for()
   local function count(terminal: boolean): integer
-    local lines: {string} = {}
+    local lines: mut {string} = {}
     local at = 0
     local phase = phase_on(terminal, lines, function(): integer return at end)
     for second = 1, 120 do

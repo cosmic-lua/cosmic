@@ -525,7 +525,7 @@ function tree_checks.unnamed_types(db: Sqlite.Handle): {string}
         tops[row:text(2)] = row
       end
     end
-    local reached: {string:boolean} = {}
+    local reached: mut {string:boolean} = {}
     local pending: mut {string} = {}
     local function names_in(signature: string)
       for name in pairs(tops) do

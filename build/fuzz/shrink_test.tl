@@ -59,7 +59,7 @@ end
 
 local function test_candidates_are_checked_once_per_shrink()
   for _ = 1, 2 do
-    local seen: {string: boolean} = {}
+    local seen: mut {string: boolean} = {}
     local checks = { value = 0 }
     local function fails(values: {integer}): boolean, {Shrink.Draw}
       local name = values[1] and tostring(values[1]) or "empty"

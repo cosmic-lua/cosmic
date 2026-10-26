@@ -374,7 +374,7 @@ local function test_a_root_catch_all_does_not_shadow_the_assets_and_builtin_fals
 end
 
 local function test_the_assets_arrive_through_the_middleware_of_the_app()
-  local seen: {string} = {}
+  local seen: mut {string} = {}
   local app = Web.app{ middleware = { function(inner: Web.Handler): Web.Handler
     return function(req: Web.Request): Web.Response
       seen[#seen + 1] = req.path

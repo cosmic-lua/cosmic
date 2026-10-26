@@ -150,7 +150,7 @@ local function test_origins_match_exactly_in_scheme_host_and_port()
 end
 
 local function test_a_predicate_sees_a_normalized_origin_and_never_a_malformed_one()
-  local seen: {string} = {}
+  local seen: mut {string} = {}
   local client = Web.test_client(make_app{ allow_origin = function(origin: string): boolean
     seen[#seen + 1] = origin
     return origin:find("%.example%.com$") ~= nil

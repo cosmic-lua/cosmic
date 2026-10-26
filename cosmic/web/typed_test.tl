@@ -37,7 +37,7 @@ local function problem(reply: Web.TestResponse): {string:any}
 end
 
 local function test_a_typed_get_is_given_its_path_and_query_as_records()
-  local seen: {string} = {}
+  local seen: mut {string} = {}
   local app = Web.app{ routes = {
     Web.get_typed("/items/:id", Web.input(PATH, QUERY, Web.no_body),
       function(_req: Web.Request, p: ItemPath, q: Listing, b: Web.None): Web.Response

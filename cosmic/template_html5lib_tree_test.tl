@@ -82,7 +82,7 @@ end
 
 --- The cases of the text of a `.dat` file.
 local function cases_of(text: string): {Case}
-  local cases: {Case} = {}
+  local cases: mut {Case} = {}
   local current: Case? = nil
   local section = ""
   local data: mut {string} = {}

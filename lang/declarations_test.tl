@@ -894,7 +894,9 @@ local y: function(a: string, b: any): asserts b is Reader
   assert(#result.lowered.errors == 0, Programs.codes(result.lowered))
   local xt, yt = annotation(result, 3), annotation(result, 4)
   assert((xt.tag == "fn") and (yt.tag == "fn"))
-  local xn, yn = xt.rets[1].narrows, yt.rets[1].narrows
+  local xalt, yalt = xt.rets[1], yt.rets[1]
+  assert(xalt ~= nil and yalt ~= nil)
+  local xn, yn = xalt.narrows, yalt.narrows
   assert(xn ~= nil and xn.param == 1 and not xn.asserts)
   assert(yn ~= nil and yn.param == 2 and yn.asserts)
   local methods = body_of(program, "t", "C").methods

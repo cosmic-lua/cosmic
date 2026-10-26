@@ -529,7 +529,7 @@ end
 --- held the thread could never do.
 local function test_in_a_run_a_server_serves_connections_at_once()
   local server <close> = assert(Net.listen(Net.tcp("127.0.0.1", 0), { timeout_ns = Clock.seconds(5) }))
-  local answered: {string} = {}
+  local answered: mut {string} = {}
   Poll.run(function()
     Poll.spawn(function()
       for _ = 1, 3 do

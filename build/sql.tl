@@ -512,7 +512,7 @@ end
 --- `stream`'s lines held: the column names' line, if any, then a line
 --- per row; nil and why when it failed.
 function sql.query(db: Sqlite.Handle, statement: string): {string}?, string
-  local lines: {string} = {}
+  local lines: mut {string} = {}
   local rows, trouble = stream(db, statement, function(line: string): boolean, string
     lines[#lines + 1] = line
     return true, ""

@@ -35,7 +35,7 @@ function Lines.executable(source: string, name: string): {integer: boolean}?, st
   if chunk == nil then
     return nil, why
   end
-  local out: {integer: boolean} = {}
+  local out: mut {integer: boolean} = {}
   Node.walk(chunk, function(node: Ast.Node)
     if (node.kind == "Block") then
       for _, stat in ipairs(node.stats) do

@@ -28,7 +28,7 @@ end
 --- as it was: this test's own runner would otherwise take the raise.
 local function test_skip_raises_what_the_runner_answers()
   local ending: {string:string} = {}
-  local given: {string} = {}
+  local given: mut {string} = {}
   local fake: {string:any} = {
     loaded = true,
     skipped = function(reason: string): {string:string}

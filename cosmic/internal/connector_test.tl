@@ -211,7 +211,7 @@ local function test_adopted_connector_serves_on_after_a_socket_reset_as_it_was_m
     local pair = stream_pair()
     local connector = assert(Connector.adopted(pair[1], { { host = "127.0.0.1", port = 9 } }, true,
       Clock.seconds(1)))
-    local asked: {string} = {}
+    local asked: mut {string} = {}
     local refuse = false
     local serving = stand_in(pair[2], function(tag: integer, request: string)
       asked[#asked + 1] = request
@@ -293,7 +293,7 @@ local function test_replies_out_of_order_reach_the_requests_their_tags_name()
     local endpoints: mut {raw_process.ConnectorEndpoint} = {}
     for i = 1, 3 do endpoints[i] = { host = "127.0.0." .. i, port = 9 } end
     local connector = assert(Connector.adopted(pair[1], endpoints, false, Clock.seconds(5)))
-    local tags: {integer: integer} = {}
+    local tags: mut {integer: integer} = {}
     local count = { value = 0 }
     -- Each endpoint's own refusal, so the answer shows whose it was.
     local errnos: {integer} = { socket.ECONNREFUSED, socket.ETIMEDOUT, sys.EPERM }
@@ -463,7 +463,7 @@ local function test_a_task_cancelled_waiting_for_room_asks_nothing()
     local pair = stream_pair()
     local connector = assert(Connector.adopted(pair[1], { { host = "127.0.0.1", port = 9 } }, false,
       Clock.seconds(30)))
-    local tags: {integer} = {}
+    local tags: mut {integer} = {}
     local serving = stand_in(pair[2], function(tag: integer, _: string) tags[#tags + 1] = tag end)
     local tasks: mut {Poll.Task} = {}
     for i = 1, FLIGHT do

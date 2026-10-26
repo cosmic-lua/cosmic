@@ -82,9 +82,9 @@ end
 
 function SyntaxLinkText.declarations(chunk: Ast.Chunk, scoped: Scopes.Scoped): LinkText.Declarations
   -- `names` holds what no scope does; `top` and `inner` say where each name is declared, for `module_level`.
-  local names: {string: boolean} = {}
-  local top: {string: boolean} = {}
-  local inner: {string: boolean} = {}
+  local names: mut {string: boolean} = {}
+  local top: mut {string: boolean} = {}
+  local inner: mut {string: boolean} = {}
   local function declare(name: string, at_top: boolean, scope_held: boolean)
     if name == "" then
       return
@@ -172,8 +172,8 @@ function SyntaxLinkText.declarations(chunk: Ast.Chunk, scoped: Scopes.Scoped): L
   local bindings: {{Lexical.Binding}} = {}
   -- What every comment sees: `names`, the top-level block's bindings, and its aliases, the first binding of each name
   -- deciding before a later one is in scope.
-  local everywhere: {string: boolean} = {}
-  local top_aliases: {string: string} = {}
+  local everywhere: mut {string: boolean} = {}
+  local top_aliases: mut {string: string} = {}
   local function held(): {Lexical.Binding}
     local found = bindings[1]
     if found == nil then
@@ -193,7 +193,7 @@ function SyntaxLinkText.declarations(chunk: Ast.Chunk, scoped: Scopes.Scoped): L
     end
     return found
   end
-  local seen: {integer: LinkText.Declared} = {}
+  local seen: mut {integer: LinkText.Declared} = {}
   local function at(line: integer): LinkText.Declared
     local token = before[line]
     local y, x = line, 0

@@ -49,12 +49,12 @@ local record symbol_index
     exact: {string: {Row}}
     named: {string: {Row}}
     members: {string: {Row}}
-    first: {string: Row}
-    values: {string: string}
+    first: mut {string: Row}
+    values: mut {string: string}
     types: {string: Row}
     exported: {string: Row}
     under: {string: {Row}}
-    bound: {string: string}
+    bound: mut {string: string}
   end
 end
 

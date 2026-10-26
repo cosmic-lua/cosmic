@@ -90,7 +90,7 @@ end
 --- A server at 127.0.0.2, the one `body` is given the port of. Answers
 --- what `body` returned, the bytes the server heard, and its port.
 local function serving(body: function(port: integer, heard: {string}): Ran): Ran, {string}, integer
-  local heard: {string} = {}
+  local heard: mut {string} = {}
   local answered = { value = nil as Ran? }
   local at = { value = nil as integer? }
   Poll.run(function()

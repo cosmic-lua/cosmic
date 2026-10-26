@@ -127,7 +127,7 @@ end
 
 local function test_default_reads_the_directory_in_dev_and_for_a_program_not_built(tmp: string)
   assert(Fs.write(tmp .. "/a.txt", "x"))
-  local lines: {string} = {}
+  local lines: mut {string} = {}
   local logged = function(text: string) lines[#lines + 1] = text end
   as_program("", function()
     local dev = Assets.default({ dev = true, root = tmp, log = logged })
@@ -140,7 +140,7 @@ end
 
 local function test_default_of_a_built_program_serves_only_what_it_carries(tmp: string)
   assert(Fs.write(tmp .. "/a.txt", "x"))
-  local lines: {string} = {}
+  local lines: mut {string} = {}
   local logged = function(text: string) lines[#lines + 1] = text end
   as_program("cmd.site.main", function()
     local source = Assets.default({ root = tmp, log = logged })

@@ -109,7 +109,7 @@ end
 local function test_in_a_run_a_tcp_connect_waits_through_the_run()
   local server <close> = assert(Net.listen(Net.tcp("127.0.0.1", 0),
     { backlog = 1, timeout_ns = Clock.seconds(5) }))
-  local held: {Net.Conn} = {}
+  local held: mut {Net.Conn} = {}
   local ticks = { value = 0 }
   local ticks_at_end = { value = -1 }
   local why = { value = "" }
@@ -152,7 +152,7 @@ end
 local function test_a_server_names_what_it_bound_and_serves_every_listener(tmp: string)
   if unix_socket.skipped(tmp) then return end
   local bound = { value = {} as {Net.Address} }
-  local answers: {string} = {}
+  local answers: mut {string} = {}
   assert(Net.serve{
     listeners = { Net.tcp("127.0.0.1", 0), Net.unix(tmp .. "/s.sock") },
     serve = function(conn: Net.Conn)
@@ -180,7 +180,7 @@ end
 --- The same for two TCP listeners, which need no socket file.
 local function test_a_server_names_what_it_bound_and_serves_two_tcp_listeners()
   local bound = { value = {} as {Net.Address} }
-  local answers: {string} = {}
+  local answers: mut {string} = {}
   assert(Net.serve{
     listeners = { Net.tcp("127.0.0.1", 0), Net.tcp("127.0.0.1", 0) },
     serve = function(conn: Net.Conn)

@@ -154,7 +154,7 @@ local record source
     told_busy: boolean
     --- The stub made here of each text, by its SHA-256: "" for a text
     --- with none.
-    made: {string:string}
+    made: mut {string:string}
     tally: Tally
     --- Where complaints go, without their newline.
     err: function(line: string)

@@ -62,9 +62,9 @@ local record cache_lifetime
   --- What a pass did.
   record Report
     --- The build directories it removed.
-    removed: {string}
+    removed: mut {string}
     --- The directories it left because a run held their lock.
-    busy: {string}
+    busy: mut {string}
     --- What it could not do, one line each; a failure keeps what it
     --- touched.
     troubles: {string}

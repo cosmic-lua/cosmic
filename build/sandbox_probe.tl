@@ -219,7 +219,7 @@ function SandboxProbe.run(tmp: string): SandboxProbe.Report
   local filtered = "grep -q '^Seccomp:[[:space:]]*2' /proc/self/status" ..
     (if filters then " && test \"$(sed -n 's/^Seccomp_filters:[[:space:]]*//p' /proc/self/status)\" -gt " ..
       filters else "" end)
-  local parts: {SandboxProbe.Part} = {}
+  local parts: mut {SandboxProbe.Part} = {}
   local function add(name: string, needed: boolean, held: boolean, why: string)
     parts[#parts + 1] = { name = name, needed = needed, held = held,
       said = if held then "held" else why end }

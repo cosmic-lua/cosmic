@@ -77,7 +77,7 @@ local record work
     --- One line for each file under `static/` newly staged whose name
     --- says it was meant as a module (`.tl`, `.tmpl`): it is carried as an
     --- asset. Also complained of as it is found.
-    notes: {string}
+    notes: mut {string}
   end
 
   --- The statements that create the database, in order. `IF NOT
@@ -945,7 +945,7 @@ end
 
 --- What the process has said of the working database at a path, by
 --- what it said and the path ([`work.first_time`]).
-local told: {string:boolean} = {}
+local told: mut {string:boolean} = {}
 
 --- Whether this process is yet to say a `kind` of line of the database
 --- at `path`, which it is taken to say now: true once a process for each.
@@ -1355,7 +1355,7 @@ function work.stage(handle: work.Handle, own_tree: boolean): work.Staged?, strin
   end
   local skip_path = own_tree and identity.skip_in_own_tree or identity.skip_input
   -- Each entry only the walk for links reaches.
-  local links_only: {string:boolean} = {}
+  local links_only: mut {string:boolean} = {}
   local link_skip = link_files.skipper(root)
   local function for_links(entry: string): boolean
     return not link_skip(entry) and not (own_tree and identity.is_foreign_tree(identity.first_of(entry)))
@@ -1445,7 +1445,7 @@ function work.stage(handle: work.Handle, own_tree: boolean): work.Staged?, strin
   -- The real path of `root`, once a static asset asks for it, and the
   -- static paths seen by their lowercase spelling.
   local real_root: string? = nil
-  local static_seen: {string:string} = {}
+  local static_seen: mut {string:string} = {}
   -- The text of each file of `linked` read here, by path.
   local texts: mut {string:string} = {}
 

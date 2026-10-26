@@ -56,7 +56,7 @@ local record session
     --- Set at `exit`: the exit status the session ends with.
     exit: integer?
     --- The open documents, by URI.
-    documents: {string:check.Document}
+    documents: mut {string:check.Document}
     --- Where complaints go, without their newline.
     err: function(line: string)
     checker: check.Checker

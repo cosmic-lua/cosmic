@@ -83,7 +83,7 @@ end
 --- did, and is told to `lost` once; later requests fail at once.
 local function test_a_connector_that_ends_under_a_request_is_told_to_lost_once()
   local log: {string} = {}
-  local told: {string} = {}
+  local told: mut {string} = {}
   Poll.run(function()
     local connect = Relay.handed({ connector = fake("dies", log, 0, true),
       lost = function(why: string) told[#told + 1] = why end })
@@ -100,7 +100,7 @@ end
 
 local function test_a_connector_ended_already_is_told_to_lost_once_and_asked_nothing()
   local log: {string} = {}
-  local told: {string} = {}
+  local told: mut {string} = {}
   Poll.run(function()
     local connect = Relay.handed({ connector = fake("gone", log, 0, false, true),
       lost = function(why: string)

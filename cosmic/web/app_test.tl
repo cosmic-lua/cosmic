@@ -5,7 +5,7 @@ local Web = require("cosmic.web")
 
 --- A sink that keeps its lines.
 local function recording(): Web.Sink, {string}
-  local lines: {string} = {}
+  local lines: mut {string} = {}
   local sink: Web.Sink = { line = function(_self: Web.Sink, text: string)
     lines[#lines + 1] = text
   end }
@@ -39,7 +39,7 @@ local function tracing(trace: mut {string}, name: string): Web.Middleware
 end
 
 local function test_middleware_nests_app_then_mount_then_route()
-  local trace: {string} = {}
+  local trace: mut {string} = {}
   local app = Web.app{
     routes = {
       Web.mount("/api", {
@@ -113,7 +113,7 @@ local function test_middleware_may_answer_alone_and_change_the_request()
 end
 
 local function test_middleware_sees_only_the_canonical_path()
-  local seen: {string} = {}
+  local seen: mut {string} = {}
   local app = Web.app{
     routes = { Web.get("/admin", hello), Web.get("/admin/users", hello) },
     middleware = {
@@ -421,7 +421,7 @@ local function aborting(trace: mut {string}): Web.Middleware
 end
 
 local function test_abort_from_app_middleware_is_answered_and_seen_by_the_middleware_outside()
-  local trace: {string} = {}
+  local trace: mut {string} = {}
   local sink, lines = recording()
   local app = Web.app{
     routes = { Web.get("/", hello) },
@@ -438,7 +438,7 @@ local function test_abort_from_app_middleware_is_answered_and_seen_by_the_middle
 end
 
 local function test_abort_from_mount_and_route_middleware_is_answered()
-  local trace: {string} = {}
+  local trace: mut {string} = {}
   local app = Web.app{
     routes = {
       Web.mount("/m", { Web.get("/x", hello) }, { middleware = { aborting(trace) } }),
@@ -456,7 +456,7 @@ local function test_abort_from_mount_and_route_middleware_is_answered()
 end
 
 local function test_a_fault_in_app_middleware_still_reaches_the_server_not_the_middleware_outside()
-  local seen: {integer} = {}
+  local seen: mut {integer} = {}
   local function faulting(_inner: Web.Handler): Web.Handler
     return function(_req: Web.Request): Web.Response
       error("middleware bug")

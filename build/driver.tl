@@ -119,12 +119,12 @@ local record Driver
     checked: Check.Checked?
     --- The errors of each stage, in source order.
     syntax: {Problem}
-    scope_errors: {Problem}
-    declared: {Problem}
-    bodies: {Problem}
+    scope_errors: mut {Problem}
+    declared: mut {Problem}
+    bodies: mut {Problem}
     --- Every error, in source order, and the warnings.
     errors: {Problem}
-    warnings: {Problem}
+    warnings: mut {Problem}
     --- The type of each node the checker typed (an expression) or lowered (a type), by the id of the node.
     types: {integer: Types.Type}
     --- The function each call and method call took, by the id of the call node ([`Check.Checked.callees`]).
@@ -156,7 +156,7 @@ local record Driver
   record Build
     program: Declarations.Program
     --- The calls of [`Shape.record_of`] a module of the tree makes that [`build.tree_program`] could not resolve before it lowered the module, one line each.
-    problems: {string}
+    problems: mut {string}
     timing: Timing
     --- Asks `provider` for a module after the providers added before it.
     provide: function(Build, provider: Provider)
@@ -218,8 +218,8 @@ local record Driver
 
   --- The sources of a tree and the names they answer to.
   record Index
-    sources: {Source}
-    by_module: {string: Source}
+    sources: mut {Source}
+    by_module: mut {string: Source}
   end
 
   --- The modules `entries` (pairs of a path below the root and its text) are: each `.tl` and `.d.tl` a module named by its
@@ -546,13 +546,13 @@ function Driver.new(options: Driver.Options): Driver.Build
     end,
   }
   local timing = build.timing
-  local providers: {Driver.Provider} = {}
-  local entries: {string: Entry} = {}
-  local globals: {string: Scopes.Global} = {}
+  local providers: mut {Driver.Provider} = {}
+  local entries: mut {string: Entry} = {}
+  local globals: mut {string: Scopes.Global} = {}
   local global_entries: {Entry} = {}
   local started_up: Flag = { done = false }
   --- The names of the modules [`Driver.Build.retire`] forgot after the program lowered them, which nothing reads again.
-  local retired: {string: boolean} = {}
+  local retired: mut {string: boolean} = {}
   local scratches: {Driver.Build} = {}
 
   local function find(module: string): Driver.Source?
@@ -757,7 +757,7 @@ function Driver.new(options: Driver.Options): Driver.Build
       retired[key] = nil
     end
     -- Every entry again, each name answering to the entry its old one was.
-    local made: {Entry: Entry} = {}
+    local made: mut {Entry: Entry} = {}
     local function again(entry: Entry): Entry
       if entry == held then
         return fresh
@@ -789,8 +789,8 @@ function Driver.new(options: Driver.Options): Driver.Build
 
   build.lower = function(_self: Driver.Build, names: {string})
     start()
-    local state: {Entry: boolean} = {}
-    local order: {Entry} = {}
+    local state: mut {Entry: boolean} = {}
+    local order: mut {Entry} = {}
     local function visit(name: string)
       local entry = prepare(name)
       if entry == nil or state[entry] == true or entry.closed then

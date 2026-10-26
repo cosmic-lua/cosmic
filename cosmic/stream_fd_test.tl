@@ -105,7 +105,7 @@ end
 local function test_a_write_goes_whole_into_a_slow_reader(tmp: string)
   local reader, writer = fifo(tmp, "slow")
   local body = string.rep("0123456789abcdef", 1 << 16)
-  local received: {string} = {}
+  local received: mut {string} = {}
   Poll.run(function()
     local taking = Poll.spawn(function()
       local r = Stream.from_fd(reader, { nonblocking = true })
