@@ -29,7 +29,6 @@
 local Json = require("cosmic.json")
 local Sqlite = require("cosmic.sqlite")
 local Stream = require("cosmic.stream")
-local fix = require("build.fix")
 local bare = require("build.bare")
 local check = require("build.lsp.check")
 local dependents = require("build.lsp.dependents")
@@ -160,13 +159,17 @@ end
 --- The edits that format `params`' document, encoded, and what to show the person: of the text the editor holds, not the
 --- file on disk, as [`build.fix.format`] lays it out (a `.d.tl` name as a declaration file, as `cosmic fix` reads it). A
 --- text already laid out takes no edits; any other takes one that replaces the whole text, from its first character to
---- the position of its end, whichever ends its last line (or none) and in the units the session negotiated. A text the
---- formatter refuses takes no edits and a message saying why: a layout that was not checked is never offered. None, and why,
+--- the position of its end, whether or not its last line ends in a newline, in the units the session negotiated. A name that does not
+--- end in `.tl` takes none. A text the formatter refuses takes no edits and a message saying why: a layout that was not checked is never offered. None, and why,
 --- where no such document is open.
 local function formatting(s: Session, params: protocol.DocumentParams): Formatted
   local document = document_of(s, params)
   if document == nil then return { edits = nil, why = "no such document is open", shown = nil } end
   local text = document.text
+  -- Only Teal is laid out: a template or any other file the editor sends is none of the formatter's.
+  if document.name:sub(-3) ~= ".tl" then return { edits = "[]", why = "", shown = nil } end
+  -- Loaded at the first request, not with the session: the fix verb is large.
+  local fix = require("build.fix")
   local result = fix.format_text(text, document.name)
   local laid = result.text
   if laid == nil then

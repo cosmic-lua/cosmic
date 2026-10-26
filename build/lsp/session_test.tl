@@ -259,6 +259,16 @@ local function test_a_declaration_file_is_laid_out_as_one()
   assert(shown_with(ran, "not formatted") == 1)
 end
 
+local function test_formatting_ends_the_range_after_a_carriage_return_and_leaves_other_files_alone()
+  local root = session_fixture.project()
+  local ran = served(root, { initialize(root), open(root, "crlf.tl", "local   n = 1\r\nreturn n\r\n"),
+    format(2, root, "crlf.tl"), open(root, "page.tmpl", "<p>  {{ x }}"), format(3, root, "page.tmpl") })
+  local edit = assert(edits_of(answer(ran, 2))[1])
+  assert(edit.newText == "local n = 1\nreturn n\n", edit.newText)
+  assert(spot(edit, "end").line == 2 and spot(edit, "end").character == 0)
+  assert(#edits_of(answer(ran, 3)) == 0 and shown_with(ran, "not formatted") == 0)
+end
+
 --- The last line has no newline and holds a character of one UTF-16 unit (e acute, two bytes) and one of two (a
 --- surrogate pair, four bytes), so its end is 13 units in and 16 bytes in.
 local TEXT_WITHOUT_NEWLINE <const> = 'local   a = 1\nlocal b =  "caf\u{e9}"\nreturn  "\u{1F600}\u{e9}"'
