@@ -46,6 +46,7 @@ local Clock = require("cosmic.clock")
 local Test = require("cosmic.test")
 local Udp = require("build.udp_fixture")
 local unix_socket = require("build.unix_socket")
+local Vector = require("cosmic.vector")
 
 --- The socket cases listen on the worker's own loopback.
 Test.policy{ requires = { "checked" }, loopback = { "127.0.0.1" } }
@@ -561,6 +562,68 @@ local function test_vector_functions_leave_nothing_whenever_an_allocation_fails(
   assert(ended > 0, "a query allocates")
   assert_c_heap(bytes, blocks, "the vector functions under refusal")
   assert(db:close())
+end
+
+--- A vector of four small numbers that differ by `i`, so a corpus of
+--- them has distinct rows, some of them zero-free.
+local function corpus_vector(i: integer): string
+  return Vector.pack({ i % 7 - 3, i % 5 - 2, i % 3 - 1, 1 })
+end
+
+--- A corpus holds each buffer as a userdata of Lua's own, so a refusal
+--- anywhere in making one, growing it past its first capacity of 64,
+--- filtering, searching with a first pass (which builds the bit vectors
+--- lazily) raises "not enough memory" and leaves nothing on the C heap.
+local function test_a_corpus_leaves_nothing_whenever_an_allocation_fails()
+  local blobs: mut {string} = {}
+  for i = 1, 70 do blobs[#blobs + 1] = corpus_vector(i) end
+  local query = corpus_vector(3)
+  local allowed: {integer} = { 1, 5, 9, 40, 66 }
+  collectgarbage("collect")
+  local bytes, blocks = testing.c_heap()
+  local ended = under_every_failure(function()
+    local corpus = Vector.corpus(4)
+    for i, blob in ipairs(blobs) do corpus:add(i, blob) end
+    assert(corpus:count() == 70)
+    local exact = assert(corpus:search(query, 3, { metric = "cosine" }))
+    assert(#exact.ids == 3)
+    local first_pass = assert(corpus:search(query, 3, { candidates = 10, allow = allowed }))
+    assert(#first_pass.ids == 3)
+  end)
+  assert(ended > 0, "a corpus allocates")
+  assert_c_heap(bytes, blocks, "the corpus under refusal")
+end
+
+--- A refused growth, bit-vector build or search leaves the corpus as it
+--- was: its count, its ids and its answers are the same once allocation
+--- is granted again, and a later add and search work.
+local function test_a_corpus_is_intact_after_a_refused_allocation()
+  local corpus = Vector.corpus(4)
+  -- Exactly the first capacity, so the next add must grow every buffer.
+  for i = 1, 64 do corpus:add(i, corpus_vector(i)) end
+  local blob = corpus_vector(1000)
+  local query = corpus_vector(3)
+  local want = assert(corpus:search(query, 64, { metric = "l2" }))
+  local ended = under_every_failure(function()
+    -- Once the add has landed, a later pass only searches.
+    if corpus:count() == 64 then pcall(corpus.add, corpus, 1000, blob) end
+    pcall(corpus.search, corpus, query, 3, { candidates = 10 })
+  end, function()
+    local n = corpus:count()
+    assert(n == 64 or n == 65, "the count became " .. tostring(n))
+    local all = assert(corpus:search(query, 100, { metric = "l2" }))
+    assert(#all.ids == n)
+    local sum = 0
+    for _, id in ipairs(all.ids) do sum = sum + id end
+    local extra = 0
+    if n == 65 then extra = 1000 end
+    assert(sum == 2080 + extra, "the ids changed")
+    if n == 64 then
+      for i = 1, 64 do assert(all.ids[i] == want.ids[i], "the answer changed") end
+    end
+  end)
+  assert(ended > 0, "growing a corpus allocates")
+  assert(corpus:count() == 65)
 end
 
 --- A hasher holds no C memory of the core's own, and a refusal while it

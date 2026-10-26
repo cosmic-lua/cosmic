@@ -1,6 +1,8 @@
---- Fuzz properties for the SQL vector functions (core/vector.c): the
---- text a vector is read from, and every SQL function over arbitrary
---- blobs. Each is total -- an answer or a refusal, never a crash -- and
+--- Fuzz properties for the vectors of [`cosmic.vector`] and the SQL
+--- functions beside them (core/vector.c): the text a vector is read from,
+--- every SQL function over arbitrary blobs, the packing functions, the
+--- corpus's search against a brute-force reference. Each is total -- an
+--- answer or a refusal, never a crash -- and
 --- each answer is held to a reference written here in Teal, over the
 --- bytes. `FUZZ_SEED` and `FUZZ_ITERS` pick the inputs (build/fuzz/init.tl).
 ---
@@ -11,6 +13,7 @@
 
 local Fuzz = require("build.fuzz")
 local Sqlite = require("cosmic.sqlite")
+local Vector = require("cosmic.vector")
 
 -- The in-memory database the SQL-reading properties ask; each opens it
 -- before its run and closes it after.
@@ -24,6 +27,9 @@ local function close_database()
   assert(held["db"]):close()
   held["db"] = nil
 end
+
+--- The largest finite float, as a double.
+local FLT_MAX <const> = 3.4028234663852886e38
 
 local function finite(x: number): boolean
   return x == x and x ~= math.huge and x ~= -math.huge
@@ -199,12 +205,17 @@ local function check_text(input: string): boolean, string
   local blob = ask("SELECT vector(?1)", { param })
   local as_text = ask("SELECT vector_text(?1)", { param })
   local dims = ask("SELECT vector_dims(?1)", { param })
+  local json, json_why = Vector.from_json(text)
   if blob.kind ~= "error" and blob.kind ~= "blob" then
     return false, "vector() answered " .. blob.kind
   end
   if (blob.kind == "blob") ~= (as_text.kind == "text") or (blob.kind == "blob") ~= (dims.kind == "integer") then
     return false, ("vector %s, vector_text %s, vector_dims %s of %q"):format(
       blob.kind, as_text.kind, dims.kind, text)
+  end
+  if (blob.kind == "blob") ~= (json ~= nil) then
+    return false, ("vector() %s but from_json answered %s %s of %q"):format(
+      blob.kind, tostring(json ~= nil), json_why, text)
   end
   if text:find("\0", 1, true) then
     Fuzz.label("nul")
@@ -225,12 +236,14 @@ local function check_text(input: string): boolean, string
     Fuzz.label(if want == nil then "clean refused" else "clean read" end)
   end
   if blob.kind ~= "blob" then
+    if json_why == "" then return false, "from_json refused without a reason" end
     Fuzz.label("refused")
     return true, ""
   end
   Fuzz.label("read")
   if text:find("[xX]") then Fuzz.label("hex") end
   if text:find("[eE]") then Fuzz.label("exponent") end
+  if json ~= blob.bytes then return false, "from_json and vector() read " .. text .. " differently" end
   local n = #blob.bytes // 4
   if #blob.bytes % 4 ~= 0 or n < 1 or n > 16000 or dims.number ~= n then
     return false, ("a vector of %d bytes, %s dimensions"):format(#blob.bytes, tostring(dims.number))
@@ -741,3 +754,632 @@ local function test_sql_functions_answer_or_refuse_by_a_reference(tmp: string)
   })
   close_database()
 end
+
+--------------------------------------------------------------------------
+-- Vector.pack, unpack and normalize
+--------------------------------------------------------------------------
+
+local function describe(floats: {number}): string
+  local parts: mut {string} = {}
+  for _, x in ipairs(floats) do
+    if x ~= x then
+      parts[#parts + 1] = "nan"
+    else
+      parts[#parts + 1] = string.format("%.9g", x)
+    end
+  end
+  return table.concat(parts, ",")
+end
+
+--- The vector scaled to length 1 as [`Vector.normalize`] is: the squares
+--- are summed in double, and a length of zero or not finite gives zeros.
+local function normalize_reference(blob: string): string
+  local floats = floats_of(blob)
+  local squares = 0.0
+  for _, x in ipairs(floats) do squares = squares + x * x end
+  local norm = math.sqrt(squares)
+  local out: mut {number} = {}
+  for _, x in ipairs(floats) do
+    if norm == 0 or not finite(norm) then out[#out + 1] = 0.0 else out[#out + 1] = x / norm end
+  end
+  return blob_of(out)
+end
+
+--- Calls [`Vector.pack`] on a list built here from kinds, in a chunk of
+--- plain Lua since a typed caller cannot build a list of mixed things.
+local PACK_CHUNK <const> = [[
+  local Vector, kinds, tokens = ...
+  local list = {}
+  for i = 1, #kinds do
+    local kind, token = kinds[i], tokens[i]
+    if kind == "n" then
+      if token == "nan" then list[i] = 0 / 0
+      elseif token == "inf" then list[i] = math.huge
+      elseif token == "-inf" then list[i] = -math.huge
+      else list[i] = tonumber(token) end
+    elseif kind == "i" then list[i] = math.tointeger(tonumber(token))
+    elseif kind == "s" then list[i] = token
+    elseif kind == "b" then list[i] = true
+    else list[i] = {} end
+  end
+  local ok, packed = pcall(Vector.pack, list)
+  return ok, tostring(packed)
+]]
+
+local run_pack = assert(load(PACK_CHUNK, "=vector_fuzz_pack", "t"))
+
+local NUMBER_TOKENS <const>: {string} = { "0", "1", "-1", "0.1", "-0.5", "3.4028234663852886e38",
+  "-3.4028234663852886e38", "3.4028235e38", "1e39", "-1e39", "1e-50", "1e-45", "123456.789", "nan",
+  "inf", "-inf", "65504", "1e30", "0.30000000000000004" }
+local INTEGER_TOKENS <const>: {string} = { "0", "7", "-3", "9007199254740993", "2147483647",
+  "9223372036854775807", "-9223372036854775807" }
+local ODD_KINDS <const>: {string} = { "s", "b", "t" }
+
+local function gen_pack_input(src: Fuzz.Source): string
+  local kinds: mut {string} = {}
+  local tokens: mut {string} = {}
+  if src:int(0, 29) == 0 then
+    for _ = 1, Fuzz.pick(src, { 16000, 16001 }) do
+      kinds[#kinds + 1] = "n"
+      tokens[#tokens + 1] = "0"
+    end
+  else
+    while Fuzz.more(src, #kinds, 16) do
+      local r = src:int(0, 9)
+      if r <= 5 then
+        kinds[#kinds + 1] = "n"
+        tokens[#tokens + 1] = Fuzz.pick(src, NUMBER_TOKENS)
+      elseif r <= 7 then
+        kinds[#kinds + 1] = "i"
+        tokens[#tokens + 1] = Fuzz.pick(src, INTEGER_TOKENS)
+      elseif r == 8 then
+        kinds[#kinds + 1] = "n"
+        tokens[#tokens + 1] = tostring(src:int(-9, 9))
+      else
+        kinds[#kinds + 1] = Fuzz.pick(src, ODD_KINDS)
+        tokens[#tokens + 1] = Fuzz.pick(src, { "1", "1.5", "abc", "" })
+      end
+    end
+  end
+  return Fuzz.pack({ table.concat(kinds, ","), table.concat(tokens, "|") })
+end
+
+local function split(text: string, separator: string): {string}
+  local out: mut {string} = {}
+  local start = 1
+  while true do
+    local at = text:find(separator, start, true)
+    if at == nil then
+      out[#out + 1] = text:sub(start)
+      return out
+    end
+    out[#out + 1] = text:sub(start, at - 1)
+    start = at + #separator
+  end
+end
+
+local function check_pack(input: string): boolean, string
+  local fields = Fuzz.unpack(input)
+  local kinds_text, tokens_text = assert(fields[1]), assert(fields[2])
+  local kinds, tokens = split(kinds_text, ","), split(tokens_text, "|")
+  if kinds_text == "" then
+    kinds, tokens = {}, {}
+  end
+  -- What each entry should be, or nil for an entry no vector holds.
+  local want: mut {number} = {}
+  local refuses = #kinds == 0 or #kinds > 16000
+  for i, kind in ipairs(kinds) do
+    local token = assert(tokens[i])
+    local x: number? = nil
+    if kind == "n" then
+      if token == "nan" then
+        x = 0 / 0
+      elseif token == "inf" then
+        x = math.huge
+      elseif token == "-inf" then
+        x = -math.huge
+      else
+        x = tonumber(token)
+      end
+    elseif kind == "i" then
+      x = to_int(token) * 1.0
+    end
+    if x == nil or not finite(x) or math.abs(x) > FLT_MAX then
+      refuses = true
+    else
+      want[#want + 1] = f32(x)
+    end
+  end
+  local ok, packed = run_pack(Vector, kinds, tokens)
+  if not (ok is boolean and packed is string) then return false, "the chunk answered oddly" end
+  if ok == refuses then
+    return false, ("Vector.pack %s a list of %d (%s)"):format(
+      if ok then "took" else "refused" end, #kinds, kinds_text .. " " .. tokens_text .. ": " .. packed:sub(1, 80))
+  end
+  if refuses then
+    Fuzz.label("pack refused")
+    return true, ""
+  end
+  Fuzz.label("packed")
+  if packed ~= blob_of(want) then
+    return false, ("Vector.pack answered %s, not %s"):format(hex_of(packed), hex_of(blob_of(want)))
+  end
+  if describe(Vector.unpack(packed)) ~= describe(want) then
+    return false, "Vector.unpack did not take back what pack made"
+  end
+  local spelled: mut {string} = {}
+  for _, x in ipairs(want) do spelled[#spelled + 1] = string.format("%.17g", x) end
+  local text: Sqlite.Value = { text = "[" .. table.concat(spelled, ",") .. "]" }
+  local sql = ask("SELECT vector(?1)", { text })
+  if sql.kind ~= "blob" or sql.bytes ~= packed then
+    return false, "Vector.pack and SQL vector() of its text differ: " .. hex_of(sql.bytes) .. sql.why
+  end
+  local norm = Vector.normalize(packed)
+  if norm ~= normalize_reference(packed) then
+    return false, "Vector.normalize differs from its reference on " .. hex_of(packed)
+  end
+  local blob: Sqlite.Value = { blob = packed }
+  local sql_norm = ask("SELECT l2_normalize(?1)", { blob })
+  if sql_norm.kind ~= "blob" or sql_norm.bytes ~= norm then
+    return false, "Vector.normalize and SQL l2_normalize differ on " .. hex_of(packed)
+  end
+  return true, ""
+end
+
+local function test_pack_takes_numbers_and_nothing_else(tmp: string)
+  open_database()
+  Fuzz.run({
+    name = "vector pack",
+    dir = tmp,
+    gen = gen_pack_input,
+    check = check_pack,
+    requires = { "pack refused", "packed" },
+    shares = { ["pack refused"] = 0.2, packed = 0.1 },
+  })
+  close_database()
+end
+
+local function gen_bytes_input(src: Fuzz.Source): string
+  if src:int(0, 2) == 0 then return Fuzz.bytes(src, 40) end
+  local out = gen_chunks(src, true, false, nil)
+  if src:int(0, 5) == 0 then out = out .. Fuzz.bytes(src, 3) end
+  return out
+end
+
+local function check_bytes(blob: string): boolean, string
+  local aligned = #blob % 4 == 0
+  local unpacked_ok, unpacked = pcall(function(): string
+    return describe(Vector.unpack(blob))
+  end)
+  local normalized_ok, normalized = pcall(function(): string
+    return Vector.normalize(blob)
+  end)
+  if unpacked_ok ~= aligned or normalized_ok ~= aligned then
+    return false, ("unpack %s and normalize %s a blob of %d bytes"):format(
+      if unpacked_ok then "took" else "refused" end, if normalized_ok then "took" else "refused" end, #blob)
+  end
+  if not aligned then
+    Fuzz.label("unaligned")
+    return true, ""
+  end
+  if not (unpacked is string and normalized is string) then return false, "pcall answered oddly" end
+  local floats = floats_of(blob)
+  if unpacked ~= describe(floats) then
+    return false, "Vector.unpack answered " .. unpacked .. ", not " .. describe(floats)
+  end
+  if normalized ~= normalize_reference(blob) then
+    return false, ("Vector.normalize of %s answered %s"):format(hex_of(blob), hex_of(normalized))
+  end
+  if #floats >= 1 and #floats <= 16000 and all_finite(floats) then
+    local param: Sqlite.Value = { blob = blob }
+    local sql = ask("SELECT l2_normalize(?1)", { param })
+    if sql.kind ~= "blob" or sql.bytes ~= normalized then
+      return false, "SQL l2_normalize and Vector.normalize differ on " .. hex_of(blob)
+    end
+    Fuzz.label("agreed with sql")
+  end
+  Fuzz.label("aligned")
+  return true, ""
+end
+
+local function test_unpack_and_normalize_read_any_whole_floats(tmp: string)
+  open_database()
+  Fuzz.run({
+    name = "vector unpack and normalize",
+    dir = tmp,
+    gen = gen_bytes_input,
+    check = check_bytes,
+    requires = { "unaligned", "aligned", "agreed with sql" },
+    shares = { unaligned = 0.05, aligned = 0.2 },
+  })
+  close_database()
+end
+
+--------------------------------------------------------------------------
+-- The corpus's search against a brute-force reference
+--------------------------------------------------------------------------
+
+--- The numbers a corpus's vectors are drawn from. All but the last are
+--- ones a float sum holds exactly; the last overflows a float's sums.
+local function alphabet(kind: integer): {number}
+  if kind == 0 then return { 0, 1 } end
+  if kind == 1 then return { -1, 0, 1 } end
+  if kind == 2 then return { -3, -2, -1, 0, 1, 2, 3 } end
+  if kind == 3 then return { 0.25, -0.25, 0.5, 1, -1.5, 0, 2 } end
+  return { 1e30, -1e30, 3e38, -3e38, 1e-30, 1, 0 }
+end
+
+local function csv(numbers: {number}): string
+  local parts: mut {string} = {}
+  for _, x in ipairs(numbers) do parts[#parts + 1] = string.format("%.17g", x) end
+  return table.concat(parts, ",")
+end
+
+local function numbers_of(text: string): {number}
+  local out: mut {number} = {}
+  for token in text:gmatch("[^,]+") do out[#out + 1] = assert(tonumber(token)) end
+  return out
+end
+
+local function gen_numbers(src: Fuzz.Source, letters: {number}, dims: integer): {number}
+  local out: mut {number} = {}
+  for _ = 1, dims do out[#out + 1] = Fuzz.pick(src, letters) end
+  return out
+end
+
+local ID_EDGES <const>: {integer} = { math.mininteger, math.maxinteger, 0, -1, 1 << 40 }
+
+local function gen_search_input(src: Fuzz.Source): string
+  local kind = src:int(0, 11)
+  if kind > 4 then kind = kind % 4 end
+  local letters = alphabet(kind)
+  local dims = Fuzz.pick(src, { 1, 1, 2, 3, 3, 4, 5, 9, 17 })
+  local fields: mut {string} = { tostring(kind), tostring(dims) }
+  fields[#fields + 1] = Fuzz.pick(src, { "1", "1", "2", "3", "5", "10", "40", "9223372036854775807" })
+  fields[#fields + 1] = Fuzz.pick(src, { "inner_product", "cosine", "l2" })
+  if src:int(0, 1) == 0 then
+    fields[#fields + 1] = ""
+  else
+    fields[#fields + 1] = tostring(src:int(1, 30))
+  end
+  local allow = src:int(0, 5)
+  if allow <= 2 then
+    fields[#fields + 1] = "none"
+  elseif allow == 3 then
+    fields[#fields + 1] = "list:"
+  else
+    local ids: mut {string} = {}
+    while Fuzz.more(src, #ids, 12) do ids[#ids + 1] = tostring(src:int(-4, 30)) end
+    fields[#fields + 1] = "list:" .. table.concat(ids, ",")
+  end
+  fields[#fields + 1] = csv(gen_numbers(src, letters, dims))
+  local rows = 0
+  while Fuzz.more(src, rows, 24) do
+    rows = rows + 1
+    local id = src:int(-4, 30)
+    if src:int(0, 14) == 0 then id = Fuzz.pick(src, ID_EDGES) end
+    fields[#fields + 1] = tostring(id) .. "|" .. csv(gen_numbers(src, letters, dims))
+  end
+  return Fuzz.pack(fields)
+end
+
+local function metric_of(name: string): Vector.Metric
+  if name == "cosine" then return "cosine" end
+  if name == "l2" then return "l2" end
+  return "inner_product"
+end
+
+local record Scored
+  id: integer
+  key: number
+  row: integer
+end
+
+local function dot_of(a: {number}, b: {number}): number
+  local total = 0.0
+  for i, x in ipairs(a) do total = total + x * assert(b[i]) end
+  return total
+end
+
+--- How near a row is, higher nearer, as the corpus ranks it.
+local function key_of(metric: string, row: {number}, query: {number}): number
+  if metric == "inner_product" then return dot_of(row, query) end
+  if metric == "l2" then
+    local total = 0.0
+    for i, x in ipairs(row) do
+      local d = x - assert(query[i])
+      total = total + d * d
+    end
+    return -total
+  end
+  local rows, queries = dot_of(row, row), dot_of(query, query)
+  if rows == 0 or queries == 0 then return -math.huge end
+  return dot_of(row, query) / (math.sqrt(rows) * math.sqrt(queries))
+end
+
+local function ranked(pool: {Scored}): {Scored}
+  local copy: mut {Scored} = {}
+  for _, s in ipairs(pool) do copy[#copy + 1] = s end
+  table.sort(copy, function(a: Scored, b: Scored): boolean
+    if a.key ~= b.key then return a.key > b.key end
+    return a.id < b.id
+  end)
+  return copy
+end
+
+local function shown(ids: {integer}, scores: {number}): string
+  local parts: mut {string} = {}
+  for i, id in ipairs(ids) do
+    parts[#parts + 1] = tostring(id) .. ":" .. string.format("%.9g", assert(scores[i]))
+  end
+  return "[" .. table.concat(parts, " ") .. "]"
+end
+
+local function check_search(input: string): boolean, string
+  local fields = Fuzz.unpack(input)
+  local kind, dims = to_int(assert(fields[1])), to_int(assert(fields[2]))
+  local k = to_int(assert(fields[3]))
+  local metric = assert(fields[4])
+  local candidates: integer? = nil
+  if assert(fields[5]) ~= "" then candidates = to_int(assert(fields[5])) end
+  local allow_field = assert(fields[6])
+  local allow: {integer}? = nil
+  local allowed: mut {integer: boolean} = {}
+  if allow_field ~= "none" then
+    local list: mut {integer} = {}
+    for token in allow_field:sub(6):gmatch("[^,]+") do
+      list[#list + 1] = to_int(token)
+      allowed[to_int(token)] = true
+    end
+    allow = list
+  end
+  local query = numbers_of(assert(fields[7]))
+  local corpus = Vector.corpus(dims)
+  local pool: mut {Scored} = {}
+  local rows: mut {{number}} = {}
+  for at = 8, #fields do
+    local id_text, numbers_text = assert(fields[at]):match("^(.-)|(.*)$")
+    local id, numbers = to_int(assert(id_text)), numbers_of(assert(numbers_text))
+    corpus:add(id, Vector.pack(numbers))
+    rows[#rows + 1] = numbers
+    if allow == nil or allowed[id] == true then
+      pool[#pool + 1] = { id = id, key = key_of(metric, numbers, query), row = #rows }
+    end
+  end
+  if corpus:count() ~= #rows then return false, "count is " .. tostring(corpus:count()) end
+  local hits = assert(corpus:search(Vector.pack(query), k, { metric = metric_of(metric), candidates = candidates, allow = allow }))
+  local who = ("%s k=%d candidates=%s of %d rows (%d eligible), query %s"):format(
+    metric, k, tostring(candidates), #rows, #pool, csv(query))
+  if #hits.ids ~= #hits.scores then return false, who .. ": ids and scores differ in length" end
+  if kind == 4 then
+    -- Sums that overflow: no reference, but an answer still holds together.
+    -- TODO: once the corpus kernels redo a non-finite sum in double (see
+    -- the TODO at the score loop in core/vector.c), hold this to a
+    -- reference too; until then only the structure is checked.
+    Fuzz.label("overflowing")
+    local seen: mut {integer: boolean} = {}
+    for _, id in ipairs(hits.ids) do seen[id] = true end
+    for i, score in ipairs(hits.scores) do
+      if score ~= score then return false, who .. ": a score is not a number" end
+      local before = hits.scores[i - 1]
+      if before ~= nil and ((metric == "l2" and before > score) or (metric ~= "l2" and before < score)) then
+        return false, who .. ": scores out of order " .. shown(hits.ids, hits.scores)
+      end
+    end
+    if #hits.ids > k or #hits.ids > #pool then return false, who .. ": too many hits" end
+    return true, ""
+  end
+
+  -- The rows the binary first pass keeps, nearest in sign bits, earliest first.
+  if candidates ~= nil and candidates < #pool then
+    local near: mut {Scored} = {}
+    local distance: mut {integer: integer} = {}
+    for _, s in ipairs(pool) do
+      local row = assert(rows[s.row])
+      local differ = 0
+      for d, x in ipairs(row) do
+        if (x > 0) ~= (assert(query[d]) > 0) then differ = differ + 1 end
+      end
+      distance[s.row] = differ
+      near[#near + 1] = s
+    end
+    table.sort(near, function(a: Scored, b: Scored): boolean
+      local da, db = assert(distance[a.row]), assert(distance[b.row])
+      if da ~= db then return da < db end
+      return a.row < b.row
+    end)
+    local kept: mut {Scored} = {}
+    for i = 1, candidates do kept[#kept + 1] = assert(near[i]) end
+    pool = kept
+    Fuzz.label("candidates")
+  end
+  local order = ranked(pool)
+  local want = math.min(k, #order)
+  if #hits.ids ~= want then
+    return false, ("%s: %d hits, not %d: %s"):format(who, #hits.ids, want, shown(hits.ids, hits.scores))
+  end
+  local function score_of(s: Scored): number
+    if metric == "l2" then return math.sqrt(-s.key) end
+    return s.key
+  end
+  if metric == "cosine" then
+    local used: mut {integer: boolean} = {}
+    for i = 1, want do
+      local expected = assert(order[i])
+      local got = assert(hits.scores[i])
+      if not (got == score_of(expected) or math.abs(got - score_of(expected)) <= 1e-5) then
+        return false, ("%s: score %d is %.9g, not %.9g: %s"):format(who, i, got, score_of(expected),
+          shown(hits.ids, hits.scores))
+      end
+      local before = hits.scores[i - 1]
+      if before ~= nil and (before < got or (before == got and assert(hits.ids[i - 1]) > assert(hits.ids[i]))) then
+        return false, who .. ": out of order " .. shown(hits.ids, hits.scores)
+      end
+      local found = false
+      for _, s in ipairs(pool) do
+        local near = s.key == got or math.abs(s.key - got) <= 1e-5
+        if used[s.row] == nil and s.id == hits.ids[i] and near then
+          used[s.row] = true
+          found = true
+          break
+        end
+      end
+      if not found then return false, who .. ": a hit is no row's: " .. shown(hits.ids, hits.scores) end
+    end
+  else
+    for i = 1, want do
+      local expected = assert(order[i])
+      if hits.ids[i] ~= expected.id or hits.scores[i] ~= score_of(expected) then
+        local wanted_ids: mut {integer} = {}
+        local wanted_scores: mut {number} = {}
+        for j = 1, want do
+          wanted_ids[#wanted_ids + 1] = assert(order[j]).id
+          wanted_scores[#wanted_scores + 1] = score_of(assert(order[j]))
+        end
+        return false, ("%s: answered %s, not %s"):format(who, shown(hits.ids, hits.scores),
+          shown(wanted_ids, wanted_scores))
+      end
+    end
+  end
+  Fuzz.label(metric)
+  if want == 0 then Fuzz.label("no hits") end
+  if allow ~= nil then Fuzz.label("allowed") end
+  if k > #order then Fuzz.label("k outruns the rows") end
+  if metric == "cosine" and want > 0 and assert(hits.scores[want]) == -math.huge then
+    Fuzz.label("zero vectors last")
+  end
+  return true, ""
+end
+
+local function test_search_matches_a_brute_force_reference(tmp: string)
+  Fuzz.run({
+    name = "corpus search",
+    dir = tmp,
+    gen = gen_search_input,
+    check = check_search,
+    requires = { "inner_product", "cosine", "l2", "no hits", "allowed", "candidates", "k outruns the rows",
+      "zero vectors last", "overflowing" },
+    shares = { inner_product = 0.1, cosine = 0.1, l2 = 0.1, allowed = 0.1 },
+  })
+end
+
+--------------------------------------------------------------------------
+-- What a corpus refuses
+--------------------------------------------------------------------------
+
+--- Hostile calls, in plain Lua so that a typed caller need not build
+--- their arguments. Each case says whether it raises.
+local REFUSAL_CHUNK <const> = [[
+  local Vector, dims, ops = ...
+  local good = {}
+  for i = 1, dims do good[i] = 1 end
+  good = Vector.pack(good)
+  local nan = string.pack("<f", 0 / 0)
+  local inf = string.pack("<f", math.huge)
+  local corpus = Vector.corpus(dims)
+  corpus:add(7, good)
+  local count = 1
+  local cases = {
+    add_short = { true, function() corpus:add(1, good:sub(5)) end },
+    add_long = { true, function() corpus:add(1, good .. good:sub(1, 4)) end },
+    add_nan = { true, function() corpus:add(1, nan .. good:sub(5)) end },
+    add_inf = { true, function() corpus:add(1, inf .. good:sub(5)) end },
+    add_float_id = { true, function() corpus:add(1.5, good) end },
+    add_string_id = { true, function() corpus:add("x", good) end },
+    add_table = { true, function() corpus:add(1, {}) end },
+    add_nil = { true, function() corpus:add(1, nil) end },
+    add_ok = { false, function() corpus:add(-3, good) end },
+    add_ok_again = { false, function() corpus:add(7, good) end },
+    search_k0 = { true, function() corpus:search(good, 0) end },
+    search_kneg = { true, function() corpus:search(good, -5) end },
+    search_kfloat = { true, function() corpus:search(good, 1.5) end },
+    search_kstring = { true, function() corpus:search(good, "x") end },
+    search_knil = { true, function() corpus:search(good, nil) end },
+    search_metric = { true, function() corpus:search(good, 1, { metric = "L2" }) end },
+    search_metric_number = { true, function() corpus:search(good, 1, { metric = 5 }) end },
+    search_cand0 = { true, function() corpus:search(good, 1, { candidates = 0 }) end },
+    search_candneg = { true, function() corpus:search(good, 1, { candidates = -1 }) end },
+    search_candfloat = { true, function() corpus:search(good, 1, { candidates = 1.5 }) end },
+    search_allow_word = { true, function() corpus:search(good, 1, { allow = { "a" } }) end },
+    search_allow_float = { true, function() corpus:search(good, 1, { allow = { 1.5 } }) end },
+    search_allow_table = { true, function() corpus:search(good, 1, { allow = { {} } }) end },
+    search_allow_number = { true, function() corpus:search(good, 1, { allow = 5 }) end },
+    search_short = { true, function() corpus:search(good:sub(5), 1) end },
+    search_nan = { true, function() corpus:search(nan .. good:sub(5), 1) end },
+    search_number = { true, function() corpus:search(5, 1) end },
+    search_ok = { false, function() corpus:search(good, 1) end },
+    search_big_k = { false, function() corpus:search(good, math.maxinteger) end },
+    search_everything = { false, function() corpus:search(good, 3, { metric = "cosine", candidates = 1, allow = { 7, -3 } }) end },
+    search_allow_empty = { false, function()
+      assert(#assert(corpus:search(good, 3, { allow = {} })).ids == 0)
+    end },
+    search_allow_whole_float = { false, function() corpus:search(good, 1, { allow = { 7.0 } }) end },
+    corpus_dims0 = { true, function() Vector.corpus(0) end },
+    corpus_dims_neg = { true, function() Vector.corpus(-1) end },
+    corpus_dims_big = { true, function() Vector.corpus(16001) end },
+    corpus_dims_float = { true, function() Vector.corpus(1.5) end },
+    corpus_dims_nil = { true, function() Vector.corpus(nil) end },
+    corpus_dims_max = { false, function() Vector.corpus(16000) end },
+    method_on_nothing = { true, function() corpus.search(nil, good, 1) end },
+    method_on_table = { true, function() corpus.add({}, 1, good) end },
+  }
+  for i, op in ipairs(ops) do
+    local case = cases[op]
+    if case == nil then return "no case " .. tostring(op) end
+    local ok, why = pcall(case[2])
+    if ok == case[1] then
+      return op .. (ok and " should have raised" or " raised: " .. tostring(why))
+    end
+    if ok and op == "add_ok" then count = count + 1 end
+    if ok and op == "add_ok_again" then count = count + 1 end
+    if corpus:count() ~= count then
+      return op .. " left a count of " .. corpus:count() .. ", not " .. count
+    end
+  end
+  local hits = assert(corpus:search(good, 1))
+  if #hits.ids ~= 1 then return "a search after the refusals answered " .. #hits.ids end
+  return "ok"
+]]
+
+local run_refusals = assert(load(REFUSAL_CHUNK, "=vector_fuzz_refusals", "t"))
+
+local REFUSAL_OPS <const>: {string} = { "add_short", "add_long", "add_nan", "add_inf", "add_float_id",
+  "add_string_id", "add_table", "add_nil", "add_ok", "add_ok_again", "search_k0", "search_kneg",
+  "search_kfloat", "search_kstring", "search_knil", "search_metric", "search_metric_number",
+  "search_cand0", "search_candneg", "search_candfloat", "search_allow_word", "search_allow_float",
+  "search_allow_table", "search_allow_number", "search_short", "search_nan", "search_number",
+  "search_ok", "search_big_k", "search_everything", "search_allow_empty", "search_allow_whole_float",
+  "corpus_dims0", "corpus_dims_neg", "corpus_dims_big", "corpus_dims_float", "corpus_dims_nil",
+  "corpus_dims_max",
+  "method_on_nothing", "method_on_table" }
+
+local function gen_refusals_input(src: Fuzz.Source): string
+  local fields: mut {string} = { tostring(Fuzz.pick(src, { 1, 1, 2, 3, 9, 17 })) }
+  while Fuzz.more(src, #fields - 1, 14) do
+    fields[#fields + 1] = Fuzz.pick(src, REFUSAL_OPS)
+  end
+  return Fuzz.pack(fields)
+end
+
+local function check_refusals(input: string): boolean, string
+  local fields = Fuzz.unpack(input)
+  local dims = to_int(assert(fields[1]))
+  local ops: mut {string} = {}
+  for at = 2, #fields do ops[#ops + 1] = assert(fields[at]) end
+  local answer = run_refusals(Vector, dims, ops)
+  if not (answer is string) then return false, "the chunk answered oddly" end
+  if answer ~= "ok" then return false, ("dims %d, %s: %s"):format(dims, table.concat(ops, " "), answer) end
+  Fuzz.label("refused")
+  return true, ""
+end
+
+local function test_a_corpus_refuses_what_is_not_a_vector_or_a_request(tmp: string)
+  Fuzz.run({
+    name = "corpus refusals",
+    dir = tmp,
+    gen = gen_refusals_input,
+    check = check_refusals,
+    requires = { "refused" },
+  })
+end
+
