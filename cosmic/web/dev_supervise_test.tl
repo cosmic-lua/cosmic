@@ -36,8 +36,8 @@ end
 --- and waits for a signal.
 local function marking(tmp: string): string
   return 'local Fs = require("cosmic.fs") local env = require("cosmic.env") ' ..
-    'local boot = env.get("COSMIC_WEB_BOOT") ' ..
-    'assert(Fs.write("' .. tmp .. '/marks/" .. boot, env.get("COSMIC_WEB_DEV"))) ' ..
+    'local boot = assert(env.get("COSMIC_WEB_BOOT")) local dev = assert(env.get("COSMIC_WEB_DEV")) ' ..
+    'assert(Fs.write("' .. tmp .. '/marks/" .. boot, dev)) ' ..
     fixture.sleeping(60000)
 end
 

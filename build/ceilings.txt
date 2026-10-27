@@ -2670,8 +2670,6 @@ build/check_draws.tl field_fixed 18
 
 build/child_lua_fixture.tl field_fixed 2
 
-build/child_tool_fixture.tl field_fixed 1
-
 build/codec.tl field_fixed 1
 
 build/codec_test.tl field_fixed 6
@@ -5042,7 +5040,7 @@ core/socket_sigpipe_checked_test.tl close_not_closable 8
 
 core/socket_test.tl close_not_closable 26
 
-core/sqlite_lua_test.tl close_not_closable 4
+core/sqlite_lua_test.tl close_not_closable 2
 
 core/sqlite_wait_lua_test.tl close_not_closable 14
 
@@ -5351,7 +5349,7 @@ build/test_cancelled_verdicts_tool_test.tl condition_type 1
 
 build/test_inputs.tl condition_type 9
 
-build/test_inputs_test.tl condition_type 12
+build/test_inputs_test.tl condition_type 10
 
 build/test_isolation_test.tl condition_type 1
 
@@ -5849,8 +5847,6 @@ build/test.tl or_mix 2
 
 build/test_bail_tool_test.tl or_mix 3
 
-build/test_inputs_test.tl or_mix 1
-
 build/test_key.tl or_mix 4
 
 build/test_parent_tool_test.tl or_mix 5
@@ -6254,7 +6250,7 @@ build/bom.tl and_ternary 1
 
 build/boot.tl and_ternary 1
 
-build/bootstrap_scratch_test.tl and_ternary 2
+build/bootstrap_scratch_test.tl and_ternary 1
 
 build/c/init.tl and_ternary 3
 
@@ -6759,8 +6755,6 @@ build/dataset_test.tl concat_type 7
 build/declared_key_test.tl concat_type 1
 
 build/declared_types_test.tl concat_type 1
-
-build/dispatch_tool_test.tl concat_type 2
 
 build/dispatched_features_test.tl concat_type 6
 
