@@ -30,9 +30,6 @@ local exempt: {string: string} = {
   ["cosmic/child.tl:Child.wait_any"] =
     "a finished handle comes back with its group's lingering-member " ..
     "trouble, which a caller reports beside the handle's result",
-  ["build/link_index.tl:link_index.none.databases"] =
-    "the library that carries no database fills a field whose other filler, the running binary's, can fail, so the " ..
-    "field's type answers a reason this one never gives",
 }
 
 local parsing: {string: string} = {

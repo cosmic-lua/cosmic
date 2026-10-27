@@ -95,8 +95,9 @@ local record link_index
     --- What determines those docs, signed into the projection
     --- ([`Pending.digest`]) in their place.
     identity: string
-    --- The databases, opened only once a link asks for a symbol.
-    databases: function(): {Sqlite.Handle}?, string
+    --- The databases, opened only once a link asks for a symbol: nil and why where they cannot be. A library that
+    --- carries none has no such function.
+    databases?: function(): {Sqlite.Handle}?, string
   end
 
   --- A projection's links, read and their files looked up, waiting for
@@ -131,7 +132,6 @@ end
 
 link_index.none = {
   identity = "",
-  databases = function(): {Sqlite.Handle}?, string return {}, "" end,
 }
 
 --- The standard library of the binary running this build: its own
@@ -513,7 +513,10 @@ end
 --- `cosmic fix`.
 local function add_library(index: symbol_index.Index, held: {string: boolean},
                            library: link_index.Library): boolean, string
-  local databases, trouble = library.databases()
+  local open = library.databases
+  local databases: {Sqlite.Handle}? = {}
+  local trouble = ""
+  if open ~= nil then databases, trouble = open() end
   if databases == nil then
     return false, trouble
   end
