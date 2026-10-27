@@ -115,7 +115,7 @@ function host_names.parse(name: string): host_names.Spec?, string
       return nil, string.format("%q needs an argument: `%s:<%s>`", name, base,
         if base == "path" then "absolute path" else "name" end)
     end
-    return { base = base, argument = "", class = entry.class }
+    return { base = base, argument = "", class = entry.class }, ""
   end
   if not entry.argument then
     return nil, string.format("%q: `%s` takes no argument", name, base)
@@ -136,7 +136,7 @@ function host_names.parse(name: string): host_names.Spec?, string
       return nil, string.format("%q: `program:` takes the name of a program the PATH finds, with no \"/\" (a file of a known place is `path:`)", name)
     end
   end
-  return { base = base, argument = argument, class = entry.class }
+  return { base = base, argument = argument, class = entry.class }, ""
 end
 
 --- The class of a requirement, or nil where `name` is refused.
@@ -145,7 +145,7 @@ end
 function host_names.class(name: string): host_names.Class?, string
   local spec, why = host_names.parse(name)
   if spec == nil then return nil, why end
-  return spec.class
+  return spec.class, ""
 end
 
 --- The requirements a run's leg promises, as the variable
@@ -156,7 +156,7 @@ end
 --- @return the names, or nil and the rule one breaks
 function host_names.read_promises(text: string): {string}?, string
   local out: mut {string} = {}
-  if text == "" then return out end
+  if text == "" then return out, "" end
   local seen: mut {string:boolean} = {}
   for name in (text .. ","):gmatch("([^,]*),") do
     local spec, why = host_names.parse(name)
@@ -165,7 +165,7 @@ function host_names.read_promises(text: string): {string}?, string
     seen[name] = true
     out[#out + 1] = name
   end
-  return out
+  return out, ""
 end
 
 --- The least Landlock ABI version a `landlock` or `landlock:N` asks for.

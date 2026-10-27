@@ -116,7 +116,7 @@ local function compile_fixture(root: string, given?: GrammarMode.Mode): importer
   if #result.refused > 0 then
     return nil, table.concat(result.refused, "\n")
   end
-  return result
+  return result, ""
 end
 
 local function find_module(result: importer.Result, path: string): Module?

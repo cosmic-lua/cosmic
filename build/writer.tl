@@ -430,7 +430,7 @@ local function signed(handle: work.Handle, result: importer.Result, pending: lin
   if rows == nil then
     return nil, trouble
   end
-  return rows[1]:text(1)
+  return rows[1]:text(1), ""
 end
 
 --- What the links of the tree at `root` may name beside its own
@@ -839,16 +839,16 @@ local function running(handle: work.Handle, identities: identity.Identities,
                        tree_code: boolean): string?, string
   local boot_hash = Store.meta("boot_hash")
   if boot_hash == nil or tree_code then
-    return identities.writer
+    return identities.writer, ""
   end
   local tree_hash, trouble = identity.recorded_boot_hash(handle.db)
   if tree_hash == nil and trouble ~= "" then
     return nil, trouble
   end
   if tree_hash == boot_hash then
-    return identities.writer
+    return identities.writer, ""
   end
-  return Store.meta("writer") or ("boot " .. boot_hash)
+  return Store.meta("writer") or ("boot " .. boot_hash), ""
 end
 
 --- An identity a projection records, as what is said names it: its

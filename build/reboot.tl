@@ -202,12 +202,12 @@ local function state_of(handle: work.Handle, seen?: reboot.Seen): reboot.State?,
     return nil, trouble
   end
   if fingerprint.boot == (meta_of("boot_hash", seen) or "") then
-    return "fresh"
+    return "fresh", ""
   end
   if fingerprint.image == (meta_of("image_hash", seen) or "") then
-    return "teal"
+    return "teal", ""
   end
-  return "core"
+  return "core", ""
 end
 
 --- Closes `handle`, which the caller is giving up, and answers `trouble`.

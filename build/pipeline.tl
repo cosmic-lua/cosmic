@@ -473,7 +473,7 @@ function Pipeline.coded_of(tool: string, db: Sqlite.Handle): string?, string
   if count == nil or count:text(1) == "0" then
     return nil, "build/pipeline.tl is not parsed yet, so the code that reads the tree in the new mode cannot be named"
   end
-  return Hash.hex_sha256(tool .. "\0" .. identity(staged_code(db)))
+  return Hash.hex_sha256(tool .. "\0" .. identity(staged_code(db))), ""
 end
 
 function Pipeline.pinned(ceilings: Ceilings.Table): {string: string}

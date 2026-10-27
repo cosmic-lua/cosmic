@@ -140,7 +140,7 @@ local function requires_of_fixture(root: string, path: string): {string}?, strin
   end
   for _, m in ipairs(result.modules) do
     if m.path == path then
-      return m.requires
+      return m.requires, ""
     end
   end
   return nil, path .. ": not found among compiled modules"

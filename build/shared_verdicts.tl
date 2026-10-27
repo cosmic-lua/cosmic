@@ -251,7 +251,7 @@ function shared_verdicts.open(path: string): shared_verdicts.Cache?, string
   if not made then return nil, made_trouble end
   local db, trouble = shared_sqlite.open(path, prepare)
   if db == nil then return nil, trouble end
-  return { db = db, path = path }
+  return { db = db, path = path }, ""
 end
 
 function shared_verdicts.close(cache: shared_verdicts.Cache)

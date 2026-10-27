@@ -70,7 +70,7 @@ function LuaTail.bytecode_of(code: string, name: string, file: string): string?,
     return nil, file .. ": this host dumps bytecode the three " ..
       "targets do not share"
   end
-  return bytecode
+  return bytecode, ""
 end
 
 return LuaTail
