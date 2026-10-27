@@ -91,7 +91,7 @@ local function groups(list: string, tail4: boolean): {integer}?
       out[#out + 1] = v4[1] * 256 + v4[2]
       out[#out + 1] = v4[3] * 256 + v4[4]
     else
-      if #part < 1 or #part > 4 or part:find("%X") then return nil end
+      if #part < 1 or #part > 4 or part:find("%X") ~= nil then return nil end
       out[#out + 1] = tonumber(part, 16)
     end
   end

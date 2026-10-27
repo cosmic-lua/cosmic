@@ -229,7 +229,7 @@ end
 
 function Flow.assign(f: Flow.State, id: integer, why: Scopes.Place?): Flow.State
   local g = without(f, id, why)
-  if g.unset[id] then
+  if g.unset[id] == true then
     local unset = copy_unset(g.unset)
     unset[id] = nil
     return made(g.live, g.facts, g.paths, unset, g.unsets - 1, g.gone)
@@ -249,7 +249,7 @@ function Flow.declare(f: Flow.State, id: integer, unset: boolean): Flow.State
 end
 
 function Flow.assigned(f: Flow.State, id: integer): Flow.State
-  if not f.unset[id] then
+  if f.unset[id] ~= true then
     return f
   end
   local unset = copy_unset(f.unset)
@@ -263,7 +263,7 @@ function Flow.enter(f: Flow.State, unfixed: {integer: boolean}?): Flow.State
   if unfixed ~= nil and next(facts) ~= nil then
     local doomed: mut {string} = {}
     for k in pairs(facts) do
-      if unfixed[Flow.root(k)] then
+      if unfixed[Flow.root(k)] == true then
         doomed[#doomed + 1] = k
       end
     end
@@ -327,7 +327,7 @@ function Flow.join(a: Flow.State, b: Flow.State, unite: function(Type, Type): Ty
   local unsets = a.unsets
   if b.unsets > 0 then
     for id in pairs(b.unset) do
-      if not unset[id] then
+      if unset[id] ~= true then
         if unset == a.unset then
           unset = copy_unset(unset)
         end
@@ -380,7 +380,7 @@ function Flow.same(a: Flow.State, b: Flow.State): boolean
     return false
   end
   for id in pairs(a.unset) do
-    if not b.unset[id] then
+    if b.unset[id] ~= true then
       return false
     end
   end

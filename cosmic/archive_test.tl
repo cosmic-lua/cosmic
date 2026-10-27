@@ -143,7 +143,7 @@ local function test_a_gzip_block_with_no_codes_fails_next_rather_than_spinning(t
   }
   for i, r in ipairs(readers) do
     local e, why = r:next()
-    assert(e == nil and why:find("corrupt compressed data", 1, true) ~= nil, i .. ": " .. why)
+    assert(e == nil and why:find("corrupt compressed data", 1, true) ~= nil, tostring(i) .. ": " .. why)
     r:close()
   end
 end
@@ -599,7 +599,7 @@ local function test_extract_restores_an_mtime_past_2262(tmp: string)
   assert(Archive.extract(archive, dest))
   local far = assert(Fs.stat(dest .. "/far"))
   assert(far.mtime == want.mtime and far.mtime_ns == want.mtime_ns,
-    far.mtime .. "." .. far.mtime_ns .. " ~= " .. want.mtime .. "." .. want.mtime_ns)
+    tostring(far.mtime) .. "." .. tostring(far.mtime_ns) .. " ~= " .. tostring(want.mtime) .. "." .. tostring(want.mtime_ns))
 end
 
 local function test_extract_stops_at_max_entries(tmp: string)
@@ -860,7 +860,7 @@ local function test_extract_byte_limits_that_are_not_whole_numbers_of_bytes_rais
         Archive.extract(archive, tmp .. "/o", opts)
         return true
       end)
-      assert(not ok, name .. " = " .. value .. " was taken")
+      assert(not ok, name .. " = " .. tostring(value) .. " was taken")
       return tostring(why)
     end
     assert(try(-1):find("archive_test:%d+: archive: " .. name .. " is negative"))
@@ -1196,7 +1196,7 @@ end
 local function test_create_deterministic_writes_the_same_bytes_whatever_the_times(tmp: string)
   for _, name in ipairs({ "a.tar", "a.tar.gz", "a.zip" }) do
     for i, mtime in ipairs({ 1700000000, 1234567890 }) do
-      local w = assert(Archive.create(tmp .. "/" .. i .. name, { deterministic = true }))
+      local w = assert(Archive.create(tmp .. "/" .. tostring(i) .. name, { deterministic = true }))
       assert(w:add_file("x", "y", { mtime = mtime }))
       assert(w:close())
     end

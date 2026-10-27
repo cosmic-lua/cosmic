@@ -316,7 +316,7 @@ local function test_trailing_whitespace_is_trimmed_in_time_linear_in_the_run()
     assert(got ~= nil and #got == 1, why)
   end
   local took = Clock.monotonic_ns() - start
-  assert(took < Clock.seconds(2), "trailing blanks cost " .. took // 1000000 .. " ms")
+  assert(took < Clock.seconds(2), "trailing blanks cost " .. tostring(took // 1000000) .. " ms")
   local padded = assert(parse(part('form-data; name="a"; x=b   ', "v", "X-Pad: v \t \r\n") .. close_it()))
   assert(padded[1].name == "a")
 end

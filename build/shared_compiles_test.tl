@@ -21,7 +21,7 @@ local function test_the_shared_key_moves_with_each_salt()
   }
   local seen: mut {string:boolean} = { [base] = true }
   for index, other in ipairs(others) do
-    assert(not seen[other], "salt " .. tostring(index) .. " did not move the key")
+    assert(seen[other] ~= true, "salt " .. tostring(index) .. " did not move the key")
     seen[other] = true
   end
   assert(base == key("k", false, false, "compiled_v2"), "the format is not this one's")

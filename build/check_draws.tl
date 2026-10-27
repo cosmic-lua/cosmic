@@ -1323,10 +1323,11 @@ end
 --- nothing drawn after them. A draw is `choice` above its least, or its
 --- greatest where that is less.
 local function bare_shapes(choice: integer): string
-  local src: Fuzz.Source = {}
-  src.int = function(_self: Fuzz.Source, min: integer, max: integer): integer
-    return math.min(max, min + choice)
-  end
+  local src: Fuzz.Source = {
+    int = function(_self: Fuzz.Source, min: integer, max: integer): integer
+      return math.min(max, min + choice)
+    end,
+  }
   local g: Gen = { src = src, lines = {}, id = 0, fuel = 0, depth = 0, calm = false, want_goto = false,
     jumped = {}, fn = 0, captures = false, shapes = true, budget = 0, drawn = 0 }
   prologue(g)

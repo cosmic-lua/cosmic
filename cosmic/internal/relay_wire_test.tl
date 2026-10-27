@@ -381,7 +381,7 @@ local function test_connect_caps_headers_at_100()
   local function with(count: integer): string
     local lines: mut {string} = {}
     for i = 1, count do
-      lines[i] = "H" .. i .. ": v"
+      lines[i] = "H" .. tostring(i) .. ": v"
     end
     return Fixture.connect("example.com:80", lines)
   end

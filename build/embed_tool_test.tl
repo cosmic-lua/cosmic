@@ -143,7 +143,7 @@ local function test_the_carried_database_holds_what_a_program_needs(tmp: string)
     "SELECT group_concat(name || ' ' || version || ' ' || sha256, ',' ORDER BY name) FROM web_assets"))
   local web = rows_of(path,
     "SELECT group_concat(name || ' ' || version || ' ' || sha256, ',' ORDER BY name) FROM web_assets")
-  assert(web[1]:text(1) ~= nil and web[1]:text(1) == assets[1]:text(1) and web[1]:text(1):find("htmx.min.js", 1, true),
+  assert(web[1]:text(1) ~= nil and web[1]:text(1) == assets[1]:text(1) and web[1]:text(1):find("htmx.min.js", 1, true) ~= nil,
     "every web asset the binary carries is in")
   local materials = rows_of(path,
     "SELECT (SELECT count(*) FROM components WHERE name = 'lua'), " ..
@@ -491,7 +491,7 @@ end
   -- Linux refuses a host program; macOS's policy refuses a database it has no
   -- prepared core for. Either way no program starts on the database.
   assert(String.starts_with(printed, "true\t") and (printed:find("host program", 1, true) or
-    printed:find("database needs a prepared core", 1, true)), printed)
+    printed:find("database needs a prepared core", 1, true)) ~= nil, printed)
 end
 
 local static_main = [[

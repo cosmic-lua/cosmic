@@ -131,7 +131,7 @@ local function test_escaped_text_holds_no_control_byte()
   local options: {bare.EscapeOptions} = { {}, { named = true }, { keep_tab_newline = true } }
   for _, each in ipairs(options) do
     local safe = bare.escape(text, each)
-    local kept = if each.keep_tab_newline then "[\0-\8\11-\31\127]" else "[\0-\31\127]" end
+    local kept = if each.keep_tab_newline == true then "[\0-\8\11-\31\127]" else "[\0-\31\127]" end
     assert(not safe:find(kept), "a control byte survived")
   end
 end

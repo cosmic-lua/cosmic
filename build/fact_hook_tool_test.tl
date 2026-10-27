@@ -11,7 +11,6 @@ local Fs = require("cosmic.fs")
 local Sqlite = require("cosmic.sqlite")
 local Test = require("cosmic.test")
 local Pipeline = require("build.pipeline")
-local adapt = require("lang.check_drawn")
 local build_paths = require("build.paths")
 local this_program = require("build.this_program")
 
@@ -136,8 +135,8 @@ local function module_of(adapted: string): string
   return (adapted:gsub("local _ = main%(%)\n$", "")) .. FOOTER
 end
 
---- Writes into `root` the programs of the fork's soundness property for narrowing (`testdata/fuzz/checker-sound`, which the
---- flow's fuzz property in [`lang.check_flow_fuzz_test`] draws from too) that the new checker takes, as the fork's text the
+--- Writes into `root` the programs of the soundness property for narrowing (`testdata/fuzz/checker-sound`, which the
+--- flow's fuzz property in [`lang.check_flow_fuzz_test`] draws from too) that the new checker takes, as the text the
 --- tool reads, each a module `draw<N>`; at most `most`. The lines of the test that loads them (their `require`s and the calls
 --- of `run`), and how many.
 local function write_drawn(root: string, most: integer): string, string, integer
@@ -148,9 +147,9 @@ local function write_drawn(root: string, most: integer): string, string, integer
   local requires, calls = "", ""
   local count = 0
   for _, name in ipairs(names) do
-    local drawn = adapt.adapted((assert(Fs.read(dir .. "/" .. name))))
+    local drawn = assert(Fs.read(dir .. "/" .. name))
     local module = "draw" .. tostring(count + 1)
-    if count < most and drawn ~= nil and Pipeline.lone(module .. ".tl", module_of(drawn), options) ~= nil then
+    if count < most and Pipeline.lone(module .. ".tl", module_of(drawn), options) ~= nil then
       assert(Fs.write(root .. "/" .. module .. ".tl", module_of(drawn)))
       requires = requires .. "local " .. module .. " = require(\"" .. module .. "\")\n"
       calls = calls .. "  run_one(\"" .. module .. "\", " .. module .. ".run)\n"

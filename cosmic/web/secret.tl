@@ -36,7 +36,7 @@ function Secret.check(key: string): boolean, string
   local distinct = 0
   for i = 1, #key do
     local byte = key:byte(i)
-    if not seen[byte] then
+    if seen[byte] ~= true then
       seen[byte] = true
       distinct = distinct + 1
     end

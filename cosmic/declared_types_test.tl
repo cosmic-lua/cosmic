@@ -25,7 +25,7 @@ local TypeWatch = require("build.type_watch")
 --- Fails, listing what `during` met, unless it met nothing.
 local function honest(what: string, fn: function())
   local found = TypeWatch.during(fn)
-  assert(#found == 0, what .. ": " .. #found .. " violations:\n" .. table.concat(found, "\n"))
+  assert(#found == 0, what .. ": " .. tostring(#found) .. " violations:\n" .. table.concat(found, "\n"))
 end
 
 --- A reader of text that is not valid RFC 3339, HTTP date or POSIX TZ in

@@ -113,7 +113,7 @@ local function test_a_tree_without_a_bundle_has_no_roots_but_an_empty_one_fails(
   assert(Fs.mkdirs(tmp .. "/vendor/cacert"))
   assert(Fs.write(tmp .. "/" .. bundle, "## nothing here\n"))
   local ok, trouble = roots.fill(db, tmp, "main.")
-  assert(not ok and trouble:find("holds no certificate", 1, true), trouble)
+  assert(not ok and trouble:find("holds no certificate", 1, true) ~= nil, trouble)
   assert(db:close())
 end
 

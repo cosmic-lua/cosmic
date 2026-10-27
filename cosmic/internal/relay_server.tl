@@ -394,7 +394,7 @@ function Relay.handed(handed: Relay.Handed): Relay.Connector
   --- Tells `lost`, the first time, that the connector has ended.
   local function ended(): string
     local why = "relay: the connector has ended"
-    if lost ~= nil and not telling.told then
+    if lost ~= nil and telling.told ~= true then
       telling.told = true
       lost(why)
     end
@@ -521,7 +521,7 @@ end
 local function connect_failure(address: string, why: string): Refusal
   local text = ("could not connect to %s: %s"):format(address, why)
   local lowered = lower(why)
-  if why == Poll.TIMEOUT or lowered:find("timed out", 1, true) then
+  if why == Poll.TIMEOUT or lowered:find("timed out", 1, true) ~= nil then
     return refusal(text, 504, "ttl_expired")
   elseif lowered:find("refused", 1, true) then
     return refusal(text, 502, "refused")
@@ -819,7 +819,7 @@ local function address_of(run: Running, name: string, kind: Wire.Kind, port: int
     end
   end
   local grants = run.spec.grants
-  if trusted then
+  if trusted == true then
     -- The upstream's address is the one the caller's own https_proxy names: the
     -- relay may connect to it (a proxy on loopback or a private network is the
     -- usual one) without the program being granted it, which would let the
@@ -1307,14 +1307,14 @@ end
 --- Raises, naming the field, where `up` is no usable upstream.
 local function checked_upstream(up: Relay.Upstream)
   if type(up) ~= "table" then error("relay: spec.upstream must be a table", 3) end
-  if type(up.host) ~= "string" or up.host == "" or up.host:find("[%c%s]") then
+  if type(up.host) ~= "string" or up.host == "" or up.host:find("[%c%s]") ~= nil then
     error("relay: spec.upstream.host must be a host name or address", 3)
   end
   if number_of(tostring(up.port)) == nil or math.type(up.port) ~= "integer" then
     error("relay: spec.upstream.port must be a port from 1 to 65535", 3)
   end
   local authorization = up.authorization
-  if authorization ~= nil and (type(authorization) ~= "string" or authorization:find("[%c]")) then
+  if authorization ~= nil and (type(authorization) ~= "string" or authorization:find("[%c]") ~= nil) then
     error("relay: spec.upstream.authorization must be a header value with no control bytes", 3)
   end
   if type(up.no_proxy) ~= "table" then
@@ -1395,7 +1395,7 @@ function Relay.start(spec: Relay.Spec): Relay.Serving
   if not Poll.in_task() then error("relay: start runs in a task of Poll.run", 2) end
   local token = spec.token
   if token ~= nil and (type(token) ~= "string" or #token < 16 or #token > 255 or
-      token:find("[%c\127]")) then
+      token:find("[%c\127]") ~= nil) then
     error("relay: spec.token must be a string of 16 to 255 bytes with no control byte (draw 128 bits or more)", 2)
   end
   local given_timeouts: Relay.Timeouts = spec.timeouts or {}

@@ -216,7 +216,7 @@ local function test_a_typed_multipart_route_binds_and_answers_problems(tmp: stri
     Accept = "application/json" } })
   assert(reply.status == 422 and reply:text():find('"field":"age"', 1, true), reply:text())
   reply = client:post("/up", { form = { email = "e" } })
-  assert(reply.status == 415, "a urlencoded body is not multipart: " .. reply.status)
+  assert(reply.status == 415, "a urlencoded body is not multipart: " .. tostring(reply.status))
   reply = client:post("/up", { body = body_of(field("email", "e"), file("pic", "p.png", "0123456789A")),
     headers = { ["Content-Type"] = FORM_TYPE } })
   assert(reply.status == 413, reply.status)
@@ -275,7 +275,7 @@ end
 
 local function test_the_part_and_file_counts_are_capped(tmp: string)
   local text = ""
-  for i = 1, 4 do text = text .. field("f" .. i, "v") end
+  for i = 1, 4 do text = text .. field("f" .. tostring(i), "v") end
   local bad = refusal(body_of(text), { max_parts = 3 })
   assert(bad.status == 413 and bad.errors[1].code == "too_many")
   local two = refusal(body_of(file("a", "a", "1"), file("b", "b", "2"), file("c", "c", "3")), { dir = tmp, max_files = 2 })
@@ -493,7 +493,7 @@ local function test_trailing_blanks_in_parameters_cost_time_linear_in_their_run(
   local spaces = (" "):rep(8000)
   local parts: mut {string} = {}
   for i = 1, 100 do
-    parts[i] = "--" .. B .. '\r\nContent-Disposition: form-data; name="n' .. i .. '"; x=a' .. spaces .. "y\r\n\r\nv\r\n"
+    parts[i] = "--" .. B .. '\r\nContent-Disposition: form-data; name="n' .. tostring(i) .. '"; x=a' .. spaces .. "y\r\n\r\nv\r\n"
   end
   local start = Clock.monotonic_ns()
   local count = { value = 0 }
@@ -503,7 +503,7 @@ local function test_trailing_blanks_in_parameters_cost_time_linear_in_their_run(
   end)
   local took = Clock.monotonic_ns() - start
   assert(count.value == 100)
-  assert(took < Clock.seconds(2), "took " .. took // 1000000 .. " ms")
+  assert(took < Clock.seconds(2), "took " .. tostring(took // 1000000) .. " ms")
   start = Clock.monotonic_ns()
   local type_header = "application/x-www-form-urlencoded; x=a" .. (" "):rep(60000) .. "y"
   post("a=1", function(req: Web.Request): Web.Response
@@ -585,5 +585,5 @@ local function test_a_long_filename_is_cut_to_its_last_component_in_linear_time(
   end)
   local took = Clock.monotonic_ns() - start
   assert(#names == 100 and names[1] == "c.txt" and names[100] == "c.txt", #names)
-  assert(took < Clock.seconds(1), "took " .. took // 1000000 .. " ms")
+  assert(took < Clock.seconds(1), "took " .. tostring(took // 1000000) .. " ms")
 end

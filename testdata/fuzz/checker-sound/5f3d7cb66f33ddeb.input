@@ -1,0 +1,42 @@
+local record R
+  mut a: integer?
+  mut b: integer?
+  mut n: integer
+end
+local r: R = { a = 1, b = nil, n = 0 }
+local s: R = { a = nil, b = 2, n = 0 }
+local record State
+  mut count: integer
+  mut sink: integer
+end
+local st: State = { count = 0, sink = 0 }
+local nums: {integer} = { 1, 2, 3 }
+local opts: {integer} = { 1, 2, 3 }
+local function maybe(): integer?
+  st.count = st.count + 1
+  if st.count % 3 == 0 then return nil end
+  return st.count
+end
+local function pick(): R?
+  st.count = st.count + 1
+  if st.count % 3 == 0 then return nil end
+  if st.count % 2 == 0 then return r end
+  return s
+end
+local function touch(t: R)
+  t.a = nil
+  t.b = nil
+end
+local function id(v: integer?): integer?
+  return v
+end
+local function main(): integer
+local x: integer? = id(1)
+local function own() local z: integer? = nil z = 1 st.sink = st.sink + z end
+if x then
+  own()
+  st.sink = st.sink + x + 1
+end
+return st.sink
+end
+local _ = main()

@@ -45,7 +45,7 @@ local function roundtrip(format: Compress.Format, plain: string, chunk_size?: in
   local dec = assert(Compress.inflater(format))
   local out, dec_trouble = drive(dec, packed, chunk_size)
   assert(dec_trouble == "", dec_trouble)
-  assert(out == plain, format .. ": " .. #out .. " vs " .. #plain)
+  assert(out == plain, format .. ": " .. tostring(#out) .. " vs " .. tostring(#plain))
   assert(dec:done())
 end
 
@@ -184,13 +184,13 @@ local function test_bits_that_name_no_code_are_refused()
     dec = assert(Compress.inflater("raw"))
     out, trouble = dec:update(EOB_ONLY .. "\95" .. tail)
     if out ~= nil then
-      assert(out == "" and not dec:pending(), #tail .. ": " .. #out .. " bytes out")
+      assert(out == "" and not dec:pending(), tostring(#tail) .. ": " .. tostring(#out) .. " bytes out")
       out, trouble = dec:finish()
     end
     -- The patch's own words, not the ratio check's, which would also
     -- stop a decoder answering zeros, but only after a window of them.
     assert(out == nil and (trouble == want or want == "truncated" and trouble:find(want, 1, true) ~= nil),
-      #tail .. ": " .. trouble)
+      tostring(#tail) .. ": " .. trouble)
   end
 end
 
@@ -225,10 +225,10 @@ local function test_the_ratio_check_passes_deflates_most_compressible_stream()
     for _ = 1, size >> 20 do parts[#parts + 1] = assert(enc:update(zeros)) end
     parts[#parts + 1] = assert(enc:finish())
     local packed = table.concat(parts)
-    assert(#packed * 1000 < size, format .. " packed to " .. #packed)
+    assert(#packed * 1000 < size, format .. " packed to " .. tostring(#packed))
     for _, piece in ipairs({ #packed, 1 }) do
       local total, trouble = count_out(assert(Compress.inflater(format)), packed, piece)
-      assert(total == size, format .. " in pieces of " .. piece .. ": " .. tostring(total) .. " " .. trouble)
+      assert(total == size, format .. " in pieces of " .. tostring(piece) .. ": " .. tostring(total) .. " " .. trouble)
     end
   end
 end
@@ -378,7 +378,7 @@ local function drain(stream: Compress.Stream, data: string, max_bytes: integer):
   local parts: mut {string} = {}
   local out = assert(stream:update(data, max_bytes))
   while true do
-    assert(#out <= max_bytes, #out .. " bytes from one update, limit " .. max_bytes)
+    assert(#out <= max_bytes, tostring(#out) .. " bytes from one update, limit " .. tostring(max_bytes))
     parts[#parts + 1] = out
     if not stream:pending() then break end
     out = assert(stream:update("", max_bytes))
@@ -398,7 +398,7 @@ local function test_a_decompression_bomb_comes_out_in_bounded_pieces()
   for _, format in ipairs(formats) do
     local enc = assert(Compress.deflater(format, 9))
     local packed = assert(enc:update(zeros)) .. assert(enc:finish())
-    assert(#packed < 16 * 1024, format .. " packed to " .. #packed)
+    assert(#packed < 16 * 1024, format .. " packed to " .. tostring(#packed))
     cases[#cases + 1] = { packed = packed, make = function(): Compress.Stream
       return (assert(Compress.inflater(format)))
     end }
@@ -406,7 +406,7 @@ local function test_a_decompression_bomb_comes_out_in_bounded_pieces()
   for _, case in ipairs(cases) do
     local out, tail = drain(case.make(), case.packed, 1 << 20)
     assert(out == zeros, tostring(#out))
-    assert(tail == "", "a drained stream left " .. #tail .. " bytes for finish")
+    assert(tail == "", "a drained stream left " .. tostring(#tail) .. " bytes for finish")
     -- The default limit bounds a plain update too.
     local first = assert(case.make():update(case.packed))
     assert(#first == 1 << 20, tostring(#first))
@@ -563,9 +563,9 @@ local function every_split(make: Maker, data: string, want: string, rest: string
     local dec = make()
     local out = assert(dec:update(data:sub(1, cut))) .. assert(dec:update(data:sub(cut + 1)))
     local last, trouble = dec:finish()
-    assert(last ~= nil, "cut " .. cut .. ": " .. tostring(trouble))
-    assert(out .. last == want, "cut " .. cut)
-    assert(dec:rest() == rest, "cut " .. cut .. ": rest " .. dec:rest())
+    assert(last ~= nil, "cut " .. tostring(cut) .. ": " .. tostring(trouble))
+    assert(out .. last == want, "cut " .. tostring(cut))
+    assert(dec:rest() == rest, "cut " .. tostring(cut) .. ": rest " .. dec:rest())
     assert(dec:done())
   end
 end

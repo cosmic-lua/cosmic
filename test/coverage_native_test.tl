@@ -33,7 +33,7 @@ local function test_c_hits_land_on_native_lines()
       local here = observable[path]
       assert(here ~= nil, path .. " was hit but is not observable")
       for line in pairs(lines) do
-        assert(here[line], path .. ":" .. line .. " was hit but is not observable")
+        assert(here[line], path .. ":" .. tostring(line) .. " was hit but is not observable")
       end
       crypto_hit = crypto_hit or path == "core/crypto.c"
     end
@@ -50,7 +50,7 @@ local function test_function_entries_are_observable_lines()
   local entries = Hits.native_entries()
   for path, here in pairs(entries) do
     for line in pairs(here) do
-      assert((lines[path] or {})[line], path .. ":" .. line .. " is not observable")
+      assert((lines[path] or {})[line], path .. ":" .. tostring(line) .. " is not observable")
     end
   end
   if next(lines) == nil then

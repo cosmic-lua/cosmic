@@ -30,14 +30,14 @@ end
 local function test_a_name_is_listed_once()
   local seen: mut {string:boolean} = {}
   for _, spec in ipairs(verb_list.specs()) do
-    assert(not seen[spec.name], spec.name .. " is listed twice")
+    assert(seen[spec.name] ~= true, spec.name .. " is listed twice")
     seen[spec.name] = true
   end
   for _, name in ipairs(before) do
-    assert(not seen[name], name .. " runs code, not a listed module")
+    assert(seen[name] ~= true, name .. " runs code, not a listed module")
   end
   for _, name in ipairs(after) do
-    assert(not seen[name], name .. " is dispatch's own")
+    assert(seen[name] ~= true, name .. " is dispatch's own")
   end
 end
 
@@ -45,7 +45,7 @@ local function test_a_bare_verb_says_how_it_exits_and_why_it_is_uncased()
   for _, spec in ipairs(verb_list.specs()) do
     if spec.bare then
       local exits = spec.exits
-      assert(exits ~= nil and exits:find("`" .. spec.name .. "`", 1, true),
+      assert(exits ~= nil and exits:find("`" .. spec.name .. "`", 1, true) ~= nil,
         spec.name .. ": bare, so its exit codes are help's to state, starting with its name")
       assert(spec.passthrough ~= nil, spec.name .. ": bare, so verb_cases needs its reason")
     else

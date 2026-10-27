@@ -50,14 +50,14 @@ local function test_a_worker_loads_what_worker_loads_names(tmp: string)
     assert(ran[name], "worker.loads names " .. name .. ", which a worker did not load")
   end
   for _, name in ipairs(report.modules) do
-    if not lua[name] and name ~= "cosmic.sys" and name:match("^cosmic%.internal%.") == nil then
+    if lua[name] ~= true and name ~= "cosmic.sys" and name:match("^cosmic%.internal%.") == nil then
       assert(listed[name], "a worker loaded " .. name .. ", which worker.loads does not name")
     end
   end
   for _, name in ipairs({ "build.declared_key", "build.artifact", "build.core_image",
       "build.launcher", "build.logger", "cosmic.time", "cosmic.log",
       "cosmic.string", "cosmic.hash", "cosmic.codec" }) do
-    assert(not ran[name], "a worker loaded " .. name)
+    assert(ran[name] ~= true, "a worker loaded " .. name)
   end
 end
 

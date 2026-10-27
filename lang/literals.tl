@@ -201,7 +201,7 @@ local function read_pattern(pattern: string): Literals.PatternRead
       elseif d:find("^%d") ~= nil then
         local k = d:byte() - 48
         -- `closed` holds the captures a `)` has closed, so `%0` and an index past the captures are none
-        if not closed[k] then
+        if closed[k] ~= true then
           return stop(shown("%" .. d) .. " refers to a capture that is not closed before it (" .. at(i) .. "), and Lua " ..
               "raises \"invalid capture index %" .. d .. "\"",
             "refer only to a capture that an earlier `( ... )` has closed (`%1` is the first), and write `%%` to match " ..
@@ -517,7 +517,7 @@ local function check(call: Literals.Call): {Literals.Finding}
   local fn = call.fn
   local first = call.literals[1]
   local second = call.literals[2]
-  if second ~= nil and (fn == "match" or fn == "gmatch" or fn == "gsub" or (fn == "find" and PLAIN[call.plain])) then
+  if second ~= nil and (fn == "match" or fn == "gmatch" or fn == "gsub" or (fn == "find" and PLAIN[call.plain] == true)) then
     local read = read_pattern(second)
     local trouble = read.problem
     if trouble ~= nil then

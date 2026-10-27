@@ -195,7 +195,7 @@ local function test_second(tmp: string) hold(tmp, "second") end
   assert(Fs.close(fd))
   local handle <close> = assert(runner, trouble)
   local deadline = Clock.monotonic_ns() + Clock.seconds(30)
-  while not (Fs.exists(marks .. "/first") and Fs.exists(marks .. "/second")) do
+  while not (Fs.exists(marks .. "/first") == true and Fs.exists(marks .. "/second") == true) do
     assert(Clock.monotonic_ns() < deadline, assert(Fs.read(output)))
     -- Leaves the runner running, as a timed `wait` would not.
     local done, _ = Child.wait_any({ handle }, Clock.ms(50))
@@ -252,7 +252,7 @@ end
   assert(Fs.close(fd))
   local handle <close> = assert(runner, trouble)
   local deadline = Clock.monotonic_ns() + Clock.seconds(20)
-  while not Fs.exists(marks .. "/held") do
+  while Fs.exists(marks .. "/held") ~= true do
     assert(Clock.monotonic_ns() < deadline, assert(Fs.read(output)))
     local done, _ = Child.wait_any({ handle }, Clock.ms(50))
     assert(done == nil, "the runner ended before its tests started\n" .. assert(Fs.read(output)))

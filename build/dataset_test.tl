@@ -85,7 +85,7 @@ local function test_keys_are_quoted_and_collisions_renamed()
   -- Every column is distinct even when case is folded, and `_json` is the row's own.
   local seen: mut {string:boolean} = {}
   for _, column in ipairs(made.columns) do
-    assert(not seen[column:lower()], column .. " twice")
+    assert(seen[column:lower()] ~= true, column .. " twice")
     seen[column:lower()] = true
   end
   assert(made.columns[#made.columns] == "_json")
@@ -122,7 +122,7 @@ local function test_at_reads_the_rows_from_a_path()
   local last = assert(dataset.read("json", '{"a": [{"id": 1}, {"id": 2}]}', { at = { "a", -1 } }))
   assert(#last == 1 and last[1].id == 2)
   local bad, bad_why = dataset.read("json", "{", {})
-  assert(bad == nil and bad_why:find("invalid JSON", 1, true), bad_why)
+  assert(bad == nil and bad_why:find("invalid JSON", 1, true) ~= nil, bad_why)
 end
 
 local function test_ndjson_is_a_row_per_line()
@@ -134,9 +134,9 @@ local function test_ndjson_is_a_row_per_line()
   assert(grid(db, "SELECT sum(a) FROM t")[1] == "i3")
   assert(#assert(dataset.read("ndjson", "")) == 0)
   local bad, why = dataset.read("ndjson", '{"a": 1}\n{\n')
-  assert(bad == nil and why:find("line 2", 1, true), why)
+  assert(bad == nil and why:find("line 2", 1, true) ~= nil, why)
   local at, at_why = dataset.read("ndjson", "{}", { at = { "a" } })
-  assert(at == nil and at_why:find("no path", 1, true), at_why)
+  assert(at == nil and at_why:find("no path", 1, true) ~= nil, at_why)
 end
 
 local function test_formats_are_found_by_name_and_extension()
@@ -146,7 +146,7 @@ local function test_formats_are_found_by_name_and_extension()
   local unknown, why = dataset.format_of("data.xml")
   assert(unknown == nil and why == "dataset: unknown extension .xml (known: .csv, .json, .jsonl, .ndjson, .tab, .tsv)", why)
   local none, none_why = dataset.format_of("README")
-  assert(none == nil and none_why:find("^dataset: no extension"), none_why)
+  assert(none == nil and none_why:find("^dataset: no extension") ~= nil, none_why)
   local missing, missing_why = dataset.read("yaml", "a: 1")
   assert(missing == nil and missing_why == "dataset: no format yaml (known: csv, json, ndjson, tsv)", missing_why)
   assert(dataset.about("json") ~= nil and dataset.about("yaml") == nil)
@@ -157,7 +157,7 @@ local function test_load_refuses_what_sqlite_or_the_caller_cannot_take()
   local rows = assert(dataset.read("json", '[{"a": 1}]'))
   assert(dataset.load(db, "t", rows))
   local again, why = dataset.load(db, "T", rows)
-  assert(again == nil and why:find("already exists", 1, true), why)
+  assert(again == nil and why:find("already exists", 1, true) ~= nil, why)
   local nameless, nameless_why = dataset.load(db, "", rows)
   assert(nameless == nil and nameless_why == "dataset: a table needs a name")
   local odd = assert(dataset.load(db, 'we"ird name', rows))
@@ -165,7 +165,7 @@ local function test_load_refuses_what_sqlite_or_the_caller_cannot_take()
   local ok = Sqlite.rows(db, 'SELECT a FROM "we""ird name"')
   assert(ok ~= nil)
   local bad, bad_why = dataset.load(db, "u", { { a = print as any } })
-  assert(bad == nil and bad_why:find("row 1, a: a function has no SQLite value", 1, true), bad_why)
+  assert(bad == nil and bad_why:find("row 1, a: a function has no SQLite value", 1, true) ~= nil, bad_why)
   -- A refused load leaves no table behind.
   assert(not Sqlite.rows(db, "SELECT * FROM u"))
 end
@@ -257,7 +257,7 @@ local function test_tsv_reads_tabs_and_csv_and_tsv_refuse_a_path()
     assert(none == nil and why == "dataset: the " .. name .. " format takes no path: each record is a row", why)
   end
   local bad, why = dataset.read("csv", "a,b\n1\n")
-  assert(bad == nil and why:find("line 2, column 1", 1, true), why)
+  assert(bad == nil and why:find("line 2, column 1", 1, true) ~= nil, why)
 end
 
 local function test_duplicate_and_empty_csv_headers_are_renamed_like_json_keys()
@@ -271,7 +271,7 @@ end
 local function test_json_formats_refuse_raw()
   for _, name in ipairs({ "json", "ndjson" }) do
     local none, why = dataset.read(name, "[]", { raw = true })
-    assert(none == nil and why:find("no raw cells", 1, true), why)
+    assert(none == nil and why:find("no raw cells", 1, true) ~= nil, why)
   end
 end
 

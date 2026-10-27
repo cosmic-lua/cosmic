@@ -139,7 +139,7 @@ function Proc.relaunch(): Proc.Relaunch?, string
     cached.relaunch = { argv = { found.path, "--database", database }, env = {}, fds = {}, cwd = found.cwd }
     return cached.relaunch, ""
   end
-  if found.host then
+  if found.host == true then
     cached.relaunch = { argv = { found.path }, env = {}, fds = {}, cwd = found.cwd }
     return cached.relaunch, ""
   end

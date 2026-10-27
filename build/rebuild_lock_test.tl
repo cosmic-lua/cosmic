@@ -88,7 +88,7 @@ local function test_a_wait_out_of_range_raises(tmp: string)
   local root = tree(tmp)
   for _, wait_ns in ipairs({ -1, Poll.MOST_NS + 1 }) do
     local ok, err = pcall(rebuild_lock.take, root, wait_ns)
-    assert(not ok and tostring(err):find("rebuild_lock.take: the wait is out of range", 1, true),
+    assert(not ok and tostring(err):find("rebuild_lock.take: the wait is out of range", 1, true) ~= nil,
       tostring(err))
   end
 end
@@ -179,7 +179,7 @@ local function test_a_lock_file_that_cannot_be_written_is_refused(tmp: string)
   assert(taken == nil, tostring(taken))
   assert(trouble:find(path .. ": ", 1, true), trouble)
   local held, hold_trouble = rebuild_lock.hold(root, "test", "test")
-  assert(held == nil and hold_trouble:find(path .. ": ", 1, true), hold_trouble)
+  assert(held == nil and hold_trouble:find(path .. ": ", 1, true) ~= nil, hold_trouble)
 end
 
 local record Held

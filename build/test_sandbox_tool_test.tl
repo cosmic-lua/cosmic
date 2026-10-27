@@ -292,7 +292,7 @@ local function test_a_host_path_that_is_the_trees_is_refused_in_either_mode(tmp:
   for _, mode in ipairs({ "0", "" }) do
     env.COSMIC_TEST_SANDBOX = mode ~= "" and mode or nil
     local inside, inside_ok = run(root, tmp .. "/inside" .. mode, env)
-    assert(not inside_ok and inside:find(root .. "/suite/given.txt is the tree's", 1, true) and
+    assert(not inside_ok and inside:find(root .. "/suite/given.txt is the tree's", 1, true) ~= nil and
         not inside:find("read|", 1, true), inside)
     assert(not inside:find("could not be supervised", 1, true), inside)
   end
@@ -344,5 +344,5 @@ local function test_an_unsandboxed_run_reads_the_tree_and_a_platform_with_no_san
   local required: string? = nil
   required, ok = run(root, tmp .. "/required", env)
   assert(not ok and required:find("COSMIC_TEST_SANDBOX=1, but no worker can be sandboxed here",
-    1, true), required)
+    1, true) ~= nil, required)
 end

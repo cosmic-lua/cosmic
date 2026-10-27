@@ -113,14 +113,14 @@ local function test_nest_holds_files_by_the_root_alone(tmp: string)
   local policy: Sandbox.Policy = { isolate = { "file" }, promises = { "nest" }, grants = at.grants }
   local read = under({ at.probe, "cat ro/a" }, policy, at.work)
   if read == nil then return end
-  assert(read.code == 0 and read.said == "alpha\n", read.code .. ": " .. read.said)
+  assert(read.code == 0 and read.said == "alpha\n", tostring(read.code) .. ": " .. read.said)
   -- Not granted, so not there; read-only where not granted `w`.
   local other = under({ at.probe, "cat " .. at.extra .. "/e" }, policy, at.work)
   assert(other.code == 1 and other.said:find("No such file or directory", 1, true), other.said)
   local ro = under({ at.probe, "create ro/b x" }, policy, at.work)
   assert(ro.code == 1 and ro.said:find("Read-only file system", 1, true), ro.said)
   local rw = under({ at.probe, "create rw/b x && cat rw/b" }, policy, at.work)
-  assert(rw.code == 0 and rw.said == "x\n", rw.code .. ": " .. rw.said)
+  assert(rw.code == 0 and rw.said == "x\n", tostring(rw.code) .. ": " .. rw.said)
   -- What Landlock refused to run is held by the mount: a grant without `x`
   -- is noexec, read-only or not, and the program's own is not.
   local mounts = under({ at.probe, "cat /proc/self/mountinfo" }, policy, at.work)
@@ -196,7 +196,7 @@ local function test_a_handed_directory_is_held_by_landlock_without_nest(tmp: str
   local ran = under({ at.probe, "cat /proc/self/fd/3/e" }, policy, at.work, { [3] = dir })
   sys.close(dir)
   if ran == nil then return end
-  assert(ran.code == 1 and ran.said:find("Permission denied", 1, true), ran.code .. ": " .. ran.said)
+  assert(ran.code == 1 and ran.said:find("Permission denied", 1, true), tostring(ran.code) .. ": " .. ran.said)
 end
 
 --- Where a start of the program's own meets its host: the directory a root
@@ -214,7 +214,7 @@ local function test_a_nested_sandbox_is_confined_to_its_own_grants(tmp: string)
   -- granted the stand-in and the working directory, does not.
   local own = under({ at.probe, "cat " .. at.extra .. "/e" }, policy, at.work)
   if own == nil then return end
-  assert(own.code == 0 and own.said == "epsilon\n", own.code .. ": " .. own.said)
+  assert(own.code == 0 and own.said == "epsilon\n", tostring(own.code) .. ": " .. own.said)
   local ran = under({ at.probe, "run-isolated " .. at.probe .. " cat ro/a" }, policy, at.work)
   assert(ran.code == 0, ran.said)
   assert(ran.said == "exit 0\nalpha\n", ran.said)
@@ -238,7 +238,7 @@ local function test_a_nested_sandbox_with_a_network_of_its_own_brings_its_loopba
   local ran = under({ at.probe, "run-looped " .. at.probe .. " print hi" },
     nested(at), at.work)
   if ran == nil then return end
-  assert(ran.code == 0 and ran.said == "exit 0\nhi\n", ran.code .. ": " .. ran.said)
+  assert(ran.code == 0 and ran.said == "exit 0\nhi\n", tostring(ran.code) .. ": " .. ran.said)
 end
 
 local function test_a_nested_sandbox_needs_nest(tmp: string)

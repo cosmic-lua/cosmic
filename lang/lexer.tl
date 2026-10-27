@@ -658,7 +658,7 @@ function Lexer.lex(source: string, name: string): Lexer.Lexed
     if c == 1 then
       text = capture(source, "^[%a_][%w_]*", pos)
       e = pos + #text - 1
-      kind = if words[text] then "keyword" else "identifier" end
+      kind = if words[text] == true then "keyword" else "identifier" end
     elseif c == 2 then
       pos = pos + 1
       if class[byte(source, pos)] == 2 then
@@ -674,7 +674,7 @@ function Lexer.lex(source: string, name: string): Lexer.Lexed
       line_offsets[#line_offsets + 1] = pos
     elseif c == 7 then
       kind = "op"
-      if second[b][byte(source, pos + 1)] then
+      if second[b][byte(source, pos + 1)] == true then
         e = pos + 1
         text = sub(source, pos, e)
       else
@@ -778,7 +778,7 @@ function Lexer.lex(source: string, name: string): Lexer.Lexed
         number_kind = "$ERR$"
         local stripped = number_text:gsub("_", "")
         local plain = tonumber(stripped)
-        if plain ~= nil and find(number_text, "_", 1, true) then
+        if plain ~= nil and find(number_text, "_", 1, true) ~= nil then
           number_kind = if math_type(plain) == "integer" then "integer" else "number" end
           value = plain
           add_error(errors, name, "digit_separator", "`_` in a number is not in the grammar",

@@ -105,7 +105,7 @@ local function test_format_event_makes_one_event_with_the_fields_given_and_no_ot
         end
       end
       for name, n in pairs(seen) do
-        if n > 1 then return false, name .. " appears " .. n .. " times" end
+        if n > 1 then return false, name .. " appears " .. tostring(n) .. " times" end
       end
       local ev_data = ev.data
       if ev_data ~= nil and table.concat(data, "\n") ~= unified(ev_data) then

@@ -261,7 +261,7 @@ local function ensure(st: State)
   st.valid = true
   st.token = token
   st.data = data
-  if data.stale then st.dirty = true end
+  if data.stale == true then st.dirty = true end
 end
 
 --- Raises where the session may not be written.
@@ -547,7 +547,7 @@ function Session.middleware(opts: Session.Options): Types.Middleware
         if st.invalidated then expire(res, cookie, opts, secure) end
         return res
       end
-      if not st.dirty and opts.rolling and st.valid and st.data.expires - st.now < max_age // 2 then
+      if not st.dirty and opts.rolling == true and st.valid and st.data.expires - st.now < max_age // 2 then
         st.data.expires = st.now + max_age
         st.dirty = true
       end

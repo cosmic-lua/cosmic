@@ -63,7 +63,7 @@ function Csp.format(p: Csp.Policy, nonce?: string): string
           error("csp: the policy has a {nonce} source and no nonce was given", 2)
         end
         source = "'nonce-" .. nonce .. "'"
-      elseif type(source) ~= "string" or source == "" or source:find("[%c%s;,]") then
+      elseif type(source) ~= "string" or source == "" or source:find("[%c%s;,]") ~= nil then
         error(("csp: %s: %q is not a source"):format(name, tostring(source)), 2)
       end
       parts[#parts + 1] = source

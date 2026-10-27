@@ -1,6 +1,5 @@
---- Tests of [`build.syntax_receivers`] against the fork's receivers: a program is read by the new checker, and the uses of a
---- record's fields found through the type of the value are the same as the fork found (kept as text, [`lang.forked`]), use
---- for use, in order.
+--- Tests of [`build.syntax_receivers`]: a program is read by the new checker, and the uses of a record's fields found
+--- through the type of the value are the ones each test names, use for use, in order.
 local Fixture = require("build.syntax_typed_fixture")
 local Receivers = require("build.syntax_receivers")
 local Test = require("cosmic.test")
@@ -8,7 +7,6 @@ local Test = require("cosmic.test")
 Test.policy{
   grants = {
     { path = "lang/stdlib.d.tl", letters = "r" }, { path = "lang/prelude.d.tl", letters = "r" },
-    { path = "testdata/forked/typed_fixture.txt", letters = "r" },
     { path = "core/syscalls.h", letters = "r" }, { path = "core/process.h", letters = "r" }, { path = "core/socket.h", letters = "r" },
   },
 }
@@ -66,7 +64,7 @@ local ZIPX <const> = table.concat({
 --- module that has a method of the same name.
 local TALLY <const> = table.concat({
   "local record Tally",
-  "  count: integer",
+  "  mut count: integer",
   "  add: function(Tally, integer): integer",
   "  bump: function(Tally)",
   "  new: function(): Tally",
@@ -122,12 +120,9 @@ local function uses_of(said: Fixture.Said): string
   return table.concat(out, "\n")
 end
 
---- The uses the fork and the port find in `source` after the prelude: the same; the fork's, as lines.
+--- The uses the checker finds in `source` after the prelude, as lines.
 local function same(source: string): string
-  local text = Fixture.PRELUDE .. source
-  local fork, port = uses_of(Fixture.forked(text, MODULES)), uses_of(Fixture.port(text, MODULES))
-  assert(fork == port, "in:\n" .. source .. "\nthe fork finds:\n" .. fork .. "\nthe port finds:\n" .. port)
-  return fork
+  return uses_of(Fixture.port(Fixture.PRELUDE .. source, MODULES))
 end
 
 local function line(n: integer): integer
@@ -181,13 +176,11 @@ local function test_a_use_on_each_line_is_found_once_and_a_line_with_two_is_foun
   assert(count == 1, found)
 end
 
---- A deliberate difference: the fork types a table constructor with no declared type by its items, so a value reached
---- through one is a use; the new checker refuses such a literal (it has no type to make a record from), types the value
+--- The checker refuses a table constructor with no declared type (it has no type to make a record from), types the value
 --- `invalid`, and finds no use through it. The refusal is the checker's error, which the ceilings count.
-local function test_a_value_reached_through_a_table_constructor_with_no_type_is_a_use_for_the_fork_and_none_for_the_port()
+local function test_a_value_reached_through_a_table_constructor_with_no_type_is_no_use()
   local text = Fixture.PRELUDE .. "local Z = require('zipx')\nlocal w = Z.open()\nlocal box = { w = w }\n" ..
     "local ok, _ = box.w:close()\nuse(ok)\n"
-  assert(uses_of(Fixture.forked(text, MODULES)) == "zipx Writer.close " .. tostring(line(4)))
   assert(uses_of(Fixture.port(text, MODULES)) == "")
 end
 
@@ -261,15 +254,14 @@ local function test_a_method_called_through_a_value_of_the_record_a_module_retur
       "\ndecoy Pile.add " .. tostring(line(14)), found)
 end
 
---- A value the checker has no record for, or a union, is the use of nothing. The fork keys the type of a value by its position
---- and finds the call through the `any` too, so only the port is asked.
+--- A value the checker has no record for, or a union, is the use of nothing.
 local function test_a_value_of_no_known_record_is_a_use_of_nothing()
   local text = Fixture.PRELUDE .. table.concat({
     "local type Tally = require('tally')",
     "local t = Tally.new()",
     "local a: any = t",
     "use(a:add(1))",
-    "local u: Tally | nil = t",
+    "local u: Tally? = t",
     "use(u and u:add(1))",
     "",
   }, "\n")
@@ -278,7 +270,7 @@ local function test_a_value_of_no_known_record_is_a_use_of_nothing()
 end
 
 --- A record, class or interface at the top of a module's file, which is not the record the module returns, has its methods
---- used by a call through a value of it: the fork names no module for it, so the reference says so (`top`).
+--- used by a call through a value of it: no module names it, so the reference says so (`top`).
 local function test_a_method_called_through_a_record_at_the_top_of_a_file_is_a_use_of_it()
   local text = Fixture.PRELUDE .. table.concat({
     "local record Mine",
@@ -367,7 +359,7 @@ local function test_a_method_from_an_interface_no_module_names_is_a_use_of_nothi
 end
 
 --- A method the record a module returns inherits from an interface of the module's own file is a use of that interface's, which
---- the fork (it would say the record's own) cannot name.
+--- the record's own cannot name.
 local function test_a_method_the_returned_record_inherits_from_an_interface_of_its_file_is_the_interfaces()
   local text = Fixture.PRELUDE .. "local type Teller = require('told')\nlocal t = Teller.new()\nuse(t:tell())\n"
   local out = ""
@@ -378,7 +370,7 @@ local function test_a_method_the_returned_record_inherits_from_an_interface_of_i
 end
 
 --- A record nested in one module's own that is also the record another module returns (a value typed as it) is used under the
---- nesting, whichever module the fork walks first (the order of a table, so there are several of each).
+--- nesting, whichever module is walked first (the order of a table, so there are several of each).
 local function test_the_record_nested_in_a_module_is_not_taken_for_the_one_another_module_returns()
   local nested <const> = "local record Types\n  record Def\n    name: string\n  end\nend\nreturn Types\n"
   local function returns(types: string): string
@@ -391,7 +383,7 @@ local function test_the_record_nested_in_a_module_is_not_taken_for_the_one_anoth
   }
   local text = Fixture.PRELUDE .. "local a, b, c = require('g_def'), require('h_def'), require('i_def')\n" ..
     "local d, e, f = require('j_def'), require('k_def'), require('l_def')\nuse(a.name, b.name, c.name, d.name, e.name, f.name)\n"
-  local found = uses_of(Fixture.forked(text, modules))
+  local found = uses_of(Fixture.port(text, modules))
   local want = ""
   for _, types in ipairs({ "a", "b", "c", "d", "e", "f" }) do
     want = want .. (if want == "" then "" else "\n" end) .. types .. "_types Def.name " .. tostring(line(3))

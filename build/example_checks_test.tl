@@ -131,7 +131,7 @@ local function test_a_short_helper_is_carried_and_a_long_one_is_refused(dir: str
   local found = found_in(dir, with_helper(3))
   assert(#found == 0, table.concat(found, "\n"))
   found = found_in(dir, with_helper(20))
-  assert(#found == 1 and found[1]:find("uses helper helper, too long to carry: inline it", 1, true),
+  assert(#found == 1 and found[1]:find("uses helper helper, too long to carry: inline it", 1, true) ~= nil,
     table.concat(found, "\n"))
 end
 
@@ -152,7 +152,7 @@ local function test_a_helper_calling_an_example_is_refused(dir: string)
     "end",
     "return Example"))
   assert(#found > 0 and found[1]:find("helper shared calls Example.other, which a copy does not carry",
-    1, true), table.concat(found, "\n"))
+    1, true) ~= nil, table.concat(found, "\n"))
 end
 
 --- An unknown name no top-level declaration makes is the checker's own
@@ -165,7 +165,7 @@ local function test_only_declarations_count_as_helpers(dir: string)
     "  print(Missing)",
     "end",
     "return Example"))
-  assert(#found > 0 and found[1]:find("`Missing` is not declared (unknown_variable)", 1, true) and
+  assert(#found > 0 and found[1]:find("`Missing` is not declared (unknown_variable)", 1, true) ~= nil and
       not found[1]:find("helper", 1, true), table.concat(found, "\n"))
   local long: mut {string} = { "local a, b = {" }
   for at = 1, 20 do long[#long + 1] = "  " .. tostring(at) .. "," end
@@ -178,7 +178,7 @@ local function test_only_declarations_count_as_helpers(dir: string)
     "  print(b)",
     "end",
     "return Example"))
-  assert(#found == 1 and found[1]:find("uses helper b, too long to carry: inline it", 1, true),
+  assert(#found == 1 and found[1]:find("uses helper b, too long to carry: inline it", 1, true) ~= nil,
     table.concat(found, "\n"))
 end
 

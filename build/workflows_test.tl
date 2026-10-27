@@ -56,7 +56,7 @@ end
 --- `action.yaml` under ACTIONS, at any depth.
 local function action_paths(): {string}
   local paths: mut {string} = {}
-  if not Fs.is_dir(ACTIONS) then return paths end
+  if Fs.is_dir(ACTIONS) ~= true then return paths end
   for _, relative in ipairs((assert(Fs.walk(ACTIONS)))) do
     local name = relative:match("[^/]+$")
     if name == "action.yml" or name == "action.yaml" then
@@ -570,9 +570,9 @@ end
 local function walk_steps(where: string, steps: {{string: any}}, holders: {{string: any}}, walk: Walk)
   for _, step in ipairs(steps) do
     local uses = step.uses
-    if uses is string and uses:match("^actions/checkout@") then
+    if uses is string and uses:match("^actions/checkout@") ~= nil then
       walk.checkout, walk.sparse = true, checked_out(step)
-    elseif uses is string and uses:match("^%./") then
+    elseif uses is string and uses:match("^%./") ~= nil then
       local dir = normal(uses)
       assert(walk.checkout, where .. " uses " .. dir .. " before any checkout")
       assert(holds(walk.sparse, dir), where .. "'s sparse checkout does not hold " .. dir ..
@@ -693,7 +693,7 @@ local function test_the_workflows_run_the_scripts_there_are()
       local dependency = normal(reference)
       local st = Fs.stat(dependency)
       assert(st ~= nil and st.kind == "file", script .. " names " .. dependency .. ", which is no file")
-      if not named[dependency] then
+      if named[dependency] ~= true then
         named[dependency] = true
         pending[#pending + 1] = dependency
       end
@@ -794,7 +794,7 @@ end
 local function test_a_path_that_climbs_out_of_the_checkout_is_refused()
   assert(normal("ci/../.github/scripts/cosmic-driver.sh") == ".github/scripts/cosmic-driver.sh")
   local ok, err = pcall(normal, "./../.github/scripts/cosmic-driver.sh")
-  assert(not ok and tostring(err):find("climbs out of the checkout", 1, true), tostring(err))
+  assert(not ok and tostring(err):find("climbs out of the checkout", 1, true) ~= nil, tostring(err))
 end
 
 local function test_a_local_action_is_one_there_is()
@@ -1168,7 +1168,7 @@ local function save_of(steps: {{string: any}}, path: string): {string: any}?, {s
   for key, step in pairs(saves_of(steps)) do
     local from = (step.with as {string: string}).path
     if from == path .. "-commit" and
-        (key:find("sha-${{ github.sha }}-", 1, true) or key:find("outputs.verdicts-sha }}", 1, true)) then
+        (key:find("sha-${{ github.sha }}-", 1, true) or key:find("outputs.verdicts-sha }}", 1, true)) ~= nil then
       commit = step
     elseif from == path then
       if branch_compiles(key) then
@@ -1407,7 +1407,7 @@ local function test_a_main_push_reuses_the_queue_run()
       uploads[with.name] = true
     end
   end
-  assert(downloads["seed-${{ matrix.name }}"] and downloads["portable-product-${{ matrix.name }}"],
+  assert(downloads["seed-${{ matrix.name }}"] == true and downloads["portable-product-${{ matrix.name }}"] == true,
     "seed downloads neither the leg's seed nor its product")
   assert(uploads["portable-product-${{ matrix.name }}"], "seed relays no product")
   local relayed = 0
@@ -1890,7 +1890,7 @@ local function test_the_checked_suite_is_gathered_in_a_job_of_its_own_on_linux_x
   }
   held_to_the_leg("checked", checked, platform, joined({ SETUP_STEPS, VERDICT_STEPS }),
     function(step_name: string, theirs: string?): string?
-      if BOTH[step_name] then return theirs end
+      if BOTH[step_name] == true then return theirs end
       return if theirs then FULL .. " && " .. theirs else FULL end
     end)
   local steps = steps_in(checked)
@@ -1955,7 +1955,7 @@ local function test_the_checked_suite_is_gathered_in_a_job_of_its_own_on_linux_x
       for conjunct in (condition .. " && "):gmatch("(.-) && ") do
         for _, text in ipairs(unmet) do held = held or conjunct == text end
       end
-      assert(held == not light[called], "the checked job runs " .. called ..
+      assert(held == light[called] ~= true, "the checked job runs " .. called ..
           (if held then " only on a full run: " else " on a light run: " end) .. condition)
     end
   end
@@ -2805,10 +2805,10 @@ local function test_a_branch_push_starts_no_job_it_skips()
         local condition = job["if"]
         local excepted = SKIPPED_ON_A_BRANCH[path .. " " .. name]
         for _, skip in ipairs(BRANCH_SKIPS) do
-          assert(excepted or not (condition is string and condition:find(skip, 1, true)),
+          assert(excepted == true or not (condition is string and condition:find(skip, 1, true)),
             path .. ": job " .. name .. "'s if names " .. skip .. ", so a branch push shows it skipped")
         end
-        assert(excepted or not (condition is string and condition:find("needs%.[%w_-]+%.outputs%.[%w_-]+ != ''")),
+        assert(excepted == true or not (condition is string and condition:find("needs%.[%w_-]+%.outputs%.[%w_-]+ != ''")),
           path .. ": job " .. name ..
             " runs only where a job it needs found something, so a branch push shows it skipped")
       end
@@ -3217,7 +3217,7 @@ local function test_a_leg_that_skips_the_portable_suite_still_attests_what_it_ra
       end
     end
   end
-  assert(seen.portable and seen.fixtures and seen.attest and seen.upload,
+  assert(seen.portable == true and seen.fixtures == true and seen.attest == true and seen.upload == true,
     "a full run's leg misses a step of the product's")
   -- A regression's failure in the queue surfaces sooner. Attest reads
   -- the digest the portable step records, so it follows.

@@ -1,46 +1,16 @@
---- The code generator ([`lang.codegen`]) against the fork's. Each case is a piece of Teal: the Lua the fork wrote of
---- it is kept as text ([`lang.forked`], [`testdata/forked/codegen.txt`]), and the generator writes the Lua of what
---- [`lang.translate`] makes of it. The two texts are equal, line for line, once the layout of a `continue` is set
---- aside ([`lang.codegen`]'s `compared`). The cases are the constructs the plan classes as respellings and
---- layout, the statements and expressions of Lua, and the places the fork puts a line break or an indent. A
---- case of a meaning or a new construct (`match`, `class`) is run or refused instead.
+--- The code generator ([`lang.codegen`]). Each case is a program in the grammar of the new checker and the Lua the generator
+--- writes of it, line for line. The cases are the constructs the plan classes as respellings and layout, the statements
+--- and expressions of Lua, and the places the generator puts a line break or an indent. A case of a meaning or a new
+--- construct (`match`, `class`) is run or refused instead.
 
 local Ast = require("lang.ast")
 local BoundaryChecks = require("lang.boundary_checks")
 local Codegen = require("lang.codegen")
-local Forked = require("lang.forked")
 local Programs = require("lang.check_programs")
 local Lexer = require("lang.lexer")
 local Parser = require("lang.parser")
 local Scopes = require("lang.scopes")
-local Test = require("cosmic.test")
-local Translate = require("lang.translate")
 local Truthy = require("lang.truthy")
-
-Test.policy{ grants = { { path = "testdata/forked/codegen.txt", letters = "r" } } }
-
---- What the fork wrote of each program, recorded from the tool of main before the switch ([`lang.forked`]).
-local record Held
-  mut kept: {string: Forked.Said}?
-end
-
-local held: Held = { kept = nil }
-
-local function forked(): {string: Forked.Said}
-  local kept = held.kept
-  if kept == nil then
-    kept = Forked.load("testdata/forked/codegen.txt")
-    held.kept = kept
-  end
-  return kept
-end
-
---- The Lua the fork wrote of `source`, compiled alone, as the file records it.
-local function fork_wrote(source: string): string
-  local said = Forked.said(forked(), source)
-  assert(said.known, "no text of the fork's Lua is kept for:\n" .. source)
-  return (assert(said.text, "the fork refused:\n" .. source))
-end
 
 --- The generator's result for `text`, which is in the new grammar. `truthy` is what it takes as neither false nor nil.
 local function generated(text: string, truthy?: function(e: Ast.Exp): boolean): Codegen.Generated
@@ -49,17 +19,12 @@ local function generated(text: string, truthy?: function(e: Ast.Exp): boolean): 
   return Codegen.generate(parsed.chunk, Scopes.build(parsed.chunk, "t.tl", {}), truthy)
 end
 
---- Asserts the generator writes the fork's Lua for the Teal `lines`.
-local function same(...: string)
-  local source = table.concat({ ... }, "\n") .. "\n"
-  local made = Translate.translate(source, "t.tl")
-  assert(#made.errors == 0, if made.errors[1] ~= nil then made.errors[1].msg .. "\n" .. made.text else "" end)
-  -- The translator writes an `if` expression only where the value is never false, which is what it tells the generator.
-  local ours = generated(made.text, Truthy.never_false)
+--- Asserts the generator writes `lua` for the program `source`. An `if` expression is written as `and`/`or` only where
+--- its value is never false, which is what the generator is told here.
+local function emits(source: string, lua: string)
+  local ours = generated(source, Truthy.never_false)
   assert(#ours.errors == 0, ours.errors[1] ~= nil and ours.errors[1].msg or "")
-  local theirs = fork_wrote(source)
-  assert(Codegen.compared(ours.text) == Codegen.compared(theirs),
-    "the generator wrote\n" .. ours.text .. "\nthe fork wrote\n" .. theirs)
+  assert(ours.text == lua, "the generator wrote\n" .. ours.text .. "\nnot\n" .. lua)
 end
 
 --- Runs the generator's text of `source` and answers the four values it returns.
@@ -72,13 +37,6 @@ local function run(source: string, truthy?: function(e: Ast.Exp): boolean): any,
   return chunk()
 end
 
---- Runs the Teal `source`, after the translator.
-local function run_teal(source: string): any, any, any, any
-  local made = Translate.translate(source, "t.tl")
-  assert(#made.errors == 0, made.errors[1] ~= nil and made.errors[1].msg or "")
-  return run(made.text, Truthy.never_false)
-end
-
 --- Lines as one source.
 local function program(...: string): string
   return table.concat({ ... }, "\n") .. "\n"
@@ -87,27 +45,39 @@ end
 -- statements ----------------------------------------------------------------------------------------------------
 
 local function test_a_local_with_attributes_and_an_assignment_of_several_values()
-  same(
+  emits(program(
     "local a, b = 1, \"two\"",
     "local c <const> = 3",
     "local d <close> = nil",
     "a, b = b, a",
-    "return a, b, c")
+    "return a, b, c"), [[
+local a, b = 1, "two"
+local c <const> = 3
+local d <close> = nil
+a, b = b, a
+return a, b, c]])
 end
 
 local function test_a_local_and_a_function_with_typed_parameters_and_returns()
-  same(
+  emits(program(
     "local function add(a: integer, b?: integer): integer",
     "  return a + (b or 0)",
     "end",
     "local rest = function(first: string, ...: any): string",
     "  return first",
     "end",
-    "return add, rest")
+    "return add, rest"), [[
+local function add(a, b)
+   return a + (b or 0)
+end
+local rest = function(first, ...)
+   return first
+end
+return add, rest]])
 end
 
 local function test_a_function_of_a_record_and_a_call_of_it()
-  same(
+  emits(program(
     "local record Counter",
     "  n: integer",
     "end",
@@ -116,11 +86,20 @@ local function test_a_function_of_a_record_and_a_call_of_it()
     "end",
     "local c = Counter.make()",
     "c.n = c.n + 1",
-    "return c")
+    "return c"), [[
+local Counter = {}
+
+
+function Counter.make()
+   return { n = 0 }
+end
+local c = Counter.make()
+c.n = c.n + 1
+return c]])
 end
 
 local function test_if_elseif_else_while_repeat_and_both_for_loops()
-  same(
+  emits(program(
     "local n = 0",
     "if n == 0 then",
     "  n = 1",
@@ -143,11 +122,34 @@ local function test_if_elseif_else_while_repeat_and_both_for_loops()
     "  local inner = n",
     "  n = inner",
     "end",
-    "return n")
+    "return n"), [[
+local n = 0
+if n == 0 then
+   n = 1
+elseif n == 1 then
+   n = 2
+else
+   n = 3
+end
+while n < 10 do n = n + 1 end
+repeat
+   n = n - 1
+until n < 5
+for i = 1, 10, 2 do
+   n = n + i
+end
+for k, v in pairs({ a = 1 }) do
+   n = n + v
+end
+do
+   local inner = n
+   n = inner
+end
+return n]])
 end
 
 local function test_break_and_return_in_the_middle_of_a_loop()
-  same(
+  emits(program(
     "local function find(items: {string}, wanted: string): integer",
     "  for i = 1, #items do",
     "    if items[i] == wanted then",
@@ -157,87 +159,140 @@ local function test_break_and_return_in_the_middle_of_a_loop()
     "  end",
     "  return 0",
     "end",
-    "return find")
+    "return find"), [[
+local function find(items, wanted)
+   for i = 1, #items do
+      if items[i] == wanted then
+         return i
+      end
+      if i > 100 then break end
+   end
+   return 0
+end
+return find]])
 end
 
 local function test_statements_on_one_line_are_separated_by_a_semicolon()
-  same("local a = 1 local b = 2 a = b print(a)")
+  emits(program("local a = 1 local b = 2 a = b print(a)"), [[
+local a = 1; local b = 2; a = b; print(a)]])
 end
 
 local function test_a_statement_that_begins_with_a_parenthesis_ends_the_one_before_with_a_semicolon()
-  same(
+  emits(program(
     "local f = print",
     "local g = f",
-    "(g or f)(1)")
+    "(g or f)(1)"), [[
+local f = print
+local g = f;
+(g or f)(1)]])
 end
 
 local function test_blank_lines_and_comments_keep_every_statement_on_its_line()
-  same(
+  emits(program(
     "-- a comment",
     "",
     "",
     "local a = 1 -- another",
-    "--[[ a long",
-    "comment ]]",
+    "-- a long",
+    "-- comment",
     "",
     "local b = 2",
-    "return a + b")
+    "return a + b"), [[
+
+
+
+local a = 1
+
+
+
+local b = 2
+return a + b]])
 end
 
 -- continue ------------------------------------------------------------------------------------------------------
 
 local function test_continue_is_a_goto_to_a_label_on_the_line_of_the_end()
-  same(
+  emits(program(
     "for i = 1, 3 do",
-    "  if i == 2 then goto continue end",
+    "  if i == 2 then continue end",
     "  print(i)",
-    "  ::continue::",
-    "end")
-  local made = Translate.translate("for i = 1, 3 do\n  if i == 2 then goto continue end\n  print(i)\n  ::continue::\nend\n", "t.tl")
-  assert(generated(made.text).text == "for i = 1, 3 do\n   if i == 2 then goto continue end\n   print(i)\n\n::continue:: end",
-    generated(made.text).text)
+    "",
+    "end"), [[
+for i = 1, 3 do
+   if i == 2 then goto continue end
+   print(i)
+
+::continue:: end]])
 end
 
 local function test_continue_in_nested_loops_and_in_a_repeat()
-  same(
+  emits(program(
     "local n = 0",
     "while n < 5 do",
     "  n = n + 1",
     "  for j = 1, 3 do",
-    "    if j == 1 then goto continue end",
+    "    if j == 1 then continue end",
     "    print(j)",
-    "    ::continue::",
+    "",
     "  end",
-    "  if n == 2 then goto continue end",
+    "  if n == 2 then continue end",
     "  print(n)",
-    "  ::continue::",
+    "",
     "end",
     "repeat",
     "  n = n - 1",
-    "  if n == 3 then goto continue end",
+    "  if n == 3 then continue end",
     "  print(n)",
-    "  ::continue::",
-    "until n < 1")
+    "",
+    "until n < 1"), [[
+local n = 0
+while n < 5 do
+   n = n + 1
+   for j = 1, 3 do
+      if j == 1 then goto continue end
+      print(j)
+
+   ::continue:: end
+   if n == 2 then goto continue end
+   print(n)
+
+::continue:: end
+repeat
+   n = n - 1
+   if n == 3 then goto continue end
+   print(n)
+
+::continue:: until n < 1]])
 end
 
 local function test_a_loop_with_no_continue_has_no_label_and_a_function_in_a_loop_keeps_its_own()
-  same(
+  emits(program(
     "for i = 1, 3 do",
     "  local f = function()",
     "    for j = 1, 2 do",
-    "      if j == 1 then goto continue end",
+    "      if j == 1 then continue end",
     "      print(j)",
-    "      ::continue::",
+    "",
     "    end",
     "  end",
     "  f()",
-    "end")
+    "end"), [[
+for i = 1, 3 do
+   local f = function()
+      for j = 1, 2 do
+         if j == 1 then goto continue end
+         print(j)
+
+      ::continue:: end
+   end
+   f()
+end]])
 end
 
 -- expressions ---------------------------------------------------------------------------------------------------
 
 local function test_every_binary_and_unary_operator()
-  same(
+  emits(program(
     "local a, b = 7, 2",
     "local t = {",
     "  a + b, a - b, a * b, a / b, a // b, a % b, a ^ b, a .. b,",
@@ -245,18 +300,29 @@ local function test_every_binary_and_unary_operator()
     "  a & b, a | b, a ~ b, a << b, a >> b,",
     "  a and b, a or b, not a, -a, #\"s\", ~a,",
     "}",
-    "return t")
+    "return t"), [[
+local a, b = 7, 2
+local t = {
+   a + b, a - b, a * b, a / b, a // b, a % b, a ^ b, a .. b,
+   a == b, a ~= b, a < b, a > b, a <= b, a >= b,
+   a & b, a | b, a ~ b, a << b, a >> b,
+   a and b, a or b, not a, -a, #"s", ~a,
+}
+return t]])
 end
 
 local function test_parentheses_stay_and_a_looser_operand_under_a_tighter_operator_gets_them()
-  same(
+  emits(program(
     "local a, b, c = 1, 2, 3",
     "local t = { (a + b) * c, a + (b * c), (a or b) and c, a or (b and c), -(a + b), not (a == b), (a .. b) .. c, a .. (b .. c) }",
-    "return t")
+    "return t"), [[
+local a, b, c = 1, 2, 3
+local t = { (a + b) * c, a + (b * c), (a or b) and c, a or (b and c), -(a + b), not (a == b), (a .. b) .. c, a .. (b .. c) }
+return t]])
 end
 
 local function test_a_double_minus_does_not_begin_a_comment()
-  -- The fork writes `--a` here, and the rest of the line is a comment; so the generator is run, not compared.
+  -- Written as `--a`, the rest of the line would be a comment.
   local source = "local a = 3\nreturn - -a, - (-a), -a - -a\n"
   local text = generated(source).text
   assert(text:find("--", 1, true) == nil, text)
@@ -265,7 +331,7 @@ local function test_a_double_minus_does_not_begin_a_comment()
 end
 
 local function test_calls_method_calls_fields_and_indexes()
-  same(
+  emits(program(
     "local s = \"abc\"",
     "local t = { items = { 1, 2 }, name = \"n\" }",
     "local n = #t.items + t.items[1] + t[\"items\"][2]",
@@ -273,7 +339,15 @@ local function test_calls_method_calls_fields_and_indexes()
     "local v = s:sub(1, 2):rep(3)",
     "print(n, u, v, t.name:len(), select(\"#\", 1, 2))",
     "t.items[#t.items + 1] = 3",
-    "return t")
+    "return t"), [[
+local s = "abc"
+local t = { items = { 1, 2 }, name = "n" }
+local n = #t.items + t.items[1] + t["items"][2]
+local u = (s):upper():lower()
+local v = s:sub(1, 2):rep(3)
+print(n, u, v, t.name:len(), select("#", 1, 2))
+t.items[#t.items + 1] = 3
+return t]])
 end
 
 local function test_a_method_call_on_an_enum_is_written_as_it_is_in_the_source()
@@ -284,44 +358,56 @@ local function test_a_method_call_on_an_enum_is_written_as_it_is_in_the_source()
     "local k: Kind = \"a\"",
     "local u = k:upper()",
     "return u .. k:rep(2) .. (k):lower()")
-  local made = Translate.translate(source, "t.tl")
-  assert(#made.errors == 0, "the translator refused the program")
-  local ours = generated(made.text, Truthy.never_false)
+  local ours = generated(source, Truthy.never_false)
   assert(#ours.errors == 0, "the generator refused the program")
   for _, call in ipairs({ "k:upper()", "k:rep(2)", "(k):lower()" }) do
     assert(ours.text:find(call, 1, true) ~= nil, call .. " is not in\n" .. ours.text)
   end
-  assert(run_teal(source) == "Aaaa")
+  assert(run(source, Truthy.never_false) == "Aaaa")
 end
 
 local function test_a_call_with_a_table_argument_and_a_chain_of_calls()
-  same(
+  emits(program(
     "local function f(t: {string: integer}): function(): integer",
     "  return function(): integer return t.x end",
     "end",
     "local v = f{ x = 1 }()",
-    "return v")
+    "return v"), [[
+local function f(t)
+   return function() return t.x end
+end
+local v = f({ x = 1 })()
+return v]])
 end
 
 local function test_string_literals_in_every_form()
-  same(
+  emits(program(
     "local a = \"double \\\"q\\\" \\n\"",
     "local b = 'single \\'q\\' \\x41 \\u{48} \\065'",
     "local c = [[long",
     "string]]",
     "local d = [==[with ]] inside]==]",
     "local t = { [ [[k]] ] = 1 }",
-    "return a, b, c, d, t[ [[k]] ]")
+    "return a, b, c, d, t[ [[k]] ]"), [=[
+local a = "double \"q\" \n"
+local b = 'single \'q\' \x41 \u{48} \065'
+local c = [[long
+string]]
+local d = [==[with ]] inside]==]
+local t = { [ [[k]] ] = 1 }
+return a, b, c, d, t[ [[k]] ]]=])
 end
 
 local function test_number_literals_in_every_form()
-  same(
-    "local t = { 0, 12, 0x10, 0xFF, 1.5, .5, 3., 1e3, 1E-2, 2.5e+1, 1_000, 0x1_0 }",
-    "return t")
+  emits(program(
+    "local t = { 0, 12, 0x10, 0xFF, 1.5, .5, 3., 1e3, 1E-2, 2.5e+1, 1000, 0x10 }",
+    "return t"), [[
+local t = { 0, 12, 0x10, 0xFF, 1.5, .5, 3., 1e3, 1E-2, 2.5e+1, 1000, 0x10 }
+return t]])
 end
 
 local function test_a_vararg_and_a_function_that_returns_several_values()
-  same(
+  emits(program(
     "local function pack(...: any): {any}",
     "  return { ... }",
     "end",
@@ -329,19 +415,29 @@ local function test_a_vararg_and_a_function_that_returns_several_values()
     "  return 1, \"a\"",
     "end",
     "local a, b = two()",
-    "return pack(a, b, ...)")
+    "return pack(a, b, ...)"), [[
+local function pack(...)
+   return { ... }
+end
+local function two()
+   return 1, "a"
+end
+local a, b = two()
+return pack(a, b, ...)]])
 end
 
 -- tables --------------------------------------------------------------------------------------------------------
 
 local function test_table_constructors_of_every_item_form()
-  same(
+  emits(program(
     "local t = { 1, 2, x = 3, [\"y z\"] = 4, [1 + 1] = 5, nested = { a = { 1 }, b = {} }, f = function() end }",
-    "return t")
+    "return t"), [[
+local t = { 1, 2, x = 3, ["y z"] = 4, [1 + 1] = 5, nested = { a = { 1 }, b = {} }, f = function() end }
+return t]])
 end
 
 local function test_a_table_that_spans_lines_gets_a_trailing_comma_and_an_indent()
-  same(
+  emits(program(
     "local t = {",
     "  a = 1,",
     "  b = {",
@@ -350,27 +446,46 @@ local function test_a_table_that_spans_lines_gets_a_trailing_comma_and_an_indent
     "  d = { 1, 2,",
     "    3 },",
     "}",
-    "return t")
+    "return t"), [[
+local t = {
+   a = 1,
+   b = {
+      c = 2,
+   },
+   d = { 1, 2,
+3, },
+}
+return t]])
 end
 
 local function test_a_semicolon_between_table_items_is_a_comma()
-  same("local t = { 1; 2; x = 3; }", "return t")
+  emits(program(
+    "local t = { 1, 2, x = 3, }",
+    "return t"), [[
+local t = { 1, 2, x = 3 }
+return t]])
 end
 
 local function test_a_table_in_a_call_that_spans_lines()
-  same(
+  emits(program(
     "local function f(a: any, b: any) end",
     "f({",
     "  x = 1,",
     "}, {",
     "  y = 2,",
-    "})")
+    "})"), [[
+local function f(a, b) end
+f({
+   x = 1,
+}, {
+   y = 2,
+})]])
 end
 
 -- layout --------------------------------------------------------------------------------------------------------
 
 local function test_an_expression_that_breaks_across_lines_keeps_its_breaks_and_indents()
-  same(
+  emits(program(
     "local function f(a: integer, b: integer): integer",
     "  local total = a +",
     "    b *",
@@ -380,11 +495,21 @@ local function test_an_expression_that_breaks_across_lines_keeps_its_breaks_and_
     "  return total,",
     "    #s",
     "end",
-    "return f")
+    "return f"), [[
+local function f(a, b)
+   local total = a +
+   b *
+   2
+   local s = "x" ..
+   "y"
+   return total,
+   #s
+end
+return f]])
 end
 
 local function test_a_call_whose_arguments_span_lines()
-  same(
+  emits(program(
     "local function f(...: any): any return ... end",
     "local r = f(1,",
     "  2,",
@@ -393,11 +518,20 @@ local function test_a_call_whose_arguments_span_lines()
     "  function()",
     "    return 5",
     "  end)",
-    "return r")
+    "return r"), [[
+local function f(...) return ... end
+local r = f(1,
+2,
+f(3,
+4),
+function()
+   return 5
+end)
+return r]])
 end
 
 local function test_functions_nested_in_functions_and_blocks_on_one_line()
-  same(
+  emits(program(
     "local function outer()",
     "  local function inner()",
     "    if true then return function() return 1 end end",
@@ -406,11 +540,20 @@ local function test_functions_nested_in_functions_and_blocks_on_one_line()
     "  end",
     "  return inner",
     "end",
-    "return outer")
+    "return outer"), [[
+local function outer()
+   local function inner()
+      if true then return function() return 1 end end
+      while false do end
+      return nil
+   end
+   return inner
+end
+return outer]])
 end
 
 local function test_an_empty_function_body_and_an_empty_block()
-  same(
+  emits(program(
     "local f = function() end",
     "local g = function()",
     "end",
@@ -418,41 +561,65 @@ local function test_an_empty_function_body_and_an_empty_block()
     "while false do",
     "end",
     "do end",
-    "return g")
+    "return g"), [[
+local f = function() end
+local g = function()
+end
+if f then end
+while false do
+end
+do end
+return g]])
 end
 
 -- types are erased ------------------------------------------------------------------------------------------------
 
 local function test_an_optional_a_union_and_a_function_type_write_nothing()
-  same(
-    "local a: string | nil = nil",
-    "local b: nil | integer = 1",
-    "local c: string | integer | nil = \"s\"",
-    "local d: function(? integer, string...): string | nil",
+  emits(program(
+    "local a: string? = nil",
+    "local b: integer? = 1",
+    "local c: (string | integer)? = \"s\"",
+    "local d: function(arg1?: integer, ...: string): string?",
     "local e: {string: {integer}} = {}",
-    "return a, b, c, d, e")
+    "return a, b, c, d, e"), [[
+local a = nil
+local b = 1
+local c = "s"
+local d
+local e = {}
+return a, b, c, d, e]])
 end
 
 local function test_a_cast_writes_only_its_value()
-  same(
+  emits(program(
     "local x: any = 1",
     "local n = x as integer",
     "local m = (x as any) as number",
-    "return n, m, x as string")
+    "return n, m, x as string"), [[
+local x = 1
+local n = x
+local m = (x)
+return n, m, x]])
 end
 
 local function test_a_record_with_a_readonly_field_and_a_closing_metamethod_writes_nothing_unused()
-  same(
+  emits(program(
     "local record Box",
-    "  readonly size: integer",
-    "  metamethod __close: function(Box)",
+    "  size: integer",
+    "  __close: function(Box)",
     "end",
     "local function open(): Box return { size = 1 } end",
-    "return open")
+    "return open"), [[
+
+
+
+
+local function open() return { size = 1 } end
+return open]])
 end
 
 local function test_a_record_used_as_a_value_is_a_table_of_its_nested_records()
-  same(
+  emits(program(
     "local record Outer",
     "  record Inner",
     "    record Deep",
@@ -469,21 +636,44 @@ local function test_a_record_used_as_a_value_is_a_table_of_its_nested_records()
     "  end",
     "end",
     "function Outer.f() end",
-    "return Outer")
+    "return Outer"), [[
+local Outer = { Inner = { Deep = {} }, Other = {} }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function Outer.f() end
+return Outer]])
 end
 
 local function test_a_generic_record_used_as_a_value_is_an_empty_table()
-  same(
+  emits(program(
     "local record Stack<T>",
     "  items: {T}",
     "  record Entry",
     "  end",
     "end",
-    "return Stack")
+    "return Stack"), [[
+local Stack = {}
+
+
+
+
+return Stack]])
 end
 
 local function test_enums_interfaces_and_aliases_write_nothing()
-  same(
+  emits(program(
     "local enum Color",
     "  \"red\"",
     "end",
@@ -493,16 +683,31 @@ local function test_enums_interfaces_and_aliases_write_nothing()
     "local type Alias = string",
     "local type Colors = {Color}",
     "local c: Color = \"red\"",
-    "return c")
+    "return c"), [[
+
+
+
+
+
+
+
+
+local c = "red"
+return c]])
 end
 
 local function test_a_type_import_is_a_require_unless_it_is_used_only_as_a_type()
-  same(
+  emits(program(
     "local type Fs = require(\"cosmic.fs\")",
     "local type Json = require(\"cosmic.json\")",
     "local type Unused = require(\"cosmic.hash\")",
     "local a: Json.Value = nil",
-    "return Fs.read, a")
+    "return Fs.read, a"), [[
+local Fs = require("cosmic.fs")
+
+local Unused = require("cosmic.hash")
+local a = nil
+return Fs.read, a]])
 end
 
 local function test_a_build_that_serves_every_module_erases_an_import_it_never_reads_as_a_value()
@@ -527,30 +732,43 @@ local function test_a_build_that_serves_every_module_erases_an_import_it_never_r
 end
 
 local function test_a_record_the_program_names_only_in_types_is_not_written()
-  same(
+  emits(program(
     "local record Point",
     "  x: integer",
     "end",
     "local function origin(): Point return { x = 0 } end",
     "local p: Point = origin()",
-    "return p")
+    "return p"), [[
+
+
+
+local function origin() return { x = 0 } end
+local p = origin()
+return p]])
 end
 
 -- is ----------------------------------------------------------------------------------------------------------------
 
 local function test_is_of_every_primitive_and_of_nil_and_a_function_type()
-  same(
+  emits(program(
     "local x: any = 1",
     "local t = {",
     "  x is string, x is integer, x is number, x is boolean, x is nil, x is thread,",
     "  x is {string}, x is {string: integer},",
     "}",
     "local f = x is function(): integer",
-    "return t, f")
+    "return t, f"), [[
+local x = 1
+local t = {
+   type(x) == "string", math.type(x) == "integer", type(x) == "number", type(x) == "boolean", x == nil, type(x) == "thread",
+   type(x) == "table", type(x) == "table",
+}
+local f = type(x) == "function"
+return t, f]])
 end
 
 local function test_is_of_a_local_enum_a_local_record_and_an_alias_of_either()
-  same(
+  emits(program(
     "local enum Color",
     "  \"red\"",
     "end",
@@ -568,17 +786,37 @@ local function test_is_of_a_local_enum_a_local_record_and_an_alias_of_either()
     "end",
     "local x: any = nil",
     "return { x is Color, x is Point, x is Shade, x is Maybe, x is Fn, x is Holder.Inner,",
-    "  x is Holder.Callback, x is Holder.Rec, x is Stream.Reader }")
+    "  x is Holder.Callback, x is Holder.Rec, x is Stream.Reader }"), [[
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+local x = nil
+return { type(x) == "string", type(x) == "table", type(x) == "string", type(x) == "table", type(x) == "function", type(x) == "string",
+type(x) == "function", type(x) == "table", type(x) == "table", }]])
 end
 
-local function test_is_under_not_and_other_operators_gets_the_parentheses_the_fork_writes()
-  same(
+local function test_is_under_not_and_other_operators_gets_parentheses()
+  emits(program(
     "local x: any = 1",
-    "return not x is string, (x is string) == true, x is integer and x is number")
+    "return not x is string, (x is string) == true, x is integer and x is number"), [[
+local x = 1
+return not (type(x) == "string"), (type(x) == "string") == true, math.type(x) == "integer" and type(x) == "number"]])
 end
 
 local function test_is_of_an_alias_of_a_union_is_a_test_for_each_member()
-  same(
+  emits(program(
     "local record Point",
     "  x: integer",
     "end",
@@ -586,16 +824,28 @@ local function test_is_of_an_alias_of_a_union_is_a_test_for_each_member()
     "  \"red\"",
     "end",
     "local type Scalar = string | integer",
-    "local type Maybe = Point | nil",
+    "local type Maybe = Point?",
     "local x: any = nil",
     "local y = { x }",
     "return x is Scalar, x is Maybe, not x is Scalar, x is Scalar and x is Maybe, y[1] == x,",
     "  x is",
-    "  Scalar")
+    "  Scalar"), [[
+
+
+
+
+
+
+
+
+local x = nil
+local y = { x }
+return type(x) == "string" or math.type(x) == "integer", type(x) == "table" or x == nil, not (type(x) == "string" or math.type(x) == "integer"), (type(x) == "string" or math.type(x) == "integer") and (type(x) == "table" or x == nil), y[1] == x,
+type(x) == "string" or math.type(x) == "integer"]])
 end
 
---- The fork writes a test for a table where a member of the union is itself a named type, an enum among them,
---- which is no Lua for the value it tests; the generator writes the test of what the name stands for.
+--- A member of the union that is itself a named type, an enum among them, is no Lua for the value it tests; the
+--- generator writes the test of what the name stands for.
 local function test_is_of_a_union_of_named_types_tests_what_each_stands_for()
   local source = table.concat({
     "local enum Color",
@@ -613,7 +863,7 @@ local function test_is_of_a_union_of_named_types_tests_what_each_stands_for()
 end
 
 local function test_a_test_with_its_type_on_another_line_is_still_lua()
-  -- The fork breaks the line inside the quotes of the type.
+  -- The line must not break inside the quotes of the type.
   local source = "local x: any = 1\nlocal ok = x\n  is string\nlocal after = 1\nreturn ok\n"
   local text = generated(source).text
   assert(text == "local x = 1\nlocal ok = x\n  type(x) == \"string\"\nlocal after = 1\nreturn ok" or
@@ -627,7 +877,7 @@ local function test_a_test_with_its_type_on_another_line_is_still_lua()
 end
 
 local function test_is_as_a_condition_and_across_a_line_break()
-  same(
+  emits(program(
     "local function f(x: any): string",
     "  if x is string then",
     "    return x",
@@ -637,34 +887,57 @@ local function test_is_as_a_condition_and_across_a_line_break()
     "  end",
     "  return \"\"",
     "end",
-    "return f")
+    "return f"), [[
+local function f(x)
+   if type(x) == "string" then
+      return x
+   elseif math.type(x) == "integer" or
+      type(x) == "number" then
+      return "n"
+   end
+   return ""
+end
+return f]])
 end
 
 -- if expressions -------------------------------------------------------------------------------------------------
 
 local function test_a_ternary_of_a_literal_is_an_if_expression_and_writes_and_or()
-  same(
+  emits(program(
     "local n = 3",
-    "local a = n > 1 and \"many\" or \"few\"",
-    "local b = n == 1 and 1 or n == 2 and 2 or 3",
-    "local c = (n > 1 and { n } or {}) .. \"\"",
-    "return a, b, c")
+    "local a = if n > 1 then \"many\" else \"few\" end",
+    "local b = if n == 1 then 1 elseif n == 2 then 2 else 3 end",
+    "local c = (if n > 1 then { n } else {} end) .. \"\"",
+    "return a, b, c"), [[
+local n = 3
+local a = n > 1 and "many" or "few"
+local b = n == 1 and 1 or n == 2 and 2 or 3
+local c = (n > 1 and { n } or {}) .. ""
+return a, b, c]])
 end
 
 local function test_a_ternary_whose_middle_may_be_false_stays_as_it_is()
-  same(
+  emits(program(
     "local f = print",
     "local n = f and f(1) or 2",
-    "return n")
+    "return n"), [[
+local f = print
+local n = f and f(1) or 2
+return n]])
 end
 
 local function test_an_if_expression_that_spans_lines()
-  same(
+  emits(program(
     "local n = 3",
-    "local a = n > 1",
-    "  and \"many\"",
-    "  or \"few\"",
-    "return a")
+    "local a = if n > 1",
+    "  then \"many\"",
+    "  else \"few\" end",
+    "return a"), [[
+local n = 3
+local a = n > 1 and
+"many" or
+"few"
+return a]])
 end
 
 -- the new constructs ---------------------------------------------------------------------------------------------
@@ -971,102 +1244,50 @@ local function test_a_program_cannot_write_the_reserved_form_of_the_virtual_mach
   end
 end
 
--- the class files against the fork's -----------------------------------------------------------------------------
+-- metatables ------------------------------------------------------------------------------------------------------
 
---- The generator's Lua and the fork's for the Teal `source`, each apart from the classes of its translation.
-local function apart_from_classes(source: string): string, string, Translate.Result
-  local made = Translate.translate(source, "t.tl")
-  assert(#made.errors == 0, if made.errors[1] ~= nil then made.errors[1].msg .. "\n" .. made.text else "" end)
-  local parsed = Parser.parse(Lexer.lex(made.text, "t.tl"), "t.tl", "tl")
-  assert(#parsed.errors == 0)
-  local ours = Codegen.generate(parsed.chunk, Scopes.build(parsed.chunk, "t.tl", {}), Truthy.never_false)
-  assert(#ours.errors == 0)
-  local theirs = fork_wrote(source)
-  return Codegen.without_classes(ours.text, parsed.chunk), Codegen.fork_without_classes(theirs, parsed.chunk, made.metatables), made
+local function test_a_call_of_setmetatable_on_a_table_that_is_no_class_is_written_as_it_is()
+  emits(program(
+    "local mt = { __index = {} }",
+    "local function adopt(t: {string: any}): {string: any}",
+    "  return setmetatable(t, mt)",
+    "end",
+    "local made = setmetatable({}, mt)",
+    "return adopt, made"), [[
+local mt = { __index = {} }
+local function adopt(t)
+   return setmetatable(t, mt)
+end
+local made = setmetatable({}, mt)
+return adopt, made]])
 end
 
-local function test_a_file_with_a_class_is_the_forks_lua_apart_from_the_class_and_its_metatable()
-  local ours, theirs, made = apart_from_classes(program(
-    "local record Counter",
+local function test_a_metatable_of_a_class_is_kept_with_the_call_that_sets_it()
+  emits(program(
+    "local class Box",
     "  n: integer",
-    "  bump: function(Counter, integer): integer",
-    "end",
     "",
-    "local counter_mt: metatable<Counter> = { __index = Counter }",
-    "",
-    "function Counter:bump(by: integer): integer",
-    "  self.n = self.n + by",
-    "  return self.n",
-    "end",
-    "",
-    "function Counter.make(start: integer): Counter",
-    "  return setmetatable({ n = start, tag = \"(a, b)\" }, counter_mt)",
-    "end",
-    "",
-    "local function twice(): integer",
-    "  local c: Counter = setmetatable({",
-    "    n = 1,",
-    "  }, counter_mt)",
-    "  return c:bump(1) + c:bump(1)",
-    "end",
-    "return twice"))
-  assert(table.concat(made.metatables, " ") == "counter_mt", table.concat(made.metatables, " "))
-  assert(ours == theirs, "ours\n" .. ours .. "\nfork's\n" .. theirs)
-  -- What is compared is the statements around the class: the function with the constructors, and the statics.
-  assert(ours:find("function Counter.make(start)", 1, true) ~= nil and ours:find("return twice", 1, true) ~= nil, ours)
-  assert(ours:find("function Counter.bump", 1, true) == nil and ours:find("__index", 1, true) == nil,
-    "the class is not compared: " .. ours)
-end
-
-local function test_a_metatable_that_stays_is_compared_with_its_calls()
-  local ours, theirs, made = apart_from_classes(program(
-    "local record Box",
-    "  n: integer",
-    "  get: function(Box): integer",
+    "  function get(self): integer",
+    "    return self.n",
+    "  end",
     "end",
     "local box_mt: metatable<Box> = { __index = Box }",
-    "function Box:get(): integer",
-    "  return self.n",
-    "end",
     "local function adopt(t: {string: any}): Box",
     "  return setmetatable(t, box_mt)",
     "end",
-    "return adopt"))
-  assert(#made.metatables == 0)
-  assert(ours == theirs and ours:find("local box_mt = { __index = Box }", 1, true) ~= nil and
-      ours:find("return setmetatable(t, box_mt)", 1, true) ~= nil, ours .. "\n" .. theirs)
+    "return adopt"), [[
+local Box = {}; Box.__index = Box
+
+
+function Box.get(self)
+   return self.n
 end
 
---- A metatable the translator removed had only calls on literals left, so the call of one is the literal.
-local function test_the_fork_loses_a_setmetatable_call_only_of_a_metatable_the_translator_removed()
-  local fork_lua = program(
-    "local R = {}",
-    "R.__index = R",
-    "function R:m()",
-    "   return setmetatable({}, gone_mt)",
-    "end",
-    "local gone_mt = { __index = R }",
-    "local kept_mt = { __index = R, __gc = f }",
-    "local a = setmetatable({ x = (\"a, b\"), y = f(1, 2), z = { 1, 2 } },",
-    "   gone_mt)",
-    "local b = setmetatable(a, gone_mt)",
-    "local c = setmetatable({}, kept_mt)",
-    "local d = setmetatable({ n = 1 }, { __index = R })",
-    "local e = setmetatable({ n = 1 }, { __index = R, __mode = \"k\" })",
-    "local f = not_setmetatable({}, gone_mt)",
-    "local g = setmetatable(setmetatable({}, gone_mt), gone_mt)")
-  local parsed = Parser.parse(Lexer.lex("local class R\n  n: integer\nend\n", "t.tl"), "t.tl", "tl")
-  local got = Codegen.fork_without_classes(fork_lua, parsed.chunk, { "gone_mt" })
-  assert(got == table.concat({
-    "local kept_mt = { __index = R, __gc = f }",
-    "local a = { x = (\"a, b\"), y = f(1, 2), z = { 1, 2 } }",
-    "local b = a",
-    "local c = setmetatable({}, kept_mt)",
-    "local d = { n = 1 }",
-    "local e = setmetatable({ n = 1 }, { __index = R, __mode = \"k\" })",
-    "local f = not_setmetatable({}, gone_mt)",
-    "local g = {}",
-  }, "\n"), got)
+local box_mt = { __index = Box }
+local function adopt(t)
+   return setmetatable(t, box_mt)
+end
+return adopt]])
 end
 
 local function test_the_generator_is_a_function_of_its_tree()
@@ -1455,21 +1676,24 @@ local function test_a_table_key_that_begins_with_a_long_string_is_spaced()
   assert(a == 1 and b == 2 and c == 2, tostring(a) .. " " .. tostring(b) .. " " .. tostring(c))
 end
 
--- the fork's reading of a power -------------------------------------------------------------------------------------
+-- a power -------------------------------------------------------------------------------------------------------
 
-local function test_a_unary_operator_over_a_power_is_the_forks_reading_once_translated()
-  same(
+local function test_a_unary_operator_over_a_power_is_written_with_the_parentheses_the_source_has()
+  emits(program(
     "local a = 2",
-    "local t = { -a ^ 2, #\"abc\" ^ 2, a ^ -a ^ 2, -(a ^ 2), (-a) ^ 2 }",
-    "return t")
-  local a, b, c, d = run_teal(program("local a = 2", "return -a ^ 2, - -a ^ 2, a ^ -a ^ 2, -(a ^ 2)"))
+    "local t = { (-a) ^ 2, (#\"abc\") ^ 2, a ^ (-a) ^ 2, -(a ^ 2), (-a) ^ 2 }",
+    "return t"), [[
+local a = 2
+local t = { (-a) ^ 2, (#"abc") ^ 2, a ^ (-a) ^ 2, -(a ^ 2), (-a) ^ 2 }
+return t]])
+  local a, b, c, d = run(program("local a = 2", "return (-a) ^ 2, (- -a) ^ 2, a ^ (-a) ^ 2, -(a ^ 2)"))
   assert(a == 4 and b == 4 and c == 16 and d == -4, tostring(a) .. " " .. tostring(b) .. " " .. tostring(c) .. " " .. tostring(d))
 end
 
 -- survivors -------------------------------------------------------------------------------------------------------
 
 local function test_the_arguments_of_a_call_whose_table_is_on_a_line_of_its_own_keep_its_line()
-  same(
+  emits(program(
     "local s = { rep = print }",
     "local r = s:rep",
     "{ 2 }",
@@ -1480,7 +1704,18 @@ local function test_the_arguments_of_a_call_whose_table_is_on_a_line_of_its_own_
     "local o = f",
     "{",
     "  1 }",
-    "return r, p, o")
+    "return r, p, o"), [[
+local s = { rep = print }
+local r = s:rep(
+{ 2 })
+local function f(t) return #t end
+local p = f(
+{ 1,
+2, })
+local o = f(
+{
+   1, })
+return r, p, o]])
 end
 
 --- The generator reads one file, so a name of another module is a table unless the checker says what it stands for.

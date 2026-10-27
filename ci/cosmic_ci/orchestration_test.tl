@@ -2122,3 +2122,51 @@ local function test_only_the_two_linux_legs_ask_for_the_fixture_lanes()
         (two == "linux-aarch64" and one == "alpine-x86_64")),
     "the fixture lanes run on other legs than linux-aarch64 and alpine-x86_64: " .. value)
 end
+
+--- A cache of `declared_v1`'s shape holding a row under each of `parts`
+--- (build/shared_verdicts.tl stamps them as "host features X, host Y").
+local function stamped_cache(path: string, parts: {string})
+  local db = assert(Sqlite.open(path, { writable = true }))
+  assert(db:exec("CREATE TABLE declared_v1 (key TEXT PRIMARY KEY, test TEXT NOT NULL, " ..
+      "hits BLOB NOT NULL, elapsed_ns INTEGER NOT NULL, used_ns INTEGER NOT NULL, " ..
+      "origin TEXT NOT NULL, parts TEXT NOT NULL DEFAULT '')"))
+  for at, named in ipairs(parts) do
+    assert(Sqlite.run(db, "INSERT INTO declared_v1 VALUES (?1, 't.tl test', zeroblob(1), 1, 1, 'o', ?2)",
+      { { text = "k" .. tostring(at) }, { text = named } }))
+  end
+  assert(db:close())
+end
+
+local function test_the_gathering_run_counts_the_rows_it_cannot_stand_on(tmp: string)
+  local Orchestration = require("cosmic_ci.orchestration")
+  local path = tmp .. "/checked.db"
+  stamped_cache(path, {
+    "host features aaaa, host h1", "host features aaaa, host h1",
+    "host features bbbb, host h1", "host features aaaaaaaa, host h1", "", "host features bbbb",
+  })
+  -- Only the exact digest and its comma count as this host's: a longer
+  -- digest that starts with it, rows of no parts and rows of other
+  -- features are all run again here.
+  assert(Orchestration.stale_rows(path, "aaaa") == 4)
+  assert(Orchestration.stale_rows(path, "bbbb") == 5)
+  assert(Orchestration.stale_rows(path, "cccc") == 6)
+  local count, why = Orchestration.stale_rows(path, "aaaa' OR '1")
+  assert(count == nil and why:find("no digest", 1, true) ~= nil, why)
+  assert(Fs.write(tmp .. "/text.db", "checked\n"))
+  count, why = Orchestration.stale_rows(tmp .. "/text.db", "aaaa")
+  assert(count == nil and why ~= "", "a file that is no cache was counted")
+end
+
+local function test_the_gathering_run_is_given_a_time_for_each_row_it_runs_again()
+  local Orchestration = require("cosmic_ci.orchestration")
+  local base = Orchestration.gather_bound(0)
+  assert(base == Clock.seconds(300), "the gathering run's base moved")
+  -- Run 40495570639 of #3263 ran 2046 tests again at about 330 a
+  -- minute (370 s), on top of the 150 s the rest took (167 s in all
+  -- for 136 rows run again).
+  local needed = Clock.seconds(150) + 2046 * (Clock.seconds(60) // 330)
+  assert(Orchestration.gather_bound(2046) > needed,
+    "2046 rows run again at the pace seen do not fit their bound")
+  assert(Orchestration.gather_bound(100) > base and Orchestration.gather_bound(100) < Orchestration.gather_bound(2046))
+  assert(Orchestration.gather_bound(1000000) == Clock.seconds(780), "the bound has no cap")
+end

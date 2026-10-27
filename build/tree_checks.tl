@@ -258,6 +258,8 @@ allowed["build.harness_epoch.retired"] = "every token the harness's epoch held "
 allowed["build.harness_epoch.library"] = "the standard-library modules the harness " ..
   "may reach, each with its reason, which only its test reads: a rule the test holds " ..
   "the harness's digests to, not code the harness runs"
+allowed["build.test_child.run"] = "what the chunk of `words` calls in the child, by name, from text the test " ..
+  "hands `cosmic -e`: no file of the tree calls it"
 allowed["build.test_inputs.lua_loads"] = "what build/lua_children_test.tl holds " ..
   "a child's `-e` to loading no more than, as the artifact a `lua` module's children " ..
   "run carries them"
@@ -992,7 +994,7 @@ local requirers: {string: Restriction} = {
       "literal name, `require(\"cosmic.fs\")`, or picks from a table of such requires",
   },
   ["cosmic.internal.globals"] = {
-    files = { "build.dispatch", "build.fuzz", "build.load_module",
+    files = { "build.fuzz", "build.load_module",
       "build.raw_tables_test", "build.sandbox", "build.sandboxed_verdicts_test", "build.sealed_worker_test", "build.standalone",
       "build.test_closure_diagnostic_test", "build.test_closure_test", "build.type_watch", "core.load_env_test", "core.surface_test",
       "cosmic.coverage_test", "cosmic.flags_test", "cosmic.test_tool_test", "test.coverage_cache_test" },
@@ -2588,6 +2590,74 @@ function tree_checks.package_readers(root: string, files?: {string: string}): {s
             out[#out + 1] = file .. ":" .. tostring(tokens.y[i]) .. ": reads `package`, which only the files " ..
               "build/tree_checks.tl's `packagers` names may: a module loads what it needs by `require` of a " ..
               "literal name, which the build follows, and not through the searchers or the table of loaded modules"
+          end
+        end
+      end
+    end
+  end
+  return out
+end
+
+--- The files that turn text into a chunk, tests apart: `load` and the names of its family, which build a function from
+--- Lua text. What such a chunk is handed is what it can reach, and a chunk of text no checker read reaches the
+--- library with the checks the library would otherwise rely on being dead. So each file here loads text the build
+--- itself wrote or a constant, and the reason says which; a file that loads other text is a path by which unchecked Lua
+--- reaches `cosmic.*`, and is not added without the owner's say.
+local loaders: {string: string} = {
+  ["build/child_policy_database_fixture.tl"] = "the main of a fixture program, a constant chunk of the test support",
+  ["build/database_start_fixture.tl"] = "the modules of a fixture database, compiled by the build and loaded to test a start",
+  ["build/fuzz/init.tl"] = "the constant chunk `return __cosmic_tc`, the hook a checked run defines",
+  ["build/load_module.tl"] = "the named loader: the constant chunk `return require((...))`",
+  ["build/lua_tail.tl"] = "the Lua the compiler wrote, loaded in an environment of its own to dump its bytecode",
+  ["build/must_confine_fixture.tl"] = "constant chunks of the test support that probe the confinement of a worker, " ..
+    "which no typed file may do",
+  ["build/sandbox.tl"] = "the script the checker compiled ([`build.standalone`]'s `code`), as the main of a sealed program",
+  ["build/standalone.tl"] = "the Lua the checker compiled from a file or a `-e` chunk, or kept from such a compile",
+  ["build/test_worker.tl"] = "the constant chunk that reads a value's metatable in the form the compiler writes",
+  ["build/type_watch.tl"] = "the constant chunk `return __cosmic_tc`, the hook a checked run defines",
+  ["cosmic/errors_example.tl"] = "shows what a chunk built by `load` does with a method that is missing",
+  ["cosmic/removed_example.tl"] = "shows what a chunk built by `load` is told of a removed name",
+  ["lang/check_programs.tl"] = "the Lua the checker wrote of the programs it is tested on",
+}
+
+--- Each use of `load`, `loadfile`, `dofile` or `loadstring` as a name in a file of the tree that is not one of `files`
+--- (by default [`loaders`]) and is no test, as `<file>:<line>: ...`: a name that is no field (`t.load`, `s:load()`, a field
+--- `load: T` declared) and no function being defined, so that a call, an alias and an argument are all found.
+function tree_checks.text_loaders(root: string, files?: {string: string}): {string}
+  local sources, trouble = sources_of(root)
+  if sources == nil then
+    return { "reading the sources: " .. trouble }
+  end
+  local permitted = files or loaders
+  local named: {string: boolean} = { load = true, loadfile = true, dofile = true, loadstring = true }
+  local out: mut {string} = {}
+  for _, entry in ipairs(sources) do
+    local file, text = entry[1], entry[2]
+    if file ~= nil and text ~= nil and permitted[file] == nil and file:match("_test%.tl$") == nil and
+        file:match("%.tl$") ~= nil and (text:find("load", 1, true) ~= nil or text:find("dofile", 1, true) ~= nil) then
+      local tokens = Lexer.lex(text, file).tokens
+      local told = "which only the files build/tree_checks.tl's `loaders` names may: a function built from text is a " ..
+        "path by which Lua no checker read reaches `cosmic.*`; load a module by `require` of a literal name"
+      for i, word in ipairs(tokens.text) do
+        local before, after = tokens.text[i - 1], tokens.text[i + 1]
+        if named[word] == true and tokens.kind[i] == "identifier" then
+          -- A field of the globals table is the function itself, whatever the receiver is called.
+          local receiver = tokens.text[i - 2]
+          local is_field = before == "." or before == ":" or after == ":" or before == "function" or
+            ((before == "{" or before == ",") and after == "=")
+          if before == "." and (receiver == "_G" or receiver == "_ENV") then is_field = false end
+          if not is_field then
+            out[#out + 1] = file .. ":" .. tostring(tokens.y[i]) .. ": uses `" .. word .. "`, " .. told
+          end
+        elseif (word == "_G" or word == "_ENV") and tokens.kind[i] == "identifier" then
+          -- `_G["load"]` and `rawget(_G, "load")` name it by a string.
+          local by_string = false
+          if (after == "[" or after == ",") and tokens.kind[i + 2] == "string" then
+            local value = tokens.value[i + 2]
+            by_string = value ~= nil and named[value] == true
+          end
+          if by_string then
+            out[#out + 1] = file .. ":" .. tostring(tokens.y[i]) .. ": uses a function of the globals by its name, " .. told
           end
         end
       end

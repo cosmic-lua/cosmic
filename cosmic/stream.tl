@@ -431,7 +431,7 @@ end
 local function fd_options(opts: Stream.FdOptions?, level: integer): Stream.FdOptions
   if opts == nil then return {} end
   Poll.checked_ns(opts.timeout_ns, "stream", "timeout_ns", level + 1)
-  if (opts.timeout_ns ~= nil or opts.wait ~= nil) and not opts.nonblocking then
+  if (opts.timeout_ns ~= nil or opts.wait ~= nil) and opts.nonblocking ~= true then
     error("stream: timeout_ns and wait need nonblocking = true: a blocking descriptor " ..
         "cannot be waited on in pieces", level + 1)
   end
@@ -497,7 +497,7 @@ local class FdReader is Stream.Reader
         local _, _ = release(self)
         return nil, ""
       end
-      if not (opts.nonblocking and (errno == sys.EAGAIN or errno == sys.EINTR)) then
+      if not (opts.nonblocking == true and (errno == sys.EAGAIN or errno == sys.EINTR)) then
         self.failed = trouble ~= "" and trouble or "stream: read failed"
         return nil, self.failed
       end
@@ -865,7 +865,7 @@ local class StickyWriter is Stream.Sticky
   end
 
   function abort(self): boolean, string
-    if self.closed or self.failed then return true, "" end
+    if self.closed or self.failed ~= nil then return true, "" end
     self.closed = true
     return self.writer:abort()
   end
@@ -1111,7 +1111,7 @@ local class ToFdWriter is Stream.FdWriter
         end
         at = at + put
         self.went = self.went + put
-      elseif options.nonblocking and (errno == sys.EAGAIN or errno == sys.EINTR) then
+      elseif options.nonblocking == true and (errno == sys.EAGAIN or errno == sys.EINTR) then
         local ready, why = wait_for(fd, sys.POLLOUT, options, deadline)
         if not ready then
           if resumable(why) then return false, why end

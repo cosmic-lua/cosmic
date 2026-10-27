@@ -80,7 +80,7 @@ local function entries_of(input: string, read: boolean): {string}?, string
       seen[#seen + 1] = if trouble == "" then "ended" else "refused" end
       return seen, ""
     end
-    if e.size < 0 then return nil, "an entry of negative size: " .. e.size end
+    if e.size < 0 then return nil, "an entry of negative size: " .. tostring(e.size) end
     seen[#seen + 1] = ("%q %s %d"):format(e.path, e.kind, e.size)
     if read then
       Fuzz.label("entry")
@@ -175,11 +175,11 @@ local NOT_OCTAL <const> = { "8", "9", "-1", "+7", "0x1f", "1e9", " ", "7 7", "\0
 local function numeric_field(src: Fuzz.Source, width: integer, v: integer): string
   local how = src:int(1, 12)
   if how <= 5 then
-    return field(("%0" .. (width - 1) .. "o"):format(v) .. "\0", width)
+    return field(("%0" .. tostring((width - 1)) .. "o"):format(v) .. "\0", width)
   elseif how == 6 then
-    return field(("%" .. (width - 2) .. "o \0"):format(v), width)
+    return field(("%" .. tostring((width - 2)) .. "o \0"):format(v), width)
   elseif how == 7 then
-    return ("%0" .. width .. "o"):format(v):sub(-width)
+    return ("%0" .. tostring(width) .. "o"):format(v):sub(-width)
   elseif how == 8 then
     local b = string.pack(">i8", v)
     if width > 8 then

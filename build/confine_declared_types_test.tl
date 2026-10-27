@@ -66,7 +66,7 @@ local function tunnels(userinfo?: string)
         getenv = function(name: string): string? return variables[name] end,
         err = function(_line: string) end,
         read = function(): string?, string
-          while waiting.value == "" and not ended.value do
+          while waiting.value == "" and ended.value ~= true do
             local ok, why = Poll.delay(Clock.ms(1))
             if not ok then return nil, why end
           end
