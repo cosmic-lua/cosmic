@@ -163,13 +163,24 @@ refuses a module of the tree outside the closure.
 - To start this program, declare the profile `"cosmic"` with the grant
   `{ path = "o/bin", letters = "rx" }` beside it (`tool`). That gives
   the program and nothing else.
-- To run Lua in the program only (`-e`), the profile `"cosmic"` alone
-  is enough (`lua`). Its key holds the closure, not the whole program.
+- To run a Teal chunk in the program only (`-e`), the profile `"cosmic"`
+  alone is enough (`lua`). `-e` checks its chunk as a file is checked, so
+  the chunk is Teal. It requires `cosmic.*` modules and the tool's own
+  modules, typed from their sources, but only those of the test module's
+  closure are in the store its children run (a `require` of another is
+  refused where the chunk is checked, naming it). The key holds the
+  closure and the checker `-e` runs, not the whole program.
   It is refused beside the profile `"system"`, the `o/cosmic.db` store
   grant or a `/cache/` grant, since a host program or a cosmic a cache
   holds could start the program with no hold on what it loads. Declare
   the `o/bin` grant beside the profile instead, to run the program
   itself.
+- A chunk is Teal and cannot reach what a test module reaches by a cast
+  (the C bindings' raw tables) or by changing a library's table. Code that
+  must run in a process of the program for that reason goes in the test
+  module, registered with [`build.test_child`] at its top level and started
+  with `test_child.words(tmp, "<the module>", "<name>", args)` as the
+  words after the program, where the chunk is written for it.
 - A test that starts cosmic's core past the launcher uses
   [`build.this_program`]'s `program` and needs no `"system"` profile.
   Build a child's environment from its `environment()` only where the
@@ -521,6 +532,7 @@ Other rules:
 [`build.pipeline`]: ../build/pipeline.tl
 [`build.rebuild`]: ../build/rebuild.tl
 [`build.sandboxed_verdicts_test`]: ../build/sandboxed_verdicts_test.tl
+[`build.test_child`]: ../build/test_child.tl
 [`build.test_sandbox_probe`]: ../build/test_sandbox_probe.tl
 [`build.test_sandbox`]: ../build/test_sandbox.tl
 [`build.test_worker`]: ../build/test_worker.tl

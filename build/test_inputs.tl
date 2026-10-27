@@ -98,18 +98,17 @@ local pinned_env: mut {string} = { "FUZZ_SEED", "FUZZ_ITERS", "FUZZ_CASE",
 for _, name in ipairs(this_program.runtime_environment) do pinned_env[#pinned_env + 1] = name end
 
 --- The modules of the tree a process of this program runs before the
---- chunk `cosmic -e` hands it runs ([`build.dispatch`]'s `evaluate`),
---- and nothing else of the tree: cosmic's main and the lean way dispatch
---- takes to `-e`, with what each requires at its top level. A module
---- that declares `lua` ([`cosmic.test`]) holds them in its closure, as
---- if it required each at its top level, though not what each requires
---- only inside a function it does not call on that way -- dispatch
---- requires every verb's modules so -- so its key holds each by what it
---- is, and every process its tests start runs a sealed database of that closure
---- ([`build.test_key`]'s `sealed_for`), which carries no other module of the
---- program. A module added to that way is not found by such a process
---- until it is added here; build/lua_children_test.tl holds a `-e` child
---- to loading no more.
+--- chunk `cosmic -e` hands it runs ([`build.dispatch`]'s `evaluate`), and
+--- nothing else of the tree: cosmic's main and the lean way dispatch
+--- takes to `-e`, with what each requires at its top level. `-e` checks and
+--- compiles its chunk with the checker ([`build.standalone`] and what it
+--- requires), so a module that declares `lua` ([`cosmic.test`]) holds that
+--- closure beside these, as if it required [`build.standalone`] at its top
+--- level; its key holds each by what it is, and every process its tests
+--- start runs a sealed database of that closure ([`build.test_key`]'s
+--- `sealed_for`), which carries no other module of the program. A module
+--- added to that way is not found by such a process until it is added
+--- here; build/lua_children_test.tl holds a `-e` child to loading no more.
 -- TODO: hold cosmic.errors and its closure here too: the core
 -- requires it for an uncaught error's guidance (core/main.c's
 -- `ask_guidance`), which a child of a `lua` module cannot load and so
@@ -119,17 +118,13 @@ test_inputs.lua_loads = {
   "cmd.cosmic.main", "cosmic.codec", "cosmic.env", "cosmic.fs", "cosmic.hash", "cosmic.log",
 }
 
---- What `cosmic --standalone` loads beyond `lua_loads` before the file
---- it checks and runs does ([`build.standalone`]): the checker it types
---- the file with ([`build.pipeline`]), with what each requires at its top level. A module
---- that declares `lua` ([`cosmic.test`]) and requires [`build.standalone`]
---- at its top level holds them in its closure, which that module's
---- requires reach; one that declares `lua` alone does not, so an edit to
---- the checker runs its tests no more, and a child of it that runs a
---- file standalone does not find the checker.
+--- What `cosmic -e` and `cosmic --standalone` load beyond `lua_loads` before the chunk or file they check and
+--- run does ([`build.standalone`]): the checker that types the text ([`build.pipeline`]), with what each
+--- requires at its top level. A module that declares `lua` ([`cosmic.test`]) holds them in its closure, as one that
+--- requires [`build.standalone`] does, so an edit to the checker runs its tests.
 --- build/lua_standalone_test.tl holds a standalone child to loading no
 --- more, and [`build.standalone`]'s closure to holding every one. A
---- standalone file that requires a module of the
+--- chunk or file that requires a module of the
 --- standard library is typed from its declaration too, which the test
 --- module holds by requiring that module at its top level.
 test_inputs.standalone_loads = {
@@ -198,6 +193,10 @@ local function closure(m: Module, by_path: {string:Module},
   local names: mut {string} = {}
   local fuzzes = false
   local stack: mut {Module} = { m }
+  -- `cosmic -e` checks and compiles its chunk, so a module that declares `lua` holds the checker as one that requires
+  -- build.standalone does.
+  local standalone = by_path["build.standalone"]
+  if m.inputs ~= nil and m.inputs.lua and standalone ~= nil then stack[#stack + 1] = standalone end
   while #stack > 0 do
     local here = table.remove(stack)
     if seen[here.path] ~= true then

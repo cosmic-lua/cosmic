@@ -31,7 +31,10 @@ local Fs = require("cosmic.fs")
 local Sqlite = require("cosmic.sqlite")
 local db = assert(Sqlite.open(%q .. "/rebuild.lock", { writable = true }))
 assert(db:exec("PRAGMA busy_timeout = 0"))
-if not db:exec("BEGIN IMMEDIATE") then print("busy"); return end
+if not db:exec("BEGIN IMMEDIATE") then
+  print("busy")
+  return
+end
 print("held")
 local wait = %d
 if wait < 0 then Fs.take(Fs.stdin, 1) else Clock.sleep_ns(wait) end
@@ -42,7 +45,10 @@ local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
 local sys = require("cosmic.sys")
 local fd = assert(sys.open(%q .. "/rebuild.lock", sys.O_RDWR | sys.O_CREAT, 0x1a4))
-if not sys.flock(fd, "exclusive", 0) then print("busy"); return end
+if not sys.flock(fd, "exclusive", 0) then
+  print("busy")
+  return
+end
 print("held")
 local wait = %d
 if wait < 0 then Fs.take(Fs.stdin, 1) else Clock.sleep_ns(wait) end
@@ -96,7 +102,8 @@ local function test_a_boot_waits_for_a_sqlite_only_tool_even_with_a_wrong_handof
   assert(said == "held", said)
   local script = [[
 local Fs = require("cosmic.fs")
-require("build.zig").with_lock(%q, { COSMIC_REBUILD_LOCK_HANDED = %q }, function()
+local Zig = require("build.zig")
+Zig.with_lock(%q, { COSMIC_REBUILD_LOCK_HANDED = %q }, function(_: {string:string}): integer
   print("held")
   Fs.take(Fs.stdin, 1)
   return 0
@@ -224,8 +231,10 @@ local Signal = require("cosmic.signal")
 local sys = require("cosmic.sys")
 local Zig = require("build.zig")
 
-local guard <close> = assert(Signal.guard())
-local status = Zig.with_lock(%q, {}, function() error("entered a held lock") end)
+local guard = assert(Signal.guard())
+local status = Zig.with_lock(%q, {}, function(_: {string:string}): integer
+  error("entered a held lock")
+end)
 local signal = guard:take()
 guard:release()
 assert(status == 1 and signal == sys.SIGTERM)

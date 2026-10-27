@@ -45,7 +45,7 @@ local function test_an_uncaught_error_exits_1(tmp: string)
   local result = invoke.run({ "-e", "error('boom', 0)" }, { cwd = tmp })
   assert(result.code == 1, result.stdout)
   assert(result.stderr == "cosmic: boom\n", result.stderr)
-  local table_error = invoke.run({ "-e", "error({})" }, { cwd = tmp })
+  local table_error = invoke.run({ "-e", "local value: {string:string} = {} error(value)" }, { cwd = tmp })
   assert(table_error.code == 1 and table_error.stderr == "cosmic: failed\n",
     table_error.stderr)
   local number_error = invoke.run({ "-e", "error(42)" }, { cwd = tmp })

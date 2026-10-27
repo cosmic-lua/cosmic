@@ -23,7 +23,7 @@ local Proc = require("cosmic.proc")
 local result = Proc.find_result("sh")
 local legacy, reason = Proc.find("sh")
 assert(legacy == result.path and reason == result.reason)
-print(Env.get("PATH") == nil and "unset" or "set", result.kind, result.path, result.reason)
+print(if Env.get("PATH") == nil then "unset" else "set" end, result.kind, result.path, result.reason)
 ]]
   local started = this_program.program({ "-e", script }, {
     env = env, cwd = dir, stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(10),

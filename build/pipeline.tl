@@ -137,6 +137,10 @@ local record Pipeline
   --- ([`cosmic.sys`]) as one.
   carried: function(): Driver.Provider
 
+  --- [`Pipeline.carried`] widened to every module of the running binary, the tool's own beside the standard library's
+  --- ([`build.standard_text`]'s `own`): what `cosmic -e` types its chunk against.
+  carried_own: function(): Driver.Provider
+
   --- A build over the modules of `entries`: pairs of a file and its text, with the module and the name the ceilings are kept
   --- under for a source written from another file ([`Driver.index`]). `kinds` says of each file what the working database
   --- says of its input (`test`, ...); a `test` has its functions called from outside. `stubs` gives the stub of a
@@ -294,6 +298,16 @@ end
 function Pipeline.carried(): Driver.Provider
   return Driver.standard(function(module: string): string?
     local found = standard_text.of(module)
+    if found == nil then
+      return nil
+    end
+    return found.text
+  end, declared)
+end
+
+function Pipeline.carried_own(): Driver.Provider
+  return Driver.standard(function(module: string): string?
+    local found = standard_text.own(module)
     if found == nil then
       return nil
     end
@@ -805,9 +819,11 @@ function Pipeline.checked_alone(file: string, text: string, options: Pipeline.Op
       told[#told + 1] = ErrorRender.line(file, p)
     end
   else
-    -- What the file returns is its entry point ([`build.standalone`]), which nothing requires and so no declaration needs
-    -- to describe: the one error a lone file is allowed, whatever it returns.
-    local entry: Ceilings.Table = { stages = { checked = { [file .. " export_not_declared"] = 1 } }, none = true }
+    -- What the file returns is its entry point ([`build.standalone`]) or, for a chunk of `cosmic -e`, its exit code, which
+    -- nothing requires and so no declaration needs to describe: the one error a lone file is allowed, at every `return`,
+    -- whatever it returns.
+    local entry: Ceilings.Table = { stages = { checked = { [file .. " export_not_declared"] = math.maxinteger } },
+      none = true }
     for _, line in ipairs(build:held(result, entry)) do
       told[#told + 1] = line
     end

@@ -454,6 +454,37 @@ local function test_a_module_reading_package_outside_the_list_is_refused(dir: st
       "build/path.tl build/preload.tl build/searchers.tl build/searchpath.tl", table.concat(found, "\n"))
 end
 
+--- A file that builds a function from text is refused unless the list names it: the call, an alias and an argument are
+--- found; a field of that name, a function defined by it, a string and a test are not.
+local function test_a_module_building_a_chunk_from_text_outside_the_list_is_refused(dir: string)
+  local function put(file: string, text: string)
+    assert(Fs.mkdirs(dir .. "/build"))
+    assert(Fs.write(dir .. "/" .. file, text))
+  end
+  put("build/allowed.tl", "local f = load(\"return 1\")\nreturn f\n")
+  put("build/called.tl", "local f = load(\"return 1\", \"=x\", \"t\", {})\nreturn f\n")
+  put("build/aliased.tl", "local l = load\nreturn l\n")
+  put("build/passed.tl", "local ok = pcall(load, \"return 1\")\nreturn ok\n")
+  put("build/file.tl", "local f = loadfile(\"x.lua\")\nreturn f\n")
+  put("build/dofiled.tl", "dofile(\"x.lua\")\n")
+  put("build/globals_field.tl", "local f = _G.load(\"return 1\")\nreturn f\n")
+  put("build/globals_index.tl", "local f = _G[\"load\"]\nreturn f\n")
+  put("build/globals_rawget.tl", "local f = rawget(_G, \"loadfile\")\nreturn f\n")
+  put("build/fine.tl", "local t = { load = 1 }\nlocal s = \"load(x)\"\n-- load(x)\n" ..
+      "local record R\n  load: function(): integer\nend\nfunction R.load(): integer return 1 end\n" ..
+      "return t.load, s, R.load()\n")
+  put("build/probe_test.tl", "local f = load(\"return 1\")\nreturn f\n")
+  local found = tree_checks.text_loaders(dir, { ["build/allowed.tl"] = "builds a chunk" })
+  local files: mut {string} = {}
+  for _, line in ipairs(found) do
+    files[#files + 1] = line:match("^([^:]+):%d+: uses ") or line
+  end
+  table.sort(files)
+  assert(table.concat(files, " ") == "build/aliased.tl build/called.tl build/dofiled.tl build/file.tl build/globals_field.tl " ..
+      "build/globals_index.tl build/globals_rawget.tl build/passed.tl",
+    table.concat(found, "\n"))
+end
+
 --- A declaration that requires only declarations passes; one that requires a module is refused.
 local function test_a_declaration_that_requires_a_module_is_refused(dir: string)
   local db = fixture.database(dir, {

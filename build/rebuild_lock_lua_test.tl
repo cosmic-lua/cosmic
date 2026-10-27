@@ -72,7 +72,7 @@ assert(Fs.write(dir .. "/let-go", ""))
 local probe = [[
 local sys = require("cosmic.sys")
 local fd = assert(sys.open(require("build.paths").required(%q) .. "/rebuild.lock", sys.O_RDWR, 0))
-print(sys.flock(fd, "exclusive") and "taken" or "refused")
+if sys.flock(fd, "exclusive") then print("taken") else print("refused") end
 ]]
 
 --- A process of this program running `script` against the tree at

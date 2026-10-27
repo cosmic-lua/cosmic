@@ -165,8 +165,8 @@ function test_sandbox_probe.available(argv: {string}, env: {string:string}, fds:
   -- ([`confine.forbid_running`]): where it cannot, no worker is
   -- sandboxed, since what such a test would run no key holds.
   command[#command + 1] = "-e"
-  command[#command + 1] = "local o = require('build.confine') " ..
-    "local ok, why = o.forbid_running(o.itself(), { " .. string.format("%q", argv[1]) ..
+  command[#command + 1] = 'local Confine = require("build.confine") ' ..
+    "local ok, why = Confine.forbid_running(Confine.itself(), { " .. string.format("%q", argv[1]) ..
     " }) if not ok then error(why) end"
   return ran_under(command, fds, policy)
 end

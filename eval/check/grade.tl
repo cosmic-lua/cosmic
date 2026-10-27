@@ -2186,7 +2186,8 @@ local TASKS <const>: {string: Task} = {
 function Grader.build_directory(cosmic: string, project: string, env?: {string:string}): string
   local asked, _ = Child.run({ cosmic, "-e", [[
 local Store = require("cosmic.store")
-if Store.source("build.paths") ~= nil then print(require("build.paths").required(...)) end
+local root = ...
+if root ~= nil and Store.source("build.paths") ~= nil then print(require("build.paths").required(root)) end
 ]], project }, { env = env, stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(30) })
   local answer = asked ~= nil and asked.ok and (asked.stdout or ""):match("^(/[^\n]+)\n$") or nil
   return answer or project .. "/o"

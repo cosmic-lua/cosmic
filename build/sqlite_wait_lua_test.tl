@@ -51,7 +51,6 @@ local function signaller(): Child.Handle
 local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
 local sys = require("cosmic.sys")
-local build_paths = require("build.paths")
 
 print("ready")
 Fs.take(Fs.stdin, 1)
