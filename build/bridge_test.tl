@@ -117,7 +117,8 @@ local function tree_of(tmp: string, seed_entry: string, differs?: string): strin
 end
 
 --- Boots `tree` with `tmp`'s seed; the cache is off unless `cache` names its file.
-local function boot(tmp: string, tree: string, cache?: string, declaration?: string, mid_run?: string): Booted
+local function boot(tmp: string, tree: string, cache?: string, declaration?: string, mid_run?: string,
+                    bootstrap?: string): Booted
   local core = tmp .. "/cosmic-core"
   if Fs.exists(core) ~= true then
     local trusted = assert(artifact.trusted_core())
@@ -125,7 +126,7 @@ local function boot(tmp: string, tree: string, cache?: string, declaration?: str
   end
   local ran = assert(Child.run({ core, "--boot", tree, tmp .. "/seed", "status" },
     { env = { COSMIC_BRIDGE_TRACE = "1", COSMIC_BUILD_CACHE = cache or "0", DECL = declaration or "x",
-      MID_RUN = mid_run or "" },
+      MID_RUN = mid_run or "", COSMIC_BOOTSTRAP = bootstrap or "" },
       stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(60), capture_limit = 1 << 24 }))
   local trace, rest = split_trace(ran.stderr or "")
   return { code = ran.code, stdout = ran.stdout or "", trace = trace, stderr = rest }
@@ -162,6 +163,17 @@ local function test_a_declared_name_that_is_no_file_of_the_seed_is_refused(tmp: 
   local booted = boot(tmp, tree_of(tmp, ENTRY, "codegen.lua\n"))
   assert(booted.code == 1, "exit " .. tostring(booted.code))
   assert(booted.stderr:find("codegen.lua names no file of build/seed.txt", 1, true), booted.stderr)
+end
+
+local function test_a_standing_entry_passes_a_boot_whose_seed_is_not_the_pin(tmp: string)
+  local booted = boot(tmp, tree_of(tmp, ENTRY, "build/seed.tl\n"), nil, nil, nil, "/some/cosmic")
+  assert(booted.code == 7, "exit " .. tostring(booted.code) .. ": " .. booted.stderr)
+end
+
+local function test_a_difference_not_listed_is_refused_whatever_the_seed(tmp: string)
+  local booted = boot(tmp, tree_of(tmp, ENTRY .. "-- other\n", "lang/helper.tl\n"), nil, nil, nil, "/some/cosmic")
+  assert(booted.code == 1, "exit " .. tostring(booted.code))
+  assert(booted.stderr:find("differs from the build compiled by itself in build/seed.tl", 1, true), booted.stderr)
 end
 
 local function test_a_declaration_file_that_names_nothing_is_refused(tmp: string)
