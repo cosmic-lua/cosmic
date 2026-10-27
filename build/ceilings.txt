@@ -1486,11 +1486,11 @@ lang/check_speed_test.tl nil_not_allowed 5
 
 lang/check_test.tl nil_not_allowed 26
 
-lang/codegen.tl nil_not_allowed 24
+lang/codegen.tl nil_not_allowed 23
 
 lang/codegen_fuzz_test.tl nil_not_allowed 13
 
-lang/codegen_test.tl nil_not_allowed 10
+lang/codegen_test.tl nil_not_allowed 7
 
 lang/declarations.tl nil_not_allowed 22
 
