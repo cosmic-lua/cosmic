@@ -99,10 +99,11 @@ test_child.register("autogroup", function(args: {string}): integer
   for path in (args[1] or ""):gmatch("[^:]+") do reads[#reads + 1] = path end
   local program = assert(reads[1])
   local before = read("/proc/self/autogroup")
+  local sandbox: raw_process.Sandbox = { unveil = { reads = reads }, offline = true }
   local pid, trouble = process.spawn(program, { program,
     "append /proc/1/autogroup 19 && print init-set || print init-kept; sleep 200; " ..
       "append /proc/self/autogroup 19; cat /proc/self/autogroup" },
-    nil, "/", nil, nil, nil, false, nil, { unveil = { reads = reads } })
+    nil, "/", nil, nil, nil, false, nil, sandbox)
   if pid == nil then
     print("refused " .. tostring(trouble))
     return 0

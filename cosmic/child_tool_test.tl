@@ -61,7 +61,7 @@ local function output(dir: string, name: string): integer, string
 end
 
 --- This program again, past its launcher ([`this_program.program`]),
---- running the Lua chunk `chunk` with `args` as its `...`: the child
+--- running the Teal chunk `chunk` with `args` as its `...`: the child
 --- each test starts, where a shell would need the system's. The argv
 --- and options, for [`Child.run`] or [`Child.start`].
 local function lua(chunk: string, args?: {string}, opts?: Child.Options): {string}, Child.Options

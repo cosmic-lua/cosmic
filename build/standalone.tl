@@ -89,23 +89,16 @@ end
 --- creates its own program; previous declarations are not shared. The new
 --- checker ([`build.pipeline`]) holds the file to no ceiling and takes `cosmic.*` from this binary. A
 --- `COSMIC_GRAMMAR` that names another checker is refused ([`build.grammar_mode`]). With `own`, as `cosmic -e` asks, the file
---- may also require the tool's own modules, which the checker types from their sources ([`build.standard_text`]'s `own`).
+--- may also require the tool's own modules, which the checker types from their sources ([`build.standard_text`]'s `own`),
+--- and it is checked each time and kept nowhere.
 function standalone.code(file: string, source: string, variables?: {string:string}, own?: boolean): string?, string
   local mode, mode_trouble = GrammarMode.mode()
   if mode == nil then
     return nil, mode_trouble
   end
-  -- What the checker reads besides the file is the declarations of the standard library, which the tool carries (so
-  -- they are part of the binary the cache name holds).
-  local options, trouble = Pipeline.alone()
-  if options == nil then
-    return nil, file .. ": " .. trouble
-  end
-  if own == true then
-    options = { globals = options.globals, ceilings = options.ceilings, types = options.types,
-      standard = Pipeline.carried_own(), project = options.project }
-  end
-  local cached = cached_path(source, variables, own)
+  -- A chunk of `-e` is not kept: it is checked against more than a file is, runs once and is written afresh each time.
+  local cached: string? = nil
+  if own ~= true then cached = cached_path(source, variables) end
   local code: string?
   if cached ~= nil then
     -- A cache that cannot be read is a miss.
@@ -113,6 +106,16 @@ function standalone.code(file: string, source: string, variables?: {string:strin
     code = read
   end
   if code == nil then
+    -- What the checker reads besides the file is the declarations of the standard library, which the tool carries (so
+    -- they are part of the binary the cache name holds), read only for a file the cache does not hold.
+    local options, trouble = Pipeline.alone()
+    if options == nil then
+      return nil, file .. ": " .. trouble
+    end
+    if own == true then
+      options = { globals = options.globals, ceilings = options.ceilings, types = options.types,
+        standard = Pipeline.carried_own(), project = options.project }
+    end
     local generated, generate_trouble = generate_new(file, source, options)
     if generated == nil then
       return nil, generate_trouble

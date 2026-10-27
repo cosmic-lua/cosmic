@@ -501,24 +501,15 @@ local H = require("cosmic.hash")
 local S = require("cosmic.store")
 local Sqlite = require("cosmic.sqlite")
 local c = assert(A.trusted_core())
-local fields: mut {string} = {}
-local function quoted(text: string): string
-  local encoded = assert(J.encode(text))
-  return encoded
-end
-local function add(name: string, value: string?)
-  if value ~= nil then fields[#fields + 1] = quoted(name) .. ":" .. quoted(value) end
-end
-local function add_number(name: string, value: integer)
-  fields[#fields + 1] = quoted(name) .. ":" .. tostring(value)
-end
-add("sqlite", Sqlite.version)
-add("core_sha256", H.hex_sha256(c.bytes))
-add_number("target", c.target_id)
-add_number("configuration", c.configuration_id)
-add("runtime_basis", S.meta("runtime_basis"))
-add("boot_hash", S.meta("boot_hash"))
-print("{" .. table.concat(fields, ",") .. "}")
+local basis = S.meta("runtime_basis") or ""
+local boot = S.meta("boot_hash") or ""
+local version = assert(J.encode(Sqlite.version))
+local digest = assert(J.encode(H.hex_sha256(c.bytes)))
+local runtime = assert(J.encode(basis))
+local boot_hash = assert(J.encode(boot))
+print('{"sqlite":' .. version .. ',"core_sha256":' .. digest .. ',"target":' .. tostring(c.target_id) ..
+  ',"configuration":' .. tostring(c.configuration_id) .. ',"runtime_basis":' .. runtime ..
+  ',"boot_hash":' .. boot_hash .. '}')
 ]]
   local information = command({ binary, "-e", facts }, f)
   assert(Fs.write(f.logs .. "/runtime.json", information.stdout or ""))

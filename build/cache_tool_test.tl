@@ -81,6 +81,10 @@ end
 --- Readiness is the actual command's open of the database, seen as the descriptor it holds on the file. The
 --- parent holds its write lock until the child has reported cooperative failure.
 local function test_signal_exits_cooperatively_with_an_incomplete_json_report(tmp: string)
+  if sys.stat("/proc/self/fd") == nil then
+    Test.skip("this host has no /proc to read the descriptors the command holds from")
+    return
+  end
   local path = tmp .. "/cache.db"
   local db = assert(Sqlite.open(path, { writable = true }))
   assert(db:exec("CREATE TABLE untouched (value TEXT); BEGIN IMMEDIATE"))

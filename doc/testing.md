@@ -165,8 +165,11 @@ refuses a module of the tree outside the closure.
   the program and nothing else.
 - To run a Teal chunk in the program only (`-e`), the profile `"cosmic"`
   alone is enough (`lua`). `-e` checks its chunk as a file is checked, so
-  the chunk is Teal and requires `cosmic.*` modules only, and the key
-  holds the closure and the checker `-e` runs, not the whole program.
+  the chunk is Teal. It requires `cosmic.*` modules and the tool's own
+  modules, typed from their sources, but only those of the test module's
+  closure are in the store its children run (a `require` of another is
+  refused where the chunk is checked, naming it). The key holds the
+  closure and the checker `-e` runs, not the whole program.
   It is refused beside the profile `"system"`, the `o/cosmic.db` store
   grant or a `/cache/` grant, since a host program or a cosmic a cache
   holds could start the program with no hold on what it loads. Declare

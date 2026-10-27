@@ -98,8 +98,9 @@ test_child.register("confined", function(args: {string}): integer
   local reads: mut {string} = {}
   for path in (args[1] or ""):gmatch("[^:]+") do reads[#reads + 1] = path end
   local program = assert(reads[1])
+  local sandbox: raw_process.Sandbox = { unveil = { reads = reads }, offline = true }
   local pid, trouble = process.spawn(program, { program, "sleep 30000" }, nil, "/", nil,
-    nil, nil, false, nil, { unveil = { reads = reads } })
+    nil, nil, false, nil, sandbox)
   if pid ~= nil then print(tostring(pid)) else print("refused " .. tostring(trouble)) end
   sys.nanosleep(30 * 1000000000)
   return 0

@@ -64,7 +64,7 @@ local function both(): {Entry}
   return { { run = Child.run, start = Child.start }, without_exit_watch() }
 end
 
---- This program again, past its launcher, running the Lua chunk `chunk`.
+--- This program again, past its launcher, running the Teal chunk `chunk`.
 local function lua(chunk: string, opts?: Child.Options): {string}, Child.Options
   local started = this_program.program({ "-e", chunk }, opts)
   return started.argv, started.options

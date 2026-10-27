@@ -852,7 +852,7 @@ local module: Module = {
       usage = "<file.tl> [args]",
     },
     eval = {
-      about = "run a Lua chunk",
+      about = "run a chunk of Teal, checked",
       usage = "'<chunk>' [args]",
     },
     version = {

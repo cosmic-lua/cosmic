@@ -735,7 +735,7 @@ end
 function Dispatch.main(argv: {string}): integer
   local word = argv[1]
   if word == "-e" then
-    -- Lua's one-liner idiom: like --standalone, no tree and no staleness.
+    -- The one-liner: a checked chunk of Teal, like --standalone with no tree and no staleness.
     return evaluate(argv)
   end
   if word == "--version" then
