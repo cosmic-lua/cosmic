@@ -304,7 +304,7 @@ local WRONG <const>: {{string}} = {
 
 local function test_a_slot_given_what_its_place_refuses_is_a_type_error_on_its_line(tmp: string)
   for index, case in ipairs(WRONG) do
-    local trouble = refused(tmp, "wrong" .. index, HEAD .. "ok\n" .. case[1])
+    local trouble = refused(tmp, "wrong" .. tostring(index), HEAD .. "ok\n" .. case[1])
     assert(trouble:find("page.tmpl:3:", 1, true), case[1] .. ": " .. trouble)
     assert(trouble:find(spelled(case[2]), 1, true), case[1] .. ": " .. trouble)
   end
@@ -316,9 +316,9 @@ local function test_a_part_slot_given_what_its_place_refuses_is_a_type_error_on_
   local trouble = refused(tmp, "wrong-part", HEAD .. "ok\n<a href=\"/a/{{.u}}\">\n<a href=\"/a/{{.h}}\">\n" ..
       "<a href=\"/a/{{.items}}\">\n<a href=\"/a/{{.a}}\">\n")
   for line, want in pairs({ [3] = "SafeUrl", [4] = "SafeHtml", [5] = "{Item}", [6] = "SafeAttr" }) do
-    local at = trouble:find("page.tmpl:" .. line .. ":", 1, true)
-    assert(at ~= nil, "no error on line " .. line .. ": " .. trouble)
-    assert(trouble:find(spelled(want), at, true), "line " .. line .. " is not " .. want .. ": " .. trouble)
+    local at = trouble:find("page.tmpl:" .. tostring(line) .. ":", 1, true)
+    assert(at ~= nil, "no error on line " .. tostring(line) .. ": " .. trouble)
+    assert(trouble:find(spelled(want), at, true), "line " .. tostring(line) .. " is not " .. want .. ": " .. trouble)
   end
 end
 
@@ -334,9 +334,9 @@ local function test_a_json_slot_takes_only_a_safejson_and_a_selector_slot_a_stri
       "<a hx-target=\"#{{.a}}\">\n<a hx-get=\"{{.n}}\">\n<a hx-get=\"{{.p}}\">\n<a hx-get=\"/x/{{.u}}\">\n")
   for line, want in pairs({ [3] = "SafeJson", [4] = "SafeJson", [5] = "SafeJson", [6] = "SafeJson",
       [7] = "SafeUrl", [8] = "{Item}", [9] = "SafeAttr", [10] = "integer", [11] = "SafeUrlPart", [12] = "SafeUrl" }) do
-    local at = trouble:find("page.tmpl:" .. line .. ":", 1, true)
-    assert(at ~= nil, "no error on line " .. line .. ": " .. trouble)
-    assert(trouble:find(spelled(want), at, true), "line " .. line .. " is not " .. want .. ": " .. trouble)
+    local at = trouble:find("page.tmpl:" .. tostring(line) .. ":", 1, true)
+    assert(at ~= nil, "no error on line " .. tostring(line) .. ": " .. trouble)
+    assert(trouble:find(spelled(want), at, true), "line " .. tostring(line) .. " is not " .. want .. ": " .. trouble)
   end
   -- Not a type error: the same templates without the dialect read as plain attributes.
   assert(project(tmp, "htmx-plain", HEAD .. "<a title='{{.title}}'>\n"))
@@ -382,7 +382,7 @@ local function test_a_request_url_slot_is_checked_as_a_same_origin_reference(tmp
     { "mailto:a@b.example", "about:invalid" },
   }
   for index, case in ipairs(cases) do
-    local out = render(tmp, "local-" .. index, template, { url = case[1], u = Html.trust_url("https://example.com/a") })
+    local out = render(tmp, "local-" .. tostring(index), template, { url = case[1], u = Html.trust_url("https://example.com/a") })
     assert(attribute(out, "hx-get") == case[2], case[1] .. ": " .. out)
     -- A SafeUrl is the author's: it passes as it is.
     assert(attribute(out, "hx-push-url") == "https://example.com/a", out)
@@ -490,7 +490,7 @@ end
 local function test_a_chain_of_three_hundred_arms_builds_and_renders(tmp: string)
   local arms: mut {string} = { "{{if .flag}}F" }
   for arm = 1, 300 do
-    arms[#arms + 1] = (if arm % 2 == 0 then "{{else if .error}}e" else "{{else if .owner}}o" end) .. arm
+    arms[#arms + 1] = (if arm % 2 == 0 then "{{else if .error}}e" else "{{else if .owner}}o" end) .. tostring(arm)
   end
   arms[#arms + 1] = "{{else}}none{{end}}"
   local template = HEAD .. table.concat(arms)
@@ -592,7 +592,7 @@ local function test_markup_from_another_template_is_a_type_error_inside_svg_math
   -- parser reads it so too.
   for index, outer in ipairs({ "<svg>{{. | inner.render}}</svg>", "<math>{{. | inner.render}}</math>",
       "<select>{{. | inner.render}}</select>", "<svg><g>{{.h}}</g></svg>" }) do
-    local lua, trouble = build(tmp, "foreign" .. index, { ["data.tl"] = DATA, ["inner.tmpl"] = TITLED,
+    local lua, trouble = build(tmp, "foreign" .. tostring(index), { ["data.tl"] = DATA, ["inner.tmpl"] = TITLED,
       ["page.tmpl"] = HEAD .. "ok\n" .. outer })
     assert(lua == nil, outer .. ": built")
     assert(trouble:find("page.tmpl:3:", 1, true) and trouble:find("SafeHtml", 1, true), outer .. ": " .. trouble)
@@ -635,7 +635,7 @@ local function test_a_stage_answering_a_safe_type_fits_the_slot_that_takes_it(tm
   for index, wrong in ipairs({ "<p>{{.title | fmt.attr}}</p>", "<i title=\"{{.title | fmt.markup}}\">",
       "<a href=\"{{.title | fmt.attr}}\">", "<a href=\"{{.title | fmt.markup}}\">",
       "<i title=\"{{.title | fmt.url}}\">", "<p>{{.title | fmt.url}}</p>" }) do
-    local trouble = refused(tmp, "stage-wrong" .. index, HEAD .. wrong)
+    local trouble = refused(tmp, "stage-wrong" .. tostring(index), HEAD .. wrong)
     assert(trouble:find("page.tmpl:2:", 1, true) and trouble:find("Safe", 1, true), wrong .. ": " .. trouble)
   end
 end
@@ -736,7 +736,7 @@ local function test_a_stage_answering_more_than_one_value_is_refused_in_every_po
   for index, action in ipairs({ "{{.title | multi.pair}}", "{{.title | multi.pair | fmt.join}}",
       "{{.title | multi.pair | fmt.upper}}", "{{if .title | multi.pair}}x{{end}}",
       "{{with .title | multi.pair}}{{.}}{{end}}", "{{range .title | multi.pair}}x{{end}}" }) do
-    local trouble = refused(tmp, "pair-" .. index, "{{type Page from data}}{{mode text}}\nfine\n" .. action)
+    local trouble = refused(tmp, "pair-" .. tostring(index), "{{type Page from data}}{{mode text}}\nfine\n" .. action)
     assert(trouble:find("page.tmpl:3:", 1, true), action .. ": " .. trouble)
     assert(trouble:find(spelled("wrong number of arguments"), 1, true), action .. ": " .. trouble)
   end

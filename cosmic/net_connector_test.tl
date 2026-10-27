@@ -158,7 +158,7 @@ local function test_listener_from_refuses_what_is_no_listening_tcp_socket(tmp: s
   local function refuses(fd: integer, what: string, fragments: {string})
     local listener, why = Net.listener_from(fd)
     assert(listener == nil, what .. " was adopted")
-    assert(why:find("descriptor " .. fd .. " is no listening TCP socket", 1, true) ~= nil, why)
+    assert(why:find("descriptor " .. tostring(fd) .. " is no listening TCP socket", 1, true) ~= nil, why)
     local found = false
     for _, fragment in ipairs(fragments) do
       found = found or why:find(fragment, 1, true) ~= nil
@@ -245,14 +245,14 @@ local function test_a_table_connector_connects_to_its_endpoints_and_refuses_the_
     for n = 1, 2 do
       local conn = assert(dial(connector, "127.0.0.1", port, Clock.seconds(5)))
       conn:set_timeout(Clock.seconds(5))
-      assert(conn:write("hello " .. n))
-      assert(assert(conn:read()) == "hello " .. n)
+      assert(conn:write("hello " .. tostring(n)))
+      assert(assert(conn:read()) == "hello " .. tostring(n))
       assert(conn:close())
     end
     -- What the table does not name: another port or address.
     local function refused(host: string, at: integer, fragment: string)
       local conn, why = dial(connector, host, at, Clock.seconds(5))
-      assert(conn == nil and why:find(fragment, 1, true) ~= nil, host .. ":" .. at .. " " .. tostring(why))
+      assert(conn == nil and why:find(fragment, 1, true) ~= nil, host .. ":" .. tostring(at) .. " " .. tostring(why))
     end
     refused("127.0.0.1", if port == 65535 then 1 else port + 1 end, "is not in the connector's table")
     refused("127.0.0.3", port, "is not in the connector's table")
@@ -347,7 +347,7 @@ local function test_a_public_only_connector_reaches_public_addresses_through_its
     local port = assert(listener.address.port)
     local connector = assert(Net.connector({}, { public = { deny = {} } }))
     for n = 1, 3 do
-      echo_through(assert(dial(connector, "127.0.0.1", port, Clock.seconds(5))), "n" .. n)
+      echo_through(assert(dial(connector, "127.0.0.1", port, Clock.seconds(5))), "n" .. tostring(n))
     end
     -- A port that was free a moment ago: the connector's errno is the reason.
     local free = assert(Net.listen(Net.tcp("127.0.0.1", 0)))
@@ -380,7 +380,7 @@ local function test_a_connect_waits_at_most_the_ceiling()
         local conn, why = dial(connector, "127.0.0.1", port, asked == "5 s" and Clock.seconds(5) or nil)
         local elapsed = Clock.monotonic_ns() - started
         assert(conn == nil and why == Poll.TIMEOUT, name .. ": " .. tostring(why))
-        assert(elapsed < Clock.seconds(2), name .. " asked for " .. asked .. " and waited " .. elapsed // Clock.ms(1) .. " ms")
+        assert(elapsed < Clock.seconds(2), name .. " asked for " .. asked .. " and waited " .. tostring(elapsed // Clock.ms(1)) .. " ms")
         assert(not connector:ended())
       end
       assert(connector:close())
@@ -466,8 +466,8 @@ local function test_a_hung_connect_holds_up_no_other()
       tasks[n] = Poll.spawn(function()
         local conn = assert(dial(connector, "127.0.0.1", echo, Clock.seconds(5)))
         conn:set_timeout(Clock.seconds(5))
-        assert(conn:write("n" .. n))
-        assert(assert(conn:read()) == "n" .. n)
+        assert(conn:write("n" .. tostring(n)))
+        assert(assert(conn:read()) == "n" .. tostring(n))
         assert(conn:close())
         done[#done + 1] = n
       end)
@@ -475,11 +475,11 @@ local function test_a_hung_connect_holds_up_no_other()
     for n = 1, 8 do assert(tasks[n]:join()) end
     local others = Clock.monotonic_ns() - started
     assert(#done == 8 and hung.value == nil, "the others finished first")
-    assert(others < Clock.ms(700), "the others waited for the hung connect: " .. others // Clock.ms(1) .. " ms")
+    assert(others < Clock.ms(700), "the others waited for the hung connect: " .. tostring(others // Clock.ms(1)) .. " ms")
     assert(hanging:join())
     local elapsed = Clock.monotonic_ns() - started
     assert(hung.value == Poll.TIMEOUT, tostring(hung.value))
-    assert(elapsed >= Clock.ms(790) and elapsed < Clock.seconds(3), elapsed // Clock.ms(1) .. " ms")
+    assert(elapsed >= Clock.ms(790) and elapsed < Clock.seconds(3), tostring(elapsed // Clock.ms(1)) .. " ms")
     -- The hung connect's reply came whole: the same stream serves on.
     assert(not connector:ended())
     local conn = assert(dial(connector, "127.0.0.1", echo, Clock.seconds(5)))
@@ -519,8 +519,8 @@ local function test_requests_past_the_flight_wait_for_room()
     assert(none == nil and why == Poll.TIMEOUT, tostring(why))
     local conn = assert(dial(connector, "127.0.0.1", echo, Clock.seconds(10)))
     local waited = Clock.monotonic_ns() - killed_at
-    assert(waited >= Clock.ms(1500), "a request past the flight was made at once: " .. waited // Clock.ms(1) .. " ms")
-    assert(waited < Clock.seconds(5), waited // Clock.ms(1) .. " ms")
+    assert(waited >= Clock.ms(1500), "a request past the flight was made at once: " .. tostring(waited // Clock.ms(1)) .. " ms")
+    assert(waited < Clock.seconds(5), tostring(waited // Clock.ms(1)) .. " ms")
     assert(conn:close())
     assert(not connector:ended())
     assert(connector:close())
@@ -754,7 +754,7 @@ local function test_a_full_table_and_the_public_lists_share_one_process()
     local listener, task = echo_server()
     local other, other_task = echo_server()
     local rows: mut {Net.Endpoint} = { { host = "127.0.0.1", port = listener.address.port } }
-    for i = 2, 128 do rows[i] = { host = "10.0.0." .. i, port = 80 } end
+    for i = 2, 128 do rows[i] = { host = "10.0.0." .. tostring(i), port = 80 } end
     local connector = assert(Net.connector(rows, { public = { deny = {} } }))
     echo_through(assert(dial(connector, "127.0.0.1", assert(listener.address.port), Clock.seconds(5))), "table")
     echo_through(assert(dial(connector, "127.0.0.1", assert(other.address.port), Clock.seconds(5))), "public")

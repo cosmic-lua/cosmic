@@ -55,10 +55,10 @@ local function test_a_port_held_is_refused_and_one_closed_refuses()
   local server = assert(Net.listen(Net.tcp("127.0.0.1", 0)))
   local port = assert(server.address.port)
   local again, taken = Net.listen(Net.tcp("127.0.0.1", port))
-  assert(again == nil and taken == "127.0.0.1:" .. port .. ": Address in use", taken)
+  assert(again == nil and taken == "127.0.0.1:" .. tostring(port) .. ": Address in use", taken)
   assert(server:close())
   local conn, why = Net.connect(Net.tcp("127.0.0.1", port), { timeout_ns = Clock.seconds(5) })
-  assert(conn == nil and why == "127.0.0.1:" .. port .. ": Connection refused", why)
+  assert(conn == nil and why == "127.0.0.1:" .. tostring(port) .. ": Connection refused", why)
 end
 
 --- A host is a numeric address: a name is refused, saying so, and a
@@ -93,7 +93,7 @@ local function test_a_connection_to_a_full_backlog_times_out_or_is_interrupted()
     end
     held[#held + 1] = conn
   end
-  local at = "127.0.0.1:" .. assert(server.address.port) .. ": "
+  local at = "127.0.0.1:" .. tostring(assert(server.address.port)) .. ": "
   assert(why == at .. Poll.TIMEOUT, why)
   local guard = assert(Signal.guard())
   assert(sys.kill(sys.getpid(), sys.SIGINT))
@@ -136,7 +136,7 @@ local function test_in_a_run_a_tcp_connect_waits_through_the_run()
     assert(filling:join())
   end)
   for _, conn in ipairs(held) do assert(conn:close()) end
-  assert(why.value == "127.0.0.1:" .. assert(server.address.port) .. ": " .. Poll.TIMEOUT, why.value)
+  assert(why.value == "127.0.0.1:" .. tostring(assert(server.address.port)) .. ": " .. Poll.TIMEOUT, why.value)
   assert(ticks_at_end.value > 0, "no other task ran while a connection waited")
   local port = assert(server.address.port)
   assert(server:close())
@@ -144,7 +144,7 @@ local function test_in_a_run_a_tcp_connect_waits_through_the_run()
   Poll.run(function()
     refused.value, why.value = Net.connect(Net.tcp("127.0.0.1", port), { timeout_ns = Clock.seconds(5) })
   end)
-  assert(refused.value == nil and why.value == "127.0.0.1:" .. port .. ": Connection refused", why.value)
+  assert(refused.value == nil and why.value == "127.0.0.1:" .. tostring(port) .. ": Connection refused", why.value)
 end
 
 --- One protocol serves every listener, a TCP one and a unix one alike,
