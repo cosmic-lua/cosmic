@@ -1,7 +1,6 @@
---- Tests of [`build.syntax_contracts`] against the fork's contracts: each program is read by the new checker, and
---- the port says what the fork said of it (kept as text, [`lang.forked`]), problem for problem, in order -- the breaches of each rule and
---- the programs that keep it -- with the places where the new checker's types make the answer differ named in a test of
---- their own.
+--- Tests of [`build.syntax_contracts`]: each program is read by the new checker and the breaches of each rule it says
+--- are the ones the test names, and the programs that keep the rules get none, with the places where the checker's types
+--- make the answer differ named in a test of their own.
 local Rules = require("build.contract_rules")
 local Fixture = require("build.syntax_typed_fixture")
 local SyntaxContracts = require("build.syntax_contracts")
@@ -10,37 +9,31 @@ local Test = require("cosmic.test")
 Test.policy{
   grants = {
     { path = "lang/stdlib.d.tl", letters = "r" }, { path = "lang/prelude.d.tl", letters = "r" },
-    { path = "testdata/forked/typed_fixture.txt", letters = "r" },
     { path = "core/syscalls.h", letters = "r" }, { path = "core/process.h", letters = "r" }, { path = "core/socket.h", letters = "r" },
   },
 }
 
 local LOG_MODULES <const>: {string: string} = { ["cosmic.log"] = Fixture.LOG }
 
---- What the fork and the port say of `body` after the prelude; the two must say the same. The fork's problems.
-local function same(body: string, given?: Rules.Exemptions, modules?: {string: string}): {string}
-  local source = Fixture.PRELUDE .. body
-  local fork = Fixture.forked(source, modules or LOG_MODULES, given)
-  local port = Fixture.port(source, modules or LOG_MODULES, given)
-  assert(table.concat(fork.problems, "\n") == table.concat(port.problems, "\n"), "in:\n" .. body .. "\nthe fork says:\n" ..
-      table.concat(fork.problems, "\n") .. "\nthe port says:\n" .. table.concat(port.problems, "\n"))
-  return fork.problems
+--- What the checker says of `body` after the prelude: its problems.
+local function problems_of(body: string, given?: Rules.Exemptions, modules?: {string: string}): {string}
+  return Fixture.port(Fixture.PRELUDE .. body, modules or LOG_MODULES, given).problems
 end
 
---- Programs that breach a rule: the fork refuses each with `wanted` in its words, and so does the port.
+--- Programs that breach a rule: the checker refuses each with `wanted` in its words.
 local function breaches(wanted: string, bodies: {string})
   for _, body in ipairs(bodies) do
-    local found = same(body)
-    assert(#found >= 1, "the fork finds no breach in:\n" .. body)
+    local found = problems_of(body)
+    assert(#found >= 1, "no breach found in:\n" .. body)
     local joined = table.concat(found, "\n")
     assert(joined:find(wanted, 1, true) ~= nil, "expected " .. wanted .. " in:\n" .. joined .. "\nof:\n" .. body)
   end
 end
 
---- Programs that keep the rules: neither reader finds anything.
+--- Programs that keep the rules: the checker finds nothing.
 local function keeps(bodies: {string})
   for _, body in ipairs(bodies) do
-    local found = same(body)
+    local found = problems_of(body)
     assert(#found == 0, table.concat(found, "\n") .. "\nin:\n" .. body)
   end
 end
@@ -60,7 +53,7 @@ local function test_a_dropped_error_slot_is_flagged_wherever_it_is_truncated()
     "local v = get() or 0\nuse(v)", "use(not put())", "if get() then use(1) end", "use(get() == 1)", "use(get(), 1)",
     "local v = get()\nuse(v)", "local v, w = get(), 1\nuse(v, w)", "use((get()))", "use({get()})", "use({1, get()})",
     "print(get())", "use(select(1, get()))", "use(1, get())", "lead(sget())", "maybe(get())",
-    "local function va(_v: integer | nil, _why: string, ...: any) end\nva(get())",
+    "local function va(_v: integer?, _why: string, ...: any) end\nva(get())",
   })
   breaches("its failure is ignored", {
     "put()", "get()", "do put() end", "local function f() put() end\nuse(f)", "use(function() put() end)",
@@ -71,7 +64,7 @@ end
 local function test_a_kept_error_slot_is_allowed()
   keeps({
     "local v, err = get()\nuse(v, err)", "local v: integer\nlocal err: string\nv, err = get()\nuse(v, err)",
-    "use(assert(get()))", "local function f(): integer | nil, string return get() end\nuse(f)", "local _, _ = put()",
+    "use(assert(get()))", "local function f(): integer?, string return get() end\nuse(f)", "local _, _ = put()",
     "local ok, _ = put()\nuse(ok)", "complain(get())", "log:note(get())", "log.note(log, get())",
     "use(name() or 'y')", "use(not pair())", "name()", "pair()",
     "local function mk(): function(): boolean, string return put end\nlocal _, _ = mk()()",
@@ -79,8 +72,8 @@ local function test_a_kept_error_slot_is_allowed()
 end
 
 local function test_a_method_is_judged_by_the_function_the_checker_took_for_it()
-  local record_source = "local record Obj\n  fetch: function(Obj): integer | nil, string\n  count: function(Obj): integer\nend\n" ..
-    "local o: Obj = { fetch = function(_: Obj): integer | nil, string return nil, 'x' end," ..
+  local record_source = "local record Obj\n  fetch: function(Obj): integer?, string\n  count: function(Obj): integer\nend\n" ..
+    "local o: Obj = { fetch = function(_: Obj): integer?, string return nil, 'x' end," ..
     " count = function(_: Obj): integer return 1 end }\n"
   breaches("o:fetch: its failure is ignored", { record_source .. "o:fetch()" })
   breaches("o:fetch: its error slot is dropped", { record_source .. "use(o:fetch())", record_source .. "local v = o:fetch()\nuse(v)" })
@@ -94,64 +87,64 @@ end
 
 local function test_a_failure_carries_no_value()
   breaches("beside its reason", {
-    "local function f(): integer | nil, string\n  local v, err = get()\n  if v == nil then return 0, err end\n" ..
+    "local function f(): integer?, string\n  local v, err = get()\n  if v == nil then return 0, err end\n" ..
       "  return v, ''\nend\nuse(f)",
     "local function f(): boolean, string\n  local ok, why = put()\n  return ok, why\nend\nuse(f)",
-    "local function f(n: integer): integer | nil, string\n  if n > 0 then return n, nil end\n" ..
+    "local function f(n: integer): integer?, string\n  if n > 0 then return n, nil end\n" ..
       "  return nil, 'not positive'\nend\nuse(f)",
   })
   keeps({
-    "local function f(): integer | nil, string\n  local v, err = get()\n  if v == nil then return nil, err end\n" ..
+    "local function f(): integer?, string\n  local v, err = get()\n  if v == nil then return nil, err end\n" ..
       "  return v, ''\nend\nuse(f)",
     "local function f(): boolean, string\n  local ok, why = put()\n  if not ok then return false, why end\n" ..
       "  return true, ''\nend\nuse(f)",
-    "local function f(): integer | nil, string\n  local function g(): integer, string return 1, 'two' end\n" ..
+    "local function f(): integer?, string\n  local function g(): integer, string return 1, 'two' end\n" ..
       "  use(g)\n  return get()\nend\nuse(f)",
   })
 end
 
 local function test_a_reason_is_exactly_a_string()
   breaches("a failure's reason is exactly a string", {
-    "local function f(): string | nil, integer\n  return nil, 127\nend\nuse(f)",
-    "local function f(): {string} | nil, integer | string\n  return nil, 'no'\nend\nuse(f)",
-    "local function f(): string | nil, string | nil\n  return nil, 'no'\nend\nuse(f)",
+    "local function f(): string?, integer\n  return nil, 127\nend\nuse(f)",
+    "local function f(): {string}?, integer | string\n  return nil, 'no'\nend\nuse(f)",
+    "local function f(): string?, string?\n  return nil, 'no'\nend\nuse(f)",
   })
   keeps({
     "local function f(): boolean, integer\n  return true, 1\nend\nuse(f)",
-    "local function f(): integer | nil, integer | nil\n  return nil, nil\nend\nuse(f)",
+    "local function f(): integer?, integer?\n  return nil, nil\nend\nuse(f)",
   })
 end
 
 local function test_a_failure_that_cannot_happen_is_not_declared()
   breaches("the declared failure never happens", {
-    "local function f(n: integer): integer | nil, string\n  if n > 0 then return n, '' end\n  return 0, ''\nend\nuse(f)",
-    "local function f(n: integer): integer | nil, string\n  return n + 1, ''\nend\nuse(f)",
+    "local function f(n: integer): integer?, string\n  if n > 0 then return n, '' end\n  return 0, ''\nend\nuse(f)",
+    "local function f(n: integer): integer?, string\n  return n + 1, ''\nend\nuse(f)",
   })
   keeps({
-    "local function f(n: integer): integer | nil, string\n  if n > 0 then return n, '' end\n" ..
+    "local function f(n: integer): integer?, string\n  if n > 0 then return n, '' end\n" ..
       "  return nil, 'not positive'\nend\nuse(f)",
-    "local function f(): integer | nil, string\n  return get()\nend\nuse(f)",
+    "local function f(): integer?, string\n  return get()\nend\nuse(f)",
   })
 end
 
 local function test_a_fallible_function_declares_exactly_two_results()
   breaches("nothing in a third", {
-    "local function f(): integer | nil, string, integer\n  return nil, 'no', 2\nend\nuse(f)",
+    "local function f(): integer?, string, integer\n  return nil, 'no', 2\nend\nuse(f)",
     "local function f(): boolean, string, integer\n  return false, 'no', 2\nend\nuse(f)",
-    "local t = {}\nt.f = function(): integer | nil, string, integer\n  return nil, 'no', 2\nend\nuse(t)",
-    "local function f(): integer | nil, string...\n  return nil, 'no', 'more'\nend\nuse(f)",
-    "local record R end\nfunction R.f(): integer | nil, string, integer\n  return nil, 'no', 2\nend\nuse(R)",
+    "local t = {}\nt.f = function(): integer?, string, integer\n  return nil, 'no', 2\nend\nuse(t)",
+    "local function f(): integer?, string...\n  return nil, 'no', 'more'\nend\nuse(f)",
+    "local record R end\nfunction R.f(): integer?, string, integer\n  return nil, 'no', 2\nend\nuse(R)",
   })
 end
 
 local function test_an_exempt_function_is_not_held_to_the_return_rules()
-  local source = "local function f(): integer | nil, string\n  return 1, 'why'\nend\nuse(f)"
+  local source = "local function f(): integer?, string\n  return 1, 'why'\nend\nuse(f)"
   breaches("beside its reason", { source })
-  local found = same(source, exempting("exempt", { "x.tl:f" }))
+  local found = problems_of(source, exempting("exempt", { "x.tl:f" }))
   assert(#found == 0, table.concat(found, "\n"))
-  local nested = "local function f()\n  local function g(): integer | nil, string return 1, 'x' end\n  use(g)\nend\nuse(f)"
+  local nested = "local function f()\n  local function g(): integer?, string return 1, 'x' end\n  use(g)\nend\nuse(f)"
   breaches("a failure answers nil beside its reason", { nested })
-  assert(#same(nested, exempting("exempt", { "x.tl:f.g" })) == 0)
+  assert(#problems_of(nested, exempting("exempt", { "x.tl:f.g" })) == 0)
 end
 
 local function test_a_quiet_records_method_may_stand_alone_and_a_record_named_like_it_may_not()
@@ -181,7 +174,7 @@ local function test_a_reason_is_never_read_for_what_it_says()
     "local v, err = get()\nlocal err2 = err:find('x')\nuse(v, err2)",
     "local v, err = get()\ndo local err = err:sub(1, 2) use(err) end\nuse(v)",
     "local v, err = get()\nif v == nil then\n  v, err = get()\nend\nuse(v, err:find('x'))",
-    "local v: integer | nil\nlocal err = ''\nif name() == 'a' then\n  v, err = get()\nend\nuse(v, err:match('x'))",
+    "local v: integer?\nlocal err = ''\nif name() == 'a' then\n  v, err = get()\nend\nuse(v, err:match('x'))",
     "local v, err = get()\nif v == nil then\n  err = name()\nend\nuse(v, err:find('x'))",
   })
   keeps({
@@ -207,10 +200,10 @@ local function test_a_reason_is_never_read_for_what_it_says()
   -- a reason reached without a name drops its slot
   breaches("its error slot is dropped", { "use(select(2, get()) == 'none')" })
   local source = "local function f()\n  local v, err = get()\n  use(v, err:find('x'))\nend\nuse(f)"
-  assert(#same(source, exempting("parsing", { "x.tl:f" })) == 0)
+  assert(#problems_of(source, exempting("parsing", { "x.tl:f" })) == 0)
   local nested = "local function f()\n  local function g()\n    local v, err = get()\n    use(v, err:find('x'))\n  end\n" ..
     "  use(g)\nend\nuse(f)"
-  assert(#same(nested, exempting("parsing", { "x.tl:f.g" })) == 0)
+  assert(#problems_of(nested, exempting("parsing", { "x.tl:f.g" })) == 0)
 end
 
 local function test_a_cast_is_flagged_where_no_function_may_cast()
@@ -230,17 +223,17 @@ local function test_a_cast_is_flagged_where_no_function_may_cast()
   })
   breaches("f: " .. cast, { "local extra: any = select(2, ...)\nlocal function f(): {string} return extra as {string} end\nuse(f)" })
   local source = "local function f(v: any): integer return v as integer end\nlocal g = function(v: any): string return v as string end\nuse(f, g)"
-  local one = same(source, exempting("casts", { "x.tl:f" }))
+  local one = problems_of(source, exempting("casts", { "x.tl:f" }))
   assert(#one == 1 and one[1]:find("g: " .. cast, 1, true) ~= nil, table.concat(one, "\n"))
-  assert(#same(source, exempting("casts", { "x.tl:f", "x.tl:g" })) == 0)
+  assert(#problems_of(source, exempting("casts", { "x.tl:f", "x.tl:g" })) == 0)
 end
 
 local function test_an_exemption_no_check_needs_is_refused()
   local unused = "which no longer needs it"
   for _, which in ipairs({ "casts", "parsing", "exempt", "modes" }) do
-    local found = same("use(1)", exempting(which, { "x.tl:gone" }))
+    local found = problems_of("use(1)", exempting(which, { "x.tl:gone" }))
     assert(#found == 1 and found[1]:find("contracts." .. which .. " names x.tl:gone, " .. unused, 1, true), table.concat(found, "\n"))
-    local stubbed = same("use(1)", exempting(which, { "build/importer.tl:generate" }))
+    local stubbed = problems_of("use(1)", exempting(which, { "build/importer.tl:generate" }))
     assert(#stubbed == 1 and stubbed[1]:find("names build/importer.tl:generate", 1, true), table.concat(stubbed, "\n"))
   end
 end
@@ -269,7 +262,7 @@ local function test_a_string_mode_is_flagged_and_a_string_that_is_no_mode_is_all
   breaches("Options.links: a string compared with \"create\", \"skip\" " .. modal, {
     options .. "local function f(o: Options)\n  if o.links == 'skip' then use(1) elseif o.links ~= 'create' then use(2) end\nend\nuse(f)",
     options .. "local function f(o: Options)\n  local mode = o.links or 'skip'\n  if mode == 'create' then use(1) end\nend\nuse(f)",
-    "local record Options\n  links: string | nil\nend\nlocal function f(o: Options)\n" ..
+    "local record Options\n  links: string?\nend\nlocal function f(o: Options)\n" ..
       "  if o.links == 'skip' or o.links == 'create' then use(1) end\nend\nuse(f)",
     options .. "local function f(o: Options)\n  local m: string\n  m = o.links\n  if m == 'skip' or m == 'create' then use(1) end\nend\nuse(f)",
   })
@@ -292,7 +285,7 @@ local function test_a_string_mode_is_flagged_and_a_string_that_is_no_mode_is_all
       "  local m2 = m\n  local m = 'x'\n  if m == 'a' or m == 'b' then use(m2) end\nend\nuse(f)",
   })
   local source = options .. "local function f(o: Options)\n  if o.links == 'skip' or o.links == 'create' then use(1) end\nend\nuse(f)"
-  assert(#same(source, exempting("modes", { "x.tl:Options.links" })) == 0)
+  assert(#problems_of(source, exempting("modes", { "x.tl:Options.links" })) == 0)
 end
 
 local function test_an_exported_tuple_is_flagged_and_a_single_result_or_failure_pair_is_allowed()
@@ -310,12 +303,12 @@ local function test_an_exported_tuple_is_flagged_and_a_single_result_or_failure_
     "local record M\n  record R\n    n: integer\n    pair: function(R): integer, integer\n  end\nend\nreturn M",
   })
   keeps({
-    "local record M end\nfunction M.one(): string\n  return 'a'\nend\nfunction M.read(): string | nil, string\n  return sget()\nend\n" ..
+    "local record M end\nfunction M.one(): string\n  return 'a'\nend\nfunction M.problems_of(): string?, string\n  return sget()\nend\n" ..
       "function M.write(): boolean, string\n  return put()\nend\nreturn M",
     "local record M end\nlocal function split(): string, string\n  return 'a', 'b'\nend\nfunction M.first(): string\n" ..
       "  local a, _ = split()\n  return a\nend\nreturn M",
   })
-  assert(#same("local record M end\nfunction M.split(): string, string\n  return 'a', 'b'\nend\nreturn M",
+  assert(#problems_of("local record M end\nfunction M.split(): string, string\n  return 'a', 'b'\nend\nreturn M",
     exempting("exempt", { "x.tl:M.split" })) == 0)
 end
 
@@ -323,7 +316,7 @@ local function test_every_rule_judged_a_place_in_the_programs_it_read()
   local source = Fixture.PRELUDE .. table.concat({
     "local record Options\n  mode: string\nend",
     "get()",
-    "local function f(o: Options): integer | nil, string",
+    "local function f(o: Options): integer?, string",
     "  local v, err = get()",
     "  if o.mode == 'a' or o.mode == 'b' then use(err:find('x')) end",
     "  use(v as any)",
@@ -340,8 +333,8 @@ local function test_every_rule_judged_a_place_in_the_programs_it_read()
 end
 
 --- The bindings of C are typed from the declarations the build derives from their headers, so the rules judge their calls as
---- the fork does: a dropped slot, a reason parsed, a bare boolean over a binding (rule 11), and a stand-in for a binding.
-local function test_the_calls_of_a_binding_of_c_are_judged_as_the_fork_judges_them()
+--- any other: a dropped slot, a reason parsed, a bare boolean over a binding (rule 11), and a stand-in for a binding.
+local function test_the_calls_of_a_binding_of_c_are_judged_as_any_others_are()
   local sys = "local sys = require('cosmic.sys')\n"
   breaches("sys.unlink: its failure is ignored", { sys .. "sys.unlink('x')" })
   breaches("its error slot is dropped", {
@@ -379,16 +372,16 @@ local function test_an_exported_bare_boolean_over_a_binding_is_flagged()
     sys .. "local function rm(p: string): boolean\n  local ok, _ = sys.unlink(p)\n  return ok\nend\nuse(rm)\nreturn M",
   })
   local exempt = sys .. "function M.rm(p: string): boolean\n  local ok, _ = sys.unlink(p)\n  return ok\nend\nreturn M"
-  assert(#same(exempt, exempting("exempt", { "x.tl:M.rm" })) == 0)
+  assert(#problems_of(exempt, exempting("exempt", { "x.tl:M.rm" })) == 0)
 end
 
 local function test_the_raw_process_table_is_held_as_the_syscall_table_is()
   local process = "local process = require('cosmic.internal.process')\n"
   keeps({
-    process .. "local spawn = process.spawn\nprocess.spawn = function(path: string, argv: {string}, environment: {string:string} | nil,\n" ..
-      "    cwd: string | nil, stdin: integer | nil, stdout: integer | nil,\n" ..
-      "    stderr: integer | nil, process_group: boolean, fds?: {integer:integer},\n" ..
-      "    sandbox?: process.Sandbox, credentials?: process.Credentials): integer | nil, string, integer\n" ..
+    process .. "local spawn = process.spawn\nprocess.spawn = function(path: string, argv: {string}, environment: {string:string}?,\n" ..
+      "    cwd: string?, stdin: integer?, stdout: integer?,\n" ..
+      "    stderr: integer?, process_group: boolean, fds?: {integer:integer},\n" ..
+      "    sandbox?: process.Sandbox, credentials?: process.Credentials): integer?, string, integer\n" ..
       "  local pid, trouble, errno = spawn(path, argv, environment, cwd, stdin, stdout,\n" ..
       "    stderr, process_group, fds, sandbox, credentials)\n  return pid, trouble, errno\nend",
   })
@@ -438,8 +431,7 @@ local record Form
 end
 
 --- A field of a function type is a function the module exports, written as the type or as a name that stands for it: a type
---- of the module, of the record, one that names another, or one of another module's record. The fork reads the written type
---- only, so the port is stricter than the fork here, and no comparison with it is made.
+--- of the module, of the record, one that names another, or one of another module's record.
 local function test_an_exported_field_is_judged_by_its_function_type_however_the_type_is_written()
   local inline = exported("", "spread: function(string): string, string")
   assert(#inline.problems == 1 and first_problem(inline):find("M.spread: " .. ONE_RESULT, 1, true) ~= nil,
@@ -478,7 +470,7 @@ local function test_an_exported_field_that_may_be_any_of_several_function_types_
   -- two members that answer several results are one problem
   local twice = exported(before .. "local type Third = function(string): integer, integer\n", "either: Spread | Third")
   assert(#twice.problems == 1, table.concat(twice.problems, "\n"))
-  local kept = exported(before .. "local type Other = function(string): string | nil, string\n", "either: One | Other")
+  local kept = exported(before .. "local type Other = function(string): string?, string\n", "either: One | Other")
   assert(#kept.problems == 0, table.concat(kept.problems, "\n"))
   -- a function of one of them is judged as a function of its own
   assert(#exported(before, "either?: Spread").problems == 1)
@@ -487,7 +479,7 @@ end
 local function test_an_exported_field_of_a_function_type_that_answers_one_result_or_a_failure_is_allowed_by_any_name()
   local allowed: {Form} = {
     { before = "local type One = function(string): string\n", field = "one: One" },
-    { before = "local type Pair = function(string): string | nil, string\n", field = "pair: Pair" },
+    { before = "local type Pair = function(string): string?, string\n", field = "pair: Pair" },
     { before = "local type Effect = function(string): boolean, string\n", field = "effect: Effect" },
     { before = "local type Nothing = function(string)\n", field = "nothing: Nothing" },
     { before = "", field = "type Hint = function(string): string\n  hint: Hint" },
@@ -507,10 +499,10 @@ local function test_an_exported_field_of_a_function_type_that_answers_one_result
 end
 
 --- A result typed by a binding of C's record is a fallible function's, and an `invalid` one (a type that failed to lower) is
---- taken for what the fork read.
+--- taken for a type that admits nil.
 local function test_a_result_typed_by_a_binding_of_c_admits_nil()
-  keeps({ "local sys = require('cosmic.sys')\nlocal record M end\nfunction M.stat(p: string): sys.Stat | nil, string\n  return nil, p\nend\nreturn M" })
-  local unknown = Fixture.port(Fixture.PRELUDE .. "local record M end\nfunction M.stat(p: string): Nowhere | nil, string\n  return nil, p\nend\nreturn M\n",
+  keeps({ "local sys = require('cosmic.sys')\nlocal record M end\nfunction M.stat(p: string): sys.Stat?, string\n  return nil, p\nend\nreturn M" })
+  local unknown = Fixture.port(Fixture.PRELUDE .. "local record M end\nfunction M.stat(p: string): Nowhere?, string\n  return nil, p\nend\nreturn M\n",
     LOG_MODULES)
   assert(#unknown.problems == 0, table.concat(unknown.problems, "\n"))
 end
@@ -530,21 +522,21 @@ local function test_a_result_that_admits_nil_as_any_does_and_every_value_that_ca
   breaches("beside its reason", { "local function f(): any, string\n  return 1, 'x'\nend\nuse(f)" })
   local never = "the declared failure never happens"
   breaches(never, {
-    "local function f(s: string): string | nil, string\n  return s .. 'x', ''\nend\nuse(f)",
-    "local function f(n: integer): integer | nil, string\n  return -n, ''\nend\nuse(f)",
-    "local function f(t: {string}): integer | nil, string\n  return #t, ''\nend\nuse(f)",
-    "local function f(b: boolean): boolean | nil, string\n  return not b, ''\nend\nuse(f)",
-    "local function f(n: integer): boolean | nil, string\n  return n < 2, ''\nend\nuse(f)",
-    "local function f(): {string: string} | nil, string\n  local m: {string: string} = {}\n  return m, ''\nend\nuse(f)",
-    "local function f(): {string} | nil, string\n  local a: {string} = {}\n  return a, ''\nend\nuse(f)",
-    "local enum E\n  'a'\n  'b'\nend\nlocal function f(): E | nil, string\n  local e: E = 'a'\n  return e, ''\nend\nuse(f)",
-    "local record R\n  n: integer\nend\nlocal function f(): R | nil, string\n  local r: R = { n = 1 }\n  return r, ''\nend\nuse(f)",
+    "local function f(s: string): string?, string\n  return s .. 'x', ''\nend\nuse(f)",
+    "local function f(n: integer): integer?, string\n  return -n, ''\nend\nuse(f)",
+    "local function f(t: {string}): integer?, string\n  return #t, ''\nend\nuse(f)",
+    "local function f(b: boolean): boolean?, string\n  return not b, ''\nend\nuse(f)",
+    "local function f(n: integer): boolean?, string\n  return n < 2, ''\nend\nuse(f)",
+    "local function f(): {string: string}?, string\n  local m: {string: string} = {}\n  return m, ''\nend\nuse(f)",
+    "local function f(): {string}?, string\n  local a: {string} = {}\n  return a, ''\nend\nuse(f)",
+    "local enum E\n  'a'\n  'b'\nend\nlocal function f(): E?, string\n  local e: E = 'a'\n  return e, ''\nend\nuse(f)",
+    "local record R\n  n: integer\nend\nlocal function f(): R?, string\n  local r: R = { n = 1 }\n  return r, ''\nend\nuse(f)",
   })
-  keeps({ "local function f(r: {string} | nil): {string} | nil, string\n  return r, ''\nend\nuse(f)" })
+  keeps({ "local function f(r: {string}?): {string}?, string\n  return r, ''\nend\nuse(f)" })
 end
 
 local function test_a_callee_whose_last_parameter_is_no_string_does_not_take_the_reason_and_two_problems_on_a_line_come_in_text_order()
-  breaches("its error slot is dropped", { "local function other(_v: integer | nil, _why: any) end\nother(get())" })
-  local found = same("put() use(get())")
+  breaches("its error slot is dropped", { "local function other(_v: integer?, _why: any) end\nother(get())" })
+  local found = problems_of("put() use(get())")
   assert(#found == 2 and found[1]:find("get: ", 1, true) ~= nil and found[2]:find("put: ", 1, true) ~= nil, table.concat(found, "\n"))
 end

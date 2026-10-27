@@ -1,9 +1,0 @@
-local sink: integer = 0
-local x1 = { value = 0 as integer | nil }
-local x2 = { value = nil as integer | nil }
-if x1.value == nil then return sink end
-do
-  local x1 = x2
-  sink = sink + x1.value + 1
-end
-return sink
