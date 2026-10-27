@@ -14,6 +14,7 @@ local Proc = require("cosmic.proc")
 local Clock = require("cosmic.clock")
 local Test = require("cosmic.test")
 local confine = require("build.confine")
+local child_lua_fixture = require("build.child_lua_fixture")
 local child_tool_fixture = require("build.child_tool_fixture")
 local this_program = require("build.this_program")
 
@@ -71,7 +72,7 @@ local function lua(chunk: string, args?: {string}, opts?: Child.Options): {strin
   return started.argv, started.options
 end
 
-local sleeping, AGAIN = child_tool_fixture.sleeping, child_tool_fixture.AGAIN
+local sleeping, AGAIN = child_tool_fixture.sleeping, child_lua_fixture.AGAIN
 
 --- A child that catches nothing is ended by a timeout's SIGTERM, not
 --- left for the SIGKILL after the grace period. The same of a child in a

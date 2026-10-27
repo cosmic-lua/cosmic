@@ -12,6 +12,7 @@ local Test = require("cosmic.test")
 local sys = require("cosmic.sys")
 local confine = require("build.confine")
 local this_program = require("build.this_program")
+local child_lua_fixture = require("build.child_lua_fixture")
 local child_tool_fixture = require("build.child_tool_fixture")
 
 --- The same as cosmic/child_tool_test.tl reads: the program itself
@@ -35,7 +36,7 @@ local function lua(chunk: string, args?: {string}, opts?: Child.Options): {strin
   return started.argv, started.options
 end
 
-local sleeping, AGAIN = child_tool_fixture.sleeping, child_tool_fixture.AGAIN
+local sleeping, AGAIN = child_tool_fixture.sleeping, child_lua_fixture.AGAIN
 
 --- Chunk prefixes: cosmic.fs as `Fs`, cosmic.sys as `sys`.
 local FS <const> = 'local Fs = require("cosmic.fs") '
