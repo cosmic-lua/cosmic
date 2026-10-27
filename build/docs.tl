@@ -80,7 +80,7 @@ local record docs
     --- The module each module binds each name to, by module and name,
     --- as [`symbol_index.add_bound`] reads them: nil until a type's
     --- reference asks, then cached as `use_counts` is.
-    mut bound: {string: string}?
+    mut bound?: {string: string}
   end
 
   --- One worked example, matched to a symbol by content rather than by

@@ -9,8 +9,8 @@ local plural = require("build.plural")
 local record test_report
   record Failure
     message: string
-    rerun: string?
-    printed: string?
+    rerun?: string
+    printed?: string
   end
 
   record Build

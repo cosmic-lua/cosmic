@@ -96,10 +96,10 @@ end
 local record Request
   command: string
   mut version: integer
-  mut count: integer?
+  mut count?: integer
   mut bytes: integer
   mut encoding: string
-  mut seed: integer?
+  mut seed?: integer
   words: mut {string}
 end
 
@@ -264,7 +264,7 @@ function verb.run(argv: {string}, io?: verb.Io): integer
   -- may be a secret is made from bytes this returns; a seeded
   -- generator ([`Rand.new`]) is reached only from `seeded` below.
   local record Drawn
-    mut broken: string?
+    mut broken?: string
     mut pool: string
     mut used: integer
   end

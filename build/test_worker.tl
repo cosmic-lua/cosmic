@@ -154,7 +154,7 @@ local record worker
     --- The name the worker is to have its program by, in place of the
     --- artifact path `start` names (build.test_sandbox's
     --- [`Plan.program`]), or nil to keep that.
-    program: string?
+    program?: string
   end
 
   --- How a worker starts (`invocation`): its command line and its
@@ -295,7 +295,7 @@ end
 --- needs its `policy` stands for, and the reason it gave for passing
 --- unchecked.
 local record Given
-  mut handed: Test.Needs?
+  mut handed?: Test.Needs
   mut deliberate: string
 end
 

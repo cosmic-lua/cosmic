@@ -732,8 +732,8 @@ end
 --- What a condition says is absent: the local on its true side and the
 --- one on its false side; a side it says nothing of is nil.
 local record Absent
-  yes: string?
-  no: string?
+  yes?: string
+  no?: string
 end
 
 --- The locals a condition says are absent on each side.

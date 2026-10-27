@@ -337,7 +337,7 @@ function TermRelay.run(argv: {string}, opts: Child.Options, terminal?: Terminal)
   local record Relaying
     mut pending: string
     mut master_open: boolean
-    mut failure: string?
+    mut failure?: string
     mut queue: mut {Queued}
     mut queued: integer
     mut notes_open: boolean

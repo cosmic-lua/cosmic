@@ -230,8 +230,6 @@ build/hash.tl 8
 
 build/host_names.tl 1
 
-build/host_requires.tl 1
-
 build/importer.tl 3
 
 build/link_files.tl 1
@@ -254,7 +252,7 @@ build/rand.tl 2
 
 build/rebuild_lock.tl 2
 
-build/sandbox.tl 3
+build/sandbox.tl 1
 
 build/shared_compiles.tl 2
 
@@ -402,8 +400,6 @@ build/pipeline_test.tl arms_differ 7
 build/pipeline_test.tl concat_type 1
 
 build/rebuild_lock.tl setmetatable_call 2
-
-build/rebuild_lock_tool_test.tl literal_missing 1
 
 build/driver_test.tl setmetatable_call 1
 
@@ -2702,7 +2698,11 @@ build/fetch_test.tl field_fixed 2
 
 build/fix/init.tl field_fixed 1
 
-build/fuzz/init.tl field_fixed 2
+build/flow.tl field_fixed 13
+
+build/flow_fuzz_test.tl field_fixed 1
+
+build/flow_test.tl field_fixed 9
 
 build/gen_syscalls.tl field_fixed 1
 
@@ -5131,13 +5131,13 @@ build/embed.tl condition_type 1
 
 build/example_checks.tl condition_type 1
 
-build/fetch.tl condition_type 4
+build/fetch.tl condition_type 3
 
 build/fix/init.tl condition_type 16
 
 build/fix/near.tl condition_type 7
 
-build/flow.tl condition_type 12
+build/flow.tl condition_type 10
 
 build/fuzz/fuzz_test.tl condition_type 2
 
@@ -5152,8 +5152,6 @@ build/harness_epoch_test.tl condition_type 12
 build/hash.tl condition_type 3
 
 build/host_names.tl condition_type 3
-
-build/host_requires.tl condition_type 2
 
 build/identity.tl condition_type 8
 
@@ -5197,8 +5195,6 @@ build/plural_sites.tl condition_type 2
 
 build/rand.tl condition_type 7
 
-build/rand_test.tl condition_type 3
-
 build/rebuild_lock.tl condition_type 1
 
 build/rebuild_lock_test.tl condition_type 1
@@ -5209,7 +5205,7 @@ build/refresh_store_test.tl condition_type 2
 
 build/roots.tl condition_type 1
 
-build/sandbox.tl condition_type 6
+build/sandbox.tl condition_type 4
 
 build/sandbox_test.tl condition_type 4
 
@@ -7263,17 +7259,13 @@ build/c/rules.tl compare_disjoint 16
 
 build/c/tree.tl compare_disjoint 2
 
-build/codec.tl compare_disjoint 2
-
 build/confine.tl compare_disjoint 1
 
 build/databases.tl compare_disjoint 1
 
 build/declared_key.tl compare_disjoint 3
 
-build/declared_key_test.tl compare_disjoint 2
-
-build/dispatch.tl compare_disjoint 1
+build/declared_key_test.tl compare_disjoint 1
 
 build/dispatched_features_test.tl compare_disjoint 1
 
@@ -7288,10 +7280,6 @@ build/embed_tool_test.tl compare_disjoint 1
 build/flow.tl compare_disjoint 2
 
 build/gen_syscalls_test.tl compare_disjoint 2
-
-build/help_source.tl compare_disjoint 1
-
-build/host_requires.tl compare_disjoint 1
 
 build/host_requires_test.tl compare_disjoint 1
 
@@ -7460,145 +7448,15 @@ lang/scopes_test.tl compare_disjoint 1
 test/sqlite_result_test.tl compare_disjoint 2
 
 # a literal that leaves out a field its record needs, one that admits nil included
-build/alias_members.tl literal_missing 3
-
-build/archive.tl literal_missing 2
-
-build/bare_test.tl literal_missing 9
-
-build/bom.tl literal_missing 2
-
-build/bom_verb_test.tl literal_missing 4
-
-build/c/rules.tl literal_missing 10
-
-build/cache.tl literal_missing 1
-
 build/cache_maintenance.tl literal_missing 1
 
-build/check_draws.tl literal_missing 1
+build/rebuild_lock.tl literal_missing 3
 
-build/codec.tl literal_missing 7
+build/term_relay.tl literal_missing 2
 
-build/codec_test.tl literal_missing 6
-
-build/compile.tl literal_missing 1
-
-build/confine.tl literal_missing 1
-
-build/databases.tl literal_missing 1
-
-build/declared_key_test.tl literal_missing 16
-
-build/declared_types_test.tl literal_missing 2
-
-build/dispatch.tl literal_missing 3
-
-build/docs.tl literal_missing 3
-
-build/docs_checks.tl literal_missing 2
-
-build/docs_fixture.tl literal_missing 1
-
-build/doctest/generate.tl literal_missing 2
-
-build/embed.tl literal_missing 1
-
-build/fetch.tl literal_missing 3
-
-build/fetch_test.tl literal_missing 2
-
-build/fix/fix_test.tl literal_missing 2
-
-build/fix/init.tl literal_missing 7
-
-build/flow.tl literal_missing 2
-
-build/fuzz/init.tl literal_missing 3
-
-build/hash.tl literal_missing 2
-
-build/help_source.tl literal_missing 1
-
-build/host_requires.tl literal_missing 4
-
-build/host_requires_test.tl literal_missing 13
-
-build/importer.tl literal_missing 1
-
-build/invoke_store_test.tl literal_missing 1
-
-build/invoke_test.tl literal_missing 8
-
-build/json.tl literal_missing 2
-
-build/link_files.tl literal_missing 2
-
-build/link_resolve.tl literal_missing 1
-
-build/link_text.tl literal_missing 2
-
-build/links.tl literal_missing 1
-
-build/lsp/init.tl literal_missing 1
-
-build/rand.tl literal_missing 3
-
-build/rand_test.tl literal_missing 28
-
-build/rebuild_lock.tl literal_missing 4
-
-build/refresh.tl literal_missing 1
-
-build/refresh_store_test.tl literal_missing 4
-
-build/release.tl literal_missing 1
-
-build/sandbox.tl literal_missing 12
-
-build/sandbox_test.tl literal_missing 1
-
-build/sql.tl literal_missing 7
-
-build/sql_test.tl literal_missing 6
-
-build/stand_in_probe.tl literal_missing 1
-
-build/term_relay.tl literal_missing 3
-
-build/test.tl literal_missing 3
-
-build/test_key.tl literal_missing 3
-
-build/test_policy_test.tl literal_missing 1
-
-build/test_report_test.tl literal_missing 5
-
-build/test_sandbox_probe.tl literal_missing 1
-
-build/test_worker.tl literal_missing 1
-
-build/test_worker_test.tl literal_missing 4
-
-build/time.tl literal_missing 1
-
-build/todos.tl literal_missing 2
-
-build/tree_root.tl literal_missing 5
-
-build/tree_root_test.tl literal_missing 1
+build/test.tl literal_missing 1
 
 build/udp_fixture.tl literal_missing 1
-
-build/verbs_fixture.tl literal_missing 1
-
-build/verbs_test.tl literal_missing 2
-
-build/version_store_test.tl literal_missing 1
-
-build/version_test.tl literal_missing 1
-
-build/version_tool_test.tl literal_missing 1
 
 core/socket_test.tl literal_missing 1
 
@@ -8104,8 +7962,6 @@ build/flow_test.tl arms_differ 2
 build/json_query_test.tl arms_differ 2
 
 build/perf_validation.tl arms_differ 1
-
-build/sandbox.tl arms_differ 1
 
 build/sandbox_connect.tl arms_differ 1
 
@@ -8760,8 +8616,6 @@ build/migrate.tl and_ternary 2
 build/migrate.tl condition_type 8
 
 build/migrate.tl field_fixed 11
-
-build/migrate.tl literal_missing 1
 
 build/migrate.tl literal_needs_type 1
 
