@@ -170,6 +170,7 @@ local CLOSED_CODES <const>: {string} = {
   "repeated_field",
   "repeated_value",
   "require_unknown",
+  "return_arity",
   "return_unexpected",
   "shadows",
   "static_before_definition",

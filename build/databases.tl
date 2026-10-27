@@ -79,7 +79,7 @@ local function describe(path: string): integer?, string
         column(payload, 10) .. "  " .. name)
   end
   local _, _ = db:close()
-  return #tables
+  return #tables, ""
 end
 
 --- The last few rows of the working database's `builds`.
@@ -227,7 +227,7 @@ local function describe_under(path: string, about: function(string): boolean): i
     end
   end
   local _, _ = db:close()
-  return kept
+  return kept, ""
 end
 
 --- Whether the working database at `path` is there and of this tool's

@@ -18,7 +18,7 @@ local record alias_members
   end
 
   --- Where the rule finds the rows it follows a declaration through.
-  --- Each answers nil and why only when its rows cannot be read.
+  --- Each answers nil and why only when its rows cannot be read; a nil beside an empty reason is none.
   record Source<T>
     --- The first record, interface, enum or `type X = Y` of `module`
     --- that its source spells `name`, or nil for none.
@@ -77,18 +77,17 @@ end
 
 --- The type `reference`, written in `module` as `name.Member`, names
 --- through the module `module` binds `name` to: the one that module
---- exports as `Member`. Nil when it names none, or nil and why.
+--- exports as `Member`. Nil and "" when it names none, or nil and why.
 local function bound_type<T is alias_members.Declared>(source: alias_members.Source<T>,
                                                        module: string,
                                                        reference: string): T?, string
   local stem, rest = reference:match("^([%w_]+)%.([%w_%.]+)$")
   if stem == nil then
-    return nil
+    return nil, ""
   end
   local other, other_trouble = source.bound(module, stem)
   if other == nil then
-    -- Nil beside no reason: the module binds the name to none.
-    if other_trouble == nil then return nil end
+    -- Nil beside an empty reason: the module binds the name to none.
     return nil, other_trouble
   end
   return source.exported(other, rest)
@@ -115,7 +114,7 @@ local function scoped<T is alias_members.Declared>(source: alias_members.Source<
   while true do
     local prefix = if scope ~= "" then scope .. "." else "" end
     local found, trouble = source.declared(module, prefix .. reference)
-    if found == nil and trouble ~= nil then
+    if found == nil and trouble ~= "" then
       return nil, trouble
     end
     -- A declaration does not name itself: `type Options = Options` in a
@@ -125,7 +124,7 @@ local function scoped<T is alias_members.Declared>(source: alias_members.Source<
     end
     if stem ~= nil then
       local holder, holder_trouble = source.declared(module, prefix .. stem)
-      if holder_trouble ~= nil then
+      if holder_trouble ~= "" then
         return nil, holder_trouble
       end
       if holder ~= nil and holder.source_symbol ~= written then
@@ -146,7 +145,7 @@ end
 --- [`cosmic.archive`], where `local Stream = require("cosmic.stream")`;
 --- `raw_sqlite.Handle`, [`sqlite.Handle`] of [`cosmic.internal.sqlite`]),
 --- followed on through each alias it meets ([`Compress.Stream`]), in any
---- module. Nil when it names none, or past `DEPTH` aliases, which a
+--- module. Nil and "" when it names none, or past `DEPTH` aliases, which a
 --- cycle of them reaches; nil and why when `source` cannot be read.
 function alias_members.resolved<T is alias_members.Declared>(source: alias_members.Source<T>,
                                                              from: T,
@@ -163,7 +162,7 @@ function alias_members.resolved<T is alias_members.Declared>(source: alias_membe
       -- `type Stream = Y` is `Y.X`.
       local onward = not concrete(holder) and alias_members.references(holder)[1] or nil
       if onward == nil or depth >= DEPTH then
-        return nil
+        return nil, ""
       end
       from, reference, depth = holder, onward .. reference:match("%..*$"), depth + 1
     else
@@ -171,8 +170,7 @@ function alias_members.resolved<T is alias_members.Declared>(source: alias_membe
         found, found_trouble = bound_type(source, from.module, reference)
       end
       if found == nil then
-        -- Nil beside no reason: the reference names none.
-        if found_trouble == nil then return nil end
+        -- Nil beside an empty reason: the reference names none.
         return nil, found_trouble
       end
       if concrete(found) then
@@ -180,7 +178,7 @@ function alias_members.resolved<T is alias_members.Declared>(source: alias_membe
       end
       local onward = alias_members.references(found)[1]
       if onward == nil or depth >= DEPTH then
-        return nil
+        return nil, ""
       end
       from, reference, depth = found, onward, depth + 1
     end
@@ -196,7 +194,7 @@ function alias_members.named<T is alias_members.Declared>(source: alias_members.
   for _, owner in ipairs(owners) do
     for _, reference in ipairs(alias_members.references(owner)) do
       local target, target_trouble = alias_members.resolved(source, owner, reference)
-      if target == nil and target_trouble ~= nil then
+      if target == nil and target_trouble ~= "" then
         return nil, target_trouble
       end
       if target ~= nil then

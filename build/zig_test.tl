@@ -504,8 +504,7 @@ local function test_snapshot_names_a_same_size_rewrite_with_preserved_mtime(tmp:
       st.ctime = 100
       st.ctime_ns = tick.value
     end
-    if st ~= nil then return st end
-    return nil, trouble, errno
+    return st, trouble, errno
   end
   local ok, trouble = pcall(function()
     local was = assert(Fs.stat(path))

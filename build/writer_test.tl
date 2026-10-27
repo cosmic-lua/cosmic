@@ -774,7 +774,7 @@ local function test_an_edit_to_cosmic_mime_moves_the_signature(tmp: string)
   local before = assert(writer.signature(handle, result, "binary"))
   local real = Store.bytecode
   Store.bytecode = function(name: string): string?, string
-    if name == "cosmic.mime" then return "an edited cosmic.mime" end
+    if name == "cosmic.mime" then return "an edited cosmic.mime", "" end
     return real(name)
   end
   local after, trouble = writer.signature(handle, result, "binary")
