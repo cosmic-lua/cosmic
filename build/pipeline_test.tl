@@ -52,8 +52,10 @@ local function modern(text: string): string
   return made.text
 end
 
+--- The ceilings `text` holds, with no code closed: a program here has the errors the checker finds in it, whatever codes
+--- the tree has closed.
 local function ceilings(text: string): Ceilings.Table
-  return (assert(Ceilings.parse(text)))
+  return (assert(Ceilings.parse(text, {})))
 end
 
 local function options(pins: string): Pipeline.Options
