@@ -11,9 +11,14 @@ start needs no shell.
 
 ## a one-liner
 
-`cosmic -e '<chunk>'` runs a chunk of Lua, as `lua -e` does, against
-the standard library. No tree is built. The words after the chunk are
-its `...`, and an integer it returns is the exit code.
+`cosmic -e '<chunk>'` runs a chunk of Teal against the standard
+library. No tree is built. The chunk is checked as a file is, and one
+the checker refuses does not run: its messages are printed and `-e`
+exits 1. It takes the library by `require("cosmic.json")`, with a
+literal name, as a file does, and the tool's own modules the same way;
+nothing is bound for it. The words after
+the chunk are its `...`, each a `string?`, and an integer it returns is
+the exit code.
 
 ```teal
 local Child = require("cosmic.child")

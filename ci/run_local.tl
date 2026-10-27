@@ -303,9 +303,9 @@ local function execute(argv: {string}, program: string): integer
   local chown: string? = nil
   if credentials then
     chown = assert(Proc.find("chown"))
-    successful(probe("local s=require('cosmic.sys'); assert(s.getuid()==" ..
-        tostring(credentials.user) .. " and s.getgid()==" .. tostring(credentials.group) ..
-        " and #assert(s.getgroups())==0)"), "credential preflight")
+    successful(probe("local s = require('cosmic.sys') assert(s.getuid() == " ..
+        tostring(credentials.user) .. " and s.getgid() == " .. tostring(credentials.group) ..
+        " and #assert(s.getgroups()) == 0)"), "credential preflight")
     say("running as root; the driver runs as " .. user .. " (uid " .. tostring(credentials.user) .. ")")
   end
   local function reown(path: string, recursive: boolean)
@@ -354,11 +354,11 @@ local function execute(argv: {string}, program: string): integer
     env["GIT_CONFIG_COUNT"] = tostring(n + 1)
     env["GIT_CONFIG_KEY_" .. tostring(n)] = "safe.directory"
     env["GIT_CONFIG_VALUE_" .. tostring(n)] = candidate
-    successful(probe("local s=require('cosmic.sys'); assert(s.access(" .. string.format("%q", state) ..
-        ",s.W_OK)); assert(s.access(" .. string.format("%q", cosmic) .. ",s.X_OK)); assert(s.access(" ..
-        string.format("%q", root .. "/ci/cosmic_ci/driver.tl") .. ",s.R_OK))", env), "driver access")
-    if present(seed) and not probe("local s=require('cosmic.sys'); assert(s.access(" ..
-          string.format("%q", seed) .. ",s.R_OK|s.X_OK))", env).ok then
+    successful(probe("local s = require('cosmic.sys') assert(s.access(" .. string.format("%q", state) ..
+        ", s.W_OK)) assert(s.access(" .. string.format("%q", cosmic) .. ", s.X_OK)) assert(s.access(" ..
+        string.format("%q", root .. "/ci/cosmic_ci/driver.tl") .. ", s.R_OK))", env), "driver access")
+    if present(seed) and not probe("local s = require('cosmic.sys') assert(s.access(" ..
+          string.format("%q", seed) .. ", s.R_OK | s.X_OK))", env).ok then
       say(user .. " cannot read " .. seed .. "; the candidate builds without it")
       seed = ""
     end
@@ -381,10 +381,11 @@ local function execute(argv: {string}, program: string): integer
   owned_root(project)
   assert(Fs.mkdirs(project))
   reown(project, false)
-  successful(probe("local F=require('cosmic.fs'); local p=" .. string.format("%q", project) ..
-      "; for _,n in ipairs(assert(F.list(p))) do assert(F.remove_tree(p..'/'..n)) end; " ..
-      "local s=" .. string.format("%q", root .. "/ci") ..
-      "; for _,n in ipairs(assert(F.list(s))) do if n~='o' then assert(F.copy_tree(s..'/'..n,p..'/'..n)) end end", env), "CI copy")
+  successful(probe("local F = require('cosmic.fs') local p = " .. string.format("%q", project) ..
+      " local old = assert(F.list(p)) for _, n in ipairs(old) do assert(F.remove_tree(p .. '/' .. n)) end " ..
+      "local s = " .. string.format("%q", root .. "/ci") ..
+      " local names = assert(F.list(s)) " ..
+      "for _, n in ipairs(names) do if n ~= 'o' then assert(F.copy_tree(s .. '/' .. n, p .. '/' .. n)) end end", env), "CI copy")
   local phases: mut {string} = {}
   for _, word in ipairs(argv) do
     phases[#phases + 1] = word
@@ -441,8 +442,8 @@ local function execute(argv: {string}, program: string): integer
     assert(present(candidate), "no candidate; run the build phase first")
     owned_root(state .. "/runner")
     owned_root(state .. "/logs")
-    successful(probe("local F=require('cosmic.fs'); assert(F.mkdirs(" ..
-        string.format("%q", state .. "/runner") .. ")); assert(F.mkdirs(" ..
+    successful(probe("local F = require('cosmic.fs') assert(F.mkdirs(" ..
+        string.format("%q", state .. "/runner") .. ")) assert(F.mkdirs(" ..
         string.format("%q", state .. "/logs") .. "))", env), "phase directories")
     local path = state .. "/logs/" .. phase .. ".log"
     local fd, open_why = sys.open(path, sys.O_WRONLY | sys.O_CREAT | sys.O_TRUNC | sys.O_NOFOLLOW, 0x1a4)

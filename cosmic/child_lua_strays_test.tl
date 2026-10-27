@@ -44,11 +44,18 @@ local function test_end_strays_ends_a_stray_named_as_an_init(tmp: string)
     -- A group started first makes this process the subreaper it adopts
     -- the stray as.
     assert(Child.run(lua("")))
-    local r = assert(Child.run(lua(AGAIN .. 'local started = this_program.program({ "-e", [=[' ..
-        "while true do " .. sleep(1000) .. "end]=] }, " ..
-        '{ process_group = false, stdout = "null", stderr = "null" }) ' ..
-        "started.argv[1] = " .. string.format("%q", link) .. " " ..
-        "local h = assert(Child.start(started.argv, started.options)) " .. FS ..
+    local r = assert(Child.run(lua('local Child = require("cosmic.child") local Env = require("cosmic.env") ' ..
+        'local Proc = require("cosmic.proc") ' .. FS ..
+        "local relaunch = assert(Proc.relaunch()) " ..
+        "local argv: mut {string} = {} " ..
+        "for _, word in ipairs(relaunch.argv) do argv[#argv + 1] = word end " ..
+        "argv[1] = " .. string.format("%q", link) .. " " ..
+        'argv[#argv + 1] = "-e" ' ..
+        'argv[#argv + 1] = "while true do ' .. sleep(1000):gsub('"', '\\"') .. ' end" ' ..
+        "local env: mut {string:string} = Env.all() " ..
+        "for name, value in pairs(relaunch.env) do env[name] = value end " ..
+        'local h = assert(Child.start(argv, { env = env, fds = relaunch.fds, process_group = false, ' ..
+        'stdout = "null", stderr = "null" })) ' ..
         'Fs.put(1, tostring(h.pid)) require("cosmic.sys").exit(0)', nil,
       { stdout = "capture", process_group = false })))
     local pid = assert(math.tointeger(tonumber(r.stdout)))

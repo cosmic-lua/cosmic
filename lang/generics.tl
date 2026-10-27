@@ -161,7 +161,7 @@ function Generics.unused(f: Fn): {integer}
   end
   local out: mut {integer} = {}
   for i = 1, #f.tparams do
-    if not used[i] then
+    if used[i] ~= true then
       out[#out + 1] = i
     end
   end

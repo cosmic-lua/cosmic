@@ -30,7 +30,7 @@ local function test_a_run_has_its_own_directory_environment_and_store(tmp: strin
     local Store = require("cosmic.store")
     local sys = require("cosmic.sys")
     print(assert(sys.getcwd()))
-    print(Env.get("INVOKE_GIVEN"), Env.all().INVOKE_GIVEN, Env.get("HOME"))
+    print(Env.get("INVOKE_GIVEN"), Env.all()["INVOKE_GIVEN"], Env.get("HOME"))
     print(#Store.databases())
   ]] }, { cwd = tmp, env = { INVOKE_GIVEN = "yes" } })
   assert(result.code == 0, result.stderr)

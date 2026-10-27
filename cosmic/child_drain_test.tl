@@ -45,7 +45,7 @@ end
 local function test_both_streams_are_fair_under_small_repeated_budgets()
   local h <close> = start([[
 local Fs = require("cosmic.fs")
-for i = 1, 256 do assert(Fs.put(1, "abcd")) assert(Fs.put(2, "WXYZ")) end]],
+for _ = 1, 256 do assert(Fs.put(1, "abcd")) assert(Fs.put(2, "WXYZ")) end]],
     { stdout = "stream", stderr = "stream", capture_limit = 17 })
   local out, err = Stream.collect(), Stream.collect()
   local opts = options(out, 3)

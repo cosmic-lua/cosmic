@@ -533,7 +533,7 @@ local function nearest(name: string, types: boolean): string, Scopes.Place?
   local seen: mut {string: boolean} = {}
   for i = #S.names, 1, -1 do
     local other = S.names[i]
-    if not seen[other] then
+    if seen[other] ~= true then
       seen[other] = true
       local v = lookup(other)
       if v ~= nil and (fits(v.space, types) or (types and v.kind == "local")) then
@@ -548,7 +548,7 @@ local function nearest(name: string, types: boolean): string, Scopes.Place?
   for _, other in ipairs(globals) do
     local declared = S.declared[other]
     local space: Scopes.Space = declared ~= nil and declared.space or "type"
-    if not seen[other] and fits(space, types) then
+    if seen[other] ~= true and fits(space, types) then
       local d = near(name, other, limit)
       if d < best_distance then
         best, best_distance, best_at = other, d, nil
@@ -838,7 +838,7 @@ local function use_type(t: Ast.TypeName)
   if head == nil then
     return
   end
-  if #path == 1 and Scopes.primitives[head] then
+  if #path == 1 and Scopes.primitives[head] == true then
     return
   end
   local v = lookup(head)
@@ -1399,7 +1399,7 @@ local function settle(v: Scopes.Var)
   local holding: mut {integer: boolean} = {}
   for i = 1, #loops do
     local loop = loops[i]
-    while loop ~= 0 and level[loop] > floor and not holding[loop] do
+    while loop ~= 0 and level[loop] > floor and holding[loop] ~= true do
       holding[loop] = true
       loop = parent[loop]
     end

@@ -8,6 +8,7 @@ local sys = require("cosmic.sys")
 local Test = require("cosmic.test")
 local confine = require("build.confine")
 local stand_in = require("build.stand_in")
+local test_child = require("build.test_child")
 local this_program = require("build.this_program")
 local type raw_process = require("cosmic.internal.process")
 
@@ -44,46 +45,43 @@ local function raw_process_table(): raw_process
   error("build.confine is handed no raw table")
 end
 
---- What a sandboxed worker's chunk says: whether its
+--- What a sandboxed worker's child says: whether its
 --- /proc is a procfs of its own pid namespace (which has no /proc/sys)
 --- or the host's; whether its core found the stamp beside it in the
 --- cache that spares hashing it again; and what a grandchild it
---- confines to the first path `...` names reads of that path and of the
+--- confines to the first path its words name reads of that path and of the
 --- second, which it was not given. The grandchild is the stand-in named
 --- third, and it also gets /proc to find itself.
-local worker_chunk <const> = [==[
-local sys = require("cosmic.sys")
-local given, hidden, probe = ...
-local said = { sys.stat("/proc/sys") == nil and "own-proc" or "host-proc" }
-local core = assert(sys.readlink("/proc/self/exe"))
-local directory, name = core:match("^(.*)/(core%-[^/]*)$")
-if directory == nil then
-  said[#said + 1] = "uncached"
-else
-  local st = assert(sys.stat(core))
-  local fd = sys.open(directory .. "/.verified-" .. name, sys.O_RDONLY)
-  local line = fd ~= nil and sys.read(fd, 96) or ""
-  said[#said + 1] = line == string.format("%d|%d|%d|%d\n", st.size, st.ino, st.mtime, st.ctime)
-    and "stamped" or "unstamped"
-end
-local process
-for _, searcher in ipairs(package.searchers) do
-  local loader, extra = searcher("cosmic.child")
-  if type(loader) == "function" and type(extra) == "table" then process = extra end
-end
-local reads = { given, probe, "/proc" }
-local report = assert(sys.open(given .. "/../report", sys.O_CREAT | sys.O_RDWR | sys.O_TRUNC, 420))
-local pid, trouble, errno = process.spawn(probe, { probe,
-  "cat " .. given .. "/f; print; present " .. hidden .. "/f && print hidden-seen || print hidden-absent" },
-  {}, "/", nil, report, report, false, nil, { unveil = { reads = reads }, offline = true })
-if pid == nil then
-  said[#said + 1] = "refused " .. tostring(sys.errno_name(errno)) .. ": " .. trouble
-else
-  said[#said + 1] = "exited " .. process.waitpid(pid, false).code
-  said[#said + 1] = sys.pread(report, 4096, 0)
-end
-print(table.concat(said, "\n"))
-]==]
+test_child.register("worker", function(args: {string}): integer
+  local given, hidden, probe = assert(args[1]), assert(args[2]), assert(args[3])
+  local said: mut {string} = { if sys.stat("/proc/sys") == nil then "own-proc" else "host-proc" end }
+  local core = assert(sys.readlink("/proc/self/exe"))
+  local directory, name = core:match("^(.*)/(core%-[^/]*)$")
+  if directory == nil or name == nil then
+    said[#said + 1] = "uncached"
+  else
+    local st = assert(sys.stat(core))
+    local fd = sys.open(directory .. "/.verified-" .. name, sys.O_RDONLY)
+    local line = ""
+    if fd ~= nil then line = sys.read(fd, 96) or "" end
+    said[#said + 1] = if line == string.format("%d|%d|%d|%d\n", st.size, st.ino, st.mtime, st.ctime)
+      then "stamped" else "unstamped" end
+  end
+  local process = raw_process_table()
+  local reads = { given, probe, "/proc" }
+  local report = assert(sys.open(given .. "/../report", sys.O_CREAT | sys.O_RDWR | sys.O_TRUNC, 420))
+  local pid, trouble, errno = process.spawn(probe, { probe,
+    "cat " .. given .. "/f; print; present " .. hidden .. "/f && print hidden-seen || print hidden-absent" },
+    {}, "/", nil, report, report, false, nil, { unveil = { reads = reads }, offline = true })
+  if pid == nil then
+    said[#said + 1] = "refused " .. tostring(sys.errno_name(errno)) .. ": " .. trouble
+  else
+    said[#said + 1] = "exited " .. tostring(assert(process.waitpid(pid, false)).code)
+    said[#said + 1] = assert(sys.pread(report, 4096, 0))
+  end
+  print(table.concat(said, "\n"))
+  return 0
+end)
 
 --- The descriptors [`this_program.program`] hands its child, as
 --- [`process.spawn`] takes them: each a descriptor of this process, as
@@ -101,7 +99,7 @@ local function spawn_fds(started: this_program.Program): {integer:integer}
   return fds
 end
 
---- Runs `worker_chunk` in a worker of this very program, sandboxed to
+--- Runs the child `worker` in a worker of this very program, sandboxed to
 --- [`confine.worker_unveil`]'s paths as a worker whose module declares
 --- nothing of the system's is, with `tmp` its scratch, where the
 --- stand-in the chunk starts is built. Answers the lines it said, or nil
@@ -118,7 +116,8 @@ local function sandboxed_worker(tmp: string): {string}?
   local unveil = confine.worker_unveil(tree, tmp)
   -- Given no environment but the relaunch's, as `cosmic test` gives
   -- its worker none but what it pins.
-  local worker = this_program.program({ "-e", worker_chunk, given, hidden, probe }, { env = {} })
+  local worker = this_program.program(test_child.words(tmp, "build.confine_test", "worker", { given, hidden, probe }),
+    { env = {} })
   local argv, opts = worker.argv, worker.options
   local output = assert(sys.open(tmp .. "/said", sys.O_CREAT | sys.O_RDWR | sys.O_TRUNC, 420))
   local process = raw_process_table()

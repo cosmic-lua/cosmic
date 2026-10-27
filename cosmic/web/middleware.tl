@@ -88,7 +88,7 @@ function Middleware.access_log(opts?: Middleware.AccessLogOptions): Types.Middle
         line = format(req, res, elapsed)
       else
         local path = req.path
-        if opts.log_query and req.query_string ~= "" then
+        if opts.log_query == true and req.query_string ~= "" then
           -- A client chooses the query: no control byte may split the line.
           path = path .. "?" .. req.query_string:gsub("[%z\1-\31\127]", function(byte: string): string
             return ("%%%02X"):format(byte:byte())

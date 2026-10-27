@@ -93,8 +93,8 @@ end
 
 --- What the tool prints of the text its `decls` carry under `module`, as a length and a digest.
 local function carried(module: string): string
-  local chunk = "local Store = require('cosmic.store'); local Hash = require('cosmic.hash'); " ..
-    "local text = assert(Store.source('" .. module .. "')); print(#text, Hash.hex_sha256(text))"
+  local chunk = "local Store = require('cosmic.store') local Hash = require('cosmic.hash') " ..
+    "local text = assert(Store.source('" .. module .. "')) print(#text, Hash.hex_sha256(text))"
   local started = this_program.program({ "-e", chunk }, {
     env = this_program.environment(), stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(60),
   })

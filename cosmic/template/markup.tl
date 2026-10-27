@@ -450,7 +450,7 @@ local function alike(a: Place, b: Place): boolean
       a.slash ~= b.slash then
     return false
   end
-  if TAGGED[a.phase] and (a.tag ~= b.tag or a.closing ~= b.closing or a.equiv ~= b.equiv or a.fontattr ~= b.fontattr or
+  if TAGGED[a.phase] == true and (a.tag ~= b.tag or a.closing ~= b.closing or a.equiv ~= b.equiv or a.fontattr ~= b.fontattr or
       (a.meta_line > 0) ~= (b.meta_line > 0)) then
     return false
   end
@@ -458,7 +458,7 @@ local function alike(a: Place, b: Place): boolean
       (a.raw_tail ~= b.raw_tail or a.escaped ~= b.escaped or a.double ~= b.double) then
     return false
   end
-  return not ATTRIBUTED[a.phase] or a.attr == b.attr
+  return ATTRIBUTED[a.phase] ~= true or a.attr == b.attr
 end
 
 --- The phases at a boundary between attributes, in a name that a space,
@@ -578,7 +578,7 @@ local function judge(lead: string): string
       return "yes"
     end
     local scheme = head:lower()
-    if not PART_SCHEMES[scheme] then
+    if PART_SCHEMES[scheme] ~= true then
       return "no"
     elseif scheme == "mailto" then
       return "yes"
@@ -931,7 +931,7 @@ local function count(p: Place, selfclosed: boolean)
     end
     return
   end
-  if BREAKOUT[tag] or INTEGRATION[tag] or (tag == "font" and p.fontattr) then
+  if BREAKOUT[tag] == true or INTEGRATION[tag] == true or (tag == "font" and p.fontattr) then
     p.murky = true
   end
   if not selfclosed then
@@ -958,7 +958,7 @@ end
 --- `<svg>` the browser may read them as ordinary elements instead, and
 --- `scan` marks the place murky if what they hold could tell the two apart.
 local function end_tag(p: Place, text: string, from: integer, unquoted: boolean): integer
-  if p.attr == "http-equiv" and ATTRIBUTED[p.phase] then
+  if p.attr == "http-equiv" and ATTRIBUTED[p.phase] == true then
     p.equiv = true
   end
   local before = from >= 3 and text:byte(from - 2) or (if p.slash then 47 else 0 end)
@@ -1170,7 +1170,7 @@ local function scan(p: Place, text: string)
       end
       local rule = p.dialect:classify(p.attr)
       local class = rule ~= nil and rule.class or ""
-      if URL_ATTRS[p.attr] or class == "url" or class == "url_local" then
+      if URL_ATTRS[p.attr] == true or class == "url" or class == "url_local" then
         track(p, text:sub(i, last))
       elseif class == "selector" then
         -- The value is in an identifier if its last byte that is not an
@@ -1316,7 +1316,7 @@ local function scan(p: Place, text: string)
       -- The tail is judged with the run that completes it, as it would be
       -- whole: `</sty` that becomes `</style>` holds no `<` of the text.
       local settled = region:sub(1, #region - #tail)
-      if p.stack ~= "" and settled:find("<", 1, true) then
+      if p.stack ~= "" and settled:find("<", 1, true) ~= nil then
         p.murky = true
       end
       if p.tag == "noscript" then
@@ -1491,15 +1491,15 @@ local function slot(p: Place): types.Slot?, string
     if attr == "charset" and p.tag == "meta" then
       return nil, "a slot in the charset of a <meta> could change how the page is read"
     end
-    if ANIMATION[p.tag] then
+    if ANIMATION[p.tag] == true then
       return nil, "a slot in an attribute of <" .. p.tag .. "> could animate one to a script URL"
     end
     if attr == "content" and p.tag == "meta" and p.equiv then
       return nil, "a slot in the content of a <meta> that has http-equiv could be a redirect"
     end
     local class = rule ~= nil and rule.class or ""
-    if URL_ATTRS[attr] or class == "url" or class == "url_local" then
-      if ACTIVE_TAGS[p.tag] then
+    if URL_ATTRS[attr] == true or class == "url" or class == "url_local" then
+      if ACTIVE_TAGS[p.tag] == true then
         return nil, "a slot in the '" .. attr .. "' of <" .. p.tag .. "> would make the page load or run it"
       end
       if p.fresh then

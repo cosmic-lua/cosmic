@@ -8,6 +8,7 @@ local type _ = require("build.cache")
 local type _ = require("cosmic.proc")
 local Clock = require("cosmic.clock")
 local Sqlite = require("cosmic.sqlite")
+local sys = require("cosmic.sys")
 local Test = require("cosmic.test")
 local this_program = require("build.this_program")
 
@@ -57,10 +58,10 @@ local function test_long_lived_reader_prevents_a_save_ready_wal_snapshot(tmp: st
   local path = tmp .. "/verdicts.db"
   local db = assert(Sqlite.open(path, { writable = true }))
   assert(db:exec("PRAGMA journal_mode=WAL; CREATE TABLE keep (value TEXT); INSERT INTO keep VALUES ('first')"))
-  local script = 'local Sqlite = require("cosmic.sqlite"); local Fs = require("cosmic.fs"); ' ..
-    'local db = assert(Sqlite.open(' .. string.format("%q", path) .. ')); ' ..
-    'assert(db:exec("BEGIN")); assert(Sqlite.rows(db,"SELECT * FROM keep")); ' ..
-    'assert(Fs.put(1,"r")); assert(Fs.take(0,1)); assert(db:exec("ROLLBACK")); assert(db:close())'
+  local script = 'local Sqlite = require("cosmic.sqlite") local Fs = require("cosmic.fs") ' ..
+    'local db = assert(Sqlite.open(' .. string.format("%q", path) .. ')) ' ..
+    'assert(db:exec("BEGIN")) assert(Sqlite.rows(db,"SELECT * FROM keep")) ' ..
+    'assert(Fs.put(1,"r")) assert(Fs.take(0,1)) assert(db:exec("ROLLBACK")) assert(db:close())'
   local reader_start = this_program.program({ "-e", script }, { cwd = tmp,
     stdin = "stream", stdout = "stream", stderr = "capture" })
   local reader <close> = assert(Child.start(reader_start.argv, reader_start.options))
@@ -77,25 +78,33 @@ local function test_long_lived_reader_prevents_a_save_ready_wal_snapshot(tmp: st
   assert(db:close())
 end
 
---- Readiness comes from the actual command's open, inside its guard. The
+--- Readiness is the actual command's open of the database, seen as the descriptor it holds on the file. The
 --- parent holds its write lock until the child has reported cooperative failure.
 local function test_signal_exits_cooperatively_with_an_incomplete_json_report(tmp: string)
+  if sys.stat("/proc/self/fd") == nil then
+    Test.skip("this host has no /proc to read the descriptors the command holds from")
+    return
+  end
   local path = tmp .. "/cache.db"
   local db = assert(Sqlite.open(path, { writable = true }))
   assert(db:exec("CREATE TABLE untouched (value TEXT); BEGIN IMMEDIATE"))
-  local script = 'local Sqlite = require("cosmic.sqlite"); local Fs = require("cosmic.fs"); ' ..
-    'local cache = require("build.cache"); local Proc = require("cosmic.proc"); local original = Sqlite.open; ' ..
-    'Sqlite.open = function(path, opts) local db, why = original(path, opts); assert(Fs.put(1,"r")); return db, why end; ' ..
-    'Proc.exit(cache.run({"cache","trim","compiles",' .. string.format("%q", path) ..
-    ',"--since-ns","0","--json"}))'
-  local started = this_program.program({ "-e", script }, { cwd = tmp,
-    stdout = "stream", stderr = "capture", process_group = false })
+  local started = this_program.program({ "cache", "trim", "compiles", path, "--since-ns", "0", "--json" },
+    { cwd = tmp, stdout = "stream", stderr = "capture", process_group = false })
   local child <close> = assert(Child.start(started.argv, started.options))
   local output = assert(child.stdout_stream)
-  local ready, ready_why = output:read(1)
-  if ready ~= "r" then
+  local real = assert(sys.realpath(path))
+  local opened = false
+  local give_up = Clock.monotonic_ns() + Clock.seconds(5)
+  while not opened and Clock.monotonic_ns() < give_up do
+    for fd = 3, 40 do
+      local target, _ = sys.readlink("/proc/" .. tostring(child.pid) .. "/fd/" .. tostring(fd))
+      if target == real then opened = true end
+    end
+    if not opened then Poll.run(function() assert(Poll.delay(Clock.ms(10))) end) end
+  end
+  if not opened then
     local stopped = assert(child:wait(Clock.seconds(5)))
-    error(ready_why .. (stopped.stderr or ""))
+    error("the command never opened the database: " .. (stopped.stderr or ""))
   end
   Poll.run(function() assert(Poll.delay(Clock.ms(20))) end)
   local before = Clock.monotonic_ns()

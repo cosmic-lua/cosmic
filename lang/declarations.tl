@@ -945,7 +945,7 @@ local function resolve_entry(ctx: Ctx, t: Ast.TypeName): Entry?
       return follow(ctx, t, base, rest)
     end
     if v.module ~= "" then
-      if ctx.program.external[v.module] then
+      if ctx.program.external[v.module] == true then
         return nil
       end
       local info = known_module(ctx, v.module)
@@ -1528,7 +1528,7 @@ local function declare_one(ctx: Ctx, node: Ast.Node, place: Place, seen: mut {st
   names[#names + 1] = name
   -- The library record of a primitive (`global record string`) is a value only, for `string.format` and `s:upper()`:
   -- the type `string` stays the primitive, so the record is declared as `std.string`.
-  if ctx.decl_file and #place.names == 0 and Scopes.primitives[name] then
+  if ctx.decl_file and #place.names == 0 and Scopes.primitives[name] == true then
     names = { "std", name }
   end
   local top = place.top
@@ -1536,7 +1536,7 @@ local function declare_one(ctx: Ctx, node: Ast.Node, place: Place, seen: mut {st
     module = ctx.module
     if not place.top then
       module = ctx.module .. "@" .. base_of(node).id
-    elseif seen[entry_key(module, names)] then
+    elseif seen[entry_key(module, names)] == true then
       module = ctx.module .. "@" .. base_of(node).id
       top = false
     end
@@ -1553,7 +1553,7 @@ local function declare_one(ctx: Ctx, node: Ast.Node, place: Place, seen: mut {st
     end)
     if not ok then
       -- The scope builder has said that a primitive's name is no name for a type.
-      if ctx.lowering and not Scopes.primitives[name] then
+      if ctx.lowering and Scopes.primitives[name] ~= true then
         report_at(ctx, "store_refused", node, "the type store refused the declaration " .. quoted(name), "report the program")
       end
       return nil
@@ -1596,13 +1596,13 @@ local function declare_all(ctx: Ctx)
     local node, place = assert(nodes[top]), assert(places[top])
     nodes[top], places[top] = nil, nil
     top = top - 1
-    if DECLARATIONS[node.kind] then
+    if DECLARATIONS[node.kind] == true then
       local inside = declare_one(ctx, node, place, seen)
       if inside ~= nil then
         local members = members_of(node)
         for i = #members, 1, -1 do
           local m = assert(members[i])
-          if DECLARATIONS[m.kind] then
+          if DECLARATIONS[m.kind] == true then
             top = top + 1
             nodes[top], places[top] = m, inside
           elseif (m.kind == "Method") then
@@ -1611,7 +1611,7 @@ local function declare_all(ctx: Ctx)
           end
         end
       end
-    elseif not SKIP[node.kind] then
+    elseif SKIP[node.kind] ~= true then
       local transparent = TRANSPARENT[node.kind] or (node.kind == "Do" and ctx.decl_file)
       local below: Place = place
       if not transparent then
@@ -1660,7 +1660,7 @@ local function find_export(ctx: Ctx): Entry?
         local vid = ctx.scoped.resolved[annotation.id]
         local v = vid ~= nil and ctx.scoped.vars[vid] or nil
         local base = v ~= nil and ctx.by_binding[v.id] or nil
-        if base == nil and v ~= nil and v.module ~= "" and not ctx.program.external[v.module] then
+        if base == nil and v ~= nil and v.module ~= "" and ctx.program.external[v.module] ~= true then
           -- A type of an imported module: `local x: Mod.Type = ... return x`.
           local imported = known_module(ctx, v.module)
           base = imported ~= nil and imported.export or nil
@@ -1909,7 +1909,7 @@ local function lower_field(ctx: Ctx, build: Build, m: Ast.FieldDecl)
           "type arguments fixed")
     end
   end
-  if build.decl.kind ~= "class" and metamethod_name(m.name.name) and not METAMETHODS[m.name.name] then
+  if build.decl.kind ~= "class" and metamethod_name(m.name.name) and METAMETHODS[m.name.name] ~= true then
     report_at(ctx, "metamethod_unknown", m.name, "the field " .. quoted(m.name.name) .. " of " .. quoted(build.decl.name) ..
         " begins with two underscores, which Lua reads as a metamethod, and Lua has no metamethod of that name",
       "rename " .. quoted(m.name.name) .. " without the leading underscores, or write the name of the metamethod you mean " ..
@@ -2119,7 +2119,7 @@ local function enter_declaration(ctx: Ctx, node: Ast.Node): {Ast.Node}
     elseif (m.kind == "Method") then
       lower_method(ctx, build, m)
       kids[#kids + 1] = m.body
-    elseif DECLARATIONS[m.kind] then
+    elseif DECLARATIONS[m.kind] == true then
       kids[#kids + 1] = m
     end
   end
@@ -2420,7 +2420,7 @@ end
 --- a test of one of them selects its member, as long as no other member has it ([`check_union`]).
 local function tag_values(field: Types.Field): {string}?, boolean
   local t = field.type
-  if field.mut or field.omittable or not ((t.tag == "named")) or t.decl.kind ~= "enum" then
+  if field.mut == true or field.omittable == true or not ((t.tag == "named")) or t.decl.kind ~= "enum" then
     return nil, false
   end
   local body = t.decl.body
@@ -2578,7 +2578,7 @@ local function scan_requires(roots: {Type}): Requires
       return
     end
     local mark = tostring(t.id) .. ":" .. level
-    if seen[mark] then
+    if seen[mark] == true then
       return
     end
     seen[mark] = true
@@ -2671,7 +2671,7 @@ local function must(program: Program, req: Requires, index: integer, kind: strin
   elseif kind == "optional" then
     direct = req.optional
   end
-  if direct[index + 1] then
+  if direct[index + 1] == true then
     return true
   end
   for _, flow in ipairs(req.flows) do
@@ -2682,7 +2682,7 @@ local function must(program: Program, req: Requires, index: integer, kind: strin
         seen[flow.to] = marks
       end
       local mark = flow.into .. kind
-      if not marks[mark] then
+      if marks[mark] ~= true then
         marks[mark] = true
         local theirs = requires_of(program, flow.to)
         if theirs == nil then
@@ -2836,7 +2836,7 @@ end
 --- What a node does when the walk reaches it: the nodes to walk next (nil for all its children), and whether
 --- a frame of type parameters it pushed is popped when the walk leaves it.
 local function enter(ctx: Ctx, node: Ast.Node): {Ast.Node}?, boolean
-  if SKIP[node.kind] then
+  if SKIP[node.kind] == true then
     return {}, false
   end
   if (node.kind == "Local") then
@@ -2853,7 +2853,7 @@ local function enter(ctx: Ctx, node: Ast.Node): {Ast.Node}?, boolean
   elseif (node.kind == "LocalFunction") or (node.kind == "Function") then
     local params = node.typeparams
     push_frame(ctx, false, params)
-    if not ctx.static_done[node.id] then
+    if ctx.static_done[node.id] ~= true then
       local tparams: mut {Types.TParam} = {}
       for i, p in ipairs(params) do
         tparams[i] = { bound = lower_bound(ctx, p) }
@@ -2897,7 +2897,7 @@ local function walk(ctx: Ctx)
     local node, leaving = nodes[top], leaves[top]
     nodes[top], leaves[top] = nil, nil
     top = top - 1
-    if leaving then
+    if leaving == true then
       pop_frame(ctx)
     else
       local given, framed = enter(ctx, node)

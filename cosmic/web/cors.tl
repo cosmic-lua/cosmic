@@ -146,7 +146,7 @@ function Cors.middleware(opts: Cors.Options): Types.Middleware
     if not token(each) or each == "*" or each ~= each:upper() then
       error(("cors: allow_methods: %s is not an uppercase method name"):format(tostring(each)), 2)
     end
-    if not method_set[each] then
+    if method_set[each] ~= true then
       method_set[each] = true
       methods[#methods + 1] = each
     end
@@ -168,12 +168,12 @@ function Cors.middleware(opts: Cors.Options): Types.Middleware
   --- The origin to answer with, or nil where `sent` is not allowed.
   local function allowed(sent: string): string?
     if sent == "null" then
-      return if origins["null"] then "null" else nil end
+      return if origins["null"] == true then "null" else nil end
     end
     local normal = Origin.normalize(sent)
     if normal == nil then return nil end
     if wildcard then return "*" end
-    if origins[normal] or (predicate ~= nil and predicate(normal)) then return sent end
+    if origins[normal] == true or (predicate ~= nil and predicate(normal)) then return sent end
     return nil
   end
 
@@ -202,7 +202,7 @@ function Cors.middleware(opts: Cors.Options): Types.Middleware
             break
           end
           local lower = name:lower()
-          if not (any_header or header_set[lower] or SAFELISTED[lower]) then
+          if not (any_header or header_set[lower] == true or SAFELISTED[lower] == true) then
             pass = false
             break
           end

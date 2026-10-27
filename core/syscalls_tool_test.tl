@@ -16,6 +16,7 @@ local type raw_process = require("cosmic.internal.process")
 local confine = require("build.confine")
 local this_program = require("build.this_program")
 local stand_in = require("build.stand_in")
+local test_child = require("build.test_child")
 local Clock = require("cosmic.clock")
 
 --- What these cases are tested on: /proc and the program itself, which
@@ -91,19 +92,19 @@ local function create(path: string): integer
   return fd
 end
 
---- What a chunk of this program's starts a confined child with: the
---- raw process table, and the paths it reads, from `...`, colon-joined,
---- the program first.
-local chunk_preamble <const> = [==[
-local sys = require("cosmic.sys")
-local process
-for _, searcher in ipairs(package.searchers) do
-  local loader, extra = searcher("cosmic.child")
-  if type(loader) == "function" and type(extra) == "table" then process = extra end
-end
-local reads = {}
-for path in (...):gmatch("[^:]+") do reads[#reads + 1] = path end
-]==]
+--- The child that starts a confined child itself: the paths it reads are its one word, colon-joined, the program
+--- first. It says the confined child's pid (or why none) and sleeps, to be ended with its parent.
+test_child.register("confined", function(args: {string}): integer
+  local reads: mut {string} = {}
+  for path in (args[1] or ""):gmatch("[^:]+") do reads[#reads + 1] = path end
+  local program = assert(reads[1])
+  local sandbox: raw_process.Sandbox = { unveil = { reads = reads }, offline = true }
+  local pid, trouble = process.spawn(program, { program, "sleep 30000" }, nil, "/", nil,
+    nil, nil, false, nil, sandbox)
+  if pid ~= nil then print(tostring(pid)) else print("refused " .. tostring(trouble)) end
+  sys.nanosleep(30 * 1000000000)
+  return 0
+end)
 
 --- A confined child ends when the process that started it does, killed
 --- or ended by a signal from a terminal, not left running on its own:
@@ -115,12 +116,8 @@ local function test_a_confined_child_ends_with_its_parent(tmp: string)
   local probe = probe_in(tmp)
   if not process.subreaper() then Test.skip("no subreaper to be") end
   local report = create(tmp .. "/parent")
-  local started = this_program.program({ "-e", chunk_preamble .. [==[
-local pid, trouble = process.spawn(reads[1], { reads[1], "sleep 30000" }, nil, "/", nil,
-  nil, nil, false, nil, { unveil = { reads = reads }, offline = true })
-print(pid or "refused " .. trouble)
-sys.nanosleep(30 * 1000000000)
-]==], table.concat(probe_reads(probe), ":") })
+  local started = this_program.program(test_child.words(tmp, "core.syscalls_tool_test", "confined",
+    { table.concat(probe_reads(probe), ":") }))
   local parent = assert(process.spawn(started.argv[1], started.argv, started.options.env, tmp,
     nil, report, report, false,
     spawn_fds(started)))
@@ -164,10 +161,10 @@ end
 local function test_an_offline_child_s_loopback_is_up(tmp: string)
   local report = create(tmp .. "/report")
   local started = this_program.program({ "-e",
-    "local t = assert(require('cosmic.fs').read('/proc/self/net/fib_trie')) " ..
-      "print(t:find('127.0.0.1', 1, true) and 'up' or 'down') " ..
-      "local Net = require('cosmic.net') local Clock = require('cosmic.clock') " ..
-      "print(select(2, Net.connect(Net.tcp('127.0.0.1', 1), { timeout_ns = Clock.seconds(5) })))" })
+    'local Fs = require("cosmic.fs") local Net = require("cosmic.net") local Clock = require("cosmic.clock") ' ..
+      'local t = assert(Fs.read("/proc/self/net/fib_trie")) ' ..
+      'if t:find("127.0.0.1", 1, true) ~= nil then print("up") else print("down") end ' ..
+      'local _, why = Net.connect(Net.tcp("127.0.0.1", 1), { timeout_ns = Clock.seconds(5) }) print(why)' })
   local pid, trouble, errno = process.spawn(started.argv[1], started.argv, started.options.env,
     tmp, nil, report, report, false,
     spawn_fds(started),
