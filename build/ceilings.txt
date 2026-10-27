@@ -5131,17 +5131,13 @@ test/sqlite_row_test.tl close_not_closable 1
 
 build/archive.tl condition_type 7
 
-build/archive_test.tl condition_type 24
 
 build/artifact.tl condition_type 2
 
-build/bare_test.tl condition_type 1
 
 build/bom.tl condition_type 3
 
-build/bom_verb_test.tl condition_type 1
 
-build/boot_test.tl condition_type 1
 
 build/c/init.tl condition_type 5
 
@@ -5153,15 +5149,12 @@ build/c/tree.tl condition_type 4
 
 build/c_functions.tl condition_type 1
 
-build/cache_lifetime_tool_test.tl condition_type 1
 
 build/cache_maintenance.tl condition_type 1
 
-build/cache_test.tl condition_type 2
 
 build/check_draws.tl condition_type 3
 
-build/ci_tree_test.tl condition_type 3
 
 build/closure_store.tl condition_type 3
 
@@ -5175,7 +5168,6 @@ build/confine.tl condition_type 8
 
 build/contract_rules.tl condition_type 1
 
-build/coverage/syntax_lines_test.tl condition_type 3
 
 build/database_start_fixture.tl condition_type 1
 
@@ -5183,13 +5175,10 @@ build/databases.tl condition_type 1
 
 build/dataset.tl condition_type 5
 
-build/dataset_fuzz_test.tl condition_type 3
 
-build/dataset_test.tl condition_type 1
 
 build/declared_key.tl condition_type 10
 
-build/declared_key_fuzz_test.tl condition_type 3
 
 build/derivation.tl condition_type 1
 
@@ -5201,9 +5190,7 @@ build/docs.tl condition_type 11
 
 build/docs_checks.tl condition_type 5
 
-build/docs_checks_test.tl condition_type 1
 
-build/docs_test.tl condition_type 2
 
 build/doctest/markdown.tl condition_type 1
 
@@ -5219,15 +5206,11 @@ build/fix/near.tl condition_type 7
 
 build/flow.tl condition_type 10
 
-build/fuzz/fuzz_test.tl condition_type 2
 
-build/fuzz/init.tl condition_type 3
+build/fuzz/init.tl condition_type 1
 
-build/fuzz/shrink.tl condition_type 2
 
-build/fuzz/shrink_test.tl condition_type 1
 
-build/harness_epoch_test.tl condition_type 12
 
 build/hash.tl condition_type 3
 
@@ -5237,17 +5220,15 @@ build/identity.tl condition_type 8
 
 build/importer.tl condition_type 4
 
-build/importer_store_test.tl condition_type 3
+build/importer_store_test.tl condition_type 2
 
-build/importer_test.tl condition_type 26
+build/importer_test.tl condition_type 2
 
 build/invoke.tl condition_type 1
 
 build/json.tl condition_type 5
 
-build/json_query_fuzz_test.tl condition_type 3
 
-build/json_test.tl condition_type 2
 
 build/key_parts.tl condition_type 1
 
@@ -5259,17 +5240,12 @@ build/link_resolve.tl condition_type 4
 
 build/link_text.tl condition_type 4
 
-build/link_text_fuzz_test.tl condition_type 1
 
 build/links.tl condition_type 3
 
-build/links_test.tl condition_type 1
 
-build/patch_test.tl condition_type 1
 
-build/paths_test.tl condition_type 1
 
-build/pipeline_test.tl condition_type 1
 
 build/plural_sites.tl condition_type 2
 
@@ -5281,25 +5257,22 @@ build/rebuild_lock_test.tl condition_type 1
 
 build/refresh.tl condition_type 1
 
-build/refresh_store_test.tl condition_type 2
 
 build/roots.tl condition_type 1
 
 build/sandbox.tl condition_type 4
 
-build/sandbox_test.tl condition_type 4
+build/sandbox_test.tl condition_type 1
 
-build/sandboxed_verdicts_test.tl condition_type 5
+build/sandboxed_verdicts_test.tl condition_type 1
 
 build/shared_compiles.tl condition_type 1
 
-build/shared_compiles_test.tl condition_type 1
 
-build/shared_compiles_tool_test.tl condition_type 1
 
 build/shared_verdicts.tl condition_type 2
 
-build/shared_verdicts_tool_test.tl condition_type 2
+build/shared_verdicts_tool_test.tl condition_type 1
 
 build/sql.tl condition_type 5
 
@@ -5307,9 +5280,7 @@ build/stand_in.tl condition_type 1
 
 build/stand_in_probe.tl condition_type 4
 
-build/stand_in_test.tl condition_type 3
 
-build/subdirectory_verbs_test.tl condition_type 2
 
 build/symbol_index.tl condition_type 2
 
@@ -5317,7 +5288,6 @@ build/symbols.tl condition_type 2
 
 build/syntax_contracts.tl condition_type 3
 
-build/syntax_links_test.tl condition_type 1
 
 build/syntax_receivers.tl condition_type 1
 
@@ -5335,41 +5305,30 @@ build/term_relay.tl condition_type 1
 
 build/test.tl condition_type 25
 
-build/test_cancelled_verdicts_tool_test.tl condition_type 1
 
 build/test_inputs.tl condition_type 9
 
 build/test_inputs_test.tl condition_type 10
 
-build/test_isolation_test.tl condition_type 1
 
-build/test_isolation_tool_test.tl condition_type 2
 
 build/test_key.tl condition_type 16
 
 build/test_policy.tl condition_type 4
 
-build/test_policy_plan_tool_test.tl condition_type 1
 
 build/test_sandbox.tl condition_type 8
 
 build/test_sandbox_probe.tl condition_type 1
 
-build/test_sandbox_run_tool_test.tl condition_type 1
 
-build/test_sandbox_test.tl condition_type 2
 
-build/test_standing_test.tl condition_type 1
 
-build/test_test.tl condition_type 9
 
 build/test_worker.tl condition_type 11
 
-build/test_worker_loads_test.tl condition_type 2
 
-build/test_worker_test.tl condition_type 3
 
-build/this_program_test.tl condition_type 1
 
 build/time.tl condition_type 4
 
@@ -5379,19 +5338,15 @@ build/todos.tl condition_type 5
 
 build/tree_checks.tl condition_type 23
 
-build/tree_checks_test.tl condition_type 3
 
 build/tree_root.tl condition_type 1
 
-build/tree_root_test.tl condition_type 1
 
-build/vendor_test.tl condition_type 11
 
-build/verb_list_test.tl condition_type 3
 
 build/verbs_fixture.tl condition_type 3
 
-build/verbs_store_test.tl condition_type 39
+build/verbs_store_test.tl condition_type 38
 
 build/verbs_test.tl condition_type 6
 
@@ -5399,15 +5354,12 @@ build/verbs_tool_test.tl condition_type 3
 
 build/work.tl condition_type 5
 
-build/work_test.tl condition_type 2
+build/work_test.tl condition_type 1
 
-build/workflows_test.tl condition_type 7
 
 build/zig_lock_test.tl condition_type 1
 
-build/zig_test.tl condition_type 1
 
-build/zig_tool_test.tl condition_type 5
 
 core/allocation_test.tl condition_type 1
 
@@ -5661,13 +5613,9 @@ test/sqlite_result_test.tl condition_type 2
 
 build/archive.tl or_mix 1
 
-build/archive_test.tl or_mix 21
 
-build/artifact_test.tl or_mix 1
 
-build/bom_test.tl or_mix 1
 
-build/bootstrap_scratch_test.tl or_mix 1
 
 build/c/rules.tl or_mix 23
 
@@ -5679,33 +5627,25 @@ build/cache_lifetime.tl or_mix 1
 
 build/cache_maintenance.tl or_mix 1
 
-build/cache_test.tl or_mix 1
 
-build/cache_tool_test.tl or_mix 2
 
 build/check_draws.tl or_mix 2
 
 build/codec.tl or_mix 1
 
-build/codec_test.tl or_mix 3
 
-build/codec_tool_test.tl or_mix 1
 
 build/plans.tl or_mix 2
 
-build/compile_test.tl or_mix 2
 
-build/compile_tool_test.tl or_mix 2
 
 build/confine.tl or_mix 3
 
 build/databases.tl or_mix 1
 
-build/dataset_test.tl or_mix 8
 
 build/declared_key.tl or_mix 1
 
-build/declared_key_test.tl or_mix 3
 
 build/dispatch.tl or_mix 1
 
@@ -5713,45 +5653,31 @@ build/docs_checks.tl or_mix 4
 
 build/doctest/generate.tl or_mix 1
 
-build/embed_tool_test.tl or_mix 2
 
-build/example_checks_test.tl or_mix 4
 
 build/fetch.tl or_mix 3
 
-build/fetch_test.tl or_mix 4
 
-build/fix/fix_test.tl or_mix 7
 
 build/flow.tl or_mix 2
 
-build/flow_test.tl or_mix 10
 
-build/fuzz/fuzz_test.tl or_mix 2
 
-build/gen_syscalls_test.tl or_mix 7
 
-build/harness_epoch_test.tl or_mix 3
 
 build/hash_sums_fuzz_test.tl or_mix 1
 
-build/hash_test.tl or_mix 5
 
 build/host_names.tl or_mix 1
 
 build/host_requires.tl or_mix 2
 
-build/host_requires_test.tl or_mix 17
 
-build/importer_test.tl or_mix 2
 
-build/invoke_test.tl or_mix 3
 
 build/json.tl or_mix 1
 
-build/json_query_test.tl or_mix 4
 
-build/json_test.tl or_mix 14
 
 build/link_resolve.tl or_mix 1
 
@@ -5759,69 +5685,42 @@ build/links.tl or_mix 1
 
 build/lua_children_test.tl or_mix 3
 
-build/lua_standalone_test.tl or_mix 1
 
-build/must_confine_sandboxed_test.tl or_mix 5
 
-build/must_confine_test.tl or_mix 6
 
-build/patch_test.tl or_mix 10
+build/patch_test.tl or_mix 1
 
-build/perf_test.tl or_mix 2
 
 build/plural_sites.tl or_mix 3
 
-build/positions_test.tl or_mix 11
 
-build/rand_test.tl or_mix 5
 
-build/reboot_test.tl or_mix 1
 
-build/rebuild_lock_lua_test.tl or_mix 1
 
-build/rebuild_lock_test.tl or_mix 2
 
 build/refresh.tl or_mix 2
 
-build/refresh_store_test.tl or_mix 3
 
-build/refresh_test.tl or_mix 2
 
-build/refresh_tool_test.tl or_mix 3
 
-build/roots_test.tl or_mix 1
 
-build/run_file_tool_test.tl or_mix 1
 
-build/runtime_checks_tool_test.tl or_mix 3
 
 build/sandbox.tl or_mix 5
 
-build/sandbox_closure_tool_test.tl or_mix 3
 
-build/sandbox_connect_test.tl or_mix 9
 
-build/sandbox_seal_tool_test.tl or_mix 10
 
-build/sandbox_test.tl or_mix 3
 
-build/sandbox_tool_test.tl or_mix 7
 
-build/sandboxed_verdicts_test.tl or_mix 4
 
-build/schema_test.tl or_mix 2
 
-build/sealed_worker_test.tl or_mix 1
 
-build/shared_compiles_tool_test.tl or_mix 1
 
 build/sql.tl or_mix 1
 
-build/sql_test.tl or_mix 31
 
-build/sqlite_wait_lua_test.tl or_mix 3
 
-build/stand_in_test.tl or_mix 5
 
 build/symbol_index.tl or_mix 1
 
@@ -5831,65 +5730,48 @@ build/syntax_contracts_test.tl or_mix 4
 
 build/syntax_derivation_test.tl or_mix 1
 
-build/syntax_stub_test.tl or_mix 3
 
 build/test.tl or_mix 2
 
-build/test_bail_tool_test.tl or_mix 3
+build/test_bail_tool_test.tl or_mix 1
 
 build/test_key.tl or_mix 4
 
-build/test_parent_tool_test.tl or_mix 5
 
-build/test_policy_plan_tool_test.tl or_mix 1
 
-build/test_policy_tool_test.tl or_mix 4
 
-build/test_requires_tool_test.tl or_mix 3
+build/test_requires_tool_test.tl or_mix 1
 
 build/test_sandbox.tl or_mix 1
 
-build/test_sandbox_run_tool_test.tl or_mix 3
 
-build/test_sandbox_tool_test.tl or_mix 2
 
-build/test_selection_test.tl or_mix 2
+build/test_selection_test.tl or_mix 1
 
-build/test_test.tl or_mix 3
 
 build/test_worker.tl or_mix 3
 
-build/test_worker_test.tl or_mix 3
 
-build/this_program_test.tl or_mix 2
 
 build/time.tl or_mix 1
 
-build/time_test.tl or_mix 6
 
-build/time_tool_test.tl or_mix 2
 
 build/todo_scan.tl or_mix 1
 
 build/tree_checks.tl or_mix 1
 
-build/tree_checks_test.tl or_mix 1
 
-build/vendor_test.tl or_mix 1
 
-build/verb_list_test.tl or_mix 1
 
 build/verbs_fixture.tl or_mix 1
 
 build/work.tl or_mix 2
 
-build/work_test.tl or_mix 4
 
-build/workflows_test.tl or_mix 3
+build/workflows_test.tl or_mix 1
 
-build/writer_test.tl or_mix 2
 
-build/zig_lock_test.tl or_mix 2
 
 core/allocation_test.tl or_mix 1
 
