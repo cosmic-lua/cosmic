@@ -1213,7 +1213,7 @@ local function record_header(data: string, pos: integer, first: boolean): Header
   end
   local length = u16(data, pos + 3)
   if length == 0 or length > 16384 then
-    return { refusal = malformed("a handshake record of length " .. length), length = 0 }
+    return { refusal = malformed("a handshake record of length " .. tostring(length)), length = 0 }
   end
   return { length = length }
 end

@@ -151,7 +151,7 @@ local function base_url(self: Req): string?, string
   local parsed = Request.parse_host(host)
   if parsed == nil then return nil, "web: the request's host is not a host name" end
   local port = parsed.port
-  return self.scheme .. "://" .. parsed.host .. (if port ~= nil then ":" .. port else "" end), ""
+  return self.scheme .. "://" .. parsed.host .. (if port ~= nil then ":" .. tostring(port) else "" end), ""
 end
 
 local methods = {

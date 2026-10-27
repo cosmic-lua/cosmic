@@ -249,7 +249,7 @@ end
 --- Why the limit `name`, nil for none, is below `least`, or "".
 local function below(name: string, value: integer?, least: integer): string
   if value == nil or value >= least then return "" end
-  return path_of({ "limits", name }) .. ": a limit is at least " .. least
+  return path_of({ "limits", name }) .. ": a limit is at least " .. tostring(least)
 end
 
 --- Why `loopback` and `connect` may not be held together, or "": a
@@ -443,7 +443,7 @@ end
 --- for none), disagree, or "" when they do not.
 local function limit_conflict(name: string, held: integer?, incoming: integer?): string
   if held ~= nil and incoming ~= nil and held ~= incoming then
-    return path_of({ "limits", name }) .. ": given two values, " .. held .. " and " .. incoming
+    return path_of({ "limits", name }) .. ": given two values, " .. tostring(held) .. " and " .. tostring(incoming)
   end
   return ""
 end
@@ -659,11 +659,11 @@ function rules.merge(...: rules.Policy): rules.Policy?, string
     if p.tmp then tmp = true end
     local p_user = p.user
     if p_user ~= nil and user ~= nil and p_user ~= user then
-      return refuse(path_of({ "user" }) .. ": given two values, " .. user .. " and " .. p_user)
+      return refuse(path_of({ "user" }) .. ": given two values, " .. tostring(user) .. " and " .. tostring(p_user))
     end
     local p_group = p.group
     if p_group ~= nil and group ~= nil and p_group ~= group then
-      return refuse(path_of({ "group" }) .. ": given two values, " .. group .. " and " .. p_group)
+      return refuse(path_of({ "group" }) .. ": given two values, " .. tostring(group) .. " and " .. tostring(p_group))
     end
     user, group = p.user or user, p.group or group
     local own = p.limits or {}

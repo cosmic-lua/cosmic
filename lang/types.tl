@@ -586,7 +586,7 @@ end
 local function render_alt(alt: Alt, sub: function(Type): string): string
   local narrows = alt.narrows
   if narrows ~= nil then
-    return "((" .. (if narrows.asserts then "asserts " else "is " end) .. narrows.param .. " " .. sub(narrows.to) .. "))"
+    return "((" .. (if narrows.asserts then "asserts " else "is " end) .. tostring(narrows.param) .. " " .. sub(narrows.to) .. "))"
   end
   local parts: mut {string} = {}
   for _, item in ipairs(alt.items) do
@@ -801,10 +801,10 @@ end
 --- that while a declaration in the type has the name (or its first name), so that a type variable
 --- is never taken for a type. The letters have no `_`, so no two variables get one name.
 local function parameter_name(names: Names, level: integer, index: integer): string
-  local name = "P" .. index .. (if level == 0 then "" else "_" .. level end)
+  local name = "P" .. tostring(index) .. (if level == 0 then "" else "_" .. tostring(level) end)
   if index < #NAME_LETTERS then
     local letter = NAME_LETTERS:sub(index + 1, index + 1)
-    name = level == 0 and letter or letter .. "_" .. level
+    name = level == 0 and letter or letter .. "_" .. tostring(level)
   end
   local taken: {string: boolean} = names.taken or declared_names(names.root)
   names.taken = taken
@@ -818,7 +818,7 @@ function Types.letter(index: integer): string
   if index < #NAME_LETTERS then
     return NAME_LETTERS:sub(index + 1, index + 1)
   end
-  return "P" .. index
+  return "P" .. tostring(index)
 end
 
 --- How an atom or a form is told from another when a union is written: atoms in the order
@@ -909,7 +909,7 @@ end
 local function show_alt(alt: Alt, names: Names): string
   local narrows = alt.narrows
   if narrows ~= nil then
-    return (if narrows.asserts then "asserts " else "" end) .. "p" .. narrows.param .. " is " .. show(narrows.to, names, false)
+    return (if narrows.asserts then "asserts " else "" end) .. "p" .. tostring(narrows.param) .. " is " .. show(narrows.to, names, false)
   end
   local parts: mut {string} = {}
   for _, item in ipairs(alt.items) do
@@ -1003,9 +1003,9 @@ local function show_fn(f: Fn, names: Names): string
   for i, p in ipairs(f.params) do
     local last = rest == nil and i == #f.params
     if p.omittable then
-      params[i] = "p" .. i .. "?: " .. show_without_nil(p.type, names, last)
+      params[i] = "p" .. tostring(i) .. "?: " .. show_without_nil(p.type, names, last)
     elseif named[i] then
-      params[i] = "p" .. i .. ": " .. show_element(p.type, names, last)
+      params[i] = "p" .. tostring(i) .. ": " .. show_element(p.type, names, last)
     else
       params[i] = show_element(p.type, names, last)
     end
@@ -1118,7 +1118,7 @@ local function intern(store: Store, candidate: Type): Type
   measure(candidate)
   if candidate.height > MAX_DEPTH then
     -- [`lang.declarations`] makes `invalid` of a type that would nest this deep before it asks.
-    error("types: a type nested deeper than " .. MAX_DEPTH, 3)
+    error("types: a type nested deeper than " .. tostring(MAX_DEPTH), 3)
   end
   store.count = store.count + 1
   set_id(candidate, store.count)
@@ -1222,7 +1222,7 @@ end
 --- The key of a path in the store's tables: the length of the module before the module, so that
 --- no module and name make the key of another pair.
 local function path_key(module: string, name: string): string
-  return #module .. ":" .. module .. name
+  return tostring(#module) .. ":" .. module .. name
 end
 
 --- Why a variable that `t` holds at `level` binders inside it, which is bound by the binder of
@@ -1231,14 +1231,14 @@ local function unbound(t: Type, level: integer, count: integer, seen: mut {strin
   if t.open <= level then
     return ""
   end
-  local mark = tostring(t.id) .. ":" .. level
+  local mark = tostring(t.id) .. ":" .. tostring(level)
   if seen[mark] then
     return ""
   end
   seen[mark] = true
   if (t.tag == "var") then
     if t.depth == level and t.index >= count then
-      return "the variable " .. tostring(t.depth) .. " " .. tostring(t.index) .. " names a type parameter its binder lacks, which has " .. count
+      return "the variable " .. tostring(t.depth) .. " " .. tostring(t.index) .. " names a type parameter its binder lacks, which has " .. tostring(count)
     end
     return ""
   end
@@ -1331,7 +1331,7 @@ Types.Store.named = function(self: Store, decl: Decl, args?: {Type}, value?: boo
   end
   local arity = decl.arity
   if arity ~= nil and arity ~= #copied then
-    error("types: " .. decl.name .. " takes " .. arity .. " type arguments, not " .. #copied, 2)
+    error("types: " .. decl.name .. " takes " .. tostring(arity) .. " type arguments, not " .. tostring(#copied), 2)
   end
   local named: Named = {
     tag = "named", atom = false, id = 0, owner = self.owner, digest = "", open = 0, has_mut = false,
@@ -1416,7 +1416,7 @@ Types.Store.fn = function(self: Store, spec: FnSpec): Type
       error("types: a narrowing declaration is the whole return list", 2)
     end
     if narrows ~= nil and narrows.param > #params then
-      error("types: a narrowing declaration names parameter " .. narrows.param .. " of " .. #params, 2)
+      error("types: a narrowing declaration names parameter " .. tostring(narrows.param) .. " of " .. tostring(#params), 2)
     end
     local normal = normal_alt(self, alt)
     if normal ~= nil then
@@ -1500,11 +1500,11 @@ local function set_arity(store: Store, decl: Decl, arity: integer)
     return
   end
   if held ~= nil then
-    error("types: " .. decl.name .. " takes " .. held .. " type arguments, not " .. arity, 3)
+    error("types: " .. decl.name .. " takes " .. tostring(held) .. " type arguments, not " .. tostring(arity), 3)
   end
   for _, use in ipairs(store.pending[path_key(decl.module, decl.name)] or {}) do
     if #use.args ~= arity then
-      error("types: " .. decl.name .. " takes " .. arity .. " type arguments, not " .. #use.args, 3)
+      error("types: " .. decl.name .. " takes " .. tostring(arity) .. " type arguments, not " .. tostring(#use.args), 3)
     end
   end
   note(store, decl)
@@ -1699,12 +1699,12 @@ end
 local function give_body(store: Store, decl: Decl, body: Body)
   local held = decl.arity
   if held ~= nil and held ~= #body.tparams then
-    error("types: " .. decl.name .. " takes " .. held .. " type arguments, not " .. #body.tparams, 3)
+    error("types: " .. decl.name .. " takes " .. tostring(held) .. " type arguments, not " .. tostring(#body.tparams), 3)
   end
   local key = path_key(decl.module, decl.name)
   for _, use in ipairs(store.pending[key] or {}) do
     if #use.args ~= #body.tparams then
-      error("types: " .. decl.name .. " takes " .. #body.tparams .. " type arguments, not " .. #use.args, 3)
+      error("types: " .. decl.name .. " takes " .. tostring(#body.tparams) .. " type arguments, not " .. tostring(#use.args), 3)
     end
   end
   local settled = store.pending[key]
@@ -1796,7 +1796,7 @@ local record Reader
 end
 
 local function fail(r: Reader, message: string)
-  error("types: " .. message .. " (at byte " .. r.at .. ")", 0)
+  error("types: " .. message .. " (at byte " .. tostring(r.at) .. ")", 0)
 end
 
 local function skip(r: Reader)
@@ -1895,7 +1895,7 @@ local function descend(r: Reader)
   local store = r.store
   store.depth = store.depth + 1
   if store.depth > MAX_DEPTH then
-    fail(r, "text nests deeper than " .. MAX_DEPTH)
+    fail(r, "text nests deeper than " .. tostring(MAX_DEPTH))
   end
 end
 

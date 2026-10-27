@@ -887,7 +887,7 @@ local function bind_list(w: Walk, field: string, spec: Shape.Spec): any
   local out: mut {any} = {}
   local of = assert(spec.of)
   for i, text in ipairs(values) do
-    out[i] = scalar(w, field .. "." .. (i - 1), of, text)
+    out[i] = scalar(w, field .. "." .. tostring((i - 1)), of, text)
   end
   return Json.array(out)
 end

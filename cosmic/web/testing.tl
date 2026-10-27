@@ -661,7 +661,7 @@ local function loopback_request(self: Testing.Loopback, method: string, path: st
   return loopback_raw(self, table.concat(head, "\r\n") .. "\r\n\r\n" .. prepared.body, method)
 end
 
-local function loopback_verb(method: string): function(Testing.Loopback, string, Options?): Response?, string
+local function loopback_verb(method: string): function(Testing.Loopback, string, p3?: Options): Response?, string
   return function(self: Testing.Loopback, path: string, opts?: Options): Response?, string
     return self:request(method, path, opts)
   end
@@ -671,12 +671,6 @@ local function loopback_set_timeout(self: Testing.Loopback, wait_ns: integer?)
   self.conn:set_timeout(wait_ns)
   self.timeout_ns = wait_ns
 end
-
-local loopback_methods = {
-  set_timeout = loopback_set_timeout, request = loopback_request, raw = loopback_raw, get = loopback_verb("GET"),
-  post = loopback_verb("POST"), head = loopback_verb("HEAD"),
-}
-local loopback_mt: metatable<Testing.Loopback> = { __index = loopback_methods }
 
 --- Serves `app` through [`Web.serve`] on 127.0.0.1 at a port the kernel
 --- chooses, calls `fn` with a client of it over one kept-alive connection,
@@ -701,8 +695,11 @@ function Testing.with_server(app: Types.App, fn: function(client: Testing.Loopba
         return
       end
       conn:set_timeout(IO_TIMEOUT_NS)
-      local client: Testing.Loopback = setmetatable({ conn = conn, buf = "", timeout_ns = IO_TIMEOUT_NS,
-        host = "127.0.0.1:" .. assert(addresses[1].port) }, loopback_mt)
+      local client: Testing.Loopback = {
+        conn = conn, buf = "", timeout_ns = IO_TIMEOUT_NS, host = "127.0.0.1:" .. tostring(assert(addresses[1].port)),
+        set_timeout = loopback_set_timeout, request = loopback_request, raw = loopback_raw,
+        get = loopback_verb("GET"), post = loopback_verb("POST"), head = loopback_verb("HEAD"),
+      }
       local ran, raised = pcall(function() fn(client) end)
       if not ran then failures[1] = tostring(raised) end
       local _, _ = conn:close()

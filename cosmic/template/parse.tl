@@ -52,7 +52,7 @@ end
 
 --- `name:line:col: reason`.
 local function refuse(p: Parser, line: integer, col: integer, reason: string): string
-  return p.name .. ":" .. line .. ":" .. col .. ": " .. reason
+  return p.name .. ":" .. tostring(line) .. ":" .. tostring(col) .. ": " .. reason
 end
 
 --- Whether `s` is a dotted run of identifiers, `min` names at least.
@@ -206,8 +206,8 @@ local function bindings(p: Parser, item: types.Item): Bound?, string
     end
     local seen = p.visible[name] or here[name]
     if seen ~= nil then
-      return nil, refuse(p, word.line, word.col, "'" .. word.value .. "' is already declared at " .. seen.line ..
-          ":" .. seen.col .. ": bind another name, so that each names one value")
+      return nil, refuse(p, word.line, word.col, "'" .. word.value .. "' is already declared at " .. tostring(seen.line) ..
+          ":" .. tostring(seen.col) .. ": bind another name, so that each names one value")
     end
     here[name] = word
   end

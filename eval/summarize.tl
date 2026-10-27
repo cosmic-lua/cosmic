@@ -751,7 +751,7 @@ function Summarize.report(transcript: string, arena: string, repo: string): stri
   end
   local tmp_count = #sorted(sandbox_tmp)
   if tmp_count > 0 then
-    out[#out + 1] = "sandbox-tmp: " .. tmp_count
+    out[#out + 1] = "sandbox-tmp: " .. tostring(tmp_count)
   end
   for _, path in ipairs(sorted(outside)) do
     out[#out + 1] = "outside-arena: " .. path

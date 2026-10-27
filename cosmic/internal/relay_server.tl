@@ -364,7 +364,7 @@ end
 --- `host:port`, an IPv6 host in brackets.
 local function target(host: string, port: integer): string
   if host:find(":", 1, true) then host = "[" .. host .. "]" end
-  return host .. ":" .. port
+  return host .. ":" .. tostring(port)
 end
 
 --- The [`Connector`] of the one connector a relay's starter handed it
