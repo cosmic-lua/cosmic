@@ -2494,10 +2494,6 @@ lang/check_programs.tl view_written 5
 
 lang/check_test.tl view_written 1
 
-lang/check_verdicts.tl view_written 3
-
-lang/check_verdicts_test.tl view_written 2
-
 lang/codegen_test.tl view_written 1
 
 lang/declarations.tl view_written 15
@@ -8874,12 +8870,6 @@ lang/check_programs.tl array_hole 1
 lang/check_speed_test.tl array_hole 8
 
 lang/check_test.tl array_hole 2
-
-lang/check_verdicts.tl array_hole 1
-
-lang/check_verdicts.tl nil_not_allowed 1
-
-lang/check_verdicts_test.tl array_hole 22
 
 lang/codegen_speed_test.tl array_hole 1
 

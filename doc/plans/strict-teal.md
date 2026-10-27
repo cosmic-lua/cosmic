@@ -443,14 +443,14 @@ keeps every part of it working and builds on it where it helps.
   verdicts and the new checker's into tables, and the gate's triage is a
   join: each difference a row with the name of the rule that explains it,
   and the gate is the query that finds a row with none. the tables are
-  data under [`testdata/gate/`], so that they outlive the fork: `verdicts.json`
+  data under `testdata/gate/`, so that they outlive the fork: `verdicts.json`
   holds a row for each program build/teal_test.tl pins and each input
   of the checker corpora, with what the fork said (frozen) and what the
   new checker says and with which codes; `retired.json` holds a row for
   each program the fork refuses and the new checker takes, with the code
   of the rule that makes it right and a twin that the rule refuses;
   `rules.json` names the rule of each code of the lexer, the parser and
-  the scope builder, which no catalog holds yet. [`lang/check_verdicts_test.tl`]
+  the scope builder, which no catalog holds yet. `lang/check_verdicts_test.tl`
   runs the query and fails on a difference with no rule, on a program the
   fork refuses that is taken without a retired row, and on a row that is no
   longer what the checker says; `bin/cosmic build/gate_record.tl` writes the
@@ -461,7 +461,7 @@ keeps every part of it working and builds on it where it helps.
   are never places, a receiver that is not the interface's) and that the
   new checker takes by a rule of this plan is not refused again to keep the
   pin: it is a row of `retired.json`, run in
-  [`lang/check_verdicts_test.tl`], with the twin that the same rule
+  `lang/check_verdicts_test.tl`, with the twin that the same rule
   refuses, one for each form the row is about, so that a change of that
   form is seen; and the program is run. a refusal at the lexer, the parser
   or the scope builder (a form the grammar cut) shows the verdict only, not
@@ -1269,14 +1269,15 @@ and the worker that compared the two. what the change did, and what it decided:
 
 - **the gate.** the new checker was at least as sound as the fork, not at every ceiling zero. every program pinned in
   the fork's corpus was refused by a rule of this plan or accepted because a sound rule of this plan admits it (a row of
-  [`testdata/gate/retired.json`] with the rule's code); every verdict it gave differently was a row of the verdict tables
+  `testdata/gate/retired.json` with the rule's code); every verdict it gave differently was a row of the verdict tables
   tied to a named rule; the fuzz soundness properties and checked narrowing ran against it; the C bindings are typed from
   the `.d.tl` declarations the build derives, so the error-slot rules see the calls into [`cosmic.sys`]; and the calls
   the contracts judge have a callee or are counted under the `[untyped]` ceilings of [`build/ceilings.txt`], which
-  follow from the pinned `[checked]` errors and fall with them. the gate's evidence stays in the tree: the verdict
-  tables, the retired pins, [`lang/check_flow_fuzz_test.tl`], [`lang/check_total_fuzz_test.tl`],
-  [`lang/check_assigned_fuzz_test.tl`] and [`bin/gate-sweep`], whose result is [`testdata/gate/sweep.txt`]. the fork's
-  answers to the programs the tests compared are kept as text beside the cases ([`lang/forked.tl`]).
+  follow from the pinned `[checked]` errors and fall with them. the gate's evidence was the verdict tables
+  (`testdata/gate/`, `lang/check_verdicts_test.tl`), the fuzz properties ([`lang/check_flow_fuzz_test.tl`],
+  [`lang/check_total_fuzz_test.tl`], [`lang/check_assigned_fuzz_test.tl`]) and the sweep `bin/gate-sweep` ran over them;
+  the tables and the sweep were deleted with the fork's grammar, and the fuzz properties stay. the fork's
+  answers to the programs the tests compared were kept as text beside the cases ([`lang/forked.tl`]).
 - **one grammar.** the tool reads the new grammar and no other. `COSMIC_GRAMMAR` takes `new` or nothing; `teal` and
   `cosmic compile --grammar teal` are refused, naming `cosmic migrate`, which translates a project and is kept for one
   release as a user-facing verb and then goes. a project outside the tree is a hard cutover: it compiles with the
@@ -1551,10 +1552,6 @@ since the seed's Lua runs on the tree's VM.
 [`lang/fact_wraps.tl`]: ../../lang/fact_wraps.tl
 [`build/driver.tl`]: ../../build/driver.tl
 [`build/confine.tl`]: ../../build/confine.tl
-[`bin/gate-sweep`]: ../../bin/gate-sweep
-[`testdata/gate/`]: ../../testdata/gate
-[`testdata/gate/sweep.txt`]: ../../testdata/gate/sweep.txt
-[`lang/check_verdicts_test.tl`]: ../../lang/check_verdicts_test.tl
 [`lang/declarations.tl`]: ../../lang/declarations.tl
 [`lang/check_flow_fuzz_test.tl`]: ../../lang/check_flow_fuzz_test.tl
 [`lang/check_total_fuzz_test.tl`]: ../../lang/check_total_fuzz_test.tl
@@ -1582,5 +1579,4 @@ since the seed's Lua runs on the tree's VM.
 [`Child.Handle`]: ../../cosmic/child.tl
 [`cosmic.json.array`]: ../../cosmic/json.tl
 [`lang/SEED_DIFFERS`]: ../../lang/SEED_DIFFERS
-[`testdata/gate/retired.json`]: ../../testdata/gate/retired.json
 [`Types.Atom`]: ../../lang/types.tl

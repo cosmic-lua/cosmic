@@ -4,9 +4,7 @@ local ErrorCatalog = require("build.error_catalog")
 local Errors = require("cosmic.errors")
 local Fs = require("cosmic.fs")
 local Sqlite = require("cosmic.sqlite")
-local SyntaxCodes = require("lang.syntax_codes")
 local Test = require("cosmic.test")
-local Verdicts = require("lang.check_verdicts")
 local schema = require("build.schema")
 
 Test.policy{
@@ -18,7 +16,6 @@ Test.policy{
     { path = "lang/check_codes.tl", letters = "r" },
     { path = "lang/warnings.tl", letters = "r" },
     { path = "lang/codegen.tl", letters = "r" },
-    { path = "testdata/gate/rules.json", letters = "r" },
   },
 }
 
@@ -171,20 +168,6 @@ local function test_check_names_a_code_with_no_row_a_row_for_no_code_two_rows_an
   }
   assert(joined(ErrorCatalog.check(emitted, { good, bare })) ==
       "arity has an empty rule in f.tl arity has an empty why in f.tl arity has an empty fix in f.tl")
-end
-
-local function test_the_rows_of_the_syntax_codes_say_what_the_gate_says_of_the_same_codes()
-  local rules, trouble = Verdicts.read_rules(read("testdata/gate/rules.json"))
-  assert(rules ~= nil, trouble)
-  local checked = 0
-  for _, rule in ipairs(rules) do
-    local row = SyntaxCodes.row(rule.code)
-    assert(row ~= nil, rule.code .. " has a rule in testdata/gate/rules.json and no row")
-    assert(row.rule == rule.rule, rule.code .. ": the rule is " .. row.rule .. " in the row and " .. rule.rule .. " there")
-    assert(row.why == rule.why, rule.code .. ": the reason differs from testdata/gate/rules.json")
-    checked = checked + 1
-  end
-  assert(checked >= 30, "checked " .. tostring(checked))
 end
 
 local function test_a_fix_closes_its_placeholders_and_a_row_ends_with_no_full_stop()
