@@ -181,8 +181,7 @@ local function test_every_child_started_here_has_an_exit_watch()
     copy.exit_watch = function(pid: integer): integer?, string, integer
       local fd, why, errno = watch(pid)
       if fd ~= nil then given.value = given.value + 1 else refused.value = why end
-      if fd == nil then return nil, why, errno end
-      return fd
+      return fd, why, errno
     end
   end)
   Poll.run(function()

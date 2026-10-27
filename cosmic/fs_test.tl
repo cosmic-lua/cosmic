@@ -68,8 +68,7 @@ local function test_interleaved_writers_have_distinct_temporary_files(tmp: strin
     if file ~= nil then
       temporaries[#temporaries + 1] = file.path
     end
-    if file == nil then return nil, trouble, number end
-    return file
+    return file, trouble, number
   end
   sys.write = function(fd: integer, data: string): integer?, string, integer
     if not nested.value then
@@ -95,8 +94,7 @@ local function test_write_failure_preserves_destination_and_cleans_its_temp(tmp:
   sys.open_temporary = function(destination: string, mode?: integer): sys.TemporaryFile?, string, integer
     local file, trouble, number = real_open_temporary(destination, mode)
     if file ~= nil then created.value = file.path end
-    if file == nil then return nil, trouble, number end
-    return file
+    return file, trouble, number
   end
   sys.write = function(_fd: integer, _data: string): integer?, string, integer
     return nil, "injected write failure", 0
@@ -122,8 +120,7 @@ local function test_close_failure_preserves_destination_and_cleans_its_temp(tmp:
       created.value = file.path
       injected_fd.value = file.fd
     end
-    if file == nil then return nil, trouble, number end
-    return file
+    return file, trouble, number
   end
   sys.close = function(fd: integer): boolean, string, integer
     if fd == injected_fd.value then
@@ -150,8 +147,7 @@ local function test_rename_failure_preserves_destination_and_cleans_its_temp(tmp
   sys.open_temporary = function(destination: string, mode?: integer): sys.TemporaryFile?, string, integer
     local file, trouble, number = real_open_temporary(destination, mode)
     if file ~= nil then created.value = file.path end
-    if file == nil then return nil, trouble, number end
-    return file
+    return file, trouble, number
   end
   sys.rename = function(_from: string, _to: string): boolean, string, integer
     return false, "injected rename failure", 0

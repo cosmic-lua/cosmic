@@ -1795,7 +1795,7 @@ local record Reader
   store: Store
 end
 
-local function fail(r: Reader, message: string)
+local function fail(r: Reader, message: string): never
   error("types: " .. message .. " (at byte " .. tostring(r.at) .. ")", 0)
 end
 
@@ -2128,7 +2128,6 @@ read_declaration = function(store: Store, text: string, module: string?, name: s
   local decl_kind = DECL_KINDS[kind]
   if decl_kind == nil then
     fail(r, "there is no declaration kind " .. kind)
-    return store:declare("record", "m", { "x" })
   end
   local path_module = string_of(r)
   local path_name = string_of(r)

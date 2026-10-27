@@ -388,7 +388,7 @@ local function authority(text: string): Authority?, string
     return nil, why
   end
   out.port = port
-  return out
+  return out, ""
 end
 
 --- A reader's refusal of a CONNECT head.
@@ -864,7 +864,7 @@ function relay_wire.socks_client_auth(user: string, password: string): string?, 
   if password == "" then return nil, "the password is empty" end
   if #user > 255 then return nil, "the username is longer than 255 bytes" end
   if #password > 255 then return nil, "the password is longer than 255 bytes" end
-  return "\1" .. string.char(#user) .. user .. string.char(#password) .. password
+  return "\1" .. string.char(#user) .. user .. string.char(#password) .. password, ""
 end
 
 --- The CONNECT request a SOCKS5 client sends for `host` and `port`: an
@@ -884,11 +884,11 @@ function relay_wire.socks_client_request(host: string, port: integer): string?, 
   local tail = string.pack(">I2", port)
   local four = octets(host)
   if four ~= nil then
-    return "\5\1\0\1" .. string.char(four[1], four[2], four[3], four[4]) .. tail
+    return "\5\1\0\1" .. string.char(four[1], four[2], four[3], four[4]) .. tail, ""
   end
   local six, _ = ipv6_bytes(host)
   if six ~= nil then
-    return "\5\1\0\4" .. string.char(table.unpack(six)) .. tail
+    return "\5\1\0\4" .. string.char(table.unpack(six)) .. tail, ""
   end
   if host == "" then
     return nil, "the host is empty"
@@ -896,7 +896,7 @@ function relay_wire.socks_client_request(host: string, port: integer): string?, 
   if #host > 255 then
     return nil, "the host name is longer than 255 bytes"
   end
-  return "\5\1\0\3" .. string.char(#host) .. host .. tail
+  return "\5\1\0\3" .. string.char(#host) .. host .. tail, ""
 end
 
 --- The method choice at the start of `buf`, whole.
@@ -1097,7 +1097,7 @@ local function hello_name(body: string): ServerName?, string
   end
   at = at + 1 + methods
   if at == size + 1 then
-    return { name = "", encrypted = false }
+    return { name = "", encrypted = false }, ""
   end
   if at + 1 > size then
     return nil, "ClientHello extensions length cut short"
@@ -1155,7 +1155,7 @@ local function hello_name(body: string): ServerName?, string
     end
     at = at + 4 + length
   end
-  return { name = found, encrypted = encrypted }
+  return { name = found, encrypted = encrypted }, ""
 end
 
 local function malformed(why: string): relay_wire.Hello
