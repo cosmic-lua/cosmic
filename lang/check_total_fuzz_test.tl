@@ -1,21 +1,16 @@
---- The checker never raises, whatever it is given. Programs are drawn by the fork's generator of its totality property
---- ([`build.check_draws`]: a well-formed program over the narrowing work's shapes, one in three cut and flipped at
---- random bytes) and checked three ways: adapted to the new grammar ([`lang.check_drawn`]), which most of the well-formed
---- ones are taken for, translated ([`lang.translate`]), and as they are, which for most is text the new grammar's
---- parser has never seen. Each is read, scoped, lowered and checked, and none of them raises; each
---- error it gives has a code, a message and a place inside the source. The corpus of programs that once raised in the
---- fork's checker (`testdata/fuzz/checker-total`) is checked first, even at `FUZZ_ITERS=0`. `FUZZ_SEED` and
---- `FUZZ_ITERS` pick the inputs (build/fuzz/init.tl).
---- A few draws run by default so that the test fits a few seconds; the full sweep, many draws from several seeds, is
---- [`bin/gate-sweep`] (its result is testdata/gate/sweep.txt), and the nightly fuzz workflow draws from a seed of its own.
----
---- This is the property of build/checker_fuzz_test.tl against the new checker, which keeps it when the fork goes.
+--- The checker never raises, whatever it is given. Programs are drawn by the generator of the totality property
+--- ([`build.check_draws`]: a well-formed program over the narrowing work's shapes, one in three cut and flipped at random
+--- bytes) and checked two ways: put in the new grammar ([`lang.check_drawn`]), which most of the well-formed ones are taken
+--- for, and as they are, which for most is text the new grammar's parser has never seen. Each is read, scoped, lowered and
+--- checked, and none of them raises; each error it gives has a code, a message and a place inside the source. The corpus of
+--- programs that once raised a checker (`testdata/fuzz/checker-total`) is checked first, even at `FUZZ_ITERS=0`.
+--- `FUZZ_SEED` and `FUZZ_ITERS` pick the inputs (build/fuzz/init.tl). A few draws run by default so that the test fits a few
+--- seconds; the nightly fuzz workflow draws from a seed of its own.
 local Drawn = require("lang.check_drawn")
 local Env = require("cosmic.env")
 local Fuzz = require("build.fuzz")
 local Programs = require("lang.check_programs")
 local Test = require("cosmic.test")
-local Translate = require("lang.translate")
 local drawn = require("build.check_draws")
 
 Test.policy{}
@@ -92,14 +87,10 @@ end
 local function check(input: string): boolean, string
   local adapted = Drawn.adapted(input)
   if adapted ~= nil then
-    local ok, why = never_raises(Translate.translate(adapted, "fuzz.tl").text, "adapted")
+    local ok, why = never_raises(adapted, "adapted")
     if not ok then
       return false, why
     end
-  end
-  local ok, why = never_raises(Translate.translate(input, "fuzz.tl").text, "translated")
-  if not ok then
-    return false, why
   end
   return never_raises(input, "raw")
 end
@@ -118,7 +109,7 @@ local function test_the_checker_never_raises_and_places_its_errors(tmp: string)
     corpus = "testdata/fuzz/checker-total",
     gen = drawn.any,
     check = check,
-    requires = { "adapted accepted", "adapted refused", "adapted not a program", "translated not a program", "raw not a program" },
+    requires = { "adapted accepted", "adapted refused", "adapted not a program", "raw not a program" },
     shares = { ["adapted refused"] = 0.1 },
   })
 end

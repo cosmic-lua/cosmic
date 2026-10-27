@@ -417,25 +417,18 @@ seeded source. A check must hold for all of them. The module doc of
 ## a change to the checker's verdicts
 
 A change to the type checker that must not move a verdict, or must move
-only the ones it says, is held to the gate's verdict table,
-[`testdata/gate/verdicts.json`] ([`lang.check_verdicts`]): one row for each
-program the fork's tests pinned and each input of the checker's fuzz
-corpora (`testdata/fuzz/checker-*`), with what the fork said of it (frozen
-data: the fork went with the switch) and what the new checker says.
-[`lang/check_verdicts_test.tl`] holds the checker to the table, so a verdict
-that moves fails it by program, saying what the table has and what the
-checker now says. A change that moves verdicts on purpose runs
-`bin/cosmic build/gate_record.tl`, which writes the new checker's side of
-the table again, and reads the diff: each row that moved is a program
-whose verdict the change moves, and a difference from the fork's side
-needs its rule in [`testdata/gate/rules.json`], `retired.json` or
-`open.json`, which the same test checks.
+only the ones it says, is held by the tests of each rule
+(`lang/check_*_test.tl`, which name a program and the code it gets) and
+by the checker's fuzz properties ([`lang/check_flow_fuzz_test.tl`],
+[`lang/check_total_fuzz_test.tl`], [`lang/check_assigned_fuzz_test.tl`]),
+which run the checker on drawn programs and on the corpora in
+`testdata/fuzz/checker-*`.
 
 The tree alone is weak evidence for a change to narrowing: the tree's own
 code is written to pass, and a checker that narrowed less or more leaves
-most of its lines as they are. The corpora carry that sensitivity, so a
-narrowing change reads the diff of the whole table, not of the tree's
-ceilings alone.
+most of its lines as they are. The fuzz properties carry that sensitivity,
+so a narrowing change runs them with a larger `FUZZ_ITERS` as well as
+reading the tree's ceilings.
 
 ## other hazards
 
@@ -558,13 +551,11 @@ Other rules:
 [`importer.checked_tool`]: ../build/importer.tl
 [`lang.boundary_checks`]: ../lang/boundary_checks.tl
 [`lang.check_programs`]: ../lang/check_programs.tl
-[`lang.check_verdicts`]: ../lang/check_verdicts.tl
 [`lang.codegen`]: ../lang/codegen.tl
 [`lang.fact_wraps`]: ../lang/fact_wraps.tl
+[`lang/check_assigned_fuzz_test.tl`]: ../lang/check_assigned_fuzz_test.tl
 [`lang/check_flow_fuzz_test.tl`]: ../lang/check_flow_fuzz_test.tl
-[`lang/check_verdicts_test.tl`]: ../lang/check_verdicts_test.tl
+[`lang/check_total_fuzz_test.tl`]: ../lang/check_total_fuzz_test.tl
 [`Test.passed_unchecked`]: ../cosmic/test.tl
 [`Test.policy`]: ../cosmic/test.tl
 [`Test.skip`]: ../cosmic/test.tl
-[`testdata/gate/rules.json`]: ../testdata/gate/rules.json
-[`testdata/gate/verdicts.json`]: ../testdata/gate/verdicts.json

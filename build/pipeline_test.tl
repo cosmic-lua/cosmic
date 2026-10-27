@@ -1,4 +1,4 @@
---- The tests of [`build.pipeline`]: a module of the fork's Teal read, checked against its ceilings and written as Lua and bytecode by the
+--- The tests of [`build.pipeline`]: a module read, checked against its ceilings and written as Lua and bytecode by the
 --- new checker. The Lua is run, and compared with what the generator writes alone ([`lang.codegen`]) over the files of the tree.
 local Ceilings = require("build.ceilings")
 local Codegen = require("lang.codegen")
@@ -13,7 +13,6 @@ local Programs = require("lang.check_programs")
 local Scopes = require("lang.scopes")
 local Sqlite = require("cosmic.sqlite")
 local Test = require("cosmic.test")
-local Translate = require("lang.translate")
 local Truthy = require("lang.truthy")
 local plans = require("build.plans")
 local importer = require("build.importer")
@@ -29,7 +28,7 @@ Test.policy{ grants = {
   { path = "build/bind.tl", letters = "r" }, { path = "build/digest.tl", letters = "r" },
   { path = "build/clock.tl", letters = "r" }, { path = "build/assertions.tl", letters = "r" },
   { path = "build/exit_status.tl", letters = "r" }, { path = "build/key_parts.tl", letters = "r" },
-  { path = "build/positions.tl", letters = "r" }, { path = "testdata/forked/typed_fixture.txt", letters = "r" },
+  { path = "build/positions.tl", letters = "r" },
 } }
 
 --- The standard library of the checker's own tests, as the globals of every module, and the `cosmic.*` modules the cases name.
@@ -44,13 +43,6 @@ local STANDARD <const>: {string: string} = {
     "",
   }, "\n"),
 }
-
---- A program of the fork's Teal as the new grammar takes it ([`lang.translate`]).
-local function modern(text: string): string
-  local made = Translate.translate(text, "m.tl")
-  assert(#made.errors == 0, (if made.errors[1] ~= nil then made.errors[1].msg else "" end) .. "\n" .. text)
-  return made.text
-end
 
 --- The ceilings `text` holds, with no code closed: a program here has the errors the checker finds in it, whatever codes
 --- the tree has closed.
@@ -194,7 +186,7 @@ local function test_a_record_the_build_describes_is_resolved_in_the_text_the_che
   assert(made.lua:find("record_of(\"R\", ", 1, true) ~= nil, made.lua)
   -- the module is retired when it is written, and read again from the text it was given
   assert(pipeline.build:result("m", true) == nil)
-  assert(assert(pipeline.build:parsed("m")).text == Translate.translate(source, "m.tl").text)
+  assert(assert(pipeline.build:parsed("m")).text == source)
   -- a module without such a call is read once, as it was
   local plain = Pipeline.over({ { "p.tl", "return 1\n" } }, { ["p.tl"] = "module" },
     options("[checked]\np.tl export_not_declared 1\n"))
@@ -208,17 +200,16 @@ local function test_a_module_the_build_lacks_is_refused_by_name()
   assert(made == nil and why == "gone.tl: the new checker's build has no module gone", tostring(why))
 end
 
---- Files of the tree with no class and no test of an enum, whose Lua the generator writes as the fork's.
+--- Files of the tree with no class and no test of an enum, whose Lua the pipeline writes as the generator alone does.
 local CORPUS <const>: {string} = {
   "build/plural.tl", "build/bind.tl", "build/digest.tl", "build/clock.tl", "build/assertions.tl", "build/exit_status.tl",
   "build/key_parts.tl", "build/positions.tl",
 }
 
 --- The Lua the generator writes of `source` alone, as the check of the tree has it: no module served, no globals, and
---- the translator's word on what an `if` expression holds.
+--- what an `if` expression holds that is never false.
 local function alone(file: string, source: string): string
-  local made = Translate.translate(source, file)
-  local parsed = Parser.parse(Lexer.lex(made.text, file), file, "tl")
+  local parsed = Parser.parse(Lexer.lex(source, file), file, "tl")
   assert(#parsed.errors == 0, file)
   return Codegen.generate(parsed.chunk, Scopes.build(parsed.chunk, file, {}), Truthy.never_false).text
 end
@@ -467,10 +458,10 @@ end
 
 -- what the compile holds a module to besides the checker
 
---- What the fork's contracts said of `source` as the file `m.tl` (the problems, one to a line), with the fixture's prelude of
---- functions that fail, as the file of the fork's answers keeps it ([`lang.forked`]).
-local function fork_says(source: string): string
-  local said = Fixture.forked(Fixture.PRELUDE .. source .. "\nuse(get, put, name, pair, complain, lead, maybe, sget, log)\n")
+--- What the contract rules say of `source` as the file `m.tl` (the problems, one to a line), with the fixture's prelude of
+--- functions that fail.
+local function rules_say(source: string): string
+  local said = Fixture.port(Fixture.PRELUDE .. source .. "\nuse(get, put, name, pair, complain, lead, maybe, sget, log)\n")
   local lines: mut {string} = {}
   for _, line in ipairs(said.problems) do
     lines[#lines + 1] = (line:gsub("^x%.tl:(%d+):", "m.tl:%1:"))
@@ -480,33 +471,33 @@ end
 
 --- The contract refusals of the compile for `source`: what it says of the module beyond the prelude's lines.
 local function compile_says(source: string): string
-  local text = modern(Fixture.PRELUDE .. source .. "\nuse(get, put, name, pair, complain, lead, maybe, sget, log)\n")
+  local text = Fixture.PRELUDE .. source .. "\nuse(get, put, name, pair, complain, lead, maybe, sget, log)\n"
   local made, why = generated(text, "", "module")
   assert(made == nil, "the compile accepts:\n" .. source)
   return why
 end
 
---- Programs the fork's discipline refuses, each refused by the compile with the fork's words, in the fork's order.
-local function test_the_compile_refuses_what_the_forks_discipline_refuses_with_its_words()
+--- Programs the contract rules refuse, each refused by the compile with the rules' words, in their order.
+local function test_the_compile_refuses_what_the_contract_rules_refuse_with_their_words()
   local programs: {string} = {
     "local v = get()\nuse(v)",
     "put()",
     "use(get(), 1)",
-    "local function f(): integer | nil, string\n  local v, err = get()\n  if v == nil then return 0, err end\n  return v, ''\nend\nuse(f)",
-    "local function f(): string | nil, integer\n  return nil, 127\nend\nuse(f)",
+    "local function f(): integer?, string\n  local v, err = get()\n  if v == nil then return 0, err end\n  return v, ''\nend\nuse(f)",
+    "local function f(): string?, integer\n  return nil, 127\nend\nuse(f)",
     "if get() then use(1) end",
     "use((get()))",
   }
   for _, program in ipairs(programs) do
-    local want = fork_says(program)
-    assert(want ~= "", "the fork finds nothing in:\n" .. program)
+    local want = rules_say(program)
+    assert(want ~= "", "the rules find nothing in:\n" .. program)
     local got = compile_says(program)
-    assert(got == want, "in:\n" .. program .. "\nthe fork says:\n" .. want .. "\nthe compile says:\n" .. got)
+    assert(got == want, "in:\n" .. program .. "\nthe rules say:\n" .. want .. "\nthe compile says:\n" .. got)
   end
 end
 
 local function test_a_unjudged_compile_keeps_a_breach_for_the_tool_it_builds_and_marks_it_refused()
-  local text = modern(Fixture.PRELUDE .. "local v = get()\nuse(v)\nuse(get, put, name, pair, complain, lead, maybe, sget, log)\n")
+  local text = Fixture.PRELUDE .. "local v = get()\nuse(v)\nuse(get, put, name, pair, complain, lead, maybe, sget, log)\n"
   local pipeline = Pipeline.over({ { "m.tl", text } }, { ["m.tl"] = "module" }, options(""))
   local m = module_of("m", "m.tl", "module", text, {})
   local kept = assert(Pipeline.generate(m, pipeline, false, false))

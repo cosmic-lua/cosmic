@@ -1,13 +1,11 @@
---- The soundness property of the flow of [`lang.check`], over the programs of [`build.check_draws`] that the fork's
---- narrowing fuzz test draws (locals and record fields of `integer | nil`, `if`/`elseif`/`else` on nil tests, `and`/`or`,
---- the four loops with `break` and `continue`, function literals, early exits): the fork's text is put in the new
---- grammar ([`lang.translate`]) and checked; a program the checker takes is written as Lua and run with every read of a
---- narrowed place checked ([`Programs.execute`]), and must run to its end, or to an `assert` that failed, with no
---- `fact violated` and no nil operand. A program the checker refuses is not run: most of the draws are refused, for
---- the narrowing of a field the new grammar declares `mut` is not one. `FUZZ_SEED` and `FUZZ_ITERS` pick the inputs
---- (build/fuzz/init.tl).
---- A few draws run by default so that the test fits a few seconds; the full sweep, many draws from several seeds, is
---- [`bin/gate-sweep`] (its result is testdata/gate/sweep.txt), and the nightly fuzz workflow draws from a seed of its own.
+--- The soundness property of the flow of [`lang.check`], over the programs of [`build.check_draws`] (locals and record
+--- fields of `integer?`, `if`/`elseif`/`else` on nil tests, `and`/`or`, the four loops with `break` and `continue`, function
+--- literals, early exits), put in the new grammar by [`lang.check_drawn`] and checked; a program the checker takes is written
+--- as Lua and run with every read of a narrowed place checked ([`Programs.execute`]), and must run to its end, or to an
+--- `assert` that failed, with no `fact violated` and no nil operand. A program the checker refuses is not run: most of the
+--- draws are refused, for the narrowing of a field the new grammar declares `mut` is not one. `FUZZ_SEED` and `FUZZ_ITERS`
+--- pick the inputs (build/fuzz/init.tl). A few draws run by default so that the test fits a few seconds; the nightly fuzz
+--- workflow draws from a seed of its own.
 ---
 --- Fixed fields get their own generator: records whose paths (`r.a`, `r.leaf.n`) are tested, read, copied and
 --- replaced by an assignment of the record, with reads of a path after that, which the checker has to refuse.
@@ -21,7 +19,6 @@ local Env = require("cosmic.env")
 local Fuzz = require("build.fuzz")
 local Programs = require("lang.check_programs")
 local Test = require("cosmic.test")
-local Translate = require("lang.translate")
 local adapt = require("lang.check_drawn")
 local drawn = require("build.check_draws")
 local worker = require("build.test_worker")
@@ -52,9 +49,7 @@ local function iterations(default: integer): integer
   return math.tointeger(tonumber(Env.get_or("FUZZ_ITERS", ""))) or default
 end
 
-local function check_program(input: string): boolean, string
-  -- A drawn program has the header; an input of the corpus may lack it, and is checked as it is.
-  local source = Translate.translate(adapt.adapted(input) or input, "fuzz.tl").text
+local function check_source(source: string): boolean, string
   local x = execute(source)
   if not x.ran then
     Fuzz.label(if #x.run.before > 0 then "not a program" else "refused" end)
@@ -84,11 +79,16 @@ local function check_program(input: string): boolean, string
     "\n--- lua ---\n" .. x.lua
 end
 
+local function check_program(input: string): boolean, string
+  -- A drawn program has the header; an input cut short may lack it, and is checked as it is.
+  return check_source(adapt.adapted(input) or input)
+end
+
 local function test_a_program_the_flow_takes_does_not_fail_at_a_narrowed_read(tmp: string)
   Fuzz.run({
     name = "flow sound",
     dir = tmp,
-    -- Half the default: a draw is a program of the fork's generator, put in the new grammar, checked and run.
+    -- Half the default: a draw is a program of the generator of the fork's shapes, put in the new grammar, checked and run.
     iters = iterations(32),
     gen = drawn.well_formed,
     check = check_program,
@@ -97,18 +97,17 @@ local function test_a_program_the_flow_takes_does_not_fail_at_a_narrowed_read(tm
   })
 end
 
---- The programs whose narrowing must stay refused, and some that must keep running, that the fork's soundness property
---- keeps (`testdata/fuzz/checker-sound`), each put in the new grammar and checked: refused, or run to its end or to a
---- failed `assert`. Most are refused, for the form of the fork's text or for the fields it leaves out; the programs
---- are not drawn again.
-local function test_the_corpus_of_the_forks_soundness_property_is_refused_or_runs_clean(tmp: string)
+--- The programs whose narrowing must stay refused, and some that must keep running, that the soundness property found once
+--- (`testdata/fuzz/checker-sound`), in the new grammar and checked: refused, or run to its end or to a failed `assert`. The
+--- programs are not drawn again.
+local function test_the_corpus_of_programs_found_unsound_is_refused_or_runs_clean(tmp: string)
   Fuzz.run({
     name = "flow sound corpus",
     dir = tmp,
     iters = 0,
     corpus = "testdata/fuzz/checker-sound",
     gen = drawn.well_formed,
-    check = check_program,
+    check = check_source,
   })
 end
 
