@@ -33,7 +33,7 @@ local function encode(records: {{string}}, delimiter: string): string?, string
   local lines: mut {string} = {}
   for number, record in ipairs(records) do
     if #record == 0 then
-      return nil, "record " .. number .. " has no fields"
+      return nil, "record " .. tostring(number) .. " has no fields"
     end
     local parts: mut {string} = {}
     for index, field in ipairs(record) do
@@ -201,16 +201,18 @@ local function test_parse_and_table_are_total_on_any_bytes(tmp: string)
       end
       for index, row in ipairs(located) do
         if not same({ row.fields }, { records[index] }) or (index > 1 and row.line <= located[index - 1].line) then
-          return false, "records differs from parse at record " .. index
+          return false, "records differs from parse at record " .. tostring(index)
         end
       end
       -- Where table reads a header of two or more columns, its row i is
       -- the record after the header's and begins on the same line.
       if made ~= nil and #located > 0 and #located[1].fields > 1 then
-        if #made.lines ~= #located - 1 then return false, "table has " .. #made.lines .. " rows" end
+        if #made.lines ~= #located - 1 then
+          return false, "table has " .. tostring(#made.lines) .. " rows"
+        end
         for index, began in ipairs(made.lines) do
           if located[index + 1].line ~= began then
-            return false, "record " .. index + 1 .. " at line " .. located[index + 1].line .. ", table's " .. began
+            return false, "record " .. tostring(index + 1) .. " at line " .. tostring(located[index + 1].line) .. ", table's " .. tostring(began)
           end
         end
       end
@@ -261,14 +263,14 @@ local function test_a_defect_is_refused_at_the_place_it_was_put(tmp: string)
       local filler = fields[4] or ""
       local out: mut {string} = {}
       for line = 1, lines do
-        local text = "k" .. line .. "," .. filler .. "v"
+        local text = "k" .. tostring(line) .. "," .. filler .. "v"
         if line == where then
           if kind == 1 then
-            text = "k" .. line .. "," .. filler .. 'v"w'
+            text = "k" .. tostring(line) .. "," .. filler .. 'v"w'
           elseif kind == 2 then
-            text = "k" .. line .. ',"' .. filler .. "v"
+            text = "k" .. tostring(line) .. ',"' .. filler .. "v"
           else
-            text = "k" .. line .. "," .. filler .. "v,extra"
+            text = "k" .. tostring(line) .. "," .. filler .. "v,extra"
           end
         end
         out[line] = text
@@ -277,7 +279,7 @@ local function test_a_defect_is_refused_at_the_place_it_was_put(tmp: string)
       if kind == 3 then
         Fuzz.label("ragged")
         local rows, why = rows_of("h1,h2\n" .. text)
-        local expected = "csv: line " .. (where + 1) .. ", column 1: the record has 3 fields, the header 2"
+        local expected = "csv: line " .. tostring((where + 1)) .. ", column 1: the record has 3 fields, the header 2"
         if rows ~= nil or why ~= expected then
           return false, "rows said " .. tostring(why) .. ", not " .. expected
         end
@@ -287,14 +289,14 @@ local function test_a_defect_is_refused_at_the_place_it_was_put(tmp: string)
         end
         return true, ""
       end
-      local column = #("k" .. where .. "," .. filler .. "v") - (if kind == 1 then 0 else #filler + 1 end)
+      local column = #("k" .. tostring(where) .. "," .. filler .. "v") - (if kind == 1 then 0 else #filler + 1 end)
       local expected: string
       if kind == 1 then
         Fuzz.label("stray")
-        expected = "csv: a quote inside an unquoted field at line " .. where .. ", column " .. (column + 1)
+        expected = "csv: a quote inside an unquoted field at line " .. tostring(where) .. ", column " .. tostring((column + 1))
       else
         Fuzz.label("unclosed")
-        expected = "csv: unclosed quote opened at line " .. where .. ", column " .. (#("k" .. where) + 2)
+        expected = "csv: unclosed quote opened at line " .. tostring(where) .. ", column " .. tostring((#("k" .. tostring(where)) + 2))
       end
       local records, why = Csv.parse(text)
       if records ~= nil or why ~= expected then
@@ -330,9 +332,13 @@ local function test_a_one_column_file_reads_back_its_rows(tmp: string)
       local text = assert(encode(records, ","))
       local rows, why = rows_of(text)
       if rows == nil then return false, "rows refused its own text: " .. why end
-      if #rows ~= #values then return false, #rows .. " rows for " .. #values .. " in " .. text end
+      if #rows ~= #values then
+        return false, tostring(#rows) .. " rows for " .. tostring(#values) .. " in " .. text
+      end
       for index, value in ipairs(values) do
-        if rows[index].h ~= value then return false, "row " .. index .. " differs in " .. text end
+        if rows[index].h ~= value then
+          return false, "row " .. tostring(index) .. " differs in " .. text
+        end
         if value == "" then Fuzz.label("empty row") end
       end
       if #values == 0 then Fuzz.label("no rows") else Fuzz.label("rows") end
@@ -370,7 +376,7 @@ local function test_blank_lines_count_by_the_headers_width(tmp: string)
       local text = "h\n" .. table.concat(lines, "\n") .. (if #lines > 0 then "\n" else "" end)
       local rows = rows_of(text)
       if rows == nil or #rows ~= last then
-        return false, "one column: " .. (rows ~= nil and tostring(#rows) or "refused") .. " rows, not " .. last
+        return false, "one column: " .. (rows ~= nil and tostring(#rows) or "refused") .. " rows, not " .. tostring(last)
       end
       if last > 0 and blanks - (#lines - last) > 0 then Fuzz.label("interior") end
       if #lines > last then Fuzz.label("trailing") end
@@ -455,18 +461,18 @@ local function test_each_row_is_at_the_line_its_record_was_written_on(tmp: strin
       local made, why = Csv.table(text, { delimiter = delimiter })
       if made == nil then return false, "table refused its own text: " .. why end
       if #made.lines ~= #made.rows or #made.rows ~= #expected then
-        return false, #made.lines .. " lines, " .. #made.rows .. " rows, " .. #expected .. " written"
+        return false, tostring(#made.lines) .. " lines, " .. tostring(#made.rows) .. " rows, " .. tostring(#expected) .. " written"
       end
       local starts: mut {integer} = { #out[1] + 1 }
       for at in text:gmatch("\n()") do starts[#starts + 1] = at end
       for number, began in ipairs(made.lines) do
         if began ~= expected[number] then
-          return false, "row " .. number .. " at line " .. began .. ", written at " .. expected[number]
+          return false, "row " .. tostring(number) .. " at line " .. tostring(began) .. ", written at " .. expected[number]
         end
         if number > 1 and began <= made.lines[number - 1] then return false, "lines do not rise" end
         local first = written[number]
         if text:sub(starts[began], starts[began] + #first - 1) ~= first then
-          return false, "line " .. began .. " does not begin with row " .. number .. "'s first field"
+          return false, "line " .. tostring(began) .. " does not begin with row " .. tostring(number) .. "'s first field"
         end
       end
       if #expected > 0 then Fuzz.label("rows") end

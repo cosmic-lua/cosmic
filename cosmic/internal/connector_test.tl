@@ -259,7 +259,7 @@ local function test_adopted_connector_gives_up_a_stream_that_passes_the_wrong_de
     assert(Poll.writable(elsewhere:fd(), Clock.seconds(5)))
     local null = assert(sys.open("/dev/null", sys.O_RDONLY))
     local cases: {{integer | string}} = {
-      { elsewhere:fd(), "passed a socket connected to 127.0.0.1:" .. port .. ", not 127.0.0.1:9" },
+      { elsewhere:fd(), "passed a socket connected to 127.0.0.1:" .. tostring(port) .. ", not 127.0.0.1:9" },
       { null, "passed a descriptor that is no connected stream socket" },
     }
     for _, case in ipairs(cases) do
@@ -291,7 +291,7 @@ local function test_replies_out_of_order_reach_the_requests_their_tags_name()
   Poll.run(function()
     local pair = stream_pair()
     local endpoints: mut {raw_process.ConnectorEndpoint} = {}
-    for i = 1, 3 do endpoints[i] = { host = "127.0.0." .. i, port = 9 } end
+    for i = 1, 3 do endpoints[i] = { host = "127.0.0." .. tostring(i), port = 9 } end
     local connector = assert(Connector.adopted(pair[1], endpoints, false, Clock.seconds(5)))
     local tags: mut {integer: integer} = {}
     local count = { value = 0 }
@@ -310,7 +310,7 @@ local function test_replies_out_of_order_reach_the_requests_their_tags_name()
     local tasks: mut {Poll.Task} = {}
     for i = 1, 3 do
       tasks[i] = Poll.spawn(function()
-        local conn, why = dial(connector, "127.0.0." .. i, 9, Clock.seconds(5))
+        local conn, why = dial(connector, "127.0.0." .. tostring(i), 9, Clock.seconds(5))
         assert(conn == nil)
         answers[i] = why
       end)
@@ -478,7 +478,7 @@ local function test_a_task_cancelled_waiting_for_room_asks_nothing()
       cancelled.value = why
     end)
     assert(Poll.delay(Clock.ms(50)))
-    assert(#tags == FLIGHT, #tags .. " requests were asked")
+    assert(#tags == FLIGHT, tostring(#tags) .. " requests were asked")
     -- Room for two, and the waiting task cancelled before it looks again.
     assert(sys.write(pair[2], string.pack(">I4I4I4I4", tags[1], socket.ECONNREFUSED, tags[2],
       socket.ECONNREFUSED)) == 16)
@@ -487,7 +487,7 @@ local function test_a_task_cancelled_waiting_for_room_asks_nothing()
     assert(conn == nil and why == Poll.TIMEOUT, tostring(why))
     assert(waiting:join(Clock.seconds(5)))
     assert(cancelled.value == Poll.CANCELLED, tostring(cancelled.value))
-    assert(#tags == FLIGHT + 1, "the cancelled task asked: " .. #tags .. " requests")
+    assert(#tags == FLIGHT + 1, "the cancelled task asked: " .. tostring(#tags) .. " requests")
     for _, task in ipairs(tasks) do task:cancel() end
     for _, task in ipairs(tasks) do assert(task:join(Clock.seconds(5))) end
     serving:cancel()
