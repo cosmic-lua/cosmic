@@ -1,8 +1,10 @@
 --- `cosmic test --check-types` end to end for the facts of the new checker: a project's source is read, checked and written
 --- by the new checker (`COSMIC_GRAMMAR=new`), each read of a place a test narrowed is wrapped in a call of `__fact`
---- ([`lang.fact_wraps`]), and the tool's worker runs the tests with the hook that checks them. A correct program reports
---- nothing to the summary or to the working database's `type_violations`. The report of a narrowing that is false is
---- [`build.fact_hook_test`]'s: no program the checker takes provokes one.
+--- ([`lang.fact_wraps`]), and the tool's worker runs the tests with the hook that checks them. A narrowing that is false at
+--- run time is reported at its read in the summary and in the working database's `type_violations`, as kind "fact"; a
+--- correct program reports nothing. The narrowing is made false by a lying declaration: `liar.d.tl` declares the union of
+--- records a function answers, and `liar.tl` answers a record of another kind, which no program of the checker's grammar
+--- can do by a cast.
 ---
 --- The project is compiled by the tool the test starts, in the new mode whatever the mode of the suite that runs this test.
 local Child = require("cosmic.child")
@@ -20,12 +22,54 @@ Test.policy{ profiles = { "cosmic" }, grants = {
   { path = "testdata/fuzz/checker-sound", letters = "r" },
 } }
 
+--- The module that lies: `liar.d.tl` declares a circle or a square, which a caller tells apart by the tag `kind`, where
+--- `liar.tl` answers a line, whose tag is neither.
+local LIAR_DECLARATION <const> = table.concat({
+  "local enum Circle_kind \"circle\" end",
+  "local enum Square_kind \"square\" end",
+  "local record Circle",
+  "  kind: Circle_kind",
+  "  radius: integer",
+  "end",
+  "local record Square",
+  "  kind: Square_kind",
+  "  side: integer",
+  "end",
+  "local type Shape = Circle | Square",
+  "local record Liar",
+  "  shape: function(): Shape",
+  "end",
+  "return Liar",
+  "",
+}, "\n")
+
+--- The module that answers what `liar.d.tl` does not declare.
+local LIAR <const> = table.concat({
+  "local enum Line_kind \"line\" end",
+  "local record Line",
+  "  kind: Line_kind",
+  "  length: integer",
+  "end",
+  "local record Honest",
+  "  shape: function(): Line",
+  "end",
+  "local honest: Honest = {",
+  "  shape = function(): Line return { kind = \"line\", length = 5 } end,",
+  "}",
+  "return honest",
+  "",
+}, "\n")
+
 --- The module under test: `read` takes nil out of `x` with an `assert` and returns it; the checker takes the `assert`
---- for what it is. `sound` takes nil out with a test.
+--- for what it is. `sound` takes nil out with a test. `area` takes the circle out of the shape with a test of its tag,
+--- and reads the shape as a square: a read that is false where `liar` answers a line.
 local LIB <const> = table.concat({
+  "local Liar = require(\"liar\")",
+  "",
   "local record Lib",
   "  read: function(string?): string",
   "  sound: function(string?): string",
+  "  area: function(): integer",
   "end",
   "",
   "local lib: Lib = {",
@@ -39,14 +83,20 @@ local LIB <const> = table.concat({
   "    end",
   "    return x",
   "  end,",
+  "  area = function(): integer",
+  "    local shape = Liar.shape()",
+  "    if shape.kind == \"circle\" then",
+  "      return shape.radius",
+  "    end",
+  "    return shape.side",
+  "  end,",
   "}",
   "return lib",
   "",
 }, "\n")
 
---- The tests of the project: a sound read, whose narrowing is true. A narrowing that is false at run time is the
---- checker's own error, which no program of its grammar provokes (the value a test takes nil out of is tested, and
---- `assert` cannot be replaced), so [`build.fact_hook_test`] holds the hook to it with the values the wraps hand it.
+--- The tests of the project: a sound read passes, and a read of the shape as a square, after a test that took the circle
+--- out of it, is found where it is false.
 local SUITE <const> = table.concat({
   "local Lib = require(\"lib\")",
   "",
@@ -55,12 +105,19 @@ local SUITE <const> = table.concat({
   "  assert(Lib.read(\"b\") == \"b\")",
   "end",
   "",
+  "local function test_an_unsound_read_is_found()",
+  "  local ok, message = pcall(Lib.area)",
+  "  assert(not ok and tostring(message):find(\"fact violated at lib.tl:\", 1, true) ~= nil, tostring(message))",
+  "end",
+  "",
 }, "\n")
 
 --- The project under `tmp`.
 local function project(tmp: string): string
   local root = tmp .. "/project"
   assert(Fs.mkdirs(root))
+  assert(Fs.write(root .. "/liar.d.tl", LIAR_DECLARATION))
+  assert(Fs.write(root .. "/liar.tl", LIAR))
   assert(Fs.write(root .. "/lib.tl", LIB))
   assert(Fs.write(root .. "/facts_test.tl", SUITE))
   return root
@@ -93,14 +150,32 @@ local function violations(root: string): Sqlite.Rows
   return rows
 end
 
-local function test_a_checked_run_wraps_the_reads_the_tests_narrowed_and_reports_none_that_is_false(tmp: string)
+--- The place in `LIB` of the read of `shape` the fact is about: "line:column".
+local function read_site(): string
+  local line = 0
+  for each in (LIB .. "\n"):gmatch("([^\n]*)\n") do
+    line = line + 1
+    local at = each:find("return shape.side", 1, true)
+    if at ~= nil then return tostring(line) .. ":" .. tostring(at + 7) end
+  end
+  error("no such line")
+end
+
+local function test_a_checked_run_reports_the_fact_that_is_false(tmp: string)
   local root = project(tmp)
   local checked, text = invoke(root, tmp, { "test", "--check-types" })
   assert(checked.ok, text)
-  assert(text:find("test: 1 test passed in ", 1, true) ~= nil, text)
-  assert(text:find("run-time types: 0 violations, 0 distinct, at 0 places", 1, true) ~= nil, text)
-  assert(#violations(root) == 0, "a sound read was reported")
-  -- the module the run was made of carries the wrap of the read `assert` narrowed
+  assert(text:find("test: 2 tests passed in ", 1, true) ~= nil, text)
+  assert(text:find("run-time types: 1 violation, 1 distinct, at 1 place", 1, true) ~= nil, text)
+  assert(text:find("lib.tl:" .. read_site() .. ": shape declared kind one of square got a table whose kind is " ..
+      "string \"line\" (1 time)", 1, true) ~= nil, text)
+
+  local rows = violations(root)
+  assert(#rows == 1, tostring(#rows) .. " rows")
+  local row = assert(rows[1])
+  assert(table.concat(row:texts(), " | ") == "fact | lib.tl:" .. read_site() ..
+      " | shape | kind one of square | a table whose kind is string \"line\" | 1", table.concat(row:texts(), " | "))
+  -- the module the run was made of carries the wrap of the read `assert` narrowed too
   local aside = assert(Fs.read(assert(build_paths.directory(root)) .. "/cosmic.checked.db"))
   assert(aside:find("__fact", 1, true) ~= nil, "the checked projection carries no wrap")
 end
