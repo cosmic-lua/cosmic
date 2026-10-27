@@ -149,7 +149,7 @@ function Store.web_asset(name: string): Store.WebAsset?, string
     return nil, "the binary carries no web asset " .. name
   end
   return { data = row:bytes(1),
-    sha256 = row:text(2), sha384 = row:text(3), version = row:text(4) }
+    sha256 = row:text(2), sha384 = row:text(3), version = row:text(4) }, ""
 end
 
 --- Every time zone name the binary's own database carries, as a set,
