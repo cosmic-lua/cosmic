@@ -697,8 +697,9 @@ function worker.cross(text: string, ...: any)
   local _ = hook(2, text, ...)
 end
 
---- Defines the global `__cosmic_tc` the Lua of a checked run calls, which
---- records what [`worker.violations`] answers, and `__fact`, which the Lua the
+--- Defines the global `__cosmic_tc` the Lua of a checked run calls, with the `__cosmic_ty` and `__cosmic_mt` (`type` and
+--- `math.type`, as the module took them) that the tests ahead of its call read ([`lang.boundary_checks`]). `__cosmic_tc`
+--- is defined last, since the tests run only where it is. The hook records what [`worker.violations`] answers, and `__fact`, which the Lua the
 --- new checker's code generator writes calls at a read it narrowed
 --- ([`lang.fact_wraps`]) and which records a violation of kind "fact" (the
 --- place of the read, the place as written, what the checker proved and what
@@ -706,6 +707,8 @@ end
 --- module loads: the boundaries its load crosses are checked too.
 function worker.install_checks()
   local globals = _G as {string:any}
+  rawset(globals, "__cosmic_ty", lua_type)
+  rawset(globals, "__cosmic_mt", math_type)
   rawset(globals, "__cosmic_tc", hook)
   rawset(globals, "__fact", fact)
 end

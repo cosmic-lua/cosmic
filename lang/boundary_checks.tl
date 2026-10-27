@@ -3,8 +3,15 @@
 --- parameters begins, on the line of the `)` of its parameters (which moves none), with
 ---
 --- ```text
---- if __cosmic_tc then __cosmic_tc(2, "p;<file>:<line>;<function>;<name>=<kinds>;...", <name>, ...) end
+--- if __cosmic_tc and (<mismatch>) then __cosmic_tc(2, "p;<file>:<line>;<function>;<name>=<kinds>;...", <name>, ...) end
 --- ```
+---
+--- where `<mismatch>` is true of a value the hook would record: a parameter is tested by its kinds on the spot (`__cosmic_ty(x)
+--- ~= "table"`, `__cosmic_mt(x) ~= "integer"`, `x ~= nil`; the tests of a parameter's kinds joined by `and`, those of the
+--- parameters by `or`), so that a call whose values all fit costs a few comparisons and no call of the hook, which a hot
+--- function would otherwise pay at every entry. The spec is a literal, read only on a mismatch. `__cosmic_ty` and
+--- `__cosmic_mt` are `type` and `math.type`, which [`build.test_worker`]'s `install_checks` defines with the hook: a program's
+--- own `type` (a parameter of that name) cannot stand in their place.
 ---
 --- where `<line>` is the line the function begins on and `<kinds>` the kinds of Lua value its parameter's type admits,
 --- joined by "|" ([`lang.boundaries`]'s `spec`). The hook ([`build.test_worker`]'s `install_checks` defines one for a checked
@@ -22,6 +29,10 @@ local Boundaries = require("lang.boundaries")
 local Check = require("lang.check")
 
 local record BoundaryChecks
+  --- The Lua test that the value of the variable `name` is none of `kinds` (the list of [`Boundaries.Kinds`]): true of
+  --- exactly the values the worker's hook records as a violation of them.
+  mismatch: function(name: string, kinds: {string}): string
+
   --- The statement that checks the parameters of the function whose parameters are `rows` (all the rows of one function,
   --- by `param`), placed `at` the line the function begins on of the file `file`; nil where no parameter is checked.
   statement: function(rows: {Check.Boundary}, file: string, line: integer): string?
@@ -50,6 +61,34 @@ local function among(list: {string}, word: string): boolean
   return false
 end
 
+--- The test, in Lua, that `name` is none of the `kinds` (the list of [`Boundaries.Kinds`]): true of exactly the values the
+--- hook records as a violation of them. `__cosmic_ty` and `__cosmic_mt` are the worker's `type` and `math.type` as it took
+--- them, which no local of the program (a parameter named `type`) can shadow.
+function BoundaryChecks.mismatch(name: string, kinds: {string}): string
+  local tests: mut {string} = {}
+  -- A nil is the cheapest to rule out: it comes first.
+  if among(kinds, "nil") then
+    tests[1] = name .. " ~= nil"
+  end
+  for _, kind in ipairs(kinds) do
+    if kind == "nil" then
+      -- Tested already.
+    elseif kind == "integer" then
+      tests[#tests + 1] = "__cosmic_mt(" .. name .. ') ~= "integer"'
+    else
+      tests[#tests + 1] = "__cosmic_ty(" .. name .. ') ~= "' .. kind .. '"'
+    end
+  end
+  if #tests == 0 then
+    return "true"
+  end
+  local joined = table.concat(tests, " and ")
+  if #tests == 1 then
+    return joined
+  end
+  return "(" .. joined .. ")"
+end
+
 function BoundaryChecks.statement(rows: {Check.Boundary}, file: string, line: integer): string?
   local first = rows[1]
   if first == nil then
@@ -57,6 +96,7 @@ function BoundaryChecks.statement(rows: {Check.Boundary}, file: string, line: in
   end
   local spec: mut {string} = { "p", field(file) .. ":" .. tostring(line), field(first.owner) }
   local names: mut {string} = {}
+  local tests: mut {string} = {}
   -- A name given to two parameters (`_`) is the later one in the body: the earlier cannot be passed on by name.
   local given: mut {string: integer} = {}
   for _, row in ipairs(rows) do
@@ -76,13 +116,17 @@ function BoundaryChecks.statement(rows: {Check.Boundary}, file: string, line: in
       end
       spec[#spec + 1] = row.name .. "=" .. Boundaries.spec({ list = list, strings = nil, classes = nil })
       names[#names + 1] = row.name
+      tests[#tests + 1] = BoundaryChecks.mismatch(row.name, list)
     end
   end
   if #names == 0 then
     return nil
   end
-  return "if __cosmic_tc then __cosmic_tc(2, " .. quoted(table.concat(spec, ";")) .. ", " .. table.concat(names, ", ") ..
-    ") end"
+  local joined = table.concat(tests, " or ")
+  if #tests > 1 then
+    joined = "(" .. joined .. ")"
+  end
+  return "if __cosmic_tc and " .. joined .. " then __cosmic_tc(2, " .. quoted(table.concat(spec, ";")) .. ", " .. table.concat(names, ", ") .. ") end"
 end
 
 function BoundaryChecks.of(boundaries: {Check.Boundary}, source: string, file: string): {integer: string}

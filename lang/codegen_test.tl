@@ -1372,7 +1372,7 @@ end
 
 --- Lines of `text` with the checks taken out, as the unchecked Lua is.
 local function without_checks(text: string): string
-  return (text:gsub(" if __cosmic_tc then [^\n]- end", ""))
+  return (text:gsub(" if __cosmic_tc and [^\n]- end", ""))
 end
 
 local function test_a_check_is_a_statement_on_the_line_of_the_header_and_no_line_moves()
@@ -1384,12 +1384,49 @@ local function test_a_check_is_a_statement_on_the_line_of_the_header_and_no_line
   }, "\n")
   local with, without = with_and_without_checks(source)
   local first = assert(with:match("^[^\n]*"))
-  assert(first == 'local function f(a, b) if __cosmic_tc then __cosmic_tc(2, "p;t.tl:1;f;a=integer;b=string|nil", a, b) end',
+  assert(first == 'local function f(a, b) if __cosmic_tc and (__cosmic_mt(a) ~= "integer" or (b ~= nil and __cosmic_ty(b) ~= "string")) then __cosmic_tc(2, "p;t.tl:1;f;a=integer;b=string|nil", a, b) end',
     first)
   assert(without_checks(with) == without, with)
   local _, lines = with:gsub("\n", "")
   local _, plain = without:gsub("\n", "")
   assert(lines == plain)
+end
+
+-- Ahead of a module run with a hook of the test's own: an environment holding only the `type` and `math.type` that the
+-- worker defines as `__cosmic_ty` and `__cosmic_mt`, which the chunk is given as its arguments.
+local ENV_OF_THE_HOOK <const> = "local ty, mt = ... local _ENV = { __cosmic_ty = ty, __cosmic_mt = mt } "
+
+--- The fast path: each parameter is tested by its Lua kind where it is, the hook is called only on a mismatch (and with the
+--- spec as a literal, not built), and the tests read `type` and `math.type` by names no program can shadow.
+local function test_the_check_tests_the_kinds_inline_and_calls_the_hook_only_on_a_mismatch()
+  local source = table.concat({
+    "local function f(type: string, math: {string}, n: integer | string, u: number?, w: boolean | {string: integer}): integer",
+    "  return 1",
+    "end",
+    "local _ = f",
+    "",
+  }, "\n")
+  local with = with_and_without_checks(source)
+  local first = assert(with:match("^[^\n]*"))
+  local expected = 'local function f(type, math, n, u, w) if __cosmic_tc and (__cosmic_ty(type) ~= "string" or ' ..
+    '__cosmic_ty(math) ~= "table" or (__cosmic_mt(n) ~= "integer" and __cosmic_ty(n) ~= "string") or ' ..
+    '(u ~= nil and __cosmic_ty(u) ~= "number") or (__cosmic_ty(w) ~= "boolean" and __cosmic_ty(w) ~= "table")) then ' ..
+    '__cosmic_tc(2, "p;t.tl:1;f;type=string;math=table;n=integer|string;u=number|nil;w=boolean|table", type, math, n, u, w) end'
+  assert(first == expected, first)
+  local hook = "local calls = 0 __cosmic_tc = function() calls = calls + 1 end " ..
+    "local result = (function() "
+  local function calls(call: string): integer
+    local chunk = assert(load(ENV_OF_THE_HOOK .. hook .. with .. "\n" .. call .. " end)() return calls", "=t", "t", {}))
+    local count = chunk(type, math.type)
+    assert(count is integer)
+    return count
+  end
+  assert(calls("f('s', {}, 3, 1.5, true) f('s', {}, 'x', nil, {})") == 0)
+  assert(calls("f(1, {}, 3, 1.5, true)") == 1)
+  assert(calls("f('s', {}, 3.5, 1.5, true)") == 1)
+  assert(calls("f('s', {}, 3, 'n', true)") == 1)
+  assert(calls("f('s', {}, 3, nil, 1)") == 1)
+  assert(calls("f('s', nil, 3, nil, true)") == 1)
 end
 
 local function test_a_return_that_is_a_tail_call_stays_one()
@@ -1422,7 +1459,7 @@ local function test_a_variadic_parameter_self_and_an_any_parameter_get_no_check(
   }, "\n")
   local with = with_and_without_checks(source)
   assert(with:find("local function loose(a, ...)\n", 1, true) ~= nil, with)
-  assert(with:find('function R.bump(self, by) if __cosmic_tc then __cosmic_tc(2, "p;t.tl:7;R.bump;by=integer", by) end',
+  assert(with:find('function R.bump(self, by) if __cosmic_tc and __cosmic_mt(by) ~= "integer" then __cosmic_tc(2, "p;t.tl:7;R.bump;by=integer", by) end',
     1, true) ~= nil, with)
 end
 
@@ -1437,7 +1474,7 @@ local function test_a_method_of_a_class_checks_its_parameters_but_not_self()
     "",
   }, "\n")
   local with = with_and_without_checks(source)
-  assert(with:find('Counter.add(self, by, label) if __cosmic_tc then __cosmic_tc(2, "p;t.tl:3;Counter.add;by=integer;label=string|nil", by, label) end',
+  assert(with:find('Counter.add(self, by, label) if __cosmic_tc and (__cosmic_mt(by) ~= "integer" or (label ~= nil and __cosmic_ty(label) ~= "string")) then __cosmic_tc(2, "p;t.tl:3;Counter.add;by=integer;label=string|nil", by, label) end',
     1, true) ~= nil, with)
 end
 
@@ -1452,7 +1489,7 @@ local function test_a_header_over_several_lines_is_checked_on_its_last_line()
     "",
   }, "\n")
   local with, without = with_and_without_checks(source)
-  assert(with:find('b) if __cosmic_tc then __cosmic_tc(2, "p;t.tl:1;f;a=integer;b=boolean", a, b) end\n', 1, true) ~= nil, with)
+  assert(with:find('b) if __cosmic_tc and (__cosmic_mt(a) ~= "integer" or __cosmic_ty(b) ~= "boolean") then __cosmic_tc(2, "p;t.tl:1;f;a=integer;b=boolean", a, b) end\n', 1, true) ~= nil, with)
   assert(without_checks(with) == without, with)
 end
 
@@ -1462,7 +1499,7 @@ local function test_a_function_literal_and_its_parameters_are_checked_in_place()
     "",
   }, "\n")
   local with = with_and_without_checks(source)
-  assert(with:find('local inc = function(n) if __cosmic_tc then __cosmic_tc(2, "p;t.tl:1;function;n=integer", n) end return n + 1 end',
+  assert(with:find('local inc = function(n) if __cosmic_tc and __cosmic_mt(n) ~= "integer" then __cosmic_tc(2, "p;t.tl:1;function;n=integer", n) end return n + 1 end',
     1, true) ~= nil, with)
 end
 
@@ -1479,9 +1516,13 @@ local function test_the_check_calls_the_hook_with_the_values_and_the_function_ru
   -- The hook is defined by the chunk that runs the module, in an environment of its own that holds nothing else.
   local hook = "local log = {} __cosmic_tc = function(n, spec, a, b) log[#log + 1] = n .. ' ' .. spec .. ' ' .. a .. ' ' .. b " ..
     "return a end local result = (function() "
-  local chunk = assert(load(hook .. with .. "\nreturn f(7, 's') end)() return result, log[1], #log", "=t", "t", {}))
-  local result, seen, count = chunk()
+  -- Values that fit never reach the hook: the test written ahead of its call passes them by.
+  local fits = assert(load(ENV_OF_THE_HOOK .. hook .. with .. "\nreturn f(7, 's') end)() return result, #log", "=t", "t", {}))
+  local fitted, calls = fits(type, math.type)
+  assert(fitted == 7 and calls == 0, tostring(calls))
+  local chunk = assert(load(ENV_OF_THE_HOOK .. hook .. with .. "\nreturn f(7, 5) end)() return result, log[1], #log", "=t", "t", {}))
+  local result, seen, count = chunk(type, math.type)
   assert(result == 7 and count == 1, tostring(count))
-  assert(seen == "2 p;t.tl:1;f;a=integer;b=string 7 s", tostring(seen))
+  assert(seen == "2 p;t.tl:1;f;a=integer;b=string 7 5", tostring(seen))
   assert(assert(load(with .. "\nreturn f(7, 's')", "=t", "t", {}))() == 7)
 end
