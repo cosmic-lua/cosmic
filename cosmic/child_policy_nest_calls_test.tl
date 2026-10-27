@@ -13,6 +13,8 @@ local Sandbox = require("cosmic.sandbox")
 local Test = require("cosmic.test")
 local sys = require("cosmic.sys")
 local searchable = require("build.searchable")
+local test_child = require("build.test_child")
+local testing = require("cosmic.internal.testing")
 local this_program = require("build.this_program")
 
 --- The temporary directory, which a start's root is built in; this
@@ -35,59 +37,61 @@ local function unsandboxable(why: string): boolean
   return false
 end
 
---- What the chunk makes of the calls a program may make, one `name=result`
+--- What the child makes of the calls a program may make, one `name=result`
 --- line each, results being "ok" or the errno's name. The flags are
 --- Linux's: CLONE_NEWNS 0x20000, CLONE_NEWUSER 0x10000000, CLONE_NEWUTS
 --- 0x04000000, CLONE_NEWCGROUP 0x02000000, CLONE_NEWTIME 0x80, CLONE_NEWIPC
 --- 0x08000000, CLONE_NEWNET 0x40000000; MS_REMOUNT 32, MS_BIND 4096;
 --- MNT_DETACH 2.
-local CHUNK <const> = [==[
-local testing = require("cosmic.internal.testing")
-local sys = require("cosmic.sys")
-local named = { [sys.EPERM] = "EPERM", [sys.EINVAL] = "EINVAL", [sys.EACCES] = "EACCES",
-  [sys.ENOENT] = "ENOENT", [sys.ENOSYS] = "ENOSYS" }
-local function say(label, ok, _, errno)
-  print(label .. "=" .. (ok and "ok" or (named[errno] or tostring(errno))))
-end
--- Whether `text` is the whole of `path`, written through one descriptor
--- (a /proc file takes no temporary and rename).
-local function wrote(path, text, flags)
-  local fd = sys.open(path, flags)
-  if fd == nil then return false end
-  local n = sys.write(fd, text)
-  return sys.close(fd) and n == #text
-end
-local ro, rw, tmpfs = "/ro", "/rw", "tmpfs"
-local uid, gid = sys.getuid(), sys.getgid()
-local fd = assert(sys.open("/proc/self/ns/user", sys.O_RDONLY))
--- Before a namespace of its own it holds nothing: the kernel's refusal.
-say("mount_before", testing.mount(tmpfs, rw, tmpfs, 0))
-say("unshare_mount_before", testing.unshare(0x20000))
--- Never, whatever it promised: the filter's.
-say("setns", testing.setns(fd, 0))
-say("unshare_uts", testing.unshare(0x10000000 | 0x04000000))
-say("unshare_cgroup", testing.unshare(0x10000000 | 0x02000000))
-say("unshare_time", testing.unshare(0x80))
-say("chroot", testing.chroot("/"))
-say("unshare", testing.unshare(0x10000000 | 0x20000 | 0x08000000 | 0x40000000))
-for _, f in ipairs({ { "setgroups", "deny" }, { "uid_map", "0 " .. uid .. " 1\n" },
-    { "gid_map", "0 " .. gid .. " 1\n" } }) do
-  assert(wrote("/proc/self/" .. f[1], f[2], sys.O_WRONLY), f[1])
-end
--- Inside, what it makes is its own: a tmpfs it may write.
-say("mount_tmpfs", testing.mount(tmpfs, rw, tmpfs, 0))
-print("wrote=" .. (wrote(rw .. "/made", "x", sys.O_WRONLY | sys.O_CREAT) and "ok" or "no"))
--- What it was given read-only stays so, locked: it cannot be remounted, nor
--- bound again and remounted, nor unmounted to show what is beneath.
-say("remount_ro", testing.mount(nil, ro, nil, 32 | 4096))
-say("remount_ro_plain", testing.mount(nil, ro, nil, 32))
-say("bind_ro", testing.mount(ro, "/tmp", nil, 4096))
-say("remount_bind", testing.mount(nil, "/tmp", nil, 32 | 4096))
-say("umount_ro", testing.umount2(ro, 0))
-say("umount_ro_detach", testing.umount2(ro, 2))
-say("umount_root", testing.umount2("/", 2))
-print("wrote_ro=" .. (wrote(ro .. "/b", "", sys.O_WRONLY | sys.O_CREAT) and "ok" or "no"))
-]==]
+test_child.register("nested calls", function(_: {string}): integer
+  local named: {integer: string} = { [sys.EPERM] = "EPERM", [sys.EINVAL] = "EINVAL", [sys.EACCES] = "EACCES",
+    [sys.ENOENT] = "ENOENT", [sys.ENOSYS] = "ENOSYS" }
+  local function say(label: string, ok: boolean, _why: string, errno: integer)
+    print(label .. "=" .. (if ok then "ok" else (named[errno] or tostring(errno)) end))
+  end
+  -- Whether `text` is the whole of `path`, written through one descriptor
+  -- (a /proc file takes no temporary and rename).
+  local function wrote(path: string, text: string, flags: integer): boolean
+    local fd = sys.open(path, flags)
+    if fd == nil then return false end
+    local n = sys.write(fd, text)
+    local closed = sys.close(fd)
+    return closed == true and n == #text
+  end
+  local ro, rw, tmpfs = "/ro", "/rw", "tmpfs"
+  local uid, gid = sys.getuid(), sys.getgid()
+  local fd = assert(sys.open("/proc/self/ns/user", sys.O_RDONLY))
+  -- Before a namespace of its own it holds nothing: the kernel's refusal.
+  say("mount_before", testing.mount(tmpfs, rw, tmpfs, 0))
+  say("unshare_mount_before", testing.unshare(0x20000))
+  -- Never, whatever it promised: the filter's.
+  say("setns", testing.setns(fd, 0))
+  say("unshare_uts", testing.unshare(0x10000000 | 0x04000000))
+  say("unshare_cgroup", testing.unshare(0x10000000 | 0x02000000))
+  say("unshare_time", testing.unshare(0x80))
+  say("chroot", testing.chroot("/"))
+  say("unshare", testing.unshare(0x10000000 | 0x20000 | 0x08000000 | 0x40000000))
+  local steps: {{string}} = { { "setgroups", "deny" }, { "uid_map", "0 " .. tostring(uid) .. " 1\n" },
+    { "gid_map", "0 " .. tostring(gid) .. " 1\n" } }
+  for _, step in ipairs(steps) do
+    local name, text = assert(step[1]), assert(step[2])
+    assert(wrote("/proc/self/" .. name, text, sys.O_WRONLY), name)
+  end
+  -- Inside, what it makes is its own: a tmpfs it may write.
+  say("mount_tmpfs", testing.mount(tmpfs, rw, tmpfs, 0))
+  print("wrote=" .. (if wrote(rw .. "/made", "x", sys.O_WRONLY | sys.O_CREAT) then "ok" else "no" end))
+  -- What it was given read-only stays so, locked: it cannot be remounted, nor
+  -- bound again and remounted, nor unmounted to show what is beneath.
+  say("remount_ro", testing.mount(nil, ro, nil, 32 | 4096))
+  say("remount_ro_plain", testing.mount(nil, ro, nil, 32))
+  say("bind_ro", testing.mount(ro, "/tmp", nil, 4096))
+  say("remount_bind", testing.mount(nil, "/tmp", nil, 32 | 4096))
+  say("umount_ro", testing.umount2(ro, 0))
+  say("umount_ro_detach", testing.umount2(ro, 2))
+  say("umount_root", testing.umount2("/", 2))
+  print("wrote_ro=" .. (if wrote(ro .. "/b", "", sys.O_WRONLY | sys.O_CREAT) then "ok" else "no" end))
+  return 0
+end)
 
 local function test_a_nested_program_cannot_widen_what_it_was_given(tmp: string)
   -- Real paths, which a root binds a grant at.
@@ -103,7 +107,7 @@ local function test_a_nested_program_cannot_widen_what_it_was_given(tmp: string)
       { path = "/ro", letters = "r", from = work .. "/ro" },
       { path = "/rw", letters = "rwc", from = work .. "/rw" },
       { path = work, letters = "r" } } }
-  local started = this_program.program({ "-e", CHUNK },
+  local started = this_program.program(test_child.words(work, "cosmic.child_policy_nest_calls_test", "nested calls"),
     { policy = policy, cwd = work, stdout = "capture", stderr = "stdout" })
   local result, why = Child.run(started.argv, started.options)
   if result == nil then

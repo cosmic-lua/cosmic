@@ -78,11 +78,12 @@ local function test_a_sandboxed_child_has_only_what_it_unveils(tmp: string)
   reads[#reads + 1] = "/proc"
   reads[#reads + 1] = "/dev/null"
   local r, trouble = Child.run(lua(AGAIN .. FS .. SYS .. 'local hidden, given = ... ' ..
+      'if hidden == nil or given == nil then return 2 end ' ..
       'Fs.put(1, assert(Fs.read("f")) .. "\\n" .. assert(sys.getcwd()) .. "\\n" .. ' ..
-      '(Fs.exists(hidden) == true and "hidden-seen" or "hidden-absent") .. "\\n") ' ..
-      'local own = assert(again("return require(\'cosmic.fs\').exists(" .. ' ..
-      'string.format("%q", given) .. ") == true and 0 or 1"):wait()) ' ..
-      'Fs.put(1, (own.code == 0 and "own-name" or "no-own-name") .. "\\n")', { hidden, given },
+      '(if Fs.exists(hidden) == true then "hidden-seen" else "hidden-absent" end) .. "\\n") ' ..
+      'local own = assert(again("if require(\'cosmic.fs\').exists(" .. ' ..
+      'string.format("%q", given) .. ") == true then return 0 end return 1"):wait()) ' ..
+      'Fs.put(1, (if own.code == 0 then "own-name" else "no-own-name" end) .. "\\n")', { hidden, given },
     { cwd = "/given", stdout = "capture", stderr = "stdout",
       sandbox = { unveil = { reads = reads, at = { [given] = "/given" } }, offline = true } }))
   if r == nil then

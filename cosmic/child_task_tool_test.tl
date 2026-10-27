@@ -526,37 +526,49 @@ local function test_a_signal_ends_a_run_in_a_task(tmp: string)
   local started = this_program.program({ "-e", [[
 local Child = require("cosmic.child")
 local Clock = require("cosmic.clock")
+local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
 local Poll = require("cosmic.poll")
+local Proc = require("cosmic.proc")
 local Signal = require("cosmic.signal")
 local sys = require("cosmic.sys")
-local this_program = require("build.this_program")
+local record Held
+  mut answer: string
+  mut ticks: integer
+  mut took: integer
+end
+local report = ...
+if report == nil then return 2 end
 local outer = assert(Signal.guard())
-local answer = ""
-local ticks = 0
-local took = 0
+local held: Held = { answer = "", ticks = 0, took = 0 }
 Poll.run(function()
   local runner = Poll.spawn(function()
-    local sleeper = this_program.program({ "-e", 'require("cosmic.clock").sleep_ns(require("cosmic.clock").seconds(100000))' })
-    local r, why = Child.run(sleeper.argv, sleeper.options)
-    answer = tostring(r) .. " " .. why
+    local relaunch = assert(Proc.relaunch())
+    local argv: mut {string} = {}
+    for _, word in ipairs(relaunch.argv) do argv[#argv + 1] = word end
+    argv[#argv + 1] = "-e"
+    argv[#argv + 1] = 'require("cosmic.clock").sleep_ns(require("cosmic.clock").seconds(100000))'
+    local env: mut {string:string} = Env.all()
+    for name, value in pairs(relaunch.env) do env[name] = value end
+    local r, why = Child.run(argv, { env = env, fds = relaunch.fds })
+    held.answer = tostring(r) .. " " .. why
   end)
   local ticker = Poll.spawn(function()
-    while answer == "" do
+    while held.answer == "" do
       assert(Poll.delay(Clock.ms(5)))
-      ticks = ticks + 1
+      held.ticks = held.ticks + 1
     end
   end)
   assert(Poll.delay(Clock.ms(200)))
   local sent = Clock.monotonic_ns()
   assert(sys.kill(sys.getpid(), sys.SIGTERM))
   assert(runner:join(Clock.seconds(30)))
-  took = Clock.monotonic_ns() - sent
+  held.took = Clock.monotonic_ns() - sent
   assert(ticker:join())
 end)
 local kept = assert(outer:release())
-assert(Fs.write(..., answer .. "|" .. tostring(kept) .. "|" ..
-  tostring(ticks >= 2) .. "|" .. tostring(took < Clock.seconds(5))))
+assert(Fs.write(report, held.answer .. "|" .. tostring(kept) .. "|" ..
+  tostring(held.ticks >= 2) .. "|" .. tostring(held.took < Clock.seconds(5))))
 ]], report }, { stderr = "capture", timeout_ns = Clock.seconds(60) })
   local r = assert(Child.run(started.argv, started.options))
   assert(r.ok, "code=" .. tostring(r.code) .. " signal=" .. tostring(r.signal) ..

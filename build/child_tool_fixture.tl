@@ -13,10 +13,20 @@ end
 
 child_tool_fixture.AGAIN = [[
 local Child = require("cosmic.child")
-local this_program = require("build.this_program")
-local function again(chunk, opts)
-  local started = this_program.program({ "-e", chunk }, opts)
-  return assert(Child.start(started.argv, started.options))
+local Env = require("cosmic.env")
+local Proc = require("cosmic.proc")
+local function again(chunk: string, opts?: Child.Options): Child.Handle
+  local relaunch = assert(Proc.relaunch())
+  local argv: mut {string} = {}
+  for _, word in ipairs(relaunch.argv) do argv[#argv + 1] = word end
+  argv[#argv + 1] = "-e"
+  argv[#argv + 1] = chunk
+  local env: mut {string:string} = Env.all()
+  for name, value in pairs(relaunch.env) do env[name] = value end
+  local group: boolean? = nil
+  if opts ~= nil then group = opts.process_group end
+  local handle = assert(Child.start(argv, { env = env, fds = relaunch.fds, process_group = group }))
+  return handle
 end
 ]]
 

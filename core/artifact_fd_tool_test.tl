@@ -83,23 +83,32 @@ end
 local probe <const> = [==[
 local sys = require("cosmic.sys")
 local relaunch = assert(require("cosmic.proc").relaunch())
-local fd = relaunch.fds[math.tointeger(tonumber(relaunch.env.COSMIC_PORTABLE_ARTIFACT_FD))]
-local link = "/proc/self/fd/" .. fd
-if sys.stat(link) == nil then link = "/dev/fd/" .. fd end
-local function said(what, ok, _, errno)
-  if type(ok) == "number" then sys.close(ok) end
-  print(what .. " " .. ((ok == nil or ok == false) and tostring(errno) or "done"))
+local fd = assert(relaunch.fds[assert(math.tointeger(tonumber(relaunch.env["COSMIC_PORTABLE_ARTIFACT_FD"])))])
+local link = "/proc/self/fd/" .. tostring(fd)
+if sys.stat(link) == nil then link = "/dev/fd/" .. tostring(fd) end
+local function said(what: string, ok: (integer | boolean)?, errno: integer)
+  if ok is integer then sys.close(ok) end
+  print(what .. " " .. (if ok == nil or ok == false then tostring(errno) else "done" end))
 end
-said("write", sys.open(link, sys.O_WRONLY | sys.O_APPEND))
+local written, _, written_errno = sys.open(link, sys.O_WRONLY | sys.O_APPEND)
+said("write", written, written_errno)
 if sys.stat(link) ~= nil then
   local fd2 = sys.open(link, sys.O_WRONLY | sys.O_APPEND)
-  if fd2 then sys.write(fd2, "x") sys.close(fd2) end
+  if fd2 ~= nil then
+    sys.write(fd2, "x")
+    sys.close(fd2)
+  end
 end
-said("read-write", sys.open(link, sys.O_RDWR))
-said("create", sys.open(link, sys.O_CREAT | sys.O_WRONLY, 420))
-said("truncate", sys.open(link, sys.O_WRONLY | sys.O_TRUNC))
-said("chmod", sys.chmod(link, 384))
-said("utimensat", sys.utimensat(link, 1, 0, 1, 0))
+local read_write, _, read_write_errno = sys.open(link, sys.O_RDWR)
+said("read-write", read_write, read_write_errno)
+local created, _, created_errno = sys.open(link, sys.O_CREAT | sys.O_WRONLY, 420)
+said("create", created, created_errno)
+local truncated, _, truncated_errno = sys.open(link, sys.O_WRONLY | sys.O_TRUNC)
+said("truncate", truncated, truncated_errno)
+local chmodded, _, chmod_errno = sys.chmod(link, 384)
+said("chmod", chmodded, chmod_errno)
+local touched, _, touch_errno = sys.utimensat(link, 1, 0, 1, 0)
+said("utimensat", touched, touch_errno)
 ]==]
 
 --- Each is refused, EACCES, and the file is as it was: its bytes, mode
@@ -158,7 +167,7 @@ local function test_the_artifact_reached_by_names_is_not_refused(tmp: string)
   local script = { 'local sys = require("cosmic.sys")' }
   for _, name in ipairs(names) do
     script[#script + 1] = string.format("do local fd, _, e = sys.open(%q, sys.O_RDONLY) " ..
-        "print(fd and 'open' or e) if fd then sys.close(fd) end end", name)
+        "print(if fd ~= nil then 'open' else tostring(e) end) if fd ~= nil then sys.close(fd) end end", name)
   end
   local env: mut {string: string} = {}
   for name, value in pairs(relaunch.env) do env[name] = value end
@@ -186,7 +195,7 @@ while true do
   i = i + 1
   if i % 64 == 0 and sys.stat(stop) ~= nil then break end
   sys.unlink(spare)
-  assert(sys.symlink(i % 2 == 0 and plain or through, spare))
+  assert(sys.symlink(if i % 2 == 0 then plain else through end, spare))
   assert(sys.rename(spare, link))
   if i == 2 then print("flipping") end
 end
@@ -211,19 +220,20 @@ local caller <const> = [==[
 local Clock = require("cosmic.clock")
 local sys = require("cosmic.sys")
 local link, stop = LINK, STOP
-local counts = { chmod = { done = 0, refused = 0 }, truncate = { done = 0, refused = 0 } }
-local function said(what, ok, errno)
-  if type(ok) == "number" then sys.close(ok) end
-  local count = counts[what]
+local counts: mut {string:integer} = {
+  ["chmod done"] = 0, ["chmod refused"] = 0, ["truncate done"] = 0, ["truncate refused"] = 0,
+}
+local function said(what: string, ok: (integer | boolean)?, errno: integer)
+  if ok is integer then sys.close(ok) end
   if ok == nil or ok == false then
-    if errno == sys.EACCES then count.refused = count.refused + 1 end
+    if errno == sys.EACCES then counts[what .. " refused"] = assert(counts[what .. " refused"]) + 1 end
   else
-    count.done = count.done + 1
+    counts[what .. " done"] = assert(counts[what .. " done"]) + 1
   end
 end
-local function met()
-  for _, count in pairs(counts) do
-    if count.done == 0 or count.refused == 0 then return false end
+local function met(): boolean
+  for _, what in ipairs({ "chmod", "truncate" }) do
+    if counts[what .. " done"] == 0 or counts[what .. " refused"] == 0 then return false end
   end
   return true
 end
@@ -236,9 +246,10 @@ while i < least or (not met() and Clock.monotonic_ns() < deadline) do
   local fd, _, open_errno = sys.open(link, sys.O_WRONLY | sys.O_TRUNC)
   said("truncate", fd, open_errno)
 end
-assert(sys.close(assert(sys.open(stop, sys.O_CREAT | sys.O_WRONLY, 420))))
+local made = assert(sys.open(stop, sys.O_CREAT | sys.O_WRONLY, 420))
+sys.close(made)
 for _, what in ipairs({ "chmod", "truncate" }) do
-  print(what .. " " .. counts[what].done .. " " .. counts[what].refused)
+  print(what .. " " .. tostring(counts[what .. " done"]) .. " " .. tostring(counts[what .. " refused"]))
 end
 ]==]
 

@@ -109,7 +109,7 @@ return function(argv: {string}): integer
   local fd = assert(Fs.open_read((argv[1] or "")))
   assert(fd == 0)
   local result = assert(Child.run(this("local Fs = require('cosmic.fs') " ..
-    "return Fs.take(0, 64) == ... and 0 or 1", "stdin's own"),
+    "local expected = ... if Fs.take(0, 64) == expected then return 0 end return 1", "stdin's own"),
     { stdin = fd, process_group = false, env = relaunch.env, fds = relaunch.fds }))
   return if result.ok then 0 else 21 end
 end
@@ -136,6 +136,7 @@ return function(argv: {string}): integer
   words[#words + 1] = "-e"
   words[#words + 1] = AGAIN .. "local h = again('" .. ]] .. string.format("%q", sleeping(30000)) .. [[ ..
     "', { process_group = false }) local Fs = require('cosmic.fs') local pid, ready = ... " ..
+    "if pid == nil or ready == nil then return 2 end " ..
     "assert(Fs.write(pid, tostring(h.pid))) assert(Fs.write(ready, 'ready')) h:wait()"
   words[#words + 1] = (argv[1] or "")
   words[#words + 1] = (argv[2] or "")
