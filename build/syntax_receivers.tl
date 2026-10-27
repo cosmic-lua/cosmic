@@ -123,7 +123,7 @@ function Receivers.references(subject: Report.Subject): {Receivers.Reference}
       for _, target in ipairs(node.targets) do
         targets[Node.base(target).id] = true
       end
-    elseif targets[Node.base(node).id] then
+    elseif targets[Node.base(node).id] == true then
       return
     elseif (node.kind == "Field") then
       -- The name is the last token of `x.f`.

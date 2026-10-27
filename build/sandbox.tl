@@ -208,8 +208,8 @@ local function table_of(parsed: Flags.Parsed): {string:any}?, string
   end
   if #grants > 0 then policy.grants = grants end
   local profiles: mut {string} = {}
-  if parsed.set["--system"] then profiles[#profiles + 1] = "system" end
-  if parsed.set["--cosmic"] then profiles[#profiles + 1] = "cosmic" end
+  if parsed.set["--system"] == true then profiles[#profiles + 1] = "system" end
+  if parsed.set["--cosmic"] == true then profiles[#profiles + 1] = "cosmic" end
   if #profiles > 0 then policy.profiles = profiles end
   local function copy(name: string, field: string)
     if #list(name) > 0 then policy[field] = list(name) end
@@ -219,7 +219,7 @@ local function table_of(parsed: Flags.Parsed): {string:any}?, string
   copy("--connect", "connect")
   copy("--loopback", "loopback")
   copy("--env", "env")
-  if parsed.set["--tmp"] then policy.tmp = true end
+  if parsed.set["--tmp"] == true then policy.tmp = true end
   local set_env: mut {string:string} = {}
   for _, text in ipairs(list("--set-env")) do
     local name, value = text:match("^([^=]+)=(.*)$")
@@ -294,7 +294,7 @@ local function request_of(argv: {string}): Request?, string
         return nil, "--modules takes module names separated by commas, as cosmic.json,cosmic.fs, " ..
           "not " .. listed[1]
       end
-      if not seen[name] then
+      if seen[name] ~= true then
         seen[name] = true
         names[#names + 1] = name
       end
@@ -309,7 +309,7 @@ local function request_of(argv: {string}): Request?, string
     return nil, table.concat(given, " and ") .. " are exclusive: each names the database the " ..
       "program runs on, which only one can"
   end
-  if request.closure and parsed.set["--cosmic"] then
+  if request.closure and parsed.set["--cosmic"] == true then
     return nil, "--closure and --cosmic are exclusive: --closure runs the script on a database of " ..
       "its own, which holds the modules it requires and not this program's file"
   end
@@ -465,7 +465,7 @@ local function seal_script(file: string, cwd: string?, held: mut {string}): Seal
   local roots: mut {string} = {}
   for _, name in ipairs(found) do
     if not preloaded(name) and (code:find('"' .. name .. '"', 1, true) or
-        code:find("'" .. name .. "'", 1, true)) then
+        code:find("'" .. name .. "'", 1, true)) ~= nil then
       roots[#roots + 1] = name
     end
   end
@@ -497,7 +497,7 @@ local function failed_start(program: string, cwd: string?, why: string): integer
     if cwd ~= nil and program:sub(1, 1) ~= "/" then program = cwd .. "/" .. program end
     local ok, _, errno = sys.access(program, sys.X_OK)
     if not ok and errno == sys.ENOENT and
-        said:find(Fs.basename(program) .. ": No such file or directory", 1, true) then
+        said:find(Fs.basename(program) .. ": No such file or directory", 1, true) ~= nil then
       return NOT_FOUND, said
     elseif not ok and errno == sys.EACCES then
       return NOT_EXECUTABLE, said
@@ -505,8 +505,10 @@ local function failed_start(program: string, cwd: string?, why: string): integer
     return START_FAILED, said
   end
   local found = Proc.find_result(program)
-  if found.kind == "not_found" and said:find(found.reason, 1, true) then return NOT_FOUND, said end
-  if found.kind == "not_executable" and said:find(found.reason, 1, true) then
+  if found.kind == "not_found" and said:find(found.reason, 1, true) ~= nil then
+    return NOT_FOUND, said
+  end
+  if found.kind == "not_executable" and said:find(found.reason, 1, true) ~= nil then
     return NOT_EXECUTABLE, said
   end
   return START_FAILED, said

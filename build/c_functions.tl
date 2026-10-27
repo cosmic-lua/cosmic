@@ -293,7 +293,7 @@ function c_functions.tally(functions: {Coverage.Function}, hits: Coverage.Hits,
   local tally: c_functions.Tally = { unentered = {}, entered = 0, exempted = 0,
     total = #keys, stale = {}, unavailable = {} }
   for _, key in ipairs(keys) do
-    if entered[key] then
+    if entered[key] == true then
       tally.entered = tally.entered + 1
       if exempts(key) then
         tally.stale[#tally.stale + 1] = key

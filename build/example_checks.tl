@@ -147,7 +147,7 @@ local function examples(db: Sqlite.Handle, options: Pipeline.Options, root: stri
       local said = name ~= nil and helper_trouble(file, name) or nil
       if said == nil then
         out[#out + 1] = line
-      elseif not told[said] then
+      elseif told[said] ~= true then
         told[said] = true
         out[#out + 1] = where .. ": " .. said
       end

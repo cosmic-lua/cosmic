@@ -370,7 +370,7 @@ local function stored(basis: closure_store.Basis, names: {string}): {string}
   local seen: mut {string:boolean} = {}
   local out: mut {string} = {}
   local function add(name: string)
-    if seen[name] or basis.modules[name] == nil then return end
+    if seen[name] == true or basis.modules[name] == nil then return end
     seen[name] = true
     out[#out + 1] = name
   end
@@ -412,7 +412,7 @@ local function declared(basis: closure_store.Basis, names: {string}): {string}
   end
   while #stack > 0 do
     local name = table.remove(stack)
-    if not seen[name] and basis.decls[name] ~= nil then
+    if seen[name] ~= true and basis.decls[name] ~= nil then
       seen[name] = true
       out[#out + 1] = name
       for _, required in ipairs(basis.decl_requires[name]) do stack[#stack + 1] = required end

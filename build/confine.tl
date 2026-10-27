@@ -484,13 +484,13 @@ function confine.worker_unveil(cwd: string?, scratch: string,
   local seen: mut {string:boolean} = {}
   local stat = asked.stat
   local function add(path: string)
-    if seen[path] then return end
+    if seen[path] == true then return end
     local there, _ = stat(path)
     if there == nil then return end
     seen[path] = true
     reads[#reads + 1] = path
   end
-  if with_system then
+  if with_system == true then
     for _, path in ipairs(system_paths) do add(path) end
   end
   for _, path in ipairs(runtime_paths) do add(path) end
@@ -508,7 +508,7 @@ function confine.worker_unveil(cwd: string?, scratch: string,
   -- build/sandboxed_verdicts_test.tl's tool project, reads the program.
   local program = confine.executable()
   local withheld = ""
-  if not with_program and program ~= nil then
+  if with_program ~= true and program ~= nil then
     local launched, _ = Proc.relaunch()
     local core = launched ~= nil and launched.argv[1] or program
     local a, _ = asked.stat(program)
@@ -576,11 +576,11 @@ function confine.forbid_running(programs: {string}, within?: {string}): boolean,
   local walk: function(dir: string)
   local function visit(path: string)
     local real, _ = now.realpath(path)
-    if held[path] or (real ~= nil and held[real]) then
+    if held[path] == true or (real ~= nil and held[real] == true) then
       -- The program, or a link to it.
-    elseif above[path] then
+    elseif above[path] == true then
       walk(path)
-    elseif real ~= nil and above[real] then
+    elseif real ~= nil and above[real] == true then
       -- A link to a directory above it.
     else
       allowed[#allowed + 1] = path
@@ -755,12 +755,12 @@ end
 local function plain_sandbox(sandbox: raw_process.Sandbox): raw_process.Sandbox?
   local raw = sandbox as {string:any}
   for key, _ in next, raw do
-    if not key is string or not plain_fields[key] then return nil end
+    if not key is string or plain_fields[key] ~= true then return nil end
   end
   local listed = rawget(raw, "unveil")
   if listed is {any:any} then
     for key, _ in next, listed do
-      if not key is string or not plain_unveil_fields[key] then return nil end
+      if not key is string or plain_unveil_fields[key] ~= true then return nil end
     end
   end
   local plain: raw_process.Sandbox = {}
@@ -1046,7 +1046,7 @@ local function enter(own?: {string}, sandboxed?: boolean): Leave, {string}
     if plain ~= nil and plain.unveil ~= nil and plain.offline == true then
       local pid, trouble, errno = spawn(path, argv, environment, cwd, stdin, stdout, stderr,
         process_group, fds, plain, credentials, terminal)
-      if pid == nil and unconfinable[errno] and must ~= nil and runnable(path) then
+      if pid == nil and unconfinable[errno] == true and must ~= nil and runnable(path) then
         return nil, refuse(must, path, "its own sandbox's unveil and offline", trouble, errno),
           errno
       end
@@ -1162,7 +1162,7 @@ local function enter(own?: {string}, sandboxed?: boolean): Leave, {string}
         local pid, trouble, errno = spawn(path, argv, given_environment, start_in, stdin, stdout,
           stderr, process_group, fds, { unveil = { reads = reads, writes = writes },
             offline = true }, credentials, terminal)
-        if pid ~= nil or not unconfinable[errno] then
+        if pid ~= nil or unconfinable[errno] ~= true then
           if pid ~= nil then return pid end
           return pid, trouble, errno
         end

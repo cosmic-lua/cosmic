@@ -525,7 +525,7 @@ local function add_library(index: symbol_index.Index, held: {string: boolean},
       return false, modules_trouble
     end
     for _, row in ipairs(modules) do
-      if not held[row:text(1)] and owners[row:text(1)] == nil then
+      if held[row:text(1)] ~= true and owners[row:text(1)] == nil then
         owners[row:text(1)] = database
         symbol_index.module(index, row:text(1))
       end
@@ -578,7 +578,7 @@ local function resolve_and_write(db: Sqlite.Handle, pending: link_index.Pending,
   -- through a type an alias stands for, which may be the library's: so
   -- only a member the projection alone does not find reads it.
   local function member_of(module: string, name: string): {link_resolve.Symbol}?, string
-    if held[module] then
+    if held[module] == true then
       local own = symbol_index.member(index, module, name)
       if #own > 0 then
         return own, ""

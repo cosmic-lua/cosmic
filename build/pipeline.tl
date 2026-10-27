@@ -360,7 +360,7 @@ local function identity(reader: Reader): string
   local stack: mut {string} = { "build.pipeline" }
   while #stack > 0 do
     local name = assert(table.remove(stack))
-    if not seen[name] and (name:sub(1, 5) == "lang." or name:sub(1, 6) == "build.") then
+    if seen[name] ~= true and (name:sub(1, 5) == "lang." or name:sub(1, 6) == "build.") then
       seen[name] = true
       local source = reader.source(name)
       if source ~= nil then

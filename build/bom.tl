@@ -127,7 +127,7 @@ function bom.parse(name: string, source: string): bom.Component?, string
   for line in String.lines(source) do
     local key, value = line:match("^([%w_%-]+)%s+(.-)%s*$")
     if key ~= nil and key ~= "notice" then
-      if seen[key] then
+      if seen[key] == true then
         key = nil
       else
         seen[key] = true
@@ -154,7 +154,7 @@ function bom.parse(name: string, source: string): bom.Component?, string
         component.sha3_256 = word:lower()
       end
     elseif key == "kind" then
-      if not kinds[value] then
+      if kinds[value] ~= true then
         return nil, name .. ": kind " .. value .. " is none of library, data and test"
       end
       component.kind = value
@@ -520,7 +520,7 @@ local function run(argv: {string}): integer
     log:complain("bom: " .. trouble)
     return 1
   end
-  if parsed.set["--licenses"] then
+  if parsed.set["--licenses"] == true then
     local notices, notice_trouble = bom.notices(binary)
     if notices == nil then
       log:complain("bom: " .. notice_trouble)

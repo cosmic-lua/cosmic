@@ -217,7 +217,7 @@ local function carried(): {Carried}?, string
     local name = table.remove(pending, 1)
     local row, _ = Store.bytecode(name)
     local raw = String.starts_with(name, "cosmic.internal.") and row == nil
-    if not seen[name] and not raw then
+    if seen[name] ~= true and not raw then
       seen[name] = true
       local requires, trouble = Store.requires(name)
       if requires == nil then return nil, name .. ": " .. trouble end

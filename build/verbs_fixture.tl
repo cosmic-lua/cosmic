@@ -43,7 +43,7 @@ local function needs_a_process(args: {string}): string?
   end
   if args[1] == "test" and not asks_help then
     return "it starts a process for each test, and coverage this one is keeping"
-  elseif args[1] == "--standalone" or (args[1] ~= nil and args[1]:match("%.tl$")) then
+  elseif args[1] == "--standalone" or (args[1] ~= nil and args[1]:match("%.tl$") ~= nil) then
     return "a file run loads its tree's modules into the process"
   end
   return nil
@@ -113,7 +113,7 @@ function verbs_fixture.expect(dir: string, verb: string, args: {string}, code: i
   else
     assert(err ~= "", "expected stderr to say why from " .. shown)
     local spec = verb_list.find(verb)
-    if spec == nil or not spec.summarizes_failure then
+    if spec == nil or spec.summarizes_failure ~= true then
       for line in err:gmatch("[^\n]+") do
         assert(not String.starts_with(line, verb .. ": "), "a summary of a failure in " .. shown)
       end

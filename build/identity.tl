@@ -181,18 +181,18 @@ function identity.skip_in_own_tree(entry: string, name: string): boolean
   if name:sub(1, 1) == "." then
     return true
   end
-  if foreign_trees[first] then
+  if foreign_trees[first] == true then
     return entry == first .. "/o"
   end
   if first == "vendor" then
     return not is_vendor_pin(entry)
   end
-  if tool_trees[first] or tool_files[entry] or tool_dirs[entry] then
+  if tool_trees[first] == true or tool_files[entry] == true or tool_dirs[entry] == true then
     return false
   end
   -- The rest of `bin/` is walked too, for `scanned`: its scripts carry
   -- TODOs the build otherwise never reads.
-  if tool_dirs[first] and entry:find("/", #first + 2, true) == nil then
+  if tool_dirs[first] == true and entry:find("/", #first + 2, true) == nil then
     return false
   end
   return identity.skip_input(entry, name)
@@ -239,7 +239,7 @@ end
 --- is made of, nor the declarations of the new checker's globals (`global_declarations`).
 function identity.is_input(file: string, own_tree: boolean): boolean
   local first = identity.first_of(file)
-  if not_input[first] or (own_tree and (foreign_trees[first] or global_declarations[file])) then
+  if not_input[first] == true or (own_tree and (foreign_trees[first] == true or global_declarations[file] == true)) then
     return false
   end
   if identity.is_static(file) then
@@ -490,7 +490,7 @@ function identity.compiler_modules(requires: function(string): {string}?, string
   for _, name in ipairs(compiler_roots) do stack[#stack + 1] = name end
   while #stack > 0 do
     local name = table.remove(stack)
-    if not reached[name] then
+    if reached[name] ~= true then
       reached[name] = true
       local required, trouble = requires(name)
       if required == nil then return nil, trouble end
@@ -601,12 +601,12 @@ function identity.writer_modules(requires: function(string): {string}?, string):
   for _, name in ipairs(writer_roots) do stack[#stack + 1] = name end
   while #stack > 0 do
     local name = table.remove(stack)
-    if not reached[name] then
+    if reached[name] ~= true then
       reached[name] = true
       local required, trouble = requires(name)
       if required == nil then return nil, trouble end
       for _, next_name in ipairs(required) do
-        if not (roots[name] and writer_left_out[next_name] ~= nil) then
+        if not (roots[name] == true and writer_left_out[next_name] ~= nil) then
           stack[#stack + 1] = next_name
         end
       end

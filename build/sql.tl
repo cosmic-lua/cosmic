@@ -136,13 +136,13 @@ function sql.source(root: string, parsed: Flags.Parsed): sql.Source?, string
   end
   local within = "; the build directory is the working directory's, " ..
     "never a project's above it"
-  if parsed.set["--build"] then
+  if parsed.set["--build"] == true then
     local directory, trouble = build_paths.directory(root)
     if directory == nil then return nil, trouble end
     local working = build_paths.under(directory).working
     return { name = working, path = working, hint = working .. within }
   end
-  if parsed.set["--store"] then
+  if parsed.set["--store"] == true then
     return { name = "the binary's own database" }
   end
   local directory, directory_trouble = build_paths.optional(root)
@@ -370,7 +370,7 @@ local function unique(names: {string}): {string}
   local out: mut {string} = {}
   for index, name in ipairs(names) do
     local candidate, number = name, 1
-    while taken[candidate] do
+    while taken[candidate] == true do
       number = number + 1
       candidate = name .. "_" .. tostring(number)
     end
@@ -623,7 +623,7 @@ local function read_inputs(parsed: Flags.Parsed): {sql.Input}?, string
       if input == nil then
         return nil, "--raw belongs to the --from before it; give --from first"
       end
-      if given_raw[#inputs] then
+      if given_raw[#inputs] == true then
         return nil, "--raw is given twice for " .. input.label
       end
       given_raw[#inputs] = true
@@ -634,7 +634,7 @@ local function read_inputs(parsed: Flags.Parsed): {sql.Input}?, string
         return nil, name .. " belongs to the --from before it; give --from first"
       end
       local given = name == "--as" and given_as or given_at
-      if given[#inputs] then
+      if given[#inputs] == true then
         return nil, name .. " is given twice for " .. input.label
       end
       given[#inputs] = true
@@ -776,7 +776,7 @@ local function run_from(parsed: Flags.Parsed, to: sql.Output,
     return 2
   end
   for _, other in ipairs({ "--db", "--build", "--store" }) do
-    if parsed.set[other] or parsed.all[other] then
+    if parsed.set[other] == true or parsed.all[other] ~= nil then
       return refuse("--from is a database of its own, not to be given with " .. other)
     end
   end
@@ -964,7 +964,7 @@ function sql.run(argv: {string}, root?: string, output?: sql.Output,
   end
   if rows == nil then
     -- The hint is for SQLite's refusals, not for a row `--to` cannot write.
-    if source.path == nil and not refusal.unwritable then
+    if source.path == nil and refusal.unwritable ~= true then
       trouble = trouble .. store_hint
     end
     complain(source.name .. ": " .. trouble)

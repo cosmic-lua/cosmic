@@ -168,7 +168,7 @@ local function inspect(db: Sqlite.Handle, family: maintenance.Family,
   if schema == nil then return nil, why end
   local unsafe = false
   for _, row in ipairs(schema) do
-    if row:text(2) == "trigger" or row:text(3):upper():match("^CREATE%s+VIRTUAL%s+TABLE") then
+    if row:text(2) == "trigger" or row:text(3):upper():match("^CREATE%s+VIRTUAL%s+TABLE") ~= nil then
       unsafe = true
     end
     if row:text(2) == "table" then

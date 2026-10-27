@@ -682,7 +682,7 @@ local function entry(digests: declared_key.Digests, path: string, follow: boolea
   if st.kind == "file" then
     local runnable = st.mode & 73 ~= 0 -- 0o111
     return "file", (if runnable then "file+x " else "file " end) ..
-      (if programs then ("program " .. program(digests, path, st)) else contents(digests, path, st) end)
+      (if programs == true then ("program " .. program(digests, path, st)) else contents(digests, path, st) end)
   elseif st.kind == "link" then
     local target, _ = sys.readlink(path)
     return "link", "link " .. (target or "unreadable")
@@ -745,7 +745,7 @@ end
 --- `bounds` ([`leads_out`]), the tree where nil.
 local function tree(digests: declared_key.Digests, path: string, programs?: boolean,
                     bounds?: {string}): string
-  local tag = (if programs then "p\0" elseif bounds ~= nil then "v\0" else "t\0" end) .. path
+  local tag = (if programs == true then "p\0" elseif bounds ~= nil then "v\0" else "t\0" end) .. path
   return once(digests, tag, function(): string
     local kind, answer = entry(digests, path, true, programs)
     if kind ~= "dir" then return answer end
@@ -878,8 +878,8 @@ function declared_key.preimage(digests: declared_key.Digests,
   for _, name in ipairs(required) do
     lines[#lines + 1] = part("requires", name, answers[name])
   end
-  if effective.noexec then
-    lines[#lines + 1] = part("noexec", if effective.noexec_ready then "granted" else "unavailable" end, "")
+  if effective.noexec == true then
+    lines[#lines + 1] = part("noexec", if effective.noexec_ready == true then "granted" else "unavailable" end, "")
   end
   local launcher = spec.launcher
   if launcher ~= nil then lines[#lines + 1] = part("launcher", launcher, "") end
@@ -898,7 +898,7 @@ function declared_key.preimage(digests: declared_key.Digests,
   end
   local reads: mut {string} = {}
   for _, read in ipairs(effective.reads) do reads[#reads + 1] = read end
-  if effective.tool or spec.runs_tool then
+  if effective.tool or spec.runs_tool == true then
     -- o/bin, as its sandbox gives it, each program in it by what it
     -- runs as rather than its bytes (`program`): a rebuild that moved
     -- only what the whole tree's edits move leaves it.
@@ -927,7 +927,7 @@ function declared_key.preimage(digests: declared_key.Digests,
   local seen: mut {string:boolean} = {}
   for _, read in ipairs(reads) do
     local plain, path = of_tree(digests, read)
-    if not seen[plain] then
+    if seen[plain] ~= true then
       seen[plain] = true
       local answer = path ~= "" and tree(digests, path) or "outside"
       if answer:sub(1, 8) == "refused " then return nil, answer:sub(9) end
@@ -941,12 +941,12 @@ function declared_key.preimage(digests: declared_key.Digests,
   -- the package database stands for what they hold.
   local installed = effective.system
   for _, path in ipairs(hosts) do
-    if not seen[path] then
+    if seen[path] ~= true then
       seen[path] = true
       lines[#lines + 1] = part("h", path, host(digests, path))
     end
   end
-  if installed then lines[#lines + 1] = part("system", spec.system or "", "") end
+  if installed == true then lines[#lines + 1] = part("system", spec.system or "", "") end
   -- Each file above the project by its relative path and contents, never
   -- by where the project is.
   local parents: mut {string} = {}
@@ -1016,7 +1016,7 @@ local function features(listed?: {string}, machine?: string): {string}
   local kept = machine ~= nil and dispatched[machine] or nil
   local sorted: mut {string} = {}
   for flag in pairs(seen) do
-    if kept == nil or kept[flag] then sorted[#sorted + 1] = flag end
+    if kept == nil or kept[flag] == true then sorted[#sorted + 1] = flag end
   end
   table.sort(sorted)
   return sorted
@@ -1197,7 +1197,7 @@ function declared_key.host_identity(digests: declared_key.Digests,
       local seen: mut {integer:boolean} = {}
       local sorted: mut {integer} = {}
       for _, group in ipairs(groups) do
-        if not seen[group] then seen[group], sorted[#sorted + 1] = true, group end
+        if seen[group] ~= true then seen[group], sorted[#sorted + 1] = true, group end
       end
       table.sort(sorted)
       local named: mut {string} = {}
@@ -1385,7 +1385,7 @@ function declared_key.system_identity(digests: declared_key.Digests,
   end
   local system_id = from.system_id or sys.getenv(system_variable) or ""
   lines[#lines + 1] = "system " .. system_id
-  if walk then
+  if walk == true then
     lines[#lines + 1] = "walked " .. remembered_walk(digests, walked_paths(from.walked or confine.system_paths),
       packages)
   end
@@ -1432,7 +1432,7 @@ function declared_key.harness(names: {string}, sources: {string:string}): string
   local seen: mut {string:boolean} = {}
   local lines: mut {string} = {}
   for _, name in ipairs(names) do
-    if sources[name] ~= nil and not seen[name] then
+    if sources[name] ~= nil and seen[name] ~= true then
       seen[name] = true
       lines[#lines + 1] = name .. " " .. sources[name]
     end

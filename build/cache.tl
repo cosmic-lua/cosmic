@@ -35,7 +35,7 @@ function verb.run(argv: {string}, io?: verb.Io): integer
   local paths: mut {string} = {}
   for i = 3, #parsed.words do
     local path = parsed.words[i]
-    if path:sub(1, 1) ~= "/" or path:find("\0", 1, true) then
+    if path:sub(1, 1) ~= "/" or path:find("\0", 1, true) ~= nil then
       return refuse("cache paths must be absolute and contain no NUL")
     end
     paths[#paths + 1] = path
@@ -56,7 +56,7 @@ function verb.run(argv: {string}, io?: verb.Io): integer
   end
   local restored = parsed.values["--restored"]
   if restored ~= nil and (family ~= "compiles" or restored:sub(1, 1) ~= "/" or
-      restored:find("\0", 1, true)) then
+      restored:find("\0", 1, true) ~= nil) then
     return refuse("restored is an absolute snapshot path for compiles only")
   end
   local options: maintenance.Options = {

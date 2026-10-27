@@ -40,7 +40,7 @@ local function verb_help(verbs: {string}, binary_only?: boolean): {string: strin
   local docs = require("build.docs")
   local link_text = require("build.link_text")
   local sources: docs.Sources
-  if binary_only then
+  if binary_only == true then
     local handles = require("cosmic.store").databases()
     local public: mut {boolean} = {}
     for i = 1, #handles do public[i] = true end
@@ -176,7 +176,7 @@ local function spec_notes(verb: string, spec: verb_spec.Spec?): string
     paragraphs[#paragraphs + 1] = wrapped("Once its tests ran, ends its stdout in their summary, " ..
         "`test: 9 tests passed in 2 modules; ...` or `test: 2 of 9 tests failed, ...`, and exits " ..
         "as `cosmic help exit` says.", help_width)
-  elseif spec.summarizes_failure then
+  elseif spec.summarizes_failure == true then
     paragraphs[#paragraphs + 1] = wrapped("Ends a run with a summary on stderr, `" .. verb ..
         ": ...`, whether it passed or failed, and exits as `cosmic help exit` says.", help_width)
   else
@@ -198,7 +198,7 @@ local function exit_help(specs: {verb_spec.Spec}): string
       bare[#bare + 1] = spec.name
       sentences[#sentences + 1] = spec.exits or ""
     end
-    if spec.summarizes_failure then
+    if spec.summarizes_failure == true then
       failing[#failing + 1] = spec.name
     end
   end
@@ -676,7 +676,7 @@ local function spec_of(word: string): verb_spec.Spec?
     return help_spec
   end
   local found = verb_list.find(word)
-  if found ~= nil and found.fresh then
+  if found ~= nil and found.fresh == true then
     local inner = found.run
     local reads = found.reads == true
     -- A tool older than the tree rebuilds first ([`build.reboot`]).
@@ -841,7 +841,7 @@ function Dispatch.main(argv: {string}): integer
   end
   if chosen ~= nil then
     local code = chosen.run(argv)
-    if code == 2 and not chosen.bare and not chosen.fresh and chosen.recheck_on_refusal ~= false then
+    if code == 2 and not chosen.bare and chosen.fresh ~= true and chosen.recheck_on_refusal ~= false then
       -- A verb may read its command line before it checks the tool is
       -- as new as the tree, and an option the tree added is one a stale
       -- tool refuses: it rebuilds and runs the line again here instead.
@@ -867,7 +867,7 @@ function Dispatch.main(argv: {string}): integer
   -- one rather than as a file that is not there.
   if not verb:find("/", 1, true) and not String.ends_with(verb, ".tl") then
     local exists, _ = Fs.exists(verb)
-    if not exists then
+    if exists ~= true then
       log:complain("no such verb or file: " .. verb .. "; see `cosmic help`")
       return 2
     end

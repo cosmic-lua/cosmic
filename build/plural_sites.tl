@@ -52,7 +52,7 @@ end
 --- and none of the words that end so and are not.
 local function is_plural_noun(word: string): boolean
   return #word >= 4 and word:match("^%l+$") ~= nil and word:sub(-1) == "s" and
-    not word:match("ss$") and not word:match("[iu]s$") and not NOT_NOUNS[word]
+    not word:match("ss$") and not word:match("[iu]s$") and NOT_NOUNS[word] ~= true
 end
 
 --- The plural noun `text` leads with, after one space: its first word,
@@ -62,12 +62,14 @@ local function plural_after_space(text: string, counted: boolean): string?
   local first, rest = text:match("^ (%a+)(.*)$")
   if first == nil then return nil end
   if is_plural_noun(first) then
-    if counted or UNITS[first] then return first end
+    if counted or UNITS[first] == true then return first end
     return nil
   end
-  if not first:match("^%l+$") or NOT_NOUNS[first] then return nil end
+  if not first:match("^%l+$") or NOT_NOUNS[first] == true then return nil end
   local second = rest:match("^ (%l+)%f[^%a]")
-  if second ~= nil and is_plural_noun(second) and (counted or UNITS[second]) then return second end
+  if second ~= nil and is_plural_noun(second) and (counted or UNITS[second] == true) then
+    return second
+  end
   return nil
 end
 
@@ -84,7 +86,7 @@ local function format_plurals(text: string): {string}
     at = last
     local noun = plural_after_space(text:sub(last, last + 60), true)
     local label = text:sub(math.max(1, first - 12), first - 1):match("(%l+) $")
-    if noun ~= nil and not LABELS[label or ""] then
+    if noun ~= nil and LABELS[label or ""] ~= true then
       local after = text:sub(last + 1):match("^.-" .. noun .. "(.?)")
       if after ~= "=" then found[#found + 1] = noun end
     end

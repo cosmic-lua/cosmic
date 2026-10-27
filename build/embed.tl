@@ -484,7 +484,7 @@ function embed.tree(root: string, host?: boolean, under?: {string}, grammar?: Gr
 
   local prefix, core: string?, raw_store.Core?
   local source_trouble: string
-  if host then
+  if host == true then
     core, source_trouble = artifact.trusted_core()
   else
     prefix, source_trouble = embed.portable_prefix(artifact.trusted_prefix())

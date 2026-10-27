@@ -188,7 +188,7 @@ function importer.analyzer_modules(code?: importer.Code): {string}?, string
   for _, name in ipairs(analyzer_roots) do stack[#stack + 1] = name end
   while #stack > 0 do
     local name = table.remove(stack)
-    if not reached[name] then
+    if reached[name] ~= true then
       reached[name] = true
       local required, trouble = requires(name)
       if required == nil then return nil, trouble end
@@ -567,10 +567,10 @@ local function shared_analyzer(handle: work.Handle, shared: importer.Shared,
     while #stack > 0 do
       local name = table.remove(stack)
       local hash = hash_of[name]
-      if not reached[name] and hash ~= nil then
+      if reached[name] ~= true and hash ~= nil then
         reached[name] = true
         local names = guessed[hash]
-        if fresh[hash] and names == nil then return name, "" end
+        if fresh[hash] == true and names == nil then return name, "" end
         if names == nil then
           local rows, rows_trouble = Sqlite.text_rows(db,
             "SELECT name FROM requires WHERE source_hash = ?1 ORDER BY ordinal", { text(hash) })
@@ -1188,7 +1188,7 @@ local function compile_derived(handle: work.Handle, tool: string,
     if not forgotten then
       return false, forget_trouble
     end
-    local judged = not unjudged
+    local judged = unjudged ~= true
     local cache, prepare_trouble = prepare_cache(handle, tool)
     if cache == nil then
       return false, prepare_trouble

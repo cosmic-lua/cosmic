@@ -313,7 +313,7 @@ function links.rewrite(reader: links.Reader, resolver: link_resolve.Resolver, fi
       -- its bindings ([`build.gen_syscalls`]): their names are that
       -- declaration's, not the header's, so their spans stay as written.
       local teal_in_c = kind == "c" and (block_lines[span.line] or ""):match("^%s*%-%-") ~= nil
-      if not defined[key] and not teal_in_c and at > 0 and
+      if defined[key] ~= true and not teal_in_c and at > 0 and
           body:sub(at, at + #span.written - 1) == span.written then
         local function declared(): link_text.Declared
           return known().at(block.line + span.line - 1)
@@ -352,7 +352,9 @@ function links.rewrite(reader: links.Reader, resolver: link_resolve.Resolver, fi
     local kept: mut {string} = {}
     for _, line in ipairs(out.linked) do
       local written = line:match(": link: (`+[^`]+`+) would link to ")
-      if written == nil or not refused[link_text.label_key(written)] then kept[#kept + 1] = line end
+      if written == nil or refused[link_text.label_key(written)] ~= true then
+        kept[#kept + 1] = line
+      end
     end
     out.linked = kept
   end
@@ -395,7 +397,7 @@ function links.rewrite(reader: links.Reader, resolver: link_resolve.Resolver, fi
   end
   for _, link in ipairs(shortcuts) do
     local key = link_text.label_key(link.text)
-    if not human[key] and labels[key] == nil then
+    if human[key] ~= true and labels[key] == nil then
       local function declared(): link_text.Declared return known().at(link.line) end
       local meant = link_resolve.meant(resolver, absolute, link.target, declared, true)
       if meant ~= nil then

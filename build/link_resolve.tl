@@ -187,7 +187,7 @@ local function anchor_problem(resolver: link_resolve.Resolver, path: string, anc
     found = text ~= nil and link_resolve.anchors(text) or {}
     resolver.headings[path] = found
   end
-  if found[anchor:lower()] or found[anchor] then
+  if found[anchor:lower()] == true or found[anchor] == true then
     return nil
   end
   return "no heading of " .. Fs.basename(path) .. " has the anchor #" .. anchor
@@ -414,7 +414,7 @@ function link_resolve.resolve(resolver: link_resolve.Resolver, from: string, tar
   if name ~= nil then
     local dotted = name:gsub(":", ".")
     local own = declared()
-    if own.names[dotted] then
+    if own.names[dotted] == true then
       return made("declared", { name = dotted })
     end
     -- A global comes before a symbol, so one a later core adds shadows a symbol of its name.
@@ -569,8 +569,8 @@ function link_resolve.linkable(resolver: link_resolve.Resolver, from: string, co
     if alone and dotted:match("^[%l%d]+$") ~= nil and content:sub(-2) ~= "()" then
       return nil
     end
-    if declared().names[dotted] then
-      if module_level()[dotted] then
+    if declared().names[dotted] == true then
+      if module_level()[dotted] == true then
         return { kind = "declared", name = dotted, module = "", symbol = "", path = "",
           anchor = "", file = "" }
       end
@@ -585,7 +585,7 @@ function link_resolve.linkable(resolver: link_resolve.Resolver, from: string, co
     return target
   end
   -- A name in full may name a symbol; a file's name alone links nothing.
-  if target.kind == "file" or FILE_EXTENSIONS[content:match("%.(%w+)$") or ""] then
+  if target.kind == "file" or FILE_EXTENSIONS[content:match("%.(%w+)$") or ""] == true then
     return nil
   end
   return target

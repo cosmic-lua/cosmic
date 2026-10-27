@@ -296,7 +296,7 @@ function shared_verdicts.census(cache: shared_verdicts.Cache,
   for _, row in ipairs(rows) do
     local count = math.tointeger(tonumber(row:text(2)) or 0) or 0
     out.rows = out.rows + count
-    if tests[row:text(1)] then out.of_tests = out.of_tests + count end
+    if tests[row:text(1)] == true then out.of_tests = out.of_tests + count end
   end
   return out, ""
 end

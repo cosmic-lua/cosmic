@@ -280,7 +280,7 @@ function derivation.packed_parses(db: Sqlite.Handle,
   local out: mut {string:derivation.Parse} = {}
   for _, row in ipairs(present) do
     local hash = row:text(1)
-    if not unpackable[hash] then
+    if unpackable[hash] ~= true then
       out[hash] = { requires = requires[hash] or {}, rows = table.concat(pieces[hash]) }
     end
   end

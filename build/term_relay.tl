@@ -302,7 +302,7 @@ function TermRelay.run(argv: {string}, opts: Child.Options, terminal?: Terminal)
     found[number] = status & sys.O_NONBLOCK ~= 0
   end
   for number, fd in ipairs(outputs) do
-    if not found[number] then
+    if found[number] ~= true then
       local set, set_why = sys.set_nonblocking(fd, true)
       if not set then return nil, "terminal: " .. set_why end
       restoring.made_nonblocking[#restoring.made_nonblocking + 1] = fd

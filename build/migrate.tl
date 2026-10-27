@@ -423,7 +423,7 @@ local function family(list: {Types.Decl}, decl: Types.Decl, field: string): Fami
     local body = assert(made.members[at]).body
     if body ~= nil then
       for _, super in ipairs(body.supers) do
-        if (super.tag == "named") and not held[super.decl] and declares(super.decl, field) then
+        if (super.tag == "named") and held[super.decl] ~= true and declares(super.decl, field) then
           held[super.decl] = true
           made.members[#made.members + 1] = super.decl
         end
@@ -436,9 +436,9 @@ local function family(list: {Types.Decl}, decl: Types.Decl, field: string): Fami
     grew = false
     for _, d in ipairs(list) do
       local body = d.body
-      if body ~= nil and not held[d] then
+      if body ~= nil and held[d] ~= true then
         for _, super in ipairs(body.supers) do
-          if (super.tag == "named") and held[super.decl] then
+          if (super.tag == "named") and held[super.decl] == true then
             if has_method(d, field) then
               made.blocked = "`" .. d.name .. "` lists `" .. super.decl.name .. "` and declares `" .. field ..
                 "` as a method, which is never `mut`"
@@ -817,7 +817,7 @@ local function survey(texts: {string: string}, paths: {string}, options: Pipelin
       local finding: Migrate.Finding = { path = path, y = p.y, x = p.x, code = p.code, msg = p.msg, note = "" }
       made.findings[#made.findings + 1] = finding
       recorded[i] = finding
-      if FIXABLE[p.code] then
+      if FIXABLE[p.code] == true then
         wanted = true
       end
     end
@@ -830,7 +830,7 @@ local function survey(texts: {string: string}, paths: {string}, options: Pipelin
       local found = insertions(original, outcome.text)
       if found == nil then
         for i, p in ipairs(outcome.errors) do
-          if FIXABLE[p.code] then
+          if FIXABLE[p.code] == true then
             assert(recorded[i]).note = "the checker read this file with text added that is more than a spliced call, which " ..
               "this run cannot map back to the source"
           end
@@ -982,7 +982,7 @@ local function edited(text: string, rewrites: {Rewrite}): string, {Rewrite}
   local edits: mut {Edit} = {}
   local seen: mut {string: boolean} = {}
   for _, r in ipairs(rewrites) do
-    if not seen[r.key] then
+    if seen[r.key] ~= true then
       seen[r.key] = true
       made[#made + 1] = r
       for _, e in ipairs(r.edits) do
@@ -1023,7 +1023,7 @@ local function apply(found: Survey, texts: {string: string}):
   for _, request in ipairs(found.requests) do
     local key = request_key(request)
     local path = found.holders[request.decl.module]
-    if path ~= nil and not requested[key] then
+    if path ~= nil and requested[key] ~= true then
       requested[key] = true
       local rewrite, why = resolved(request, path, assert(texts[path]))
       if rewrite ~= nil then
@@ -1100,7 +1100,7 @@ function Migrate.run(files: {string: string}, options?: Migrate.Options): Migrat
     result.rounds = result.rounds + 1
     for _, family_made in ipairs(found.shared) do
       local key = family_made.name .. "\0" .. family_made.field
-      if not shared_seen[key] then
+      if shared_seen[key] ~= true then
         shared_seen[key] = true
         result.shared[#result.shared + 1] = family_made
       end

@@ -65,7 +65,7 @@ local function parse_tag(info: string): Tag?, string
     words[#words + 1] = word
   end
   local lang = words[1] or ""
-  if not valid_langs[lang] then
+  if valid_langs[lang] ~= true then
     return nil, "unknown fenced block tag '" .. lang .. "'"
   end
   if (lang == "text" or lang == "output") and #words > 1 then
