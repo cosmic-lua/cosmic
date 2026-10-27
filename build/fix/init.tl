@@ -70,6 +70,8 @@ local tree = require("build.tree")
 local example_checks = require("build.example_checks")
 local Memprobe = require("build.memprobe")
 local tree_checks = require("build.tree_checks")
+local CeilingsBase = require("build.ceilings_base")
+local Env = require("cosmic.env")
 local Sqlite = require("cosmic.sqlite")
 
 local logger = require("build.logger")
@@ -1363,6 +1365,14 @@ local function run_tree_checks(ctx: Fix)
       end
       for _, line in ipairs(tree_checks.package_readers(root)) do
         findings[#findings + 1] = "package: " .. line
+      end
+      -- The ceilings only fall: the file is held to its merge base with main.
+      local held = CeilingsBase.check(root, Env.all(), CeilingsBase.live_git())
+      for _, line in ipairs(held.lines) do
+        findings[#findings + 1] = "ceilings: " .. line
+      end
+      if held.note ~= "" then
+        tree_say("ceilings: " .. held.note)
       end
       -- What the scope builder, the lowering and the checker found in a file that has not changed is kept in the build
       -- directory; without the memo the checks run in full.
