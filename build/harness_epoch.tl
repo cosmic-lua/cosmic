@@ -83,7 +83,7 @@ end
 harness_epoch.epoch = "57-69753f80" -- on a conflict keep neither side: set it to the bare count and run build/harness_epoch_test.tl, which prints a fresh value
 harness_epoch.acknowledged = {
 
-  ["build.artifact"] = "6bcacc0e4e216df503ef7866f63bfe517e804ab88cfed06e76c2bea9bd67946c",
+  ["build.artifact"] = "27e17846dc1036ab9ef0d94249a6e1e8d2140e916a821a6de6686ea667f6d2dc",
 
   ["build.assertions"] = "536da1af6ed52bf04f8f8803d77f83f44a9c43cb65f2572eca09c995fa87fe4d",
 
@@ -105,7 +105,7 @@ harness_epoch.acknowledged = {
 
   ["build.host_names"] = "2312dc872d652e92fad4dcd73cffa31ed1ad179d5e5cb960a06df33ba562eb73",
 
-  ["build.host_requires"] = "97ac07891bf0e82466903e577668179688d874eb9a76fd798951af666f90480c",
+  ["build.host_requires"] = "0a9dfe5f7aefdada864c278f949bdd7b92832b7764140b4cd5813cdf6ff905a2",
 
   ["build.key_parts"] = "ec597f813d1bc7c595f21e587900c90c6be0f9d9402566beb076719069996e8b",
 
@@ -117,9 +117,9 @@ harness_epoch.acknowledged = {
 
   ["build.plural"] = "08dc094acbdc34d3bc0ed7d04238e33810e3ff573574b2e612e1202bde7f24c4",
 
-  ["build.shared_sqlite"] = "3af88d37269e2836b4cd960373cc187a8cf919101f0534328aa8341eb25c69e6",
+  ["build.shared_sqlite"] = "a1f438f3ab7ff5eb92e8db6235d80bd75b6dc8db51833f27aa78cc6965daca90",
 
-  ["build.shared_verdicts"] = "811ff12f64939507bb9b293ac267dcfa1b62c83d24cc1c771a265f7b1e8d4934",
+  ["build.shared_verdicts"] = "508c5ab3436398365ae08b95c58060159bc1f883ec64a2c60aba604b6b7c4e1b",
 
   ["build.test_inputs"] = "4e45d9c9f69e1f7cac2e4ffbafe7999db4f1a09cbb3e46a124963a61aa47ebb4",
 

@@ -132,7 +132,7 @@ local function test_a_change_through_the_artifact_descriptor_changes_nothing(tmp
       "artifact's mode or times:\n" .. tostring(result.stdout))
   local out = tostring(result.stdout)
   for _, what in ipairs({ "write", "read-write", "create", "truncate", "chmod" }) do
-    assert(out:find(what .. " " .. sys.EACCES .. "\n", 1, true) ~= nil,
+    assert(out:find(what .. " " .. tostring(sys.EACCES) .. "\n", 1, true) ~= nil,
       what .. " was not refused:\n" .. out)
   end
 end

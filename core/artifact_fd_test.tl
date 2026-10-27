@@ -176,7 +176,7 @@ local function test_every_descriptor_argument_refuses_the_artifact_descriptor()
           else
             local binding = tables[derivation.path][call.name]
             local args = case(at, fd)
-            refused(call.name .. "'s argument " .. at, binding, table.unpack(args, 1, 10))
+            refused(call.name .. "'s argument " .. tostring(at), binding, table.unpack(args, 1, 10))
             tried = tried + 1
           end
         end
@@ -185,7 +185,7 @@ local function test_every_descriptor_argument_refuses_the_artifact_descriptor()
   end
   assert(#missing == 0, "bindings that take a descriptor with no case here: " ..
       table.concat(missing, ", "))
-  assert(tried >= 18, "only " .. tried .. " descriptor arguments were tried")
+  assert(tried >= 18, "only " .. tostring(tried) .. " descriptor arguments were tried")
 end
 
 --- A lookup's `supply`, a method the table walk above does not reach,
@@ -258,16 +258,16 @@ local function test_an_open_through_the_artifact_descriptor_is_refused(tmp: stri
   assert(Fs.write(plain, "text"))
   local other = assert(sys.open(plain, sys.O_RDONLY))
   for _, dir in ipairs({ "/proc/self/fd/", "/dev/fd/" }) do
-    if sys.stat(dir .. other) ~= nil then
+    if sys.stat(dir .. tostring(other)) ~= nil then
       -- As given, spelled otherwise, through a link to it or to its
       -- directory: each refused, EACCES.
       local link, directory = tmp .. "/link", tmp .. "/directory"
       sys.unlink(link)
       sys.unlink(directory)
-      assert(sys.symlink(dir .. fd, link))
+      assert(sys.symlink(dir .. tostring(fd), link))
       assert(sys.symlink(dir:sub(1, -2), directory))
-      for _, name in ipairs({ dir .. fd, "/" .. dir .. fd, "/." .. dir .. fd, link,
-          directory .. "/" .. fd }) do
+      for _, name in ipairs({ dir .. tostring(fd), "/" .. dir .. tostring(fd), "/." .. dir .. tostring(fd), link,
+          directory .. "/" .. tostring(fd) }) do
         local opened, trouble, errno = sys.open(name, sys.O_RDONLY)
         if opened ~= nil then sys.close(opened) end
         assert(opened == nil and errno == sys.EACCES, name .. " opened the artifact: " ..
@@ -277,8 +277,8 @@ local function test_an_open_through_the_artifact_descriptor_is_refused(tmp: stri
       -- directory.
       local pid = tostring(sys.getpid())
       if dir == "/proc/self/fd/" then
-        for _, name in ipairs({ "/proc/thread-self/fd/" .. fd,
-            "/proc/" .. pid .. "/task/" .. pid .. "/fd/" .. fd }) do
+        for _, name in ipairs({ "/proc/thread-self/fd/" .. tostring(fd),
+            "/proc/" .. pid .. "/task/" .. pid .. "/fd/" .. tostring(fd) }) do
           if sys.stat(name) ~= nil then
             local opened, trouble, errno = sys.open(name, sys.O_RDONLY)
             if opened ~= nil then sys.close(opened) end
@@ -288,7 +288,7 @@ local function test_an_open_through_the_artifact_descriptor_is_refused(tmp: stri
         end
         local here, _ = sys.getcwd()
         if sys.chdir("/proc/" .. pid .. "/task/" .. pid) then
-          local task, _, task_errno = sys.open("fd/" .. fd, sys.O_RDONLY)
+          local task, _, task_errno = sys.open("fd/" .. tostring(fd), sys.O_RDONLY)
           if task ~= nil then sys.close(task) end
           assert(sys.chdir(assert(here)))
           assert(task == nil and task_errno == sys.EACCES,
@@ -303,7 +303,7 @@ local function test_an_open_through_the_artifact_descriptor_is_refused(tmp: stri
         assert(relative == nil and relative_errno == sys.EACCES,
           "a name relative to " .. dir .. " opened the artifact")
       end
-      local again = assert(sys.open(dir .. other, sys.O_RDONLY))
+      local again = assert(sys.open(dir .. tostring(other), sys.O_RDONLY))
       assert(sys.read(again, 16) == "text")
       assert(sys.close(again))
     end

@@ -13,7 +13,7 @@ local function row(sql: string): {string}
   local rows, trouble = Sqlite.text_rows(handle, sql)
   handle:close()
   assert(rows ~= nil, trouble)
-  assert(#rows == 1, sql .. ": expected one row, got " .. #rows)
+  assert(#rows == 1, sql .. ": expected one row, got " .. tostring(#rows))
   return rows[1]:texts()
 end
 
@@ -24,7 +24,7 @@ local function test_math_functions_are_built_in()
   local want = { "4.0", "1024.0", "-2.0", "2.0", "0.0", "3.0", "3.0", "3.14159", "1.0",
     "-2.0", "0.0", "1", "1" }
   for i, value in ipairs(want) do
-    assert(got[i] == value, "column " .. i .. ": " .. tostring(got[i]))
+    assert(got[i] == value, "column " .. tostring(i) .. ": " .. tostring(got[i]))
   end
 end
 
@@ -34,7 +34,7 @@ local function test_percentile_aggregates_are_built_in()
       "percentile_disc(x, 0.5) FROM " .. values)
   local want = { "2.5", "2.5", "1.75", "2.0" }
   for i, value in ipairs(want) do
-    assert(got[i] == value, "column " .. i .. ": " .. tostring(got[i]))
+    assert(got[i] == value, "column " .. tostring(i) .. ": " .. tostring(got[i]))
   end
 end
 
@@ -53,7 +53,7 @@ local function test_decimal_arithmetic_is_exact()
       "decimal_mul('1.5', '-2'), decimal_sum(x) FROM (SELECT '0.1' AS x UNION ALL SELECT '0.2')")
   local want = { "0.3", "0", "-3", "0.3" }
   for i, value in ipairs(want) do
-    assert(got[i] == value, "column " .. i .. ": " .. tostring(got[i]))
+    assert(got[i] == value, "column " .. tostring(i) .. ": " .. tostring(got[i]))
   end
 end
 
@@ -63,7 +63,7 @@ local function test_uuid_is_built_in()
       "uuid_str(uuid_blob('" .. id .. "')), length(uuid_blob('" .. id .. "'))")
   local want = { "36", "1", id, "16" }
   for i, value in ipairs(want) do
-    assert(got[i] == value, "column " .. i .. ": " .. tostring(got[i]))
+    assert(got[i] == value, "column " .. tostring(i) .. ": " .. tostring(got[i]))
   end
 end
 
@@ -131,7 +131,7 @@ local function test_ieee754_takes_a_double_apart_and_back()
   local want = { "ieee754(181,-2)", "181", "-2", "45.25", "3FF0000000000000", "1.0",
     "4607182418800017408", "1.0", "1" }
   for i, value in ipairs(want) do
-    assert(got[i] == value, "column " .. i .. ": " .. tostring(got[i]))
+    assert(got[i] == value, "column " .. tostring(i) .. ": " .. tostring(got[i]))
   end
 end
 
@@ -140,7 +140,7 @@ local function test_tointeger_and_toreal_convert_only_without_loss()
       "tointeger('x') IS NULL, toreal('2.5'), toreal(7), toreal('x') IS NULL")
   local want = { "42", "3", "1", "1", "2.5", "7.0", "1" }
   for i, value in ipairs(want) do
-    assert(got[i] == value, "column " .. i .. ": " .. tostring(got[i]))
+    assert(got[i] == value, "column " .. tostring(i) .. ": " .. tostring(got[i]))
   end
 end
 
@@ -160,7 +160,7 @@ local function test_toreal_reads_text_as_cast_does_and_refuses_a_loss()
       "toreal(' 2') IS NULL, toreal(x'3ff0000000000000')")
   local want = { "1", "1", "1", "1", "0.0", "1", "1", "1", "1.0" }
   for i, value in ipairs(want) do
-    assert(got[i] == value, "column " .. i .. ": " .. tostring(got[i]))
+    assert(got[i] == value, "column " .. tostring(i) .. ": " .. tostring(got[i]))
   end
 end
 
@@ -170,7 +170,7 @@ local function test_tointeger_takes_an_integer_literal_alone()
       "tointeger('-9223372036854775808'), tointeger('3 ') IS NULL, tointeger(x'0100000000000000')")
   local want = { "1", "1", "1", "1", "-9223372036854775808", "1", "1" }
   for i, value in ipairs(want) do
-    assert(got[i] == value, "column " .. i .. ": " .. tostring(got[i]))
+    assert(got[i] == value, "column " .. tostring(i) .. ": " .. tostring(got[i]))
   end
 end
 
@@ -180,7 +180,7 @@ local function test_ieee754_answers_zero_and_overflow_at_any_exponent()
       "ieee754_inc(-1.0, 1) < -1.0, ieee754_inc(0.0, -1) IS NULL")
   local want = { "0.0", "0.0", "Inf", "Inf", "-Inf", "9007199254740994.0", "1", "1" }
   for i, value in ipairs(want) do
-    assert(got[i] == value, "column " .. i .. ": " .. tostring(got[i]))
+    assert(got[i] == value, "column " .. tostring(i) .. ": " .. tostring(got[i]))
   end
 end
 
@@ -195,7 +195,7 @@ local function test_totype_holds_the_least_integer()
       "toreal('-9223372036854775808') = -9223372036854775808.0, tointeger(9223372036854775808.0) IS NULL")
   local want = { "-9223372036854775808", "-9223372036854775808", "1", "1", "1" }
   for i, value in ipairs(want) do
-    assert(got[i] == value, "column " .. i .. ": " .. tostring(got[i]))
+    assert(got[i] == value, "column " .. tostring(i) .. ": " .. tostring(got[i]))
   end
 end
 
@@ -205,7 +205,7 @@ local function test_ieee754_writes_and_reads_its_edges()
       "ieee754_from_blob(x'7ff8000000000000') IS NULL")
   local want = { "ieee754(2,0)", "ieee754(0,-1075)", "Inf", "Inf", "1", "6.0", "1" }
   for i, value in ipairs(want) do
-    assert(got[i] == value, "column " .. i .. ": " .. tostring(got[i]))
+    assert(got[i] == value, "column " .. tostring(i) .. ": " .. tostring(got[i]))
   end
 end
 
@@ -214,7 +214,7 @@ local function test_ieee754_and_toreal_read_other_values_as_sqlite_does()
       "toreal('18446744073709551617'), ieee754_to_blob('1.5') IS NULL")
   local want = { "ieee754(12,0)", "ieee754(0,-1075)", "0.0", "1.8446744073709552e+19", "1" }
   for i, value in ipairs(want) do
-    assert(got[i] == value, "column " .. i .. ": " .. tostring(got[i]))
+    assert(got[i] == value, "column " .. tostring(i) .. ": " .. tostring(got[i]))
   end
 end
 

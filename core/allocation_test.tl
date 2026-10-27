@@ -128,7 +128,7 @@ end
 local function test_readdir_releases_its_directory_whenever_an_allocation_fails(tmp: string)
   assert(sys.mkdir(tmp .. "/d"))
   for i = 1, 40 do
-    sys.close((assert(sys.open(tmp .. "/d/entry-" .. i, sys.O_CREAT | sys.O_WRONLY, 420))))
+    sys.close((assert(sys.open(tmp .. "/d/entry-" .. tostring(i), sys.O_CREAT | sys.O_WRONLY, 420))))
   end
   local before = next_descriptor(tmp)
   local ended = under_every_failure(function()
@@ -137,7 +137,7 @@ local function test_readdir_releases_its_directory_whenever_an_allocation_fails(
   assert(ended > 0, "listing forty entries allocates")
   collectgarbage("collect")
   local after = next_descriptor(tmp)
-  assert(after == before, "a refused allocation left descriptor " .. before .. " open")
+  assert(after == before, "a refused allocation left descriptor " .. tostring(before) .. " open")
 end
 
 local function test_the_store_finalizes_its_statement_whenever_an_allocation_fails()
@@ -151,7 +151,7 @@ local function test_the_store_finalizes_its_statement_whenever_an_allocation_fai
   assert(ended > 0, "copying a module's bytes out allocates")
   collectgarbage("collect")
   assert(testing.open_statements() == before,
-    "a refused allocation left " .. (testing.open_statements() - before) ..
+    "a refused allocation left " .. tostring((testing.open_statements() - before)) ..
       " statements open")
 end
 
@@ -189,7 +189,7 @@ local function test_open_temporary_closes_its_descriptor_whenever_an_allocation_
   assert(opened.value >= 1, "the run with nothing refused opens a file")
   collectgarbage("collect")
   local after = next_descriptor(tmp)
-  assert(after == before, "a refused allocation left descriptor " .. before .. " open")
+  assert(after == before, "a refused allocation left descriptor " .. tostring(before) .. " open")
 end
 
 --- execve holds its argv and environment arrays while it fills them from
@@ -226,7 +226,7 @@ local function test_pipe_leaves_no_end_open_whenever_an_allocation_fails(tmp: st
   assert(ended > 0, "building the answer allocates")
   assert(made.value >= 1, "the run with nothing refused makes a pipe")
   local after = next_descriptor(tmp)
-  assert(after == before, "a refused allocation left descriptor " .. before .. " open")
+  assert(after == before, "a refused allocation left descriptor " .. tostring(before) .. " open")
 end
 
 --- A socket owns its descriptor from the call that makes it: a refusal
@@ -244,7 +244,7 @@ local function test_net_leaves_no_descriptor_whenever_an_allocation_fails(tmp: s
   end)
   assert(ended > 0, "listening, connecting and accepting allocate")
   local after = next_descriptor(tmp)
-  assert(after == before, "a refused allocation left descriptor " .. before .. " open")
+  assert(after == before, "a refused allocation left descriptor " .. tostring(before) .. " open")
 end
 
 --- Every allocation in making sockets and receiving packets is walked;
@@ -261,7 +261,7 @@ local function test_udp_leaves_no_descriptor_whenever_an_allocation_fails(tmp: s
     assert(assert(Udp.receive(client, Clock.seconds(5))).data == "")
   end)
   assert(ended > 0, "binding and receiving allocate")
-  assert(next_descriptor(tmp) == before, "a refused allocation left descriptor " .. before .. " open")
+  assert(next_descriptor(tmp) == before, "a refused allocation left descriptor " .. tostring(before) .. " open")
 end
 
 --- A lookup from a hosts file, which opens no socket, under every
@@ -279,7 +279,7 @@ local function test_resolve_leaves_no_descriptor_whenever_an_allocation_fails(tm
     assert(#found == 2)
   end)
   assert(ended > 0, "answering allocates")
-  assert(next_descriptor(tmp) == before, "a refused allocation left descriptor " .. before .. " open")
+  assert(next_descriptor(tmp) == before, "a refused allocation left descriptor " .. tostring(before) .. " open")
 end
 
 --- A lookup keeps a c-ares channel, and a stand-in descriptor for each
@@ -319,7 +319,7 @@ local function test_lookup_leaves_no_descriptor_whenever_an_allocation_fails(tmp
     end
   end)
   assert(ended > 0, "starting a lookup allocates")
-  assert(next_descriptor(tmp) == before, "a refused allocation left descriptor " .. before .. " open")
+  assert(next_descriptor(tmp) == before, "a refused allocation left descriptor " .. tostring(before) .. " open")
 end
 
 --- A unix listener owns its socket file too: a refusal anywhere leaves
@@ -339,7 +339,7 @@ local function test_net_leaves_no_descriptor_or_socket_file_whenever_an_allocati
   end)
   assert(ended > 0, "listening, connecting and accepting allocate")
   local after = next_descriptor(tmp)
-  assert(after == before, "a refused allocation left descriptor " .. before .. " open")
+  assert(after == before, "a refused allocation left descriptor " .. tostring(before) .. " open")
   assert(sys.lstat(path) == nil, "a refused allocation left the socket file behind")
 end
 
@@ -359,7 +359,7 @@ local function test_net_in_a_run_leaves_no_descriptor_whenever_an_allocation_fai
   end)
   assert(ended > 0, "connecting in a run allocates")
   local after = next_descriptor(tmp)
-  assert(after == before, "a refused allocation left descriptor " .. before .. " open")
+  assert(after == before, "a refused allocation left descriptor " .. tostring(before) .. " open")
 end
 
 --- Asserts the core's own C heap holds what it held when `c_heap`
@@ -369,8 +369,8 @@ local function assert_c_heap(before_bytes: integer, before_blocks: integer, what
   collectgarbage("collect")
   local bytes, blocks = testing.c_heap()
   assert(bytes == before_bytes and blocks == before_blocks,
-    what .. " left " .. (blocks - before_blocks) .. " blocks (" ..
-      (bytes - before_bytes) .. " bytes) on the C heap")
+    what .. " left " .. tostring((blocks - before_blocks)) .. " blocks (" ..
+      tostring((bytes - before_bytes)) .. " bytes) on the C heap")
 end
 
 --- `maps_id` reads each map into a block of the core's C heap, and
@@ -390,7 +390,7 @@ local function test_maps_id_releases_its_block_whenever_an_allocation_fails(tmp:
   end)
   assert(ended > 0, "reading the maps allocates")
   collectgarbage("collect")
-  assert(next_descriptor(tmp) == before, "a refused allocation left descriptor " .. before .. " open")
+  assert(next_descriptor(tmp) == before, "a refused allocation left descriptor " .. tostring(before) .. " open")
   assert_c_heap(bytes, blocks, "maps_id under refusal")
 end
 
@@ -707,7 +707,7 @@ end
 local function test_json_leaves_nothing_whenever_an_allocation_fails()
   local text = '{"b": [1, 2.5, "x\\u00e9", true, null], "a": {"c": {}, "d": []}}'
   local wide: mut {string: any} = {}
-  for i = 1, 80 do wide["key" .. i] = Json.array({ i, "value " .. i }) end
+  for i = 1, 80 do wide["key" .. tostring(i)] = Json.array({ i, "value " .. tostring(i) }) end
   -- An object too large for a set of its keys on the C stack, whose
   -- keys go through a Lua table, holding a key twice.
   local wide_text = assert(Json.encode_any(wide)):gsub("}$", ',"key1":0}')
@@ -766,7 +766,7 @@ local function test_json_names_a_record_yyjson_could_not_allocate()
     assert(formatted == nil and why == "json: out of memory", tostring(why))
     last = skip
   end
-  assert(last >= 4, "format read the text twice and the number once: " .. last)
+  assert(last >= 4, "format read the text twice and the number once: " .. tostring(last))
 end
 
 --- A whole reply: a status line, `head`'s header lines, and `body`.
@@ -835,7 +835,7 @@ local function test_http_leaves_nothing_whenever_an_allocation_fails(tmp: string
     assert(testing.live_transfers() == 0, case.name .. " left a transfer alive")
     assert_c_heap(bytes, blocks, case.name .. " under refusal")
     local after = next_descriptor(tmp)
-    assert(after == before, case.name .. " left descriptor " .. before .. " open")
+    assert(after == before, case.name .. " left descriptor " .. tostring(before) .. " open")
   end
   assert(ended > 0, "a request allocates")
 end

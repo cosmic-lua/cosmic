@@ -75,7 +75,7 @@ local function test_the_static_core_runs_under_the_basics(tmp: string)
         "append " .. tmp .. "/f again; cat " .. tmp .. "/f; mkdirs " .. tmp .. "/d/e; " ..
         "mkfifo " .. tmp .. "/fifo; mode " .. tmp .. "/f; ls " .. tmp .. "/d; " ..
         "status-field Seccomp; status-field NoNewPrivs")
-    assert(outcome.code == 0, "a core under the basics ends with " .. outcome.code .. ": " .. outcome.said)
+    assert(outcome.code == 0, "a core under the basics ends with " .. tostring(outcome.code) .. ": " .. outcome.said)
     assert(outcome.said:find("hello\nworld\nagain\n", 1, true) == 1, outcome.said)
     assert(outcome.said:find("Seccomp:\t2\nNoNewPrivs:\t1\n", 1, true) ~= nil, outcome.said)
     assert(Fs.exists(tmp .. "/fifo"), "mknod of a fifo is a basic")
@@ -95,16 +95,16 @@ local function test_a_signal_to_itself_ends_it_and_to_another_is_refused(tmp: st
   assert(sys.kill(sleeper, sys.SIGKILL))
   assert(assert(process.waitpid(sleeper, false)).signal == sys.SIGKILL)
   assert(other.code == 1 and other.said:find("not permitted", 1, true) ~= nil,
-    "refused with EPERM: " .. other.code .. " " .. other.said)
+    "refused with EPERM: " .. tostring(other.code) .. " " .. other.said)
 end
 
 local function test_a_child_forks_only_with_fork(tmp: string)
   local probe = assert(stand_in.build(tmp .. "/stand-in"))
   local without = under(tmp, {}, "run " .. probe .. " print inner", probe)
-  assert(without.code == 127 and without.said == "", "a clone is refused: " .. without.code .. " " .. without.said)
+  assert(without.code == 127 and without.said == "", "a clone is refused: " .. tostring(without.code) .. " " .. without.said)
   for _, promises in ipairs({ { "fork" }, { "fork", "jit" }, { "fork", "jit", "fattr" } }) do
     local with = under(tmp, promises, "run " .. probe .. " print inner", probe)
-    assert(with.code == 0 and with.said == "inner\n", "forks: " .. with.code .. " " .. with.said)
+    assert(with.code == 0 and with.said == "inner\n", "forks: " .. tostring(with.code) .. " " .. with.said)
   end
   -- What it starts is held as it is: a grandchild has the filter too.
   local grandchild = under(tmp, { "fork" }, "run " .. probe .. " status-field Seccomp", probe)
@@ -117,7 +117,7 @@ local function test_the_mode_of_a_file_changes_only_with_fattr(tmp: string)
   assert(Fs.write(file, "x", 420))
   local without = under(tmp, { "fork", "jit" }, "chmod " .. file .. " 600", probe)
   assert(without.code == 1 and without.said:find("not permitted", 1, true) ~= nil,
-    "chmod is refused: " .. without.code .. " " .. without.said)
+    "chmod is refused: " .. tostring(without.code) .. " " .. without.said)
   assert(assert(sys.stat(file)).mode & 0xfff == 420)
   local with = under(tmp, { "fattr" }, "chmod " .. file .. " 600", probe)
   assert(with.code == 0, with.said)
@@ -126,7 +126,7 @@ local function test_the_mode_of_a_file_changes_only_with_fattr(tmp: string)
   for _, bits in ipairs({ "4755", "2755", "1755" }) do
     local special = under(tmp, { "fattr" }, "chmod " .. file .. " " .. bits, probe)
     assert(special.code == 1 and special.said:find("not permitted", 1, true) ~= nil,
-      bits .. " is refused: " .. special.code .. " " .. special.said)
+      bits .. " is refused: " .. tostring(special.code) .. " " .. special.said)
     assert(assert(sys.stat(file)).mode & 0xfff == 384)
   end
 end
@@ -209,7 +209,7 @@ local function test_the_filter_stacks_with_a_pledge(tmp: string)
     Test.skip("the kernel gives no seccomp filter beside a pledge")
     return
   end
-  assert(both == inherited + 2, "filters: " .. inherited .. " inherited, " .. both .. " under both")
+  assert(both == inherited + 2, "filters: " .. tostring(inherited) .. " inherited, " .. tostring(both) .. " under both")
 end
 
 --- No grants, no Landlock domain, so no scope: the filter keeps its signal
@@ -218,5 +218,5 @@ local function test_promises_without_grants_keep_the_filter_to_the_starting_pid(
   local probe = assert(stand_in.build(tmp .. "/stand-in"))
   local outcome = under(tmp, { "fork" }, "run " .. probe .. " signal TERM", probe)
   assert(outcome.code == 1 and outcome.said:find("not permitted", 1, true),
-    "its own pid only: " .. outcome.code .. " " .. outcome.said)
+    "its own pid only: " .. tostring(outcome.code) .. " " .. outcome.said)
 end

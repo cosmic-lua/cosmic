@@ -137,8 +137,8 @@ local function decided(fd: integer, item: string): boolean
   local family = if item:byte(1) == 4 then 4 else 6 end
   assert(sys.write(fd, string.pack(">I4I4I4I4I4", 3, 0xffffffff, 0, 0, family) .. item:sub(2)) == 36)
   local tag, errno = string.unpack(">I4I4", read_whole(fd, 8))
-  assert(tag == 3, "the reply carries another tag: " .. tag)
-  assert(errno == 0 or errno == REFUSED, "errno " .. errno)
+  assert(tag == 3, "the reply carries another tag: " .. tostring(tag))
+  assert(errno == 0 or errno == REFUSED, "errno " .. tostring(errno))
   return errno == 0
 end
 

@@ -165,7 +165,7 @@ function verb.parse_sums(text: string, digest_size: integer): verb.Sums
       local body = escaped and line:sub(2) or line
       local digest = body:sub(1, width)
       if #digest ~= width or not digest:match("^%x+$") then
-        refuse("improperly formatted: no " .. width .. "-digit hex digest")
+        refuse("improperly formatted: no " .. tostring(width) .. "-digit hex digest")
       elseif body:sub(width + 1, width + 1) ~= " " or not body:sub(width + 2, width + 2):match("^[ *]$") then
         refuse("improperly formatted: no space and marker after the digest")
       elseif #body < width + 3 then
@@ -239,7 +239,7 @@ local function arguments(argv: {string}): Request?, string
   if request_check == "" then return nil, "--check needs a sums file, or - for standard input" end
   if request_check ~= nil then
     if #parsed.words > 0 then
-      return nil, "--check reads the files its sums file lists, not " .. #parsed.words .. " named on the command line"
+      return nil, "--check reads the files its sums file lists, not " .. tostring(#parsed.words) .. " named on the command line"
     end
     if request.json then return nil, "--json prints digests, which --check does not" end
   elseif request.quiet then
@@ -379,7 +379,7 @@ function verb.run(argv: {string}, io?: verb.Io): integer
   end
   local sums = verb.parse_sums(text, SIZE[request.algorithm])
   for _, bad in ipairs(sums.bad) do
-    complain((if sums_name == "-" then "standard input" else sums_name end) .. ":" .. bad.line .. ": " .. bad.why)
+    complain((if sums_name == "-" then "standard input" else sums_name end) .. ":" .. tostring(bad.line) .. ": " .. bad.why)
   end
   if #sums.entries == 0 then
     if #sums.bad == 0 then
@@ -418,10 +418,10 @@ function verb.run(argv: {string}, io?: verb.Io): integer
     end
   end
   if failed > 0 then
-    complain(failed .. " of " .. #sums.entries .. " computed " .. (if failed == 1 then "checksum" else "checksums" end) .. " did NOT match")
+    complain(tostring(failed) .. " of " .. tostring(#sums.entries) .. " computed " .. (if failed == 1 then "checksum" else "checksums" end) .. " did NOT match")
   end
   if unread > 0 then
-    complain(unread .. " listed " .. (if unread == 1 then "file" else "files" end) .. " could not be read")
+    complain(tostring(unread) .. " listed " .. (if unread == 1 then "file" else "files" end) .. " could not be read")
   end
   if #sums.bad > 0 then return 2 end
   return (failed > 0 or unread > 0) and bare.failed or bare.ok

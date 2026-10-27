@@ -259,7 +259,7 @@ function derivation.packed_parses(db: Sqlite.Handle,
           out[#out + 1] = "i" .. tostring(row:integer(index)) .. ";"
         elseif kind == "text" then
           local value = row:text(index)
-          out[#out + 1] = "t" .. #value .. ":" .. value
+          out[#out + 1] = "t" .. tostring(#value) .. ":" .. value
         elseif kind == "null" then
           out[#out + 1] = "n"
         else
@@ -270,7 +270,7 @@ function derivation.packed_parses(db: Sqlite.Handle,
     for _, hash in ipairs(hashes) do
       local of = pieces[hash] or {}
       pieces[hash] = of
-      of[#of + 1] = name .. " " .. widths[name] .. " " .. (counts[hash] or 0) .. "\n"
+      of[#of + 1] = name .. " " .. widths[name] .. " " .. tostring((counts[hash] or 0)) .. "\n"
       of[#of + 1] = table.concat(by_hash[hash] or {})
     end
   end
@@ -351,7 +351,7 @@ function derivation.put_parse(db: Sqlite.Handle, hash: string, requires: {string
         local marks: mut {string} = { "?1" }
         local values: mut {Sqlite.Value} = { text(hash) }
         for index, cell in ipairs(cells) do
-          marks[#marks + 1] = "?" .. (index + 1)
+          marks[#marks + 1] = "?" .. tostring((index + 1))
           values[#values + 1] = cell
         end
         local ok, why = Sqlite.run(db, "INSERT INTO " .. name .. " VALUES (" ..

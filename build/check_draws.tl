@@ -90,7 +90,7 @@ local function header(seed: integer): string
     "  count: integer",
     "  sink: integer",
     "end",
-    "local st: State = { count = " .. seed .. ", sink = 0 }",
+    "local st: State = { count = " .. tostring(seed) .. ", sink = 0 }",
     "local nums: {integer} = { 1, 2, 3 }",
     "local opts: {integer | nil} = { 1, 2, 3 }",
     "local function maybe(): integer | nil",
@@ -146,7 +146,7 @@ end
 
 local function fresh(g: Gen, prefix: string): string
   g.id = g.id + 1
-  return prefix .. g.id
+  return prefix .. tostring(g.id)
 end
 
 local function places(v: Vis): {string}

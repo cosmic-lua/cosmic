@@ -619,7 +619,7 @@ local function help(argv: {string}, asked: string?): integer
     words = parsed.words
   end
   if #words > 1 then
-    log:complain("help: one verb at a time, not " .. #words)
+    log:complain("help: one verb at a time, not " .. tostring(#words))
     return 2
   end
   if #words == 1 then

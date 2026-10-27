@@ -42,8 +42,8 @@ local function test_children_lists_a_running_child_until_it_is_reaped(tmp: strin
     assert(math.type(child) == "integer" and child > 0)
     if child == pid then listed = true end
   end
-  assert(listed, "the running child " .. pid .. " is not listed")
+  assert(listed, "the running child " .. tostring(pid) .. " is not listed")
   for _, child in ipairs((assert(process.children()))) do
-    assert(child ~= pid, "the reaped child " .. pid .. " is still listed")
+    assert(child ~= pid, "the reaped child " .. tostring(pid) .. " is still listed")
   end
 end

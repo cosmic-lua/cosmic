@@ -175,7 +175,7 @@ local function test_a_core_a_stamp_vouches_for_is_not_hashed_again_until_it_is_w
   local digest = core_digest()
   local directory = tmp .. "/cores"
   assert(Fs.mkdirs(directory))
-  local copy = directory .. "/" .. prefix .. #bytes .. "-" .. digest
+  local copy = directory .. "/" .. prefix .. tostring(#bytes) .. "-" .. digest
   assert(Fs.write(copy, bytes))
   assert(Fs.chmod(copy, tonumber("755", 8)))
   local path = info_database(tmp)
