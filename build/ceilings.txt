@@ -360,8 +360,6 @@ lang/translate.tl 8
 
 lang/types.tl 1
 
-build/migrate.tl 1
-
 [checked]
 # The ceilings of [`build.tree_checks`]'s `checked`: how many errors of each code of [`lang.check`] each file of the
 # tree has in its bodies, which the new checker's expressions and flow report and no rewrite or later piece has removed yet.
@@ -983,8 +981,6 @@ build/vendor_test.tl nil_not_allowed 1
 build/verbs_fixture.tl nil_not_allowed 2
 
 build/verbs_store_test.tl nil_not_allowed 2
-
-build/warnings_fork_test.tl nil_not_allowed 2
 
 build/work.tl nil_not_allowed 13
 
@@ -8343,38 +8339,6 @@ cosmic/web/input_fuzz_test.tl cannot_infer 1
 # a call that answers nothing, used where a value is wanted
 cosmic/declared_types_test.tl no_value 1
 
-build/migrate.tl and_ternary 2
-
-build/migrate.tl condition_type 8
-
-build/migrate.tl field_fixed 11
-
-build/migrate.tl literal_needs_type 1
-
-build/migrate.tl map_field 1
-
-build/migrate.tl nil_not_allowed 15
-
-build/migrate.tl or_mix 2
-
-build/migrate.tl overload_none 1
-
-build/migrate.tl view_written 10
-
-build/migrate_test.tl is_on_record 1
-
-build/migrate_test.tl map_field 57
-
-build/migrate_test.tl nil_not_allowed 5
-
-build/migrate_tool_test.tl concat_type 2
-
-build/migrate_tool_test.tl nil_not_allowed 1
-
-build/migrate_tool_test.tl or_mix 6
-
-build/migrate.tl narrowing_dropped 1
-
 build/vendor_test.tl field_fixed 2
 
 build/archive.tl not_assignable 1
@@ -8501,8 +8465,6 @@ build/lsp/graph.tl nil_not_allowed 1
 build/lsp/protocol.tl array_hole 1
 
 build/lsp/syntax_read.tl view_as_mut 1
-
-build/migrate.tl array_hole 1
 
 build/perf_test.tl array_hole 11
 

@@ -10,7 +10,6 @@ local Fs = require("cosmic.fs")
 local Lexer = require("lang.lexer")
 local Parser = require("lang.parser")
 local Test = require("cosmic.test")
-local Translate = require("lang.translate")
 
 Test.policy{ grants = {
   { path = "build/", letters = "r" },
@@ -30,10 +29,10 @@ local function listed(): {string}
   return out
 end
 
---- The modules a file requires, as the pipeline reads it (translated first, so the file may be in either grammar).
+--- The modules a file requires, as the pipeline reads it.
 local function requires_of(file: string): {string}
   local text = assert(Fs.read(file))
-  local parsed = Parser.parse(Lexer.lex(Translate.translate(text, file).text, file), file, "tl")
+  local parsed = Parser.parse(Lexer.lex(text, file), file, "tl")
   local out: mut {string} = {}
   for _, r in ipairs(parsed.chunk.requires) do
     out[#out + 1] = r.module

@@ -1,6 +1,6 @@
---- Tests of [`lang.warnings`] and what [`lang.check`] reports with them: the unused and unread names of the fork's
---- `unused` and `unread` warnings, the `hint` ones, the catalog, and the type report by node id. The fork's own
---- warnings for the same programs are compared in [`build/warnings_fork_test.tl`].
+--- Tests of [`lang.warnings`] and what [`lang.check`] reports with them: the `unused` and `unread` warnings, the `hint`
+--- ones, the catalog, and the type report by node id. Small programs, one for each place a warning is left out, are in
+--- [`build/warnings_cases_test.tl`].
 local Ast = require("lang.ast")
 local Programs = require("lang.check_programs")
 local Test = require("cosmic.test")

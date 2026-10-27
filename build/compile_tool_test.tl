@@ -93,6 +93,6 @@ local function test_the_grammar_flag_reads_the_new_grammar(tmp: string)
   assert(default.code == 0 and default.out == new.out, default.err)
   local teal = cosmic(tmp, { "compile", "--grammar", "teal", "n.tl" })
   assert(teal.code == 2 and teal.out == "", teal.err)
-  assert(teal.err:find("--grammar teal: the fork's grammar is gone; `cosmic migrate` rewrites a project to the new one",
+  assert(teal.err:find("--grammar teal: the fork's grammar is gone; rewrite a project to the new grammar by hand, as doc/guides/project.md says",
     1, true) ~= nil, teal.err)
 end

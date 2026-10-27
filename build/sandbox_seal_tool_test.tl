@@ -125,7 +125,7 @@ local function test_closure_takes_the_requires_of_a_script_in_the_new_grammar_fr
   assert(#left_over() == 0, table.concat(left_over(), " "))
   local forked = cosmic(tmp, { "sandbox", "--closure", "--", program, "new.tl", "x" }, "teal")
   assert(forked.code == 125 and forked.err:find("COSMIC_GRAMMAR=teal: the fork's grammar is gone; " ..
-      "`cosmic migrate` rewrites a project to the new one", 1, true) ~= nil, tostring(forked.code) .. ": " .. forked.err)
+      "rewrite a project to the new grammar by hand, as doc/guides/project.md says", 1, true) ~= nil, tostring(forked.code) .. ": " .. forked.err)
 end
 
 --- The core's own modules ([`cosmic.sys`]) are no database's, and a require
