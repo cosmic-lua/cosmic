@@ -211,7 +211,7 @@ local record Wake
 end
 
 local record Ongoing
-  mut loop: Loop?
+  mut loop?: Loop
 end
 
 local ongoing: Ongoing = {}
@@ -761,7 +761,7 @@ end
 local function start(fn: function()): Poll.Task
   local state: State = {
     co = coroutine.create(fn), loop = ongoing.loop, started = false, waiting = false,
-    ended = false, killed = false, cancelled = false, shields = 0, joiners = {} }
+    ended = false, killed = false, cancelled = false, shields = 0, parked = nil, joiners = {} }
   running().tasks[state.co] = state
   running().live = running().live + 1
   running().ready[#running().ready + 1] = { task = state, ok = true, why = "" }

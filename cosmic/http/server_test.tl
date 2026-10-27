@@ -121,15 +121,33 @@ local function send(p: Peer, data: string)
   assert(p.conn:write(data))
 end
 
---- Runs a server of `handle` (and `spec`'s other fields) on the loopback
+--- The fields of a [`Server.ServeSpec`] that a test changes: `serving` supplies the rest.
+local record Tuning
+  limits?: Server.ServeSpec.Limits
+  timeout_ns?: integer
+  idle_ns?: integer
+  head_ns?: integer
+  body_ns?: integer
+  on_stop?: function(server: Net.Server)
+end
+
+--- Runs a server of `handle` (and `tuning`'s fields) on the loopback
 --- at a port the kernel chooses, running `client` with its address once it listens,
 --- and stops it once `client` returns. Answers what went to on_error.
 local function serving(handle: function(Server.Request): Server.Reply,
-                       client: function(Net.Address), spec?: Server.ServeSpec): {string}
+                       client: function(Net.Address), tuning?: Tuning): {string}
   local troubles: mut {string} = {}
-  local given: Server.ServeSpec = spec or {}
-  given.listeners = { Net.tcp("127.0.0.1", 0) }
-  given.handle = handle
+  local chosen: Tuning = tuning or {}
+  local given: Server.ServeSpec = {
+    handle = handle,
+    listeners = { Net.tcp("127.0.0.1", 0) },
+    limits = chosen.limits,
+    timeout_ns = chosen.timeout_ns,
+    idle_ns = chosen.idle_ns,
+    head_ns = chosen.head_ns,
+    body_ns = chosen.body_ns,
+    on_stop = chosen.on_stop,
+  }
   given.on_error = function(trouble: string) troubles[#troubles + 1] = trouble end
   given.on_ready = function(addresses: {Net.Address}, server: Net.Server)
     client(addresses[1])

@@ -764,7 +764,8 @@ Leaf.start = start
 function Leaf.connector(endpoints: {raw_process.ConnectorEndpoint}, timeout_ms: integer,
                         public?: raw_process.ConnectorPublic): Connection.Connector?, string
   local connector: Served = {
-    timeout_ms = timeout_ms, open = true, public = public, accepts_public = public ~= nil, endpoints = endpoints,
+    timeout_ms = timeout_ms, open = true, public = public, inherited = nil, accepts_public = public ~= nil,
+    endpoints = endpoints, channel = nil,
   }
   local started, why = start(endpoints, timeout_ms, public)
   if started == nil then return nil, why end
@@ -802,7 +803,7 @@ function Leaf.adopted(fd: integer, held?: {raw_process.ConnectorEndpoint}, publi
   if not ok then return nil, "child: " .. nonblocking end
   local adopted: Process = setmetatable({ fd = fd, open = true }, process_mt)
   local connector: Served = {
-    timeout_ms = timeout_ms, open = true, endpoints = kept,
+    timeout_ms = timeout_ms, open = true, public = nil, endpoints = kept,
     channel = channel_of(adopted), inherited = true, accepts_public = public == true,
   }
   made[connector] = connector

@@ -233,13 +233,13 @@ local record Http
     --- Empty on success; otherwise the human reason, without an added URL.
     reason: string
     --- Present only for `http_status`: the rejected response's status.
-    status: integer?
+    status?: integer
     --- Present only for `digest_mismatch`: the checked algorithm.
-    algorithm: Hash.Algorithm?
+    algorithm?: Hash.Algorithm
     --- The supplied checksum, lowercased; an empty option requests no check.
-    expected: string?
+    expected?: string
     --- The computed digest as lower-case hex.
-    actual: string?
+    actual?: string
   end
 
   --- What [`Http.request`] and [`Http.get`] return: a status, a whole

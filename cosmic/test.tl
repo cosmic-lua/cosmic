@@ -306,7 +306,7 @@ local record Declared
   --- ([`Needs.parent`]), by their relative paths.
   mut parents: mut {string:boolean}
   --- Where the one `policy` call came from, once it has come.
-  mut called_at: string?
+  mut called_at?: string
 end
 
 local declared: Declared = { parents = {} }

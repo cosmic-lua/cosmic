@@ -236,9 +236,9 @@ local record Types
     --- A mount's routes; nil for a leaf and for a mount of a handler.
     routes?: {Route}
     --- A mount of a handler: everything under the prefix is sent to it.
-    fallback: Handler
+    fallback?: Handler
     --- A mount's reverse resolver: see [`Web.MountOptions.reverse`].
-    reverse: function(prefix: string, params: {string:string}): string?, string
+    reverse?: function(prefix: string, params: {string:string}): string?, string
     --- What a typed route binds, erased of its types; nil for a plain
     --- route and for a mount.
     input?: RouteInput
@@ -439,7 +439,7 @@ local record Types
     --- Its description, for a mount that serves a handler.
     info?: RouteInfo
     --- A mount of a handler: the handler with its middleware folded in.
-    handler: Handler
+    handler?: Handler
     --- A mount of routes: their router.
     router?: Router
   end
@@ -469,7 +469,7 @@ local record Types
     --- Whether the name is a mount's.
     mount?: boolean
     --- A mount's resolver.
-    resolve: function(prefix: string, params: {string:string}): string?, string
+    resolve?: function(prefix: string, params: {string:string}): string?, string
   end
 
   --- Routes compiled for matching: see [`Web.router`].

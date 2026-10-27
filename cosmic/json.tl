@@ -282,7 +282,7 @@ local record Json
     --- Read `#` line comments, as `decode` does, with or without `json5`.
     hash_comments?: boolean
     --- What `value` puts where the text says `null`.
-    null_value: Json.Value?
+    null_value?: Json.Value
   end
 
   --- A reader of JSON text a token at a time, from [`Json.reader`]. A
