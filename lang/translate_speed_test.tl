@@ -50,16 +50,16 @@ local FORMS <const>: {string: function(n: integer): string} = {
   ["a class of many methods"] = function(n: integer): string
     local out: mut {string} = { "local record R\n  n: integer\nend\n" }
     for i = 1, n * 10 do
-      out[#out + 1] = "local v" .. i .. " = " .. i .. "\n"
-      out[#out + 1] = "function R:m" .. i .. "(a: string | nil): integer\n  self.n = v" .. i .. "\n  return 1\nend\n"
+      out[#out + 1] = "local v" .. tostring(i) .. " = " .. tostring(i) .. "\n"
+      out[#out + 1] = "function R:m" .. tostring(i) .. "(a: string | nil): integer\n  self.n = v" .. tostring(i) .. "\n  return 1\nend\n"
     end
     return table.concat(out)
   end,
   ["many records with fields"] = function(n: integer): string
     local out: mut {string} = {}
     for i = 1, n * 10 do
-      out[#out + 1] = "local record R" .. i .. "\n  a: integer\n  b: {string}\nend\n"
-      out[#out + 1] = "local function f" .. i .. "(r: R" .. i .. ", xs: {integer})\n  r.a = 1\n  xs[1] = 2\nend\n"
+      out[#out + 1] = "local record R" .. tostring(i) .. "\n  a: integer\n  b: {string}\nend\n"
+      out[#out + 1] = "local function f" .. tostring(i) .. "(r: R" .. tostring(i) .. ", xs: {integer})\n  r.a = 1\n  xs[1] = 2\nend\n"
     end
     return table.concat(out)
   end,

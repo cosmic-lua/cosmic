@@ -180,7 +180,7 @@ local function test_a_raise_names_the_module()
   }
   for i, call in ipairs(raising) do
     local ok, err: boolean, any = pcall(call)
-    assert(not ok and tostring(err):find(": poll: ", 1, true) ~= nil, i .. ": " .. tostring(err))
+    assert(not ok and tostring(err):find(": poll: ", 1, true) ~= nil, tostring(i) .. ": " .. tostring(err))
   end
 end
 
@@ -244,7 +244,7 @@ local function test_many_tasks_wait_on_descriptors_at_once(tmp: string)
   local count = 200
   local readers: mut {integer} = {}
   local writers: mut {integer} = {}
-  for i = 1, count do readers[i], writers[i] = fifo(tmp, "p" .. i) end
+  for i = 1, count do readers[i], writers[i] = fifo(tmp, "p" .. tostring(i)) end
   local got: mut {integer: string} = {}
   Poll.run(function()
     for i = 1, count do
@@ -257,7 +257,7 @@ local function test_many_tasks_wait_on_descriptors_at_once(tmp: string)
     for i = count, 1, -1 do assert(assert(sys.write(writers[i], tostring(i))) > 0) end
   end)
   for i = 1, count do
-    assert(got[i] == tostring(i), "task " .. i .. " read " .. tostring(got[i]))
+    assert(got[i] == tostring(i), "task " .. tostring(i) .. " read " .. tostring(got[i]))
     sys.close(readers[i])
     sys.close(writers[i])
   end
@@ -847,7 +847,7 @@ local function test_waits_sharing_descriptors_come_and_go(tmp: string)
   local count = 6
   local readers: mut {integer} = {}
   local writers: mut {integer} = {}
-  for i = 1, count do readers[i], writers[i] = fifo(tmp, "p" .. i) end
+  for i = 1, count do readers[i], writers[i] = fifo(tmp, "p" .. tostring(i)) end
   Poll.run(function()
     for round = 1, 20 do
       local seen: mut {string} = {}
@@ -858,23 +858,23 @@ local function test_waits_sharing_descriptors_come_and_go(tmp: string)
         for r = 1, 3 do
           waiting[i][r] = Poll.spawn(function()
             local ok, why = Poll.readable(readers[i], Clock.seconds(5))
-            seen[#seen + 1] = i .. "r" .. r .. (if ok then "" else " " .. why end)
+            seen[#seen + 1] = tostring(i) .. "r" .. tostring(r) .. (if ok then "" else " " .. why end)
           end)
         end
         Poll.spawn(function()
           -- The writer is writable, but this wait does not ask that.
           answers[i] = assert(Poll.ready({ readers[i], writers[i] }, { sys.POLLIN, 0 }, Clock.seconds(5)))
-          seen[#seen + 1] = i .. "q"
+          seen[#seen + 1] = tostring(i) .. "q"
         end)
         Poll.spawn(function()
           assert(Poll.writable(writers[i], Clock.seconds(5)))
-          seen[#seen + 1] = i .. "w"
+          seen[#seen + 1] = tostring(i) .. "w"
         end)
       end
       assert(Poll.delay(0))
       assert(Poll.delay(0))
       local expected: mut {string} = {}
-      for i = 1, count do expected[#expected + 1] = i .. "w" end
+      for i = 1, count do expected[#expected + 1] = tostring(i) .. "w" end
       assert(table.concat(seen, ",") == table.concat(expected, ","), table.concat(seen, ","))
       seen, expected = {}, {}
       -- A cancel or a closing answers its waits at once, a write at the
@@ -884,15 +884,15 @@ local function test_waits_sharing_descriptors_come_and_go(tmp: string)
         local how = (i + round) % 3
         if how == 0 then
           waiting[i][2]:cancel()
-          at_once[#at_once + 1] = i .. "r2 " .. Poll.CANCELLED
+          at_once[#at_once + 1] = tostring(i) .. "r2 " .. Poll.CANCELLED
         elseif how == 1 then
           Poll.closing(readers[i])
-          for r = 1, 3 do at_once[#at_once + 1] = i .. "r" .. r end
-          at_once[#at_once + 1] = i .. "q"
+          for r = 1, 3 do at_once[#at_once + 1] = tostring(i) .. "r" .. tostring(r) end
+          at_once[#at_once + 1] = tostring(i) .. "q"
         else
           assert(sys.write(writers[i], "x") == 1)
-          for r = 1, 3 do written[#written + 1] = i .. "r" .. r end
-          written[#written + 1] = i .. "q"
+          for r = 1, 3 do written[#written + 1] = tostring(i) .. "r" .. tostring(r) end
+          written[#written + 1] = tostring(i) .. "q"
         end
       end
       assert(Poll.delay(0))
@@ -905,9 +905,9 @@ local function test_waits_sharing_descriptors_come_and_go(tmp: string)
         local how = (i + round) % 3
         if how == 0 then
           assert(sys.write(writers[i], "x") == 1)
-          expected[#expected + 1] = i .. "r1"
-          expected[#expected + 1] = i .. "r3"
-          expected[#expected + 1] = i .. "q"
+          expected[#expected + 1] = tostring(i) .. "r1"
+          expected[#expected + 1] = tostring(i) .. "r3"
+          expected[#expected + 1] = tostring(i) .. "q"
         end
       end
       assert(Poll.delay(0))
@@ -916,7 +916,7 @@ local function test_waits_sharing_descriptors_come_and_go(tmp: string)
         local how = (i + round) % 3
         local first = how == 1 and sys.POLLNVAL or sys.POLLIN
         assert(answers[i][1] & first ~= 0 and answers[i][2] == 0,
-          i .. ": " .. answers[i][1] .. " " .. answers[i][2])
+          tostring(i) .. ": " .. answers[i][1] .. " " .. answers[i][2])
         if how ~= 1 then assert(sys.read(readers[i], 16) == "x") end
       end
     end
@@ -1144,7 +1144,7 @@ local function test_checked_ns_refuses_what_no_wait_can_last()
     local ok, err: boolean, any = pcall(function() Poll.checked_ns(value, "poll", "span", 1) end)
     assert(not ok, "accepted " .. tostring(value))
     local text = tostring(err)
-    assert(text:find("poll: span must be nil or an integer from 0 to " .. Poll.MOST_NS, 1, true), text)
+    assert(text:find("poll: span must be nil or an integer from 0 to " .. tostring(Poll.MOST_NS), 1, true), text)
     -- Level 1 is the function that calls it: this file's own, not poll.tl.
     assert(text:find("poll_test:", 1, true), text)
   end
@@ -1223,7 +1223,7 @@ local function test_notify_all_wakes_every_waiter_in_order_and_not_later_ones()
     for _, task in ipairs(tasks) do assert(task:join()) end
     assert(late:join())
     assert(#order == 50)
-    for i = 1, 50 do assert(order[i] == i, "woken out of order at " .. i) end
+    for i = 1, 50 do assert(order[i] == i, "woken out of order at " .. tostring(i)) end
   end)
 end
 

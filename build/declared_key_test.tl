@@ -354,7 +354,7 @@ end
 --- `from`, where given, first sets what the field is keyed only under
 --- (`closure_store` only where the module does not declare `store`).
 local record Change<T>
-  from: function(T)
+  from?: function(T)
   change: function(T)
 end
 

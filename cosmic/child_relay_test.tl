@@ -205,7 +205,7 @@ end
 
 --- The policy that grants `port` of 127.0.0.2 to the program on `database`.
 local function granting(database: string, port: integer): Child.Options
-  return { policy = { database = { path = database }, connect = { "127.0.0.2:" .. port } }, stdout = "capture", stderr = "capture",
+  return { policy = { database = { path = database }, connect = { "127.0.0.2:" .. tostring(port) } }, stdout = "capture", stderr = "capture",
     timeout_ns = Clock.seconds(60) }
 end
 
@@ -284,7 +284,7 @@ end
 --- own network holds no route of its own to the server.
 local function test_a_granted_flow_echoes_and_an_ungranted_one_is_refused(tmp: string)
   local said, ungranted = flows(tmp)
-  assert(said.connect_ungranted:find(" 403 not granted: --connect 127.0.0.2:" .. ungranted, 1, true),
+  assert(said.connect_ungranted:find(" 403 not granted: --connect 127.0.0.2:" .. tostring(ungranted), 1, true),
     tostring(said.connect_ungranted))
   assert(said.connect == "HTTP/1.1 200 Connection established", tostring(said.connect))
   assert(said.connect_echo == "echo:ping", tostring(said.connect_echo))
@@ -475,9 +475,9 @@ local function test_the_relays_log_goes_where_the_start_says(tmp: string)
       errors[log] = assert(result.stderr)
       assert(fields(assert(result.stdout)).connect_echo == "echo:ping", "the flow was served")
     end
-    assert(errors.inherit:find("not granted: --connect 127.0.0.2:" .. ungranted, 1, true),
+    assert(errors.inherit:find("not granted: --connect 127.0.0.2:" .. tostring(ungranted), 1, true),
       "the refusal is logged: " .. errors.inherit)
-    assert(errors.inherit:find("connect 127.0.0.2:" .. granted .. ": allowed", 1, true),
+    assert(errors.inherit:find("connect 127.0.0.2:" .. tostring(granted) .. ": allowed", 1, true),
       "the granted flow is logged: " .. errors.inherit)
   end)
   local refusal_value = refusal.value
@@ -509,8 +509,8 @@ local function test_the_relays_log_goes_to_a_descriptor_the_caller_gives(tmp: st
     assert(result.ok, "exit " .. tostring(result.code) .. ": " .. tostring(result.stderr))
     program_stderr.value = result.stderr
     local lines = assert(sys.read(reader, 65536))
-    assert(lines:find("not granted: --connect 127.0.0.2:" .. ungranted, 1, true), "the refusal is in it: " .. lines)
-    assert(lines:find("connect 127.0.0.2:" .. granted .. ": allowed", 1, true), "the flow is in it: " .. lines)
+    assert(lines:find("not granted: --connect 127.0.0.2:" .. tostring(ungranted), 1, true), "the refusal is in it: " .. lines)
+    assert(lines:find("connect 127.0.0.2:" .. tostring(granted) .. ": allowed", 1, true), "the flow is in it: " .. lines)
   end)
   assert(sys.close(reader))
   assert(sys.close(writer))
@@ -582,7 +582,7 @@ local function test_a_terminal_or_a_kept_descriptor_is_no_place_for_the_relays_l
     assert(false, "a start with a terminal as the relay's log went on")
   end
   if unsandboxable(why) then Test.skip(why) end
-  assert(why:find("relay_log " .. pty.slave .. " is a terminal", 1, true), why)
+  assert(why:find("relay_log " .. tostring(pty.slave) .. " is a terminal", 1, true), why)
   assert(#relay_directories() == 0, "the relay's database was left")
 end
 
@@ -597,7 +597,7 @@ local function test_a_descriptor_the_program_keeps_is_no_place_for_the_relays_lo
       local kept = granting(database, 9)
       kept.relay_log = fd
       local refused, refusal = Child.start({ assert(Proc.executable()), "wait" }, kept)
-      assert(refused == nil and refusal:find("relay_log " .. fd .. " is a descriptor this program keeps", 1, true),
+      assert(refused == nil and refusal:find("relay_log " .. tostring(fd) .. " is a descriptor this program keeps", 1, true),
         tostring(refusal))
       tried = tried + 1
     end
@@ -648,9 +648,9 @@ local function test_no_connect_means_no_relay_and_no_extra_descriptors(tmp: stri
   options.stdout, options.stderr = "null", "null"
   while_waiting(tmp, function(handle: Child.Handle)
     local relay = assert(handle._relay)
-    local names = assert(Fs.list("/proc/" .. relay.pid .. "/fd"), "the relay's descriptors are readable")
+    local names = assert(Fs.list("/proc/" .. tostring(relay.pid) .. "/fd"), "the relay's descriptors are readable")
     for _, name in ipairs(names) do
-      local target = sys.readlink("/proc/" .. relay.pid .. "/fd/" .. name)
+      local target = sys.readlink("/proc/" .. tostring(relay.pid) .. "/fd/" .. name)
       assert(target == nil or not target:find(kept, 1, true), "the relay holds this process's file")
     end
     assert(handle:stop())
@@ -693,7 +693,7 @@ end
 local function test_more_literal_targets_than_a_connector_holds_fail_the_start(tmp: string)
   local options = granting(sealed_client(tmp), 9)
   local targets: mut {string} = {}
-  for port = 1, 129 do targets[port] = "127.0.0.2:" .. port end
+  for port = 1, 129 do targets[port] = "127.0.0.2:" .. tostring(port) end
   assert(options.policy).connect = targets
   local started, why = Child.start({ assert(Proc.executable()), "wait" }, options)
   if started ~= nil then
@@ -740,7 +740,7 @@ local function test_the_upstream_proxy_is_reached_through_the_table(tmp: string)
       end
     end)
     local env = this_program.environment()
-    env.https_proxy = "http://127.0.0.2:" .. assert(listener.address.port)
+    env.https_proxy = "http://127.0.0.2:" .. tostring(assert(listener.address.port))
     local started = this_program.program({ "--standalone", script, database, tostring(granted),
       tostring(ungranted), "null" }, { env = env, stdout = "capture", stderr = "capture",
         timeout_ns = Clock.seconds(60) })

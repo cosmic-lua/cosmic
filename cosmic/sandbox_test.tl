@@ -312,10 +312,10 @@ local function test_loaders_reads_an_elf_interpreter_of_every_layout(tmp: string
   for _, class in ipairs({ 1, 2 }) do
     for _, data in ipairs({ 1, 2 }) do
       n = n + 1
-      local path = tmp .. "/prog" .. n
+      local path = tmp .. "/prog" .. tostring(n)
       assert(Fs.write(path, elf(class, data, probe), 493))
       local files = assert(Sandbox.loaders(path))
-      assert(#files == 2 and files[2] == real, "class " .. class .. " data " .. data .. ": " ..
+      assert(#files == 2 and files[2] == real, "class " .. tostring(class) .. " data " .. tostring(data) .. ": " ..
           table.concat(files, " "))
     end
   end
@@ -375,7 +375,7 @@ local function test_user_id_differs_for_serials_a_pool_apart_less_than_its_size(
   local seen: mut {integer:boolean} = {}
   for serial = 100, 100 + 4095 do
     local id = assert(Sandbox.user_id(FULL, FULL, serial))
-    assert(not seen[id], "serial " .. serial .. " repeats " .. id)
+    assert(not seen[id], "serial " .. tostring(serial) .. " repeats " .. tostring(id))
     seen[id] = true
   end
   assert(assert(Sandbox.user_id(FULL, FULL, 5)) == assert(Sandbox.user_id(FULL, FULL, 5 + 4096)))

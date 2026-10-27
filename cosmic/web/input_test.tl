@@ -475,12 +475,12 @@ end
 
 local function test_the_servers_over_limit_failure_is_413()
   local first, second = failing_body("http: the body is longer than limits.body_bytes")
-  assert(first == 413 and second == 413, "413 both times: " .. first .. " " .. second)
+  assert(first == 413 and second == 413, "413 both times: " .. tostring(first) .. " " .. tostring(second))
 end
 
 local function test_a_body_read_that_times_out_is_408()
   local first, second = failing_body(Poll.TIMEOUT)
-  assert(first == 408 and second == 408, "408 both times: " .. first .. " " .. second)
+  assert(first == 408 and second == 408, "408 both times: " .. tostring(first) .. " " .. tostring(second))
 end
 
 local function test_a_body_read_over_the_limit_stays_failed_for_a_later_reader()

@@ -37,6 +37,6 @@ local function test_a_source_cut_at_any_byte_still_tiles()
   for cut = 0, #source do
     local piece = source:sub(1, cut)
     local ok, why = Cover.check(piece, Lexer.lex(piece, "f.tl"))
-    assert(ok, "cut at " .. cut .. ": " .. why)
+    assert(ok, "cut at " .. tostring(cut) .. ": " .. why)
   end
 end

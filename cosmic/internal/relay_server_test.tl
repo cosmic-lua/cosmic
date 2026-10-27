@@ -177,7 +177,7 @@ local function start(tmp: string, opts: Options): Rig
       rig.log[#rig.log + 1] = line
     end,
     connector = opts.connector or function(address: string, port: integer, timeout_ns: integer): Net.Conn?, string
-      rig.asked[#rig.asked + 1] = address .. ":" .. port
+      rig.asked[#rig.asked + 1] = address .. ":" .. tostring(port)
       rig.given[#rig.given + 1] = timeout_ns
       return Net.connect(Net.tcp(if redirect[address] ~= nil then "127.0.0.1" else address end, redirect[address] or port),
         { timeout_ns = timeout_ns })
@@ -210,7 +210,7 @@ local function read_exact(conn: Net.Conn, count: integer): string
   local out = ""
   while #out < count do
     local data, why = conn:read(count - #out)
-    assert(data ~= nil, "the connection ended after " .. #out .. " of " .. count .. " bytes: " .. why)
+    assert(data ~= nil, "the connection ended after " .. tostring(#out) .. " of " .. tostring(count) .. " bytes: " .. why)
     out = out .. data
   end
   return out
@@ -288,16 +288,16 @@ local function test_a_granted_name_is_carried_both_ways_over_connect(tmp: string
     local server = origin(echo)
     local port = server.port
     -- The name is granted, and loopback by its address too.
-    local rig = start(tmp, { grants = { "svc.test:" .. port, "127.0.0.1:" .. port } })
-    local conn, head = connect_to(rig, "svc.test:" .. port)
+    local rig = start(tmp, { grants = { "svc.test:" .. tostring(port), "127.0.0.1:" .. tostring(port) } })
+    local conn, head = connect_to(rig, "svc.test:" .. tostring(port))
     assert(status_line(head) == "HTTP/1.1 200 Connection established", head)
     assert(conn:write("hello "))
     assert(read_exact(conn, 6) == "hello ")
     assert(conn:write("again"))
     assert(read_exact(conn, 5) == "again")
-    assert(rig.asked[1] == "127.0.0.1:" .. port and #rig.asked == 1, table.concat(rig.asked, ","))
+    assert(rig.asked[1] == "127.0.0.1:" .. tostring(port) and #rig.asked == 1, table.concat(rig.asked, ","))
     assert(rig.given[1] == Clock.seconds(10), "the connector is given the connect timeout")
-    assert(#lines_with(rig, "allowed via 127.0.0.1:" .. port) == 1, table.concat(rig.log, "\n"))
+    assert(#lines_with(rig, "allowed via 127.0.0.1:" .. tostring(port)) == 1, table.concat(rig.log, "\n"))
     local _, _ = conn:close()
     until_it(function(): boolean return rig.server:stats().open == 0 end)
     assert(server.received == "hello again", server.received)
@@ -309,7 +309,7 @@ local function test_a_granted_name_is_carried_both_ways_over_socks5(tmp: string)
   Poll.run(function()
     local server = origin(echo)
     local port = server.port
-    local rig = start(tmp, { grants = { "svc.test:" .. port, "127.0.0.1:" .. port } })
+    local rig = start(tmp, { grants = { "svc.test:" .. tostring(port), "127.0.0.1:" .. tostring(port) } })
     local conn, code = socks_to(rig, "svc.test", port)
     assert(code == 0, code)
     assert(conn:write("socks"))
@@ -332,18 +332,18 @@ local function test_a_name_resolving_to_loopback_is_refused_unless_literally_gra
   Poll.run(function()
     local server = origin(echo)
     local port = server.port
-    local rig = start(tmp, { grants = { "svc.test:" .. port } })
-    local conn, head = connect_to(rig, "svc.test:" .. port)
+    local rig = start(tmp, { grants = { "svc.test:" .. tostring(port) } })
+    local conn, head = connect_to(rig, "svc.test:" .. tostring(port))
     local line = status_line(head)
     assert(line:find("^HTTP/1.1 403 "), line)
-    assert(line:find("127.0.0.1 is a loopback address: grant it literally with --connect 127.0.0.1:" .. port, 1, true), line)
+    assert(line:find("127.0.0.1 is a loopback address: grant it literally with --connect 127.0.0.1:" .. tostring(port), 1, true), line)
     assert(#rig.asked == 0, "no connection was made")
     local _, _ = conn:close()
     -- The same through SOCKS5: not allowed, whose reply carries no text.
     local socks, code = socks_to(rig, "svc.test", port)
     assert(code == 2, code)
     local _, _ = socks:close()
-    assert(#lines_with(rig, "grant it literally with --connect 127.0.0.1:" .. port) == 2, table.concat(rig.log, "\n"))
+    assert(#lines_with(rig, "grant it literally with --connect 127.0.0.1:" .. tostring(port)) == 2, table.concat(rig.log, "\n"))
     assert(server.connections == 0, "the server was never reached")
     finish(rig, server)
   end)
@@ -353,16 +353,16 @@ local function test_a_name_is_matched_to_the_grants_before_it_is_resolved(tmp: s
   Poll.run(function()
     local server = origin(echo)
     local port = server.port
-    local rig = start(tmp, { grants = { "svc.test:" .. port, "127.0.0.1:" .. port } })
+    local rig = start(tmp, { grants = { "svc.test:" .. tostring(port), "127.0.0.1:" .. tostring(port) } })
     -- Neither name is in the hosts file: resolving either would say so.
     local record Case
       target: string
       says: string
     end
     local cases: {Case} = {
-      { target = "ungranted.test:" .. port, says = "not granted: --connect ungranted.test:" .. port },
-      { target = "svc.test:" .. (port % 60000 + 1), says = "not granted: --connect svc.test:" .. (port % 60000 + 1) },
-      { target = "sub.svc.test:" .. port, says = "not granted: --connect sub.svc.test:" .. port },
+      { target = "ungranted.test:" .. tostring(port), says = "not granted: --connect ungranted.test:" .. tostring(port) },
+      { target = "svc.test:" .. tostring((port % 60000 + 1)), says = "not granted: --connect svc.test:" .. tostring((port % 60000 + 1)) },
+      { target = "sub.svc.test:" .. tostring(port), says = "not granted: --connect sub.svc.test:" .. tostring(port) },
     }
     for _, case in ipairs(cases) do
       local conn, head = connect_to(rig, case.target)
@@ -372,7 +372,7 @@ local function test_a_name_is_matched_to_the_grants_before_it_is_resolved(tmp: s
       local _, _ = conn:close()
     end
     -- The host as the reader canonicalises it: case and a trailing dot are not another name.
-    local conn, head = connect_to(rig, "SVC.Test.:" .. port)
+    local conn, head = connect_to(rig, "SVC.Test.:" .. tostring(port))
     assert(status_line(head):find("^HTTP/1.1 200 "), head)
     local _, _ = conn:close()
     assert(#rig.asked == 1)
@@ -384,19 +384,19 @@ local function test_a_wildcard_host_grants_names_but_never_addresses(tmp: string
   Poll.run(function()
     local server = origin(echo)
     local port = server.port
-    local rig = start(tmp, { grants = { "*:" .. port, "*.example.test:" .. port } })
+    local rig = start(tmp, { grants = { "*:" .. tostring(port), "*.example.test:" .. tostring(port) } })
     -- Any name passes the grants, so what it resolves to is judged: loopback is refused.
-    local conn, head = connect_to(rig, "other.test:" .. port)
+    local conn, head = connect_to(rig, "other.test:" .. tostring(port))
     local line = status_line(head)
     assert(line:find("^HTTP/1.1 403 ") and line:find("is a loopback address", 1, true), line)
     local _, _ = conn:close()
     -- A literal, which "*" does not grant.
-    local literal, answer = connect_to(rig, "127.0.0.1:" .. port)
-    assert(status_line(answer):find("not granted: --connect 127.0.0.1:" .. port, 1, true), answer)
+    local literal, answer = connect_to(rig, "127.0.0.1:" .. tostring(port))
+    assert(status_line(answer):find("not granted: --connect 127.0.0.1:" .. tostring(port), 1, true), answer)
     local _, _ = literal:close()
     -- A pattern is no grant; the relay says so once, at its start.
-    assert(#lines_with(rig, "\"*.example.test:" .. port .. "\" opens nothing") == 1, table.concat(rig.log, "\n"))
-    local pattern, refused = connect_to(rig, "a.example.test:" .. port)
+    assert(#lines_with(rig, "\"*.example.test:" .. tostring(port) .. "\" opens nothing") == 1, table.concat(rig.log, "\n"))
+    local pattern, refused = connect_to(rig, "a.example.test:" .. tostring(port))
     assert(not status_line(refused):find("not granted"), refused)
     local _, _ = pattern:close()
     finish(rig, server)
@@ -407,10 +407,10 @@ local function test_an_ip_literal_is_refused_unless_a_grant_names_it_literally(t
   Poll.run(function()
     local server = origin(echo)
     local port = server.port
-    local rig = start(tmp, { grants = { "svc.test:" .. port, "*:*", "93.184.216.34:443" },
+    local rig = start(tmp, { grants = { "svc.test:" .. tostring(port), "*:*", "93.184.216.34:443" },
       redirect = { ["93.184.216.34"] = port } })
     local refused: {string} = {
-      "127.0.0.1:" .. port, "[::1]:" .. port, "93.184.216.35:443", "93.184.216.34:80", "[2001:db8::1]:443",
+      "127.0.0.1:" .. tostring(port), "[::1]:" .. tostring(port), "93.184.216.35:443", "93.184.216.34:80", "[2001:db8::1]:443",
     }
     for _, target in ipairs(refused) do
       local conn, head = connect_to(rig, target)
@@ -433,14 +433,14 @@ local function test_an_ip_literal_a_grant_names_is_connected(tmp: string)
   Poll.run(function()
     local server = origin(echo)
     local port = server.port
-    local rig = start(tmp, { grants = { "127.0.0.1:" .. port } })
-    local conn, head = connect_to(rig, "127.0.0.1:" .. port)
+    local rig = start(tmp, { grants = { "127.0.0.1:" .. tostring(port) } })
+    local conn, head = connect_to(rig, "127.0.0.1:" .. tostring(port))
     assert(status_line(head):find("^HTTP/1.1 200 "), head)
     assert(conn:write("literal"))
     assert(read_exact(conn, 7) == "literal")
     local _, _ = conn:close()
     -- The grant is of its own port: the same address on another is refused.
-    local other, answer = connect_to(rig, "127.0.0.1:" .. (port % 60000 + 1))
+    local other, answer = connect_to(rig, "127.0.0.1:" .. tostring((port % 60000 + 1)))
     assert(status_line(answer):find("^HTTP/1.1 403 "), answer)
     local _, _ = other:close()
     finish(rig, server)
@@ -451,14 +451,14 @@ local function test_a_name_connects_to_the_first_allowed_answer_that_answers(tmp
   Poll.run(function()
     local server = origin(echo)
     local port = server.port
-    local rig = start(tmp, { grants = { "multi.test:" .. port },
+    local rig = start(tmp, { grants = { "multi.test:" .. tostring(port) },
       redirect = { ["93.184.216.34"] = port, ["93.184.216.35"] = port } })
-    local conn, head = connect_to(rig, "multi.test:" .. port)
+    local conn, head = connect_to(rig, "multi.test:" .. tostring(port))
     assert(status_line(head):find("^HTTP/1.1 200 "), head)
     assert(conn:write("mixed"))
     assert(read_exact(conn, 5) == "mixed")
     assert(#rig.asked == 1, table.concat(rig.asked, ","))
-    assert(rig.asked[1] == "93.184.216.34:" .. port or rig.asked[1] == "93.184.216.35:" .. port, rig.asked[1])
+    assert(rig.asked[1] == "93.184.216.34:" .. tostring(port) or rig.asked[1] == "93.184.216.35:" .. tostring(port), rig.asked[1])
     local _, _ = conn:close()
     finish(rig, server)
   end)
@@ -489,16 +489,16 @@ local function test_a_name_whose_first_address_fails_connects_to_the_next(tmp: s
       local server = origin(echo)
       local port = server.port
       local asked, given: {string}, {integer} = {}, {}
-      local rig = start(tmp, { grants = { "multi.test:" .. port },
+      local rig = start(tmp, { grants = { "multi.test:" .. tostring(port) },
         connector = first_fails_connector(how, port, asked, given) })
-      local conn, head = connect_to(rig, "multi.test:" .. port)
+      local conn, head = connect_to(rig, "multi.test:" .. tostring(port))
       assert(status_line(head):find("^HTTP/1.1 200 "), how .. ": " .. head)
       assert(conn:write("second"))
       assert(read_exact(conn, 6) == "second")
       assert(#asked == 2 and asked[1] ~= asked[2], table.concat(asked, ","))
       -- Only the public answers are candidates: the private one is never tried.
       assert(not contains(asked, "10.1.2.3"), table.concat(asked, ","))
-      assert(#lines_with(rig, "allowed via " .. asked[2] .. ":" .. port) == 1, table.concat(rig.log, "\n"))
+      assert(#lines_with(rig, "allowed via " .. asked[2] .. ":" .. tostring(port)) == 1, table.concat(rig.log, "\n"))
       -- The two share the connect timeout: the second gets all that is left.
       assert(given[1] == Clock.seconds(5) and given[2] > Clock.seconds(9) and given[2] <= Clock.seconds(10), given[2])
       local _, _ = conn:close()
@@ -547,7 +547,7 @@ local function test_the_connect_timeout_bounds_every_address_together(tmp: strin
     local line = status_line(head)
     assert(line:find("^HTTP/1.1 504 ") and line:find("none of its addresses answered", 1, true), line)
     assert(#asked == 2 and given[1] == Clock.ms(300) and given[2] <= Clock.ms(300), table.concat(asked, ","))
-    assert(took >= 450 and took < 2500, took .. " ms for two addresses of a 600 ms connect timeout")
+    assert(took >= 450 and took < 2500, tostring(took) .. " ms for two addresses of a 600 ms connect timeout")
     local _, _ = conn:close()
     finish(rig)
   end)
@@ -557,9 +557,9 @@ local function test_the_hosts_own_addresses_are_never_connected_to(tmp: string)
   Poll.run(function()
     local server = origin(echo)
     local port = server.port
-    local rig = start(tmp, { grants = { "multi.test:" .. port }, own_addresses = { "93.184.216.34", "::ffff:93.184.216.35" },
+    local rig = start(tmp, { grants = { "multi.test:" .. tostring(port) }, own_addresses = { "93.184.216.34", "::ffff:93.184.216.35" },
       redirect = { ["93.184.216.34"] = port, ["93.184.216.35"] = port } })
-    local conn, head = connect_to(rig, "multi.test:" .. port)
+    local conn, head = connect_to(rig, "multi.test:" .. tostring(port))
     local line = status_line(head)
     assert(line:find("^HTTP/1.1 403 ") and line:find("one of this host's own addresses", 1, true), line)
     assert(#rig.asked == 0, table.concat(rig.asked, ","))
@@ -590,16 +590,16 @@ local function test_a_relay_without_name_servers_refuses_names_and_reaches_grant
   Poll.run(function()
     local server = origin(echo)
     local port = server.port
-    local rig = start(tmp, { grants = { "svc.test:" .. port, "127.0.0.1:" .. port },
+    local rig = start(tmp, { grants = { "svc.test:" .. tostring(port), "127.0.0.1:" .. tostring(port) },
       unresolved = "no name servers here" })
-    local conn, head = connect_to(rig, "svc.test:" .. port)
+    local conn, head = connect_to(rig, "svc.test:" .. tostring(port))
     local line = status_line(head)
     assert(line:find("^HTTP/1.1 502 ") and line:find("could not resolve svc.test: no name servers here", 1, true), line)
     local _, _ = conn:close()
     local socks, code = socks_to(rig, "svc.test", port)
     assert(code == 4, code)
     local _, _ = socks:close()
-    local literal, answer = connect_to(rig, "127.0.0.1:" .. port)
+    local literal, answer = connect_to(rig, "127.0.0.1:" .. tostring(port))
     assert(status_line(answer):find("^HTTP/1.1 200 "), answer)
     assert(literal:write("literal"))
     assert(read_exact(literal, 7) == "literal")
@@ -635,7 +635,7 @@ local function test_a_lookup_that_is_not_answered_stalls_only_its_own_connection
     local silent = assert(Udp.bind("127.0.0.1", 0))
     local server = origin(echo)
     local port = server.port
-    local rig = start(tmp, { grants = { "slow.test:80", "127.0.0.1:" .. port },
+    local rig = start(tmp, { grants = { "slow.test:80", "127.0.0.1:" .. tostring(port) },
       timeouts = { resolve = Clock.seconds(2) },
       resolve = { hosts_file = tmp .. "/hosts", servers = { { host = "127.0.0.1", port = silent.address.port } } } })
     local slow_answered = { value = false }
@@ -650,19 +650,19 @@ local function test_a_lookup_that_is_not_answered_stalls_only_its_own_connection
     end)
     -- Let the lookup start, then use the relay for something else.
     assert(Poll.delay(Clock.ms(100)))
-    local conn, head = connect_to(rig, "127.0.0.1:" .. port)
+    local conn, head = connect_to(rig, "127.0.0.1:" .. tostring(port))
     assert(status_line(head):find("^HTTP/1.1 200 "), head)
     assert(conn:write("meanwhile"))
     assert(read_exact(conn, 9) == "meanwhile")
     local meanwhile = (Clock.monotonic_ns() - began) // 1000000
-    assert(meanwhile < 1000, "a tunnel waited " .. meanwhile .. " ms behind another connection's lookup")
+    assert(meanwhile < 1000, "a tunnel waited " .. tostring(meanwhile) .. " ms behind another connection's lookup")
     assert(not slow_answered.value, "the lookup ended before its time")
     -- The relay stops while the lookup is pending, and does not wait it out.
     local _, _ = conn:close()
     local stopping = Clock.monotonic_ns()
     finish(rig, server)
     local stopped = (Clock.monotonic_ns() - stopping) // 1000000
-    assert(stopped < 1500, "the relay took " .. stopped .. " ms to stop with a lookup pending")
+    assert(stopped < 1500, "the relay took " .. tostring(stopped) .. " ms to stop with a lookup pending")
     waiting:cancel()
     Udp.close(silent)
   end)
@@ -675,7 +675,7 @@ local function test_a_lookup_out_of_time_is_refused_while_another_is_answered(tm
     local silent = assert(Udp.bind("127.0.0.1", 0))
     local server = origin(echo)
     local port = server.port
-    local rig = start(tmp, { grants = { "slow.test:80", "svc.test:" .. port, "127.0.0.1:" .. port },
+    local rig = start(tmp, { grants = { "slow.test:80", "svc.test:" .. tostring(port), "127.0.0.1:" .. tostring(port) },
       timeouts = { resolve = Clock.ms(300) },
       resolve = { hosts_file = tmp .. "/hosts", servers = { { host = "127.0.0.1", port = silent.address.port } } } })
     local head = { value = "" }
@@ -685,7 +685,7 @@ local function test_a_lookup_out_of_time_is_refused_while_another_is_answered(tm
       local _, _ = conn:close()
     end)
     -- A name the hosts file answers needs no server.
-    local conn, answer = connect_to(rig, "svc.test:" .. port)
+    local conn, answer = connect_to(rig, "svc.test:" .. tostring(port))
     assert(status_line(answer):find("^HTTP/1.1 200 "), answer)
     assert(conn:write("hosts"))
     assert(read_exact(conn, 5) == "hosts")
@@ -704,7 +704,7 @@ local function test_a_connection_that_fails_or_times_out_says_which(tmp: string)
   Poll.run(function()
     local port = 4000
     local outcome = "Connection refused"
-    local rig = start(tmp, { grants = { "127.0.0.1:" .. port },
+    local rig = start(tmp, { grants = { "127.0.0.1:" .. tostring(port) },
       timeouts = { connect = Clock.ms(750) },
       connector = function(_address: string, _port: integer, timeout_ns: integer): Net.Conn?, string
         assert(timeout_ns == Clock.ms(750), "the connect timeout reaches the connector")
@@ -725,9 +725,9 @@ local function test_a_connection_that_fails_or_times_out_says_which(tmp: string)
     }
     for _, case in ipairs(cases) do
       outcome = case.outcome
-      local conn, head = connect_to(rig, "127.0.0.1:" .. port)
+      local conn, head = connect_to(rig, "127.0.0.1:" .. tostring(port))
       local line = status_line(head)
-      assert(line:find(case.pattern) and line:find("could not connect to 127.0.0.1:" .. port .. ": " .. case.outcome, 1, true), line)
+      assert(line:find(case.pattern) and line:find("could not connect to 127.0.0.1:" .. tostring(port) .. ": " .. case.outcome, 1, true), line)
       local _, _ = conn:close()
       local socks = dial(rig.socks)
       assert(socks:write("\5\1\0"))
@@ -746,20 +746,20 @@ local function test_an_sni_that_differs_from_the_host_is_refused(tmp: string)
       drain(conn, seen, "ack")
     end)
     local port = server.port
-    local rig = start(tmp, { grants = { "svc.test:" .. port, "127.0.0.1:" .. port } })
-    local conn = connect_to(rig, "svc.test:" .. port)
+    local rig = start(tmp, { grants = { "svc.test:" .. tostring(port), "127.0.0.1:" .. tostring(port) } })
+    local conn = connect_to(rig, "svc.test:" .. tostring(port))
     assert(conn:write(Fixture.records(Fixture.hello({ name = "evil.test" }))))
     -- A TLS alert, and then nothing: the connection is closed.
     local told = read_all(conn)
     assert(told == "\21\3\3\0\2\2\40", ("%q"):format(told))
     assert(server.received == "", "no byte of the hello reached the server")
-    assert(#lines_with(rig, "refused a ClientHello naming evil.test for a connection to svc.test:" .. port) == 1,
+    assert(#lines_with(rig, "refused a ClientHello naming evil.test for a connection to svc.test:" .. tostring(port)) == 1,
       table.concat(rig.log, "\n"))
     assert(rig.log[#rig.log]:find("grant --connect evil.test:<port>", 1, true), rig.log[#rig.log])
     local _, _ = conn:close()
     -- The matching name, in any case, goes through whole.
     local hello = Fixture.records(Fixture.hello({ name = "SVC.test" }))
-    local same = connect_to(rig, "svc.test:" .. port)
+    local same = connect_to(rig, "svc.test:" .. tostring(port))
     assert(same:write(hello))
     assert(read_exact(same, 3) == "ack")
     assert(server.received == hello, "the hello arrived unchanged")
@@ -774,9 +774,9 @@ local function test_a_hello_split_across_writes_is_judged_whole(tmp: string)
       drain(conn, seen, "ack")
     end)
     local port = server.port
-    local rig = start(tmp, { grants = { "svc.test:" .. port, "127.0.0.1:" .. port } })
+    local rig = start(tmp, { grants = { "svc.test:" .. tostring(port), "127.0.0.1:" .. tostring(port) } })
     local hello = Fixture.records(Fixture.hello({ name = "svc.test" }), { 40 })
-    local conn = connect_to(rig, "svc.test:" .. port)
+    local conn = connect_to(rig, "svc.test:" .. tostring(port))
     assert(conn:write(hello:sub(1, 3)))
     assert(Poll.delay(Clock.ms(30)))
     assert(server.received == "", "nothing is passed on while the hello is incomplete")
@@ -785,7 +785,7 @@ local function test_a_hello_split_across_writes_is_judged_whole(tmp: string)
     assert(server.received == hello)
     local _, _ = conn:close()
     -- And bytes that follow the hello in the same write go with it.
-    local followed = connect_to(rig, "svc.test:" .. port)
+    local followed = connect_to(rig, "svc.test:" .. tostring(port))
     assert(followed:write(hello .. "more"))
     assert(read_exact(followed, 3) == "ack")
     assert(server.received == hello .. hello .. "more")
@@ -800,9 +800,9 @@ local function test_an_encrypted_client_hello_is_refused(tmp: string)
       drain(conn, seen)
     end)
     local port = server.port
-    local rig = start(tmp, { grants = { "svc.test:" .. port, "127.0.0.1:" .. port } })
+    local rig = start(tmp, { grants = { "svc.test:" .. tostring(port), "127.0.0.1:" .. tostring(port) } })
     for _, kind in ipairs({ 0xfe0d, 0xffce }) do
-      local conn = connect_to(rig, "svc.test:" .. port)
+      local conn = connect_to(rig, "svc.test:" .. tostring(port))
       local hello = Fixture.hello({ name = "svc.test", extra = { Fixture.extension(kind, "\0\1\2") } })
       assert(conn:write(Fixture.records(hello)))
       assert(read_all(conn) == "\21\3\3\0\2\2\40")
@@ -821,8 +821,8 @@ local function test_a_malformed_hello_is_refused(tmp: string)
       drain(conn, seen)
     end)
     local port = server.port
-    local rig = start(tmp, { grants = { "svc.test:" .. port, "127.0.0.1:" .. port } })
-    local conn = connect_to(rig, "svc.test:" .. port)
+    local rig = start(tmp, { grants = { "svc.test:" .. tostring(port), "127.0.0.1:" .. tostring(port) } })
+    local conn = connect_to(rig, "svc.test:" .. tostring(port))
     -- A handshake record of length 0.
     assert(conn:write("\22\3\1\0\0"))
     assert(read_all(conn) == "\21\3\3\0\2\2\40")
@@ -841,21 +841,21 @@ local function test_a_hello_with_no_name_is_refused_on_a_tls_port_only(tmp: stri
     local port = server.port
     local nameless = Fixture.records(Fixture.hello())
     -- The default TLS ports are 443 and 853: this one is not, and a nameless hello passes.
-    local plain = start(tmp, { grants = { "svc.test:" .. port, "127.0.0.1:" .. port } })
-    local open = connect_to(plain, "svc.test:" .. port)
+    local plain = start(tmp, { grants = { "svc.test:" .. tostring(port), "127.0.0.1:" .. tostring(port) } })
+    local open = connect_to(plain, "svc.test:" .. tostring(port))
     assert(open:write(nameless))
     assert(read_exact(open, 3) == "ack")
     local _, _ = open:close()
     finish(plain)
     -- Named a TLS port, the same hello is refused.
-    local strict = start(tmp, { grants = { "svc.test:" .. port, "127.0.0.1:" .. port }, tls_ports = { port } })
-    local conn = connect_to(strict, "svc.test:" .. port)
+    local strict = start(tmp, { grants = { "svc.test:" .. tostring(port), "127.0.0.1:" .. tostring(port) }, tls_ports = { port } })
+    local conn = connect_to(strict, "svc.test:" .. tostring(port))
     assert(conn:write(nameless))
     assert(read_all(conn) == "\21\3\3\0\2\2\40")
     assert(#lines_with(strict, "no server name on a TLS port") == 1, table.concat(strict.log, "\n"))
     local _, _ = conn:close()
     -- A connection to an address names no host to match: a nameless hello is what it sends.
-    local literal = connect_to(strict, "127.0.0.1:" .. port)
+    local literal = connect_to(strict, "127.0.0.1:" .. tostring(port))
     assert(literal:write(nameless))
     assert(read_exact(literal, 3) == "ack")
     local _, _ = literal:close()
@@ -869,11 +869,11 @@ local function test_a_hello_naming_a_host_for_an_address_is_refused(tmp: string)
       drain(conn, seen)
     end)
     local port = server.port
-    local rig = start(tmp, { grants = { "127.0.0.1:" .. port } })
-    local conn = connect_to(rig, "127.0.0.1:" .. port)
+    local rig = start(tmp, { grants = { "127.0.0.1:" .. tostring(port) } })
+    local conn = connect_to(rig, "127.0.0.1:" .. tostring(port))
     assert(conn:write(Fixture.records(Fixture.hello({ name = "svc.test" }))))
     assert(read_all(conn) == "\21\3\3\0\2\2\40")
-    assert(#lines_with(rig, "naming svc.test for a connection to the address 127.0.0.1:" .. port) == 1, table.concat(rig.log, "\n"))
+    assert(#lines_with(rig, "naming svc.test for a connection to the address 127.0.0.1:" .. tostring(port)) == 1, table.concat(rig.log, "\n"))
     local _, _ = conn:close()
     finish(rig, server)
   end)
@@ -884,8 +884,8 @@ local function test_bytes_that_are_not_tls_pass_on_any_port(tmp: string)
     local server = origin(banner)
     local port = server.port
     -- Even where the port is named a TLS one: the first bytes are not a hello.
-    local rig = start(tmp, { grants = { "svc.test:" .. port, "127.0.0.1:" .. port }, tls_ports = { port } })
-    local conn = connect_to(rig, "svc.test:" .. port)
+    local rig = start(tmp, { grants = { "svc.test:" .. tostring(port), "127.0.0.1:" .. tostring(port) }, tls_ports = { port } })
+    local conn = connect_to(rig, "svc.test:" .. tostring(port))
     -- A server that speaks first is not waited on for the client's hello.
     assert(read_exact(conn, 16) == "SSH-2.0-origin\r\n")
     assert(conn:write("SSH-2.0-client\r\n"))
@@ -896,7 +896,7 @@ local function test_bytes_that_are_not_tls_pass_on_any_port(tmp: string)
     assert(#lines_with(rig, "refused") == 0, table.concat(rig.log, "\n"))
     local _, _ = conn:close()
     -- The first bytes the client sends are read as a hello, whenever they come.
-    local late = connect_to(rig, "svc.test:" .. port)
+    local late = connect_to(rig, "svc.test:" .. tostring(port))
     assert(read_exact(late, 16) == "SSH-2.0-origin\r\n")
     assert(late:write(Fixture.records(Fixture.hello({ name = "evil.test" }))))
     assert(read_all(late) == "\21\3\3\0\2\2\40")
@@ -908,8 +908,8 @@ end
 local function test_a_client_that_waits_for_a_server_that_speaks_first_is_not_timed_out(tmp: string)
   Poll.run(function()
     local server = origin(banner)
-    local rig = start(tmp, { grants = { "127.0.0.1:" .. server.port }, timeouts = { head = Clock.ms(150) } })
-    local conn = connect_to(rig, "127.0.0.1:" .. server.port)
+    local rig = start(tmp, { grants = { "127.0.0.1:" .. tostring(server.port) }, timeouts = { head = Clock.ms(150) } })
+    local conn = connect_to(rig, "127.0.0.1:" .. tostring(server.port))
     assert(read_exact(conn, 16) == "SSH-2.0-origin\r\n")
     -- Silent for longer than the head timeout, as a client waiting on a prompt is.
     assert(Poll.delay(Clock.ms(450)))
@@ -918,7 +918,7 @@ local function test_a_client_that_waits_for_a_server_that_speaks_first_is_not_ti
     until_it(function(): boolean return server.received == "SSH-2.0-client\r\n" end)
     assert(#lines_with(rig, "refused") == 0 and #lines_with(rig, "closed") == 0, table.concat(rig.log, "\n"))
     -- The clock starts at the first byte of a hello that then stops.
-    local late = connect_to(rig, "127.0.0.1:" .. server.port)
+    local late = connect_to(rig, "127.0.0.1:" .. tostring(server.port))
     assert(Poll.delay(Clock.ms(300)))
     assert(late:write(Fixture.records(Fixture.hello({})):sub(1, 10)))
     assert(read_all(late):find("\21\3\3", 1, true) == 17, "a hello that stops is refused (after the banner)")
@@ -933,16 +933,16 @@ local function test_a_hello_sent_with_the_request_is_judged_and_passed(tmp: stri
       drain(conn, seen, "ack")
     end)
     local port = server.port
-    local rig = start(tmp, { grants = { "svc.test:" .. port, "127.0.0.1:" .. port } })
+    local rig = start(tmp, { grants = { "svc.test:" .. tostring(port), "127.0.0.1:" .. tostring(port) } })
     local hello = Fixture.records(Fixture.hello({ name = "svc.test" }))
     local pipelined = dial(rig.http)
-    assert(pipelined:write(Fixture.connect("svc.test:" .. port) .. hello))
+    assert(pipelined:write(Fixture.connect("svc.test:" .. tostring(port)) .. hello))
     assert(status_line(read_head(pipelined)):find("^HTTP/1.1 200 "))
     assert(read_exact(pipelined, 3) == "ack")
     assert(server.received == hello)
     local _, _ = pipelined:close()
     local bad = dial(rig.http)
-    assert(bad:write(Fixture.connect("svc.test:" .. port) .. Fixture.records(Fixture.hello({ name = "evil.test" }))))
+    assert(bad:write(Fixture.connect("svc.test:" .. tostring(port)) .. Fixture.records(Fixture.hello({ name = "evil.test" }))))
     assert(status_line(read_head(bad)):find("^HTTP/1.1 200 "))
     assert(read_all(bad) == "\21\3\3\0\2\2\40")
     assert(server.received == hello, "nothing of the refused hello arrived")
@@ -967,7 +967,7 @@ local function test_a_grant_whose_port_is_not_a_plain_decimal_opens_nothing(tmp:
       "svc.test:080", "svc.test:65536", "svc.test:+80", "svc.test:99999999", "::1:80", "2001:db8::1:443" }
     local rig = start(tmp, { grants = bad })
     assert(#lines_with(rig, "opens nothing") == #bad, table.concat(rig.log, "\n"))
-    for _, target in ipairs({ "svc.test:80", "svc.test:" .. port, "svc.test:100", "svc.test:1" }) do
+    for _, target in ipairs({ "svc.test:80", "svc.test:" .. tostring(port), "svc.test:100", "svc.test:1" }) do
       local conn, head = connect_to(rig, target)
       assert(status_line(head):find("^HTTP/1.1 403 .*not granted"), head)
       local _, _ = conn:close()
@@ -979,13 +979,13 @@ end
 local function test_a_connection_made_after_stop_is_closed(tmp: string)
   Poll.run(function()
     local server = origin(echo)
-    local rig = start(tmp, { grants = { "127.0.0.1:" .. server.port },
+    local rig = start(tmp, { grants = { "127.0.0.1:" .. tostring(server.port) },
       connector = function(address: string, port: integer, timeout_ns: integer): Net.Conn?, string
         assert(Poll.delay(Clock.ms(150)))
         return Net.connect(Net.tcp(address, port), { timeout_ns = timeout_ns })
       end })
     local conn = dial(rig.http)
-    assert(conn:write(Fixture.connect("127.0.0.1:" .. server.port)))
+    assert(conn:write(Fixture.connect("127.0.0.1:" .. tostring(server.port))))
     assert(Poll.delay(Clock.ms(40)))
     rig.server:stop()
     until_it(function(): boolean return server.connections == 1 end)
@@ -1002,16 +1002,16 @@ local function test_each_side_ending_what_it_sends_is_passed_on(tmp: string)
   Poll.run(function()
     local seen = origin(answers_after_eof)
     local greeter = origin(greets_then_half_closes)
-    local rig = start(tmp, { grants = { "127.0.0.1:" .. seen.port, "127.0.0.1:" .. greeter.port } })
+    local rig = start(tmp, { grants = { "127.0.0.1:" .. tostring(seen.port), "127.0.0.1:" .. tostring(greeter.port) } })
     -- The program ends first: the server sees the end, and can still answer.
-    local conn = connect_to(rig, "127.0.0.1:" .. seen.port)
+    local conn = connect_to(rig, "127.0.0.1:" .. tostring(seen.port))
     assert(conn:write("ping"))
     assert(conn:shutdown("write"))
     assert(read_all(conn) == "after-eof")
     assert(seen.received == "ping" and seen.eof, "the server saw the program's end")
     local _, _ = conn:close()
     -- The server ends first: the program reads the end, and can still send.
-    local other = connect_to(rig, "127.0.0.1:" .. greeter.port)
+    local other = connect_to(rig, "127.0.0.1:" .. tostring(greeter.port))
     assert(read_exact(other, 5) == "greet")
     local data, why = other:read()
     assert(data == nil and why == "", "the end of what the server sends")
@@ -1027,8 +1027,8 @@ end
 local function test_a_tunnel_nothing_moves_in_ends_at_the_idle_timeout(tmp: string)
   Poll.run(function()
     local server = origin(echo)
-    local rig = start(tmp, { grants = { "127.0.0.1:" .. server.port }, timeouts = { idle = Clock.ms(250) } })
-    local conn = connect_to(rig, "127.0.0.1:" .. server.port)
+    local rig = start(tmp, { grants = { "127.0.0.1:" .. tostring(server.port) }, timeouts = { idle = Clock.ms(250) } })
+    local conn = connect_to(rig, "127.0.0.1:" .. tostring(server.port))
     local started = Clock.monotonic_ns()
     -- Bytes keep it open past the timeout.
     for _ = 1, 4 do
@@ -1073,8 +1073,8 @@ local function test_a_hello_that_is_not_finished_is_refused_at_the_head_timeout(
     local server = origin(function(conn: Net.Conn, seen: Origin)
       drain(conn, seen)
     end)
-    local rig = start(tmp, { grants = { "127.0.0.1:" .. server.port }, timeouts = { head = Clock.ms(150) } })
-    local conn = connect_to(rig, "127.0.0.1:" .. server.port)
+    local rig = start(tmp, { grants = { "127.0.0.1:" .. tostring(server.port) }, timeouts = { head = Clock.ms(150) } })
+    local conn = connect_to(rig, "127.0.0.1:" .. tostring(server.port))
     local hello = Fixture.records(Fixture.hello({}))
     assert(conn:write(hello:sub(1, 10)))
     assert(read_all(conn) == "\21\3\3\0\2\2\40")
@@ -1088,21 +1088,21 @@ end
 local function test_too_many_open_connections_are_refused_saying_so(tmp: string)
   Poll.run(function()
     local server = origin(echo)
-    local grants = { "127.0.0.1:" .. server.port }
+    local grants = { "127.0.0.1:" .. tostring(server.port) }
     local rig = start(tmp, { grants = grants, limits = { connections = 1 } })
-    local first = connect_to(rig, "127.0.0.1:" .. server.port)
-    local second, head = connect_to(rig, "127.0.0.1:" .. server.port)
+    local first = connect_to(rig, "127.0.0.1:" .. tostring(server.port))
+    local second, head = connect_to(rig, "127.0.0.1:" .. tostring(server.port))
     local line = status_line(head)
     assert(line:find("^HTTP/1.1 503 ") and line:find("too many open connections: at most 1 at once", 1, true), line)
     local _, _ = second:close()
     local socks, code = socks_to(rig, "svc.test", server.port)
-    assert(code == 1, "a general failure for the SOCKS5 client: " .. code)
+    assert(code == 1, "a general failure for the SOCKS5 client: " .. tostring(code))
     local _, _ = socks:close()
     assert(#lines_with(rig, "too many open connections") == 2, table.concat(rig.log, "\n"))
     -- Room again once the first is closed.
     local _, _ = first:close()
     until_it(function(): boolean return rig.server:stats().open == 0 end)
-    local again, answer = connect_to(rig, "127.0.0.1:" .. server.port)
+    local again, answer = connect_to(rig, "127.0.0.1:" .. tostring(server.port))
     assert(status_line(answer):find("^HTTP/1.1 200 "), answer)
     local _, _ = again:close()
     assert(rig.server:stats().refused == 2)
@@ -1113,13 +1113,13 @@ end
 local function test_connections_past_the_total_are_refused_saying_so(tmp: string)
   Poll.run(function()
     local server = origin(echo)
-    local rig = start(tmp, { grants = { "127.0.0.1:" .. server.port }, limits = { total = 2 } })
+    local rig = start(tmp, { grants = { "127.0.0.1:" .. tostring(server.port) }, limits = { total = 2 } })
     for _ = 1, 2 do
-      local conn, head = connect_to(rig, "127.0.0.1:" .. server.port)
+      local conn, head = connect_to(rig, "127.0.0.1:" .. tostring(server.port))
       assert(status_line(head):find("^HTTP/1.1 200 "), head)
       local _, _ = conn:close()
     end
-    local conn, head = connect_to(rig, "127.0.0.1:" .. server.port)
+    local conn, head = connect_to(rig, "127.0.0.1:" .. tostring(server.port))
     local line = status_line(head)
     assert(line:find("^HTTP/1.1 503 ") and line:find("connection budget spent: this sandbox's relay serves at most 2 connections", 1, true), line)
     local _, _ = conn:close()
@@ -1182,7 +1182,7 @@ local function test_a_connect_goes_through_the_upstream_proxy_which_resolves(tmp
     }
     local grants = { "api.test:443", "direct.test:9", "a.localhost:443" }
     local rig = start(tmp, { grants = grants, upstream = up })
-    assert(#lines_with(rig, "upstream proxy 127.0.0.1:" .. through.server.port ..
+    assert(#lines_with(rig, "upstream proxy 127.0.0.1:" .. tostring(through.server.port) ..
         ": it resolves the names it is asked for, so the relay's address checks do not apply") == 1,
       table.concat(rig.log, "\n"))
     -- The name is in no hosts file: the upstream is the one that resolves it.
@@ -1192,7 +1192,7 @@ local function test_a_connect_goes_through_the_upstream_proxy_which_resolves(tmp
     assert(read_exact(conn, 9) == "tunnelled")
     assert(through.head:find("^CONNECT api.test:443 HTTP/1.1\r\nHost: api.test:443\r\nProxy%-Authorization: Basic dTpw\r\n\r\n"),
       through.head)
-    assert(rig.asked[1] == "127.0.0.1:" .. through.server.port and #rig.asked == 1, table.concat(rig.asked, ","))
+    assert(rig.asked[1] == "127.0.0.1:" .. tostring(through.server.port) and #rig.asked == 1, table.concat(rig.asked, ","))
     assert(#lines_with(rig, "allowed through the upstream proxy") == 1, table.concat(rig.log, "\n"))
     local _, _ = conn:close()
     -- The name checks apply first: an ungranted name never reaches the upstream.
@@ -1206,8 +1206,8 @@ local function test_a_connect_goes_through_the_upstream_proxy_which_resolves(tmp
     assert(status_line(refusal):find("^HTTP/1.1 403 .*is a loopback address"), refusal)
     local _, _ = direct:close()
     -- The upstream's own address needs no grant, and the program is not granted it.
-    local literal, ok = connect_to(rig, "127.0.0.1:" .. through.server.port)
-    assert(status_line(ok):find("^HTTP/1.1 403 .*not granted: %-%-connect 127.0.0.1:" .. through.server.port), ok)
+    local literal, ok = connect_to(rig, "127.0.0.1:" .. tostring(through.server.port))
+    assert(status_line(ok):find("^HTTP/1.1 403 .*not granted: %-%-connect 127.0.0.1:" .. tostring(through.server.port)), ok)
     local _, _ = literal:close()
     -- A name for the proxy's own host is not the sandbox's to ask for.
     local named, local_answer = connect_to(rig, "a.localhost:443")
@@ -1298,7 +1298,7 @@ local function test_an_upstream_that_refuses_is_told_to_the_program(tmp: string)
         { "403 Forbidden", "the upstream proxy refused the CONNECT: HTTP/1.1 403 Forbidden" } }) do
       local through = proxy(case[1])
       local up: Relay.Upstream = { host = "127.0.0.1", port = through.server.port, no_proxy = {} }
-      local rig = start(tmp, { grants = { "api.test:443", "127.0.0.1:" .. through.server.port }, upstream = up })
+      local rig = start(tmp, { grants = { "api.test:443", "127.0.0.1:" .. tostring(through.server.port) }, upstream = up })
       local conn, head = connect_to(rig, "api.test:443")
       local line = status_line(head)
       assert(line:find("^HTTP/1.1 502 ") and line:find(case[2], 1, true), line)
@@ -1317,17 +1317,17 @@ local function test_no_proxy_names_the_hosts_reached_directly(tmp: string)
     local server = origin(echo)
     local up: Relay.Upstream = {
       host = "127.0.0.1", port = through.server.port,
-      no_proxy = { "direct.test", ".sub.test", "svc.test:" .. server.port, "other.test:1" },
+      no_proxy = { "direct.test", ".sub.test", "svc.test:" .. tostring(server.port), "other.test:1" },
     }
-    local rig = start(tmp, { grants = { "127.0.0.1:" .. through.server.port, "127.0.0.1:" .. server.port,
-      "svc.test:" .. server.port, "other.test:" .. server.port }, upstream = up })
+    local rig = start(tmp, { grants = { "127.0.0.1:" .. tostring(through.server.port), "127.0.0.1:" .. tostring(server.port),
+      "svc.test:" .. tostring(server.port), "other.test:" .. tostring(server.port) }, upstream = up })
     -- svc.test on this port is named, so it is reached directly (and its loopback is granted).
-    local direct, head = connect_to(rig, "svc.test:" .. server.port)
+    local direct, head = connect_to(rig, "svc.test:" .. tostring(server.port))
     assert(status_line(head):find("^HTTP/1.1 200 "), head)
     assert(through.server.connections == 0)
     local _, _ = direct:close()
     -- other.test:1 is named for another port, so this one goes through the upstream.
-    local via, answer = connect_to(rig, "other.test:" .. server.port)
+    local via, answer = connect_to(rig, "other.test:" .. tostring(server.port))
     assert(status_line(answer):find("^HTTP/1.1 200 "), answer)
     assert(through.server.connections == 1)
     local _, _ = via:close()
@@ -1339,8 +1339,8 @@ local function test_every_connection_has_one_decision_line(tmp: string)
   Poll.run(function()
     local server = origin(echo)
     local port = server.port
-    local rig = start(tmp, { grants = { "svc.test:" .. port, "127.0.0.1:" .. port } })
-    for _, target in ipairs({ "svc.test:" .. port, "evil.test:" .. port, "127.0.0.2:" .. port, "svc.test:" .. port }) do
+    local rig = start(tmp, { grants = { "svc.test:" .. tostring(port), "127.0.0.1:" .. tostring(port) } })
+    for _, target in ipairs({ "svc.test:" .. tostring(port), "evil.test:" .. tostring(port), "127.0.0.2:" .. tostring(port), "svc.test:" .. tostring(port) }) do
       local conn = connect_to(rig, target)
       local _, _ = conn:close()
     end
@@ -1363,7 +1363,7 @@ local function test_every_connection_has_one_decision_line(tmp: string)
     for id = 1, 6 do
       assert(decided[id] == 1, ("connection %d has %s decision lines: %s"):format(id, tostring(decided[id]), table.concat(rig.log, "\n")))
     end
-    assert(#lines_with(rig, "#2 connect evil.test:" .. port .. ": refused: not granted: --connect evil.test:" .. port) == 1)
+    assert(#lines_with(rig, "#2 connect evil.test:" .. tostring(port) .. ": refused: not granted: --connect evil.test:" .. tostring(port)) == 1)
     assert(rig.server:stats().refused == 4)
     finish(rig, server)
   end)
@@ -1372,8 +1372,8 @@ end
 local function test_stop_closes_open_tunnels(tmp: string)
   Poll.run(function()
     local server = origin(echo)
-    local rig = start(tmp, { grants = { "127.0.0.1:" .. server.port } })
-    local conn = connect_to(rig, "127.0.0.1:" .. server.port)
+    local rig = start(tmp, { grants = { "127.0.0.1:" .. tostring(server.port) } })
+    local conn = connect_to(rig, "127.0.0.1:" .. tostring(server.port))
     assert(conn:write("a"))
     assert(read_exact(conn, 1) == "a")
     rig.server:stop()
@@ -1488,18 +1488,18 @@ end
 local function test_a_token_lets_a_connect_with_its_basic_credential_through(tmp: string)
   Poll.run(function()
     local server = origin(echo)
-    local grants = { "127.0.0.1:" .. server.port }
+    local grants = { "127.0.0.1:" .. tostring(server.port) }
     local rig = start(tmp, { grants = grants, token = TOKEN })
     -- Any user name does, and a password may hold a colon after the first.
     for _, user in ipairs({ "cosmic", "", "someone else" }) do
-      local conn, head = connect_to(rig, "127.0.0.1:" .. server.port, { basic(user, TOKEN) })
+      local conn, head = connect_to(rig, "127.0.0.1:" .. tostring(server.port), { basic(user, TOKEN) })
       assert(status_line(head) == "HTTP/1.1 200 Connection established", head)
       assert(conn:write("ping"))
       assert(read_exact(conn, 4) == "ping")
       local _, _ = conn:close()
     end
     -- The scheme's name is no case.
-    local lower, lowered = connect_to(rig, "127.0.0.1:" .. server.port,
+    local lower, lowered = connect_to(rig, "127.0.0.1:" .. tostring(server.port),
       { "proxy-authorization: bAsIc " .. Codec.base64("u:" .. TOKEN) })
     assert(status_line(lowered) == "HTTP/1.1 200 Connection established", lowered)
     local _, _ = lower:close()
@@ -1513,7 +1513,7 @@ end
 local function test_a_connect_without_the_token_gets_407_and_reaches_nothing(tmp: string)
   Poll.run(function()
     local server = origin(echo)
-    local grants = { "127.0.0.1:" .. server.port }
+    local grants = { "127.0.0.1:" .. tostring(server.port) }
     local rig = start(tmp, { grants = grants, token = TOKEN })
     local wrong = "WRONG-secret-9"
     local cases: {{string}} = {
@@ -1530,7 +1530,7 @@ local function test_a_connect_without_the_token_gets_407_and_reaches_nothing(tmp
     }
     local replies: mut {string} = {}
     for _, headers in ipairs(cases) do
-      local conn, head = connect_to(rig, "127.0.0.1:" .. server.port, headers)
+      local conn, head = connect_to(rig, "127.0.0.1:" .. tostring(server.port), headers)
       replies[#replies + 1] = head
       assert(status_line(head) == "HTTP/1.1 407 Proxy Authentication Required", head)
       assert(head:find('Proxy-Authenticate: Basic realm="cosmic sandbox"\r\n', 1, true), head)
@@ -1555,7 +1555,7 @@ end
 local function test_a_socks5_client_with_the_password_goes_through(tmp: string)
   Poll.run(function()
     local server = origin(echo)
-    local rig = start(tmp, { grants = { "127.0.0.1:" .. server.port }, token = TOKEN })
+    local rig = start(tmp, { grants = { "127.0.0.1:" .. tostring(server.port) }, token = TOKEN })
     -- Offering "no authentication" too, the relay still selects the password.
     local conn = dial(rig.socks)
     assert(socks_greet(conn, "\0\2") == "\5\2")
@@ -1589,11 +1589,11 @@ end
 local function test_a_mixed_listener_reads_each_connection_as_its_first_byte_says(tmp: string)
   Poll.run(function()
     local server = origin(echo)
-    local grants = { "127.0.0.1:" .. server.port }
+    local grants = { "127.0.0.1:" .. tostring(server.port) }
     local rig = start(tmp, { grants = grants, token = TOKEN, mixed = true,
       timeouts = { auth = Clock.ms(300) } })
     assert(rig.http.port == rig.socks.port)
-    local conn, head = connect_to(rig, "127.0.0.1:" .. server.port, { basic("cosmic", TOKEN) })
+    local conn, head = connect_to(rig, "127.0.0.1:" .. tostring(server.port), { basic("cosmic", TOKEN) })
     assert(status_line(head) == "HTTP/1.1 200 Connection established", head)
     assert(conn:write("over-connect"))
     assert(read_exact(conn, 12) == "over-connect")
@@ -1607,7 +1607,7 @@ local function test_a_mixed_listener_reads_each_connection_as_its_first_byte_say
     assert(socks:write("over-socks"))
     assert(read_exact(socks, 10) == "over-socks")
     local _, _ = socks:close()
-    local bare, refused = connect_to(rig, "127.0.0.1:" .. server.port)
+    local bare, refused = connect_to(rig, "127.0.0.1:" .. tostring(server.port))
     assert(status_line(refused) == "HTTP/1.1 407 Proxy Authentication Required", refused)
     local _, _ = bare:close()
     local unauthenticated = dial(rig.socks)
@@ -1620,8 +1620,8 @@ local function test_a_mixed_listener_reads_each_connection_as_its_first_byte_say
       return #lines_with(rig, "mixed: refused: nothing received") == 1
     end)
     assert(server.connections == 2, "only the two with the token reached the server")
-    assert(#lines_with(rig, "connect 127.0.0.1:" .. server.port .. ": allowed") == 1, table.concat(rig.log, "\n"))
-    assert(#lines_with(rig, "socks5 127.0.0.1:" .. server.port .. ": allowed") == 1, table.concat(rig.log, "\n"))
+    assert(#lines_with(rig, "connect 127.0.0.1:" .. tostring(server.port) .. ": allowed") == 1, table.concat(rig.log, "\n"))
+    assert(#lines_with(rig, "socks5 127.0.0.1:" .. tostring(server.port) .. ": allowed") == 1, table.concat(rig.log, "\n"))
     finish(rig, server)
   end)
 end
@@ -1629,7 +1629,7 @@ end
 local function test_a_socks5_greeting_without_the_password_method_gets_no_acceptable_method(tmp: string)
   Poll.run(function()
     local server = origin(echo)
-    local rig = start(tmp, { grants = { "127.0.0.1:" .. server.port }, token = TOKEN })
+    local rig = start(tmp, { grants = { "127.0.0.1:" .. tostring(server.port) }, token = TOKEN })
     for _, methods in ipairs({ "\0", "\0\1\3" }) do
       local conn = dial(rig.socks)
       assert(socks_greet(conn, methods) == "\5\255")
@@ -1646,7 +1646,7 @@ end
 local function test_a_socks5_client_with_a_wrong_password_fails_authentication(tmp: string)
   Poll.run(function()
     local server = origin(echo)
-    local rig = start(tmp, { grants = { "127.0.0.1:" .. server.port }, token = TOKEN })
+    local rig = start(tmp, { grants = { "127.0.0.1:" .. tostring(server.port) }, token = TOKEN })
     local wrong = "WRONG-secret-9"
     local replies = ""
     local messages = {
@@ -1681,7 +1681,7 @@ end
 local function test_connections_not_yet_authenticated_do_not_spend_the_cap(tmp: string)
   Poll.run(function()
     local server = origin(echo)
-    local rig = start(tmp, { grants = { "127.0.0.1:" .. server.port }, token = TOKEN,
+    local rig = start(tmp, { grants = { "127.0.0.1:" .. tostring(server.port) }, token = TOKEN,
       limits = { connections = 1, total = 2 } })
     -- Connections that say nothing, and ones refused, on both listeners.
     local idle: mut {Net.Conn} = {}
@@ -1690,15 +1690,15 @@ local function test_connections_not_yet_authenticated_do_not_spend_the_cap(tmp: 
       idle[#idle + 1] = dial(rig.socks)
     end
     for _ = 1, 3 do
-      local refused, head = connect_to(rig, "127.0.0.1:" .. server.port, { basic("u", "no") })
+      local refused, head = connect_to(rig, "127.0.0.1:" .. tostring(server.port), { basic("u", "no") })
       assert(status_line(head):find("^HTTP/1.1 407 "), head)
       local _, _ = refused:close()
     end
     -- One authenticated connection is within `connections`, the next is not,
     -- and `total` is not spent by any of the above.
-    local first, head = connect_to(rig, "127.0.0.1:" .. server.port, { basic("u", TOKEN) })
+    local first, head = connect_to(rig, "127.0.0.1:" .. tostring(server.port), { basic("u", TOKEN) })
     assert(status_line(head):find("^HTTP/1.1 200 "), head)
-    local second, over = connect_to(rig, "127.0.0.1:" .. server.port, { basic("u", TOKEN) })
+    local second, over = connect_to(rig, "127.0.0.1:" .. tostring(server.port), { basic("u", TOKEN) })
     assert(status_line(over):find("^HTTP/1.1 503 too many open connections: at most 1 at once", 1), over)
     local _, _ = second:close()
     until_it(function(): boolean return rig.server:stats().open == 1 end)
@@ -1714,12 +1714,12 @@ end
 local function test_connections_not_yet_authenticated_are_bounded_in_number_and_in_time(tmp: string)
   Poll.run(function()
     local server = origin(echo)
-    local rig = start(tmp, { grants = { "127.0.0.1:" .. server.port }, token = TOKEN,
+    local rig = start(tmp, { grants = { "127.0.0.1:" .. tostring(server.port) }, token = TOKEN,
       limits = { pre_auth = 1 }, timeouts = { auth = Clock.ms(300), head = Clock.seconds(30) } })
     local silent = dial(rig.http)
     -- A second connection is not served while the first holds the one slot.
     local waiting = dial(rig.http)
-    assert(waiting:write(Fixture.connect("127.0.0.1:" .. server.port, { basic("u", TOKEN) })))
+    assert(waiting:write(Fixture.connect("127.0.0.1:" .. tostring(server.port), { basic("u", TOKEN) })))
     waiting:set_timeout(Clock.ms(100))
     local early, why = waiting:read(1)
     assert(early == nil and why == Poll.TIMEOUT, "it waits for a slot")
@@ -1738,9 +1738,9 @@ end
 local function test_without_a_token_no_credential_is_asked_or_read(tmp: string)
   Poll.run(function()
     local server = origin(echo)
-    local rig = start(tmp, { grants = { "127.0.0.1:" .. server.port } })
+    local rig = start(tmp, { grants = { "127.0.0.1:" .. tostring(server.port) } })
     -- A credential that is sent is not looked at.
-    local conn, head = connect_to(rig, "127.0.0.1:" .. server.port, { basic("u", "anything") })
+    local conn, head = connect_to(rig, "127.0.0.1:" .. tostring(server.port), { basic("u", "anything") })
     assert(status_line(head) == "HTTP/1.1 200 Connection established", head)
     local _, _ = conn:close()
     -- A SOCKS5 client offering both methods gets no authentication, and one
@@ -1763,15 +1763,15 @@ local function test_a_token_with_colons_is_matched_as_the_whole_password(tmp: st
   Poll.run(function()
     local server = origin(echo)
     local colons = "a:b::c:0123456789abcdef"
-    local rig = start(tmp, { grants = { "127.0.0.1:" .. server.port }, token = colons })
-    local conn, head = connect_to(rig, "127.0.0.1:" .. server.port, { basic("u:v", colons) })
+    local rig = start(tmp, { grants = { "127.0.0.1:" .. tostring(server.port) }, token = colons })
+    local conn, head = connect_to(rig, "127.0.0.1:" .. tostring(server.port), { basic("u:v", colons) })
     -- The user ends at the first colon, so "u:v" with this token is the password "v:" .. token.
     assert(status_line(head):find("^HTTP/1.1 407 "), head)
     local _, _ = conn:close()
-    local good, answer = connect_to(rig, "127.0.0.1:" .. server.port, { basic("u", colons) })
+    local good, answer = connect_to(rig, "127.0.0.1:" .. tostring(server.port), { basic("u", colons) })
     assert(status_line(answer):find("^HTTP/1.1 200 "), answer)
     local _, _ = good:close()
-    local partial, refused = connect_to(rig, "127.0.0.1:" .. server.port, { basic("u", "b::c:0123456789abcdef") })
+    local partial, refused = connect_to(rig, "127.0.0.1:" .. tostring(server.port), { basic("u", "b::c:0123456789abcdef") })
     assert(status_line(refused):find("^HTTP/1.1 407 "), refused)
     local _, _ = partial:close()
     local socks = dial(rig.socks)
@@ -1786,7 +1786,7 @@ end
 local function test_authenticating_has_its_own_short_wait_and_the_request_its_own_after_it(tmp: string)
   Poll.run(function()
     local server = origin(echo)
-    local rig = start(tmp, { grants = { "127.0.0.1:" .. server.port }, token = TOKEN,
+    local rig = start(tmp, { grants = { "127.0.0.1:" .. tostring(server.port) }, token = TOKEN,
       timeouts = { auth = Clock.ms(200), head = Clock.seconds(30) } })
     -- A SOCKS5 client that greets and then stalls is closed after the auth wait.
     local stalled = dial(rig.socks)

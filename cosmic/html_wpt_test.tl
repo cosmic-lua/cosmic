@@ -46,6 +46,6 @@ local function test_href_agrees_with_the_whatwg_url_data()
       end
     end
   end
-  assert(checked >= floor, "only " .. checked .. " entries were checked")
-  assert(relative >= relative_floor, "only " .. relative .. " relative entries were checked")
+  assert(checked >= floor, "only " .. tostring(checked) .. " entries were checked")
+  assert(relative >= relative_floor, "only " .. tostring(relative) .. " relative entries were checked")
 end

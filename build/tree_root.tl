@@ -46,7 +46,7 @@ local record tree_root
   --- What `move` decides.
   record Answer
     --- The move, or nil where the verb runs where it was started.
-    move: Move?
+    move?: Move
     --- Why the command line is refused (`COSMIC_TREE` names no
     --- directory), or empty.
     refused: string

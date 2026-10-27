@@ -151,11 +151,11 @@ local function same(a: Outcome, b: Outcome): boolean, string
   for i, p in ipairs(a.parts) do
     local q = b.parts[i]
     if p.name ~= q.name or p.filename ~= q.filename or p.content_type ~= q.content_type then
-      return false, "part " .. i .. " differs in a header"
+      return false, "part " .. tostring(i) .. " differs in a header"
     end
     -- A body cut by a failure may be cut anywhere, but never differently once complete.
     if a.failure == "" and p.body ~= q.body then
-      return false, "part " .. i .. " differs in its body"
+      return false, "part " .. tostring(i) .. " differs in its body"
     end
   end
   return true, ""
@@ -235,7 +235,7 @@ local function test_parts_come_back_as_they_were_drawn(tmp: string)
         local p = got.parts[i]
         if p.name ~= want.name or p.filename ~= want.filename or p.content_type ~= want.content_type or
             p.body ~= want.body then
-          return false, "part " .. i .. " is not the part drawn"
+          return false, "part " .. tostring(i) .. " is not the part drawn"
         end
       end
       if #last > 0 then Fuzz.label("parts") end

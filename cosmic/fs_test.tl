@@ -301,8 +301,8 @@ local function test_set_mtime_sets_nanoseconds_and_leaves_the_access_time(tmp: s
   local set, trouble = Fs.set_mtime(path, 2000, 123456789)
   assert(set and trouble == "")
   local st = assert(sys.stat(path))
-  assert(st.mtime == 2000 and st.mtime_ns == 123456789, st.mtime .. "." .. st.mtime_ns)
-  assert(st.atime == 1000 and st.atime_ns == 7, st.atime .. "." .. st.atime_ns)
+  assert(st.mtime == 2000 and st.mtime_ns == 123456789, tostring(st.mtime) .. "." .. tostring(st.mtime_ns))
+  assert(st.atime == 1000 and st.atime_ns == 7, tostring(st.atime) .. "." .. tostring(st.atime_ns))
 end
 
 --- A whole second is the default, and nanoseconds out of range are a
@@ -313,7 +313,7 @@ local function test_set_mtime_defaults_to_a_whole_second_and_checks_ns(tmp: stri
   assert(Fs.set_mtime(path, 3000, 5))
   assert(Fs.set_mtime(path, 4000))
   local st = assert(sys.stat(path))
-  assert(st.mtime == 4000 and st.mtime_ns == 0, st.mtime .. "." .. st.mtime_ns)
+  assert(st.mtime == 4000 and st.mtime_ns == 0, tostring(st.mtime) .. "." .. tostring(st.mtime_ns))
   local ok, why = pcall(Fs.set_mtime, path, 4000, 1000000000)
   assert(not ok and tostring(why):find("fs: nanoseconds are outside [0, 1e9)", 1, true), tostring(why))
   assert(not pcall(Fs.set_mtime, path, 4000, -1))
@@ -410,7 +410,7 @@ local function test_a_flock_of_zero_milliseconds_does_not_wait(tmp: string)
   end
   local _, _ = sys.close(other)
   local _, _ = sys.close(holder)
-  assert(quickest < Clock.ms(1) // 2, "the quickest of 200 tries took " .. quickest .. " ns")
+  assert(quickest < Clock.ms(1) // 2, "the quickest of 200 tries took " .. tostring(quickest) .. " ns")
 end
 
 local function test_a_second_close_of_a_scratch_leaves_a_reused_descriptor(tmp: string)
@@ -421,7 +421,7 @@ local function test_a_second_close_of_a_scratch_leaves_a_reused_descriptor(tmp: 
   local opened: mut {integer} = {}
   local reused: integer?
   for i = 1, 64 do
-    local fd = assert(sys.open(tmp .. "/reused" .. i, sys.O_RDWR | sys.O_CREAT, 0x180))
+    local fd = assert(sys.open(tmp .. "/reused" .. tostring(i), sys.O_RDWR | sys.O_CREAT, 0x180))
     opened[#opened + 1] = fd
     if fd == owner then
       reused = fd
@@ -487,11 +487,11 @@ local function test_remove_tree_of_a_link_removes_the_link_and_walks_a_deep_tree
   -- A directory of links to directories, and one of wide and deep names.
   local tree = tmp .. "/deep"
   local path = tree
-  for i = 1, 40 do path = path .. "/d" .. i end
+  for i = 1, 40 do path = path .. "/d" .. tostring(i) end
   assert(Fs.mkdirs(path))
   for i = 1, 300 do
-    assert(Fs.write(tree .. "/f" .. i, "x"))
-    assert(Fs.symlink(outside .. "/inner", tree .. "/l" .. i))
+    assert(Fs.write(tree .. "/f" .. tostring(i), "x"))
+    assert(Fs.symlink(outside .. "/inner", tree .. "/l" .. tostring(i)))
   end
   assert(Fs.remove_tree(tree))
   assert(Fs.exists(tree) == false and Fs.read(outside .. "/inner/keep") == "kept")
@@ -603,7 +603,7 @@ local function test_copy_tree_keeps_bytes_modes_times_and_links(tmp: string)
   assert(assert(Fs.read(to .. "/big")) == big)
   local big_st = assert(Fs.stat(to .. "/big"))
   assert(big_st.mtime == 1000000000 and big_st.mtime_ns == 123456789,
-    big_st.mtime .. "." .. big_st.mtime_ns)
+    tostring(big_st.mtime) .. "." .. tostring(big_st.mtime_ns))
   assert(assert(Fs.stat(to .. "/sub/run")).mode & 0xfff == 0x1e8)
   local secret = assert(Fs.stat(to .. "/sub/secret"))
   assert(secret.mode & 0xfff == 0x180)
@@ -611,14 +611,14 @@ local function test_copy_tree_keeps_bytes_modes_times_and_links(tmp: string)
   -- (ext4), its own last time where it counts nanoseconds (APFS).
   local kept = assert(Fs.stat(from .. "/sub/secret"))
   assert(secret.mtime == kept.mtime and secret.mtime_ns == kept.mtime_ns,
-    secret.mtime .. "." .. secret.mtime_ns)
-  assert(secret.atime == 1000000000 and secret.atime_ns == 42, secret.atime .. "." .. secret.atime_ns)
+    tostring(secret.mtime) .. "." .. tostring(secret.mtime_ns))
+  assert(secret.atime == 1000000000 and secret.atime_ns == 42, tostring(secret.atime) .. "." .. tostring(secret.atime_ns))
   assert(assert(Fs.stat(to .. "/sub")).mode & 0xfff == 0x16d)
   assert(assert(Fs.is_dir(to .. "/sub/empty")))
   assert(assert(Fs.readlink(to .. "/sub/link")) == "../big")
   local link_st = assert(sys.lstat(to .. "/sub/link"))
   assert(link_st.mtime == 1500000000 and link_st.mtime_ns == 5,
-    link_st.mtime .. "." .. link_st.mtime_ns)
+    tostring(link_st.mtime) .. "." .. tostring(link_st.mtime_ns))
   assert(assert(Fs.readlink(to .. "/dangling")) == "nowhere")
   assert(sys.chmod(from .. "/sub", 0x1ed) and sys.chmod(to .. "/sub", 0x1ed))
 end

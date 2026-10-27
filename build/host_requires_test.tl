@@ -51,6 +51,25 @@ local function test_a_broken_unix_socket_probe_cannot_become_a_skip()
 end
 
 --- Every name of the table, and each form that takes an argument, is read.
+local function test_a_platform_requirement_with_no_platform_has_raises_and_a_host_one_needs_none()
+  local host = host_requires.new({})
+  local entries: {string: host_requires.Entry} = {
+    sandbox = { probe = function(_: string, _host: host_requires.Host): host_requires.Found
+      return { present = true, text = "stood in" }
+    end },
+  }
+  local ok, why = pcall(host_requires.answer, host, { "sandbox" }, entries)
+  assert(not ok and tostring(why):find("sandbox is a platform requirement with no platform_has", 1, true) ~= nil,
+    tostring(why))
+  -- a `host` requirement (a path) has no platform to ask
+  local plain: {string: host_requires.Entry} = {
+    root = { probe = function(_: string, _host: host_requires.Host): host_requires.Found
+      return { present = true, text = "stood in" }
+    end },
+  }
+  assert(assert(host_requires.answer(host, { "root" }, plain)[1]).kind == "present")
+end
+
 local function test_every_name_parses()
   for _, name in ipairs(host_names.names) do
     local text = name

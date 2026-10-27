@@ -157,7 +157,7 @@ local function first_error(case: Case): Parser.Error
   local parsed = parse(case.source, if case.decl then "decl" else "tl" end)
   local e = parsed.errors[1]
   assert(e ~= nil, "no error for " .. case.source)
-  assert(#parsed.errors == (case.count or 1), #parsed.errors .. " errors for " .. case.source .. ", the first " .. e.code .. ": " .. e.msg)
+  assert(#parsed.errors == (case.count or 1), tostring(#parsed.errors) .. " errors for " .. case.source .. ", the first " .. e.code .. ": " .. e.msg)
   return e
 end
 
@@ -166,7 +166,7 @@ local function test_each_refusal_has_its_code_its_place_and_its_fix()
     local e = first_error(case)
     local what = case.code .. " for " .. case.source
     assert(tostring(e.code) == case.code, what .. ": got " .. e.code .. ": " .. e.msg)
-    assert(e.y == case.y and e.x == case.x, what .. ": at " .. e.y .. ":" .. e.x .. ", not " .. case.y .. ":" .. case.x)
+    assert(e.y == case.y and e.x == case.x, what .. ": at " .. tostring(e.y) .. ":" .. tostring(e.x) .. ", not " .. tostring(case.y) .. ":" .. tostring(case.x))
     assert(e.msg:find(case.says, 1, true), what .. ": message " .. e.msg)
     assert(e.fix:find(case.fix, 1, true), what .. ": fix " .. e.fix)
     assert(e.filename == "t.tl")
@@ -271,8 +271,8 @@ local function test_input_nested_past_the_limit_is_refused_not_overflowed()
   }
   for i, source in ipairs(sources) do
     local parsed = parse(source, "tl")
-    assert(parsed.errors[1] ~= nil and parsed.errors[1].code == "too_deep", "source " .. i .. " is refused")
-    assert(#parsed.errors == 1, "source " .. i .. ": " .. #parsed.errors .. " errors, the rest is not reported")
+    assert(parsed.errors[1] ~= nil and parsed.errors[1].code == "too_deep", "source " .. tostring(i) .. " is refused")
+    assert(#parsed.errors == 1, "source " .. tostring(i) .. ": " .. tostring(#parsed.errors) .. " errors, the rest is not reported")
   end
   local ok = parse("local x = " .. ("("):rep(150) .. "1" .. (")"):rep(150), "tl")
   assert(#ok.errors == 0, "150 levels are fine")

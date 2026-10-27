@@ -35,8 +35,8 @@ end
 local record Item
   --- `"comment"` or `"example"`.
   kind: string
-  text: string?
-  example: Example?
+  text?: string
+  example?: Example
 end
 
 local record generate

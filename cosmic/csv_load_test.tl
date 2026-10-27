@@ -154,9 +154,9 @@ local function test_load_reads_a_high_byte_delimiter()
   for index, delimiter in ipairs({ "\xa7", "\xff", "\x80" }) do
     local text = "x" .. delimiter .. "y\n1" .. delimiter .. '"2' .. delimiter .. '3"\n'
     local made = assert(Csv.table(text, { delimiter = delimiter }))
-    local loaded = assert(Csv.load(db, "t" .. index, { text = text, delimiter = delimiter, raw = true }))
+    local loaded = assert(Csv.load(db, "t" .. tostring(index), { text = text, delimiter = delimiter, raw = true }))
     assert(table.concat(loaded.columns, ",") == table.concat(made.columns, ","), table.concat(loaded.columns, ","))
-    assert(quoted(db, "SELECT x, y FROM t" .. index) == "1|2" .. delimiter .. "3")
+    assert(quoted(db, "SELECT x, y FROM t" .. tostring(index)) == "1|2" .. delimiter .. "3")
   end
   for _, delimiter in ipairs({ "\xEF", "\xBB", "\xBF" }) do
     local ok, why = pcall(Csv.load, db, "z", { text = "a\n", delimiter = delimiter })
