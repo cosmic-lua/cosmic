@@ -11,8 +11,7 @@
 --- This is the oracle of build/checker_assigned_fuzz_test.tl against the new checker, which keeps it when the fork
 --- goes; the fork's reads a function where it is called, and so its oracle ran the functions it had made at each call.
 --- `FUZZ_SEED` and `FUZZ_ITERS` pick the inputs (build/fuzz/init.tl).
---- A few draws run by default so that the test fits a few seconds; the full sweep, many draws from several seeds, is
---- [`bin/gate-sweep`] (its result is testdata/gate/sweep.txt), and the nightly fuzz workflow draws from a seed of its own.
+--- A few draws run by default so that the test fits a few seconds; the nightly fuzz workflow draws many from a seed of its own.
 ---
 --- The statements are drawn towards what the rule decides: a branch that assigns on one edge and a read after it is a
 --- statement of its own, so that a join that forgets an unassigned local is found within a few draws.
