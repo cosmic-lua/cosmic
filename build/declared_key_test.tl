@@ -1009,7 +1009,7 @@ local function test_a_walk_is_remembered_while_no_directory_moves(tmp: string)
   }
   local digests = declared_key.digests(tmp)
   local first = declared_key.system_identity(digests, sources, true)
-  assert(digests.read == 1, "the first walk read " .. digests.read)
+  assert(digests.read == 1, "the first walk read " .. tostring(digests.read))
   assert(declared_key.system_identity(digests, sources, true) == first)
   assert(digests.read == 1, "a walk no directory moved since was walked again")
   local next_run = declared_key.digests(tmp, declared_key.kept(digests))

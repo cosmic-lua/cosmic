@@ -53,7 +53,7 @@ end
 
 local function refused(words: {string}): Ran
   local ran = run(words)
-  assert(ran.code == 2, table.concat(words, " ") .. ": " .. ran.code .. " " .. ran.err)
+  assert(ran.code == 2, table.concat(words, " ") .. ": " .. tostring(ran.code) .. " " .. ran.err)
   assert(ran.argv == nil, "nothing starts")
   assert(ran.err:find("^cosmic: sandbox: "), ran.err)
   return ran
@@ -222,7 +222,7 @@ local function test_a_connect_is_the_starts_to_serve_and_its_failure_is_the_star
   assert(Fs.write(tmp .. "/there", "x") and sys.chmod(tmp .. "/there", 493))
   local ran = run({ "--connect", "github.com:443", tmp .. "/there" },
     { why = "child: start: sandbox: relay: the relay ended (status 1) before it served" })
-  assert(ran.code == 125, ran.code .. ran.err)
+  assert(ran.code == 125, tostring(ran.code) .. ran.err)
   assert(ran.err:find("relay: the relay ended", 1, true), ran.err)
   same(assert(ran.opts.policy).connect, { "github.com:443" })
 end
@@ -252,7 +252,7 @@ end
 local function test_a_connect_right_after_the_verb_is_the_relays_client()
   local given, code = client_of({ "connect", "github.com", "22" })
   same(given, { "github.com", "22" })
-  assert(code == 42, "its status is the verb's: " .. code)
+  assert(code == 42, "its status is the verb's: " .. tostring(code))
   same(client_of({ "connect" }), {})
   -- Only the bare word after the verb: every other place is a program's.
   assert(client_of({ "--system", "connect", "github.com", "22" }) == nil, "after an option it is a program")
@@ -285,31 +285,31 @@ local function test_a_start_that_fails_exits_125_with_the_reason(tmp: string)
   assert(Fs.write(tmp .. "/there", "x") and sys.chmod(tmp .. "/there", 493))
   local ran = run({ tmp .. "/there" }, { why = "child: start: Landlock is not available" })
   assert(ran.code == 125 and ran.err == "cosmic: sandbox: child: start: Landlock is not available\n",
-    ran.code .. ran.err)
+    tostring(ran.code) .. ran.err)
   same(ran.argv, { tmp .. "/there" })
 end
 
 local function test_a_program_that_is_not_there_exits_127(tmp: string)
   local ran = run({ tmp .. "/absent" },
     { why = "child: start: sandbox: " .. tmp .. "/absent: No such file or directory" })
-  assert(ran.code == 127, ran.code .. ran.err)
+  assert(ran.code == 127, tostring(ran.code) .. ran.err)
   assert(ran.err:find("No such file", 1, true))
   ran = run({ "zzqqx-no-such-program" }, { why = "child: start: zzqqx-no-such-program: not found" })
-  assert(ran.code == 127, ran.code .. ran.err)
+  assert(ran.code == 127, tostring(ran.code) .. ran.err)
 end
 
 local function test_127_is_only_for_a_failure_that_is_the_program_not_found(tmp: string)
   local ran = run({ "zzqqx-no-such-program" }, { why = "child: start: cwd \"/x\" does not exist" })
-  assert(ran.code == 125 and ran.err:find("cwd", 1, true), ran.code .. ran.err)
+  assert(ran.code == 125 and ran.err:find("cwd", 1, true), tostring(ran.code) .. ran.err)
   ran = run({ tmp .. "/absent" }, { why = "child: start: grant /y: No such file or directory" })
-  assert(ran.code == 125, ran.code .. ran.err)
+  assert(ran.code == 125, tostring(ran.code) .. ran.err)
 end
 
 local function test_a_program_that_cannot_be_run_exits_126(tmp: string)
   assert(Fs.write(tmp .. "/plain", "x"))
   assert(sys.chmod(tmp .. "/plain", 420))
   local ran = run({ tmp .. "/plain" }, { why = "child: start: Permission denied" })
-  assert(ran.code == 126 and ran.err:find("Permission denied", 1, true), ran.code .. ran.err)
+  assert(ran.code == 126 and ran.err:find("Permission denied", 1, true), tostring(ran.code) .. ran.err)
   -- Where it can run, a failure is the start's.
   assert(Fs.write(tmp .. "/runs", "x"))
   assert(sys.chmod(tmp .. "/runs", 493))
@@ -320,14 +320,14 @@ local function test_a_relative_program_is_judged_from_cwd(tmp: string)
   assert(Fs.mkdirs(tmp .. "/work"))
   assert(Fs.write(tmp .. "/work/plain", "x") and sys.chmod(tmp .. "/work/plain", 420))
   local ran = run({ "--cwd", tmp .. "/work", "./plain" }, { why = "child: start: Permission denied" })
-  assert(ran.code == 126, ran.code .. ran.err)
+  assert(ran.code == 126, tostring(ran.code) .. ran.err)
 end
 
 local function test_childs_hint_about_a_path_search_is_left_out()
   local ran = run({ "zzqqx-no-such-program" }, { why = "child: start: grant /nope: No such file or " ..
       "directory: \"zzqqx-no-such-program\" is run as a path, with no PATH search; " ..
       "Proc.find(\"zzqqx-no-such-program\") answers where a shell would find it" })
-  assert(ran.code == 125, ran.code .. ran.err)
+  assert(ran.code == 125, tostring(ran.code) .. ran.err)
   assert(ran.err == "cosmic: sandbox: child: start: grant /nope: No such file or directory\n", ran.err)
 end
 

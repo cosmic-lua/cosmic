@@ -230,7 +230,7 @@ local function test_a_max_depth_out_of_range_raises_naming_the_caller()
     local text = json_query.describe(doc, { max_depth = depth as integer })
     return text
   end
-  local walks = "json: max_depth must be an integer from 1 to " .. Json.depth_limit
+  local walks = "json: max_depth must be an integer from 1 to " .. tostring(Json.depth_limit)
   for _, bad in ipairs({ 0, Json.depth_limit + 1, 1.5, "2" } as {any}) do
     local ok, message = pcall(flatten_with, bad)
     assert(not ok and tostring(message):find(walks, 1, true), tostring(message))

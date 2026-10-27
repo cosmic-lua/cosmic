@@ -85,7 +85,9 @@ local function test_a_loaded_row_reads_back_through_json(tmp: string)
       end
       if #rows == 0 then Fuzz.label("no rows") end
       if next(made.renamed) ~= nil then Fuzz.label("renamed") else Fuzz.label("plain") end
-      if made.count ~= #rows then return false, "counted " .. made.count .. " of " .. #rows end
+      if made.count ~= #rows then
+        return false, "counted " .. made.count .. " of " .. tostring(#rows)
+      end
       local seen: mut {string:boolean} = {}
       for _, column in ipairs(made.columns) do
         if seen[column:lower()] then return false, column .. " is a column twice" end
@@ -100,14 +102,14 @@ local function test_a_loaded_row_reads_back_through_json(tmp: string)
         end
       end
       if #made.columns ~= distinct + 1 then
-        return false, #made.columns .. " columns for " .. distinct .. " keys"
+        return false, #made.columns .. " columns for " .. tostring(distinct) .. " keys"
       end
       local texts, trouble = Sqlite.text_rows(db, "SELECT _json FROM t ORDER BY rowid")
       if texts == nil then return false, trouble end
       for index, row in ipairs(rows) do
         local expected = assert(Json.encode_any(row))
         if texts[index]:text(1) ~= expected then
-          return false, "row " .. index .. " read back as " .. texts[index]:text(1) .. ", not " .. expected
+          return false, "row " .. tostring(index) .. " read back as " .. texts[index]:text(1) .. ", not " .. expected
         end
       end
       return true, ""
@@ -159,7 +161,9 @@ local function test_a_reader_is_total_on_any_text(tmp: string)
       local db = assert(Sqlite.memory())
       local loaded, trouble = dataset.load(db, "t", rows)
       if loaded == nil then return false, "rows read but not loaded: " .. trouble end
-      if loaded.count ~= #rows then return false, "counted " .. loaded.count .. " of " .. #rows end
+      if loaded.count ~= #rows then
+        return false, "counted " .. tostring(loaded.count) .. " of " .. #rows
+      end
       return true, ""
     end,
   })
@@ -217,7 +221,7 @@ local function test_each_key_reads_back_by_its_column(tmp: string)
             if kind ~= want.kind or (kind == "integer" and read:integer(1) ~= want.integer) or
                 (kind == "number" and read:number(1) ~= want.number) or
                 (kind == "text" and read:text(1) ~= want.text) then
-              return false, "key " .. Json.quote(key) .. " row " .. index .. " read as " .. kind
+              return false, "key " .. Json.quote(key) .. " row " .. tostring(index) .. " read as " .. kind
             end
           end
         end
@@ -252,7 +256,7 @@ local function gen_delimited(src: Fuzz.Source): string
   for row = 0, rows do
     local fields: mut {string} = {}
     for column = 1, width do
-      local cell = if row == 0 and src:int(0, 2) == 0 then "h" .. column else Fuzz.pick(src, CELLS) end
+      local cell = if row == 0 and src:int(0, 2) == 0 then "h" .. tostring(column) else Fuzz.pick(src, CELLS) end
       fields[column] = written(cell, delimiter)
     end
     lines[#lines + 1] = table.concat(fields, delimiter)

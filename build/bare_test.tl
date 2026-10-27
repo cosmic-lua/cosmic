@@ -68,7 +68,7 @@ end
 local function test_every_control_byte_becomes_hex()
   for code = 0, 31 do
     local byte = string.char(code)
-    assert(bare.escape(byte) == string.format("\\x%02X", code), "byte " .. code)
+    assert(bare.escape(byte) == string.format("\\x%02X", code), "byte " .. tostring(code))
   end
   assert(bare.escape("\127") == "\\x7F")
 end
@@ -95,7 +95,7 @@ local function test_named_escapes_spell_the_common_four()
   for code = 0, 31 do
     local byte = string.char(code)
     local want = ({ [9] = "\\t", [10] = "\\n", [13] = "\\r" })[code] or string.format("\\x%02X", code)
-    assert(bare.escape(byte, named) == want, "byte " .. code)
+    assert(bare.escape(byte, named) == want, "byte " .. tostring(code))
   end
 end
 
@@ -118,9 +118,9 @@ local function test_each_single_byte_escapes_as_the_oracle_says()
     local plain = control and hex or byte
     local named = if code == 92 then "\\\\" else (control and (common[code] or hex) or byte) end
     local kept = (code == 9 or code == 10) and byte or plain
-    assert(bare.escape(byte) == plain, "plain " .. code)
-    assert(bare.escape(byte, { named = true }) == named, "named " .. code)
-    assert(bare.escape(byte, { keep_tab_newline = true }) == kept, "keep " .. code)
+    assert(bare.escape(byte) == plain, "plain " .. tostring(code))
+    assert(bare.escape(byte, { named = true }) == named, "named " .. tostring(code))
+    assert(bare.escape(byte, { keep_tab_newline = true }) == kept, "keep " .. tostring(code))
   end
 end
 

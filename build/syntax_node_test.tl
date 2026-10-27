@@ -26,7 +26,7 @@ local function test_a_node_reads_its_place_from_its_tokens()
   local stat = chunk.body.stats[1]
   assert((stat.kind == "Local"))
   local span = Node.span(chunk, stat)
-  assert(span.y == 1 and span.x == 1 and span.yend == 2 and span.xend == 4, span.y .. ":" .. span.x)
+  assert(span.y == 1 and span.x == 1 and span.yend == 2 and span.xend == 4, tostring(span.y) .. ":" .. tostring(span.x))
   local range = Node.range(chunk, stat)
   local source = "local x = f(1,\n  2)\n"
   assert(source:sub(range.first, range.last) == "local x = f(1,\n  2)", source:sub(range.first, range.last))

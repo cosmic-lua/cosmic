@@ -198,7 +198,7 @@ local function test_split_refuses_a_trailer_that_does_not_fit()
   }
   for i, bytes in ipairs(refused) do
     local parts, trouble = artifact.split(bytes)
-    assert(parts == nil and trouble ~= "", "case " .. i)
+    assert(parts == nil and trouble ~= "", "case " .. tostring(i))
   end
   local not_sqlite = assert(artifact.split(program))
   local joined, trouble = artifact.rejoin(not_sqlite, "not sqlite")

@@ -48,7 +48,7 @@ local root = assert(Fs.absolute("."))
 --- Fails, listing what `during` met under build/, unless it met nothing.
 local function honest(what: string, fn: function())
   local found = TypeWatch.during(fn, "build/")
-  assert(#found == 0, what .. ": " .. #found .. " violations:\n" .. table.concat(found, "\n"))
+  assert(#found == 0, what .. ": " .. tostring(#found) .. " violations:\n" .. table.concat(found, "\n"))
 end
 
 --- A dump with a call that names no function, and a body that has no

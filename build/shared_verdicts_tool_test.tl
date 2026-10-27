@@ -126,7 +126,7 @@ Test.policy { grants = { { path = "]] .. Fs.dirname(root) ..
 
 local function test_reads_outside()
   local f = assert(Env.get("OUTSIDE")) .. "/f"
-  assert(assert(Fs.stat(f)).mtime ~= ]] .. unready .. [[)
+  assert(assert(Fs.stat(f)).mtime ~= ]] .. tostring(unready) .. [[)
   assert(Fs.read(f) == "out\n")
 end
 ]]))
@@ -759,7 +759,7 @@ Test.policy {
 }
 
 local function test_stops_early()
-  assert(assert(Fs.stat(assert(Env.get("OUTSIDE")) .. "/f")).mtime ~= ]] .. unready .. [[)
+  assert(assert(Fs.stat(assert(Env.get("OUTSIDE")) .. "/f")).mtime ~= ]] .. tostring(unready) .. [[)
   assert(Fs.read("suite/c.txt") == "c\n")
 end
 ]]))

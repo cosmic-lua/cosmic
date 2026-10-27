@@ -18,9 +18,9 @@ local function grid(db: Sqlite.Handle, sql: string): {string}
       if kind == "null" then
         cells[index] = "NULL"
       elseif kind == "integer" then
-        cells[index] = "i" .. row:integer(index)
+        cells[index] = "i" .. tostring(row:integer(index))
       elseif kind == "number" then
-        cells[index] = "r" .. row:number(index)
+        cells[index] = "r" .. tostring(row:number(index))
       else
         cells[index] = row:text(index)
       end
@@ -191,7 +191,7 @@ end
 
 local function test_too_many_columns_says_the_limit_and_the_count()
   local row: dataset.Row = {}
-  for index = 1, 1999 do row["k" .. index] = index end
+  for index = 1, 1999 do row["k" .. tostring(index)] = index end
   local db = memory()
   assert(dataset.load(db, "t", { row }), "1999 keys and `_json` are 2000 columns")
   row.extra = 1
@@ -347,15 +347,15 @@ local function test_load_text_copies_a_csv_up_to_500_fields()
   for _, width in ipairs({ 500, 501 }) do
     local header, row = {}, {}
     for column = 1, width do
-      header[column] = "c" .. column
+      header[column] = "c" .. tostring(column)
       row[column] = tostring(column)
     end
     local db = assert(Sqlite.memory())
     local made = assert(dataset.load_text(db, "t", "csv", table.concat(header, ",") .. "\n" ..
         table.concat(row, ",") .. "\n"))
-    assert((made.copied == true) == (width == 500), width .. " fields: copied " .. tostring(made.copied))
+    assert((made.copied == true) == (width == 500), tostring(width) .. " fields: copied " .. tostring(made.copied))
     assert(#made.columns == width + 1 and made.count == 1)
-    assert(grid(db, "SELECT json_extract(_json, '$.c" .. width .. "') FROM t")[1] == "i" .. width)
+    assert(grid(db, "SELECT json_extract(_json, '$.c" .. tostring(width) .. "') FROM t")[1] == "i" .. tostring(width))
     assert(db:close())
   end
 end

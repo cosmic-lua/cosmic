@@ -129,7 +129,7 @@ local function test_the_tree_s_bundle_becomes_a_row_per_certificate()
     "SELECT count(*), count(*) FILTER (WHERE label = ''), " ..
       "count(*) FILTER (WHERE sha256 <> sha256(der)) FROM ca_roots"))
   assert(db:close())
-  assert(tonumber(counted[1]:text(1)) == blocks, counted[1]:text(1) .. " rows for " .. blocks)
+  assert(tonumber(counted[1]:text(1)) == blocks, counted[1]:text(1) .. " rows for " .. tostring(blocks))
   assert(counted[1]:text(2) == "0", "every root of the bundle is labelled")
   assert(counted[1]:text(3) == "0", "each row is keyed by its certificate's digest")
 end

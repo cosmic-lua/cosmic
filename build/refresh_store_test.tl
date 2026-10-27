@@ -189,7 +189,7 @@ local function test_a_tzdata_sdist_replaces_the_zones(tmp: string)
   local after = carried(out)
   local query = "SELECT rowid, name, hex(sha256(data)) FROM zoneinfo ORDER BY rowid"
   local was, now = rows(before, query), rows(after, query)
-  assert(#now == #was, #now .. " zones, not " .. #was)
+  assert(#now == #was, tostring(#now) .. " zones, not " .. tostring(#was))
   for i, row in ipairs(was) do
     assert(now[i]:text(1) == row:text(1) and now[i]:text(2) == row:text(2) and now[i]:text(3) == row:text(3), row:text(2))
   end
@@ -228,7 +228,7 @@ local function test_a_bad_release_writes_nothing(tmp: string)
   local want = carried(path)
   local query = "SELECT hex(sha256), label FROM ca_roots ORDER BY rowid"
   local now, was = rows(after, query), rows(want, query)
-  assert(#now == #was, #now .. " roots, not " .. #was)
+  assert(#now == #was, tostring(#now) .. " roots, not " .. tostring(#was))
   assert(after:close())
   assert(want:close())
   assert(Fs.remove(out))
@@ -246,7 +246,7 @@ local function test_the_command_line_is_refused_by_name(tmp: string)
   }
   for _, words in ipairs(cases) do
     local result = invoke.run(words, { cwd = tmp })
-    assert(result.code == 2, table.concat(words, " ") .. ": exit " .. result.code)
+    assert(result.code == 2, table.concat(words, " ") .. ": exit " .. tostring(result.code))
   end
   -- Not a usage error, but never done: the binary it reads is not written.
   local itself = invoke.run({ "refresh", "-o", path, "--binary", path, "--cacert", pem }, { cwd = tmp })

@@ -19,13 +19,13 @@ local function test_a_cache_that_answers_nothing_says_what_it_holds(tmp: string)
   assert(shared_verdicts.unmatched(path, 3, empty, {}) == nil, "an empty cache said something")
   local kept: mut {shared_verdicts.Kept} = {}
   for i, test in ipairs({ "a_test.tl test_a", "a_test.tl test_b", "b_test.tl test_c" }) do
-    kept[#kept + 1] = { key = "k" .. i, test = test, hits = "", elapsed_ns = 1 }
+    kept[#kept + 1] = { key = "k" .. tostring(i), test = test, hits = "", elapsed_ns = 1 }
   end
   assert(shared_verdicts.settle(cache, "first", { kept = kept, used = {}, failed = {} },
     Clock.now_ns()))
   local census = assert(shared_verdicts.census(cache, { ["a_test.tl test_a"] = true,
     ["a_test.tl test_b"] = true, ["c_test.tl test_d"] = true }))
-  assert(census.rows == 3 and census.of_tests == 2, census.rows .. " " .. census.of_tests)
+  assert(census.rows == 3 and census.of_tests == 2, tostring(census.rows) .. " " .. tostring(census.of_tests))
   local line = assert(shared_verdicts.unmatched(path, 3, census,
     { { "host", "abab" }, { "runtime", "cdcd" } }))
   assert(line:find("none of 3 tests looked up stood", 1, true), line)
@@ -55,7 +55,7 @@ local function test_a_census_names_the_parts_the_rows_were_kept_under(tmp: strin
       "hits BLOB NOT NULL, elapsed_ns INTEGER NOT NULL, used_ns INTEGER NOT NULL, " ..
       "origin TEXT NOT NULL)"))
   assert(db:exec("INSERT INTO declared_v1 VALUES ('old', 'a_test.tl test_a', " ..
-      "deflate(''), 1, " .. Clock.now_ns() .. ", 'before')"))
+      "deflate(''), 1, " .. tostring(Clock.now_ns()) .. ", 'before')"))
   assert(db:close())
   cache = assert(shared_verdicts.open(path))
   assert(shared_verdicts.declared(cache, "old") ~= nil, "the earlier row went")
@@ -63,7 +63,7 @@ local function test_a_census_names_the_parts_the_rows_were_kept_under(tmp: strin
   assert(now == "runtime r1, harness e1-00000000-t60000", now)
   local kept: mut {shared_verdicts.Kept} = {}
   for i = 1, 2 do
-    kept[i] = { key = "k" .. i, test = "b_test.tl test_" .. i, hits = "", elapsed_ns = 1 }
+    kept[i] = { key = "k" .. tostring(i), test = "b_test.tl test_" .. tostring(i), hits = "", elapsed_ns = 1 }
   end
   assert(shared_verdicts.settle(cache, "first", { parts = now, kept = kept, used = {},
     failed = {} }, Clock.now_ns()))

@@ -23,7 +23,7 @@ local PROXY <const> = "socks5h://127.0.0.1:1080"
 
 --- The `ALL_PROXY` for a relay at `port`.
 local function proxy_at(port: integer, userinfo?: string): string
-  return "socks5h://" .. (if userinfo ~= nil then (userinfo .. "@") else "" end) .. "127.0.0.1:" .. port
+  return "socks5h://" .. (if userinfo ~= nil then (userinfo .. "@") else "" end) .. "127.0.0.1:" .. tostring(port)
 end
 
 --- What a run of the client left.
@@ -181,7 +181,7 @@ local function test_a_name_is_asked_for_as_a_name_and_the_bytes_go_both_ways()
     assert(relay:write("pong"))
     assert(relay:shutdown("write"))
   end)
-  assert(ran.code == 0, ran.code .. table.concat(ran.complaints, "\n"))
+  assert(ran.code == 0, tostring(ran.code) .. table.concat(ran.complaints, "\n"))
   assert(request.value == "\5\1\0\3\14api.github.com\1\187", "the host is a name: " .. tostring(request.value))
   assert(seen_end.value, "a half-close was seen")
   assert(ran.out == "banner pong", "the output is the tunnel's: " .. ran.out)
@@ -216,7 +216,7 @@ local function test_the_relay_ending_first_ends_the_output_and_the_run_ends_with
     -- The client's output has ended, and the end of its input is what it waits for.
     finish()
   end)
-  assert(ran.code == 0, ran.code .. table.concat(ran.complaints))
+  assert(ran.code == 0, tostring(ran.code) .. table.concat(ran.complaints))
   assert(ran.out == "bye" and #ran.complaints == 0, ran.out .. table.concat(ran.complaints))
 end
 
@@ -238,7 +238,7 @@ local function test_a_refusal_exits_1_with_one_line_naming_what_the_reply_means(
       asked(relay)
       assert(relay:write(RelayWire.socks_reply(case[1] as RelayWire.SocksReply)))
     end)
-    assert(ran.code == 1, case[1] .. ": " .. ran.code)
+    assert(ran.code == 1, case[1] .. ": " .. tostring(ran.code))
     assert(#ran.complaints == 1, table.concat(ran.complaints, "\n"))
     local line = ran.complaints[1]
     assert(line:find("^cosmic: sandbox connect: host.example:443: " .. case[2] .. " %(SOCKS reply " .. case[3] .. "%)"),
@@ -280,7 +280,7 @@ local function test_it_refuses_a_command_line_or_environment_that_is_not_a_sandb
       write = function(): boolean, string return true, "" end,
       finish = function(): boolean, string return true, "" end,
     })
-    assert(code == 2 and #complaints == 1, tostring(args[1]) .. " " .. tostring(args[2]) .. ": " .. code)
+    assert(code == 2 and #complaints == 1, tostring(args[1]) .. " " .. tostring(args[2]) .. ": " .. tostring(code))
     assert(complaints[1]:find("^cosmic: sandbox connect: "), complaints[1])
     assert(complaints[1]:find(why, 1, true), complaints[1])
   end
@@ -341,7 +341,7 @@ local function test_a_relay_that_never_answers_is_a_failure_after_the_timeout_na
     -- Holds the connection open and says nothing until the client has given up.
     local _, _ = relay:read(1)
   end, nil, Clock.seconds(1))
-  assert(ran.code == 1 and #ran.complaints == 1, ran.code .. table.concat(ran.complaints))
+  assert(ran.code == 1 and #ran.complaints == 1, tostring(ran.code) .. table.concat(ran.complaints))
   assert(ran.complaints[1]:find("host.example:22: the relay at socks5h://127.0.0.1:", 1, true) and
       ran.complaints[1]:find("did not answer in time", 1, true), ran.complaints[1])
   assert(Clock.monotonic_ns() - started < Clock.seconds(15), "it gave up in time")
@@ -374,7 +374,7 @@ local function test_a_userinfo_is_sent_as_the_username_and_password_percent_deco
     finish()
     assert(relay:shutdown("write"))
   end, nil, nil, "sandbox:tok%2Fen%40x%3a:%25")
-  assert(ran.code == 0, ran.code .. table.concat(ran.complaints))
+  assert(ran.code == 0, tostring(ran.code) .. table.concat(ran.complaints))
   assert(user.value == "sandbox" and password.value == "tok/en@x::%", "the userinfo is decoded: " .. tostring(password.value))
   assert(request.value == "\5\1\0\3\14api.github.com\1\187", "the request follows the login")
   assert(ran.out == "banner" and #ran.complaints == 0, ran.out .. table.concat(ran.complaints))
@@ -395,7 +395,7 @@ local function test_a_relay_that_refuses_the_token_exits_1_naming_it_and_never_t
     seen.value = got
   end, nil, nil, "u:" .. secret)
   assert(seen.value == secret, "the relay was sent it")
-  assert(ran.code == 1 and #ran.complaints == 1, ran.code .. table.concat(ran.complaints))
+  assert(ran.code == 1 and #ran.complaints == 1, tostring(ran.code) .. table.concat(ran.complaints))
   assert(ran.complaints[1] == "cosmic: sandbox connect: host.example:22: the relay refused the sandbox's token",
     ran.complaints[1])
   local everything = table.concat(ran.complaints) .. table.concat(ran.trace)
@@ -442,7 +442,7 @@ local function test_a_userinfo_that_cannot_be_used_is_refused_and_never_echoed()
       write = function(): boolean, string return true, "" end,
       finish = function(): boolean, string return true, "" end,
     })
-    assert(code == 2 and #complaints == 1, value:gsub(secret, "<secret>") .. ": " .. code)
+    assert(code == 2 and #complaints == 1, value:gsub(secret, "<secret>") .. ": " .. tostring(code))
     assert(complaints[1]:find(why, 1, true), complaints[1])
     assert(not complaints[1]:find(secret, 1, true), "the password is echoed: " .. complaints[1])
   end

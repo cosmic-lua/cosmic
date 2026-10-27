@@ -16,7 +16,7 @@ local dump = table.concat({
 
 local function test_only_the_trees_own_declarations_are_kept()
   local decls = tree.parse(dump)
-  assert(#decls == 2, "kept " .. #decls)
+  assert(#decls == 2, "kept " .. tostring(#decls))
   assert(decls[1].kind == "FunctionDecl" and decls[1].file == "core/a.c")
   assert(decls[2].kind == "VarDecl")
 end
@@ -63,7 +63,7 @@ local function test_a_declaration_beginning_in_a_macro_is_placed_at_its_name()
     "`-FunctionDecl 0x3 </usr/lib/include/stdbool.h:24:14, core/a.c:9:1> " ..
       "line:5:6 f 'bool (void)'",
   }, "\n"))
-  assert(#decls == 2, "kept " .. #decls)
+  assert(#decls == 2, "kept " .. tostring(#decls))
   assert(decls[2].file == "core/a.c" and decls[2].line == 5 and decls[2].col == 6,
     tostring(decls[2].file) .. ":" .. tostring(decls[2].line))
 end
@@ -78,7 +78,7 @@ local function test_each_part_of_a_nested_range_is_read()
     "| `-ParenExpr 0x3 <<scratch space>:1:1, core/a.c:3:9> 'int'",
     "`-VarDecl 0x4 <col:2, col:9> col:5 y 'int'",
   }, "\n"))
-  assert(#decls == 2, "kept " .. #decls)
+  assert(#decls == 2, "kept " .. tostring(#decls))
   local paren = decls[1].children[1]
   assert(paren.file == "<scratch space>" and paren.line == 1, tostring(paren.file))
   assert(paren.text == "'int'", paren.text)
@@ -96,7 +96,7 @@ local function test_a_file_named_col_moves_the_cursor_from_a_dropped_line()
     "| `-FieldDecl 0x3 <col:12, col:22> col:1:14 a 'int[3]'",
     "`-VarDecl 0x4 <line:5:1, col:5> col:5 y 'int'",
   }, "\n"))
-  assert(#decls == 1, "kept " .. #decls)
+  assert(#decls == 1, "kept " .. tostring(#decls))
   assert(decls[1].kind == "VarDecl" and decls[1].file == "col" and decls[1].line == 5,
     tostring(decls[1].file) .. ":" .. tostring(decls[1].line))
 end

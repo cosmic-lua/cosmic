@@ -29,7 +29,7 @@ Test.policy{ loopback = { "127.0.0.1" } }
 --- Fails, listing what `during` met under build/, unless it met nothing.
 local function honest(what: string, fn: function())
   local found = TypeWatch.during(fn, "build/")
-  assert(#found == 0, what .. ": " .. #found .. " violations:\n" .. table.concat(found, "\n"))
+  assert(#found == 0, what .. ": " .. tostring(#found) .. " violations:\n" .. table.concat(found, "\n"))
 end
 
 --- A line that is no comment, a comment that carries on, and one that does

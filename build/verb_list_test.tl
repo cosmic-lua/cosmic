@@ -84,7 +84,7 @@ local function test_the_groups_name_every_verb_once_and_nothing_else()
     end
   end
   for name in pairs(Cli.verbs) do
-    assert(seen[name] == 1, name .. " is in " .. (seen[name] or 0) .. " groups of Cli.groups")
+    assert(seen[name] == 1, name .. " is in " .. tostring((seen[name] or 0)) .. " groups of Cli.groups")
   end
   for name in pairs(seen) do
     assert(Cli.verbs[name] ~= nil, "Cli.groups names " .. name .. ", which Cli.verbs lacks")

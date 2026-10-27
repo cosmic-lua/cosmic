@@ -127,7 +127,7 @@ local function test_a_checked_run_reports_a_false_fact_and_changes_no_verdict(tm
   assert(text:find("2 ran, 0 stood", 1, true), "a standing verdict hid a test from the report: " .. text)
 
   local rows = violations(root)
-  assert(#rows == 1, #rows .. " rows")
+  assert(#rows == 1, tostring(#rows) .. " rows")
   assert(table.concat(rows[1]:texts(), " | ") == "fact | greet.tl:" .. read_site() .. " | name | not nil | nil | 1",
     table.concat(rows[1]:texts(), " | "))
 

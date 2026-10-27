@@ -181,7 +181,7 @@ local function test_every_recorded_host_is_named_as_the_ci_names_it(tmp: string)
   assert(#recorded >= 30, "the recorded hosts are gone")
   for i, entry in ipairs(recorded) do
     local vector = entry as Vector
-    local release, version = tmp .. "/osrelease-" .. i, tmp .. "/version-" .. i
+    local release, version = tmp .. "/osrelease-" .. tostring(i), tmp .. "/version-" .. tostring(i)
     local osrelease = vector.osrelease
     if osrelease ~= nil then assert(Fs.write(release, osrelease)) end
     local vector_version = vector.version

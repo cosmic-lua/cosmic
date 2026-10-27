@@ -710,7 +710,7 @@ local function test_the_record_field_uses_of_a_module_are_found_through_the_type
   local made = assert(Pipeline.generate(m, pipeline))
   local use = assert(made.references[1], "no use found")
   assert(#made.references == 1 and use.module == "cosmic.shape_of" and use.member == "Point.x" and use.line == 3,
-    #made.references .. " uses")
+    tostring(#made.references) .. " uses")
 end
 
 local function test_a_record_test_is_written_as_the_fork_writes_it_for_the_tree_and_refused_for_a_program_without_a_ceiling()

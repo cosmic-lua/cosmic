@@ -109,7 +109,7 @@ end
 local function test_a_long_list_of_findings_is_cut_and_its_rest_counted(tmp: string)
   local lines: mut {string} = {}
   for i = 1, 205 do
-    lines[#lines + 1] = "local n" .. i .. ": string = " .. i
+    lines[#lines + 1] = "local n" .. tostring(i) .. ": string = " .. tostring(i)
   end
   lines[#lines + 1] = ""
   assert(Fs.write(tmp .. "/m.tl", table.concat(lines, "\n")))

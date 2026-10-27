@@ -126,7 +126,7 @@ local function test_a_command_line_it_refuses_says_how_to_fix_it(tmp: string)
   local decl = file(tmp, "types.d.tl", "return {}\n")
   local function refused(words: {string}, fix: string)
     local ran = run(words)
-    assert(ran.code == 2 and ran.out == "", ran.code .. ran.out)
+    assert(ran.code == 2 and ran.out == "", tostring(ran.code) .. ran.out)
     assert(ran.err:find(fix, 1, true), "wanted " .. fix .. " in " .. ran.err)
     assert(ran.err:find("cosmic: compile: ", 1, true), ran.err)
   end

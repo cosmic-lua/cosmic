@@ -49,7 +49,7 @@ print(table.concat(names, " "))
       assert(library[name], name .. " is loaded before -e's chunk runs: " .. tostring(r.stdout))
     end
   end
-  assert(#names > 0 and #names <= allowed, #names .. " build modules, more than " .. allowed ..
+  assert(#names > 0 and #names <= allowed, tostring(#names) .. " build modules, more than " .. tostring(allowed) ..
       ": " .. tostring(r.stdout))
   local loaded = " " .. table.concat(names, " ") .. " "
   for _, name in ipairs({ "build.dispatch", "build.exit_status" }) do
