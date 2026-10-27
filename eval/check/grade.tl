@@ -186,7 +186,7 @@ end
 --- records; a doctest is an example.
 function Grader.evidence(path: string): Grader.Evidence?, string
   local present, trouble = Fs.exists(path)
-  if not present then
+  if present ~= true then
     return nil, present == nil and trouble or path .. ": no build database"
   end
   local db, otrouble = Sqlite.open(path)
@@ -931,7 +931,7 @@ local function pack(g: Grade)
   check(g, err:find("../evil.txt", 1, true) ~= nil, "extract evil.tar names the entry ../evil.txt",
     first_line(err))
   local escaped, _ = Fs.exists(g.empty .. "/evil.txt")
-  if escaped then
+  if escaped == true then
     fail(g, "extract evil.tar wrote evil.txt outside its destination")
   else
     ok("extract evil.tar wrote nothing outside its destination")
@@ -2307,7 +2307,7 @@ function Grader.grade(name: string, dir: string, testdata: string,
   local project = dir .. "/project"
   local cosmic = dir .. "/bin/cosmic"
   local is_project, project_trouble = Fs.is_dir(project)
-  if not is_project then
+  if is_project ~= true then
     say("FAIL no project at " .. project ..
         (if project_trouble ~= "" then ": " .. project_trouble else "" end))
     say("FAIL")

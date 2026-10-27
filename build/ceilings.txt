@@ -5459,11 +5459,10 @@ core/syscalls_test.tl condition_type 2
 
 core/syscalls_tool_test.tl condition_type 2
 
-cosmic/archive.tl condition_type 3
 
 cosmic/archive_test.tl condition_type 1
 
-cosmic/child.tl condition_type 31
+cosmic/child.tl condition_type 8
 
 cosmic/child_policy_cosmic_test.tl condition_type 1
 
@@ -5477,9 +5476,8 @@ cosmic/child_seatbelt_test.tl condition_type 2
 
 cosmic/child_task_tool_test.tl condition_type 5
 
-cosmic/csv.tl condition_type 2
+cosmic/csv.tl condition_type 1
 
-cosmic/errors.tl condition_type 3
 
 cosmic/flags_test.tl condition_type 11
 
@@ -5489,31 +5487,24 @@ cosmic/html_test.tl condition_type 2
 
 cosmic/http/multipart_fuzz_test.tl condition_type 1
 
-cosmic/http/wire.tl condition_type 1
 
 cosmic/http_test.tl condition_type 2
 
-cosmic/internal/connector.tl condition_type 3
 
-cosmic/internal/relay_config.tl condition_type 3
 
 cosmic/internal/relay_config_test.tl condition_type 4
 
 cosmic/internal/relay_handed_lost_test.tl condition_type 2
 
-cosmic/internal/relay_main.tl condition_type 3
 
-cosmic/internal/relay_server.tl condition_type 2
+cosmic/internal/relay_server.tl condition_type 1
 
 cosmic/internal/relay_server_test.tl condition_type 1
 
-cosmic/internal/relay_start.tl condition_type 2
 
-cosmic/internal/relay_wire.tl condition_type 2
 
 cosmic/internal/relay_wire_client_fuzz_test.tl condition_type 1
 
-cosmic/json.tl condition_type 1
 
 cosmic/json_fuzz_test.tl condition_type 4
 
@@ -5521,11 +5512,8 @@ cosmic/json_path_fuzz_test.tl condition_type 1
 
 cosmic/net_resolve_tool_test.tl condition_type 2
 
-cosmic/policy.tl condition_type 1
 
-cosmic/poll.tl condition_type 13
 
-cosmic/proc.tl condition_type 1
 
 cosmic/proc_tool_test.tl condition_type 1
 
@@ -5533,35 +5521,30 @@ cosmic/project.tl condition_type 1
 
 cosmic/rand_test.tl condition_type 1
 
-cosmic/sandbox/init.tl condition_type 2
 
-cosmic/sandbox/policy.tl condition_type 4
+cosmic/sandbox/policy.tl condition_type 1
 
-cosmic/sandbox/seatbelt.tl condition_type 3
 
 cosmic/sandbox_test.tl condition_type 1
 
 cosmic/seatbelt_network_probe_test.tl condition_type 11
 
-cosmic/shape.tl condition_type 1
 
-cosmic/store.tl condition_type 7
+cosmic/store.tl condition_type 1
 
 cosmic/store_seal_test.tl condition_type 1
 
-cosmic/stream.tl condition_type 3
 
 cosmic/stream_test.tl condition_type 1
 
-cosmic/template/codegen.tl condition_type 6
+cosmic/template/codegen.tl condition_type 1
 
-cosmic/template/dialect/init.tl condition_type 3
 
 cosmic/template/dialect_vendored_test.tl condition_type 1
 
-cosmic/template/markup.tl condition_type 9
+cosmic/template/markup.tl condition_type 1
 
-cosmic/template/parse.tl condition_type 2
+cosmic/template/parse.tl condition_type 1
 
 cosmic/template_fuzz_test.tl condition_type 2
 
@@ -5571,33 +5554,25 @@ cosmic/template_html5lib_tree_test.tl condition_type 6
 
 cosmic/template_test.tl condition_type 1
 
-cosmic/test.tl condition_type 3
 
-cosmic/time.tl condition_type 5
 
 cosmic/time_posix_fuzz_test.tl condition_type 1
 
 cosmic/time_zone_test.tl condition_type 2
 
-cosmic/web/app.tl condition_type 6
+cosmic/web/app.tl condition_type 2
 
-cosmic/web/cookies.tl condition_type 3
+cosmic/web/cookies.tl condition_type 1
 
-cosmic/web/cors.tl condition_type 3
 
-cosmic/web/csrf.tl condition_type 3
 
-cosmic/web/dev.tl condition_type 1
 
 cosmic/web/dev_test.tl condition_type 5
 
-cosmic/web/errors.tl condition_type 2
 
-cosmic/web/headers.tl condition_type 6
 
-cosmic/web/htmx.tl condition_type 3
+cosmic/web/htmx.tl condition_type 1
 
-cosmic/web/input.tl condition_type 7
 
 cosmic/web/input_fuzz_test.tl condition_type 1
 
@@ -5607,87 +5582,68 @@ cosmic/web/input_multipart_test.tl condition_type 1
 
 cosmic/web/input_test.tl condition_type 2
 
-cosmic/web/middleware.tl condition_type 1
 
-cosmic/web/request.tl condition_type 1
 
-cosmic/web/response.tl condition_type 3
 
-cosmic/web/router.tl condition_type 9
+cosmic/web/router.tl condition_type 2
 
 cosmic/web/router_fuzz_test.tl condition_type 2
 
-cosmic/web/secret.tl condition_type 1
 
 cosmic/web/session/cookie_test.tl condition_type 3
 
-cosmic/web/session/init.tl condition_type 1
 
-cosmic/web/session/sqlite.tl condition_type 3
 
-cosmic/web/sse.tl condition_type 2
 
-cosmic/web/static.tl condition_type 2
 
-cosmic/web/testing.tl condition_type 3
 
-cosmic/web/typed.tl condition_type 3
 
-cosmic/zip.tl condition_type 3
+cosmic/zip.tl condition_type 1
 
 eval/arena_test.tl condition_type 3
 
-eval/check/grade.tl condition_type 4
+eval/check/grade.tl condition_type 1
 
 eval/check/grade_test.tl condition_type 9
 
-eval/round.tl condition_type 1
 
 eval/round_test.tl condition_type 2
 
-eval/solve.tl condition_type 1
 
 eval/solve_test.tl condition_type 2
 
-eval/summarize.tl condition_type 6
+eval/summarize.tl condition_type 2
 
 eval/summarize_test.tl condition_type 1
 
-lang/check.tl condition_type 32
+lang/check.tl condition_type 1
 
 lang/check_fuzz_test.tl condition_type 1
 
-lang/check_programs.tl condition_type 1
 
 lang/check_test.tl condition_type 1
 
-lang/codegen.tl condition_type 4
 
 lang/codegen_fuzz_test.tl condition_type 4
 
-lang/declarations.tl condition_type 17
+lang/declarations.tl condition_type 1
 
 lang/declarations_test.tl condition_type 1
 
-lang/flow.tl condition_type 5
 
-lang/generics.tl condition_type 1
 
-lang/lexer.tl condition_type 3
+lang/lexer.tl condition_type 1
 
 lang/lexer_test.tl condition_type 3
 
-lang/literals.tl condition_type 1
 
-lang/parser.tl condition_type 15
+lang/parser.tl condition_type 2
 
-lang/parser_cover.tl condition_type 2
 
 lang/parser_error_test.tl condition_type 2
 
 lang/parser_test.tl condition_type 1
 
-lang/relation.tl condition_type 3
 
 lang/relation_fuzz_test.tl condition_type 5
 
@@ -5695,19 +5651,16 @@ lang/relation_speed_test.tl condition_type 1
 
 lang/relation_test.tl condition_type 4
 
-lang/scopes.tl condition_type 3
 
-lang/scopes_cover.tl condition_type 4
 
 lang/scopes_fuzz_test.tl condition_type 2
 
-lang/scopes_programs.tl condition_type 1
 
-lang/translate.tl condition_type 14
+lang/translate.tl condition_type 1
 
 lang/translate_fuzz_test.tl condition_type 1
 
-lang/types.tl condition_type 25
+lang/types.tl condition_type 6
 
 lang/types_fuzz_test.tl condition_type 6
 
@@ -5995,7 +5948,7 @@ cosmic/archive_fuzz_test.tl or_mix 1
 
 cosmic/archive_test.tl or_mix 17
 
-cosmic/child.tl or_mix 17
+cosmic/child.tl or_mix 3
 
 cosmic/child_drain_test.tl or_mix 4
 
@@ -6045,7 +5998,6 @@ cosmic/csv_test.tl or_mix 3
 
 cosmic/declared_types_test.tl or_mix 1
 
-cosmic/flags.tl or_mix 1
 
 cosmic/fs_test.tl or_mix 11
 
@@ -6053,17 +6005,14 @@ cosmic/hash_test.tl or_mix 2
 
 cosmic/html_test.tl or_mix 11
 
-cosmic/http/init.tl or_mix 1
 
 cosmic/http/multipart_test.tl or_mix 5
 
-cosmic/http/server.tl or_mix 3
 
 cosmic/http/server_range_fuzz_test.tl or_mix 1
 
 cosmic/http/server_range_test.tl or_mix 2
 
-cosmic/http/wire.tl or_mix 1
 
 cosmic/http/wire_fuzz_test.tl or_mix 1
 
@@ -6071,15 +6020,12 @@ cosmic/http_test.tl or_mix 11
 
 cosmic/http_tool_test.tl or_mix 1
 
-cosmic/internal/relay_config.tl or_mix 1
 
 cosmic/internal/relay_config_test.tl or_mix 2
 
 cosmic/internal/relay_handed_test.tl or_mix 3
 
-cosmic/internal/relay_main.tl or_mix 1
 
-cosmic/internal/relay_server.tl or_mix 4
 
 cosmic/internal/relay_server_native_test.tl or_mix 1
 
@@ -6097,13 +6043,11 @@ cosmic/internal/relay_wire_fuzz_test.tl or_mix 1
 
 cosmic/internal/relay_wire_test.tl or_mix 14
 
-cosmic/json.tl or_mix 2
 
 cosmic/json_fuzz_test.tl or_mix 2
 
 cosmic/json_reader_test.tl or_mix 2
 
-cosmic/net.tl or_mix 1
 
 cosmic/net_serve_test.tl or_mix 1
 
@@ -6111,7 +6055,6 @@ cosmic/net_test.tl or_mix 1
 
 cosmic/policy_test.tl or_mix 13
 
-cosmic/poll.tl or_mix 3
 
 cosmic/poll_test.tl or_mix 1
 
@@ -6123,13 +6066,11 @@ cosmic/rand_test.tl or_mix 2
 
 cosmic/relay/address_test.tl or_mix 8
 
-cosmic/relay/grant.tl or_mix 2
+cosmic/relay/grant.tl or_mix 1
 
 cosmic/removed_test.tl or_mix 15
 
-cosmic/sandbox/policy.tl or_mix 4
 
-cosmic/sandbox/seatbelt.tl or_mix 3
 
 cosmic/sandbox/seatbelt_test.tl or_mix 11
 
@@ -6143,7 +6084,6 @@ cosmic/shape_test.tl or_mix 2
 
 cosmic/signal_test.tl or_mix 1
 
-cosmic/stream.tl or_mix 1
 
 cosmic/stream_test.tl or_mix 4
 
@@ -6153,9 +6093,7 @@ cosmic/tar_test.tl or_mix 2
 
 cosmic/template/dialect_test.tl or_mix 5
 
-cosmic/template/markup.tl or_mix 2
 
-cosmic/template/parse.tl or_mix 1
 
 cosmic/template_build_test.tl or_mix 3
 
@@ -6169,13 +6107,11 @@ cosmic/template_html5lib_tree_test.tl or_mix 1
 
 cosmic/template_test.tl or_mix 5
 
-cosmic/test.tl or_mix 1
 
 cosmic/test_policy_test.tl or_mix 3
 
 cosmic/test_test.tl or_mix 2
 
-cosmic/time.tl or_mix 1
 
 cosmic/time_test.tl or_mix 8
 
@@ -6187,11 +6123,9 @@ cosmic/url_fuzz_test.tl or_mix 4
 
 cosmic/url_test.tl or_mix 3
 
-cosmic/web/app.tl or_mix 2
 
 cosmic/web/app_test.tl or_mix 10
 
-cosmic/web/assets.tl or_mix 1
 
 cosmic/web/assets_test.tl or_mix 4
 
@@ -6199,41 +6133,30 @@ cosmic/web/cookies_fuzz_test.tl or_mix 1
 
 cosmic/web/cookies_test.tl or_mix 12
 
-cosmic/web/cors.tl or_mix 1
 
-cosmic/web/csp.tl or_mix 1
 
-cosmic/web/csrf.tl or_mix 1
 
 cosmic/web/csrf_test.tl or_mix 3
 
-cosmic/web/dev.tl or_mix 1
 
 cosmic/web/dev_supervise_test.tl or_mix 1
 
 cosmic/web/dev_test.tl or_mix 4
 
-cosmic/web/errors.tl or_mix 1
 
-cosmic/web/headers.tl or_mix 1
 
-cosmic/web/htmx.tl or_mix 2
 
 cosmic/web/htmx_test.tl or_mix 8
 
-cosmic/web/input.tl or_mix 2
 
 cosmic/web/input_multipart_test.tl or_mix 2
 
 cosmic/web/input_test.tl or_mix 2
 
-cosmic/web/negotiate.tl or_mix 1
 
-cosmic/web/origin.tl or_mix 2
 
 cosmic/web/request_test.tl or_mix 4
 
-cosmic/web/router.tl or_mix 1
 
 cosmic/web/router_fuzz_test.tl or_mix 3
 
@@ -6245,15 +6168,12 @@ cosmic/web/serve_test.tl or_mix 6
 
 cosmic/web/session/cookie_test.tl or_mix 4
 
-cosmic/web/session/init.tl or_mix 1
 
 cosmic/web/session/session_test.tl or_mix 8
 
 cosmic/web/session/sqlite_test.tl or_mix 3
 
-cosmic/web/sse.tl or_mix 1
 
-cosmic/web/static.tl or_mix 1
 
 cosmic/web/static_test.tl or_mix 1
 
@@ -6275,13 +6195,12 @@ eval/result.tl or_mix 7
 
 eval/round_test.tl or_mix 1
 
-eval/solve.tl or_mix 1
 
 eval/solve_test.tl or_mix 1
 
-eval/summarize.tl or_mix 17
+eval/summarize.tl or_mix 2
 
-lang/check.tl or_mix 9
+lang/check.tl or_mix 5
 
 lang/check_flow_fuzz_test.tl or_mix 1
 
@@ -6289,37 +6208,30 @@ lang/check_flow_test.tl or_mix 4
 
 lang/check_test.tl or_mix 1
 
-lang/codegen.tl or_mix 2
 
 lang/codegen_fuzz_test.tl or_mix 1
 
 lang/codegen_test.tl or_mix 1
 
-lang/declarations.tl or_mix 1
 
 lang/flow.tl or_mix 1
 
-lang/lexer.tl or_mix 1
 
 lang/lexer_test.tl or_mix 2
 
-lang/literals.tl or_mix 2
+lang/literals.tl or_mix 1
 
 lang/literals_test.tl or_mix 3
 
-lang/parser.tl or_mix 10
 
 lang/parser_recovery_test.tl or_mix 1
 
-lang/scopes.tl or_mix 2
+lang/scopes.tl or_mix 1
 
-lang/scopes_programs.tl or_mix 1
 
-lang/translate.tl or_mix 8
 
 lang/translate_test.tl or_mix 2
 
-lang/types.tl or_mix 1
 
 lang/types_fuzz_test.tl or_mix 1
 
@@ -8499,7 +8411,6 @@ lang/recursive_alias_fuzz_test.tl index_may_be_nil 1
 
 lang/recursive_alias_test.tl alternatives_as_value 3
 
-lang/relation.tl or_mix 1
 
 build/archive_test.tl array_hole 4
 

@@ -153,7 +153,7 @@ function PolicyJson.encode(p: Sandbox.Policy): string
   end
   put("grants", grants)
   if next(digests) ~= nil then fields.set_env_digests = digests end
-  if merged.tmp then fields.tmp = true end
+  if merged.tmp == true then fields.tmp = true end
   fields.user, fields.group = merged.user, merged.group
   local database = merged.database
   if database ~= nil then

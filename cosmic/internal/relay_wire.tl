@@ -1118,11 +1118,11 @@ local function hello_name(body: string): ServerName?, string
     if at + 3 + length > size then
       return nil, "ClientHello extension past its end"
     end
-    if seen[kind] then
+    if seen[kind] == true then
       return nil, "ClientHello repeats an extension"
     end
     seen[kind] = true
-    if ENCRYPTED[kind] then
+    if ENCRYPTED[kind] == true then
       encrypted = true
     end
     if kind == 0 then

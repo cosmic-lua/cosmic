@@ -276,8 +276,8 @@ local function events_of(what: string, events: {Htmx.Event}): string?, string
   local detailed = false
   for _, event in ipairs(events) do
     local name = event.name
-    if not (name is string) or name == "" or name:find("[,\"'\\%z\1-\31\127]") or
-        name:find("^{") then
+    if not (name is string) or name == "" or name:find("[,\"'\\%z\1-\31\127]") ~= nil or
+        name:find("^{") ~= nil then
       return nil, "htmx: " .. what .. ": an event name is empty, starts with a brace or holds a comma, a quote or a control byte"
     end
     if event.detail ~= nil then detailed = true end
@@ -367,7 +367,7 @@ function Htmx.apply(res: Types.Response, reply: Htmx.Reply): Types.Response?, st
   local trouble = url_field("push_url", "HX-Push-Url", reply.push_url) or
     url_field("replace_url", "HX-Replace-Url", reply.replace_url)
   if trouble ~= nil then return nil, trouble end
-  if reply.refresh then put("HX-Refresh", "true") end
+  if reply.refresh == true then put("HX-Refresh", "true") end
   local retarget = reply.retarget
   if retarget ~= nil then
     local text, why = text_of("retarget", retarget)
@@ -503,7 +503,7 @@ function Htmx.head(opts?: Htmx.HeadOptions): Html.SafeHtml
     error("htmx: head: the prefix is a path on this origin without a trailing slash, like /app", 2)
   end
   local nonce = opts.nonce
-  if nonce ~= nil and nonce:find("[%z\1-\31\127]") then
+  if nonce ~= nil and nonce:find("[%z\1-\31\127]") ~= nil then
     error("htmx: head: the nonce is text without a control byte", 2)
   end
   local json = assert(Html.json(config_of(opts)))
@@ -511,7 +511,7 @@ function Htmx.head(opts?: Htmx.HeadOptions): Html.SafeHtml
   -- through Html.escape_attr.
   local tags = { '<meta name="htmx-config" content="' ..
       Html.raw_attr(Html.escape_attr(Html.raw_json(json))) .. '">', script_tag("htmx", opts) }
-  if opts.sse then tags[#tags + 1] = script_tag("sse", opts) end
+  if opts.sse == true then tags[#tags + 1] = script_tag("sse", opts) end
   return Html.trust(table.concat(tags, "\n"))
 end
 

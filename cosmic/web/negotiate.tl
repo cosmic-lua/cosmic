@@ -84,7 +84,7 @@ end
 --- @param offers {string} The media types that can be made, best first
 --- @return string | nil The offer chosen
 function Negotiate.best(header: string?, offers: {string}): string?
-  if header == nil or header:find("^%s*$") then return offers[1] end
+  if header == nil or header:find("^%s*$") ~= nil then return offers[1] end
   local ranges = ranges_of(header)
   if #ranges == 0 then return offers[1] end
   local chosen: string? = nil

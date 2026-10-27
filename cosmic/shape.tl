@@ -373,7 +373,7 @@ end
 local walk: function(v: any, spec: Spec, path: string): any, string
 
 local function walk_record(t: {any: any}, spec: Spec, path: string): any, string
-  if spec.strict then
+  if spec.strict == true then
     local unknown = unknown_key(t, spec, path)
     if unknown ~= "" then return nil, unknown end
   end
