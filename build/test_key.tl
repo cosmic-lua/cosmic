@@ -2020,7 +2020,11 @@ end
 --- verdict of this tree, closure, epoch and runtime, reached on a host
 --- of other features. The key found is then the lookup's, and the row
 --- stays under it: no row is made under this host's key, so a run that
---- does not accept them finds none.
+--- does not accept them finds none. The hosts are tried in sorted
+--- order and the first row found answers: a pass on any like host
+--- stands even if another like host failed the same key, as a failing
+--- row is deleted, not kept as a mark. That failure is its own run's,
+--- which fails CI there.
 function test_key.lookup(rec: Recording, m: Module, id: string,
                          verdicts: {string:Verdict}, forced: boolean?,
                          consult: boolean?): Lookup

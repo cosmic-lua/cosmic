@@ -358,7 +358,10 @@ end
 --- differ from the one of identity `own` in its kernel's release and
 --- version and its processor's features alone
 --- ([`declared_key.host_split`]), sorted. A gathering run looks a test up
---- under each one's key (build/test_key.tl's `lookup`).
+--- under each one's key (build/test_key.tl's `lookup`), in this order, and
+--- the first row found answers: a pass on any like host stands though
+--- another like host failed the same key, since a failing run deletes its
+--- row rather than leaving a mark (the failing share's own job fails CI).
 function shared_verdicts.hosts_like(cache: shared_verdicts.Cache, rest: string,
                                     own: string): {string}?, string
   local rows, trouble = Sqlite.text_rows(cache.db, "SELECT DISTINCT parts FROM " .. declared ..

@@ -58,7 +58,7 @@ end
 
 --- The spec of `suite/t_test.tl`'s `test_t` in a tree at `root`, as a
 --- run would hand it: its closure, its declared data, and `env`.
-local function spec(env?: {string:string}): declared_key.Spec
+local function spec(env?: {string:string}, host?: string): declared_key.Spec
   local effective: test_inputs.Effective = {
     files = { ["suite/t_test.tl"] = true, ["suite/lib.tl"] = true },
     reads = { "suite/data/" }, host = {}, env = { DECLARED = true }, network = {},
@@ -66,7 +66,7 @@ local function spec(env?: {string:string}): declared_key.Spec
   }
   return {
     id = "suite.t_test test_t", group = "suite.t_test", module_key = "module",
-    runtime = "runtime sandboxed", compiler = "compiler", host = "host",
+    runtime = "runtime sandboxed", compiler = "compiler", host = host or "host",
     epoch = "1-00000000", timeout_ns = Clock.seconds(30),
     declaration = 'reads "suite/data/"\nenv "DECLARED"', effective = effective,
     environment = env or { DECLARED = "d", TMPDIR = "/tmp" },
@@ -745,6 +745,22 @@ local function test_a_frozen_run_looks_once_and_a_thawed_one_again(tmp: string)
   assert(declared_key.compute(digests, spec()) == before)
   declared_key.thaw(digests)
   assert(declared_key.compute(digests, spec()) ~= before)
+end
+
+--- Under one snapshot, the keys of one test under two hosts differ: the
+--- module's inputs a run remembers hold the host, so a lookup under
+--- another host's key (build/test_key.tl's `lookup`) must not be answered
+--- with the first host's.
+local function test_a_frozen_run_keys_each_host_apart(tmp: string)
+  tree(tmp)
+  local digests = declared_key.digests(tmp)
+  declared_key.freeze(digests)
+  local other = spec(nil, "another host")
+  local first = declared_key.compute(digests, spec())
+  local second = declared_key.compute(digests, other)
+  assert(first ~= nil and second ~= nil and first ~= second, "two hosts, one key")
+  assert(declared_key.compute(digests, spec()) == first, "the first host's key moved")
+  assert(declared_key.compute(digests, other) == second, "the second host's key moved")
 end
 
 --- A digest of named modules ([`declared_key.harness`]: the harness's,
