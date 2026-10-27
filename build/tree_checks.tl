@@ -2560,7 +2560,6 @@ local packagers: {string: string} = {
   ["build/test_worker.tl"] = "holds `require` to a test's closure through the searchers and `package.loaded`",
   ["build/udp_fixture.tl"] = "reads the core's raw table through the searchers",
   ["build/unix_socket.tl"] = "reads the core's raw table through the searchers",
-  ["cosmic/removed_example.tl"] = "shows that `package.loaded` holds a module once required",
   ["cosmic/store.tl"] = "reads the store's searcher",
 }
 

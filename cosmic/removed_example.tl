@@ -409,7 +409,7 @@ end
 --- callers should inspect the documented convention.
 function Example.modules_declarations_nil_error()
   local Fs = require("cosmic.fs")
-  assert(require("cosmic.fs") == Fs and package.loaded["cosmic.fs"] == Fs)
+  assert(require("cosmic.fs") == Fs)
   local data, trouble = Fs.read("/no/such/file")
   assert(data == nil and trouble ~= "")
 end
