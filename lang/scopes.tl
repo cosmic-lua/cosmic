@@ -1118,7 +1118,7 @@ local function required(e: Ast.Exp?): string
     local args = e.args
     if (callee.kind == "Name") and callee.text == "require" and callee.binding == nil and #args == 1 then
       local first = args[1]
-      if first ~= nil and (first.kind == "String") then
+      if (first.kind == "String") then
         return first.value
       end
     end

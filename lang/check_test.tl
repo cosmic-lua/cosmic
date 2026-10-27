@@ -964,7 +964,6 @@ end
 
 local function test_a_local_with_no_type_and_no_value_is_reported()
   local r = Programs.run("local x, y: integer\nlocal z: integer\n")
-  assert(#r.before == 0 or r.before[1] ~= nil)
   assert(Programs.codes(r) == "local_untyped" or Programs.codes(r) == "", Programs.codes(r))
   assert(codes_of("local x\n") == "local_untyped")
   assert(codes_of("local x: integer\nlocal y: integer? = nil\n") == "")
@@ -1085,6 +1084,123 @@ local function test_a_loop_over_the_keys_of_an_array_writes_them_only_while_it_l
   assert(has(in_loop("for n = 1, #xs do", "  local function put(at: integer)\n    xs[at] = v\n  end"), "array_hole"))
   -- a write before the loop or after it is outside it
   assert(has(codes_of(head .. "for n = 1, #xs do\nend\nlocal n: integer = 1\nxs[n] = v\n"), "array_hole"))
+end
+
+-- An array holds the keys 1 to `#t`, so a test of its length against a literal shows the elements a read of it names, until
+-- code runs that may shorten an array.
+local LENGTH_HEAD <const> = "local xs: {integer} = { 1, 2, 3 }\nlocal ys: {integer} = {}\nlocal zs: mut {integer} = { 1, 2 }\n" ..
+  "local function touch()\nend\nlocal function none(): integer?\n  return nil\nend\nlocal n: integer = 0\n"
+
+local function reads(body: string, want: string)
+  local got = codes_of(LENGTH_HEAD .. body)
+  assert(got == want, "got " .. got .. ", wanted " .. want .. " in\n" .. body)
+end
+
+local function reads_after(between: string, want: string)
+  reads("if #zs > 0 then\n" .. between .. "  n = zs[1]\nend\n", want)
+end
+
+local function test_a_read_of_an_array_is_an_element_where_a_length_test_shows_it_is_there()
+  -- every way to say the array has the first element, and the later ones, for a view and for a `mut` array
+  reads("if #xs > 0 then\n  n = xs[1]\nend\n", "")
+  reads("if #xs >= 1 then\n  n = xs[1]\nend\n", "")
+  reads("if #xs ~= 0 then\n  n = xs[1]\nend\n", "")
+  reads("if 0 < #xs then\n  n = xs[1]\nend\n", "")
+  reads("if 1 <= #xs then\n  n = xs[1]\nend\n", "")
+  reads("if #xs == 3 then\n  n = xs[1] + xs[2] + xs[3]\nend\n", "")
+  reads("if #xs > 1 then\n  n = xs[2]\nend\n", "")
+  reads("if #xs >= 2 and #xs <= 9 then\n  n = xs[2]\nend\n", "")
+  reads("if #zs > 0 then\n  n = zs[1]\nend\n", "")
+  reads("if not (#xs == 0) then\n  n = xs[1]\nend\n", "")
+  -- the last element is there where the first is
+  reads("if #xs > 0 then\n  n = xs[#xs]\nend\n", "")
+  -- the test that leaves the function, or ends a branch, shows it to the code after
+  reads("if #xs == 0 then\n  return\nend\nn = xs[1]\n", "")
+  reads("if #xs < 2 then\n  error(\"short\")\nend\nn = xs[2]\n", "")
+  -- the right operand of `and` and `or`, and a test inside a condition
+  reads("local ok = #xs == 3 and xs[3] + 1 == 4\n", "")
+  reads("local ok = #xs == 0 or xs[1] + 1 == 2\n", "")
+  reads("local ok = #xs > 0 and #xs < 9 and xs[1] + 1 == 2\n", "")
+  -- `assert` runs no code of the program, with or without a message that runs none
+  reads("assert(#xs == 3)\nn = xs[3]\n", "")
+  reads("assert(#xs > 0, \"empty\")\nn = xs[1]\n", "")
+  reads("assert(#xs > 1)\nassert(xs[2] + 1 == 3)\nn = xs[1]\n", "")
+  reads("assert(type(n) == \"number\")\nassert(#xs > 0)\nn = xs[1]\n", "")
+  -- the test is made again where the loop begins
+  reads("while #zs > 0 do\n  n = zs[1]\n  table.remove(zs)\nend\n", "")
+  -- fixed fields from a local are a place
+  local box = "local record Box\n  items: {integer}\nend\nlocal box: Box = { items = { 1 } }\n"
+  reads(box .. "if #box.items > 0 then\n  n = box.items[1]\nend\n", "")
+end
+
+local function test_a_length_test_shows_no_more_than_it_says()
+  -- off by one, below the first, past the first, not the test
+  reads("if #xs > 0 then\n  n = xs[2]\nend\n", "index_may_be_nil")
+  reads("if #xs >= 1 then\n  n = xs[2]\nend\n", "index_may_be_nil")
+  reads("if #xs == 2 then\n  n = xs[3]\nend\n", "index_may_be_nil")
+  reads("if #xs >= 0 then\n  n = xs[1]\nend\n", "index_may_be_nil")
+  reads("if #xs > -1 then\n  n = xs[1]\nend\n", "index_may_be_nil")
+  reads("if #xs < 2 then\n  n = xs[1]\nend\n", "index_may_be_nil")
+  reads("if #xs <= 1 then\n  n = xs[1]\nend\n", "index_may_be_nil")
+  reads("if #xs ~= 1 then\n  n = xs[1]\nend\n", "index_may_be_nil")
+  reads("if #xs == 0 then\n  n = xs[1]\nend\n", "index_may_be_nil")
+  reads("if #xs > 0.5 then\n  n = xs[1]\nend\n", "index_may_be_nil")
+  reads("if #xs > 0 then\n  n = xs[0]\nend\n", "index_may_be_nil")
+  reads("if #xs > 0 then\n  n = xs[n]\nend\n", "index_may_be_nil")
+  reads("if #xs > 1 then\n  n = xs[#xs - 1]\nend\n", "index_may_be_nil")
+  -- the length of another table, or of one the read does not name
+  reads("if #ys > 0 then\n  n = xs[1]\nend\n", "index_may_be_nil")
+  reads("if #xs > 0 then\n  n = xs[#ys]\nend\n", "index_may_be_nil")
+  reads("if #xs > 0 then\n  n = ys[1]\nend\n", "index_may_be_nil")
+  -- the test says nothing past the branch it makes
+  reads("if #xs > 0 then\n  n = 1\nend\nn = xs[1]\n", "index_may_be_nil")
+  reads("if #xs == 0 then\n  n = 1\nend\nn = xs[1]\n", "index_may_be_nil")
+  reads("local ok = #xs > 0 or xs[1] + 1 == 2\n", "nil_not_allowed")
+  -- a test that stops at a bound: the first sixteen elements are told, a literal past them is not
+  reads("if #xs >= 17 then\n  n = xs[17]\nend\n", "index_may_be_nil")
+  -- a field a record may assign is not a place, and an array under another name is another place
+  local box = "local record Box\n  mut items: mut {integer}\nend\nlocal box: Box = { items = { 1 } }\n"
+  reads(box .. "if #box.items > 0 then\n  n = box.items[1]\nend\n", "index_may_be_nil")
+  reads("local alias = xs\nif #xs > 0 then\n  n = alias[1]\nend\n", "index_may_be_nil")
+  -- an assignment to the array, or to the path it is read from
+  reads("if #xs > 0 then\n  xs = ys\n  n = xs[1]\nend\n", "index_may_be_nil")
+  reads(box .. "if #box.items > 0 then\n  box = { items = {} }\n  n = box.items[1]\nend\n", "index_may_be_nil")
+end
+
+local function test_code_that_may_shorten_an_array_ends_what_a_length_test_showed()
+  reads_after("", "")
+  -- a call, a method call, a call of the library, or of a function that never runs code of the array
+  reads_after("  touch()\n", "index_may_be_nil")
+  reads_after("  table.remove(zs)\n", "index_may_be_nil")
+  reads_after("  local t = tostring(n)\n", "index_may_be_nil")
+  reads_after("  local t = (\"a\"):upper()\n", "index_may_be_nil")
+  reads_after("  pcall(touch)\n", "index_may_be_nil")
+  -- a nil written to any index, one array being another's name, whichever target
+  reads_after("  zs[#zs] = nil\n", "index_may_be_nil")
+  reads_after("  zs[1] = nil\n", "array_hole nil_not_allowed index_may_be_nil")
+  reads_after("  local ws: mut {integer} = zs\n  ws[#ws] = nil\n", "index_may_be_nil")
+  reads_after("  local k: integer = 1\n  local w: mut {integer} = zs\n  k, w[#w] = 2, nil\n", "array_hole nil_not_allowed index_may_be_nil")
+  -- a write that is not nil does not shorten
+  reads_after("  zs[#zs + 1] = 5\n", "")
+  reads_after("  zs[1] = 5\n", "")
+  -- a generic `for` calls its iterator, and a `<close>` local runs its handler where its scope ends
+  reads_after("  for _ in none do\n  end\n", "index_may_be_nil")
+  reads_after("  for _ in ipairs(ys) do\n  end\n", "index_may_be_nil")
+  reads("if #zs > 0 then\n  do\n    local c <close> = nil\n  end\n  n = zs[1]\nend\n", "index_may_be_nil")
+  reads("while n < 3 do\n  local c <close> = nil\n  if #zs == 0 then\n    break\n  end\n  n = n + 1\nend\nn = zs[1]\n",
+    "index_may_be_nil")
+  reads("if #zs > 0 then\n  do\n    local c <close> = nil\n    if #zs > 0 then\n      n = zs[1]\n    end\n  end\nend\n",
+    "index_may_be_nil")
+  -- a function made there may run when the array is shorter
+  reads("if #zs > 0 then\n  local read = function(): integer\n    return zs[1]\n  end\nend\n", "index_may_be_nil")
+  -- a message that runs code runs it after the test
+  reads("assert(#zs > 0, tostring(n))\nn = zs[1]\n", "index_may_be_nil")
+  reads("assert(#zs > 0, \"empty\")\nn = zs[1]\n", "")
+  -- the loop's own back edge: a call at the end of the body ends what the head showed on the next pass
+  reads("if #zs > 0 then\n  while n < 3 do\n    n = zs[1]\n    table.remove(zs)\n  end\nend\n", "index_may_be_nil")
+  reads("if #zs > 0 then\n  while n < 3 do\n    n = zs[1]\n    n = n + 1\n  end\nend\n", "")
+  -- a test inside a condition is the state of its operand: a call before the test is before it
+  reads("local ok = #zs > 0 and none() == nil and zs[1] + 1 == 2\n", "nil_not_allowed")
 end
 
 local function test_no_metamethod_runs_in_the_body_of_a_fill_loop_while_three_refusals_stand()

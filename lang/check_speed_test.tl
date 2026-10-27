@@ -141,6 +141,22 @@ local FORMS <const>: {string: function(n: integer): string} = {
       table.concat(tests, " or ") .. " then\n    local w: Node = a\n  end\n  return 1\nend\n"
     return table.concat(out)
   end,
+  ["a run of calls where many places are narrowed"] = function(n: integer): string
+    -- Each call takes the facts of the lengths of arrays away, which walks the facts that are paths: the narrowed fields.
+    local out: mut {string} = { "local record R\n" }
+    local tests: mut {string} = {}
+    for i = 1, n * 20 do
+      out[#out + 1] = "  f" .. tostring(i) .. "?: integer\n"
+      tests[#tests + 1] = "r.f" .. tostring(i) .. " ~= nil"
+    end
+    out[#out + 1] = "end\nlocal function touch()\nend\nlocal xs: {integer} = { 1 }\nlocal r: R = {}\nif #xs > 0 and " ..
+      table.concat(tests, " and ") .. " then\n"
+    for _ = 1, n * 20 do
+      out[#out + 1] = "  touch()\n"
+    end
+    out[#out + 1] = "end\n"
+    return table.concat(out)
+  end,
   ["an if expression of many arms"] = function(n: integer): string
     local arms: mut {string} = {}
     for i = 1, n * 50 do
@@ -181,7 +197,7 @@ end
 
 local function test_four_times_the_input_costs_about_four_times_the_time_for_a_union_an_if_expression_and_a_call()
   hold({ "a union of many tagged records read by a shared field", "an if expression of many arms",
-    "a function of many parameters called with all of them" })
+    "a function of many parameters called with all of them", "a run of calls where many places are narrowed" })
 end
 
 local function test_four_times_the_input_costs_about_four_times_the_time_for_a_union_of_many_tagged_records_told_apart_by_a_fixed_number_of_tests()
