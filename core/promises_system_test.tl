@@ -50,13 +50,13 @@ end
 
 local function test_a_dynamic_program_starts_under_the_basics()
   local code = shell({}, "exit 0")
-  assert(code == 0, "the shell ends with " .. code)
+  assert(code == 0, "the shell ends with " .. tostring(code))
   assert(shell({}, "exit 7") == 7)
 end
 
 local function test_a_dynamic_program_forks_with_fork()
   -- A subshell is a fork, which the shell reports by its status.
   local code = shell({ "fork" }, "(exit 3); exit $?")
-  assert(code == 3, "a subshell under fork ends with " .. code)
+  assert(code == 3, "a subshell under fork ends with " .. tostring(code))
   assert(shell({ "fork", "jit", "fattr" }, "(exit 0)") == 0)
 end

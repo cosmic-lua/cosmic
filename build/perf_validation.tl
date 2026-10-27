@@ -64,13 +64,13 @@ local function cases(): {Case}
     tail_multiplier = 2, sizes = { 400 }, gate = "tail", stress = 0 }
   for population = 1, 4 do
     for _, fraction in ipairs({ 0.05, 0.10 }) do
-      result[#result + 1] = { name = names[population] .. "_shift_" .. fraction,
+      result[#result + 1] = { name = names[population] .. "_shift_" .. tostring(fraction),
         population = population, shift = median(population) * fraction,
         tail_multiplier = 1, sizes = { 200, 400 }, gate = "advisory", stress = 0 }
     end
   end
   for _, multiplier in ipairs({ 1.2, 1.5 }) do
-    result[#result + 1] = { name = "mixture_tail_" .. multiplier, population = 4,
+    result[#result + 1] = { name = "mixture_tail_" .. tostring(multiplier), population = 4,
       shift = 0, tail_multiplier = multiplier, sizes = { 200, 400 }, gate = "advisory", stress = 0 }
   end
   result[#result + 1] = { name = "paired_common_delay", population = 1, shift = 0,
@@ -215,7 +215,7 @@ function Validation.main(argv: {string}): integer
       results[#results + 1], passed = result, passed and ok
       assert(Fs.write(argv[1], assert(Json.encode_any({ protocol = "doc/performance/validation.md",
         trials_per_case = 5000, results = results, passed = passed }, { pretty = true })) .. "\n"))
-      print(case.name .. " n=" .. n .. ": " .. (if ok then "PASS" else "FAIL" end))
+      print(case.name .. " n=" .. tostring(n) .. ": " .. (if ok then "PASS" else "FAIL" end))
     end
   end
   return if passed then 0 else 2 end

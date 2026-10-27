@@ -59,7 +59,7 @@ function layout.same(a: string, b: string): boolean, string
   for i = 1, math.max(#x, #y) do
     local p, q = x[i], y[i]
     if p == nil or q == nil or p.kind ~= q.kind or meaning(p) ~= meaning(q) then
-      return false, "token " .. i .. ": " .. (p and p.text or "<end>") .. " became " ..
+      return false, "token " .. tostring(i) .. ": " .. (p and p.text or "<end>") .. " became " ..
         (q and q.text or "<end>")
     end
   end

@@ -340,7 +340,7 @@ local function request_of(argv: {string}): Request?, string
   if seconds[1] ~= nil then
     local number = whole(seconds[1], 1, MOST_SECONDS)
     if number == nil then
-      return nil, "--timeout takes a whole number of seconds, 1 to " .. MOST_SECONDS ..
+      return nil, "--timeout takes a whole number of seconds, 1 to " .. tostring(MOST_SECONDS) ..
         ", not " .. seconds[1]
     end
     request.timeout_ns = number * 1000000000

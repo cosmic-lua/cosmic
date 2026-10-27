@@ -126,5 +126,5 @@ local function test_an_exit_watch_leaves_no_descriptor_whenever_an_allocation_fa
     local none, _, errno = process.exit_watch(pid)
     assert(none == nil and errno == sys.ESRCH)
   end)
-  assert(next_descriptor() == before, "a refused allocation left descriptor " .. before .. " open")
+  assert(next_descriptor() == before, "a refused allocation left descriptor " .. tostring(before) .. " open")
 end

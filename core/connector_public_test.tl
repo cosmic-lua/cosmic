@@ -64,8 +64,8 @@ local function decide(fd: integer, address: string): boolean
   assert(sys.write(fd, string.pack(">I4I4I4I4I4", 5, 0xffffffff, 0, 0, if #bytes == 4 then 4 else 6 end) ..
       string.char(table.unpack(bytes)) .. string.rep("\0", 16 - #bytes)) == 36)
   local tag, errno = string.unpack(">I4I4", read_whole(fd, 8))
-  assert(tag == 5, "the reply carries another tag: " .. tag)
-  assert(errno == 0 or errno == DENIED, address .. ": errno " .. errno)
+  assert(tag == 5, "the reply carries another tag: " .. tostring(tag))
+  assert(errno == 0 or errno == DENIED, address .. ": errno " .. tostring(errno))
   return errno == 0
 end
 
@@ -214,11 +214,11 @@ local function test_a_prefix_of_any_length_holds_exactly_the_addresses_that_shar
     local width = #bytes * 8
     for bits = 0, width do
       local pair = assert(process.connector_pair())
-      local child, why = process.connector_start({}, pair[2], 500, { deny = { base .. "/" .. bits } })
+      local child, why = process.connector_start({}, pair[2], 500, { deny = { base .. "/" .. tostring(bits) } })
       assert(sys.close(pair[2]))
       assert(child, why)
       greeted(pair[1])
-      assert(not decide(pair[1], base), base .. "/" .. bits .. " does not hold its own address")
+      assert(not decide(pair[1], base), base .. "/" .. tostring(bits) .. " does not hold its own address")
       for _, at in ipairs({ 1, 3, 4, bits - 1, bits, bits + 1, bits + 2, width }) do
         if at >= 1 and at <= width then
           -- Flipping bit `at` leaves the first at - 1 bits, so the prefix holds the
@@ -228,7 +228,7 @@ local function test_a_prefix_of_any_length_holds_exactly_the_addresses_that_shar
           local outside = #bytes == 16 and at <= 3
           local other = spelled(flipped(bytes, at))
           assert(decide(pair[1], other) == not (held or outside),
-            base .. "/" .. bits .. " with bit " .. at .. " flipped: " .. other)
+            base .. "/" .. tostring(bits) .. " with bit " .. tostring(at) .. " flipped: " .. other)
         end
       end
       assert(sys.close(pair[1]))

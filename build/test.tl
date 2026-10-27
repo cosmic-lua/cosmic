@@ -375,7 +375,7 @@ function test.prune_history(handle: Sqlite.Handle, run: integer): boolean, strin
   local pruned_snapshots, snapshots_trouble = handle:exec(
     "DELETE FROM coverage WHERE ran_at_ns < " ..
       "(SELECT min(ran_at_ns) FROM (SELECT ran_at_ns FROM test_runs ORDER BY ran_at_ns DESC LIMIT " ..
-      kept_snapshots .. "))")
+      tostring(kept_snapshots) .. "))")
   if not pruned_snapshots then
     return false, snapshots_trouble
   end
@@ -434,7 +434,7 @@ local function credit_hits(handle: Sqlite.Handle, credited: test.Credited,
     local placeholders: mut {string} = {}
     local args: mut {Sqlite.Value} = { { integer = run_at_ns } }
     for index, id in ipairs(tests) do
-      placeholders[index] = "?" .. (index + 1)
+      placeholders[index] = "?" .. tostring((index + 1))
       args[#args + 1] = text(id)
     end
     local rows, trouble = Sqlite.text_rows(handle,
@@ -1138,7 +1138,7 @@ local function limits_of(values: {string:string}): State.Limits?, string
     local seconds, trouble = positive(value, what)
     if seconds == nil then return nil, trouble end
     if seconds > most_seconds then
-      return nil, what .. " must be at most " .. most_seconds .. " seconds, not " .. value
+      return nil, what .. " must be at most " .. tostring(most_seconds) .. " seconds, not " .. value
     end
     return seconds, ""
   end

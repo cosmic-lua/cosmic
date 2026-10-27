@@ -193,7 +193,7 @@ local function notice_text(directory: string, notice: bom.Notice): string?, stri
     end
   end
   if number < last then
-    return nil, path .. ": has " .. plural.count(number, "line") .. ", not " .. last
+    return nil, path .. ": has " .. plural.count(number, "line") .. ", not " .. tostring(last)
   end
   return table.concat(kept, "\n") .. "\n"
 end

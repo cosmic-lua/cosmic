@@ -33,7 +33,7 @@ end
 --- caller `level` frames above the function that calls this one.
 local function checked_depth(given: any, least: integer, most: integer?, level: integer): integer
   if not (given is integer) or given < least or (most ~= nil and given > most) then
-    local range = if most ~= nil then "from " .. least .. " to " .. most else "of at least " .. least end
+    local range = if most ~= nil then "from " .. tostring(least) .. " to " .. tostring(most) else "of at least " .. tostring(least) end
     error("json: max_depth must be an integer " .. range, level + 1)
   end
   return given
@@ -98,7 +98,7 @@ function json_query.flatten(value: any, opts?: json_query.FlattenOptions): {Json
       return "the value at " .. at_pointer(steps) .. " is a table with mixed keys"
     end
     if depth >= limit then
-      return "the value at " .. at_pointer(steps) .. " nests deeper than max_depth " .. limit
+      return "the value at " .. at_pointer(steps) .. " nests deeper than max_depth " .. tostring(limit)
     end
     if open[v] then
       return "the value at " .. at_pointer(steps) .. " contains itself"
@@ -273,7 +273,7 @@ local function render(node: Node): string
   end
   if node.arrays > 0 then
     local size = tostring(node.shortest)
-    if node.longest ~= node.shortest then size = size .. ".." .. node.longest end
+    if node.longest ~= node.shortest then size = size .. ".." .. tostring(node.longest) end
     local elements = node.elements
     if node.cut then
       parts[#parts + 1] = "[" .. size .. " x ...]"
