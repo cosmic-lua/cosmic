@@ -13,10 +13,10 @@ end
 
 local function test_append_creation_modes_obey_umask_and_preserve_existing_inode(tmp: string)
   for i, mode in ipairs({ 0x1a4, 0x180 }) do
-    local control = tmp .. "/control" .. i
+    local control = tmp .. "/control" .. tostring(i)
     local fd = assert(sys.open(control, sys.O_WRONLY | sys.O_CREAT | sys.O_APPEND, mode))
     assert(sys.close(fd))
-    local path = tmp .. "/log" .. i
+    local path = tmp .. "/log" .. tostring(i)
     if i == 1 then assert(Fs.append(path, "")) else assert(Fs.append(path, "", mode)) end
     local before = assert(Fs.stat(path))
     assert(before.mode == assert(Fs.stat(control)).mode)

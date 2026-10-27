@@ -160,7 +160,7 @@ local function verdict(ended: Ended): string
   if ended.text:find("not permitted", 1, true) then return "DENIED" end
   if ended.text:find("refused", 1, true) then return "REFUSED" end
   if ended.code == 0 then return "CONNECTED" end
-  return "OTHER(" .. ended.code .. " " .. brief(ended.text) .. ")"
+  return "OTHER(" .. tostring(ended.code) .. " " .. brief(ended.text) .. ")"
 end
 
 --- What a connect to `host`:`port` ends in under `text`, by two tools: nc
@@ -269,7 +269,7 @@ local function test_a_port_rule_reaches_its_port_and_no_other(tmp: string)
     v6 = listener("::1", 0)
     if v6 ~= nil then v6_port = port_of(v6.address) end
   end
-  report[#report + 1] = "listeners: 127.0.0.1:" .. allowed_port .. " (allowed), 127.0.0.1:" .. other_port ..
+  report[#report + 1] = "listeners: 127.0.0.1:" .. tostring(allowed_port) .. " (allowed), 127.0.0.1:" .. tostring(other_port) ..
     " (other), [::1]:" .. (v6 ~= nil and tostring(v6_port) or ("none: " .. tostring(v6_why)))
   local firsts: {string:string} = {}
   for index, form in ipairs(forms(allowed_port)) do
@@ -293,7 +293,7 @@ local function test_a_port_rule_reaches_its_port_and_no_other(tmp: string)
             local rule_port = v6_port == allowed_port and form.lines or forms(v6_port)[index].lines
             local v6_text = profile(BASE, rule_port)
             local v_nc, v_bash = tcp_reach(tmp, v6_text, form.parameters, "::1", v6_port)
-            report[#report + 1] = "  [::1]:" .. v6_port .. ": nc=" .. v_nc .. " bash=" .. v_bash
+            report[#report + 1] = "  [::1]:" .. tostring(v6_port) .. ": nc=" .. v_nc .. " bash=" .. v_bash
           end
         end
       end
@@ -333,23 +333,23 @@ local function test_a_port_rule_and_udp(tmp: string)
   local bare = profile(BASE, {})
   local control = profile({ "(version 1)", "(allow default)" }, {})
   local to_rule = udp_arrives(allowed, text, tmp, allowed_port, "127.0.0.1")
-  report[#report + 1] = "udp 127.0.0.1:" .. allowed_port .. " (rule's port): " .. to_rule
+  report[#report + 1] = "udp 127.0.0.1:" .. tostring(allowed_port) .. " (rule's port): " .. to_rule
   local to_other = udp_arrives(other, text, tmp, other_port, "127.0.0.1")
-  report[#report + 1] = "udp 127.0.0.1:" .. other_port .. " (other port): " .. to_other
+  report[#report + 1] = "udp 127.0.0.1:" .. tostring(other_port) .. " (other port): " .. to_other
   assert(to_rule:find("^DELIVERED"), "udp to the rule's port was not sent\n" .. table.concat(report, "\n"))
   assert(to_other:find("^not delivered") and to_other:find("DENIED"), "udp to another port was not denied\n" ..
       table.concat(report, "\n"))
   report[#report + 1] = "udp, no rule: " .. udp_arrives(allowed, bare, tmp, allowed_port, "127.0.0.1")
   local v6 = Udp.bind("::1", allowed_port)
   if v6 ~= nil then
-    report[#report + 1] = "udp [::1]:" .. allowed_port .. " (rule's number): " ..
+    report[#report + 1] = "udp [::1]:" .. tostring(allowed_port) .. " (rule's number): " ..
       udp_arrives(v6, text, tmp, allowed_port, "::1")
     Udp.close(v6)
   else
     report[#report + 1] = "udp ::1: no socket to send to"
   end
   -- nc speaks UDP too, which says whether it is the tool or the rule.
-  local nc = run_under(tmp, text, {}, { "/bin/sh", "-c", "echo ping | /usr/bin/nc -n -u -w 1 127.0.0.1 " .. allowed_port })
+  local nc = run_under(tmp, text, {}, { "/bin/sh", "-c", "echo ping | /usr/bin/nc -n -u -w 1 127.0.0.1 " .. tostring(allowed_port) })
   local packet = Udp.receive(allowed, Clock.ms(400))
   report[#report + 1] = "nc -u to the rule's port: " .. (if packet ~= nil then "DELIVERED" else "not delivered" end) ..
     " (" .. verdict(nc) .. ")"
@@ -387,7 +387,7 @@ local function listens(tmp: string, text: string, port: integer): string
   local _, _ = Clock.sleep_ns(Clock.ms(300))
   local ended = reap(running, 0.01)
   return (if reached then "connectable" else "not connectable" end) .. ", child read " .. brief(ended.text) ..
-    " (" .. (if ended.timed_out then "ended by the test" else ("code " .. ended.code) end) .. ")"
+    " (" .. (if ended.timed_out then "ended by the test" else ("code " .. tostring(ended.code)) end) .. ")"
 end
 
 local function test_a_port_rule_and_binding(tmp: string)
@@ -424,7 +424,7 @@ local function unix_reach(tmp: string, text: string, parameters: {string:string}
   if not ended.started then return "NOSTART(" .. brief(ended.why) .. ")" end
   if ended.text:find("connected", 1, true) then return "CONNECTED" end
   if ended.text:find("not permitted", 1, true) then return "DENIED" end
-  return "OTHER(" .. ended.code .. " " .. brief(ended.text) .. ")"
+  return "OTHER(" .. tostring(ended.code) .. " " .. brief(ended.text) .. ")"
 end
 
 local function test_a_unix_socket_is_denied_under_default_deny(tmp: string)
@@ -552,7 +552,7 @@ local function resolve_under(tmp: string, text: string, report: mut {string}, la
     worked[resolver.name] = ok
     if index == 1 then first = ok end
     report[#report + 1] = label .. " / " .. resolver.name .. ": " .. (if ok then "WORKS" else "fails" end) ..
-      (if ended.started then (" [code " .. ended.code .. " signal " .. ended.signal .. "]") else "" end) ..
+      (if ended.started then (" [code " .. tostring(ended.code) .. " signal " .. tostring(ended.signal) .. "]") else "" end) ..
       (if ended.started then (" " .. brief(ended.text)) else (" NOSTART " .. brief(ended.why)) end)
   end
   return first, worked
@@ -594,7 +594,7 @@ local function denials(): string
     end
   end
   local first = math.max(1, #lines - 70)
-  return "log (" .. #lines .. " refusals" .. (if result.timed_out then ", log timed out" else "" end) .. "):\n" ..
+  return "log (" .. tostring(#lines) .. " refusals" .. (if result.timed_out then ", log timed out" else "" end) .. "):\n" ..
     table.concat(lines, "\n", first, #lines) .. "\nlog stderr: " .. (result.stderr or ""):sub(1, 200)
 end
 

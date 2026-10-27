@@ -35,7 +35,7 @@ local function test_nameservers_lists_numeric_servers_at_port_53()
   assert(#servers >= 1, "at least the resolver's default")
   for _, server in ipairs(servers) do
     assert(Address.parse(server.host) ~= nil, server.host)
-    assert(server.port == 53, server.host .. ":" .. server.port)
+    assert(server.port == 53, server.host .. ":" .. tostring(server.port))
   end
 end
 

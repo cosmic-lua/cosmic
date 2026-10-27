@@ -17,7 +17,7 @@ local function fake(name: string, log: mut {string}, hold_ns?: integer, dies?: b
   local ended = { value = gone or false }
   local stand_in: any = {
     connect = function(_: any, address: Net.Address, opts: Net.ConnectOptions): any, string
-      log[#log + 1] = name .. " " .. assert(address.host) .. " " .. assert(opts.timeout_ns)
+      log[#log + 1] = name .. " " .. assert(address.host) .. " " .. tostring(assert(opts.timeout_ns))
       if hold > 0 then
         local waited, why = Poll.delay(hold)
         if not waited then return nil, why end
@@ -52,13 +52,13 @@ local function test_requests_are_asked_of_the_connector_at_once_each_with_its_ow
     local began = Clock.monotonic_ns()
     for i = 1, 4 do
       tasks[i] = Poll.spawn(function()
-        local conn, why = connect("192.0.2." .. i, 443, Clock.seconds(i))
+        local conn, why = connect("192.0.2." .. tostring(i), 443, Clock.seconds(i))
         assert(conn == nil and why == "refused by one", tostring(why))
       end)
     end
     for _, task in ipairs(tasks) do assert(task:join()) end
     local took = Clock.monotonic_ns() - began
-    assert(took < Clock.ms(600), "the requests were asked one after another: " .. took .. " ns")
+    assert(took < Clock.ms(600), "the requests were asked one after another: " .. tostring(took) .. " ns")
     table.sort(log)
     assert(table.concat(log, ",") == "one 192.0.2.1 1000000000,one 192.0.2.2 2000000000," ..
         "one 192.0.2.3 3000000000,one 192.0.2.4 4000000000", table.concat(log, ","))

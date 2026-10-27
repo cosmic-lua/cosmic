@@ -108,7 +108,7 @@ local function test_a_run_in_a_task_lets_the_others_run()
     end)
     local finished = assert(r.value)
     assert(finished.ok and finished.stdout == "done\n", tostring(finished.stdout))
-    assert(ticks >= 2, "the other task ticked " .. ticks .. " times while the child ran")
+    assert(ticks >= 2, "the other task ticked " .. tostring(ticks) .. " times while the child ran")
   end
 end
 
@@ -239,7 +239,7 @@ local function test_a_wait_in_a_task_ends_its_child_at_the_timeout()
   end)
   local ended = assert(timed.value, "the wait never answered")
   assert(ended.timed_out and ended.signal == sys.SIGTERM, tostring(ended.signal))
-  assert(ticks >= 2, "the other task ticked " .. ticks .. " times")
+  assert(ticks >= 2, "the other task ticked " .. tostring(ticks) .. " times")
 end
 
 --- A cancelled task's wait answers nil and CANCELLED at once, and leaves
@@ -380,7 +380,7 @@ local function test_a_child_that_holds_sigterm_is_ended_within_the_deadline(tmp:
     local r = assert(h:wait(Clock.ms(100)))
     local took = Clock.monotonic_ns() - started
     assert(r.timed_out and not r.ok and r.signal == sys.SIGKILL, tostring(r.signal))
-    assert(took >= Clock.ms(300) and took < Clock.seconds(8), "ended after " .. took // Clock.ms(1) .. " ms")
+    assert(took >= Clock.ms(300) and took < Clock.seconds(8), "ended after " .. tostring(took // Clock.ms(1)) .. " ms")
     assert(sys.kill(pid, 0) == false, "the child outlived its wait")
     local closing = assert(module.start(lua(holding_term(report))))
     by = Clock.monotonic_ns() + Clock.seconds(30)
@@ -390,7 +390,7 @@ local function test_a_child_that_holds_sigterm_is_ended_within_the_deadline(tmp:
     started = Clock.monotonic_ns()
     assert(closing:close())
     took = Clock.monotonic_ns() - started
-    assert(took < Clock.seconds(8), "closed after " .. took // Clock.ms(1) .. " ms")
+    assert(took < Clock.seconds(8), "closed after " .. tostring(took // Clock.ms(1)) .. " ms")
     assert(sys.kill(closing_pid, 0) == false, "the child outlived its close")
   end
 end
@@ -488,8 +488,8 @@ local function test_streams_in_a_task_let_the_others_run()
     end)
     assert(table.concat(got) == "ab", table.concat(got, "|"))
     local echoed = assert(fed.value, "the child never answered")
-    assert(echoed.ok and echoed.stdout == input, "fed " .. #tostring(echoed.stdout) .. " bytes back")
-    assert(ticks >= 2, "the other task ticked " .. ticks .. " times")
+    assert(echoed.ok and echoed.stdout == input, "fed " .. tostring(#tostring(echoed.stdout)) .. " bytes back")
+    assert(ticks >= 2, "the other task ticked " .. tostring(ticks) .. " times")
   end
 end
 
@@ -514,7 +514,7 @@ local function test_wait_any_in_a_task_ends_at_the_first_exit()
   end)
   assert(first.value == 1, "the slow child ended first")
   assert(cancelled.value == Poll.CANCELLED, cancelled.value)
-  assert(ticks >= 2, "the other task ticked " .. ticks .. " times")
+  assert(ticks >= 2, "the other task ticked " .. tostring(ticks) .. " times")
 end
 
 --- A signal a guard catches ends a run waiting in a task at once, as it

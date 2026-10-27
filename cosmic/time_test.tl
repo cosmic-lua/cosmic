@@ -317,7 +317,7 @@ local function test_between_counts_whole_months()
   for _, case in ipairs(cases) do
     local span = assert(Time.between(at(case.from), at(case.to)))
     local got = (span.years or 0) * 12 + (span.months or 0)
-    assert(got == case.months, case.from .. " to " .. case.to .. ": " .. got)
+    assert(got == case.months, case.from .. " to " .. case.to .. ": " .. tostring(got))
   end
   -- A birthday's years: the whole years of a count that is not negative.
   local age = assert(Time.between(at("1990-06-15T00:00:00Z"), at("2026-06-14T00:00:00Z"))).years

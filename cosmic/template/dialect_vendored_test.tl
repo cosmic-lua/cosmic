@@ -42,7 +42,7 @@ local function test_every_attribute_the_vendored_htmx_reads_is_classified()
   local source = assert(Fs.read("vendor/htmx/dist/htmx.min.js"))
   local table_ = assert(dialect.resolve({ "htmx" }, dialect.registry))
   local names = names_in(source, "hx%-")
-  assert(#names > 20, "the extraction found only " .. #names .. " names")
+  assert(#names > 20, "the extraction found only " .. tostring(#names) .. " names")
   for _, name in ipairs(names) do
     -- "hx-" alone is the family's prefix, which htmx concatenates a name to.
     if name ~= "hx-" then

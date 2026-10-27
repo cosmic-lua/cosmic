@@ -83,7 +83,7 @@ local function stuck_port(held: mut {function()}): integer
       taken = taken + 1
     end
   end
-  assert(taken >= 1 and taken < 4, taken .. " connections were taken")
+  assert(taken >= 1 and taken < 4, tostring(taken) .. " connections were taken")
   return stuck.address.port
 end
 
@@ -364,7 +364,7 @@ local function test_the_upstream_is_resolved_once_and_an_ungranted_name_never(tm
             local query = read_exact(conn, (string.unpack(">I2", head)))
             if query == nil then break end
             local asked, qtype = question(query)
-            queries[#queries + 1] = qtype .. " " .. asked
+            queries[#queries + 1] = tostring(qtype) .. " " .. asked
             assert(conn:write(string.pack(">s2", answer(query))))
           end
           local _, _ = conn:close()

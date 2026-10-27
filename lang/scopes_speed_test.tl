@@ -71,7 +71,7 @@ local FORMS <const>: {string: function(n: integer): string} = {
   ["a block of locals"] = function(n: integer): string
     local out: mut {string} = {}
     for i = 1, n * 50 do
-      out[i] = "local v" .. i .. " = " .. (if i > 1 then "v" .. (i - 1) else "1" end) .. "\n"
+      out[i] = "local v" .. tostring(i) .. " = " .. (if i > 1 then "v" .. tostring((i - 1)) else "1" end) .. "\n"
     end
     return table.concat(out)
   end,
@@ -96,9 +96,9 @@ local FORMS <const>: {string: function(n: integer): string} = {
   ["types declared later"] = function(n: integer): string
     local out: mut {string} = {}
     for i = 1, n * 25 do
-      out[i] = "local function f" .. i .. "(x: T" .. i .. "): T" .. i .. " end\n"
+      out[i] = "local function f" .. tostring(i) .. "(x: T" .. tostring(i) .. "): T" .. tostring(i) .. " end\n"
     end
-    for i = 1, n * 25 do out[#out + 1] = "local record T" .. i .. " end\n" end
+    for i = 1, n * 25 do out[#out + 1] = "local record T" .. tostring(i) .. " end\n" end
     return table.concat(out)
   end,
   ["blocks nested"] = function(n: integer): string

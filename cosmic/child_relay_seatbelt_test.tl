@@ -298,7 +298,7 @@ local function flows(tmp: string): Flows
     local granted, ungranted = assert(first.address.port), assert(second.address.port)
     local result, why = Child.run({ assert(Proc.executable()), "flows", tostring(granted), tostring(ungranted) },
       { policy = { database = { path = database }, profiles = { "system" },
-        connect = { "127.0.0.1:" .. granted, "localhost:" .. granted } },
+        connect = { "127.0.0.1:" .. tostring(granted), "localhost:" .. tostring(granted) } },
         stdout = "capture", stderr = "capture", relay_log = log, timeout_ns = Clock.seconds(90) })
     for _, task in ipairs(tasks) do task:cancel() end
     assert(first:close())
@@ -333,14 +333,14 @@ local function test_a_granted_server_is_reached_through_the_relay_and_an_ungrant
     "CONNECT to the relay's port on ::1\n" .. report)
   assert(said.connect_v6_no_token == "HTTP/1.1 407 Proxy Authentication Required",
     "no token on ::1\n" .. report)
-  assert(tostring(said.connect_ungranted):find(" 403 not granted: --connect 127.0.0.1:" .. seen.ungranted, 1, true),
+  assert(tostring(said.connect_ungranted):find(" 403 not granted: --connect 127.0.0.1:" .. tostring(seen.ungranted), 1, true),
     "an ungranted CONNECT\n" .. report)
   assert(said.socks_ungranted == "2" and said.socks_ungranted_echo == nil, "an ungranted SOCKS5 request\n" .. report)
   assert(seen.reached == 0, "the ungranted server was reached\n" .. report)
   assert(said.connect_no_token == "HTTP/1.1 407 Proxy Authentication Required", "no token\n" .. report)
   assert(said.connect_wrong_token == "HTTP/1.1 407 Proxy Authentication Required", "a wrong token\n" .. report)
   assert(said.socks_wrong_token == "auth 0101", "a wrong SOCKS5 password\n" .. report)
-  assert(seen.log:find("not granted: --connect 127.0.0.1:" .. seen.ungranted, 1, true),
+  assert(seen.log:find("not granted: --connect 127.0.0.1:" .. tostring(seen.ungranted), 1, true),
     "the relay logs the refusal\n" .. report)
 end
 
@@ -522,7 +522,7 @@ local function test_the_relay_is_held_by_a_profile_of_its_own(tmp: string)
     local relay = assert(handle._relay, "the start runs a relay")
     local held = assert(relay._seatbelt, "the relay was started under a profile")
     assert(held.profile:find("(deny default)", 1, true), held.profile)
-    assert(held.profile:find('(allow network-inbound (local tcp "localhost:' .. port .. '"))', 1, true), held.profile)
+    assert(held.profile:find('(allow network-inbound (local tcp "localhost:' .. tostring(port) .. '"))', 1, true), held.profile)
     assert(not held.profile:find("network-bind", 1, true) and not held.profile:find("(allow file-read*)", 1, true),
       held.profile)
     assert(select(2, held.profile:gsub("process%-exec", "")) == 1, "the relay runs its core alone: " .. held.profile)

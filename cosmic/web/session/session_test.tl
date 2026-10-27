@@ -194,7 +194,7 @@ end
 
 local function test_flashes_are_capped_in_number_and_size()
   local client = Web.test_client(make_app(options(cookie_store())))
-  for i = 1, 12 do client:post("/flash/info/m" .. i) end
+  for i = 1, 12 do client:post("/flash/info/m" .. tostring(i)) end
   local texts = client:get("/flashes"):text()
   assert(not texts:find("m1|", 1, true) and not texts:find("m2|", 1, true) and texts:find("m12", 1, true))
   local _, bars = texts:gsub("|", "")

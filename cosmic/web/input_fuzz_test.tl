@@ -166,7 +166,7 @@ local function test_json_refusals_point_at_the_field_they_name(tmp: string)
         headers = { host = "x", ["content-type"] = "application/json" }, body = Stream.from_string(input),
         length = #input }
       local res = app.handle(raw)
-      if res.status ~= 204 then return false, "the handler faulted: " .. res.status end
+      if res.status ~= 204 then return false, "the handler faulted: " .. tostring(res.status) end
       local parsed = last.value
       if parsed == nil then return false, "the handler parsed nothing" end
       local invalid = parsed.invalid

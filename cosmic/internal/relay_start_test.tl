@@ -18,7 +18,9 @@ local function test_a_plan_reads_the_targets_as_the_relay_does()
   local plan = assert(SandboxRelay.plan({ "127.0.0.1:80", "[::1]:*", "127.0.0.1:80", "[::1:443",
     "2001:db8::1:443", "[10.0.0.1]:80" }, {}))
   local rows: mut {string} = {}
-  for _, entry in ipairs(plan.literals) do rows[#rows + 1] = entry.host .. " " .. entry.port end
+  for _, entry in ipairs(plan.literals) do
+    rows[#rows + 1] = entry.host .. " " .. tostring(entry.port)
+  end
   assert(table.concat(rows, ",") == "127.0.0.1 80,0:0:0:0:0:0:0:1 0", table.concat(rows, ","))
   assert(not plan.names and plan.upstream == nil)
   for _, grant in ipairs({ "api.example.test:443", "*:443", "*:*" }) do
@@ -33,7 +35,7 @@ end
 --- used is refused naming why.
 local function test_more_addresses_than_a_table_holds_are_refused()
   local grants: mut {string} = {}
-  for port = 1, 129 do grants[port] = "127.0.0.1:" .. port end
+  for port = 1, 129 do grants[port] = "127.0.0.1:" .. tostring(port) end
   local none, why = SandboxRelay.plan(grants, {})
   assert(none == nil and why == "connect names 129 endpoints, more than the 128 a connector holds; " ..
       "grant fewer addresses, or names", why)
@@ -54,17 +56,19 @@ local function test_plan_normalizes_and_limits_endpoints_and_table_bytes_togethe
   local plan = assert(SandboxRelay.plan({ "10.0.0.1:80", "10.0.0.1:*", "10.0.0.1:443", "10.0.0.2:80",
     "10.0.0.2:80", "[2001:db8::1]:*", "[2001:db8::1]:80" }, {}))
   local rows: mut {string} = {}
-  for _, entry in ipairs(plan.literals) do rows[#rows + 1] = entry.host .. " " .. entry.port end
+  for _, entry in ipairs(plan.literals) do
+    rows[#rows + 1] = entry.host .. " " .. tostring(entry.port)
+  end
   assert(table.concat(rows, ",") == "10.0.0.1 0,10.0.0.2 80,2001:db8:0:0:0:0:0:1 0", table.concat(rows, ","))
   local v4: mut {string} = {}
-  for i = 1, 32 do v4[i] = "10.0.0." .. i .. ":*" end
+  for i = 1, 32 do v4[i] = "10.0.0." .. tostring(i) .. ":*" end
   assert(SandboxRelay.plan(v4, {}) ~= nil)
   v4[33] = "10.0.0.33:*"
   local none, why = SandboxRelay.plan(v4, {})
   assert(none == nil and why:find("connect names addresses whose port tables take 33 MiB, more than the " ..
       "32 MiB a connector holds", 1, true), tostring(why))
   local v6: mut {string} = {}
-  for i = 1, 16 do v6[i] = "[2001:db8::" .. i .. "]:*" end
+  for i = 1, 16 do v6[i] = "[2001:db8::" .. tostring(i) .. "]:*" end
   assert(SandboxRelay.plan(v6, {}) ~= nil)
   v6[17] = "[2001:db8::17]:*"
   local none6, why6 = SandboxRelay.plan(v6, {})
@@ -74,7 +78,7 @@ local function test_plan_normalizes_and_limits_endpoints_and_table_bytes_togethe
   local covered = assert(SandboxRelay.table(fits, { "10.0.0.1" }))
   assert(#covered == 2)
   local full: mut {string} = {}
-  for i = 1, 32 do full[i] = "10.0.0." .. i .. ":*" end
+  for i = 1, 32 do full[i] = "10.0.0." .. tostring(i) .. ":*" end
   local tight = assert(SandboxRelay.plan(full, { https_proxy = "http://10.9.9.9:3128" }))
   local added = assert(SandboxRelay.table(tight, { "10.9.9.9" }))
   assert(#added == 33 and added[33].port == 3128)
@@ -87,17 +91,19 @@ local function test_plan_collapses_spellings_and_keeps_distinct_rows()
   local plan = assert(SandboxRelay.plan({ "[2001:0db8::1]:80", "[2001:db8::1]:80", "[::ffff:10.0.0.1]:80",
     "10.0.0.1:80", "10.0.0.2:3128" }, { https_proxy = "http://10.0.0.2:8080" }))
   local rows: mut {string} = {}
-  for _, entry in ipairs(plan.literals) do rows[#rows + 1] = entry.host .. " " .. entry.port end
+  for _, entry in ipairs(plan.literals) do
+    rows[#rows + 1] = entry.host .. " " .. tostring(entry.port)
+  end
   assert(#rows == 4 and rows[1] == "2001:db8:0:0:0:0:0:1 80" and rows[2]:find("ffff", 1, true) ~= nil and
       rows[3] == "10.0.0.1 80", table.concat(rows, ","))
   local both = assert(SandboxRelay.table(plan, { "10.0.0.2" }))
   assert(#both == 5 and both[4].port == 3128 and both[5].host == "10.0.0.2" and both[5].port == 8080,
-    #both .. " rows")
+    tostring(#both) .. " rows")
   local most: mut {string} = {}
-  for i = 1, 128 do most[i] = "10.0.0.1:" .. i end
+  for i = 1, 128 do most[i] = "10.0.0.1:" .. tostring(i) end
   assert(#assert(SandboxRelay.plan(most, {})).literals == 128)
   local six: mut {string} = {}
-  for i = 1, 16 do six[i] = "[2001:db8::" .. i .. "]:*" end
+  for i = 1, 16 do six[i] = "[2001:db8::" .. tostring(i) .. "]:*" end
   assert(#assert(SandboxRelay.plan(six, {})).literals == 16)
 end
 
@@ -110,7 +116,9 @@ local function test_the_table_holds_the_literals_and_the_upstream()
   assert(table.concat(addresses, ",") == "127.0.0.1", table.concat(addresses, ","))
   local rows: mut {string} = {}
   local table_rows = assert(SandboxRelay.table(plan, addresses))
-  for _, entry in ipairs(table_rows) do rows[#rows + 1] = entry.host .. " " .. entry.port end
+  for _, entry in ipairs(table_rows) do
+    rows[#rows + 1] = entry.host .. " " .. tostring(entry.port)
+  end
   assert(table.concat(rows, ",") == "127.0.0.1 3128,2001:db8:0:0:0:0:0:1 443", table.concat(rows, ","))
   local named = assert(SandboxRelay.plan({}, { https_proxy = "http://proxy.test:3128" }))
   local none, why = SandboxRelay.upstream_addresses(assert(named.upstream), nil, "no name servers here")
@@ -153,7 +161,7 @@ local function test_the_plan_and_the_core_count_the_port_tables_alike()
   local _, _ = (probe as Net.Connector):close()
   local function agree(grants: {string}, accepted: boolean)
     local plan = SandboxRelay.plan(grants, {})
-    assert((plan ~= nil) == accepted, "the plan " .. (if accepted then "refused" else "took" end) .. " " .. #grants .. " grants")
+    assert((plan ~= nil) == accepted, "the plan " .. (if accepted then "refused" else "took" end) .. " " .. tostring(#grants) .. " grants")
     local rows: mut {Net.Endpoint} = {}
     for _, grant in ipairs(grants) do
       local host, port = grant:match("^%[?([^%]]+)%]?:([%d*]+)$")
@@ -164,27 +172,27 @@ local function test_the_plan_and_the_core_count_the_port_tables_alike()
     if not accepted then assert(why:find("exceed 32 MiB", 1, true) ~= nil, why) end
   end
   local v4: mut {string} = {}
-  for i = 1, 32 do v4[i] = "10.0.0." .. i .. ":*" end
+  for i = 1, 32 do v4[i] = "10.0.0." .. tostring(i) .. ":*" end
   agree(v4, true)
   v4[33] = "10.0.0.33:*"
   agree(v4, false)
   local v6: mut {string} = {}
-  for i = 1, 16 do v6[i] = "[2001:db8::" .. i .. "]:*" end
+  for i = 1, 16 do v6[i] = "[2001:db8::" .. tostring(i) .. "]:*" end
   agree(v6, true)
   v6[17] = "[2001:db8::17]:*"
   agree(v6, false)
   -- An IPv4 slot before each IPv6 range pads it by 16 bytes: the 16 pairs are exactly 32 MiB, a 17th slot over.
   local padded: mut {string} = {}
   for i = 1, 16 do
-    padded[#padded + 1] = "10.0.0." .. i .. ":80"
-    padded[#padded + 1] = "[2001:db8::" .. i .. "]:*"
+    padded[#padded + 1] = "10.0.0." .. tostring(i) .. ":80"
+    padded[#padded + 1] = "[2001:db8::" .. tostring(i) .. "]:*"
   end
   agree(padded, true)
   padded[#padded + 1] = "10.0.1.1:80"
   agree(padded, false)
   -- The same wildcards with the IPv4 slots last need no padding, and the limit is the same in both orders.
   local last: mut {string} = {}
-  for i = 1, 16 do last[i] = "[2001:db8::" .. i .. "]:*" end
-  for i = 1, 16 do last[#last + 1] = "10.0.0." .. i .. ":80" end
+  for i = 1, 16 do last[i] = "[2001:db8::" .. tostring(i) .. "]:*" end
+  for i = 1, 16 do last[#last + 1] = "10.0.0." .. tostring(i) .. ":80" end
   agree(last, true)
 end

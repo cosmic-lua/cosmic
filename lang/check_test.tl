@@ -456,7 +456,7 @@ local function test_each_case_has_its_error_with_place_message_and_fix()
   local problems: mut {string} = {}
   for i, case in ipairs(CASES) do
     local r = Programs.run(case.source, case.modules)
-    local label = "case " .. i .. " " .. case.code
+    local label = "case " .. tostring(i) .. " " .. case.code
     seen[case.code] = true
     if #r.before > 0 then
       problems[#problems + 1] = label .. ": the source has " .. table.concat(r.before, " ")
@@ -477,7 +477,7 @@ local function test_each_case_has_its_error_with_place_message_and_fix()
       end
       local at = case.at
       if at ~= nil and (e.y ~= at[1] or e.x ~= at[2]) then
-        problems[#problems + 1] = label .. ": at " .. e.y .. ":" .. e.x .. ", wanted " .. at[1] .. ":" .. at[2]
+        problems[#problems + 1] = label .. ": at " .. tostring(e.y) .. ":" .. tostring(e.x) .. ", wanted " .. at[1] .. ":" .. at[2]
       end
     end
   end
@@ -700,7 +700,7 @@ local function test_programs_that_follow_the_rules_check_clean()
     local r = Programs.run(STANDING[name], MODULES)
     local found: mut {string} = {}
     for _, e in ipairs(r.errors) do
-      found[#found + 1] = e.y .. ":" .. e.x .. " " .. e.code .. " " .. e.msg
+      found[#found + 1] = tostring(e.y) .. ":" .. tostring(e.x) .. " " .. e.code .. " " .. e.msg
     end
     for _, c in ipairs(r.before) do
       found[#found + 1] = "before: " .. c
@@ -1179,7 +1179,7 @@ local function silent_invalids(first: integer, last: integer, standing: boolean)
   end
   for i = first, math.min(last, #CASES) do
     local case = CASES[i]
-    hold("case " .. i .. " " .. case.code, case.source, case.modules)
+    hold("case " .. tostring(i) .. " " .. case.code, case.source, case.modules)
   end
   if standing then
     for name, source in pairs(STANDING) do
