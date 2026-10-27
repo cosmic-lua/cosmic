@@ -1364,6 +1364,9 @@ local function run_tree_checks(ctx: Fix)
       for _, line in ipairs(tree_checks.package_readers(root)) do
         findings[#findings + 1] = "package: " .. line
       end
+      for _, line in ipairs(tree_checks.text_loaders(root)) do
+        findings[#findings + 1] = "loaders: " .. line
+      end
       -- What the scope builder, the lowering and the checker found in a file that has not changed is kept in the build
       -- directory; without the memo the checks run in full.
       local memo, _ = Sqlite.open(build_paths.resolve(root).translate_check, { writable = true })
