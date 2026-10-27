@@ -203,7 +203,7 @@ function relay_config.proxy_env(loopback: {string}, port?: integer, token?: stri
   local direct: mut {string} = {}
   local listed: mut {string:boolean} = {}
   local function keep(address: string)
-    if not listed[address] and relay_config.naming(targets, address) == "" then
+    if listed[address] ~= true and relay_config.naming(targets, address) == "" then
       listed[address] = true
       direct[#direct + 1] = address
     end
@@ -252,7 +252,7 @@ function relay_config.parse_addresses(fib_trie: string, if_inet6: string): {stri
   local seen: mut {string:boolean} = {}
   local found: mut {string} = {}
   local function add(address: string)
-    if not seen[address] then
+    if seen[address] ~= true then
       seen[address] = true
       found[#found + 1] = address
     end
@@ -262,7 +262,7 @@ function relay_config.parse_addresses(fib_trie: string, if_inet6: string): {stri
     local address = line:match("^%s*|%-%- (%d+%.%d+%.%d+%.%d+)%s*$")
     if address ~= nil then
       last = address
-    elseif last ~= nil and line:match("^%s*/32 host LOCAL%s*$") then
+    elseif last ~= nil and line:match("^%s*/32 host LOCAL%s*$") ~= nil then
       add(last)
     end
   end
@@ -291,7 +291,7 @@ function relay_config.host_addresses(): {string}?, string
     local seen: mut {string:boolean} = {}
     local found: mut {string} = {}
     for _, entry in ipairs(listed) do
-      if not seen[entry.address] then
+      if seen[entry.address] ~= true then
         seen[entry.address] = true
         found[#found + 1] = entry.address
       end
@@ -460,13 +460,13 @@ end
 local function upstream_of(value: any): relay_config.Upstream?, string
   if not value is {string: any} then return nil, "upstream is not an object" end
   local host, port, authorization = value.host, value.port, value.authorization
-  if not host is string or host == "" or host:find("[%c%s]") then
+  if not host is string or host == "" or host:find("[%c%s]") ~= nil then
     return nil, "upstream.host is not a host name or address"
   end
   if not port is integer or port < 1 or port > 65535 then
     return nil, "upstream.port is not a port from 1 to 65535"
   end
-  if authorization ~= nil and (not authorization is string or authorization:find("%c")) then
+  if authorization ~= nil and (not authorization is string or authorization:find("%c") ~= nil) then
     return nil, "upstream.authorization is not a header value with no control bytes"
   end
   local skipped, skipped_why = strings(value.no_proxy, "upstream.no_proxy")

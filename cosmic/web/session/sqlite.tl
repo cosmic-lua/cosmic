@@ -183,7 +183,7 @@ end
 --- Applies `changes` to `values`.
 local function apply(values: {string:any}, changes: Session.Changes): {string:any}
   local out: mut {string:any} = {}
-  if not changes.cleared then
+  if changes.cleared ~= true then
     for key, value in pairs(values) do out[key] = value end
   end
   for key, value in pairs(changes.set) do out[key] = value end
@@ -214,13 +214,13 @@ local function save_session(self: Session.Store, previous: string, data: Session
     local subject = changes.subject
     if row ~= nil then
       base = values_of(row:text(1)) or {}
-      if not changes.regenerated then created = row:integer(2) end
+      if changes.regenerated ~= true then created = row:integer(2) end
       if subject == nil and row:kind(4) == "text" then subject = row:text(4) end
     end
     local text, encode_why = Json.encode_any(apply(base, changes), { max_depth = Session.MAX_DEPTH })
     if text == nil then return false, "cannot encode the session: " .. encode_why end
     local subject_value: Sqlite.Value = if subject ~= nil then { text = subject } else {} end
-    if row ~= nil and not changes.regenerated then
+    if row ~= nil and changes.regenerated ~= true then
       return Sqlite.run(store.db,
         ("UPDATE %s SET data = ?2, subject = ?3, touched = ?4, expires = ?5 WHERE id_hash = ?1"):
           format(store.table),

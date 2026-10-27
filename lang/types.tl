@@ -640,7 +640,7 @@ local function render(t: Type, sub: function(Type): string): string
   parts[#parts + 1] = ") ("
   local params: mut {string} = {}
   for _, p in ipairs(f.params) do
-    params[#params + 1] = if p.omittable then "(opt " .. sub(p.type) .. ")" else sub(p.type) end
+    params[#params + 1] = if p.omittable == true then "(opt " .. sub(p.type) .. ")" else sub(p.type) end
   end
   local rest = f.rest
   if rest ~= nil then
@@ -779,7 +779,7 @@ local function declared_names(root: Type): {string: boolean}
   while #stack > 0 do
     local t = stack[#stack]
     stack[#stack] = nil
-    if not seen[t.id] then
+    if seen[t.id] ~= true then
       seen[t.id] = true
       if (t.tag == "named") then
         -- The first name of a dotted one is what the text writes first.
@@ -808,7 +808,7 @@ local function parameter_name(names: Names, level: integer, index: integer): str
   end
   local taken: {string: boolean} = names.taken or declared_names(names.root)
   names.taken = taken
-  while taken[name] do
+  while taken[name] == true do
     name = name .. "_"
   end
   return name
@@ -1002,9 +1002,9 @@ local function show_fn(f: Fn, names: Names): string
   local rest = f.rest
   for i, p in ipairs(f.params) do
     local last = rest == nil and i == #f.params
-    if p.omittable then
+    if p.omittable == true then
       params[i] = "p" .. i .. "?: " .. show_without_nil(p.type, names, last)
-    elseif named[i] then
+    elseif named[i] == true then
       params[i] = "p" .. i .. ": " .. show_element(p.type, names, last)
     else
       params[i] = show_element(p.type, names, last)
@@ -1161,7 +1161,7 @@ local function gather(g: Gathered, m: Type)
     elseif tag == "invalid" then
       g.invalid = true
     end
-  elseif not g.seen[m.id] then
+  elseif g.seen[m.id] ~= true then
     g.seen[m.id] = true
     g.members[#g.members + 1] = m
   end
@@ -1185,7 +1185,7 @@ local function union_of(store: Store, members: {Type}): Type
   end
   local seen = g.seen
   local yes, no = store.atoms["true"], store.atoms["false"]
-  if seen[yes.id] and seen[no.id] and not seen[store.boolean.id] then
+  if seen[yes.id] == true and seen[no.id] == true and seen[store.boolean.id] ~= true then
     seen[store.boolean.id] = true
     g.members[#g.members + 1] = store.boolean
   end
@@ -1193,11 +1193,11 @@ local function union_of(store: Store, members: {Type}): Type
   local kept: mut {Type} = {}
   for _, m in ipairs(g.members) do
     local covered = false
-    if has_number and m.id == store.integer.id then
+    if has_number == true and m.id == store.integer.id then
       covered = true
-    elseif has_boolean and (m.id == yes.id or m.id == no.id) then
+    elseif has_boolean == true and (m.id == yes.id or m.id == no.id) then
       covered = true
-    elseif has_string and (m.tag == "named") then
+    elseif has_string == true and (m.tag == "named") then
       covered = m.decl.kind == "enum"
     end
     if not covered then
@@ -1232,7 +1232,7 @@ local function unbound(t: Type, level: integer, count: integer, seen: mut {strin
     return ""
   end
   local mark = tostring(t.id) .. ":" .. level
-  if seen[mark] then
+  if seen[mark] == true then
     return ""
   end
   seen[mark] = true
@@ -1465,7 +1465,7 @@ end
 
 --- Whether `s` can name a declaration or a type parameter: a name the lexer does not reserve.
 local function is_binding_name(s: string): boolean
-  return is_name(s) and not Lexer.reserved[s]
+  return is_name(s) and Lexer.reserved[s] ~= true
 end
 
 local function declaration_name(module: string, names: {string}): string
@@ -1475,7 +1475,7 @@ local function declaration_name(module: string, names: {string}): string
   if #names == 0 then
     error("types: a declaration has a name", 3)
   end
-  if #names == 1 and PRIMITIVE_NAMES[names[1]] then
+  if #names == 1 and PRIMITIVE_NAMES[names[1]] == true then
     error("types: " .. names[1] .. " is a primitive type, which no declaration takes", 3)
   end
   for _, n in ipairs(names) do
@@ -1581,7 +1581,7 @@ function Types.listing_cycle(decl: Decl, supers: {Type}): Decl?
       return decl
     end
     local body = d.body
-    if not seen[d] and body ~= nil then
+    if seen[d] ~= true and body ~= nil then
       seen[d] = true
       for _, super in ipairs(body.supers) do
         if (super.tag == "named") then
@@ -1674,7 +1674,7 @@ local function normal_body(store: Store, decl: Decl, body: Body): Body
   end
   local seen: mut {string: boolean} = {}
   for i, v in ipairs(body.values) do
-    if seen[v] then
+    if seen[v] == true then
       error("types: the enum " .. decl.name .. " lists " .. v .. " twice", 3)
     end
     seen[v] = true
@@ -1734,7 +1734,7 @@ end
 
 --- `(opt T)` for an omittable slot (a parameter or a field), or `T`.
 local function slot_text(type_: Type, omittable: boolean?): string
-  if omittable then
+  if omittable == true then
     return "(opt " .. written(type_) .. ")"
   end
   return written(type_)
@@ -1754,7 +1754,7 @@ local function declaration_text(decl: Decl, body: Body): string
   end
   parts[#parts + 1] = ") (fields"
   for _, field in ipairs(body.fields) do
-    parts[#parts + 1] = " (field " .. quote(field.name) .. (if field.mut then " mut " else " " end) ..
+    parts[#parts + 1] = " (field " .. quote(field.name) .. (if field.mut == true then " mut " else " " end) ..
       slot_text(field.type, field.omittable) .. ")"
   end
   parts[#parts + 1] = ") (elements"
@@ -1905,7 +1905,7 @@ local function resolve(r: Reader, module: string, name: string): Decl
   local found = store:find(module, name)
   if found ~= nil then
     -- One that is not being read has a body: a bodiless one was declared and never defined.
-    if found.body == nil and not store.building[path_key(module, name)] then
+    if found.body == nil and store.building[path_key(module, name)] ~= true then
       fail(r, "the declaration " .. module .. " " .. name .. " has no body")
     end
     return found
@@ -2136,7 +2136,7 @@ read_declaration = function(store: Store, text: string, module: string?, name: s
   end
   local decl = store:declare(decl_kind, path_module, read_field_names(path_name))
   local key = path_key(path_module, path_name)
-  local first = not store.building[key]
+  local first = store.building[key] ~= true
   if first then
     store.building[key] = true
     store.building_order[#store.building_order + 1] = key

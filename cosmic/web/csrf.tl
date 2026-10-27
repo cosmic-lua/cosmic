@@ -267,11 +267,11 @@ local function origin_refusal(req: Types.Request, trusted: {string:boolean}, str
   local normal: string? = nil
   if origin ~= nil then
     if origin == "null" then
-      if trusted["null"] then return nil end
+      if trusted["null"] == true then return nil end
       return "origin"
     end
     normal = Origin.normalize(origin)
-    if normal ~= nil and trusted[normal] then return nil end
+    if normal ~= nil and trusted[normal] == true then return nil end
   end
   local site = req.headers["sec-fetch-site"]
   if site ~= nil then
@@ -287,7 +287,7 @@ local function origin_refusal(req: Types.Request, trusted: {string:boolean}, str
   if referer ~= nil and referer ~= "" then
     local from = Origin.of_url(referer)
     if from == nil then return "referer" end
-    if trusted[from] then return nil end
+    if trusted[from] == true then return nil end
     if from ~= here then return "referer" end
   end
   return nil
@@ -302,7 +302,7 @@ end
 --- Whether `req`'s method is checked: anything but GET and TRACE, and HEAD
 --- and OPTIONS when the matched route lists them itself.
 local function checked(req: Types.Request): boolean
-  if not SAFE[req.method] then return true end
+  if SAFE[req.method] ~= true then return true end
   if req.method ~= "HEAD" and req.method ~= "OPTIONS" then return false end
   -- Middleware at the top of the app runs before the router has matched.
   local route = req.route

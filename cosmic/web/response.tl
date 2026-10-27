@@ -142,7 +142,7 @@ function Response.add_header(res: Types.Response, name: string, value: string)
     end
     local have: mut {string:boolean} = {}
     for _, token in ipairs(tokens(old)) do have[token] = true end
-    if have["*"] then return end
+    if have["*"] == true then return end
     local add: mut {string} = {}
     for piece in value:gmatch("[^,%s]+") do
       local token = piece:lower()
@@ -150,7 +150,7 @@ function Response.add_header(res: Types.Response, name: string, value: string)
         put(res, key or name, "*")
         return
       end
-      if not have[token] then
+      if have[token] ~= true then
         have[token] = true
         add[#add + 1] = piece
       end
@@ -279,7 +279,7 @@ end
 function Response.redirect(location: string, opts?: Types.ResponseOptions): Types.Response
   if type(location) ~= "string" then error("web: redirect takes a string location", 2) end
   local status = opts and opts.status or 303
-  if not REDIRECTS[status] then
+  if REDIRECTS[status] ~= true then
     error("web: a redirect's status must be 301, 302, 303, 307 or 308, not " .. tostring(status), 2)
   end
   if not Response.local_path(location) then

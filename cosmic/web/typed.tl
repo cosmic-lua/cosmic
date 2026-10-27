@@ -122,12 +122,12 @@ local function check_path(pattern: string, spec: Shape.Spec?)
   local seen: mut {string:boolean} = {}
   for _, name in ipairs(names) do
     seen[name] = true
-    if not fields[name] then
+    if fields[name] ~= true then
       error(("web: route_typed %s: the parameter %q is not a field of the path spec"):format(pattern, name), 3)
     end
   end
   for name in pairs(fields) do
-    if not seen[name] then
+    if seen[name] ~= true then
       error(("web: route_typed %s: the path spec field %q is not a parameter of the pattern"):format(pattern, name), 3)
     end
   end
@@ -192,7 +192,7 @@ function Typed.route_typed<P,Q,B>(methods: string | {string}, pattern: string, i
   local verbs: {string} = if methods is string then { methods } else methods end
   if kind ~= "none" then
     for _, verb in ipairs(verbs) do
-      if not BODY_METHODS[verb] then
+      if BODY_METHODS[verb] ~= true then
         error(("web: route_typed %s: %s takes no body, so it cannot have a %s body spec"):format(pattern, verb, kind), 2)
       end
     end

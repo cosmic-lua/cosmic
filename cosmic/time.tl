@@ -716,7 +716,7 @@ local function offsets_near(rules: Rules, s: integer): {integer}
   local seen: mut {integer:boolean} = {}
   local out: mut {integer} = {}
   local function add(kind: Kind)
-    if not seen[kind.offset] then
+    if seen[kind.offset] ~= true then
       seen[kind.offset] = true
       out[#out + 1] = kind.offset
     end
@@ -1066,7 +1066,7 @@ local function name_problem(name: string): string?
         name, part)
     end
   end
-  if NOT_ZONES[name] or name:find("^posix/") ~= nil or
+  if NOT_ZONES[name] == true or name:find("^posix/") ~= nil or
       name:find("^right/") ~= nil then
     return ("%q is a file in a zoneinfo directory, not a zone name"):format(name)
   end
@@ -1152,7 +1152,7 @@ local function zone_of(name: string): Time.Zone?, string
   local Store = require("cosmic.store")
   local known, listing = carried_set()
   if known == nil then return nil, ("time zone %s: %s"):format(name, listing) end
-  if not known[name] then
+  if known[name] ~= true then
     return nil, remember(("no time zone %s: this binary's tz database has none; %s"):format(
       name, NEWER_ZONES))
   end
@@ -1315,7 +1315,7 @@ function Time.local_zone(opts?: Time.LocalOptions): Time.Zone?, string
     localtime = opts.localtime or localtime
     timezone = opts.timezone or timezone
   end
-  if tz == nil and not (opts ~= nil and opts.unset) then tz = sys.getenv("TZ") end
+  if tz == nil and not (opts ~= nil and opts.unset == true) then tz = sys.getenv("TZ") end
   local cacheable = opts == nil
   if cacheable then
     local cached: Time.Zone?
@@ -1379,7 +1379,7 @@ local DISAMBIGUATIONS <const>: {string:boolean} = {
 --- function that asks, for one that is none of [`Disambiguation`]'s.
 local function disambiguation_of(given: Time.Disambiguation?): Time.Disambiguation
   local how: Time.Disambiguation = given or "reject"
-  if not DISAMBIGUATIONS[how] then
+  if DISAMBIGUATIONS[how] ~= true then
     error("time: disambiguation is \"reject\", \"earlier\", \"later\" or \"compatible\", not " ..
         tostring(how), 3)
   end
@@ -1618,7 +1618,7 @@ function Time.format_rfc3339(ns: integer, zone?: Time.Zone, opts?: Time.FormatOp
     tail = offset_text(shift)
     if zone_name then
       local name = rules.name
-      if not rules.named or name == nil then
+      if rules.named ~= true or name == nil then
         error(("time: zone %q has no IANA name for zone_name to write"):format(tostring(name)), 2)
       end
       tail = tail .. "[" .. name .. "]"

@@ -491,7 +491,7 @@ local function limits_of(value: any): Test.Limits?, string
   local out: Test.Limits = {}
   if value is {any:any} then
     for key, field in pairs(value) do
-      if not (key is string and LIMIT_FIELDS[key] and field is integer) then
+      if not (key is string and LIMIT_FIELDS[key] == true and field is integer) then
         return nil, "limits takes open_files, file_bytes, cpu_seconds and processes, " ..
           "each an integer"
       end
@@ -678,19 +678,19 @@ function Test.needs_of(given: any): Test.Needs?, string
     return nil, (if policy.user ~= nil then "user" else "group" end) .. " is refused: the harness " ..
       "chooses the user a worker runs as"
   end
-  if bin and not flags.cosmic then
+  if bin and flags.cosmic ~= true then
     return nil, "grants: .path o/bin is the program's directory, " ..
       "granted only beside the profile \"cosmic\"; add the profile, or drop the grant"
   end
-  out.tool = flags.cosmic and bin or nil
-  out.lua = flags.cosmic and not bin or nil
-  if out.lua then
-    local beside = if out.store then "o/cosmic.db" elseif flags.system then "system" elseif
+  out.tool = if flags.cosmic == true and bin then true else nil end
+  out.lua = if flags.cosmic == true and not bin then true else nil end
+  if out.lua == true then
+    local beside = if out.store == true then "o/cosmic.db" elseif flags.system == true then "system" elseif
       #caches > 0 then "/cache/" .. caches[1] else nil end
     if beside ~= nil then return nil, LUA_BESIDE .. beside .. LUA_FIX end
   end
   out.system, out.nests = flags.system, flags.nests
-  if flags.proc then host[#host + 1] = "/proc" end
+  if flags.proc == true then host[#host + 1] = "/proc" end
   if #reads > 0 then out.reads = reads end
   if #host > 0 then out.host = host end
   if #caches > 0 then out.caches = caches end
@@ -782,7 +782,7 @@ end
 --- @return the path the worker reads it at
 function Test.parent(relative: string): string
   if not (relative is string) then error("test: parent takes a string", 2) end
-  if not declared.parents[relative] then
+  if declared.parents[relative] ~= true then
     error(string.format("test: parent(%q) is not declared; grant " ..
         "{ path = \"/parent/%s\", letters = \"r\" } in Test.policy", relative, relative), 2)
   end
