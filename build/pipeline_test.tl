@@ -458,17 +458,6 @@ end
 
 -- what the compile holds a module to besides the checker
 
---- What the contract rules say of `source` as the file `m.tl` (the problems, one to a line), with the fixture's prelude of
---- functions that fail.
-local function rules_say(source: string): string
-  local said = Fixture.port(Fixture.PRELUDE .. source .. "\nuse(get, put, name, pair, complain, lead, maybe, sget, log)\n")
-  local lines: mut {string} = {}
-  for _, line in ipairs(said.problems) do
-    lines[#lines + 1] = (line:gsub("^x%.tl:(%d+):", "m.tl:%1:"))
-  end
-  return table.concat(lines, "\n")
-end
-
 --- The contract refusals of the compile for `source`: what it says of the module beyond the prelude's lines.
 local function compile_says(source: string): string
   local text = Fixture.PRELUDE .. source .. "\nuse(get, put, name, pair, complain, lead, maybe, sget, log)\n"
@@ -477,22 +466,38 @@ local function compile_says(source: string): string
   return why
 end
 
---- Programs the contract rules refuse, each refused by the compile with the rules' words, in their order.
+--- A program after the fixture's prelude (which is 13 lines, so its own lines begin at 14) and what the compile says of it.
+local record Refusal
+  program: string
+  says: string
+end
+
+local DROPPED <const> = "m.tl:14: get: its error slot is dropped; bind both results, wrap it in assert(...), or return it whole"
+
+--- Programs the contract rules refuse, each refused by the compile with exactly these words.
+local REFUSALS <const>: {Refusal} = {
+  { program = "local v = get()\nuse(v)", says = DROPPED },
+  {
+    program = "put()",
+    says = "m.tl:14: put: its failure is ignored; handle it, or discard both results on purpose: local _, _ = ...",
+  },
+  { program = "use(get(), 1)", says = DROPPED },
+  {
+    program = "local function f(): integer?, string\n  local v, err = get()\n  if v == nil then return 0, err end\n  return v, ''\nend\nuse(f)",
+    says = "m.tl:16: f: a failure answers nil beside its reason, never a value; a success's reason is \"\"",
+  },
+  {
+    program = "local function f(): string?, integer\n  return nil, 127\nend\nuse(f)",
+    says = "m.tl:14: f: a failure's reason is exactly a string; this second result is not",
+  },
+  { program = "if get() then use(1) end", says = DROPPED },
+  { program = "use((get()))", says = DROPPED },
+}
+
 local function test_the_compile_refuses_what_the_contract_rules_refuse_with_their_words()
-  local programs: {string} = {
-    "local v = get()\nuse(v)",
-    "put()",
-    "use(get(), 1)",
-    "local function f(): integer?, string\n  local v, err = get()\n  if v == nil then return 0, err end\n  return v, ''\nend\nuse(f)",
-    "local function f(): string?, integer\n  return nil, 127\nend\nuse(f)",
-    "if get() then use(1) end",
-    "use((get()))",
-  }
-  for _, program in ipairs(programs) do
-    local want = rules_say(program)
-    assert(want ~= "", "the rules find nothing in:\n" .. program)
-    local got = compile_says(program)
-    assert(got == want, "in:\n" .. program .. "\nthe rules say:\n" .. want .. "\nthe compile says:\n" .. got)
+  for _, case in ipairs(REFUSALS) do
+    local got = compile_says(case.program)
+    assert(got == case.says, "in:\n" .. case.program .. "\nthe compile says:\n" .. got .. "\nnot:\n" .. case.says)
   end
 end
 
