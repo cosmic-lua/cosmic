@@ -139,8 +139,6 @@ allow({ "build.todos.run" }, "the verb's run, which a test calls with a tree and
     "as that tree's own tool would; the verb's spec calls it with the command line alone")
 allowed["build.ceilings.closed"] = "the codes `parse` refuses a ceiling for, which build/ceilings_test.tl reads to hold the list " ..
   "complete: a code of a stage with no row left must be in it"
-allowed["build.ceilings.parse"] = "the text of a ceilings file, which `read` composes with the file it reads; a database filled " ..
-  "from the file hands its text here, and the tests read fixtures"
 
 allow({
   "build.pipeline.mode", "build.pipeline.tool", "build.pipeline.over",
