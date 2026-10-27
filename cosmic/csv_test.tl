@@ -140,7 +140,7 @@ end
 
 local function lines_of(text: string, opts?: Csv.Options): string
   local made = assert(Csv.table(text, opts))
-  assert(#made.lines == #made.rows, #made.lines .. " lines for " .. #made.rows .. " rows")
+  assert(#made.lines == #made.rows, tostring(#made.lines) .. " lines for " .. tostring(#made.rows) .. " rows")
   local out: mut {string} = {}
   for index, line in ipairs(made.lines) do
     out[index] = tostring(line)
@@ -173,7 +173,7 @@ local function records_text(text: string, opts?: Csv.Options): string
   assert(rows ~= nil, why)
   local out: mut {string} = {}
   for index, row in ipairs(rows) do
-    out[index] = row.line .. ":" .. table.concat(row.fields, "|")
+    out[index] = tostring(row.line) .. ":" .. table.concat(row.fields, "|")
   end
   return table.concat(out, ";")
 end
@@ -223,7 +223,7 @@ end
 local function test_a_large_file_reads_in_full()
   local lines: mut {string} = { "id,name,note" }
   for index = 1, 60000 do
-    lines[#lines + 1] = index .. ',name ' .. index .. ',"note, ""' .. index .. '"" \nmore"'
+    lines[#lines + 1] = tostring(index) .. ',name ' .. tostring(index) .. ',"note, ""' .. tostring(index) .. '"" \nmore"'
   end
   local text = table.concat(lines, "\r\n") .. "\r\n"
   local rows = assert(rows_of(text))
@@ -239,7 +239,7 @@ end
 
 local function test_a_one_column_file_reads_an_interior_blank_line_as_an_empty_field()
   local rows = assert(rows_of("a\n1\n\n3\n"))
-  assert(#rows == 3 and rows[1].a == "1" and rows[2].a == "" and rows[3].a == "3", #rows .. " rows")
+  assert(#rows == 3 and rows[1].a == "1" and rows[2].a == "" and rows[3].a == "3", tostring(#rows) .. " rows")
   -- Blank lines at the end are the file's end, however many, LF or CRLF.
   assert(#assert(rows_of("a\n1\n\n3\n\n\n")) == 3)
   assert(#assert(rows_of("a\r\n1\r\n\r\n3\r\n\r\n")) == 3)

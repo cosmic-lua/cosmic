@@ -63,7 +63,7 @@ local function test_a_standalone_file_runs_on_what_it_loads(tmp: string)
   assert(Fs.write(bad, "local Zip = require(\"cosmic.zip\")\nprint(Zip ~= nil)\n"))
   if not sandboxed() then return end
   ok, out, err = run({ "--standalone", bad })
-  assert(not ok and err:find("the project has no module `cosmic.zip`", 1, true), out .. err)
+  assert(not ok and err:find("the project has no module `cosmic.zip`", 1, true) ~= nil, out .. err)
 end
 
 --- A file runs standalone having loaded nothing of the tree beyond

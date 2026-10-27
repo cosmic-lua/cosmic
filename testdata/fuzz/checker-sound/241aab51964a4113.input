@@ -1,0 +1,14 @@
+local record R
+  mut a: integer?
+  __close: function(R)
+end
+local r: R = setmetatable({ a = 1 } as R, { __close = function(c: R) c.a = nil end } as metatable<R>)
+local sink: integer = 0
+if r.a then
+  do
+    local c <close> = r
+    local _ = c
+  end
+  sink = sink + r.a + 1
+end
+return sink

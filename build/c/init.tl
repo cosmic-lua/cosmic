@@ -678,7 +678,7 @@ function c.check(root: string, files: {string}, cwd?: string, limit?: integer, s
         first_unit[i] = units[job]
       end
       for _, f in ipairs(reported) do
-        local key = f.file .. ":" .. f.line .. ":" .. f.rule .. ":" .. f.within
+        local key = f.file .. ":" .. tostring(f.line) .. ":" .. f.rule .. ":" .. f.within
         local same = at[key]
         if same == nil then
           f.variants = { name }
@@ -723,7 +723,7 @@ function c.check(root: string, files: {string}, cwd?: string, limit?: integer, s
     if o_findings ~= nil then
       local kept: mut {rules.Finding} = {}
       for _, f in ipairs(o_findings) do
-        local key = f.file .. ":" .. f.line .. ":" .. f.rule
+        local key = f.file .. ":" .. tostring(f.line) .. ":" .. f.rule
         if not seen[key] then
           seen[key] = true
           kept[#kept + 1] = f

@@ -48,7 +48,7 @@ local function classify(self: Dialect.Table, attr: string): Rule?
   local known = self.known[attr]
   if known ~= nil then
     return known
-  elseif self.plain[attr] then
+  elseif self.plain[attr] == true then
     return nil
   end
   local name = attr
@@ -115,7 +115,7 @@ local function unlockable(def: types.Def): string
   end
   for attr, rule in pairs(def.exact) do
     local name = bare(attr)
-    if locked(name) and not (RELAXABLE[name] and rule.class == "json") and rule.class ~= "refused" then
+    if locked(name) and not (RELAXABLE[name] == true and rule.class == "json") and rule.class ~= "refused" then
       return bad("'" .. attr .. "' the class " .. rule.class)
     end
   end
@@ -180,7 +180,7 @@ function Dialect.resolve(names: {string}, registry: {string: types.Def}): Dialec
       order[entry] = at
     end
     for _, family in ipairs(def.families) do
-      if not seen[family] then
+      if seen[family] ~= true then
         seen[family] = true
         families[#families + 1] = family
       end

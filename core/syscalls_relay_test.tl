@@ -111,7 +111,7 @@ local function relays(tmp: string, probe: string, sandbox: raw_process.Sandbox, 
       local listener = assert(Net.listener_from(received[index]:fd(),
         { timeout_ns = Clock.seconds(5) }))
       assert(listener.address.host == "127.0.0.1" and listener.address.port == ports[index],
-        "listener " .. index .. " is at its port")
+        "listener " .. tostring(index) .. " is at its port")
       -- The program has ended: what it connected waits to be accepted.
       local conn = assert(listener:accept(Clock.seconds(5)))
       assert(conn:close())
@@ -198,7 +198,7 @@ end
 local function test_an_offline_childs_loopback_is_its_own(tmp: string)
   local probe = assert(stand_in.build(tmp .. "/stand-in"))
   local alone = assert(Net.listen(Net.tcp("127.0.0.1", 0)))
-  local target = "connect-tcp 127.0.0.1 " .. assert(alone.address.port)
+  local target = "connect-tcp 127.0.0.1 " .. tostring(assert(alone.address.port))
   local private, why = start(tmp, probe, target,
     { offline = true, promises = {}, sockets = { "inet" } })
   if private == nil then

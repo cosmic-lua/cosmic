@@ -426,11 +426,11 @@ function dataset.load(handle: Sqlite.Handle, name: string, rows: dataset.Rows): 
   local marks: mut {string} = {}
   for index, column in ipairs(names) do
     declared[index] = quoted(column)
-    marks[index] = "?" .. index
+    marks[index] = "?" .. tostring(index)
   end
   local width = #names
   declared[width + 1] = quoted("_json")
-  marks[width + 1] = "?" .. (width + 1)
+  marks[width + 1] = "?" .. tostring((width + 1))
   local insert = "INSERT INTO " .. quoted(name) .. " VALUES (" .. table.concat(marks, ", ") .. ")"
   local ok, trouble = Sqlite.transact(handle, function(): boolean, string
     local created, why = handle:exec("CREATE TABLE " .. quoted(name) ..
@@ -443,18 +443,18 @@ function dataset.load(handle: Sqlite.Handle, name: string, rows: dataset.Rows): 
       for index, column in ipairs(names) do
         local value, bad = bound(row[key_of[column]])
         if value == nil then
-          return false, "row " .. number .. ", " .. column .. ": " .. bad
+          return false, "row " .. tostring(number) .. ", " .. column .. ": " .. bad
         end
         values[index] = value
       end
       local text, bad = Json.encode_any(row)
       if text == nil then
-        return false, "row " .. number .. ": " .. bad
+        return false, "row " .. tostring(number) .. ": " .. bad
       end
       values[width + 1] = { text = text }
       local inserted, insert_bad = Sqlite.run(handle, insert, values)
       if not inserted then
-        return false, "row " .. number .. ": " .. insert_bad
+        return false, "row " .. tostring(number) .. ": " .. insert_bad
       end
     end
     return true, ""

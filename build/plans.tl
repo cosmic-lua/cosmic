@@ -648,7 +648,7 @@ function plans.policy_refusal(file: string, kind: string,
   if inputs == nil or kind == "test" or kind == "example" then
     return nil
   end
-  return file .. ":" .. inputs.line .. ": test.policy: only a test or example " ..
+  return file .. ":" .. tostring(inputs.line) .. ": test.policy: only a test or example " ..
     "module declares what its tests read; call it in each test module that " ..
     "requires this one"
 end

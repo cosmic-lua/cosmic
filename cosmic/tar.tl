@@ -69,7 +69,7 @@ local record Tar
     --- Forces every entry's mtime to 0, so the same sequence of calls
     --- tars to the same bytes. (uid/gid are always written as 0 and
     --- uname/gname as empty, deterministic or not.)
-    deterministic: boolean
+    deterministic?: boolean
   end
 
   --- Once any call fails, the underlying Stream.Writer is aborted and every
@@ -570,7 +570,8 @@ end
 function Tar.reader(raw: Stream.Reader): Tar.Reader
   local r: EntryReader = {
     raw = raw, src = buffered(raw), pax_global = {}, ended = false, closed = false,
-    pending_skip = 0, generation = 0, opened = false, size = 0,
+    failed = nil, pending_skip = 0, generation = 0, current = nil, opened = false, size = 0,
+    entry_mt = nil,
   }
   -- Every entry this reader makes shares one `open`, through its
   -- metatable: only the current entry can be opened, and only once. It
@@ -586,7 +587,7 @@ function Tar.reader(raw: Stream.Reader): Tar.Reader
         if r.opened then return refuse("entry already opened once") end
         r.opened = true
         local body: BodyReader = {
-          state = r, generation = r.generation, left = r.size, closed = false,
+          state = r, generation = r.generation, left = r.size, failed = nil, closed = false,
         }
         return body, ""
       end,
@@ -791,7 +792,7 @@ end
 function Tar.writer(w: Stream.Writer, opts?: Tar.WriterOptions): Tar.Writer
   opts = opts or {}
   local tw: EntryWriter = {
-    sink = Stream.sticky(w, "tar"), deterministic = opts.deterministic or false,
+    sink = Stream.sticky(w, "tar"), deterministic = opts.deterministic == true,
   }
   return tw
 end

@@ -85,16 +85,16 @@ end
 --- relay refused).
 local function test_a_declared_loopback_address_stays_direct()
   serving(function(port: integer)
-    local out, code = curl("127.0.0.1:" .. port, "http://127.0.0.2:" .. port .. "/", { "127.0.0.2" })
+    local out, code = curl("127.0.0.1:" .. tostring(port), "http://127.0.0.2:" .. tostring(port) .. "/", { "127.0.0.2" })
     -- Not out:find("403"): the port, chosen by the kernel, may hold those digits.
     assert(code == 7 and out:find("Failed to connect to 127.0.0.2", 1, true) ~= nil and
-        out:find("CONNECT", 1, true) == nil, "exit " .. code .. ": " .. out)
+        out:find("CONNECT", 1, true) == nil, "exit " .. tostring(code) .. ": " .. out)
   end)
 end
 
 local function test_a_proxy_client_reaches_a_granted_host_loopback_service()
   serving(function(port: integer)
-    local out, code = curl("127.0.0.1:" .. port, "http://127.0.0.1:" .. port .. "/")
-    assert(code == 0 and out:find("hello from the host", 1, true), "exit " .. code .. ": " .. out)
+    local out, code = curl("127.0.0.1:" .. tostring(port), "http://127.0.0.1:" .. tostring(port) .. "/")
+    assert(code == 0 and out:find("hello from the host", 1, true), "exit " .. tostring(code) .. ": " .. out)
   end)
 end

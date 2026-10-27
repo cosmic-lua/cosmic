@@ -104,7 +104,7 @@ end
 local function traced(err: any): any
   if Response.aborted(err) ~= nil then return err end
   -- A layer below has traced it: the first stack is the one that matters.
-  if err is string and err:find("\nstack traceback:", 1, true) then return err end
+  if err is string and err:find("\nstack traceback:", 1, true) ~= nil then return err end
   return errors.trace(tostring(err), 2)
 end
 
@@ -112,7 +112,7 @@ end
 local function fault(req: Types.Request, trace: string): Types.Response
   local spec = req.app.spec
   assert(req.app.spec.sink):line(("%s %s: %s"):format(req.method, req.path, trace))
-  if spec.debug then
+  if spec.debug == true then
     local message = trace:match("^[^\n]*") or trace
     if wants_json(req) then
       return Response.problem(500, message, { trace = trace })
@@ -148,7 +148,7 @@ function Errors.wrap(inner: Types.Handler): Types.Handler
   return function(req: Types.Request): Types.Response
     local ok, res = xpcall(inner, traced, req)
     if ok then
-      if req.app.spec.debug then
+      if req.app.spec.debug == true then
         -- The server's own words for an answer that is no reply (see
         -- `reply_trouble` in cosmic/http/server.tl).
         local trouble: string

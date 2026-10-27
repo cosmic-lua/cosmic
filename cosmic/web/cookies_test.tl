@@ -22,7 +22,7 @@ end
 
 local function test_parse_reads_at_most_100_cookies_and_8_kib()
   local parts: mut {string} = {}
-  for i = 1, 150 do parts[i] = "c" .. i .. "=v" end
+  for i = 1, 150 do parts[i] = "c" .. tostring(i) .. "=v" end
   local got = Cookies.parse(table.concat(parts, "; "))
   local n = 0
   for _ in pairs(got) do n = n + 1 end

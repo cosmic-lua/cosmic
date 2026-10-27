@@ -447,7 +447,7 @@ local function test_a_require_with_a_literal_module_is_listed_with_its_node()
   for i, r in ipairs(chunk.requires) do
     modules[i] = r.module
     local node = find(chunk, r.node)
-    assert((node.kind == "Call") or (node.kind == "Import"), "node " .. r.node .. " of " .. r.module)
+    assert((node.kind == "Call") or (node.kind == "Import"), "node " .. tostring(r.node) .. " of " .. r.module)
   end
   same(table.concat(modules, " "), "m.one m.two m.three m.four", "requires")
 end

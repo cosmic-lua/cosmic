@@ -633,7 +633,7 @@ local function test_paired_declaration_projects_each_source_in_its_role(tmp: str
   local bound = rows("SELECT requires FROM bound WHERE path = 'foo' AND name = 'Dep'")
   assert(#bound == 1 and bound[1]:text(1) == "decl_dep")
   local docs = rows("SELECT file, text FROM docs WHERE module = 'foo' AND symbol = 'Foo'")
-  assert(#docs == 1 and docs[1]:text(1) == "foo.d.tl" and docs[1]:text(2):find("Public interface.", 1, true))
+  assert(#docs == 1 and docs[1]:text(1) == "foo.d.tl" and docs[1]:text(2):find("Public interface.", 1, true) ~= nil)
   local uses = rows("SELECT module, symbol, from_file FROM uses WHERE from_module = 'foo'")
   assert(#uses == 1 and uses[1]:text(1) == "impl_dep" and uses[1]:text(2) == "executed" and
       uses[1]:text(3) == "foo.tl")
@@ -687,7 +687,7 @@ local function test_a_failed_projection_can_be_retried(tmp: string)
   assert(handle.db:exec("DROP TABLE compiled"))
   local out = tmp .. "/out.db"
   local written, trouble = writer.write_result(handle, out, result)
-  assert(not written and trouble:find("compiled", 1, true), trouble)
+  assert(not written and trouble:find("compiled", 1, true) ~= nil, trouble)
   assert(not handle.inside, "the failed projection left its transaction open")
   assert(Fs.stat(out) == nil, "the failed projection published a file")
   assert(handle.db:exec("ATTACH ':memory:' AS out"), "the failed snapshot stayed attached")

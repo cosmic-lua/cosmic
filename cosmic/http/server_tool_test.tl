@@ -65,7 +65,7 @@ end
       return { status = 200, headers = { ["Content-Type"] = "text/plain" }, body = value }
     end,
     on_ready = function(addresses: {Net.Address}, server: Net.Server)
-      local base = "http://127.0.0.1:" .. assert(addresses[1].port)
+      local base = "http://127.0.0.1:" .. tostring(assert(addresses[1].port))
       local started = this_program.program({ "--standalone", script, base },
         { stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(60) })
       result.value = assert(Child.run(started.argv, started.options))
@@ -117,7 +117,7 @@ end
       return { status = 200, body = body }
     end,
     on_ready = function(addresses: {Net.Address}, server: Net.Server)
-      local base = "http://127.0.0.1:" .. assert(addresses[1].port)
+      local base = "http://127.0.0.1:" .. tostring(assert(addresses[1].port))
       local started = this_program.program({ "--standalone", script, base },
         { stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(60) })
       result.value = assert(Child.run(started.argv, started.options))

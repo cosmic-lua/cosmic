@@ -583,7 +583,7 @@ local function test_an_integer_option_curl_would_clamp_is_refused()
   local err = raised({ max_redirects = 40000 })
   assert(err:find("http: opts.max_redirects must be between 0 and 32767", 1, true) ~= nil, err)
   err = raised({ low_speed_ns = Clock.seconds(70000) })
-  assert(err:find("http: opts.low_speed_ns must be between 0 and " .. Clock.seconds(65535), 1, true) ~= nil,
+  assert(err:find("http: opts.low_speed_ns must be between 0 and " .. tostring(Clock.seconds(65535)), 1, true) ~= nil,
     err)
 end
 
@@ -640,8 +640,8 @@ local function test_a_refused_option_is_raised_at_the_callers_line()
     local _, behind = raised_at(entry, good, "behind")
     local refused, at = raised_at(entry, { timeout_ns = -5, script = {} }, "")
     assert(refused == file and ahead < at and at < behind,
-      name .. ": raised at " .. refused .. ":" .. at .. ", not between " .. file .. ":" ..
-        ahead .. " and " .. behind)
+      name .. ": raised at " .. refused .. ":" .. tostring(at) .. ", not between " .. file .. ":" ..
+        tostring(ahead) .. " and " .. tostring(behind))
   end
 end
 

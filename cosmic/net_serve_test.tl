@@ -70,7 +70,7 @@ local function test_several_connections_are_served_at_once()
       local second <close> = client(addresses[1])
       local third <close> = client(addresses[1])
       for i, c in ipairs({ third, second, first }) do
-        assert(c.conn:write("line " .. i .. "\n"))
+        assert(c.conn:write("line " .. tostring(i) .. "\n"))
         answers[#answers + 1] = assert(c.lines:read())
       end
       server:stop()

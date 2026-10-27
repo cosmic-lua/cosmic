@@ -80,10 +80,10 @@ local record harness_epoch
   library: {string:string}
 end
 
-harness_epoch.epoch = "57-69753f80" -- on a conflict keep neither side: set it to the bare count and run build/harness_epoch_test.tl, which prints a fresh value
+harness_epoch.epoch = "58-692cdf96" -- on a conflict keep neither side: set it to the bare count and run build/harness_epoch_test.tl, which prints a fresh value
 harness_epoch.acknowledged = {
 
-  ["build.artifact"] = "6bcacc0e4e216df503ef7866f63bfe517e804ab88cfed06e76c2bea9bd67946c",
+  ["build.artifact"] = "27e17846dc1036ab9ef0d94249a6e1e8d2140e916a821a6de6686ea667f6d2dc",
 
   ["build.assertions"] = "536da1af6ed52bf04f8f8803d77f83f44a9c43cb65f2572eca09c995fa87fe4d",
 
@@ -95,7 +95,7 @@ harness_epoch.acknowledged = {
 
   ["build.caches"] = "18fc193d825a960a4716cb62fae40d37e1c0d35d61c9acb91025dc0b60b570ee",
 
-  ["build.confine"] = "848905b13dda2b13dc9f32e6e576ab97624ffed39fecb9cacd3498627105a793",
+  ["build.confine"] = "8d6fbaa23bd0c728c4585a8b11c8d7c0f1261bb8a02c1c0ea22ea23f807877eb",
 
   ["build.core_image"] = "18daf88c3c58f62a222472eaa52b99218cd1e5b7ccafde6a0beded46c8f3382b",
 
@@ -105,7 +105,7 @@ harness_epoch.acknowledged = {
 
   ["build.host_names"] = "b628b308b6c28c8c8c28ff4070bd7ac9b66256c174b32ba0f068450a49507523",
 
-  ["build.host_requires"] = "90a431f37be2f7ff42b6015c610b2ce4017e38c9ec1664b48665ae88b8df87be",
+  ["build.host_requires"] = "a61dcc8c2ec1977de86a371b1c9703f85e47ff759a62ad5cfe894681cd59a4dd",
 
   ["build.key_parts"] = "ec597f813d1bc7c595f21e587900c90c6be0f9d9402566beb076719069996e8b",
 
@@ -117,19 +117,19 @@ harness_epoch.acknowledged = {
 
   ["build.plural"] = "08dc094acbdc34d3bc0ed7d04238e33810e3ff573574b2e612e1202bde7f24c4",
 
-  ["build.shared_sqlite"] = "3af88d37269e2836b4cd960373cc187a8cf919101f0534328aa8341eb25c69e6",
+  ["build.shared_sqlite"] = "a1f438f3ab7ff5eb92e8db6235d80bd75b6dc8db51833f27aa78cc6965daca90",
 
-  ["build.shared_verdicts"] = "ebb9f9db6007c0d2d22ab1ed1cec1849e9ebd2dd89aaffee37eda1ec95f309d1",
+  ["build.shared_verdicts"] = "7cfc7b0115832763e96a29f3217a4f7166944e34cf3ed858340ef0205857d2ec",
 
-  ["build.test_inputs"] = "4e45d9c9f69e1f7cac2e4ffbafe7999db4f1a09cbb3e46a124963a61aa47ebb4",
+  ["build.test_inputs"] = "91585db6053bf1e67e6e3c4abe08cad66caa9f65b5e403796523cd3c2288b64a",
 
-  ["build.test_key"] = "7460c71a59b25eede2dc57b8d5bae0c49b0c4647a35eb0dfeb3d09a2936653f8",
+  ["build.test_key"] = "43ad427b334b7efabf21cb061a9e2063b10cee5579da731c5db647645dc01c4c",
 
   ["build.test_policy"] = "6f9e3fabca11585b186a5cad1b41a9eaf068b43c28f5ad56bee77a680dc6ad01",
 
-  ["build.test_sandbox"] = "560a7486e8d200acd81eee090ae8faa9d0afa40e105c0d992ff6757236c0e8a8",
+  ["build.test_sandbox"] = "8db982afc08d8f75663525ffa2ecc6f1e568960965f34e8638d1447729022b29",
 
-  ["build.test_worker"] = "e76e3cc2ad208c985bf8b57f2331f173246e11cc434fcba306dd12eed8b67b3c",
+  ["build.test_worker"] = "20d2cb4fa840c47b59c965096f8f1fd35d84f99a8c17e8a6060a0dd20e880c9e",
 
   ["build.this_program"] = "c79ad35c8fcf69c5cea96d9e432cb231f74cdb734d65f0374e9935b5e6cafa0c",
 
@@ -137,11 +137,11 @@ harness_epoch.acknowledged = {
 
   ["cmd.cosmic.main"] = "4199a34c391ac393c2cff8404cced9e3e593309f7ec58fb1af37f26e3fead347",
 
-  ["cosmic.child"] = "fa14c4b2700e445b574953a12ed17790dd3f2103ce470214d496e0fc0095a903",
+  ["cosmic.child"] = "5297b7ea3f6fdee6041e2a5b6c9a405c19bf20bc3d0bd4a8d4543f0ea7e3db9c",
 
   ["cosmic.codec"] = "52572ec5f66817018bb20d585ebc0e5ea2ed14b2d15af6eaeb61a8dc13e5624b",
 
-  ["cosmic.coverage"] = "1fd90d399ac245486c914ca72e37ff638957ca46403aba64acbbd1af77017942",
+  ["cosmic.coverage"] = "606cfe646be07026cd761d392d21d2ca9000a074c061b6c325bf2b67a8039770",
 
   ["cosmic.env"] = "4fab933c9a5f8103144f6b2283e368c140878ce80bcb8162866aa9ca2004927d",
 
@@ -149,19 +149,19 @@ harness_epoch.acknowledged = {
 
   ["cosmic.hash"] = "965927db84637153d43cb09283970fd875a1164afde8ec862fd48965991f8d79",
 
-  ["cosmic.proc"] = "c6b7da95cc5de8810585859b6751498cb0e5403857395b4e6836937e2564acf4",
+  ["cosmic.proc"] = "d91bf3f73a513e676ce4f2136d3f5a66442d43d671f166f0e5b634c3e886d078",
 
   ["cosmic.project"] = "7109f1a1bfb3400ba57174beca48225a345b8388ea0766a1eab33929545fb8ec",
 
-  ["cosmic.sandbox"] = "c299917067217cd43d3387fdfdd669da51559e589434cc19b81f516df2d28b50",
+  ["cosmic.sandbox"] = "8cc16ab570c7eb1b849341f9dc77fc6ff31bc3fb59d19e75b8f42940a5b2e6fc",
 
-  ["cosmic.sandbox.policy"] = "7f1fc954e4bf10121054f333e157b2b516f90cb2fce8658a45ce0bc8a04af3ca",
+  ["cosmic.sandbox.policy"] = "1c0f9e7449ea2f75608a9f51697ae6fbeaf25e71f79014fc24ef72b3984c962f",
 
   ["cosmic.sqlite"] = "acaf8e4c6d9c978bca8291420b8d192f5cec8665fa94a09ce5a12ee283cebdaa",
 
   ["cosmic.string"] = "00360e77fa2fb890be0cb2f3a2388975a45dff636aae22cfc9c28b04d84eb2a9",
 
-  ["cosmic.test"] = "84fdeb7dad6908f30cbc30a0b1f55ecc64ab6c48fc55c0221b49988d1f47ab43",
+  ["cosmic.test"] = "9d8f3523683e99099650e36e084ef4ace4a415611ded747a0b8a8a43863c5998",
 
 }
 
@@ -263,6 +263,7 @@ harness_epoch.retired = {
   "dbae9496",
   "4523ed60",
   "70cb7bca",
+  "69753f80",
 }
 
 return harness_epoch

@@ -37,7 +37,7 @@ local function scope(source: string, dialect?: Ast.Dialect): Case
 end
 
 local function at(case: Case, token: integer): string
-  return case.tokens.y[token] .. ":" .. Lexer.x(case.tokens, token)
+  return case.tokens.y[token] .. ":" .. tostring(Lexer.x(case.tokens, token))
 end
 
 --- Each name of the source that is used, in order, as `name y:x -> y:x` of where its variable is
@@ -75,7 +75,7 @@ end
 local function errors(source: string): string
   local out: mut {string} = {}
   for _, e in ipairs(scope(source).scoped.errors) do
-    out[#out + 1] = e.code .. " " .. e.y .. ":" .. e.x
+    out[#out + 1] = e.code .. " " .. tostring(e.y) .. ":" .. tostring(e.x)
   end
   return table.concat(out, "; ")
 end
@@ -83,13 +83,13 @@ end
 --- Where the second place of `e` is, as `y:x`, or `none`.
 local function place(e: Scopes.Error): string
   local other = e.other
-  return if other ~= nil then other.y .. ":" .. other.x else "none" end
+  return if other ~= nil then tostring(other.y) .. ":" .. tostring(other.x) else "none" end
 end
 
 --- The one error of the source.
 local function one_error(source: string): Scopes.Error
   local list = scope(source).scoped.errors
-  assert(#list == 1, "expected one error, got " .. #list .. ": " .. errors(source))
+  assert(#list == 1, "expected one error, got " .. tostring(#list) .. ": " .. errors(source))
   return list[1]
 end
 

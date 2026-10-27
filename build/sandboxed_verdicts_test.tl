@@ -126,7 +126,7 @@ local function run(root: string, output: string, env: {string:string}, words?: {
   assert(Fs.close(fd))
   local text = assert(Fs.read(output))
   assert(result ~= nil, tostring(trouble) .. text)
-  assert(unchecked or result.ok, tostring(trouble) .. text)
+  assert(unchecked == true or result.ok, tostring(trouble) .. text)
   return text
 end
 
@@ -242,7 +242,7 @@ end
   local probed = run(tmp .. "/probe", tmp .. "/probe.out", env, nil, true)
   local offline = probed:match("loopback in (%S+) |")
   local own = assert(Fs.readlink("/proc/self/ns/net"))
-  assert(offline ~= nil and offline:find("^net:") and offline ~= own, probed .. own)
+  assert(offline ~= nil and offline:find("^net:") ~= nil and offline ~= own, probed .. own)
 end
 
 --- A checkout of the same content stands on the verdicts another
@@ -442,7 +442,7 @@ local function tool_project(tmp: string): function(string), function(string): st
     assert(Fs.close(fd))
     local text = assert(Fs.read(tmp .. "/" .. step.value .. ".out"))
     assert(result ~= nil, tostring(trouble) .. text)
-    assert(unchecked or result.ok, tostring(trouble) .. text)
+    assert(unchecked == true or result.ok, tostring(trouble) .. text)
     if wanted ~= "" then assert(text:find(wanted, 1, true), step.value .. ": " .. text) end
     return text
   end
@@ -554,7 +554,9 @@ end
       for _, entry in ipairs(Fs.list(tmp .. "/t") or {}) do
         for _, sub in ipairs({ "/real", "/tmp", "" }) do
           local dir = tmp .. "/t/" .. entry .. sub
-          if Fs.exists(dir .. "/started") and not Fs.exists(dir .. "/stop") then found = dir end
+          if Fs.exists(dir .. "/started") == true and Fs.exists(dir .. "/stop") ~= true then
+            found = dir
+          end
         end
       end
       if found == "" then assert(Clock.sleep_ns(20000000)) end
@@ -570,17 +572,17 @@ end
   local function stop(dir: string) assert(Fs.write(dir .. "/stop", "")) end
   local first, first_ok = run_then({}, stop)
   if unsandboxed(first) then return end
-  assert(first_ok and first:find("1 ran, 0 stood", 1, true), first)
+  assert(first_ok and first:find("1 ran, 0 stood", 1, true) ~= nil, first)
   -- Forced, and moved as it runs: it fails.
   local forced, forced_ok = run_then({ "--all" }, function(_: string)
     overwrite(root .. "/suite/moving.txt", "two\n")
   end)
-  assert(not forced_ok and forced:find("it moved", 1, true), forced)
+  assert(not forced_ok and forced:find("it moved", 1, true) ~= nil, forced)
   -- Back as it was: the pass its first run kept is gone with the
   -- failure, so it runs; then it stands.
   overwrite(root .. "/suite/moving.txt", "one\n")
   local back, back_ok = run_then({}, stop)
-  assert(back_ok and back:find("1 ran, 0 stood", 1, true), back)
+  assert(back_ok and back:find("1 ran, 0 stood", 1, true) ~= nil, back)
   local stands = run(root, tmp .. "/stands.out", env)
   assert(stands:find("0 ran, 1 stood", 1, true), stands)
 end

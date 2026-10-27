@@ -41,8 +41,9 @@ local record resolv
     --- none): the connected socket, or nil and why ([`Poll.TIMEOUT`] where
     --- the connector's wait ran out, and [`Poll.CANCELLED`] where the task
     --- was cancelled). It waits in a task of a run through the run, so the
-    --- others go on.
-    connect: function(index: integer, port: integer, deadline: integer?): resolv.Connection?, string
+    --- others go on. Needed when `through` is given: with none, no name server
+    --- is asked through a connector.
+    connect?: function(index: integer, port: integer, deadline: integer?): resolv.Connection?, string
   end
 
   --- A connected socket `connect` made, for the lookup to copy.
@@ -129,6 +130,9 @@ end
 
 --- Runs the lookup of [`resolv.lookup`].
 local function run(name: string, request: resolv.Request): {raw_socket.Resolved}?, string
+  if request.through ~= nil and request.connect == nil then
+    return nil, "resolv: `through` needs `connect`"
+  end
   local timeout_ns = request.timeout_ns
   local deadline = if timeout_ns ~= nil then Clock.monotonic_ns() + timeout_ns else nil end
   local lookup, why, errno = raw.lookup(name, Poll.milliseconds(timeout_ns), request.servers, request.hosts,
@@ -146,7 +150,8 @@ local function run(name: string, request: resolv.Request): {raw_socket.Resolved}
       return found, ""
     end
     for _, want in ipairs(wants) do
-      local connection, trouble = request.connect(want.index, want.port, deadline)
+      local connect = assert(request.connect, "resolv: `through` needs `connect`")
+      local connection, trouble = connect(want.index, want.port, deadline)
       if connection ~= nil then
         local _, _ = lookup:supply(want.id, connection.fd, nil)
         connection.release()

@@ -231,9 +231,11 @@ function docs_checks.rendered(db: Sqlite.Handle, exempt?: docs_checks.Exempt): {
         local asked = entry.source_symbol .. "." .. name
         local reached = lookup(asked)
         local found = false
-        for _, item in ipairs(reached or {}) do
-          if item.module == entry.module and item.source_symbol == asked then
-            found = true
+        if reached ~= nil then
+          for _, item in ipairs(reached) do
+            if item.module == entry.module and item.source_symbol == asked then
+              found = true
+            end
           end
         end
         if reached ~= nil and not (found and reached.exact) then
@@ -306,9 +308,11 @@ function docs_checks.rendered(db: Sqlite.Handle, exempt?: docs_checks.Exempt): {
       if kind == "function" or kind == "method" or containers[kind] then
         local found = lookup(source_symbol)
         local answer: docs.Entry? = nil
-        for _, entry in ipairs(found or {}) do
-          if entry.module == module and entry.source_symbol == source_symbol then
-            answer = entry
+        if found ~= nil then
+          for _, entry in ipairs(found) do
+            if entry.module == module and entry.source_symbol == source_symbol then
+              answer = entry
+            end
           end
         end
         if found ~= nil and answer == nil then

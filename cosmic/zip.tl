@@ -416,7 +416,7 @@ local function open_entry(pread: Pread, e: Zip.Entry): Stream.Reader?, string
     if held == "" then held = nil end
   end
   local raw: SpanReader = {
-    pread = pread, pos = e.offset + skip, left = csize, held = held,
+    pread = pread, pos = e.offset + skip, left = csize, held = held, failed = nil,
   }
   local body: Stream.Reader
   local method = e.method
@@ -430,7 +430,7 @@ local function open_entry(pread: Pread, e: Zip.Entry): Stream.Reader?, string
     return refuse("unsupported compression method " .. tostring(method))
   end
   local checked: CheckedReader = {
-    inner = body, crc = e.crc32, size = e.size, seen = 0,
+    inner = body, crc = e.crc32, size = e.size, seen = 0, state = nil, failed = nil,
   }
   return checked, ""
 end
@@ -490,6 +490,9 @@ local CDFH_FIELDS <const> = "<I2I2I2I2I2I2I4I4I4I2I2I2I2I2I4I4"
 local CHECKED: Zip.Entry = {
   path = "", kind = "file", linkpath = "", mode = 0, size = 0, mtime = 0, compressed_size = 0,
   method = 0, crc32 = 0, offset = 0,
+  open = function(_entry: Zip.Entry): Stream.Reader?, string
+    return refuse("the entry was only checked, and has no body to open")
+  end,
 }
 
 --- The central directory's next entry, or nil and `""` at its end.
@@ -552,7 +555,7 @@ local function next_record(c: Cursor, mt: metatable<Zip.Entry>, bare?: boolean):
         tostring(local_offset) .. ", " .. String.counted(csize, "compressed byte") .. ") runs past " ..
         "the start of the central directory at " .. tostring(cd_offset))
   end
-  if bare and kind ~= "symlink" then return CHECKED, "" end
+  if bare == true and kind ~= "symlink" then return CHECKED, "" end
   local entry: Zip.Entry = setmetatable({
     path = buf:sub(name_start, name_end),
     kind = kind,
@@ -714,7 +717,7 @@ local function open_reader(size: integer, pread: Pread, closer: function(): bool
 
   local zr: EntryReader = {
     pread = pread, closer = closer, cd_offset = cd_offset, cd_size = cd_size, links = links,
-    walk = cursor(pread, cd_offset, cd_size), walked = 0, closed = false, entry_mt = entry_mt,
+    walk = cursor(pread, cd_offset, cd_size), walked = 0, listed = nil, closed = false, entry_mt = entry_mt,
   }
   return zr, ""
 end
@@ -734,7 +737,7 @@ function Zip.open(path: string): Zip.Reader?, string
   local reading = { closed = false }
   local pread: Pread = function(offset: integer, count: integer): string?, string
     -- Once closed, `fd` may already name some other file.
-    if reading.closed then return refuse(path .. ": the reader is closed") end
+    if reading.closed == true then return refuse(path .. ": the reader is closed") end
     local data, ptrouble = sys.pread(fd, count, offset)
     if data == nil then return nil, ptrouble end
     return data, ""
@@ -755,7 +758,7 @@ end
 function Zip.open_string(data: string): Zip.Reader?, string
   local reading = { closed = false }
   local pread: Pread = function(offset: integer, count: integer): string?, string
-    if reading.closed then return refuse("the reader is closed") end
+    if reading.closed == true then return refuse("the reader is closed") end
     if offset >= #data then return "", "" end
     return data:sub(offset + 1, offset + count), ""
   end
@@ -786,7 +789,7 @@ local function local_header(name: string, method: integer, dos_time: integer, do
                             crc: integer, csize: integer, usize: integer, flags?: integer, wide?: boolean): string
   local extra = ""
   local version = 20
-  if wide or usize >= U32_MAX or csize >= U32_MAX then
+  if wide == true or usize >= U32_MAX or csize >= U32_MAX then
     extra = zip64_extra({ usize, csize })
     -- Whenever the field is there, the fields it stands for are the
     -- sentinel (a streamed entry's, which announces zip64 before it

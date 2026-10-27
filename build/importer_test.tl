@@ -248,7 +248,7 @@ local function test_compile_finishes_shared_cache_when_derivation_fails()
   assert(work.stage(handle, false))
   local shared, trace = traced_cache()
   local result, trouble = importer.compile(handle, "cache-lifetime", false, shared)
-  assert(result == nil and trouble:find("reserved", 1, true), trouble)
+  assert(result == nil and trouble:find("reserved", 1, true) ~= nil, trouble)
   assert(trace.finished == 1 and trace.offered == 0 and #trace.flushed == 0)
   assert(work.close(handle))
 end
@@ -294,7 +294,7 @@ local function test_self_compile_consumes_cache_after_identity_selection()
         result.tool .. " not in " .. c1 .. " " .. c2 .. " " .. c3 .. " " .. c4)
       assert(trace.offered == 2 and #trace.flushed == 2)
     else
-      assert(result == nil and trouble:find("refused", 1, true), trouble)
+      assert(result == nil and trouble:find("refused", 1, true) ~= nil, trouble)
       assert(trace.offered == 2 and #trace.flushed == 0)
     end
     assert(work.close(handle))
@@ -1408,7 +1408,7 @@ end
 local function tree_file_of(name: string): string?
   local base = name:gsub("%.", "/")
   for _, candidate in ipairs({ base .. ".tl", base .. "/init.tl", base .. ".d.tl" }) do
-    if Fs.exists(candidate) then return candidate end
+    if Fs.exists(candidate) == true then return candidate end
   end
   return nil
 end
@@ -1542,7 +1542,7 @@ local function test_the_compiler_modules_are_closed_under_require()
   local covered: mut {string:boolean} = {}
   for _, name in ipairs(modules) do covered[name] = true end
   for _, name in ipairs((assert(importer.analyzer_modules()))) do
-    assert(covered[name] or name:match("^cosmic%.") ~= nil,
+    assert(covered[name] == true or name:match("^cosmic%.") ~= nil,
       name .. " is the analyzer's but not in the compiler's identity")
   end
   for _, name in ipairs({ "build.plans", "build.derivation", "build.module", "build.withheld", "build.tree",
@@ -1557,7 +1557,7 @@ local function test_the_compiler_modules_are_closed_under_require()
     assert(covered[name], name .. " is not in the compiler's identity: " ..
         table.concat(modules, ", "))
   end
-  assert(not covered["cosmic.removed"], "cosmic.removed is in the compiler's identity: " ..
+  assert(covered["cosmic.removed"] ~= true, "cosmic.removed is in the compiler's identity: " ..
       table.concat(modules, ", "))
   --- What build.importer requires that the compiler's identity leaves
   --- out, and why no compile or parse stores anything it decides.
@@ -1569,7 +1569,7 @@ local function test_the_compiler_modules_are_closed_under_require()
     ["build.pipeline"] = "the compile with the new checker (COSMIC_GRAMMAR=new), keyed by the code that reads it " ..
       "(`Pipeline.coded`) and not by the compiler's identity, which a default run keeps",
   }
-  assert(not covered["build.importer"], "cache coordination and diagnostics entered compiler identity")
+  assert(covered["build.importer"] ~= true, "cache coordination and diagnostics entered compiler identity")
   local used: mut {string:boolean} = {}
   local missing: mut {string} = {}
   local checked: mut {string} = { "build.importer" }
@@ -1581,7 +1581,7 @@ local function test_the_compiler_modules_are_closed_under_require()
     for _, required in ipairs(requires_of(source, file)) do
       local ours = (required:match("^build%.") or required:match("^cosmic%.")) and
         not required:match("^cosmic%.internal%.") and tree_file_of(required) ~= nil
-      if ours and not covered[required] then
+      if ours and covered[required] ~= true then
         if name == "build.importer" and left_out[required] ~= nil then
           used[required] = true
         elseif not required:match("^cosmic%.") then
@@ -1593,7 +1593,7 @@ local function test_the_compiler_modules_are_closed_under_require()
   assert(#missing == 0, "neither in the compiler's identity (build.identity's " ..
       "compiler_roots) nor left out of it with a reason: " .. table.concat(missing, ", "))
   for name in pairs(left_out) do
-    assert(not covered[name], name .. " is named as left out of the compiler's identity, " ..
+    assert(covered[name] ~= true, name .. " is named as left out of the compiler's identity, " ..
         "but is in it")
     assert(used[name], name .. " is left out of the compiler's identity, " ..
         "but build.importer no longer requires it")
@@ -1632,7 +1632,7 @@ local function test_the_writer_modules_are_closed_under_require()
     assert(why ~= "", name .. " is left out of the writer's identity with no reason")
     assert(roots_require[name], name .. " is left out of the writer's identity, " ..
         "but neither build.writer nor build.identity requires it")
-    assert(not covered[name], name .. " is left out of the writer's identity, but is in it")
+    assert(covered[name] ~= true, name .. " is left out of the writer's identity, but is in it")
   end
   local compiler: mut {string:boolean} = {}
   for _, name in ipairs((assert(identity.compiler_modules(Store.requires)))) do
@@ -1685,12 +1685,12 @@ local function test_the_writer_modules_are_closed_under_require()
   for name in pairs(reached) do
     if neither[name] ~= nil then
       used[name] = true
-      assert(not covered[name] and not compiler[name],
+      assert(covered[name] ~= true and compiler[name] ~= true,
         name .. " is named as in neither identity, but is in one")
     elseif only_pipeline[name] == true or name:sub(1, 5) == "lang." then
       -- The new checker's own modules: the code a compile and a parse are keyed by is [`Pipeline.coded`] over them.
       used[name] = true
-    elseif not covered[name] and not compiler[name] then
+    elseif covered[name] ~= true and compiler[name] ~= true then
       unclassified[#unclassified + 1] = name
     end
   end
@@ -1717,16 +1717,16 @@ local function test_the_analyzer_modules_are_closed_under_require()
   local modules = assert(importer.analyzer_modules())
   local listed: mut {string:boolean} = {}
   for _, name in ipairs(modules) do listed[name] = true end
-  assert(listed["build.derivation"] and listed["cosmic.string"], table.concat(modules, ", "))
-  assert(not listed["build.importer"] and not listed["build.test"] and not listed["build.syntax_receivers"],
+  assert(listed["build.derivation"] == true and listed["cosmic.string"] == true, table.concat(modules, ", "))
+  assert(listed["build.importer"] ~= true and listed["build.test"] ~= true and listed["build.syntax_receivers"] ~= true,
     table.concat(modules, ", "))
   -- The readers of the new syntax tree are named by the code that reads the tree in the new mode ([`Pipeline.coded`]) and not
   -- by this set; the privacy-by-position check, which only the importer calls, is in neither.
-  assert(not listed["build.syntax_analyzer"] and not listed["build.positions"], table.concat(modules, ", "))
+  assert(listed["build.syntax_analyzer"] ~= true and listed["build.positions"] ~= true, table.concat(modules, ", "))
   -- The analysis schema is; the rest of the working database and the caches themselves, which reach build/zig.tl, are not.
   assert(listed["build.analysis_schema"], table.concat(modules, ", "))
-  assert(not listed["build.work"] and not listed["build.caches"] and
-      not listed["build.zig"], table.concat(modules, ", "))
+  assert(listed["build.work"] ~= true and listed["build.caches"] ~= true and
+      listed["build.zig"] ~= true, table.concat(modules, ", "))
   local file_of = tree_file_of
   local missing: mut {string} = {}
   for _, name in ipairs(modules) do
@@ -1739,7 +1739,7 @@ local function test_the_analyzer_modules_are_closed_under_require()
       for _, required in ipairs(requires_of(source, file)) do
         local ours = (required:match("^build%.") or required:match("^cosmic%.")) and
           not required:match("^cosmic%.internal%.")
-        if ours and not listed[required] and file_of(required) ~= nil then
+        if ours == true and listed[required] ~= true and file_of(required) ~= nil then
           missing[#missing + 1] = name .. " requires " .. required
         end
       end
@@ -1977,7 +1977,7 @@ local function test_the_module_shape_does_not_reach_the_plans_or_the_readers()
   local pending: mut {string} = { "build.positions", "build.test_inputs" }
   while #pending > 0 do
     local name = table.remove(pending)
-    if not seen[name] then
+    if seen[name] ~= true then
       seen[name] = true
       for _, required in ipairs((assert(Store.requires(name)))) do
         pending[#pending + 1] = required
@@ -1986,6 +1986,6 @@ local function test_the_module_shape_does_not_reach_the_plans_or_the_readers()
   end
   assert(seen["build.module"], "position and input readers lost their shared module shape")
   for _, name in ipairs({ "build.plans", "build.syntax_contracts", "build.syntax_receivers" }) do
-    assert(not seen[name], "the shared module shape pulled in " .. name)
+    assert(seen[name] ~= true, "the shared module shape pulled in " .. name)
   end
 end

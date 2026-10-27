@@ -15,6 +15,7 @@ local Stream = require("cosmic.stream")
 local Test = require("cosmic.test")
 local Clock = require("cosmic.clock")
 local _net = require("cosmic.net")
+local test_child = require("build.test_child")
 local unix_socket = require("build.unix_socket")
 local type raw_socket = require("cosmic.internal.socket")
 
@@ -34,6 +35,14 @@ local function socket_table(): raw_socket
 end
 
 local socket = socket_table()
+
+--- The child of the test below, run in a copy of the artifact: it sends the file in `args[2]` over the channel in `args[1]`.
+test_child.register("send_file", function(args: {string}): integer
+  local channel, file = math.tointeger(args[1]), math.tointeger(args[2])
+  assert(channel ~= nil and file ~= nil, "the slots are integers")
+  assert(socket.sendfds(channel, { file }))
+  return 0
+end)
 
 --- The program's own path names a file, which a `tool` test, given the
 --- program at its own name, can stat.
@@ -83,23 +92,32 @@ end
 local probe <const> = [==[
 local sys = require("cosmic.sys")
 local relaunch = assert(require("cosmic.proc").relaunch())
-local fd = relaunch.fds[math.tointeger(tonumber(relaunch.env.COSMIC_PORTABLE_ARTIFACT_FD))]
-local link = "/proc/self/fd/" .. fd
-if sys.stat(link) == nil then link = "/dev/fd/" .. fd end
-local function said(what, ok, _, errno)
-  if type(ok) == "number" then sys.close(ok) end
-  print(what .. " " .. ((ok == nil or ok == false) and tostring(errno) or "done"))
+local fd = assert(relaunch.fds[assert(math.tointeger(tonumber(relaunch.env["COSMIC_PORTABLE_ARTIFACT_FD"])))])
+local link = "/proc/self/fd/" .. tostring(fd)
+if sys.stat(link) == nil then link = "/dev/fd/" .. tostring(fd) end
+local function said(what: string, ok: (integer | boolean)?, errno: integer)
+  if ok is integer then sys.close(ok) end
+  print(what .. " " .. (if ok == nil or ok == false then tostring(errno) else "done" end))
 end
-said("write", sys.open(link, sys.O_WRONLY | sys.O_APPEND))
+local written, _, written_errno = sys.open(link, sys.O_WRONLY | sys.O_APPEND)
+said("write", written, written_errno)
 if sys.stat(link) ~= nil then
   local fd2 = sys.open(link, sys.O_WRONLY | sys.O_APPEND)
-  if fd2 then sys.write(fd2, "x") sys.close(fd2) end
+  if fd2 ~= nil then
+    sys.write(fd2, "x")
+    sys.close(fd2)
+  end
 end
-said("read-write", sys.open(link, sys.O_RDWR))
-said("create", sys.open(link, sys.O_CREAT | sys.O_WRONLY, 420))
-said("truncate", sys.open(link, sys.O_WRONLY | sys.O_TRUNC))
-said("chmod", sys.chmod(link, 384))
-said("utimensat", sys.utimensat(link, 1, 0, 1, 0))
+local read_write, _, read_write_errno = sys.open(link, sys.O_RDWR)
+said("read-write", read_write, read_write_errno)
+local created, _, created_errno = sys.open(link, sys.O_CREAT | sys.O_WRONLY, 420)
+said("create", created, created_errno)
+local truncated, _, truncated_errno = sys.open(link, sys.O_WRONLY | sys.O_TRUNC)
+said("truncate", truncated, truncated_errno)
+local chmodded, _, chmod_errno = sys.chmod(link, 384)
+said("chmod", chmodded, chmod_errno)
+local touched, _, touch_errno = sys.utimensat(link, 1, 0, 1, 0)
+said("utimensat", touched, touch_errno)
 ]==]
 
 --- Each is refused, EACCES, and the file is as it was: its bytes, mode
@@ -132,7 +150,7 @@ local function test_a_change_through_the_artifact_descriptor_changes_nothing(tmp
       "artifact's mode or times:\n" .. tostring(result.stdout))
   local out = tostring(result.stdout)
   for _, what in ipairs({ "write", "read-write", "create", "truncate", "chmod" }) do
-    assert(out:find(what .. " " .. sys.EACCES .. "\n", 1, true) ~= nil,
+    assert(out:find(what .. " " .. tostring(sys.EACCES) .. "\n", 1, true) ~= nil,
       what .. " was not refused:\n" .. out)
   end
 end
@@ -158,7 +176,7 @@ local function test_the_artifact_reached_by_names_is_not_refused(tmp: string)
   local script = { 'local sys = require("cosmic.sys")' }
   for _, name in ipairs(names) do
     script[#script + 1] = string.format("do local fd, _, e = sys.open(%q, sys.O_RDONLY) " ..
-        "print(fd and 'open' or e) if fd then sys.close(fd) end end", name)
+        "print(if fd ~= nil then 'open' else tostring(e) end) if fd ~= nil then sys.close(fd) end end", name)
   end
   local env: mut {string: string} = {}
   for name, value in pairs(relaunch.env) do env[name] = value end
@@ -186,7 +204,7 @@ while true do
   i = i + 1
   if i % 64 == 0 and sys.stat(stop) ~= nil then break end
   sys.unlink(spare)
-  assert(sys.symlink(i % 2 == 0 and plain or through, spare))
+  assert(sys.symlink(if i % 2 == 0 then plain else through end, spare))
   assert(sys.rename(spare, link))
   if i == 2 then print("flipping") end
 end
@@ -211,19 +229,20 @@ local caller <const> = [==[
 local Clock = require("cosmic.clock")
 local sys = require("cosmic.sys")
 local link, stop = LINK, STOP
-local counts = { chmod = { done = 0, refused = 0 }, truncate = { done = 0, refused = 0 } }
-local function said(what, ok, errno)
-  if type(ok) == "number" then sys.close(ok) end
-  local count = counts[what]
+local counts: mut {string:integer} = {
+  ["chmod done"] = 0, ["chmod refused"] = 0, ["truncate done"] = 0, ["truncate refused"] = 0,
+}
+local function said(what: string, ok: (integer | boolean)?, errno: integer)
+  if ok is integer then sys.close(ok) end
   if ok == nil or ok == false then
-    if errno == sys.EACCES then count.refused = count.refused + 1 end
+    if errno == sys.EACCES then counts[what .. " refused"] = assert(counts[what .. " refused"]) + 1 end
   else
-    count.done = count.done + 1
+    counts[what .. " done"] = assert(counts[what .. " done"]) + 1
   end
 end
-local function met()
-  for _, count in pairs(counts) do
-    if count.done == 0 or count.refused == 0 then return false end
+local function met(): boolean
+  for _, what in ipairs({ "chmod", "truncate" }) do
+    if counts[what .. " done"] == 0 or counts[what .. " refused"] == 0 then return false end
   end
   return true
 end
@@ -236,9 +255,10 @@ while i < least or (not met() and Clock.monotonic_ns() < deadline) do
   local fd, _, open_errno = sys.open(link, sys.O_WRONLY | sys.O_TRUNC)
   said("truncate", fd, open_errno)
 end
-assert(sys.close(assert(sys.open(stop, sys.O_CREAT | sys.O_WRONLY, 420))))
+local made = assert(sys.open(stop, sys.O_CREAT | sys.O_WRONLY, 420))
+sys.close(made)
 for _, what in ipairs({ "chmod", "truncate" }) do
-  print(what .. " " .. counts[what].done .. " " .. counts[what].refused)
+  print(what .. " " .. tostring(counts[what .. " done"]) .. " " .. tostring(counts[what .. " refused"]))
 end
 ]==]
 
@@ -371,15 +391,11 @@ local function test_descriptor_receive_refuses_and_closes_an_artifact_alias(tmp:
   fds[file_slot], fds[channel_slot] = file, sender:fd()
   -- A start on a copied artifact retains a different inode. It can
   -- send this ordinary file; the original receiver must judge it again.
-  local chunk = string.format([==[
-local raw
-for _, searcher in ipairs(package.searchers) do
-  local loader, extra = searcher("cosmic.net")
-  if type(loader) == "function" and type(extra) == "table" then raw = extra break end
-end
-assert(raw.sendfds(%d, { %d }))
-]==], channel_slot, file_slot)
-  local child = assert(Child.start({ relaunch.argv[1], "--artifact", copy, "-e", chunk },
+  local words = test_child.words(tmp, "core.artifact_fd_tool_test", "send_file",
+    { tostring(channel_slot), tostring(file_slot) })
+  local argv: mut {string} = { relaunch.argv[1], "--artifact", copy }
+  for _, word in ipairs(words) do argv[#argv + 1] = word end
+  local child = assert(Child.start(argv,
     { env = env, fds = fds, stdout = "capture", stderr = "capture" }))
   assert(sys.close(file))
   assert(sys.close(copy_fd))

@@ -223,7 +223,7 @@ local function response_of(status: integer, lines: {{string}}, body: string): Re
   end
   local response: Response = { status = status, headers = headers, lines = by_name, body = body,
     ok = status >= 200 and status < 300 }
-  if REDIRECT[status] then response.redirect_location = headers["location"] end
+  if REDIRECT[status] == true then response.redirect_location = headers["location"] end
   return setmetatable(response, response_mt)
 end
 
@@ -382,7 +382,7 @@ local function send(client: Testing.Client, method: string, path: string, opts: 
       length = reply.length
       if method == "HEAD" or bodiless(reply.status) then
         local _, _ = given:close()
-      elseif opts.stream then
+      elseif opts.stream == true then
         stream = given
       else
         local data, why = Stream.read_all(given)
@@ -420,7 +420,7 @@ local function request(self: Testing.Client, method: string, path: string, opts?
   local hops = 0
   while true do
     local target = res.redirect_location
-    if not opts.follow_redirects or target == nil or hops >= 10 then break end
+    if opts.follow_redirects ~= true or target == nil or hops >= 10 then break end
     hops = hops + 1
     if target:sub(1, 1) ~= "/" then
       local parts, why = Url.parse(target)

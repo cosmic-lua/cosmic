@@ -276,7 +276,7 @@ local worker_view: function(): {string:string}
 --- What a lookup made inside [`Store.alone`], which hands nothing back,
 --- found: the value, or why there is none.
 local record Looked<T>
-  mut value: T?
+  mut value?: T
   mut trouble: string
 end
 

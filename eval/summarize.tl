@@ -163,7 +163,7 @@ local function lex(src: string): {{Word}}
           local e = src:find("\n", i, true) or n + 1
           local line = src:sub(i, e - 1)
           i = e + 1
-          if dashed[d] then
+          if dashed[d] == true then
             line = line:gsub("^\t+", "")
           end
           if line == delims[d] then
@@ -191,7 +191,7 @@ local function lex(src: string): {{Word}}
         j = j + 1
       end
       if not arith and src:sub(i, i + 1) == "<<" and src:sub(i + 2, i + 2) ~= "<" and
-          src:sub(j, j):find("^[%a_'\"\\]") then
+          src:sub(j, j):find("^[%a_'\"\\]") ~= nil then
         local word: Word
         word, i = read_word(src, j)
         delims[#delims + 1] = word.text
@@ -207,11 +207,11 @@ local function lex(src: string): {{Word}}
     else
       local word: Word
       word, i = read_word(src, i)
-      if not arith and word.text:find("^%$?%(%(") then
+      if not arith and word.text:find("^%$?%(%(") ~= nil then
         arith = true
       end
       word.arith = arith
-      if arith and word.text:find("%)%)") then
+      if arith and word.text:find("%)%)") ~= nil then
         arith = false
       end
       reading.words[#reading.words + 1] = word
@@ -311,14 +311,14 @@ local function candidate(word: Word): string?
   if text == "/" and (word.quoted or assigned) then
     return nil
   end
-  if text:find("://", 1, true) or (word.arith and (text == "/" or text:find("^/%d+$"))) then
+  if text:find("://", 1, true) or (word.arith and (text == "/" or text:find("^/%d+$") ~= nil)) then
     return nil
   end
   if word.spaced and not (text:find("^/") or home_rest(text) ~= nil) then
     return nil
   end
-  if home_rest(text) ~= nil or text:find("^/") or text == ".." or text:find("^%.%./") or
-      text:find("/%.%./") or text:find("/%.%.$") then
+  if home_rest(text) ~= nil or text:find("^/") ~= nil or text == ".." or text:find("^%.%./") ~= nil or
+      text:find("/%.%./") ~= nil or text:find("/%.%.$") ~= nil then
     return text
   end
   return nil
@@ -329,29 +329,29 @@ end
 --- `nohup`, `xargs`, ...) and their options.
 local function after_wrappers(words: {Word}, first: integer): integer
   while true do
-    while words[first] ~= nil and words[first].text:find("^[%w_]+=") do
+    while words[first] ~= nil and words[first].text:find("^[%w_]+=") ~= nil do
       first = first + 1
     end
     local word = words[first]
     local program = word ~= nil and word.text:match("[^/]*$") or ""
     if program == "timeout" then
       first = first + 1
-      while words[first] ~= nil and words[first].text:find("^%-") do
+      while words[first] ~= nil and words[first].text:find("^%-") ~= nil do
         first = first + 1
       end
-      if words[first] ~= nil and words[first].text:find("^%d") then
+      if words[first] ~= nil and words[first].text:find("^%d") ~= nil then
         first = first + 1
       end
     elseif program == "env" then
       first = first + 1
       while words[first] ~= nil and
-          (words[first].text:find("^%-") or words[first].text:find("^[%w_]+=")) do
+          (words[first].text:find("^%-") or words[first].text:find("^[%w_]+=")) ~= nil do
         first = first + 1
       end
     elseif program == "nohup" or program == "xargs" or program == "nice" or
         program == "time" or program == "exec" or program == "command" then
       first = first + 1
-      while words[first] ~= nil and words[first].text:find("^%-") do
+      while words[first] ~= nil and words[first].text:find("^%-") ~= nil do
         first = first + 1
       end
     else
@@ -382,15 +382,15 @@ local function shell_words(src: string, found: mut {string}, nested: boolean)
       while k <= #words do
         local text = words[k].text
         local group = text:match("^%-(%a+)$")
-        if group ~= nil and letters:find(group:sub(-1), 1, true) and words[k + 1] ~= nil then
+        if group ~= nil and letters:find(group:sub(-1), 1, true) ~= nil and words[k + 1] ~= nil then
           flagged = true
           skipped[k + 1] = true
           scripts[#scripts + 1] = words[k + 1].text
           k = k + 1
-        elseif script_first[program] and (text == "--file" or text == "--files" or
-            text:find("^%-%-file=") or (group ~= nil and group:find("f", 1, true))) then
+        elseif script_first[program] == true and (text == "--file" or text == "--files" or
+            text:find("^%-%-file=") ~= nil or (group ~= nil and group:find("f", 1, true) ~= nil)) then
           filed = true
-        elseif (program == "grep" or program == "rg") and counts[text] then
+        elseif (program == "grep" or program == "rg") and counts[text] == true then
           skipped[k + 1] = true
           k = k + 1
         elseif text:sub(1, 1) ~= "-" and bare == nil then
@@ -398,7 +398,7 @@ local function shell_words(src: string, found: mut {string}, nested: boolean)
         end
         k = k + 1
       end
-      if not flagged and not filed and bare ~= nil and script_first[program] then
+      if not flagged and not filed and bare ~= nil and script_first[program] == true then
         skipped[bare] = true
       end
     elseif program == "eval" then
@@ -414,7 +414,7 @@ local function shell_words(src: string, found: mut {string}, nested: boolean)
         found[#found + 1] = path
       end
     end
-    if (shells[program] or program == "eval") and not nested then
+    if (shells[program] == true or program == "eval") and not nested then
       for _, script in ipairs(scripts) do
         shell_words(script, found, true)
       end
@@ -455,7 +455,7 @@ local function runs_cosmic_test(command: string, nested: boolean): boolean
       local program = texts[k]:match("[^/]*$")
       if program == "cosmic" and texts[k + 1] == "test" then
         return true
-      elseif shells[program] and not nested then
+      elseif shells[program] == true and not nested then
         for j = k + 1, #texts - 1 do
           if texts[j]:find("^%-%a*c$") and runs_cosmic_test(words[j + 1].text, true) then
             return true
@@ -556,7 +556,7 @@ local function tier_of(path: string, arena: string, repo: string): string?
     return nil
   end
   local name = path:match("[^/]*$")
-  if Fs.within(path, repo) or ("/" .. path .. "/"):find("/%.claude/") or
+  if Fs.within(path, repo) or ("/" .. path .. "/"):find("/%.claude/") ~= nil or
       name == "CLAUDE.md" or name == "AGENTS.md" then
     return "breach"
   end

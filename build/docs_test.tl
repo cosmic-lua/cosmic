@@ -909,7 +909,7 @@ local function test_a_search_stems_and_offers_the_closest_when_none_has_every_wo
   assert(some[1].source_symbol == "Fs.write", some[1].source_symbol)
   local seen: mut {string:boolean} = {}
   for _, entry in ipairs(some) do
-    assert(not seen[entry.source_symbol], "repeated " .. entry.source_symbol)
+    assert(seen[entry.source_symbol] ~= true, "repeated " .. entry.source_symbol)
     seen[entry.source_symbol] = true
   end
   assert(seen["Fs.read"] == nil, "one word of four is not enough")
@@ -2492,7 +2492,7 @@ local function test_a_lookup_answers_alike_with_the_indexes_or_without(dir: stri
     "SELECT name FROM sqlite_schema WHERE type = 'index' AND tbl_name = 'docs' AND sql IS NOT NULL"))
   local present: mut {string: boolean} = {}
   for _, row in ipairs(names) do present[row:text(1)] = true end
-  assert(present["docs_by_last_name"] and present[schema.local_index], table.concat(
+  assert(present["docs_by_last_name"] == true and present[schema.local_index] == true, table.concat(
     (function(): {string}
       local all: mut {string} = {}
       for name in pairs(present) do all[#all + 1] = name end

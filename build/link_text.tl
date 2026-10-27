@@ -24,7 +24,7 @@ local record link_text
     --- Where it points.
     target: string
     --- A reference's or a definition's label.
-    label: string?
+    label?: string
   end
 
   --- A stretch of one file's comment text, markers taken off, and the
@@ -82,7 +82,7 @@ local record link_text
     lines: {string}
     doc: boolean
     column?: integer
-    starts: {integer}?
+    starts?: {integer}
   end
 
   --- A link a Teal source's comments hold, as the build records it:

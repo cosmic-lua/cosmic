@@ -60,7 +60,7 @@ local record importer
     modules: {Module}
     --- The compiler identity every key in `modules` carries.
     tool: string
-    main: string?
+    main?: string
     -- One message per `kind = "test"` module refused compilation
     -- because it both defines its own tests and returns its own value;
     -- every module NOT in this list compiled and is in `modules`.
@@ -82,7 +82,7 @@ local record importer
     --- Writes the rows the checker that compiled adds to the shipped catalog (`catalog` of the attached schema `schema`,
     --- "" for the main one), after the extracted ones: the rule behind each code the new checker emits
     --- ([`build.error_catalog`]). nil where the compile adds none.
-    catalog: Catalog?
+    catalog?: Catalog
   end
 
   --- Writes rows to the `catalog` table of `db` (of the attached schema `schema`, "" for the main one): how many, or nil and
@@ -969,9 +969,9 @@ end
 --- when the first refusal asks, and the projection among them that the
 --- end of the compile closes.
 local record Hinting
-  mut databases: {Sqlite.Handle}?
-  mut public: {boolean}?
-  mut projection: Sqlite.Handle?
+  mut databases?: {Sqlite.Handle}
+  mut public?: {boolean}
+  mut projection?: Sqlite.Handle
 end
 
 --- Every module path `target` reaches through what each source at a

@@ -134,7 +134,7 @@ local function lookup(tmp: string, name: string, timeout_ms: integer,
       if packet ~= nil then
         local asked, qtype, question_end = question(packet.data)
         assert(asked ~= nil, "a malformed query")
-        seen[#seen + 1] = qtype .. " " .. asked
+        seen[#seen + 1] = tostring(qtype) .. " " .. asked
         if guarded and #seen == 1 then assert(child:stop(sys.SIGINT)) end
         local reply = serve(asked, qtype)
         if reply ~= nil then

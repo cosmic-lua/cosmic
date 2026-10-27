@@ -12,7 +12,7 @@ end
 
 local function test_the_forks_grammar_is_refused_naming_the_command_that_leaves_it()
   local mode, why = GrammarMode.of("teal")
-  assert(mode == nil and why:find("COSMIC_GRAMMAR=teal", 1, true) ~= nil and why:find("cosmic migrate", 1, true) ~= nil, why)
+  assert(mode == nil and why:find("COSMIC_GRAMMAR=teal", 1, true) ~= nil and why:find("doc/guides/project.md", 1, true) ~= nil, why)
 end
 
 local function test_a_word_that_is_none_is_refused()

@@ -325,9 +325,7 @@ local function test_a_pack_format_is_variable_for_s_and_z_only()
   assert(#Literals.pack("x").kinds == 0)
 end
 
---- The programs of testdata/gate/refusal_programs.txt that the fork refuses by the types its literal gives, as Lua runs
---- them: each raises, or answers the type the literal says. The fork refused them (its side of the table is frozen) and
---- the new checker does (held by lang/check_verdicts_test.tl).
+--- The programs that give a literal a type, as Lua runs them: each raises, or answers the type the literal says.
 local function test_each_program_the_fork_types_from_its_literal_is_one_lua_faults_on_or_answers_as_typed()
   local function formats(format: string, ...: any): boolean
     return (pcall(string.format, format, ...))

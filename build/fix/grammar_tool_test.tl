@@ -131,16 +131,16 @@ local function test_a_declaration_file_is_laid_out_by_a_fix_and_linking_leaves_a
   assert(again.ok and repeated:find("not laid out", 1, true) == nil and repeated:find("would fix", 1, true) == nil, repeated)
 end
 
---- `COSMIC_GRAMMAR=teal` names the fork's grammar, which is gone: the run fails saying so and names `cosmic migrate`, and
+--- `COSMIC_GRAMMAR=teal` names the fork's grammar, which is gone: the run fails saying so and points to the project guide, and
 --- reads no file.
-local function test_the_forks_grammar_is_refused_naming_migrate(tmp: string)
+local function test_the_forks_grammar_is_refused_pointing_to_the_guide(tmp: string)
   local root = tmp .. "/project"
   assert(Fs.mkdirs(root))
   assert(Fs.write(root .. "/other.tl", OTHER))
   assert(Fs.write(root .. "/new.tl", NEW_GRAMMAR))
   local failed, said = fix_in(root, "teal", true)
   assert(not failed.ok, said)
-  assert(said:find("COSMIC_GRAMMAR=teal: the fork's grammar is gone; `cosmic migrate` rewrites a project to the new one",
+  assert(said:find("COSMIC_GRAMMAR=teal: the fork's grammar is gone; rewrite a project to the new grammar by hand, as doc/guides/project.md says",
     1, true) ~= nil, said)
   assert(Fs.read(root .. "/new.tl") == NEW_GRAMMAR, "the file was written")
 end

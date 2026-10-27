@@ -189,7 +189,7 @@ local function without(q: Url.Query, secret: {string}?): Url.Query
   for _, name in ipairs(secret or {}) do hidden[name] = true end
   local out: Url.Query = { pairs = {}, by_name = {} }
   for _, pair in ipairs(q.pairs) do
-    if not hidden[pair.name] then
+    if hidden[pair.name] ~= true then
       out.pairs[#out.pairs + 1] = { name = pair.name, value = pair.value }
       local list = out.by_name[pair.name]
       if list == nil then
@@ -299,7 +299,7 @@ end
 -- TODO: once cosmic.http.server reports why a body read failed as a kind,
 -- not only a message, read that in place of the server's words.
 local function read_failed(why: string): Types.Invalid
-  if why == OVER_LIMIT or why:find("longer than limits.body_bytes", 1, true) then
+  if why == OVER_LIMIT or why:find("longer than limits.body_bytes", 1, true) ~= nil then
     return stop(413, "body", "", "too_large", "the body is too large")
   elseif why == Poll.TIMEOUT then
     return stop(408, "body", "", "malformed", "the body came too slowly")
@@ -465,18 +465,18 @@ local function read_multipart(req: Types.Request, limit: integer, opts: Types.In
   local spooled: Spooled = { kept = {} }
   local fields: Url.Query = { pairs = {}, by_name = {} }
   local files: mut {string:{Input.Upload}} = {}
-  local m: Input.Multipart = { fields = fields, files = files, size = 0 }
-  m.discard = function(_self: Input.Multipart)
-    for _, upload in ipairs(spooled.kept) do
-      local _, _ = Fs.remove(upload.path)
-    end
-    spooled.kept = {}
-    local made = spooled.made
-    if made ~= nil then
-      local _, _ = Fs.remove_tree(made)
-      spooled.made = nil
-    end
-  end
+  local m: Input.Multipart = { fields = fields, files = files, size = 0,
+    discard = function(_self: Input.Multipart)
+      for _, upload in ipairs(spooled.kept) do
+        local _, _ = Fs.remove(upload.path)
+      end
+      spooled.kept = {}
+      local made = spooled.made
+      if made ~= nil then
+        local _, _ = Fs.remove_tree(made)
+        spooled.made = nil
+      end
+    end }
   -- A task killed while it waits for the body (a client that went away)
   -- runs no code after the wait, only its pending closes: they remove what
   -- is spooled so far.
@@ -789,8 +789,8 @@ local FALSE <const>: {string:boolean} = { ["false"] = true, off = true, ["0"] = 
 
 local function parse_boolean(text: string): boolean?
   local s = text:lower()
-  if TRUE[s] then return true end
-  if FALSE[s] then return false end
+  if TRUE[s] == true then return true end
+  if FALSE[s] == true then return false end
   return nil
 end
 
@@ -924,12 +924,12 @@ end
 
 bind_record = function(w: Walk, prefix: string, spec: Shape.Spec, depth: integer): {string:any}
   local fields, names = assert(spec.fields), assert(spec.names)
-  if spec.strict then
+  if spec.strict == true then
     local unknown: mut {string} = {}
     local seen: mut {string:boolean} = {}
     for name in pairs(w.q.by_name) do
       local part = component(name, prefix)
-      if part ~= nil and fields[part] == nil and not (prefix == "" and RESERVED[part]) and not seen[name] then
+      if part ~= nil and fields[part] == nil and not (prefix == "" and RESERVED[part] == true) and seen[name] ~= true then
         seen[name] = true
         unknown[#unknown + 1] = name
       end
@@ -954,7 +954,7 @@ local SCALARS <const>: {string:boolean} = {
 local function check_node(spec: Shape.Spec, field: string, source: string, depth: integer): string
   local kind = spec.kind
   local at = if field == "" then "the spec" else ("field " .. field) end
-  if not (SCALARS[kind] or kind == "map" or kind == "record" or kind == "list") then
+  if not (SCALARS[kind] == true or kind == "map" or kind == "record" or kind == "list") then
     return ("input: %s of a %s is of kind %s, which text cannot carry"):format(at, source, tostring(kind))
   end
   if kind == "map" then
@@ -979,7 +979,7 @@ local function check_node(spec: Shape.Spec, field: string, source: string, depth
     if of == "list" or of == "record" or of == "map" then
       return ("input: %s of a %s is a list of %ss, which text cannot carry"):format(at, source, of)
     end
-    if not SCALARS[of] then
+    if SCALARS[of] ~= true then
       return ("input: %s of a %s is a list of kind %s, which text cannot carry"):format(at, source, tostring(of))
     end
   elseif source == "path" and (kind == "number" or kind == "any" or spec.optional) then

@@ -265,7 +265,7 @@ local function holds(input: string): boolean, string
     local peeked, peek_raised = token_lines(text, size, opts, peeks)
     if peeked == nil then return false, peek_raised end
     if peeked ~= whole then
-      return false, "peeking " .. peeks .. " times:\n" .. peeked .. "\nnot:\n" .. whole
+      return false, "peeking " .. tostring(peeks) .. " times:\n" .. peeked .. "\nnot:\n" .. whole
     end
   end
   local decoded, err = Json.decode(text, dopts)

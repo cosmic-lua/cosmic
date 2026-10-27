@@ -156,7 +156,7 @@ local function gen_statement(g: Gen, depth: integer, loop: boolean)
   elseif k == 4 then
     local name = use(g)
     for i = #g.seen, 1, -1 do
-      if g.seen[i] == name and g.readonly[i] and not g.options.loop_writes then
+      if g.seen[i] == name and g.readonly[i] == true and not g.options.loop_writes then
         add(g, "print", "(", name, ")")
         return
       end
@@ -256,7 +256,7 @@ gen_block = function(g: Gen, depth: integer, loop: boolean, keep?: boolean)
     gen_exp(g, depth - 1)
     add(g, "\n")
   end
-  if not keep then
+  if keep ~= true then
     forget(g, mark)
   end
 end

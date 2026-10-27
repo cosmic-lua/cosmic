@@ -97,8 +97,8 @@ end
 --- ([`scoped`]): the type itself (`found`), or the type its first name
 --- is (`holder`), which hides any module the file binds that name to.
 local record Scoped<T>
-  found: T?
-  holder: T?
+  found?: T
+  holder?: T
 end
 
 --- What `reference`, written in the declaration of `module` whose

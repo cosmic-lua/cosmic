@@ -58,7 +58,7 @@ local record verb
     --- Whether the query names one value at most: no `*` and no `..`.
     singular: boolean
     --- The file to read; nil for standard input.
-    file: string?
+    file?: string
     --- Whether the file is a lone word that reads like a path of
     --- another language than JSONPath (`.users`, `[0]`), for a hint
     --- when there is no such file.
@@ -168,7 +168,7 @@ end
 local function keys_of(value: any): string?, string
   if value is {any:any} then
     local layout = Json.layout(value)
-    if layout == "array" then return rawlen(value) .. "\n", "" end
+    if layout == "array" then return tostring(rawlen(value)) .. "\n", "" end
     if layout == "object" then
       local names: mut {string} = {}
       for key in pairs(value) do

@@ -172,15 +172,15 @@ end
 local record Declared
   --- What the running test declared its processes need, or nil: see
   --- [`confine.confine`].
-  mut confinement: Resolved?
+  mut confinement?: Resolved
   --- How the declaration in `confinement` is held: nil where a process
   --- the kernel cannot confine starts unconfined, and otherwise what
   --- names the call that asked for no fallback, for the failure a spawn
   --- answers instead (see [`confine.must_confine`]).
-  mut strict: string?
+  mut strict?: string
   --- What the library whose work is running declared its processes need,
   --- or nil: see [`confine.declaring`].
-  mut library: Resolved?
+  mut library?: Resolved
 end
 
 local declared_by: Declared = {}

@@ -1046,11 +1046,11 @@ local function test_the_path_of_a_refusal_leads_to_the_pair_it_names(tmp: string
                 if ax ~= nil and ay ~= nil then
                   Fuzz.label("replayed an alternative")
                   if ax ~= alternative.sub or ay ~= alternative.super then
-                    return false, who .. "; alternative " .. k .. " leads to " .. Types.display(ax) .. " and " ..
+                    return false, who .. "; alternative " .. tostring(k) .. " leads to " .. Types.display(ax) .. " and " ..
                       Types.display(ay)
                   end
                 elseif awhy ~= "skip" then
-                  return false, who .. "; alternative " .. k .. " cannot be followed: " .. awhy
+                  return false, who .. "; alternative " .. tostring(k) .. " cannot be followed: " .. awhy
                 end
               end
             end
@@ -1115,7 +1115,7 @@ local function test_a_pair_with_variables_is_settled_for_its_binders_and_the_rel
           for _, b in ipairs(types) do
             local answer = fresh:subtype(a, b)
             answers[a.id][b.id] = answer
-            local who = Types.display(a) .. " against " .. Types.display(b) .. " under " .. count .. " binders"
+            local who = Types.display(a) .. " against " .. Types.display(b) .. " under " .. tostring(count) .. " binders"
             if history:subtype(a, b) ~= answer then
               return false, who .. ": a judge that settled the pair under other binders disagrees"
             end
@@ -1133,13 +1133,13 @@ local function test_a_pair_with_variables_is_settled_for_its_binders_and_the_rel
               for _, c in ipairs(types) do
                 if answers[b.id][c.id] and not answers[a.id][c.id] then
                   return false, Types.display(a) .. " is below " .. Types.display(b) .. ", which is below " ..
-                    Types.display(c) .. " under " .. count .. " binders, and a is not below c"
+                    Types.display(c) .. " under " .. tostring(count) .. " binders, and a is not below c"
                 end
               end
             end
           end
         end
-        Fuzz.label(count .. " binders")
+        Fuzz.label(tostring(count) .. " binders")
       end
       return true, ""
     end,

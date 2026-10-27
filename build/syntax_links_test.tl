@@ -41,7 +41,7 @@ local function world(files: {string: string}, symbols?: {string: {string}}, memb
     root = "/p",
     kind = function(path: string): string?
       if files[path] ~= nil then return "file" end
-      if dirs[path] then return "dir" end
+      if dirs[path] == true then return "dir" end
       return nil
     end,
     read = function(path: string): string? return files[path] end,

@@ -45,7 +45,7 @@ local record invoke
     --- it.
     cwd: string
     --- The environment it reads, name to value; this process's when nil.
-    env: {string:string}?
+    env?: {string:string}
   end
 
   --- What a run ended with, as a started binary's would be.

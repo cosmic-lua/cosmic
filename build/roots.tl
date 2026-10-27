@@ -61,16 +61,16 @@ local function parse_pem(pem: string): {roots.Root}?, string
       if line == "-----END CERTIFICATE-----" then
         local der, why = Codec.unbase64(table.concat(body))
         if der == nil then
-          return nil, "line " .. number .. ": the certificate above is not base64: " .. why
+          return nil, "line " .. tostring(number) .. ": the certificate above is not base64: " .. why
         end
         if der == "" then
-          return nil, "line " .. number .. ": the certificate above is empty"
+          return nil, "line " .. tostring(number) .. ": the certificate above is empty"
         end
         found[#found + 1] = { label = label, der = der, distrust_after = "" }
         body = nil
         label = ""
       elseif line:find("-----", 1, true) then
-        return nil, "line " .. number .. ": a certificate is not closed before " .. line
+        return nil, "line " .. tostring(number) .. ": a certificate is not closed before " .. line
       else
         body[#body + 1] = line
       end

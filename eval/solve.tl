@@ -182,7 +182,7 @@ function Solve.program(resolved: string, head: string,
   local words: mut {string} = {}
   for word in line:gmatch("%S+") do words[#words + 1] = word end
   local name = words[1]
-  if name ~= nil and name:match("/env$") then name = words[2] end
+  if name ~= nil and name:match("/env$") ~= nil then name = words[2] end
   if name == nil then return nil, resolved .. ": no interpreter on its #! line" end
   local interpreter = find(name)
   if interpreter == nil then return nil, resolved .. ": interpreter " .. name .. " not found" end
@@ -199,7 +199,7 @@ function Solve.unveil(arena: string, program: Solve.Program, host_reads: {string
   local reads: mut {string} = {}
   local seen: mut {string:boolean} = {}
   local function add(path: string)
-    if seen[path] or not exists(path) then return end
+    if seen[path] == true or not exists(path) then return end
     seen[path] = true
     reads[#reads + 1] = path
   end

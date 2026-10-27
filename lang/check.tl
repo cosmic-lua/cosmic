@@ -1042,7 +1042,7 @@ end
 --- The value `require("name")` answers: the declaration the module returns.
 local function module_value(ctx: Ctx, node: Ast.Node, name: string): Type
   local program = ctx.program
-  if program.external[name] then
+  if program.external[name] == true then
     unchecked(ctx, "unchecked_binding", node, "the module " .. quoted(name) .. " is a binding of C that has no declarations")
     return ctx.invalid
   end
@@ -1121,7 +1121,7 @@ local function global_value(ctx: Ctx, node: Ast.Name): Type
   if decl ~= nil then
     return declaration_value(ctx, decl)
   end
-  if unknown_offsets(ctx)[Lexer.offset(ctx.tokens, base_of(node).first)] then
+  if unknown_offsets(ctx)[Lexer.offset(ctx.tokens, base_of(node).first)] == true then
     return ctx.invalid
   end
   unchecked(ctx, "unchecked_binding", node, "the global " .. quoted(node.text) .. " has no declaration the checker can read")
@@ -1307,7 +1307,7 @@ local function type_names(ctx: Ctx, types: {Type}): {string}
   local out: mut {string} = {}
   local seen: mut {integer: boolean} = {}
   for _, t in ipairs(types) do
-    if not seen[t.id] and #out < 4 then
+    if seen[t.id] ~= true and #out < 4 then
       seen[t.id] = true
       out[#out + 1] = tq(ctx, t)
     end
@@ -1542,7 +1542,7 @@ local function out_of_reach(ctx: Ctx, decl: Decl): string
   elseif decl.module:find("@", 1, true) ~= nil then
     return "a class declared in a block, whose table is made again each time the block runs, so values of one run " ..
       "are no values of the next"
-  elseif not ctx.declared[decl] then
+  elseif ctx.declared[decl] ~= true then
     return "a class declared further down the module, whose table is not made yet where this stands"
   elseif #decl.names > 1 then
     return "a class declared inside " .. quoted(table.concat(decl.names, ".", 1, #decl.names - 1)) ..
@@ -1553,7 +1553,7 @@ end
 
 --- The fix for a class out of reach: made, or tested, by a function of the class in the module that has its table.
 local function reach_fix(ctx: Ctx, decl: Decl, function_name: string): string
-  if decl.module == ctx.input.module and not ctx.declared[decl] and #decl.names == 1 then
+  if decl.module == ctx.input.module and ctx.declared[decl] ~= true and #decl.names == 1 then
     return "move the declaration of " .. quoted(decl.name) .. " above this, or make the value with a function of the " ..
       "class declared after it"
   elseif decl.module:find("@", 1, true) ~= nil and decl.module:gsub("@.*$", "") == ctx.input.module then
@@ -1638,7 +1638,7 @@ local function literal_record(ctx: Ctx, e: Ast.Table, n: Named): Type
   end
   local missing: mut {string} = {}
   for _, f in ipairs(body.fields) do
-    if (is_class or not f.omittable) and not given[f.name] then
+    if (is_class or f.omittable ~= true) and given[f.name] ~= true then
       missing[#missing + 1] = quoted(f.name)
     end
   end
@@ -1660,7 +1660,7 @@ local function literal_member(ctx: Ctx, e: Ast.Table, u: Union, written: Type): 
     local out: mut {string} = {}
     local seen: mut {integer: boolean} = {}
     for _, t in ipairs(types) do
-      if t.tag ~= "nil" and not seen[t.id] then
+      if t.tag ~= "nil" and seen[t.id] ~= true then
         seen[t.id] = true
         out[#out + 1] = tq(ctx, t)
       end
@@ -2538,7 +2538,7 @@ local function place_of(ctx: Ctx, f: Flow.State, e: Ast.Node): Place?
     local v = ctx.scoped.vars[id]
     local declared = ctx.vars[id]
     local key = path_key(ctx, at)
-    if v == nil or declared == nil or key == nil or not PLACE_KINDS[v.kind] or ctx.unfixed_now[id] then
+    if v == nil or declared == nil or key == nil or PLACE_KINDS[v.kind] ~= true or ctx.unfixed_now[id] == true then
       return nil
     end
     return { key = key, declared = declared }
@@ -2706,7 +2706,7 @@ function Tests.enum_strings(ctx: Ctx, t: Type): {string}?
         return nil
       end
       for _, v in ipairs(body.values) do
-        if not seen[v] then
+        if seen[v] ~= true then
           seen[v] = true
           out[#out + 1] = v
         end
@@ -2779,7 +2779,7 @@ local function note_narrowed(ctx: Ctx, node: Ast.Node, declared: Type, narrowed:
   local before = Tests.kinds_of(ctx, declared)
   local taken: mut {string} = {}
   for _, kind in ipairs(LUA_KINDS) do
-    if not after[kind] and (before == nil or before[kind]) then
+    if after[kind] ~= true and (before == nil or before[kind] == true) then
       taken[#taken + 1] = kind
     end
   end
@@ -3287,16 +3287,16 @@ local function binary(ctx: Ctx, node: Ast.Binary, left: Type, expected: Type?): 
   if op == ".." then
     local l, r = string_operand(ctx, node.left, left), string_operand(ctx, node.right, right)
     return (l and r) and store.string or ctx.invalid
-  elseif ARITHMETIC[op] or DIVISION[op] then
+  elseif ARITHMETIC[op] == true or DIVISION[op] == true then
     local l, r = arithmetic_operand(ctx, node.left, left, op), arithmetic_operand(ctx, node.right, right, op)
     if l == 0 or r == 0 then
       return ctx.invalid
     end
     return (l == 1 and r == 1 and ARITHMETIC[op]) and store.integer or store.number
-  elseif BITWISE[op] then
+  elseif BITWISE[op] == true then
     local l, r = integer_operand(ctx, node.left, left, op), integer_operand(ctx, node.right, right, op)
     return (l and r) and store.integer or ctx.invalid
-  elseif ORDERED[op] then
+  elseif ORDERED[op] == true then
     ordered(ctx, node, left, right)
     return store.boolean
   end
@@ -3625,7 +3625,7 @@ local function read_at_creation(ctx: Ctx, fn_id: integer, whole: Ast.Node)
   end
   local tokens = ctx.tokens
   for _, v in ipairs(list) do
-    if ctx.flow.unset[v.id] then
+    if ctx.flow.unset[v.id] == true then
       local t = ctx.vars[v.id]
       report(ctx, "not_assigned", whole, "this function names " .. quoted(v.name) .. ", which no path has assigned yet, and " ..
           "making a function reads what it names",
@@ -3805,7 +3805,7 @@ local function arguments_fit(lit: Ast.FunctionLit, g: Fn): boolean
   end
   local needed = 0
   for pos, p in ipairs(g.params) do
-    if not p.omittable then
+    if p.omittable ~= true then
       needed = pos
     end
   end
@@ -3906,7 +3906,7 @@ local function arity_problem(f: Fn, off: integer, n: integer, open: boolean): st
   end
   if not open then
     for pos = n + off + 1, np do
-      if not f.params[pos].omittable then
+      if f.params[pos].omittable ~= true then
         return "too few"
       end
     end
@@ -3950,7 +3950,7 @@ local function arity_error(ctx: Ctx, node: Ast.Node, callee: string, f: Fn, off:
   local np = #f.params - off
   local required = 0
   for pos = 1 + off, #f.params do
-    if not f.params[pos].omittable then
+    if f.params[pos].omittable ~= true then
       required = pos - off
     end
   end
@@ -4287,7 +4287,7 @@ function Calls.solve(ctx: Ctx, node: Ast.Node, callee: string, c: Fn, args: {Ast
   local failure = ""
   for i = 1, #args do
     local want = parameter_at(c, off, i)
-    if prep.pending[i] and want ~= nil and Generics.unsolved(solver, want) then
+    if prep.pending[i] == true and want ~= nil and Generics.unsolved(solver, want) then
       local a = args[i]
       local e = peel(a)
       if (e.kind == "Table") or (e.kind == "String") or (e.kind == "Boolean") or (e.kind == "IfExp") or Calls.typed_literal(a) then
@@ -4309,9 +4309,9 @@ function Calls.solve(ctx: Ctx, node: Ast.Node, callee: string, c: Fn, args: {Ast
       given[i] = held
     else
       given[i] = ctx.invalid
-      if not solver.tainted[i] and not solver.invalid then
+      if solver.tainted[i] ~= true and not solver.invalid then
         unbound[#unbound + 1] = i
-      elseif solver.tainted[i] and not solver.invalid then
+      elseif solver.tainted[i] == true and not solver.invalid then
         holes[#holes + 1] = i
       end
     end
@@ -4455,7 +4455,7 @@ function Calls.generic(ctx: Ctx, node: Ast.Node, callee: string, c: Fn, args: {A
     return unknown_lists(ctx)
   end
   for i = 1, #args do
-    if prep.pending[i] then
+    if prep.pending[i] == true then
       prep.known[i] = expr(ctx, args[i], parameter_at(made, off, i))
     end
   end
@@ -4535,7 +4535,7 @@ local function apply_overloads(ctx: Ctx, node: Ast.Node, callee: string, cands: 
             failure = "argument " .. i .. " is " .. tq(ctx, t) .. (if want ~= nil then ", where " .. wanted ..
                 " is wanted" else ", which it does not take" end)
             break
-          elseif pending[i] and (want == nil or not literal_fits(ctx, args[i], want)) then
+          elseif pending[i] == true and (want == nil or not literal_fits(ctx, args[i], want)) then
             failure = "argument " .. i .. " is a literal that is not " .. (if want ~= nil then "a " .. wanted else "taken" end)
             break
           end
@@ -4550,7 +4550,7 @@ local function apply_overloads(ctx: Ctx, node: Ast.Node, callee: string, cands: 
       end
       if failure == "" then
         for i, a in ipairs(args) do
-          if pending[i] then
+          if pending[i] == true then
             local want = parameter_at(c, off, i)
             local t = expr(ctx, a, want)
             if want ~= nil then
@@ -4574,7 +4574,7 @@ local function apply_overloads(ctx: Ctx, node: Ast.Node, callee: string, cands: 
     end
   end
   for i, a in ipairs(args) do
-    if pending[i] then
+    if pending[i] == true then
       ctx.lenient = ctx.lenient + 1
       local _ = expr(ctx, a, nil)
       ctx.lenient = ctx.lenient - 1
@@ -4649,7 +4649,7 @@ function Calls.library_value(ctx: Ctx, e: Ast.Node): string?
       name, object = key.value, peel(at.object)
     end
   end
-  if name == nil or object == nil or not Literals.functions[name] then
+  if name == nil or object == nil or Literals.functions[name] ~= true then
     return nil
   end
   if (object.kind == "String") then
@@ -4839,7 +4839,7 @@ function Calls.library_call(ctx: Ctx, callee_node: Ast.Node, node: Ast.Node, arg
   else
     fn = Calls.library_value(ctx, callee_node)
   end
-  if fn == nil or not Literals.functions[fn] then
+  if fn == nil or Literals.functions[fn] ~= true then
     return nil
   end
   local off = if method then 1 else 0 end
@@ -5085,7 +5085,7 @@ local function read_name(ctx: Ctx, e: Ast.Name): Type
   if ctx.load.waiting > 0 and ((t.tag == "fn") or (t.tag == "union")) and ctx.load.given[e.id] ~= true then
     LoadOrder.mention(ctx.load, ctx.within, e, LoadOrder.of_local(id, quoted(e.text)))
   end
-  if ctx.flow.unsets > 0 and ctx.flow.unset[id] then
+  if ctx.flow.unsets > 0 and ctx.flow.unset[id] == true then
     local v = ctx.scoped.vars[id]
     local tokens = ctx.tokens
     local name = quoted(e.text)
@@ -5802,7 +5802,7 @@ local function check_assignment(ctx: Ctx, s: Ast.Assign): Values?
     if id ~= nil and (target.kind == "Name") and target.text:sub(1, 1) == "_" then
       id = nil
     end
-    if id ~= nil and named[id] then
+    if id ~= nil and named[id] == true then
       report(ctx, "assign_repeated", target, subject(ctx, target) .. " is assigned twice by one statement, and Lua leaves " ..
           "the order of the two open",
         "assign " .. subject(ctx, target) .. " once, or in two statements in the order you mean")
@@ -5845,7 +5845,7 @@ local function check_assignment(ctx: Ctx, s: Ast.Assign): Values?
       local at = s.values[math.min(i, #s.values)]
       -- Only a literal nil deletes the key of a map; any other value is one of its value type.
       local written = peel(at)
-      if not (deletes[i] and (written.kind == "Nil")) then
+      if not (deletes[i] == true and (written.kind == "Nil")) then
         local _ = expect(ctx, at, t, want, " in the assignment to " .. subject(ctx, target))
       end
     end
@@ -6323,7 +6323,7 @@ local function declaration_bodies(ctx: Ctx, node: Ast.Node, decl: Decl?)
     local seen: mut {Decl: boolean} = {}
     while #to_visit > 0 do
       local super = table.remove(to_visit)
-      if (super.tag == "named") and not seen[super.decl] then
+      if (super.tag == "named") and seen[super.decl] ~= true then
         seen[super.decl] = true
         LoadOrder.implement(ctx.load, super.decl, decl)
         local above = super.decl.body
@@ -6566,7 +6566,7 @@ local function match_statement(ctx: Ctx, s: Ast.Match)
               "write " .. (if alt.tail ~= nil then "at least " else "" end) .. plural(have, "pattern") .. ", `_` for a value the arm " ..
                 "does not use: " .. quoted(arm_for(alt)), { lists_text(ctx, { alt }) })
           end
-          if not taken[k] then
+          if taken[k] ~= true then
             mine[#mine + 1] = alt
             taken[k] = true
           end
@@ -6601,7 +6601,7 @@ local function match_statement(ctx: Ctx, s: Ast.Match)
   end
   if not unknown then
     for k, alt in ipairs(alts) do
-      if not taken[k] then
+      if taken[k] ~= true then
         report(ctx, "match_missing", s, "this `match` takes no arm for the list " .. quoted(lists_text(ctx, { alt })) ..
             " the call may answer",
           "add the arm " .. quoted(arm_for(alt)), { lists_text(ctx, { alt }) })

@@ -246,7 +246,7 @@ local function ext_value(text: string): string?, string
     end
     return string.char(tonumber(hex, 16))
   end)
-  if read.bad then return nil, "multipart: filename* has a bad escape" end
+  if read.bad == true then return nil, "multipart: filename* has a bad escape" end
   local lower = charset:lower()
   if lower == "utf-8" then return raw, "" end
   if lower == "iso-8859-1" then

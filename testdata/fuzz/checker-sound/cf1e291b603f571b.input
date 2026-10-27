@@ -1,0 +1,10 @@
+local nn: integer? = 5
+local record W where (function(): boolean nn = nil return true end)() and self ~= nil
+  x: integer
+end
+local v: any = {x=1}
+if nn then
+  local ok = v is W
+  print(ok, nn + 1)
+end
+-- captures

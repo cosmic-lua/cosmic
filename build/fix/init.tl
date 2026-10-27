@@ -133,7 +133,7 @@ local record fix
     close: function()
     --- Why the build made to resolve a link failed, once one has: the
     --- links then resolved against the last build, and the run fails.
-    mut unbuilt: string?
+    mut unbuilt?: string
   end
 
   record Chosen
@@ -157,13 +157,13 @@ local record fix
     --- For a run of `--changed`, everything a run over the whole tree
     --- covers, which the checks spanning files still cover: the asserts
     --- the build refuses and the links; nil for any other run.
-    every: Chosen?
+    every?: Chosen
     --- For a run of `--changed`, the Teal files whose notes it reads
     --- ([`fix.notes`]), where these are not `files`.
-    noted: {string}?
+    noted?: {string}
     --- For a run of `--changed` that lays out the whole tree after all,
     --- why: a path named that is part of what checks each file alone.
-    widened: string?
+    widened?: string
   end
 end
 
@@ -934,17 +934,17 @@ local record Fix
   -- The Teal ([`lay_out_teal`]).
   mut facts?: {string: links.Facts}
   mut ready?: {string: {near.Candidate}}
-  mut plurals: {string: tree_checks.Plurals}?
+  mut plurals?: {string: tree_checks.Plurals}
 
   -- The build's refusal ([`find_unbuilt`]).
-  mut unbuilt: string?
+  mut unbuilt?: string
 
   -- The tree checks ([`run_tree_checks`]).
   mut findings?: {string}
 
   -- The links ([`check_links`]).
   mut linked_out?: fix.Linked
-  mut links_unbuilt: string?
+  mut links_unbuilt?: string
 end
 
 --- Reads the command line and the working directory into `ctx`.
@@ -1108,7 +1108,7 @@ local function lay_out_c(ctx: Fix)
         -- its file was checked under.
         local seen = if variants ~= nil and #variants < #assert(outcome.variants) then
           " [" .. table.concat(variants, ", ") .. "]" else "" end
-        failures[#failures + 1] = f.file .. ":" .. f.line .. ": " .. f.rule ..
+        failures[#failures + 1] = f.file .. ":" .. tostring(f.line) .. ": " .. f.rule ..
           " in " .. f.within .. seen .. ": " .. f.message
       end
     end
@@ -1366,6 +1366,9 @@ local function run_tree_checks(ctx: Fix)
       for _, line in ipairs(tree_checks.package_readers(root)) do
         findings[#findings + 1] = "package: " .. line
       end
+      for _, line in ipairs(tree_checks.text_loaders(root)) do
+        findings[#findings + 1] = "loaders: " .. line
+      end
       -- The ceilings only fall: the file is held to its merge base with main.
       local held = CeilingsBase.check(root, Env.all(), CeilingsBase.live_git())
       for _, line in ipairs(held.lines) do
@@ -1521,7 +1524,7 @@ local function say_notes(ctx: Fix)
     end
   end
   if picked.whole then
-    log:say("fix: tree checks: ran over the whole tree, " .. #findings .. " found")
+    log:say("fix: tree checks: ran over the whole tree, " .. tostring(#findings) .. " found")
   end
 end
 
@@ -1542,7 +1545,7 @@ local function kind_list(picked: fix.Chosen): string
   local parts: mut {string} = {}
   for i, count in ipairs(counts) do
     if count > 0 then
-      parts[#parts + 1] = count .. " " .. names[i]
+      parts[#parts + 1] = tostring(count) .. " " .. names[i]
     end
   end
   return table.concat(parts, " + ")
@@ -1626,14 +1629,14 @@ local function report(ctx: Fix): integer
       unbuilt ~= nil or links_unbuilt ~= nil then
     local said: mut {string} = {}
     if #failures > 0 then
-      said[#said + 1] = #failures .. " of " .. plural.count(counted, "file") .. " refused"
+      said[#said + 1] = tostring(#failures) .. " of " .. plural.count(counted, "file") .. " refused"
     end
     if #unlaid > 0 then
       said[#said + 1] = plural.count(#unlaid, "Teal file") .. (if #unlaid == 1 then " is" else " are" end) ..
         " not laid out (`cosmic fix <paths>` lays them out)"
     end
     if #findings > 0 then
-      said[#said + 1] = #findings .. " found by the tree checks"
+      said[#said + 1] = tostring(#findings) .. " found by the tree checks"
     end
     if #broken > 0 then
       said[#said + 1] = plural.count(#broken, "link") .. " not resolving"
@@ -1656,11 +1659,11 @@ local function report(ctx: Fix): integer
     return 1
   end
   if checking and #changed > 0 then
-    local _, _ = logger.summary("fix", #changed .. " of " .. plural.count(counted, "file") .. " to fix, " ..
+    local _, _ = logger.summary("fix", tostring(#changed) .. " of " .. plural.count(counted, "file") .. " to fix, " ..
         clock.took(ctx.started) .. "; `cosmic fix` rewrites them in place")
     return 1
   end
-  local _, _ = logger.summary("fix", files_said(ctx) .. ", " .. #changed ..
+  local _, _ = logger.summary("fix", files_said(ctx) .. ", " .. tostring(#changed) ..
       (if checking then " to fix, " else " fixed, " end) .. clock.took(ctx.started))
   return 0
 end

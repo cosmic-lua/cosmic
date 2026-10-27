@@ -132,7 +132,7 @@ local function test_middleware_sees_only_the_canonical_path()
   for _, path in ipairs({ "//admin", "/./admin", "/admin/.", "/x/../admin", "/%61dmin", "/admin%2fusers",
       "/admin//users", "/a/%2e%2e/admin" }) do
     local status = client:get(path).status
-    assert(status == 401 or status == 400, path .. ": " .. status)
+    assert(status == 401 or status == 400, path .. ": " .. tostring(status))
   end
   for _, path in ipairs(seen) do
     assert(path:sub(1, 1) == "/" and not path:find("//", 1, true) and not path:find("/%.", 1) and

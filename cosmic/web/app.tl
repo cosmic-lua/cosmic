@@ -50,7 +50,7 @@ local DEFAULT_STREAM_LIMIT <const> = 128
 local function checked(spec: any, known: {string:boolean}, what: string)
   if not spec is {any:any} then error("web: " .. what .. " takes a table", 3) end
   for key in pairs(spec) do
-    if not (key is string and known[key]) then
+    if not (key is string and known[key] == true) then
       error(("web: %s has no field %s"):format(what, tostring(key)), 3)
     end
   end
@@ -139,7 +139,7 @@ function App.new(spec: Types.AppSpec): Types.App
     streams = {}, stream_count = 0, stream_limit = kept.max_streams or DEFAULT_STREAM_LIMIT }
   local function dispatch(req: Types.Request): Types.Response
     local given = req.outcome
-    if given == nil and kept.builtin then
+    if given == nil and kept.builtin == true then
       -- Ahead of the routes, so that a catch-all cannot shadow the files.
       local served = Builtin.handle(req)
       if served ~= nil then return served end
@@ -174,7 +174,7 @@ function App.new(spec: Types.AppSpec): Types.App
     if trusted ~= nil then
       local host = req.host
       local named = host ~= nil and Request.parse_host(host) or nil
-      if named == nil or not trusted[named.host] then
+      if named == nil or trusted[named.host] ~= true then
         outcome = { kind = "bad_host", detail = "the host is not one this app answers to",
           handler = router.miss, mount_path = "" }
       end
@@ -214,8 +214,8 @@ end
 function App.serve(app: Types.App, opts: Types.ServeOptions): boolean, string
   checked(opts, SERVE_FIELDS, "serve")
   local sink = assert(app.spec.sink)
-  if app.spec.dev then
-    if app.spec.trusted_proxy then
+  if app.spec.dev == true then
+    if app.spec.trusted_proxy == true then
       return false, "web: an app in development mode (Dev.app) cannot also have a trusted_proxy"
     end
     sink:line("development mode: stacks are shown and pages reload; serving on the loopback only")
@@ -225,7 +225,7 @@ function App.serve(app: Types.App, opts: Types.ServeOptions): boolean, string
       end
     end
   end
-  if app.spec.debug then
+  if app.spec.debug == true then
     for _, address in ipairs(opts.listeners or {}) do
       if not loopback(address) then
         sink:line("debug is on and the app listens beyond the loopback: " ..

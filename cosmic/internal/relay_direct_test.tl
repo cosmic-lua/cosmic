@@ -109,7 +109,7 @@ local function test_a_direct_relay_listens_itself_and_serves_both_protocols_behi
     -- The relay holds the port now; this process's hold goes.
     for _, socket in ipairs(loopback.sockets) do assert(socket:close()) end
     local feed, lines = assert(relay.stdin_stream), Stream.lines(assert(relay.stdout_stream))
-    assert(feed:write(RelayConfig.encode({ grants = { "127.0.0.1:" .. granted }, own_addresses = {},
+    assert(feed:write(RelayConfig.encode({ grants = { "127.0.0.1:" .. tostring(granted) }, own_addresses = {},
       log = "null", direct = true, token = TOKEN, listeners = #loopback.sockets }) .. "\n"))
     assert(lines:read() == "opened")
     assert(lines:read() == "ready")
@@ -131,10 +131,10 @@ local function test_a_direct_relay_listens_itself_and_serves_both_protocols_behi
       local _, _ = conn:close()
       return head:match("^[^\r]*") or "", echoed
     end
-    local status, echoed = connect("127.0.0.1:" .. granted, auth)
+    local status, echoed = connect("127.0.0.1:" .. tostring(granted), auth)
     assert(status == "HTTP/1.1 200 Connection established" and echoed == "echo:ping", status)
-    assert(connect("127.0.0.1:" .. ungranted, auth):find(" 403 not granted", 1, true))
-    assert(connect("127.0.0.1:" .. granted, "") == "HTTP/1.1 407 Proxy Authentication Required")
+    assert(connect("127.0.0.1:" .. tostring(ungranted), auth):find(" 403 not granted", 1, true))
+    assert(connect("127.0.0.1:" .. tostring(granted), "") == "HTTP/1.1 407 Proxy Authentication Required")
     local socks = dial(port)
     assert(socks:write("\5\1\2"))
     assert(read_exact(socks, 2) == "\5\2")
@@ -154,9 +154,9 @@ local function test_a_direct_relay_listens_itself_and_serves_both_protocols_behi
       local taken, taken_why = Net.listen(Net.tcp("::1", port))
       assert(taken == nil, "another listener took the relay's port on ::1")
       assert(taken_why ~= "")
-      local over_v6, echoed_v6 = connect("127.0.0.1:" .. granted, auth, "::1")
+      local over_v6, echoed_v6 = connect("127.0.0.1:" .. tostring(granted), auth, "::1")
       assert(over_v6 == "HTTP/1.1 200 Connection established" and echoed_v6 == "echo:ping", over_v6)
-      assert(connect("127.0.0.1:" .. granted, "", "::1") == "HTTP/1.1 407 Proxy Authentication Required")
+      assert(connect("127.0.0.1:" .. tostring(granted), "", "::1") == "HTTP/1.1 407 Proxy Authentication Required")
     end
     local taken_v4, _ = Net.listen(Net.tcp("127.0.0.1", port))
     assert(taken_v4 == nil, "another listener took the relay's port on 127.0.0.1")

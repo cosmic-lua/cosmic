@@ -57,7 +57,7 @@ local function directory(tmp: string, without?: {string}, no_database?: boolean)
   end
   assert(Fs.mkdirs(layout.bin))
   assert(Fs.write(layout.tool, "previous tool", 0x1ed))
-  if not no_database then
+  if no_database ~= true then
     assert(Fs.write(layout.carried, carried))
     assert(Fs.write(layout.carried .. ".stamp", stamp_of(carried, records)))
   end

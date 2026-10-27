@@ -41,8 +41,8 @@ local function test_a_line_of_hits_read_twice_is_one_table()
   local second = assert(worker.decode(worker.encode(reported({ 3, 5 }, { 9, 9 }))))
   assert(first.load_hits["build.a"] == second.load_hits["build.a"])
   assert(first.test_hits["build.a"] ~= second.test_hits["build.a"])
-  assert(first.load_hits["build.a"][3] and first.load_hits["build.a"][5])
-  assert(first.test_hits["build.a"][7] and second.test_hits["build.a"][9])
+  assert(first.load_hits["build.a"][3] == true and first.load_hits["build.a"][5] == true)
+  assert(first.test_hits["build.a"][7] == true and second.test_hits["build.a"][9] == true)
   local malformed = worker.encode(passing({})):gsub("\nend\n$", "\ntest-hit zz 1\nend\n")
   assert(worker.decode(malformed) == nil)
 end
@@ -116,7 +116,7 @@ local function test_a_worker_is_started_as_its_command_line_says()
   assert(assert(options.env).PATH == "/bin" and assert(options.env).COVERAGE == "1")
   assert(assert(options.env).COSMIC_COVERAGE_STARTUP == "1")
   assert(assert(options.fds)[worker.report_fd] == "capture" and assert(options.fds)[254] == 7)
-  assert(options.process_group and options.sandbox == nil and options.stdin == "null")
+  assert(options.process_group == true and options.sandbox == nil and options.stdin == "null")
   -- Held by a ruleset that forbids running nothing, or by none.
   for hold, flag in pairs({ mounts = "--worker-held", none = "--worker" } as {string:string}) do
     local held = worker.invocation({
@@ -208,7 +208,7 @@ local function test_a_report_passes_only_after_successful_process_shutdown()
       sandboxed = false })
     assert(not judged.passed and judged.skipped == "")
     local judged_report = judged.report
-    assert(judged_report ~= nil and judged_report.test_hits["suite.tl"][12])
+    assert(judged_report ~= nil and judged_report.test_hits["suite.tl"][12] == true)
     local ending = if i == 2 then "was killed by signal 9" else
       "exited with status " .. (if i == 1 then "7" else "0" end) end
     assert(judged.message:find(ending .. " after it reported", 1, true), judged.message)
@@ -221,11 +221,11 @@ local function test_a_report_passes_only_after_successful_process_shutdown()
   result.ok, result.code = false, 7
   local shutdown = worker.judge({ result = result, trouble = "", timeout_ns = Clock.seconds(1),
     sandboxed = false })
-  assert(not shutdown.passed and shutdown.message:find("assertion failed", 1, true))
+  assert(not shutdown.passed and shutdown.message:find("assertion failed", 1, true) ~= nil)
   assert(shutdown.message:find("exited with status 7", 1, true), shutdown.message)
   result = ended(passing({}))
   result.ok, result.timed_out = false, true
   local late = worker.judge({ result = result, trouble = "", timeout_ns = Clock.seconds(30),
     sandboxed = false })
-  assert(not late.passed and late.message:find("timed out after 30 s", 1, true))
+  assert(not late.passed and late.message:find("timed out after 30 s", 1, true) ~= nil)
 end

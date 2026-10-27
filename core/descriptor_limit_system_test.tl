@@ -31,22 +31,22 @@ local Child = require("cosmic.child")
 local Env = require("cosmic.env")
 local Proc = require("cosmic.proc")
 local sys = require("cosmic.sys")
-local function shell_limit()
+local function shell_limit(): string
   local r = assert(Child.run({ "/bin/sh", "-c", "ulimit -Sn" }, { stdout = "capture" }))
   return (assert(r.stdout):gsub("%s+$", ""))
 end
 local limits = assert(sys.getrlimit(sys.RLIMIT_NOFILE))
 print(limits.soft)
 local relaunch = assert(Proc.relaunch())
-local argv = {}
+local argv: mut {string} = {}
 for _, word in ipairs(relaunch.argv) do argv[#argv + 1] = word end
 argv[#argv + 1] = "-e"
 argv[#argv + 1] = "print('relaunched')"
-local env = Env.all()
+local env: mut {string:string} = Env.all()
 for name, value in pairs(relaunch.env) do env[name] = value end
 local r, why = Child.run(argv, { env = env, fds = relaunch.fds, stdout = "capture",
   stderr = "capture" })
-print(r ~= nil and (assert(r.stdout):gsub("%s+$", "")) or why)
+if r ~= nil then print((assert(r.stdout):gsub("%s+$", ""))) else print(why) end
 print(shell_limit())
 print(assert(sys.getrlimit(sys.RLIMIT_NOFILE)).soft)
 assert(sys.setrlimit(sys.RLIMIT_NOFILE, 300, limits.hard))
