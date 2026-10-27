@@ -1126,6 +1126,11 @@ local function test_a_read_of_an_array_is_an_element_where_a_length_test_shows_i
   reads("assert(#xs > 0, \"empty\")\nn = xs[1]\n", "")
   reads("assert(#xs > 1)\nassert(xs[2] + 1 == 3)\nn = xs[1]\n", "")
   reads("assert(type(n) == \"number\")\nassert(#xs > 0)\nn = xs[1]\n", "")
+  -- a test from the other side, and the condition that ends a `repeat`
+  reads("if 3 <= #xs then\n  n = xs[3]\nend\n", "")
+  reads("if 3 > #xs then\n  return\nend\nn = xs[3]\n", "")
+  reads("if 3 > #xs then\n  return\nend\nn = xs[4]\n", "index_may_be_nil")
+  reads("repeat\n  n = n + 1\nuntil #xs > 0\nn = xs[1]\n", "")
   -- the test is made again where the loop begins
   reads("while #zs > 0 do\n  n = zs[1]\n  table.remove(zs)\nend\n", "")
   -- fixed fields from a local are a place
@@ -1191,10 +1196,19 @@ local function test_code_that_may_shorten_an_array_ends_what_a_length_test_showe
     "index_may_be_nil")
   reads("if #zs > 0 then\n  do\n    local c <close> = nil\n    if #zs > 0 then\n      n = zs[1]\n    end\n  end\nend\n",
     "index_may_be_nil")
+  reads("repeat\n  local c <close> = nil\nuntil #zs > 0\nn = zs[1]\n", "index_may_be_nil")
+  -- the value a generic `for` closes is closed where the loop ends, a `break` included
+  reads("if #zs > 0 then\n  for _ in none do\n    if #zs > 0 then\n      break\n    end\n  end\n  n = zs[1]\nend\n",
+    "index_may_be_nil")
+  -- a function made inside the scope of a `<close>` local runs in a scope of its own
+  reads("do\n  local c <close> = nil\n  local read = function(a: {integer}): integer\n    if #a > 0 then\n      return a[1]\n    end\n" ..
+      "    return 0\n  end\nend\n", "")
   -- a function made there may run when the array is shorter
   reads("if #zs > 0 then\n  local read = function(): integer\n    return zs[1]\n  end\nend\n", "index_may_be_nil")
   -- a message that runs code runs it after the test
   reads("assert(#zs > 0, tostring(n))\nn = zs[1]\n", "index_may_be_nil")
+  -- a call in the test itself, and a message that changes the state without a call
+  reads("assert(#zs > 0 and none() ~= nil, (if n == 0 then \"a\" else \"b\" end))\nn = zs[1]\n", "index_may_be_nil")
   reads("assert(#zs > 0, \"empty\")\nn = zs[1]\n", "")
   -- the loop's own back edge: a call at the end of the body ends what the head showed on the next pass
   reads("if #zs > 0 then\n  while n < 3 do\n    n = zs[1]\n    table.remove(zs)\n  end\nend\n", "index_may_be_nil")

@@ -2189,11 +2189,13 @@ lang/codegen_fuzz_test.tl index_may_be_nil 1
 
 lang/declarations.tl index_may_be_nil 13
 
-lang/declarations_test.tl index_may_be_nil 7
+lang/declarations_test.tl index_may_be_nil 8
 
 lang/generics.tl index_may_be_nil 10
 
 lang/lexer.tl index_may_be_nil 3
+
+lang/lexer_test.tl index_may_be_nil 1
 
 lang/literals_test.tl index_may_be_nil 3
 

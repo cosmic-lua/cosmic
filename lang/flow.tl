@@ -191,11 +191,24 @@ function Flow.narrow(f: Flow.State, key: string, narrowed: Type, declared: Type)
 end
 
 function Flow.know_length(f: Flow.State, key: string, n: integer, marker: Type, declared: Type): Flow.State
-  local out = f
+  local wanted: mut {string} = {}
   for i = 1, math.min(n, MOST) do
-    out = Flow.narrow(out, key .. LENGTH .. tostring(i), marker, declared)
+    local at = key .. LENGTH .. tostring(i)
+    if f.facts[at] == nil then
+      wanted[#wanted + 1] = at
+    end
   end
-  return out
+  if #wanted == 0 then
+    return f
+  end
+  local facts: mut {string: Flow.Fact} = {}
+  for k, fact in pairs(f.facts) do
+    facts[k] = fact
+  end
+  for _, at in ipairs(wanted) do
+    facts[at] = { type = marker, declared = declared }
+  end
+  return made(f.live, facts, f.paths + #wanted, f.unset, f.unsets, f.gone)
 end
 
 function Flow.dead(f: Flow.State): Flow.State

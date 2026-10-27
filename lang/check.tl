@@ -3012,8 +3012,10 @@ function Tests.has_call(node: Ast.Node): boolean
     waiting[#waiting] = nil
     if (at.kind == "Call") or (at.kind == "MethodCall") then
       found = true
+    elseif at.kind ~= "FunctionLit" then
+      -- A function made here runs when it is called, and that call is a call.
+      Ast.children(at, wait)
     end
-    Ast.children(at, wait)
   end
   return found
 end
@@ -3876,7 +3878,11 @@ local function function_body(ctx: Ctx, params: {Ast.Param}, body: Ast.Block, ft:
     unfixed_now[id] = true
   end
   ctx.unfixed_now = unfixed_now
+  -- The scope of a `<close>` local around the function is not open while it runs.
+  local outer_closers = ctx.closers
+  ctx.closers = 0
   block(ctx, body)
+  ctx.closers = outer_closers
   ctx.unfixed_now = outer_unfixed
   if ctx.flow.live then
     local last = body.stats[#body.stats]
@@ -5107,12 +5113,13 @@ local function after_call(ctx: Ctx, node: Ast.Node, callee: Ast.Exp?, alts: {Alt
   local first = args[1]
   if callee ~= nil and (callee.kind == "Name") and callee.binding == nil and callee.text == "assert" and first ~= nil then
     local yes, _ = edges(ctx, ctx.flow, first)
-    -- The test ran before the other arguments, which are evaluated first in the state it is read in: a call among them may
-    -- have shortened an array the test showed to be long.
-    for i = 2, #args do
-      local rest = args[i]
-      if rest ~= nil and Tests.has_call(rest) then
+    -- The test is read in the state after the arguments, and a call among them (the test's own or one after it) may have
+    -- shortened an array the test showed to be long: the facts of lengths are what the arguments leave, none that the
+    -- test adds.
+    for _, given in ipairs(args) do
+      if Tests.has_call(given) then
         yes = Flow.forget_lengths(yes)
+        break
       end
     end
     ctx.flow = yes
@@ -6466,6 +6473,8 @@ local function for_generic(ctx: Ctx, s: Ast.ForIn)
     local back, breaks = close_loop(ctx, loop, ctx.flow)
     return back, merge_maybe(ctx, ran, breaks)
   end)
+  -- The value to close, which the iterator call may answer in the fourth place, is closed where the loop ends.
+  ctx.flow = Flow.forget_lengths(ctx.flow)
 end
 
 --- The bodies of the methods of a class, and of the declarations nested in a record, interface or class.
@@ -6640,7 +6649,7 @@ local function repeat_statement(ctx: Ctx, s: Ast.Repeat)
     -- The scope of the body ends after the condition, which both edges leave.
     if ctx.closers ~= closers then
       yes, no = Flow.forget_lengths(yes), Flow.forget_lengths(no)
-      Tests.leaves(ctx, closers)
+      ctx.closers = closers
     end
     return no, merge_maybe(ctx, yes, loop.breaks)
   end)
