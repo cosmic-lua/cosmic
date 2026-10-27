@@ -230,7 +230,7 @@ local function parse_call(name: string, lines: {string}): Call?, string
   call.prose = trimmed(call.prose)
   local n = #call.results
   if n ~= 0 and n ~= 1 and n ~= 3 then
-    return nil, name .. ": declares " .. n .. " returns; a syscall is " ..
+    return nil, name .. ": declares " .. tostring(n) .. " returns; a syscall is " ..
       "infallible (1), never returns (0), or fallible (exactly 3: " ..
       "value, string, integer)"
   end
@@ -417,9 +417,9 @@ function generator.read(header: string): Declarations?, string
         call.line = line_of(header:find("COSMIC_SYSCALL", at, true) or at)
         local arity = tonumber(arity_text) or -1
         if #call.parameters ~= arity then
-          return nil, name .. ": the header declares " .. arity ..
+          return nil, name .. ": the header declares " .. tostring(arity) ..
             " parameter(s) in COSMIC_SYSCALL but the annotation has " ..
-            #call.parameters .. " @param line(s)"
+            tostring(#call.parameters) .. " @param line(s)"
         end
         calls[#calls + 1] = call
       else
@@ -657,20 +657,20 @@ function generator.declaration(header: string, target?: Target): string?, string
   out[#out + 1] = "-- `cosmic docs` shows in place of this file's own lines -- see"
   out[#out + 1] = "-- `build.derivation`'s `origin_lines`."
   for _, alias in ipairs(aliases) do
-    out[#out + 1] = "-- line " .. alias.name .. " " .. alias.line
+    out[#out + 1] = "-- line " .. alias.name .. " " .. tostring(alias.line)
   end
   for _, class in ipairs(classes) do
     local prefix = ""
     if class.name ~= "Constants" then
-      out[#out + 1] = "-- line " .. class.name .. " " .. class.line
+      out[#out + 1] = "-- line " .. class.name .. " " .. tostring(class.line)
       prefix = class.name .. "."
     end
     for _, field in ipairs(class.fields) do
-      out[#out + 1] = "-- line " .. prefix .. field.name .. " " .. field.line
+      out[#out + 1] = "-- line " .. prefix .. field.name .. " " .. tostring(field.line)
     end
   end
   for _, call in ipairs(calls) do
-    out[#out + 1] = "-- line " .. call.name .. " " .. call.line
+    out[#out + 1] = "-- line " .. call.name .. " " .. tostring(call.line)
   end
   out[#out + 1] = ""
   return table.concat(out, "\n")

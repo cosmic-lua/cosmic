@@ -44,7 +44,7 @@ local function test_a_named_descriptor_that_is_not_open_refuses_before_inspectio
   if errno == sys.ENOSYS then
     assert(why == "Function not implemented", why)
   else
-    assert(errno == sys.EBADF and why == "descriptor " .. fd .. ", which fds names, is not open", why)
+    assert(errno == sys.EBADF and why == "descriptor " .. tostring(fd) .. ", which fds names, is not open", why)
   end
 end
 

@@ -74,9 +74,9 @@ local function assert_released(tmp: string, before: Held, what: string)
   assert(testing.live_transfers() == 0, what .. " left a transfer alive")
   local bytes, blocks = testing.c_heap()
   assert(bytes == before.bytes and blocks == before.blocks,
-    what .. " left " .. (blocks - before.blocks) .. " blocks on the C heap")
+    what .. " left " .. tostring((blocks - before.blocks)) .. " blocks on the C heap")
   local fd = next_descriptor(tmp)
-  assert(fd == before.fd, what .. " left descriptor " .. before.fd .. " open")
+  assert(fd == before.fd, what .. " left descriptor " .. tostring(before.fd) .. " open")
 end
 
 local record Fault

@@ -657,7 +657,7 @@ local function test_an_unveiled_child_s_status_is_its_program_s(tmp: string)
     end
   end
   local own = run_confined(tmp, probe, "signal TERM; exit 3")
-  assert(own.code == -1 and own.signal == sys.SIGTERM, "a signal of its own: " .. own.code)
+  assert(own.code == -1 and own.signal == sys.SIGTERM, "a signal of its own: " .. tostring(own.code))
   local quiet = create(tmp .. "/quiet")
   local sleeping = assert(start_confined(probe, "sleep 30000", quiet))
   sys.close(quiet)

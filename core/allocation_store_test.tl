@@ -69,6 +69,6 @@ local function test_attach_leaves_no_connection_whenever_an_allocation_fails(tmp
   local held = #Store.databases() - searched
   assert(held >= 1, "the last run attached")
   local after = next_descriptor(tmp)
-  assert(after == before + held, "descriptors from " .. before .. " to " .. after ..
-      " for " .. held .. " attached: a refused attach left a connection open")
+  assert(after == before + held, "descriptors from " .. tostring(before) .. " to " .. tostring(after) ..
+      " for " .. tostring(held) .. " attached: a refused attach left a connection open")
 end

@@ -369,7 +369,7 @@ local function userns_allowed(host: host_requires.Host): Found
     end
     return absent("the kernel has no user.max_user_namespaces: user namespaces are not built in")
   end
-  if limit <= 0 then return absent("user.max_user_namespaces is " .. limit) end
+  if limit <= 0 then return absent("user.max_user_namespaces is " .. tostring(limit)) end
   if not admin(host) then
     if sysctl(host, "/proc/sys/kernel/unprivileged_userns_clone") == 0 then
       return absent("kernel.unprivileged_userns_clone is 0")
@@ -479,8 +479,10 @@ local table_of: {string:Entry} = {
       local wanted = if argument == "" then 1 else assert(math.tointeger(tonumber(argument))) end
       local abi, why = landlock_abi()
       if abi == nil then return absent("no Landlock: " .. why) end
-      if abi < wanted then return absent("Landlock ABI " .. abi .. " is below " .. wanted) end
-      return present("abi=" .. abi)
+      if abi < wanted then
+        return absent("Landlock ABI " .. tostring(abi) .. " is below " .. tostring(wanted))
+      end
+      return present("abi=" .. tostring(abi))
     end },
   userns = { platform_has = linux,
     probe = function(_: string, host: host_requires.Host): Found return userns_allowed(host) end },
@@ -532,7 +534,7 @@ local table_of: {string:Entry} = {
   root = {
     probe = function(_: string, _: host_requires.Host): Found
       if getuid() == 0 then return present("root") end
-      return absent("the run's user is " .. getuid() .. ", not root")
+      return absent("the run's user is " .. tostring(getuid()) .. ", not root")
     end },
   path = {
     probe = function(argument: string, _: host_requires.Host): Found

@@ -241,7 +241,7 @@ local function fetch_text(url: string): string?, string
     return nil, url .. ": " .. trouble
   end
   if got.status < 200 or got.status > 299 then
-    return nil, url .. ": HTTP " .. got.status
+    return nil, url .. ": HTTP " .. tostring(got.status)
   end
   return got.body, ""
 end
@@ -658,7 +658,7 @@ function refresh.binary(binary: string, out: string, chosen: {refresh.Dataset},
       return done(cookie_trouble)
     end
     local kept, keep_trouble = db:exec("PRAGMA schema_version = " ..
-        (math.tointeger(tonumber(cookie[1]:text(1))) - 1))
+        tostring((math.tointeger(tonumber(cookie[1]:text(1))) - 1)))
     if not kept then
       return done(keep_trouble)
     end
