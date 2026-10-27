@@ -64,7 +64,7 @@ local function test_blanks_after_a_parameter_cost_time_linear_in_their_run()
   local pick = Negotiate.best("text/html;q=0.5" .. (" "):rep(60000) .. "y, application/json;q=0.4", HTML_OR_JSON)
   local took = Clock.monotonic_ns() - start
   assert(pick == "text/html", "a weight with junk after it is no weight, so the range keeps 1: " .. tostring(pick))
-  assert(took < Clock.seconds(1), "took " .. took // 1000000 .. " ms")
+  assert(took < Clock.seconds(1), "took " .. tostring(took // 1000000) .. " ms")
   assert(Negotiate.best("  text/html ; q=0.2  ,  application/json;q=0.4 ", HTML_OR_JSON) == "application/json")
   assert(Negotiate.best("text/html ;q=0.9 ,application/json ; q=0.4", HTML_OR_JSON) == "text/html")
 end

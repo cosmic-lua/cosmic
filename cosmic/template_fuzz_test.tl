@@ -95,9 +95,9 @@ local function gen_bindings(src: Fuzz.Source, depth: integer): {string}
   if kind == 0 then
     return {}
   elseif kind == 1 then
-    return { "$x" .. depth }
+    return { "$x" .. tostring(depth) }
   end
-  return { "$i" .. depth, "$x" .. depth }
+  return { "$i" .. tostring(depth), "$x" .. tostring(depth) }
 end
 
 --- Appends a well-formed run of nodes: markup, slots and blocks (to
@@ -246,7 +246,7 @@ local function test_compile_is_total_and_keeps_the_lines_on_any_bytes(tmp: strin
       end
       Fuzz.label("compiled")
       if newlines(out) ~= newlines(input) + 1 then
-        return false, "the module has " .. newlines(out) .. " newlines for the template's " .. newlines(input)
+        return false, "the module has " .. tostring(newlines(out)) .. " newlines for the template's " .. tostring(newlines(input))
       end
       if out:find("\r", 1, true) or not out:find("local _module: _Module = {render = render} return _module\n", 1, true) then
         return false, "the module is not shaped as one: " .. out
@@ -305,7 +305,7 @@ local function test_literal_text_is_rendered_byte_for_byte(tmp: string)
         return false, "refused text with no action: " .. why
       end
       if newlines(out) ~= newlines(body) + 1 then
-        return false, "lines: " .. newlines(out) .. " for " .. newlines(body)
+        return false, "lines: " .. tostring(newlines(out)) .. " for " .. tostring(newlines(body))
       end
       Fuzz.label(mode)
       if body:find("\n", 1, true) then Fuzz.label("newline") end
@@ -1002,9 +1002,9 @@ local function test_a_cut_in_the_text_does_not_move_where_a_slot_lands(tmp: stri
         if split == nil then
           Fuzz.label("cut refused")
         elseif reference == nil then
-          return false, "compiled with a cut at " .. cut .. " what it refuses whole: " .. body
+          return false, "compiled with a cut at " .. tostring(cut) .. " what it refuses whole: " .. body
         elseif helpers(split) ~= helpers(reference) then
-          return false, "cut at " .. cut .. " gives " .. helpers(split) .. ", not " .. helpers(reference) .. ": " .. body
+          return false, "cut at " .. tostring(cut) .. " gives " .. helpers(split) .. ", not " .. helpers(reference) .. ": " .. body
         else
           Fuzz.label("agreed")
         end
@@ -1392,7 +1392,7 @@ local function test_a_block_in_a_tag_adds_only_the_attributes_it_writes(tmp: str
         kinds[#kinds + 1] = made
       end
       if #kinds ~= count.value then
-        return false, #kinds .. " slots compiled of " .. count.value .. ": " .. body
+        return false, tostring(#kinds) .. " slots compiled of " .. count.value .. ": " .. body
       end
       -- What each run writes in the block, and the attributes that alone makes.
       local runs: mut {string} = { "", n_arm }

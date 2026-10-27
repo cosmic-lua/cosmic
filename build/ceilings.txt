@@ -7008,53 +7008,13 @@ cosmic/internal/relay_server.tl concat_type 1
 
 cosmic/internal/relay_start.tl concat_type 1
 
-cosmic/internal/relay_start_test.tl concat_type 18
-
 cosmic/internal/relay_wire.tl concat_type 1
-
-cosmic/internal/relay_wire_fuzz_test.tl concat_type 1
-
-cosmic/internal/relay_wire_test.tl concat_type 1
-
-cosmic/json_fuzz_test.tl concat_type 4
-
-cosmic/json_path_fuzz_test.tl concat_type 1
-
-cosmic/json_reader_fuzz_test.tl concat_type 1
-
-cosmic/json_reader_test.tl concat_type 2
-
-cosmic/json_test.tl concat_type 3
 
 cosmic/net.tl concat_type 9
 
-cosmic/net_connector_test.tl concat_type 13
-
-cosmic/net_declared_types_test.tl concat_type 1
-
-cosmic/net_resolve_test.tl concat_type 1
-
-cosmic/net_resolve_through_test.tl concat_type 17
-
-cosmic/net_resolve_tool_test.tl concat_type 1
-
-cosmic/net_serve_test.tl concat_type 1
-
-cosmic/net_tcp_test.tl concat_type 5
-
-cosmic/net_test.tl concat_type 2
-
-cosmic/policy_test.tl concat_type 2
-
 cosmic/poll.tl concat_type 4
 
-cosmic/poll_test.tl concat_type 22
-
-cosmic/rand_test.tl concat_type 5
-
 cosmic/relay/address.tl concat_type 1
-
-cosmic/relay/address_fuzz_test.tl concat_type 2
 
 cosmic/sandbox/init.tl concat_type 8
 
@@ -7062,31 +7022,15 @@ cosmic/sandbox/policy.tl concat_type 7
 
 cosmic/sandbox/seatbelt.tl concat_type 7
 
-cosmic/sandbox_restrict_test.tl concat_type 6
-
-cosmic/sandbox_test.tl concat_type 5
-
-cosmic/seatbelt_network_probe_test.tl concat_type 13
-
 cosmic/sqlite.tl concat_type 15
 
 cosmic/store.tl concat_type 1
 
-cosmic/store_seal_test.tl concat_type 2
-
-cosmic/stream_fd_test.tl concat_type 3
-
-cosmic/stream_test.tl concat_type 2
-
 cosmic/string.tl concat_type 1
-
-cosmic/tar_fuzz_test.tl concat_type 4
 
 cosmic/template/codegen.tl concat_type 2
 
 cosmic/template/context.tl concat_type 2
-
-cosmic/template/dialect_vendored_test.tl concat_type 1
 
 cosmic/template/init.tl concat_type 1
 
@@ -7094,77 +7038,19 @@ cosmic/template/lex.tl concat_type 2
 
 cosmic/template/parse.tl concat_type 4
 
-cosmic/template_check_test.tl concat_type 12
-
-cosmic/template_fuzz_test.tl concat_type 10
-
-cosmic/template_go_test.tl concat_type 3
-
-cosmic/template_html5lib_tokenizer_test.tl concat_type 5
-
-cosmic/template_html5lib_tree_test.tl concat_type 5
-
-cosmic/template_test.tl concat_type 5
-
 cosmic/test.tl concat_type 2
 
 cosmic/time.tl concat_type 1
 
-cosmic/time_test.tl concat_type 1
-
-cosmic/time_zone_test.tl concat_type 1
-
-cosmic/url_fuzz_test.tl concat_type 1
-
-cosmic/url_test.tl concat_type 1
-
-cosmic/web/app_test.tl concat_type 1
-
 cosmic/web/cookies.tl concat_type 1
-
-cosmic/web/cookies_fuzz_test.tl concat_type 1
-
-cosmic/web/cookies_test.tl concat_type 1
-
-cosmic/web/cors_test.tl concat_type 2
-
-cosmic/web/dev_test.tl concat_type 1
 
 cosmic/web/headers.tl concat_type 1
 
-cosmic/web/headers_test.tl concat_type 1
-
-cosmic/web/htmx_test.tl concat_type 1
-
 cosmic/web/input.tl concat_type 1
-
-cosmic/web/input_fuzz_test.tl concat_type 1
-
-cosmic/web/input_multipart_test.tl concat_type 5
-
-cosmic/web/input_test.tl concat_type 4
-
-cosmic/web/negotiate_test.tl concat_type 1
 
 cosmic/web/request.tl concat_type 1
 
-cosmic/web/request_test.tl concat_type 1
-
-cosmic/web/router_fuzz_test.tl concat_type 1
-
-cosmic/web/serve_test.tl concat_type 2
-
-cosmic/web/session/cookie_test.tl concat_type 1
-
 cosmic/web/session/session_example.tl concat_type 1
-
-cosmic/web/session/session_test.tl concat_type 1
-
-cosmic/web/sse_fuzz_test.tl concat_type 1
-
-cosmic/web/sse_test.tl concat_type 9
-
-cosmic/web/static_test.tl concat_type 4
 
 cosmic/web/testing.tl concat_type 1
 

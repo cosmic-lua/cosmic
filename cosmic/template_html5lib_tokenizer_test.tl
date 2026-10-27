@@ -947,11 +947,11 @@ local function test_a_slot_is_accepted_only_where_the_tokenizer_is_in_the_state_
       end
     end
   end
-  assert(#reach.failures == 0, #reach.failures .. " failures:\n" ..
+  assert(#reach.failures == 0, tostring(#reach.failures) .. " failures:\n" ..
       table.concat(reach.failures, "\n", 1, math.min(#reach.failures, 30)))
   local summary: mut {string} = {}
   for key, count in pairs(reach.accepted) do
-    summary[#summary + 1] = key .. "=" .. count
+    summary[#summary + 1] = key .. "=" .. tostring(count)
   end
   table.sort(summary)
   print(("tokenizer: %d cases, %d validated, %d unclosed, %d positions; accepted %s"):format(
@@ -959,10 +959,10 @@ local function test_a_slot_is_accepted_only_where_the_tokenizer_is_in_the_state_
   -- It reaches 2148 cases, 2086 validated, 21803 positions, and accepts
   -- 2841 slots of text, 134 of rtext, 21 of rtext in the name of an end
   -- tag that cannot be the element's, and 209 in attributes.
-  assert(reach.cases >= 2050 and reach.validated >= 2050, "only " .. reach.validated .. " cases were validated")
+  assert(reach.cases >= 2050 and reach.validated >= 2050, "only " .. tostring(reach.validated) .. " cases were validated")
   -- The template's ending is held to: many cases need a closer to compile.
-  assert(reach.closers >= 1000, "only " .. reach.closers .. " cases needed a closer")
-  assert(reach.positions >= 20500, "only " .. reach.positions .. " positions were checked")
+  assert(reach.closers >= 1000, "only " .. tostring(reach.closers) .. " cases needed a closer")
+  assert(reach.positions >= 20500, "only " .. tostring(reach.positions) .. " positions were checked")
   local attrs = (reach.accepted["value_dq/attr"] or 0) + (reach.accepted["value_sq/attr"] or 0)
   assert((reach.accepted["data/text"] or 0) >= 2600 and (reach.accepted["rcdata/rtext"] or 0) >= 120 and
       (reach.accepted["rcdata_end_name/rtext"] or 0) >= 15 and attrs >= 190,

@@ -196,7 +196,7 @@ local function served(tmp: string, name: string, wait_ms: integer | string, befo
             local query = read_exact(conn, (string.unpack(">I2", head)))
             if query == nil then break end
             local asked, qtype = question(query)
-            out.queries[#out.queries + 1] = qtype .. " " .. asked
+            out.queries[#out.queries + 1] = tostring(qtype) .. " " .. asked
             assert(conn:write(string.pack(">s2", answer(query))))
           end
           local _, _ = conn:close()
@@ -251,10 +251,10 @@ local function test_a_name_resolves_over_tcp_through_the_connector_and_sends_no_
   local seen = served(tmp, "tcp.example.test", 10000)
   assert(seen.lines[1] == "192.0.2.7,2001:db8::7", tostring(seen.lines[1]))
   assert(seen.lines[2] == "192.0.2.7,2001:db8::7", tostring(seen.lines[2]))
-  assert(seen.datagrams == 0, seen.datagrams .. " datagrams were sent")
+  assert(seen.datagrams == 0, tostring(seen.datagrams) .. " datagrams were sent")
   assert(table.concat(seen.queries, ",") ==
       "1 tcp.example.test,1 tcp.example.test,28 tcp.example.test,28 tcp.example.test", table.concat(seen.queries, ","))
-  assert(seen.connections == 2, seen.connections .. " connections")
+  assert(seen.connections == 2, tostring(seen.connections) .. " connections")
 end
 
 --- Fills the backlog of a listener of its own, so that the kernel drops
@@ -273,7 +273,7 @@ local function stuck_server(held: mut {function()}): {integer}
       taken = taken + 1
     end
   end
-  assert(taken >= 1 and taken < 4, taken .. " connections were taken")
+  assert(taken >= 1 and taken < 4, tostring(taken) .. " connections were taken")
   return { stuck.address.port }
 end
 
@@ -293,7 +293,7 @@ local function test_a_server_that_never_answers_its_connect_fails_over_to_the_ne
     local ms = assert(math.tointeger(tonumber(took)))
     assert(ms >= 400 and ms < 5000, seen.lines[3] .. " ms")
   end
-  assert(seen.datagrams == 0, seen.datagrams .. " datagrams were sent")
+  assert(seen.datagrams == 0, tostring(seen.datagrams) .. " datagrams were sent")
 end
 
 --- A lookup whose time runs out while the connector still waits on a
@@ -310,7 +310,7 @@ local function test_a_lookup_out_of_time_still_takes_the_connectors_reply(tmp: s
   assert(seen.lines[1] == "error " .. Poll.TIMEOUT, tostring(seen.lines[1]))
   assert(seen.lines[2] == "192.0.2.7,2001:db8::7", tostring(seen.lines[2]))
   local first = assert(math.tointeger(tonumber(seen.lines[3]:match("^(%d+)"))))
-  assert(first >= 100 and first < 480, "the first lookup ended after " .. first .. " ms, not at its deadline")
+  assert(first >= 100 and first < 480, "the first lookup ended after " .. tostring(first) .. " ms, not at its deadline")
 end
 
 --- A lookup's deadline is never earlier than the time it was given, wherever
@@ -330,7 +330,7 @@ local function test_a_lookup_begun_late_in_a_millisecond_still_asks_for_its_conn
     -- A start delayed past the millisecond has no claim on one want.
     if took < Clock.ms(1) then
       judged = judged + 1
-      assert(#wants == 1, #wants .. " connects were asked for, in " .. took .. " ns of 1 ms")
+      assert(#wants == 1, #wants .. " connects were asked for, in " .. tostring(took) .. " ns of 1 ms")
     end
   end
   assert(judged > 0, "no lookup began and asked within its millisecond")
@@ -412,7 +412,7 @@ local function test_the_name_servers_connector_refuses_what_is_no_name_server(tm
       (address or "") .. string.rep("\0", 16 - #(address or ""))
     assert(sys.write(started.fd, wire) == #wire)
     local replied, errno = string.unpack(">I4I4", read_whole(8))
-    assert(replied == tag, "the reply carries another tag: " .. replied)
+    assert(replied == tag, "the reply carries another tag: " .. tostring(replied))
     return errno
   end
   assert(asked(7, 1, 80) == sys.EPERM)
@@ -554,7 +554,7 @@ local function test_a_connector_that_never_replies_ends_the_lookup_and_is_not_as
   end
   assert(found == nil and why == Poll.TIMEOUT, tostring(why))
   -- The process's wait given (100 ms) and a second's grace, not the default ten seconds.
-  assert(took >= 150 and took < 3000, took .. " ms")
+  assert(took >= 150 and took < 3000, tostring(took) .. " ms")
   -- What was asked: the table's first endpoint at port 53, its hello read first.
   local sent = assert(sys.read(peer, 64))
   assert(sent == request(1, 1, 53), ("%q"):format(sent))
@@ -584,7 +584,9 @@ local function test_nameservers_reads_the_servers_resolv_conf_names(tmp: string)
     Test.skip("the system's DNS configuration answers before resolv.conf here")
   end
   local listed: mut {string} = {}
-  for _, server in ipairs(servers) do listed[#listed + 1] = server.host .. " " .. server.port end
+  for _, server in ipairs(servers) do
+    listed[#listed + 1] = server.host .. " " .. tostring(server.port)
+  end
   assert(table.concat(listed, ",") == "192.0.2.53 53,2001:db8::53 53", table.concat(listed, ","))
   -- A link-local server is never answered: refused, or, where the resolver
   -- cannot find its interface (a sandbox's own network), dropped by it in
@@ -663,7 +665,7 @@ local function silent_lookup(count: integer, lookup_ms: integer)
   assert(assert(opts.connector):close())
   for _, close in ipairs(held) do close() end
   assert(found == nil and why == Poll.TIMEOUT, tostring(why))
-  assert(took >= wait and took < lookup_ms + wait + 1000 + 300, took .. " ms")
+  assert(took >= wait and took < lookup_ms + wait + 1000 + 300, tostring(took) .. " ms")
 end
 
 local function test_a_silent_name_server_times_the_lookup_out_within_its_bound()
@@ -744,8 +746,8 @@ local function test_a_lookup_nobody_answers_stalls_no_other_task(tmp: string)
   end)
   Udp.close(silent)
   assert(found.value == nil and why.value == Poll.TIMEOUT, tostring(why.value))
-  assert(took >= 500 and took < 4000, took .. " ms")
-  assert(worst < 450, "another task waited " .. worst .. " ms behind the lookup")
+  assert(took >= 500 and took < 4000, tostring(took) .. " ms")
+  assert(worst < 450, "another task waited " .. tostring(worst) .. " ms behind the lookup")
 end
 
 --- The same through a connector that never replies: the connect it was
@@ -766,8 +768,8 @@ local function test_a_lookup_through_a_silent_connector_stalls_no_other_task(tmp
       servers = { { host = "127.0.0.1", port = 53 } }, hosts_file = hosts })
   end)
   assert(found.value == nil and why.value == Poll.TIMEOUT, tostring(why.value))
-  assert(took >= 500 and took < 4000, took .. " ms")
-  assert(worst < 450, "another task waited " .. worst .. " ms behind the lookup")
+  assert(took >= 500 and took < 4000, tostring(took) .. " ms")
+  assert(worst < 450, "another task waited " .. tostring(worst) .. " ms behind the lookup")
   assert(not dns:ended())
   assert(sys.close(pair[2]))
 end
@@ -803,7 +805,7 @@ local function test_a_cancelled_lookup_closes_everything_it_held(tmp: string)
   local waited, outcome, before, after = cancelled_lookup(
     { timeout_ns = Clock.seconds(30), servers = { { host = "127.0.0.1", port = silent.address.port } }, hosts_file = hosts })
   assert(outcome == Poll.CANCELLED, outcome)
-  assert(waited < 1500, "a cancelled lookup took " .. waited .. " ms to end")
+  assert(waited < 1500, "a cancelled lookup took " .. tostring(waited) .. " ms to end")
   assert(after == before, "a cancelled lookup left a descriptor open")
   Udp.close(silent)
 end
@@ -822,7 +824,7 @@ local function test_a_cancelled_lookup_through_a_connector_closes_everything_it_
   local waited, outcome, before, after = cancelled_lookup({ timeout_ns = Clock.seconds(30), connector = dns,
     servers = { { host = "127.0.0.1", port = 53 } }, hosts_file = hosts })
   assert(outcome == Poll.CANCELLED, outcome)
-  assert(waited < 1500, "a cancelled lookup took " .. waited .. " ms to end")
+  assert(waited < 1500, "a cancelled lookup took " .. tostring(waited) .. " ms to end")
   assert(after == before, "a cancelled lookup left a descriptor open")
   assert(not dns:ended())
   assert(sys.close(pair[2]))

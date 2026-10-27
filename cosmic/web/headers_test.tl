@@ -90,7 +90,7 @@ local function test_errors_and_not_modified_replies_get_the_headers_too()
   local client = Web.test_client(make_app{ csp = Csp.htmx_default() })
   for _, path in ipairs({ "/missing", "/boom", "/denied", "/not-modified" }) do
     local res = client:get(path)
-    assert(res.headers["x-content-type-options"] == "nosniff", path .. " " .. res.status)
+    assert(res.headers["x-content-type-options"] == "nosniff", path .. " " .. tostring(res.status))
     assert(res.headers["content-security-policy"] ~= nil, path)
   end
   assert(client:head("/").headers["x-frame-options"] == "DENY")

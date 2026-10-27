@@ -37,7 +37,7 @@ local function test_flipping_any_character_of_a_token_makes_it_anonymous()
     local c = token:sub(i, i)
     local flipped = token:sub(1, i - 1) .. (if c == "A" then "B" else "A" end) .. token:sub(i + 1)
     local got, why = store:load(flipped, 1500, "session")
-    assert(got == nil and why == "", "character " .. i .. " was not covered by the MAC")
+    assert(got == nil and why == "", "character " .. tostring(i) .. " was not covered by the MAC")
   end
   assert(store:load(token .. "x", 1500, "session") == nil)
   assert(store:load("", 1500, "session") == nil and store:load(".", 1500, "session") == nil)

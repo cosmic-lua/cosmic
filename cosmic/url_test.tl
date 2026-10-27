@@ -262,7 +262,7 @@ end
 
 local function test_decode_query_caps_pairs_and_bytes()
   local many: mut {string} = {}
-  for i = 1, 1001 do many[i] = "a=" .. i end
+  for i = 1, 1001 do many[i] = "a=" .. tostring(i) end
   local q, why = Url.decode_query(table.concat(many, "&"))
   assert(q == nil and why == "url: the query holds more pairs than max_pairs (1000)", why)
   assert(#decoded(table.concat(many, "&", 1, 1000)).pairs == 1000)

@@ -654,7 +654,7 @@ local function test_an_empty_action_at_any_byte_boundary_leaves_accepted_slots_a
     cases[#cases + 1] = case[2] .. case[3]
   end
   local wrong, checked = split_wrong(cases)
-  assert(checked > 500, "too few splits checked: " .. checked)
+  assert(checked > 500, "too few splits checked: " .. tostring(checked))
   assert(#wrong == 0, table.concat(wrong, "\n"))
 end
 
@@ -664,7 +664,7 @@ local function test_an_empty_action_at_any_byte_boundary_leaves_refused_slots_as
     cases[#cases + 1] = case[2]
   end
   local wrong, checked = split_wrong(cases)
-  assert(checked > 500, "too few splits checked: " .. checked)
+  assert(checked > 500, "too few splits checked: " .. tostring(checked))
   assert(#wrong == 0, table.concat(wrong, "\n"))
 end
 
@@ -678,7 +678,7 @@ local function test_an_empty_action_at_any_byte_boundary_leaves_raw_text_slots_a
     "<script>a</script >{{.y}}<textarea>b</TextArea\n>{{.z}}",
     "<style>x</style>{{.x}}<textarea></textareax></textarea>{{.y}}",
   })
-  assert(checked > 100, "too few splits checked: " .. checked)
+  assert(checked > 100, "too few splits checked: " .. tostring(checked))
   assert(#wrong == 0, table.concat(wrong, "\n"))
 end
 

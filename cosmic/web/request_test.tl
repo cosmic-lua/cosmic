@@ -266,7 +266,7 @@ local function test_blanks_in_a_forwarding_header_cost_time_linear_in_their_run(
   client:get("/items/1", { headers = { ["x-forwarded-for"] = ("a"):rep(60000) .. "," .. ("b"):rep(60000) } })
   local took = Clock.monotonic_ns() - start
   assert(assert(seen[1].client).host == "127.0.0.1", "an entry with junk in it is no address")
-  assert(took < Clock.seconds(1), "took " .. took // 1000000 .. " ms")
+  assert(took < Clock.seconds(1), "took " .. tostring(took // 1000000) .. " ms")
   client:get("/items/1", { headers = { ["x-forwarded-for"] = "6.6.6.6,  203.0.113.9  " } })
   assert(assert(seen[3].client).host == "203.0.113.9")
 end

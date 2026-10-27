@@ -28,11 +28,11 @@ local function test_int_stays_within_its_bounds_and_reaches_both()
   local seen: mut {integer: boolean} = {}
   for _ = 1, 1000 do
     local v = src:int(-3, 3)
-    assert(v >= -3 and v <= 3, "out of range: " .. v)
+    assert(v >= -3 and v <= 3, "out of range: " .. tostring(v))
     seen[v] = true
   end
   for v = -3, 3 do
-    assert(seen[v], "never drew " .. v)
+    assert(seen[v], "never drew " .. tostring(v))
   end
   assert(src:int(9, 9) == 9)
 end
@@ -43,13 +43,13 @@ local function test_uniform_draws_within_range_from_any_bit_source()
   local seen: mut {integer: integer} = {}
   for _ = 1, 3000 do
     local v = Rand.uniform(draw, 0, 2)
-    assert(v >= 0 and v <= 2, "out of range: " .. v)
+    assert(v >= 0 and v <= 2, "out of range: " .. tostring(v))
     seen[v] = (seen[v] or 0) + 1
   end
   -- Both ends are reachable, and a modulo would favor 0 (2^64 % 3 = 1):
   -- rejection keeps the three within a loose band of 1000 each.
   for v = 0, 2 do
-    assert(seen[v] and seen[v] > 850 and seen[v] < 1150, "biased: " .. v .. " x" .. tostring(seen[v]))
+    assert(seen[v] and seen[v] > 850 and seen[v] < 1150, "biased: " .. tostring(v) .. " x" .. tostring(seen[v]))
   end
   assert(Rand.uniform(draw, -4, -4) == -4)
   assert(Rand.uniform(draw, math.mininteger, math.mininteger + 1) <= math.mininteger + 1)
@@ -60,7 +60,7 @@ local function test_uniform_draws_within_range_from_any_bit_source()
     at.value = at.value + 1
     return words[at.value]
   end, 0, 2)
-  assert(got == 1 and at.value == 3, "rejection: " .. got .. " after " .. at.value)
+  assert(got == 1 and at.value == 3, "rejection: " .. tostring(got) .. " after " .. at.value)
   assert(not pcall(Rand.uniform, draw, 3, 2))
 end
 

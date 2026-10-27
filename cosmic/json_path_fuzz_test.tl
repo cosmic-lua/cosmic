@@ -251,7 +251,7 @@ local function gen_selection(src: Fuzz.Source): string
     elseif kind == 2 then
       selector = "['" .. Fuzz.pick(src, { "a", "b", "c" }) .. "']"
     else
-      selector = "[" .. src:int(-3, 3) .. "]"
+      selector = "[" .. tostring(src:int(-3, 3)) .. "]"
     end
     segments[#segments + 1] = (if src:int(0, 1) == 0 then ".." else "" end) .. selector
   until not Fuzz.more(src, #segments, 4)
