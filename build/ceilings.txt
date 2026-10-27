@@ -346,8 +346,6 @@ lang/check.tl 1
 
 lang/check_programs.tl 4
 
-lang/codegen.tl 1
-
 lang/declarations.tl 1
 
 lang/parser_cover.tl 1
@@ -1500,11 +1498,11 @@ lang/check_speed_test.tl nil_not_allowed 5
 
 lang/check_test.tl nil_not_allowed 26
 
-lang/codegen.tl nil_not_allowed 28
+lang/codegen.tl nil_not_allowed 24
 
 lang/codegen_fuzz_test.tl nil_not_allowed 16
 
-lang/codegen_test.tl nil_not_allowed 16
+lang/codegen_test.tl nil_not_allowed 13
 
 lang/declarations.tl nil_not_allowed 22
 
@@ -5623,6 +5621,7 @@ lang/check_fuzz_test.tl condition_type 1
 
 lang/check_test.tl condition_type 1
 
+lang/codegen.tl condition_type 3
 
 lang/codegen_fuzz_test.tl condition_type 4
 
@@ -6208,7 +6207,6 @@ lang/check_flow_test.tl or_mix 4
 
 lang/check_test.tl or_mix 1
 
-
 lang/codegen_fuzz_test.tl or_mix 1
 
 lang/codegen_test.tl or_mix 1
@@ -6678,9 +6676,9 @@ lang/check_refused_test.tl and_ternary 2
 
 lang/check_test.tl and_ternary 3
 
-lang/codegen.tl and_ternary 11
+lang/codegen.tl and_ternary 9
 
-lang/codegen_test.tl and_ternary 5
+lang/codegen_test.tl and_ternary 4
 
 lang/declarations.tl and_ternary 28
 
