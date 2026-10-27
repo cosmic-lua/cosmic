@@ -116,7 +116,7 @@ local record test_sandbox
     --- runner's own beneath /tree, /program/<its name> ([`program_name`]);
     --- nil where it keeps the runner's, as a worker whose module does
     --- not declare `tool` does.
-    program: string?
+    program?: string
     --- The host
     --- paths among `sandbox.unveil.reads` that are run, which the policy
     --- grants `x` as well: the program and its core, and what its module

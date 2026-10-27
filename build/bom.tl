@@ -61,8 +61,8 @@ local record bom
   --- the lines of it to keep; `first` is nil for the whole file.
   record Notice
     file: string
-    first: integer?
-    last: integer?
+    first?: integer
+    last?: integer
   end
 
   --- One record, as [`bom.parse`] reads it.

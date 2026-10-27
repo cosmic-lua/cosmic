@@ -166,29 +166,29 @@ local type Draw = shrink.Draw
 --- integers replays to some input.
 local function replaying(values: {integer}, draws: mut {Draw}): Fuzz.Source
   local replay = { at = 0 }
-  local src: Fuzz.Source = {}
-  src.int = function(_self: Fuzz.Source, min: integer, max: integer): integer
-    if min > max then
-      error(("fuzz: int(%d, %d): min is greater than max"):format(min, max), 2)
-    end
-    replay.at = replay.at + 1
-    local v = values[replay.at]
-    if v == nil or v < min or v > max then v = min end
-    draws[#draws + 1] = { min = min, max = max, value = v }
-    return v
-  end
-  return src
+  return {
+    int = function(_self: Fuzz.Source, min: integer, max: integer): integer
+      if min > max then
+        error(("fuzz: int(%d, %d): min is greater than max"):format(min, max), 2)
+      end
+      replay.at = replay.at + 1
+      local v = values[replay.at]
+      if v == nil or v < min or v > max then v = min end
+      draws[#draws + 1] = { min = min, max = max, value = v }
+      return v
+    end,
+  }
 end
 
 --- A source drawing from `rng` that records what it hands out.
 local function recording(rng: Rand.Source, draws: mut {Draw}): Fuzz.Source
-  local src: Fuzz.Source = {}
-  src.int = function(_self: Fuzz.Source, min: integer, max: integer): integer
-    local v = rng:int(min, max)
-    draws[#draws + 1] = { min = min, max = max, value = v }
-    return v
-  end
-  return src
+  return {
+    int = function(_self: Fuzz.Source, min: integer, max: integer): integer
+      local v = rng:int(min, max)
+      draws[#draws + 1] = { min = min, max = max, value = v }
+      return v
+    end,
+  }
 end
 
 --- An integer from the environment, or `otherwise` when it is unset.
@@ -208,7 +208,7 @@ end
 --- `run` is counting them; nil otherwise, so shrinking and replay count
 --- nothing.
 local record Counting
-  mut reached: {string: boolean}?
+  mut reached?: {string: boolean}
 end
 
 local counting: Counting = {}

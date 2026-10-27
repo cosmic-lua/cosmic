@@ -86,7 +86,7 @@ local record rebuild_lock
   --- never taken.
   record Claim
     fd: integer?
-    db: Sqlite.Handle?
+    db?: Sqlite.Handle
     __close: function(Claim)
   end
 end
@@ -144,13 +144,13 @@ local lock_mt: metatable<Lock> = {
 --- The lock this process holds, kept here so it lives as long as the
 --- process does, or until the exec that replaces it.
 local record Hold
-  mut lock: Lock?
+  mut lock?: Lock
   --- The path of the lock, as [`build.paths`] names it, so two spellings
   --- of a root that resolve to one build directory hold one lock.
-  mut path: string?
+  mut path?: string
   --- The lock whose holder this process has said it does not wait for
   --- ([`rebuild_lock.tell_not_waiting`]).
-  mut told: string?
+  mut told?: string
 end
 
 local held: Hold = {}

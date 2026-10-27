@@ -100,6 +100,23 @@ local record host_requires
     "refused"
   end
 
+  --- The outcome a probe answers: whether present, and what a key holds or
+  --- why not.
+  record Found
+    present: boolean
+    text: string
+  end
+
+  --- A requirement's table entry.
+  record Entry
+    --- Of a `platform` entry, whether this platform ever has it, where the
+    --- answer is no probe's but the platform's own; the outcome is `na`
+    --- where it does not.
+    platform_has?: function(host: host_requires.Host): boolean
+    --- The probe, handed its argument ("" for none) and the host.
+    probe: function(argument: string, host: host_requires.Host): Found
+  end
+
   --- One requirement's outcome.
   record Answer
     --- The requirement as written.
@@ -140,11 +157,11 @@ local record host_requires
   --- What the caller hands in that the table cannot probe itself.
   record Context
     --- A stand-in for the Unix stream socket creation probe; nil asks the host.
-    unix_socket: function(): boolean, string
+    unix_socket?: function(): boolean, string
     --- Whether a worker can run sandboxed here: the runner's own
     --- [`build.test_sandbox_probe`]'s `available` answer. Without it `sandbox` is
     --- refused, since no cheaper probe answers the same.
-    sandbox: function(): host_requires.Sandbox
+    sandbox?: function(): host_requires.Sandbox
     --- Whether this run is a portable artifact, which the runner reads from
     --- the program's `runtime_context` ("portable-v1", as its launcher key
     --- does): this module cannot read the store, which the harness would
@@ -172,7 +189,7 @@ local record host_requires
     path?: string
     --- Reads a file for the settings `userns` and `nest` read, which a
     --- test stands in for.
-    read: function(path: string): host_requires.Read
+    read?: function(path: string): host_requires.Read
   end
 
   --- The probes of one run: each requirement is asked of the host once.
@@ -191,22 +208,8 @@ local function linux(host: host_requires.Host): boolean
   return sandbox_platform()
 end
 
---- The outcome a probe answers: whether present, and what a key holds or
---- why not.
-local record Found
-  present: boolean
-  text: string
-end
-
---- A requirement's table entry.
-local record Entry
-  --- Of a `platform` entry, whether this platform ever has it, where the
-  --- answer is no probe's but the platform's own; the outcome is `na`
-  --- where it does not.
-  platform_has: function(host: host_requires.Host): boolean
-  --- The probe, handed its argument ("" for none) and the host.
-  probe: function(argument: string, host: host_requires.Host): Found
-end
+local type Found = host_requires.Found
+local type Entry = host_requires.Entry
 
 --- Whether `path` is there; raises where the host cannot say, as for a
 --- directory it may not search.
@@ -579,8 +582,10 @@ end
 --- any other asks its probe, once per `host`, and answers `present` with
 --- its key text, or `skipped`. Raises where a probe cannot tell.
 --- @param names requirements as written
+--- @param entries the table to read in place of the real one, for a test
 --- @return an answer for each
-function host_requires.answer(host: host_requires.Host, names: {string}): {host_requires.Answer}
+function host_requires.answer(host: host_requires.Host, names: {string},
+                              entries?: {string: host_requires.Entry}): {host_requires.Answer}
   local out: mut {host_requires.Answer} = {}
   for i, name in ipairs(names) do
     local cached = host.found[name]
@@ -589,8 +594,12 @@ function host_requires.answer(host: host_requires.Host, names: {string}): {host_
       if spec == nil then
         cached = { name = name, class = "host", kind = "refused", key = "", why = why }
       else
-        local entry = table_of[spec.base]
-        if spec.class == "platform" and not entry.platform_has(host) then
+        local entry = (entries or table_of)[spec.base]
+        local has = entry.platform_has
+        if spec.class == "platform" and has == nil then
+          error("host_requires: " .. spec.base .. " is a platform requirement with no platform_has", 0)
+        end
+        if has ~= nil and spec.class == "platform" and not has(host) then
           cached = { name = name, class = spec.class, kind = "na", key = "", why = spec.base .. ": this platform has none" }
         else
           local found = entry.probe(spec.argument, host)

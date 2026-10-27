@@ -64,9 +64,9 @@ local record sql
     --- What the summary and a complaint call it.
     name: string
     --- The database file; nil for the binary's own database.
-    path: string?
+    path?: string
     --- Said after "no such database" when the file is missing.
-    hint: string?
+    hint?: string
   end
 
   --- Where `run` writes: a row line, a complaint, and the summary.

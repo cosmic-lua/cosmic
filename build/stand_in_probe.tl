@@ -28,7 +28,7 @@ local signals: {string:integer} = {
 --- the commands of the chain running have said of their failures, said
 --- once the chain ends the script, and not where a `||` takes one up.
 local record Probe
-  mut guard: Signal.Guard?
+  mut guard?: Signal.Guard
   mut trapped: integer
   mut ignoring: boolean
   mut troubles: mut {string}

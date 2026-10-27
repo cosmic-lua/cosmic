@@ -81,7 +81,7 @@ local record flow
     order?: {string}
     --- The widest line a container is kept on one line within, its
     --- indentation included (100 by default).
-    width: integer
+    width?: integer
   end
 end
 
