@@ -682,11 +682,16 @@ local checked_gather_cap_ns <const> = Clock.seconds(780)
 --- first is "host features <digest>"), but for those that name the
 --- identity of their host and its rest but for the features ("host
 --- identity", "host rest"), which the gathering run looks up under their
---- own host's key (build/test_key.tl's `lookup`). Whether that rest is
---- this host's it does not ask: a row of another rest, which no key
---- of this host reaches, is run again without the time given. Nil and why where `path` is no
+--- own host's key (build/test_key.tl's `lookup`). Nil and why where `path` is no
 --- cache of this format, which a gathering run then bounds as one with
 --- nothing to run again.
+-- TODO: count only the rows whose rest is this host's ("host rest"), once
+-- the driver can name this host's rest: build/declared_key.tl's
+-- `host_split` is the tree's, which the pinned release the driver runs on
+-- cannot call, and ci/cosmic_ci/host_id.tl names only the features. Today
+-- a row of another rest (another image, user or sandbox) is counted as
+-- one to look up, which no key of this host reaches, so those tests run
+-- again beyond the time given.
 function Orchestration.stale_rows(path: string, features: string): integer?, string
   if features:match("^%x+$") == nil then
     return nil, "host features " .. features .. " are no digest"

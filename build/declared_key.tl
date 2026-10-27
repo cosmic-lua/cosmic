@@ -286,16 +286,16 @@ local record declared_key
     tree?: string
   end
 
-  --- Where [`host_identity`] and [`system_identity`] look, for a test: each
-  --- a path, but `sysname`, `machine`, `own_proc`, whether a sandbox gets
-  --- a /proc of its own, `host_id`, the value of `host_variable`,
-  --- `system_id`, the value of `system_variable`, and the ids.
   --- A host's identity and the digest of the rest of it but its features
   --- ([`host_split`]).
   record Split
     identity: string
     rest: string
   end
+  --- Where [`host_identity`] and [`system_identity`] look, for a test: each
+  --- a path, but `sysname`, `machine`, `own_proc`, whether a sandbox gets
+  --- a /proc of its own, `host_id`, the value of `host_variable`,
+  --- `system_id`, the value of `system_variable`, and the ids.
   record HostSources
     packages?: {string}
     --- The system the host says it is, then its kernel's release and
