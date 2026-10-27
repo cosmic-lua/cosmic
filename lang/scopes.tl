@@ -1135,7 +1135,7 @@ local function dotted(e: Ast.Exp?): string?, Ast.Name?
     parts[#parts + 1] = cur.name
     cur = cur.object
     if #parts > 8 then
-      return nil
+      return nil, nil
     end
   end
   if cur ~= nil and (cur.kind == "Name") and #parts > 0 then

@@ -2108,7 +2108,7 @@ local function union_method(ctx: Ctx, node: Ast.MethodCall, u: Union): Type?, {T
           tq(ctx, u),
         "narrow the value to the member that has it (`x.kind == \"...\"` or `x is T`), or declare " .. quoted(node.name) ..
           " in every member", { show(ctx, u) })
-      return nil
+      return nil, nil
     end
     ctx.cands, ctx.cand_node = nil, nil
     local read = member_read(ctx, node, m, node.name)
@@ -2118,7 +2118,7 @@ local function union_method(ctx: Ctx, node: Ast.MethodCall, u: Union): Type?, {T
     end
     ctx.cands, ctx.cand_node = nil, nil
     if read.tag == "invalid" then
-      return nil
+      return nil, nil
     end
     local replaced: mut {Type} = {}
     for i, each in ipairs(declared) do
@@ -2155,13 +2155,13 @@ local function union_method(ctx: Ctx, node: Ast.MethodCall, u: Union): Type?, {T
             quoted(show(ctx, declared[1] or read)),
           "narrow the value to one member first (`x.kind == \"...\"` or `x is T`), or declare " .. quoted(node.name) ..
             " the same in every member", { show(ctx, first_declared), show(ctx, declared[1] or read) })
-        return nil
+        return nil, nil
       end
     end
   end
   local list = common
   if list == nil or list[1] == nil then
-    return nil
+    return nil, nil
   end
   return list[1], #list > 1 and list or nil
 end
@@ -2740,7 +2740,7 @@ function Tests.tag_field(ctx: Ctx, list: {Type}): string?, {string}?
     body = first.decl.body
   end
   if body == nil then
-    return nil
+    return nil, nil
   end
   for _, f in ipairs(body.fields) do
     local values: mut {string} = {}
@@ -2764,7 +2764,7 @@ function Tests.tag_field(ctx: Ctx, list: {Type}): string?, {string}?
       return f.name, values
     end
   end
-  return nil
+  return nil, nil
 end
 
 --- Notes that the read `node` of a place declared `declared` has the type `narrowed`, for a run that checks it.
@@ -3921,7 +3921,7 @@ end
 --- missing value is the fault.
 local function tail_problem(ctx: Ctx, f: Fn, off: integer, n: integer, tail: Type, strict?: boolean): integer?, Type?, boolean
   if tail.tag == "invalid" then
-    return nil
+    return nil, nil, false
   end
   local maybe = ctx.store:optional(tail)
   local np = #f.params - off
@@ -3942,7 +3942,7 @@ local function tail_problem(ctx: Ctx, f: Fn, off: integer, n: integer, tail: Typ
   if rest ~= nil and rest.tag ~= "any" and not below(ctx, tail, rest) then
     return math.max(n + 1, np + 1), rest, false
   end
-  return nil
+  return nil, nil, false
 end
 
 --- Reports a call with the wrong number of arguments.
@@ -5657,17 +5657,17 @@ local function place_of_target(ctx: Ctx, target: Ast.Exp, at: integer, removes: 
   local store = ctx.store
   if (target.kind == "Name") then
     local t = name_value(ctx, target)
-    return t
+    return t, false
   elseif (target.kind == "Field") then
     local base = writable_base(ctx, target.object)
     if base == nil then
-      return nil
+      return nil, false
     end
     if (base.tag == "named") then
       local list = member_types(ctx, base, target.name)
       if list == nil or list[1].method then
         field_unknown(ctx, target, base, target.name)
-        return nil
+        return nil, false
       end
       local field = list[1]
       if not field.mut then
@@ -5675,7 +5675,7 @@ local function place_of_target(ctx: Ctx, target: Ast.Exp, at: integer, removes: 
           "declare `mut " .. target.name .. ": " .. show(ctx, field.type) .. "` in " .. quoted(base.decl.name) ..
             ", or make a new " .. quoted(base.decl.name), { show(ctx, base) })
       end
-      return put_in(ctx, base, field.type)
+      return put_in(ctx, base, field.type), false
     end
     local read = member_read(ctx, target, base, target.name)
     ctx.cands, ctx.cand_node = nil, nil
@@ -5685,12 +5685,12 @@ local function place_of_target(ctx: Ctx, target: Ast.Exp, at: integer, removes: 
           ", which is fixed: only a record's `mut` field is written",
         "narrow the value to one record, then write its `mut` field", { show(ctx, base) })
     end
-    return nil
+    return nil, false
   elseif (target.kind == "Index") then
     local base = writable_base(ctx, target.object)
     if base == nil then
       local _ = expr(ctx, target.key, nil)
-      return nil
+      return nil, false
     end
     local owner = subject(ctx, target.object)
     if (base.tag == "array") then
@@ -5707,7 +5707,7 @@ local function place_of_target(ctx: Ctx, target: Ast.Exp, at: integer, removes: 
       elseif not Writes.is_append(target) then
         pending[#pending + 1] = { target = target, at = at, owner = owner, base = base }
       end
-      return base.element
+      return base.element, false
     elseif (base.tag == "map") then
       local k = expr(ctx, target.key, base.key)
       local _ = key_ok(ctx, target.key, k, base.key, owner)
@@ -5720,7 +5720,7 @@ local function place_of_target(ctx: Ctx, target: Ast.Exp, at: integer, removes: 
     elseif (base.tag == "named") and (base.decl.kind == "record" or base.decl.kind == "class") then
       local k = expr(ctx, target.key, nil)
       if k.tag == "invalid" then
-        return nil
+        return nil, false
       end
       local names = key_names(target.key, k)
       local index = members_index(ctx, base.decl, base.value)
@@ -5730,7 +5730,7 @@ local function place_of_target(ctx: Ctx, target: Ast.Exp, at: integer, removes: 
         report(ctx, "view_written", target, subject(ctx, target) .. " writes the array part of " .. tq(ctx, base) ..
             ", which is a view: no declaration can make it `mut`",
           "keep the elements in a field declared `mut {T}`, and write that", { show(ctx, base) })
-        return nil
+        return nil, false
       end
       if names ~= nil and #names == 1 then
         local list = member_types(ctx, base, names[1])
@@ -5740,22 +5740,22 @@ local function place_of_target(ctx: Ctx, target: Ast.Exp, at: integer, removes: 
               "declare `mut " .. names[1] .. ": " .. show(ctx, list[1].type) .. "` in " .. quoted(base.decl.name) ..
                 ", or make a new " .. quoted(base.decl.name), { show(ctx, base) })
           end
-          return put_in(ctx, base, list[1].type)
+          return put_in(ctx, base, list[1].type), false
         end
         field_unknown(ctx, target.key, base, names[1])
-        return nil
+        return nil, false
       end
       report(ctx, "record_index", target, subject(ctx, target.key) .. " is " .. tq(ctx, k) .. ", which names no one field of " ..
           tq(ctx, base) .. ": a record is not a map",
         "write the field (`" .. text_of(ctx, target.object) .. ".field = v`), or index a `{K: V}`", { show(ctx, k) })
-      return nil
+      return nil, false
     end
     local _ = expr(ctx, target.key, nil)
     report(ctx, "not_indexable", target, owner .. " is " .. tq(ctx, base) .. ", which has no elements to write",
       "write an element of an array or a map, or a field of a record", { show(ctx, base) })
-    return nil
+    return nil, false
   end
-  return nil
+  return nil, false
 end
 
 --- Whether the write `p` leaves the array it writes with no hole: the statement has the values `vals`. The array has its
