@@ -35,7 +35,7 @@ local Child = require("cosmic.child")
 local confine = require("build.confine")
 local ok, why = confine.forbid_running(confine.itself(), %s)
 assert(ok, why)
-local function ran(argv)
+local function ran(argv: {string}): string
   local result, trouble = Child.run(argv)
   if result == nil then return trouble end
   return "ran " .. tostring(result.code)

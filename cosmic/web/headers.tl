@@ -101,7 +101,7 @@ end
 
 --- `value` for `what`, raising where it could not be a header value.
 local function plain(value: any, what: string): string
-  if type(value) ~= "string" or value:find("[^\32-\126]") then
+  if type(value) ~= "string" or value:find("[^\32-\126]") ~= nil then
     error(("headers: %s is printable ASCII text"):format(what), 3)
   end
   return value
@@ -172,15 +172,15 @@ function Headers.middleware(opts?: Headers.Options): Types.Middleware
     if math.type(h.max_age) ~= "integer" or h.max_age < 0 then
       error("headers: hsts.max_age is a number of seconds, 0 or more", 2)
     end
-    if h.preload and not (h.include_subdomains and h.max_age >= 31536000) then
+    if h.preload == true and not (h.include_subdomains == true and h.max_age >= 31536000) then
       error("headers: hsts.preload needs include_subdomains and a max_age of a year (31536000) or more", 2)
     end
-    hsts = "max-age=" .. h.max_age .. (if h.include_subdomains then "; includeSubDomains" else "" end) ..
-      (if h.preload then "; preload" else "" end)
+    hsts = "max-age=" .. h.max_age .. (if h.include_subdomains == true then "; includeSubDomains" else "" end) ..
+      (if h.preload == true then "; preload" else "" end)
   end
 
   local policy = opts.csp
-  local csp_name = if opts.csp_report_only then "Content-Security-Policy-Report-Only" else "Content-Security-Policy" end
+  local csp_name = if opts.csp_report_only == true then "Content-Security-Policy-Report-Only" else "Content-Security-Policy" end
   if policy ~= nil then
     local directives: mut {string:{string}} = {}
     for name, sources in pairs(policy.directives) do directives[name] = sources end
@@ -190,7 +190,7 @@ function Headers.middleware(opts?: Headers.Options): Types.Middleware
     policy = { directives = directives }
     local ok, why = pcall(Csp.format, policy, "x")
     if not ok then error("headers: " .. tostring(why), 2) end
-    if uses_nonce(policy) and not opts.nonce then
+    if uses_nonce(policy) and opts.nonce ~= true then
       error("headers: the csp has a {nonce} source and nonce is not set", 2)
     end
   end

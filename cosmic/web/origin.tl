@@ -30,7 +30,7 @@ local function reduce(scheme: string, authority: string): string?
   if host == nil or host == "" then return nil end
   if host:sub(1, 1) ~= "[" then
     for label in (host .. "."):gmatch("([^.]*)%.") do
-      if label == "" or label:find("^%-") or label:find("%-$") then return nil end
+      if label == "" or label:find("^%-") ~= nil or label:find("%-$") ~= nil then return nil end
     end
   end
   local number: string? = nil
@@ -63,7 +63,7 @@ end
 function Origin.of_url(text: string): string?
   if #text > 8192 then return nil end
   local scheme, authority = text:match("^(%a[%w+.-]*)://([^/?#]*)")
-  if scheme == nil or authority:find("[@%s,]") then return nil end
+  if scheme == nil or authority:find("[@%s,]") ~= nil then return nil end
   return reduce(scheme, authority)
 end
 

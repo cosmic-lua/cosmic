@@ -75,11 +75,11 @@ local function test_a_build_waits_for_the_lock_before_removing_a_file_of_another
   local before = assert(Fs.stat(path)).ino
   local held = assert(Sqlite.open(path, { writable = true }))
   assert(held:exec("BEGIN IMMEDIATE"))
-  local child, said = waiting(tmp, 'local work = require("build.work"); ' ..
-      'local Sqlite = require("cosmic.sqlite"); local Fs = require("cosmic.fs"); ' ..
-      'local handle = assert(work.open(' .. string.format("%q", tmp) .. ')); ' ..
-      'local rows = assert(Sqlite.text_rows(handle.db, "SELECT value FROM meta WHERE key = \'schema\'")); ' ..
-      'assert(Fs.put(1, rows[1]:text(1))); assert(work.close(handle))')
+  local child, said = waiting(tmp, 'local work = require("build.work") ' ..
+      'local Sqlite = require("cosmic.sqlite") local Fs = require("cosmic.fs") ' ..
+      'local handle = assert(work.open(' .. string.format("%q", tmp) .. ')) ' ..
+      'local rows = assert(Sqlite.text_rows(handle.db, "SELECT value FROM meta WHERE key = \'schema\'")) ' ..
+      'assert(Fs.put(1, assert(rows[1]):text(1))) assert(work.close(handle))')
   local during = Fs.stat(path)
   assert(held:exec("ROLLBACK"))
   assert(held:close())
@@ -105,7 +105,7 @@ local function test_two_builds_waiting_on_a_file_of_another_schema_remove_it_onc
   local path = of_another_schema(tmp)
   local held = assert(Sqlite.open(path, { writable = true }))
   assert(held:exec("BEGIN IMMEDIATE"))
-  local script = 'local work = require("build.work"); ' ..
+  local script = 'local work = require("build.work") ' ..
     'assert(work.close((assert(work.open(' .. string.format("%q", tmp) .. ')))))'
   local first, first_said = waiting(tmp, script)
   local second, second_said = waiting(tmp, script)
@@ -129,14 +129,14 @@ end
 --- prints the schema the file at its path records once the build has
 --- closed it, or "gone" where there is none.
 local function opening_script(tmp: string): string
-  return 'local work = require("build.work"); local Sqlite = require("cosmic.sqlite"); ' ..
-    'local Fs = require("cosmic.fs"); ' ..
-    'local handle = assert(work.open(' .. string.format("%q", tmp) .. ')); ' ..
-    'local path = handle.dir .. "/build.db"; assert(work.close(handle)); ' ..
-    'if not Fs.exists(path) then assert(Fs.put(1, "gone")) return end; ' ..
-    'local db = assert(Sqlite.open(path)); ' ..
-    'local rows = assert(Sqlite.text_rows(db, "SELECT value FROM meta WHERE key = \'schema\'")); ' ..
-    'assert(db:close()); assert(Fs.put(1, rows[1]:text(1)))'
+  return 'local work = require("build.work") local Sqlite = require("cosmic.sqlite") ' ..
+    'local Fs = require("cosmic.fs") ' ..
+    'local handle = assert(work.open(' .. string.format("%q", tmp) .. ')) ' ..
+    'local path = handle.dir .. "/build.db" assert(work.close(handle)) ' ..
+    'if Fs.exists(path) ~= true then assert(Fs.put(1, "gone")) return end ' ..
+    'local db = assert(Sqlite.open(path)) ' ..
+    'local rows = assert(Sqlite.text_rows(db, "SELECT value FROM meta WHERE key = \'schema\'")) ' ..
+    'assert(db:close()) assert(Fs.put(1, assert(rows[1]):text(1)))'
 end
 
 --- A build granted the write lock on a file another run removed while it
@@ -247,13 +247,13 @@ local function test_a_build_whose_file_is_replaced_while_it_waits_to_log_opens_t
   local bytes = assert(Fs.read(path))
   local held = assert(Sqlite.open(path, { writable = true }))
   assert(held:exec("BEGIN IMMEDIATE"))
-  local child, said = waiting(tmp, 'local work = require("build.work"); ' ..
-      'local Sqlite = require("cosmic.sqlite"); local Fs = require("cosmic.fs"); ' ..
-      'local handle = assert(work.open(' .. string.format("%q", tmp) .. ')); ' ..
-      'local path = handle.dir .. "/build.db"; assert(work.close(handle)); ' ..
-      'local db = assert(Sqlite.open(path)); ' ..
-      'local rows = assert(Sqlite.text_rows(db, "SELECT value FROM meta WHERE key = \'run\'")); ' ..
-      'assert(db:close()); assert(Fs.put(1, rows[1]:text(1)))')
+  local child, said = waiting(tmp, 'local work = require("build.work") ' ..
+      'local Sqlite = require("cosmic.sqlite") local Fs = require("cosmic.fs") ' ..
+      'local handle = assert(work.open(' .. string.format("%q", tmp) .. ')) ' ..
+      'local path = handle.dir .. "/build.db" assert(work.close(handle)) ' ..
+      'local db = assert(Sqlite.open(path)) ' ..
+      'local rows = assert(Sqlite.text_rows(db, "SELECT value FROM meta WHERE key = \'run\'")) ' ..
+      'assert(db:close()) assert(Fs.put(1, assert(rows[1]):text(1)))')
   -- Another file, at another inode, at the path.
   assert(Fs.remove(path))
   assert(Fs.write(path, bytes))

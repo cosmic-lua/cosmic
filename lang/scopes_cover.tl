@@ -101,7 +101,7 @@ function Cover.check(chunk: Ast.Chunk, scoped: Scopes.Scoped, declared: {string:
     if vars[v.id] ~= v then
       return false, "the variable `" .. v.name .. "` is not under its id"
     end
-    if v.from > v.to or v.declared < 1 or v.declared > #tokens.kind or v.depth < 1 or not found.functions[v.owner] then
+    if v.from > v.to or v.declared < 1 or v.declared > #tokens.kind or v.depth < 1 or found.functions[v.owner] ~= true then
       return false, "the variable `" .. v.name .. "` has a range or an owner that does not exist"
     end
     if v.assigned ~= (#v.writes > 0) then
@@ -137,7 +137,7 @@ function Cover.check(chunk: Ast.Chunk, scoped: Scopes.Scoped, declared: {string:
   end
   local resolved_count = 0
   for _, n in ipairs(found.names) do
-    if not found.members[n.id] then
+    if found.members[n.id] ~= true then
       local at = n.first
       local best: Scopes.Var? = nil
       for _, v in ipairs(by_name[n.text] or {}) do
@@ -167,12 +167,12 @@ function Cover.check(chunk: Ast.Chunk, scoped: Scopes.Scoped, declared: {string:
   for _, v in ipairs(scoped.list) do
     local caught = 0
     for _, c in ipairs(v.captures) do
-      if c.fn == v.owner or not found.functions[c.fn] then
+      if c.fn == v.owner or found.functions[c.fn] ~= true then
         return false, "`" .. v.name .. "` is captured by " .. c.fn .. ", which is not a function inside its own"
       end
       for _, id in ipairs(c.uses) do
         caught = caught + 1
-        if not is_read[id] or listed_under[id] ~= v.id then
+        if is_read[id] ~= true or listed_under[id] ~= v.id then
           return false, "a capture of `" .. v.name .. "` holds a use that is not a read of it"
         end
       end

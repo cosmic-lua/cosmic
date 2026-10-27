@@ -32,7 +32,7 @@ local function significant(text: string): {string}
   local found: mut {string} = {}
   for word in text:gmatch("[%w]+") do
     local lower = word:lower()
-    if not stopwords[lower] then
+    if stopwords[lower] ~= true then
       found[#found + 1] = lower
     end
   end
@@ -81,7 +81,7 @@ local function shared_words(message: string, candidate: string): integer
   local counted: mut {string:boolean} = {}
   local shared = 0
   for _, word in ipairs(significant(message)) do
-    if present[word] and not counted[word] then
+    if present[word] == true and counted[word] ~= true then
       counted[word] = true
       shared = shared + 1
     end

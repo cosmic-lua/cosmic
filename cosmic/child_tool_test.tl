@@ -14,6 +14,7 @@ local Proc = require("cosmic.proc")
 local Clock = require("cosmic.clock")
 local Test = require("cosmic.test")
 local confine = require("build.confine")
+local child_lua_fixture = require("build.child_lua_fixture")
 local child_tool_fixture = require("build.child_tool_fixture")
 local this_program = require("build.this_program")
 
@@ -61,7 +62,7 @@ local function output(dir: string, name: string): integer, string
 end
 
 --- This program again, past its launcher ([`this_program.program`]),
---- running the Lua chunk `chunk` with `args` as its `...`: the child
+--- running the Teal chunk `chunk` with `args` as its `...`: the child
 --- each test starts, where a shell would need the system's. The argv
 --- and options, for [`Child.run`] or [`Child.start`].
 local function lua(chunk: string, args?: {string}, opts?: Child.Options): {string}, Child.Options
@@ -71,7 +72,7 @@ local function lua(chunk: string, args?: {string}, opts?: Child.Options): {strin
   return started.argv, started.options
 end
 
-local sleeping, AGAIN = child_tool_fixture.sleeping, child_tool_fixture.AGAIN
+local sleeping, AGAIN = child_tool_fixture.sleeping, child_lua_fixture.AGAIN
 
 --- A child that catches nothing is ended by a timeout's SIGTERM, not
 --- left for the SIGKILL after the grace period. The same of a child in a
@@ -109,7 +110,7 @@ return function(argv: {string}): integer
   local fd = assert(Fs.open_read((argv[1] or "")))
   assert(fd == 0)
   local result = assert(Child.run(this("local Fs = require('cosmic.fs') " ..
-    "return Fs.take(0, 64) == ... and 0 or 1", "stdin's own"),
+    "local expected = ... if Fs.take(0, 64) == expected then return 0 end return 1", "stdin's own"),
     { stdin = fd, process_group = false, env = relaunch.env, fds = relaunch.fds }))
   return if result.ok then 0 else 21 end
 end
@@ -136,6 +137,7 @@ return function(argv: {string}): integer
   words[#words + 1] = "-e"
   words[#words + 1] = AGAIN .. "local h = again('" .. ]] .. string.format("%q", sleeping(30000)) .. [[ ..
     "', { process_group = false }) local Fs = require('cosmic.fs') local pid, ready = ... " ..
+    "if pid == nil or ready == nil then return 2 end " ..
     "assert(Fs.write(pid, tostring(h.pid))) assert(Fs.write(ready, 'ready')) h:wait()"
   words[#words + 1] = (argv[1] or "")
   words[#words + 1] = (argv[2] or "")

@@ -125,7 +125,7 @@ local function test_program_starts_this_program_with_no_environment(tmp: string)
   local started = this_program.program({ "-e", [[
 local Fs = require("cosmic.fs")
 local cmdline = Fs.read("/proc/self/cmdline")
-print(cmdline ~= nil and cmdline:match("^[^%z]*") or "")
+if cmdline ~= nil then print(cmdline:match("^[^%z]*")) else print("") end
 ]] }, { env = {}, cwd = tmp, stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(30) })
   local r = assert(Child.run(started.argv, started.options))
   assert(r.ok, tostring(r.stdout) .. tostring(r.stderr))

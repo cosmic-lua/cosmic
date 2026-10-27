@@ -1119,9 +1119,12 @@ a claim.
 
 verbs, with a bare path meaning run: `cosmic build`, `cosmic test`,
 `cosmic fix`, `cosmic docs`; `cosmic file.tl` runs a
-file; `-e` stays as Lua's one-liner idiom: `cosmic -e '<chunk>'` runs
-a chunk of Lua against the standard library, with no tree, and the
-words after it are its `...`. `build` builds the tree and
+file; `-e` is the one-liner: `cosmic -e '<chunk>'` runs a chunk of Teal
+against the standard library, with no tree. The chunk is checked as a
+file is, so a type error exits 1 with the checker's messages and
+nothing runs; it takes the library by `require("cosmic.json")`, as a
+file does (and the tool's own modules, which only the tool's one-liner
+may require), with nothing pre-bound, and the words after it are its `...`. `build` builds the tree and
 writes an executable for each `cmd/<name>/` in it, so a library tree
 builds too and a tree with binaries ships from the one verb. every verb
 takes paths to narrow it (`uses` after its symbol), except `docs`,

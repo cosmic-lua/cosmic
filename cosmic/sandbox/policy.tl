@@ -204,7 +204,7 @@ local function canonical_letters(letters: string): string?
   local out: mut {string} = {}
   for i = 1, #LETTERS do
     local letter = LETTERS:sub(i, i)
-    if seen[letter] then out[#out + 1] = letter end
+    if seen[letter] == true then out[#out + 1] = letter end
   end
   if #out == 0 then return nil end
   return table.concat(out)
@@ -286,7 +286,7 @@ local function invalid(p: rules.Policy, exact: boolean): string
     end
   end
   for i, grant in ipairs(p.grants or {}) do
-    if grant.path == nil or grant.path == "" or grant.path:find("\0", 1, true) then
+    if grant.path == nil or grant.path == "" or grant.path:find("\0", 1, true) ~= nil then
       return at({ "grants", i, "path" }, "a path is not empty and holds no NUL")
     end
     for segment in grant.path:gmatch("[^/]+") do
@@ -303,7 +303,7 @@ local function invalid(p: rules.Policy, exact: boolean): string
           LETTERS .. "\", each letter once: \"" .. canonical .. "\"")
     end
     local from = grant.from
-    if from ~= nil and (from == "" or from:find("\0", 1, true)) then
+    if from ~= nil and (from == "" or from:find("\0", 1, true) ~= nil) then
       return at({ "grants", i, "from" }, "a host path is not empty and holds no NUL")
     end
   end
@@ -340,7 +340,7 @@ local function invalid(p: rules.Policy, exact: boolean): string
       return at({ "set_env_digests", name }, "\"" .. name .. "\" is not a variable's name: not empty, " ..
           "no '=' or NUL")
     end
-    if not digest:match("^%x+$") or #digest ~= 64 or digest:find("%u") then
+    if not digest:match("^%x+$") or #digest ~= 64 or digest:find("%u") ~= nil then
       return at({ "set_env_digests", name }, "a digest is 64 lowercase hex digits")
     end
   end
@@ -360,7 +360,7 @@ local function invalid(p: rules.Policy, exact: boolean): string
   local given = p.database
   if given ~= nil then
     local path = given.path
-    if path == "" or path:find("\0", 1, true) then
+    if path == "" or path:find("\0", 1, true) ~= nil then
       return at({ "database", "path" }, "a path is not empty and holds no NUL")
     end
     if path:sub(1, 1) ~= "/" then
@@ -423,7 +423,7 @@ local function sorted_set<T>(...: {T}): {T}
   local out: mut {T} = {}
   for _, list in ipairs({ ... }) do
     for _, item in ipairs(list) do
-      if not seen[item] then
+      if seen[item] ~= true then
         seen[item] = true
         out[#out + 1] = item
       end
@@ -656,7 +656,7 @@ function rules.merge(...: rules.Policy): rules.Policy?, string
       end
       digests[name] = digest
     end
-    if p.tmp then tmp = true end
+    if p.tmp == true then tmp = true end
     local p_user = p.user
     if p_user ~= nil and user ~= nil and p_user ~= user then
       return refuse(path_of({ "user" }) .. ": given two values, " .. user .. " and " .. p_user)

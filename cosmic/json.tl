@@ -851,7 +851,7 @@ function Json.from_pointer(value: any, text: string): Json.Steps?, string
       if name == "-" then
         return refuse(("no value at %s: `-` names the place past the last element"):format(at_pointer(reached)))
       end
-      if not (name == "0" or name:match("^[1-9]%d*$")) or #name > 15 then
+      if not (name == "0" or name:match("^[1-9]%d*$") ~= nil) or #name > 15 then
         return refuse(("no value at %s: the value at %s is an array, and %s is no index"):
             format(at_pointer(reached), at_pointer(before), Json.quote(name)))
       end
@@ -1056,7 +1056,7 @@ local function bracketed(text: string, at: integer, descendant: boolean): Piece?
     seg.kind, seg.name, i = "name", piece.name, piece.after
   elseif c == "*" then
     seg.kind, i = "wildcard", i + 1
-  elseif c == "-" or c:match("^%d$") then
+  elseif c == "-" or c:match("^%d$") ~= nil then
     local digits = text:match("^%-?%d+", i)
     if digits == nil or not (digits:match("^0$") or digits:match("^%-?[1-9]%d*$")) then
       return query_error(i, "an index is 0, or has no leading zero and is not -0")
@@ -1997,7 +1997,7 @@ local class TokenReader is Json.Reader
       if not (key is string) then return placed(self, column, "a key that is not a string") end
       f.key = key
       if f.seen ~= nil then
-        if f.seen[f.key] then return placed(self, column, "duplicate key") end
+        if f.seen[f.key] == true then return placed(self, column, "duplicate key") end
         f.seen[f.key] = true
       end
       if self.json5 then pass_lines(self, text, start) end
