@@ -284,8 +284,8 @@ local record test_state
     --- made the first time one is: the directory they are written in, the
     --- program's own database written there (`sealing_for`); the reason
     --- there is none, or nil before it is made.
-    sealing: Sealing?
-    sealing_trouble: string?
+    sealing?: Sealing
+    sealing_trouble?: string
     --- The path of the sealed database of each closure store, by its
     --- address (`sealed_for`).
     sealed: mut {string:string}
@@ -298,7 +298,7 @@ local record test_state
     --- The path of the projection's `uses` keyed by source module, made
     --- by the first store this run writes (`extraction_for`); nil
     --- until then.
-    extraction: string?
+    extraction?: string
     basis?: closure_store.Basis
     built: mut {string:string}
     --- The address of the store of no module, which holds what every
@@ -319,7 +319,7 @@ local record test_state
     --- launcher (`seals`).
     core?: string
     --- The digest of the program's modules the tree lacks (`extras_digest`).
-    extras: string?
+    extras?: string
     --- What the shared verdicts keep of each address this run looked up
     --- ("" for none), the closure and kind each address was keyed for, and
     --- the addresses whose bytes it found to differ, said once each.

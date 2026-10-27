@@ -459,11 +459,11 @@ local function test_a_slot_is_accepted_only_where_the_tree_has_text_or_an_attrib
       end
     end
   end
-  assert(#reach.failures == 0, #reach.failures .. " failures:\n" ..
+  assert(#reach.failures == 0, tostring(#reach.failures) .. " failures:\n" ..
       table.concat(reach.failures, "\n", 1, math.min(#reach.failures, 30)))
   local summary: mut {string} = {}
   for key, count_of in pairs(reach.accepted) do
-    summary[#summary + 1] = key .. "=" .. count_of
+    summary[#summary + 1] = key .. "=" .. tostring(count_of)
   end
   table.sort(summary)
   print(("tree: %d cases, %d texts, %d comments, %d values, %d positions; accepted %s"):format(
@@ -474,9 +474,9 @@ local function test_a_slot_is_accepted_only_where_the_tree_has_text_or_an_attrib
   -- 16 in URLs.
   local accepted = reach.accepted
   -- The template's ending is held to: many cases need a closer to compile.
-  assert(reach.closers >= 100, "only " .. reach.closers .. " cases needed a closer")
+  assert(reach.closers >= 100, "only " .. tostring(reach.closers) .. " cases needed a closer")
   assert(reach.cases >= 1400 and reach.texts >= 600 and reach.hidden >= 25 and reach.values >= 65 and
-      reach.positions >= 3500, "only " .. reach.texts .. " texts and " .. reach.values .. " values were reached")
+      reach.positions >= 3500, "only " .. tostring(reach.texts) .. " texts and " .. tostring(reach.values) .. " values were reached")
   assert((accepted["html text"] or 0) >= 1700 and (accepted["html rtext"] or 0) >= 85 and
       (accepted["foreign ftext"] or 0) >= 45 and
       (accepted["html ftext"] or 0) >= 25 and (accepted["value attr"] or 0) >= 95 and

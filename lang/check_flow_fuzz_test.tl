@@ -166,7 +166,7 @@ end
 
 local function fresh(g: Gen, prefix: string): string
   g.id = g.id + 1
-  return prefix .. g.id
+  return prefix .. tostring(g.id)
 end
 
 --- A local of `scope`, biased to those a guard names.
@@ -394,7 +394,7 @@ local function gen_locals(src: Fuzz.Source): string
     "local record State",
     "  mut count: integer",
     "end",
-    "local st: State = { count = " .. src:int(0, 5) .. " }",
+    "local st: State = { count = " .. tostring(src:int(0, 5)) .. " }",
     "local function maybe(): integer?",
     "  st.count = st.count + 1",
     "  if st.count % 3 == 0 then",

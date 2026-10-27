@@ -36,5 +36,5 @@ local function test_a_handler_that_answers_nothing_is_a_500_the_server_declares(
     })
   end, "cosmic/http/server.tl")
   assert(answered.value:find("500", 1, true) ~= nil, answered.value)
-  assert(#found == 0, #found .. " violations:\n" .. table.concat(found, "\n"))
+  assert(#found == 0, tostring(#found) .. " violations:\n" .. table.concat(found, "\n"))
 end

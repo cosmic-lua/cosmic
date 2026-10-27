@@ -70,8 +70,8 @@ local function assert_c_heap(before_bytes: integer, before_blocks: integer, what
   collectgarbage("collect")
   local bytes, blocks = testing.c_heap()
   assert(bytes == before_bytes and blocks == before_blocks,
-    what .. " left " .. (blocks - before_blocks) .. " blocks (" ..
-      (bytes - before_bytes) .. " bytes) on the C heap")
+    what .. " left " .. tostring((blocks - before_blocks)) .. " blocks (" ..
+      tostring((bytes - before_bytes)) .. " bytes) on the C heap")
 end
 
 --- `children` reads its list into a block of the core's C heap, and
@@ -85,6 +85,6 @@ local function test_children_releases_its_block_whenever_an_allocation_fails(tmp
   end)
   assert(ended > 0, "listing the children allocates")
   collectgarbage("collect")
-  assert(next_descriptor(tmp) == before, "a refused allocation left descriptor " .. before .. " open")
+  assert(next_descriptor(tmp) == before, "a refused allocation left descriptor " .. tostring(before) .. " open")
   assert_c_heap(bytes, blocks, "children under refusal")
 end

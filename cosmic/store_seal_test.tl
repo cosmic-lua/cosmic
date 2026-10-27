@@ -327,7 +327,7 @@ local function test_seal_carries_the_checkers_edges(tmp: string)
   local got = assert(Sqlite.text_rows(sealed, query))
   assert(sealed:close())
   assert(#want > 1, "cosmic.time requires nothing")
-  assert(#got == #want, "the sealed database holds " .. #got .. " edges, not " .. #want)
+  assert(#got == #want, "the sealed database holds " .. tostring(#got) .. " edges, not " .. tostring(#want))
   for index, row in ipairs(want) do
     assert(got[index]:text(1) == row:text(1), row:text(1))
   end

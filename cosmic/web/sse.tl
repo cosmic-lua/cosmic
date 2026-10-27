@@ -757,8 +757,10 @@ function State.subscribe(self: State, topics: {string}, opts?: Sse.SubscribeOpti
   local queue: Channel.Queue<Sse.Event> = Channel.new({
     capacity = self.queue_size + #replay, overflow = self.overflow })
   for _, ev in ipairs(replay) do assert(queue:try_send(ev)) end
+  -- `detach` closes over `sub`, which does not exist until its literal is built: the no-op is
+  -- replaced before `sub` is handed out.
   local sub: Sub = { queue = queue, gap = gap, next = Sub.next, close = Sub.close,
-    closed = Sub.closed, dropped = Sub.dropped }
+    closed = Sub.closed, dropped = Sub.dropped, detach = function() end }
   local attachment = { attached = true }
   sub.detach = function()
     if not attachment.attached then return end

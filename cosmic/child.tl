@@ -102,10 +102,10 @@ end
 
 local record Result
   --- The child's exit status, or nil when a signal ended it.
-  mut code: integer?
+  mut code?: integer
   --- The number of the signal that ended the child, or nil when it
   --- exited by itself.
-  mut signal: integer?
+  mut signal?: integer
   --- Whether the child exited with status 0 and was not ended for
   --- running past its timeout.
   ok: boolean
@@ -113,9 +113,9 @@ local record Result
   --- [`Options.timeout_ns`], or [`Handle.wait`]'s -- and was ended for it.
   timed_out: boolean
   --- Captured stdout, when stdout was "capture".
-  mut stdout: string?
+  mut stdout?: string
   --- Captured stderr, when stderr was "capture".
-  mut stderr: string?
+  mut stderr?: string
   --- Every captured stream by the child's descriptor number, stdout and
   --- stderr included.
   captured: mut {integer:string}
@@ -608,9 +608,9 @@ local record DrainOptions
   --- Required positive total byte budget across both outputs.
   max_bytes: integer
   --- Required exactly when stdout was started as "stream"; never closed here.
-  stdout: Stream.Writer?
+  stdout?: Stream.Writer
   --- Required exactly when stderr was started as "stream"; never closed here.
-  stderr: Stream.Writer?
+  stderr?: Stream.Writer
 end
 
 --- Why a bounded output drain stopped.
@@ -789,7 +789,7 @@ local reaped: mut {integer:raw_process.ChildStatus} = {}
 local record Reaping
   --- Whether this process adopts orphaned descendants: nil until the
   --- first grouped start asks.
-  mut adopting: boolean?
+  mut adopting?: boolean
 end
 
 local reaping: Reaping = {}
@@ -1103,14 +1103,14 @@ end
 --- What a shielded [`Poll.delay`] answered, which a shield hands back to
 --- [`pump`] in a table.
 local record Delayed
-  mut paused: boolean?
-  mut cancelled: string?
+  mut paused?: boolean
+  mut cancelled?: string
 end
 
 --- What a shielded [`Poll.ready`] answered, as [`Delayed`] does.
 local record Readied
-  mut answers: {integer}?
-  mut why: string?
+  mut answers?: {integer}
+  mut why?: string
 end
 
 --- Services `entries` once: waits up to `timeout_ns` (-1 for no limit)
@@ -1570,7 +1570,7 @@ local class FeedWriter is Stream.Writer
 end
 
 local function feed_writer(self: Handle, fd: integer): Stream.Writer
-  local w: FeedWriter = { child = self, fd = fd, closed = false }
+  local w: FeedWriter = { child = self, fd = fd, closed = false, into = nil }
   -- A closure, for [`Stream.FdOptions.wait`] is called with no Writer.
   local function room(_fd: integer, _events: integer, _left: integer?): boolean, string
     local why = interrupted(self)
@@ -2064,8 +2064,8 @@ local record Wiring
   child_ends: mut {integer}
   ours: mut {integer}
   streams: mut {Pipe}
-  mut input_fd: integer?
-  mut feed_fd: integer?
+  mut input_fd?: integer
+  mut feed_fd?: integer
 end
 
 local function unwire(wiring: Wiring, keep_ours: boolean)

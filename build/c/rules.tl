@@ -670,7 +670,7 @@ local function expression(ctx: Context, node: Node, state: State)
           if not state.reported[id] then
             state.reported[id] = true
             report(ctx, n, "held-across-raise", "holds " .. h.name .. " (from " .. h.from ..
-                " on line " .. h.line .. ") across " .. (name or "a call") ..
+                " on line " .. tostring(h.line) .. ") across " .. (name or "a call") ..
                 ", which can raise and would leak it: hold it in a guard (core/guard.h), " ..
                 "or acquire it after everything that allocates")
           end
@@ -732,8 +732,8 @@ end
 --- What a condition says is absent: the local on its true side and the
 --- one on its false side; a side it says nothing of is nil.
 local record Absent
-  yes: string?
-  no: string?
+  yes?: string
+  no?: string
 end
 
 --- The locals a condition says are absent on each side.
@@ -1105,7 +1105,7 @@ local function returned_constant(ctx: Context, fn: Function)
     same = same or v
   end
   if all_same and same ~= nil then
-    report(ctx, fn.decl, "constant-return", fn.name .. " returns " .. same ..
+    report(ctx, fn.decl, "constant-return", fn.name .. " returns " .. tostring(same) ..
         " on every path, which tells its caller nothing: return void")
   elseif fn.prototype ~= nil and fn.type:match("^int %(") and ctx.truthful[fn.name] then
     report(ctx, fn.decl, "pass-fail-int", fn.name .. " returns only 0, 1 or a truth, " ..
@@ -1286,7 +1286,7 @@ local function checked_positions(fn: Function, bound: {integer: integer},
             local v = value(argument)
             if v ~= nil then
               passed[i] = v
-              key[#key + 1] = i .. "=" .. v
+              key[#key + 1] = tostring(i) .. "=" .. tostring(v)
             end
           end
           local visit = table.concat(key, " ")

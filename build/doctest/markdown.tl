@@ -157,7 +157,7 @@ function markdown.parse_blocks(source: string): {Block}?, string
       lines[i]:match("^<!%-%-%s*policy:%s*(.-)%s*%-%->%s*$") or nil
     if fence == nil and (lines[i]:match("^<!%-%-%s*inputs:") ~= nil or
         lines[i]:match("^<!%-%-%s*needs:") ~= nil) then
-      return nil, "line " .. i .. ": a doc declares what its examples read with " ..
+      return nil, "line " .. tostring(i) .. ": a doc declares what its examples read with " ..
         "<!-- policy: ... --> now"
     elseif declared ~= nil then
       blocks[#blocks + 1] = {
@@ -169,7 +169,7 @@ function markdown.parse_blocks(source: string): {Block}?, string
       i = i + 1
     elseif fence == nil then
       if looks_like_an_indented_fence(lines[i]) then
-        return nil, "line " .. i .. ": this line looks like a fenced code " ..
+        return nil, "line " .. tostring(i) .. ": this line looks like a fenced code " ..
           "block opener but is indented; indented fences are not " ..
           "supported here -- start it at column 1"
       end
@@ -188,12 +188,12 @@ function markdown.parse_blocks(source: string): {Block}?, string
         j = j + 1
       end
       if not closed then
-        return nil, "line " .. open_line .. ": a fenced code block never closes"
+        return nil, "line " .. tostring(open_line) .. ": a fenced code block never closes"
       end
       local trimmed = String.trim(fence.info)
       local tag, tag_trouble = parse_tag(trimmed)
       if tag == nil then
-        return nil, "line " .. open_line .. ": " .. tag_trouble
+        return nil, "line " .. tostring(open_line) .. ": " .. tag_trouble
       end
       blocks[#blocks + 1] = {
         lang = tag.lang,

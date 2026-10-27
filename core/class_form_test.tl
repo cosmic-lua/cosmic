@@ -117,5 +117,5 @@ local function test_the_form_needs_a_constructor_before_the_at_and_a_class_after
       refused = refused + 1
     end
   end
-  assert(refused == #bad, "a form was taken: " .. (#bad - refused))
+  assert(refused == #bad, "a form was taken: " .. tostring((#bad - refused)))
 end

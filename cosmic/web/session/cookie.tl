@@ -74,52 +74,49 @@ function SessionCookie.store(opts: SessionCookie.Options): Session.Store
     return Hash.hmac("sha256", key, context .. "\0" .. cookie .. "\0" .. payload)
   end
 
-  local store: Session.Store = { revocable = false }
-
-  store.load = function(_: Session.Store, token: string, now: integer, cookie: string): Session.Data?, string
-    if #token > max_bytes then return nil, "" end
-    local payload, sent = token:match("^([^.]+)%.([^.]+)$")
-    if payload == nil then return nil, "" end
-    local given, _ = Codec.unbase64url(sent)
-    if given == nil then return nil, "" end
-    local verified: integer? = nil
-    for i, key in ipairs(keys) do
-      -- Every key is tried, so the time taken does not say which matched.
-      if Hash.equal(mac(key, cookie, payload), given) and verified == nil then verified = i end
-    end
-    if verified == nil then return nil, "" end
-    local bytes, _ = Codec.unbase64url(payload)
-    if bytes == nil then return nil, "" end
-    local body, _ = Json.decode(bytes, { max_depth = DEPTH })
-    if not body is {string:any} then return nil, "" end
-    local created, expires, values = body.c, body.e, body.d
-    if body.v ~= VERSION or not created is integer or not expires is integer or
-        not values is {string:any} then
-      return nil, ""
-    end
-    if expires <= now then return nil, "" end
-    return { values = values, created = created, expires = expires, stale = verified > 1 }, ""
-  end
-
-  store.save = function(_: Session.Store, _previous: string, data: Session.Data,
-                        _changes: Session.Changes, _now: integer, cookie: string): string?, string
-    local values: {string:any} = data.values
-    local text, why = Json.encode_any({ v = VERSION, c = data.created, e = data.expires, d = values },
-      { max_depth = DEPTH })
-    if text == nil then return nil, "cannot encode the session: " .. why end
-    local payload = Codec.base64url(text)
-    local token = payload .. "." .. Codec.base64url(mac(keys[1], cookie, payload))
-    if #token > max_bytes then
-      return nil, ("cookie would be %s (limit %d); keep ids, not objects, in the session or use the SQLite store"):
-        format(String.counted(#token, "byte"), max_bytes)
-    end
-    return token, ""
-  end
-
-  store.destroy = function(_: Session.Store, _token: string): boolean, string
-    return true, ""
-  end
-
+  local store: Session.Store = { revocable = false,
+    load = function(_: Session.Store, token: string, now: integer, cookie: string): Session.Data?, string
+      if #token > max_bytes then return nil, "" end
+      local payload, sent = token:match("^([^.]+)%.([^.]+)$")
+      if payload == nil then return nil, "" end
+      local given, _ = Codec.unbase64url(sent)
+      if given == nil then return nil, "" end
+      local verified: integer? = nil
+      for i, key in ipairs(keys) do
+        -- Every key is tried, so the time taken does not say which matched.
+        if Hash.equal(mac(key, cookie, payload), given) and verified == nil then verified = i end
+      end
+      if verified == nil then return nil, "" end
+      local bytes, _ = Codec.unbase64url(payload)
+      if bytes == nil then return nil, "" end
+      local body, _ = Json.decode(bytes, { max_depth = DEPTH })
+      if not body is {string:any} then return nil, "" end
+      local created, expires, values = body.c, body.e, body.d
+      if body.v ~= VERSION or not created is integer or not expires is integer or
+          not values is {string:any} then
+        return nil, ""
+      end
+      if expires <= now then return nil, "" end
+      return { values = values, created = created, expires = expires, stale = verified > 1 }, ""
+    end,
+    save = function(_: Session.Store, _previous: string, data: Session.Data,
+                    _changes: Session.Changes, _now: integer, cookie: string): string?, string
+      local values: {string:any} = data.values
+      local text, why = Json.encode_any({ v = VERSION, c = data.created, e = data.expires, d = values },
+        { max_depth = DEPTH })
+      if text == nil then return nil, "cannot encode the session: " .. why end
+      local payload = Codec.base64url(text)
+      local token = payload .. "." .. Codec.base64url(mac(keys[1], cookie, payload))
+      if #token > max_bytes then
+        return nil, ("cookie would be %s (limit %d); keep ids, not objects, in the session or use the SQLite store"):
+          format(String.counted(#token, "byte"), max_bytes)
+      end
+      return token, ""
+    end,
+    destroy = function(_: Session.Store, _token: string): boolean, string
+      return true, ""
+    end,
+  }
   return store
 end
 

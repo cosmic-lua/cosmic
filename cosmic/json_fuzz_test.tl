@@ -457,7 +457,7 @@ local COLLIDING <const>: {string} = (function(): {string}
   local keys: mut {string} = {}
   local n = 0
   while #keys < 20 do
-    local key = "h" .. n
+    local key = "h" .. tostring(n)
     if fnv(key) & 127 == 0 then keys[#keys + 1] = key end
     n = n + 1
   end
@@ -575,7 +575,7 @@ local function gen_object(src: Fuzz.Source, b: Built, depth: integer, path: stri
       elseif fresh <= #NAMES then
         key = NAMES[fresh]
       else
-        key = "k" .. #names
+        key = "k" .. tostring(#names)
       end
       names[#names + 1] = key
     end
@@ -609,7 +609,7 @@ gen_member_value = function(src: Fuzz.Source, b: Built, depth: integer, path: st
     while Fuzz.more(src, n, 3) do
       if n > 0 then emit(b, ",") end
       gap(src, b, false)
-      gen_member_value(src, b, depth + 1, path .. "/" .. n, 1)
+      gen_member_value(src, b, depth + 1, path .. "/" .. tostring(n), 1)
       gap(src, b, false)
       n = n + 1
     end
@@ -1079,7 +1079,9 @@ local function test_json_lines_are_total_and_round_trip(tmp: string)
       local written: mut {string} = {}
       for i = 1, #values do
         local line, eerr = Json.encode_any(finite(values[i]))
-        if line == nil then return false, "decoded line " .. i .. " did not encode: " .. eerr end
+        if line == nil then
+          return false, "decoded line " .. tostring(i) .. " did not encode: " .. eerr
+        end
         written[i] = line .. "\n"
       end
       local text = table.concat(written)

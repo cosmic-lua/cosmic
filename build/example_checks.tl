@@ -172,7 +172,7 @@ local function guide(text: string, file: string, options: Pipeline.Options): {st
     if entry.companions then
       source = 'local tmp: string = ""\nlocal _ = tmp\n' .. source
     end
-    local where = file .. ":" .. entry.line .. ": example"
+    local where = file .. ":" .. tostring(entry.line) .. ": example"
     for _, line in ipairs(problems(options, where, source .. "\n")) do
       out[#out + 1] = line
     end

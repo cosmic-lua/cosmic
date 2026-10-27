@@ -459,7 +459,7 @@ function Router.lookup(router: Types.Router, method: string, segments: {string},
     if mount_router ~= nil then
       return Router.lookup(mount_router, method, segments, trailing, hit.at)
     end
-    return { kind = "match", route = mount.info, params = {}, handler = mount.handler,
+    return { kind = "match", route = mount.info, params = {}, handler = assert(mount.handler),
       mount_path = mount.prefix }
   end
   local methods = assert(hit.methods)

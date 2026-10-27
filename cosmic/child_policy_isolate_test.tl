@@ -129,7 +129,7 @@ local function test_isolate_file_gives_a_root_of_only_what_is_granted(tmp: strin
   local policy: Sandbox.Policy = { isolate = { "file" }, grants = at.grants }
   local read = under(at.probe, policy, at.work, "cat ro/a")
   if read == nil then return end
-  assert(read.code == 0 and read.said == "alpha\n", read.code .. ": " .. read.said)
+  assert(read.code == 0 and read.said == "alpha\n", tostring(read.code) .. ": " .. read.said)
   -- What is not granted is not there: not refused, absent.
   local other = under(at.probe, policy, at.work, "cat " .. tmp .. "/other/b")
   assert(other.code == 1 and other.said:find("No such file or directory", 1, true), other.said)
@@ -205,7 +205,7 @@ local function test_a_grant_with_from_appears_at_its_name_and_the_host_path_does
     grants = with(at.grants, { path = "/data", letters = "r", from = tmp .. "/hostdata" }) }
   local read = under(at.probe, policy, at.work, "cat /data/c")
   if read == nil then return end
-  assert(read.code == 0 and read.said == "gamma\n", read.code .. ": " .. read.said)
+  assert(read.code == 0 and read.said == "gamma\n", tostring(read.code) .. ": " .. read.said)
   local host = under(at.probe, policy, at.work, "cat " .. tmp .. "/hostdata/c")
   assert(host.code == 1 and host.said:find("No such file or directory", 1, true), host.said)
   -- The mount point is the sandbox's own: the host has no /data made.
@@ -336,7 +336,7 @@ local function test_loopback_gives_a_network_of_its_own_the_host_does_not_share(
   end
   assert(inside.code == 0 and inside.said == "connected\n", inside.said)
   -- ... and cannot reach the host's, whose port it names.
-  local across = under(at.probe, policy, at.work, "connect-tcp 127.0.0.1 " .. port)
+  local across = under(at.probe, policy, at.work, "connect-tcp 127.0.0.1 " .. tostring(port))
   assert(across.said ~= "connected\n" and across.said:find("refused", 1, true), across.said)
   assert(host:close())
   -- With isolate file as well.

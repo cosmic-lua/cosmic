@@ -18,12 +18,12 @@ local record bare
     --- Write a backslash as `\\`, and tab, newline and return as `\t`,
     --- `\n` and `\r`, so the escaped text can be read back; any other
     --- control byte is `\xHH` either way. Overrides `keep_tab_newline`.
-    named: boolean?
+    named?: boolean
     --- Leave a tab and a newline as they are, escaping every other
     --- control byte (a header line, whose lines the caller joins with
     --- newlines, keeps its tabs). `fetch` uses it, so a carriage return
     --- is what it escapes.
-    keep_tab_newline: boolean?
+    keep_tab_newline?: boolean
   end
 
   --- The exit code of a run that did what was asked.
