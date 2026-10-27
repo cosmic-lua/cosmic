@@ -15,6 +15,9 @@
 ---
 --- A parameter is left out where its type says nothing of its value (`any`, a type variable), and so are the variadic
 --- one and `self`; a function with none left has no statement.
+-- TODO: check the parameters of a function literal that takes its types from where it is passed, and the class a table
+-- parameter is an instance of ([`Boundaries.Kinds.classes`]), once a report of either is shown to hold no row a test planted:
+-- only the parameters a program types are checked, and only by the kinds of Lua value their types admit.
 local Boundaries = require("lang.boundaries")
 local Check = require("lang.check")
 
