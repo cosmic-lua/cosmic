@@ -29,9 +29,9 @@ local FORMS <const>: {string: function(n: integer): string} = {
     local out: mut {string} = {}
     local members: mut {string} = {}
     for i = 1, n * 20 do
-      out[#out + 1] = "local enum K" .. i .. " \"k" .. i .. "\" end\nlocal record R" .. i .. "\n  kind: K" .. i ..
+      out[#out + 1] = "local enum K" .. tostring(i) .. " \"k" .. tostring(i) .. "\" end\nlocal record R" .. tostring(i) .. "\n  kind: K" .. tostring(i) ..
         "\n  value: integer\nend\n"
-      members[i] = "R" .. i
+      members[i] = "R" .. tostring(i)
     end
     out[#out + 1] = "local type Any = " .. table.concat(members, " | ") .. "\n"
     return table.concat(out)
@@ -40,13 +40,13 @@ local FORMS <const>: {string: function(n: integer): string} = {
     local out: mut {string} = {}
     local parents: mut {string} = {}
     for i = 1, n * 20 do
-      out[#out + 1] = "local interface I" .. i .. "\n  f" .. i .. ": integer\nend\n"
-      parents[i] = "I" .. i
+      out[#out + 1] = "local interface I" .. tostring(i) .. "\n  f" .. tostring(i) .. ": integer\nend\n"
+      parents[i] = "I" .. tostring(i)
     end
     out[#out + 1] = "local interface Wide is " .. table.concat(parents, ", ") .. "\nend\n"
     out[#out + 1] = "local record R is Wide\n"
     for i = 1, n * 20 do
-      out[#out + 1] = "  f" .. i .. ": integer\n"
+      out[#out + 1] = "  f" .. tostring(i) .. ": integer\n"
     end
     out[#out + 1] = "end\n"
     return table.concat(out)
@@ -54,7 +54,7 @@ local FORMS <const>: {string: function(n: integer): string} = {
   ["a record of many fields"] = function(n: integer): string
     local out: mut {string} = { "local record R\n" }
     for i = 1, n * 50 do
-      out[#out + 1] = "  f" .. i .. ": {string: integer}\n"
+      out[#out + 1] = "  f" .. tostring(i) .. ": {string: integer}\n"
     end
     out[#out + 1] = "end\n"
     return table.concat(out)
@@ -62,7 +62,7 @@ local FORMS <const>: {string: function(n: integer): string} = {
   ["aliases that name each other"] = function(n: integer): string
     local out: mut {string} = { "local type A0 = integer\n" }
     for i = 1, n * 20 do
-      out[#out + 1] = "local type A" .. i .. " = {A" .. (i - 1) .. "}\n"
+      out[#out + 1] = "local type A" .. tostring(i) .. " = {A" .. tostring((i - 1)) .. "}\n"
     end
     return table.concat(out)
   end,

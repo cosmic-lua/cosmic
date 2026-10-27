@@ -78,7 +78,7 @@ local FORMS <const>: {string: function(n: integer): string} = {
   ["a block of locals"] = function(n: integer): string
     local out: mut {string} = {}
     for i = 1, n * 50 do
-      out[i] = "local v" .. i .. " = " .. (if i > 1 then "v" .. (i - 1) else "1" end) .. "\n"
+      out[i] = "local v" .. tostring(i) .. " = " .. (if i > 1 then "v" .. tostring((i - 1)) else "1" end) .. "\n"
     end
     return table.concat(out)
   end,

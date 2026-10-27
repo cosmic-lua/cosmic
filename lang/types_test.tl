@@ -791,7 +791,7 @@ local function test_a_chain_of_declarations_far_longer_than_the_limit_is_refused
       return nil
     end
     return '(decl record "' .. module .. '" "' .. name .. '" (tparams) (supers) (fields (field "next" (ref "' ..
-      module .. '" "R' .. n + 1 .. '"))) (elements) (methods) (values))'
+      module .. '" "R' .. tostring(n + 1) .. '"))) (elements) (methods) (values))'
   end)
   local t, why = s:decode('(ref "m" "R1")')
   assert(t == nil and why:find("types:", 1, true) == 1 and why:find("deeper", 1, true) ~= nil, why)
@@ -1149,7 +1149,7 @@ local function test_a_type_nested_past_the_depth_limit_is_refused_and_the_limit_
   local ok, why = pcall(function()
     local _ = store:array(t)
   end)
-  assert(not ok and tostring(why):find("nested deeper than " .. Types.max_depth, 1, true) ~= nil, tostring(why))
+  assert(not ok and tostring(why):find("nested deeper than " .. tostring(Types.max_depth), 1, true) ~= nil, tostring(why))
 end
 
 local function test_the_parts_of_a_type_are_the_types_its_text_holds()

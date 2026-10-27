@@ -46,7 +46,7 @@ local function test_a_program_of_the_grammar_parses_with_no_error_and_the_same_t
       local first = parse(input, "tl")
       local e = first.errors[1]
       if e ~= nil then
-        return false, e.code .. " at " .. e.y .. ":" .. e.x .. ": " .. e.msg
+        return false, e.code .. " at " .. tostring(e.y) .. ":" .. tostring(e.x) .. ": " .. e.msg
       end
       local ok, why = Cover.check(input, first)
       if not ok then
@@ -61,7 +61,7 @@ local function test_a_program_of_the_grammar_parses_with_no_error_and_the_same_t
         local alone = parse(input:sub(Lexer.offset(tokens, from), Lexer.stop(tokens, to) - 1), "tl")
         local one = alone.chunk.body.stats[1]
         if #alone.errors > 0 or #alone.chunk.body.stats ~= 1 or one == nil or Dump.dump(one) ~= Dump.dump(stat) then
-          return false, "the statement at " .. tokens.y[from] .. ":" .. Lexer.x(tokens, from) .. " differs when parsed alone"
+          return false, "the statement at " .. tokens.y[from] .. ":" .. tostring(Lexer.x(tokens, from)) .. " differs when parsed alone"
         end
       end
       local second = parse("local z = 1", "tl")
@@ -125,6 +125,6 @@ local function test_a_source_cut_at_any_token_still_parses_to_a_tree_over_its_to
   for cut = 1, Lexer.count(tokens) do
     local piece = source:sub(1, Lexer.stop(tokens, cut) - 1)
     local ok, why = holds(piece, "tl")
-    assert(ok, "cut at token " .. cut .. ": " .. why)
+    assert(ok, "cut at token " .. tostring(cut) .. ": " .. why)
   end
 end

@@ -284,7 +284,7 @@ local function flags_wrong(t: Types.Type, seen: mut {integer: boolean}): string
   local open, changes = flags(t)
   if open ~= t.open or changes ~= t.has_mut then
     return Types.display(t) .. " has open " .. tostring(t.open) .. " and has_mut " .. tostring(t.has_mut) ..
-      ", worked out " .. open .. " and " .. tostring(changes)
+      ", worked out " .. tostring(open) .. " and " .. tostring(changes)
   end
   return ""
 end
@@ -306,7 +306,7 @@ local function test_making_a_type_again_finds_it_and_adds_none(tmp: string)
         return false, "made again, " .. Types.display(first) .. " is another type"
       end
       if w.store:size() ~= size then
-        return false, "made again, " .. Types.display(first) .. " added " .. w.store:size() - size .. " types"
+        return false, "made again, " .. Types.display(first) .. " added " .. tostring(w.store:size() - size) .. " types"
       end
       local why = not_normal(first, {})
       if why ~= "" then
@@ -569,7 +569,7 @@ local function test_text_with_a_few_bytes_changed_decodes_to_a_type_in_normal_fo
           return false, "the refusal does not say whose it is: " .. why
         end
         if fresh:size() ~= size or #fresh:declarations() ~= declared then
-          return false, "a refusal left " .. fresh:size() - size .. " types and " .. #fresh:declarations() - declared ..
+          return false, "a refusal left " .. tostring(fresh:size() - size) .. " types and " .. tostring(#fresh:declarations() - declared) ..
             " declarations: " .. why
         end
         Fuzz.label("refused")

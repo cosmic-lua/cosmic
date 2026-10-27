@@ -17,7 +17,7 @@ Test.policy{}
 local function populate(store: Types.Store, n: integer): {Types.Type}
   local out: mut {Types.Type} = {}
   for i = 1, n do
-    out[i] = store:named(store:declare("record", "m", { "R" .. i }))
+    out[i] = store:named(store:declare("record", "m", { "R" .. tostring(i) }))
   end
   return out
 end
@@ -26,7 +26,7 @@ end
 local function listing(store: Types.Store, n: integer): Types.Type, {Types.Type}
   local interfaces: mut {Types.Type} = {}
   for i = 1, n do
-    local decl = store:declare("interface", "m", { "I" .. i }, 0)
+    local decl = store:declare("interface", "m", { "I" .. tostring(i) }, 0)
     store:define(decl, { tparams = {}, supers = {}, fields = {}, methods = {}, values = {} })
     interfaces[i] = store:named(decl)
   end
@@ -47,7 +47,7 @@ local function chain_of(n: integer): Chain
   local previous: Types.Type?
   local first: Types.Type?
   for i = 1, n do
-    local decl = store:declare("interface", "m", { "E" .. i }, 0)
+    local decl = store:declare("interface", "m", { "E" .. tostring(i) }, 0)
     local supers: mut {Types.Type} = {}
     if previous ~= nil then
       supers[1] = previous
@@ -82,7 +82,7 @@ local function test_a_pair_that_is_settled_costs_no_more_than_its_lookup()
   end)
   settle()
   local again = Speed.least(settle)
-  assert(again <= first, "asking again took " .. again // 1000 .. " us against " .. first // 1000 .. " us")
+  assert(again <= first, "asking again took " .. tostring(again // 1000) .. " us against " .. tostring(first // 1000) .. " us")
 end
 
 --- Forms that a relation could make slower than their length, each as a function of how many.
