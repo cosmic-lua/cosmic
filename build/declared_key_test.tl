@@ -1297,3 +1297,49 @@ local function test_a_file_rewritten_since_an_earlier_run_is_read_once(tmp: stri
   end
   assert(digests.read == 1, "read " .. tostring(digests.read) .. " times")
 end
+
+--- The rest of the host's identity (`host_split`) moves with everything
+--- of it but its features: the kernel's release and version and the
+--- processor's features move the identity and not the rest, while the
+--- user, the sandbox's /proc and what the host says of itself move both.
+--- A gathering run takes the verdicts of a host of another features by
+--- this (build/shared_verdicts.tl's `hosts_like`).
+local function test_the_rest_of_a_hosts_identity_leaves_out_its_features(tmp: string)
+  local function write(name: string, text: string): string
+    assert(Fs.write(tmp .. "/" .. name, text))
+    return tmp .. "/" .. name
+  end
+  local release = write("release", "r1")
+  local version = write("version", "v1")
+  local status = write("status", "Name: x\nCapEff: 0\nUid: 1 1 1 1\n")
+  local packages = write("packages", "p1")
+  local os_release = write("os", "o1")
+  local function split(cpu: {string}, host_id: string, own_proc: boolean, uid: integer): declared_key.Split
+    return declared_key.host_split(declared_key.digests(tmp), {
+      packages = { packages }, system = { os_release, release, version },
+      cpu_features = cpu, machine = "x86_64", status = status,
+      own_proc = own_proc, host_id = host_id, uid = uid,
+    })
+  end
+  local function start(): declared_key.Split return split({ "aes", "pclmulqdq" }, "h1", true, 1) end
+  local first = start()
+  assert(first.identity == declared_key.host_identity(declared_key.digests(tmp), {
+    packages = { packages }, system = { os_release, release, version },
+    cpu_features = { "aes", "pclmulqdq" }, machine = "x86_64", status = status,
+    own_proc = true, host_id = "h1", uid = 1,
+  }), "host_identity is the split's identity")
+  assert(first.rest ~= first.identity)
+  assert(Fs.write(release, "r2"))
+  local kernel = start()
+  assert(kernel.identity ~= first.identity and kernel.rest == first.rest, "a kernel's release")
+  assert(Fs.write(version, "v2"))
+  assert(start().rest == first.rest, "a kernel's version")
+  local features = split({ "aes", "ssse3" }, "h1", true, 1)
+  assert(features.identity ~= kernel.identity and features.rest == first.rest, "a feature")
+  assert(Fs.write(release, "r1"))
+  assert(Fs.write(version, "v1"))
+  assert(start().identity == first.identity, "put back")
+  assert(split({ "aes", "pclmulqdq" }, "h2", true, 1).rest ~= first.rest, "what the host says of itself")
+  assert(split({ "aes", "pclmulqdq" }, "h1", false, 1).rest ~= first.rest, "a /proc of the sandbox's own")
+  assert(split({ "aes", "pclmulqdq" }, "h1", true, 2).rest ~= first.rest, "the user")
+end

@@ -290,6 +290,12 @@ local record declared_key
   --- a path, but `sysname`, `machine`, `own_proc`, whether a sandbox gets
   --- a /proc of its own, `host_id`, the value of `host_variable`,
   --- `system_id`, the value of `system_variable`, and the ids.
+  --- A host's identity and the digest of the rest of it but its features
+  --- ([`host_split`]).
+  record Split
+    identity: string
+    rest: string
+  end
   record HostSources
     packages?: {string}
     --- The system the host says it is, then its kernel's release and
@@ -829,7 +835,9 @@ function declared_key.compute(digests: declared_key.Digests,
   local started = monotonic_ns()
   -- All but the test's name is its module's, and the same for each of
   -- its tests: digested once, while a snapshot holds.
-  local inputs = once(digests, "m\0" .. spec.group, function(): string
+  -- Per host too: a lookup under another host's key (build/test_key.tl's
+  -- `lookup`) asks for the same module's inputs under it.
+  local inputs = once(digests, "m\0" .. spec.group .. "\0" .. spec.host, function(): string
     return inputs_of(digests, spec)
   end)
   digests.spent_ns = digests.spent_ns + (monotonic_ns() - started)
@@ -1090,6 +1098,98 @@ local host_variable <const> = "COSMIC_HOST_ID"
 --- only a module given the system's paths is keyed by it.
 local system_variable <const> = "COSMIC_SYSTEM_ID"
 
+--- [`host_identity`] and, beside it, the digest of every line of it
+--- but the features ([`host_features`]: the kernel's release and
+--- version, and the processor's features a core dispatches on), in
+--- order. Two hosts of one rest differ in those features alone, which
+--- is what a CI gathering run asks of the hosts whose verdicts it takes
+--- (build/shared_verdicts.tl's `hosts_like`).
+function declared_key.host_split(digests: declared_key.Digests,
+                                 sources?: declared_key.HostSources): declared_key.Split
+  local started = monotonic_ns()
+  local from: declared_key.HostSources = sources or {}
+  local lines: mut {string} = {}
+  -- Whether each line is one of the features ([`host_features`]) alone.
+  local featured: mut {integer:boolean} = {}
+  local system = system_of(from)
+  for i = 2, 3 do
+    -- None ("", macOS's version) is read as nothing, not as the
+    -- working directory "" would open.
+    if system[i] ~= "" then
+      local text, _ = Fs.read(system[i] or "")
+      lines[#lines + 1] = tostring(system[i]) .. " " .. (text or "missing")
+      featured[#lines] = true
+    end
+  end
+  local names, _ = sys.uname()
+  if names ~= nil then lines[#lines + 1] = "uname " .. names.sysname .. " " .. names.machine end
+  -- Each distinct feature once, sorted. Only those the code a test
+  -- runs chooses code by (`dispatched`), which an audit of the vendored
+  -- C and the disassembled cores found:
+  -- mbedtls's aesni.c (`aes`, `pclmulqdq`) and aesce.c (`asimd`, `aes`,
+  -- `pmull`); xz's crc_x86_clmul.h (`pclmulqdq`, `ssse3`, `sse4_1`) and
+  -- crc32_arm64.h (`crc32`). No Linux core links a libm that
+  -- dispatches: every one, the checked core too, is static musl, and
+  -- the libm zig and musl carry chooses no code by the processor. (A
+  -- glibc host's libm would choose the variants of pow, asin, acos and
+  -- atan2 by `fma`, `avx2` and `fma4`; no verdict of such a core could
+  -- stand for another, since every key holds the core's digest
+  -- (`runtime`).) Nothing else the core carries dispatches, nor does
+  -- its build, so the processor's model and microcode, which choose no
+  -- code, are not keyed either. The whole list would split GitHub's
+  -- hosted runners of one leg on flags nothing reads (avx512*, a
+  -- hypervisor's bits, md_clear), and each split is a verdict not
+  -- shared. A vendored library that comes to dispatch on another
+  -- feature adds it to `dispatched`, to what [`sys.cpu_features`]
+  -- answers (core/syscalls.c) and to ci/cosmic_ci/host_id.tl
+  -- alike.
+  lines[#lines + 1] = "cpu " .. table.concat(features(from.cpu_features, from.machine), " ")
+  featured[#lines] = true
+  lines[#lines + 1] = "uid " .. tostring(from.uid or sys.getuid())
+  local status, _ = Fs.read(from.status or "/proc/self/status")
+  for line in (status or ""):gmatch("[^\n]+") do
+    local name = line:match("^(%a+):")
+    if name == "Uid" or name == "Gid" or name == "Groups" or (name ~= nil and
+        name:sub(1, 3) == "Cap") or name == "NoNewPrivs" or name == "Seccomp" then
+      lines[#lines + 1] = line
+    end
+  end
+  if status == nil then
+    -- No /proc/self/status (macOS): the bindings answer its Gid and
+    -- Groups, each group once, sorted, since the system lists them in
+    -- an order of its own. A list that cannot be read keys apart from
+    -- every one that can.
+    local groups: {integer} = from.groups
+    local trouble: string?
+    if groups == nil then groups, trouble = sys.getgroups() end
+    lines[#lines + 1] = "gid " .. tostring(from.gid or sys.getgid())
+    if groups == nil then
+      lines[#lines + 1] = "groups unread: " .. tostring(trouble)
+    else
+      local seen: mut {integer:boolean} = {}
+      local sorted: mut {integer} = {}
+      for _, group in ipairs(groups) do
+        if not seen[group] then seen[group], sorted[#sorted + 1] = true, group end
+      end
+      table.sort(sorted)
+      local named: mut {string} = {}
+      for i, group in ipairs(sorted) do named[i] = tostring(group) end
+      lines[#lines + 1] = "groups " .. table.concat(named, " ")
+    end
+  end
+  local own = from.own_proc
+  if own == nil then own = confine.own_proc_given() end
+  lines[#lines + 1] = "own proc " .. tostring(own)
+  local host_id = from.host_id or sys.getenv(host_variable) or ""
+  lines[#lines + 1] = "host " .. host_id
+  local rest: mut {string} = {}
+  for i, line in ipairs(lines) do
+    if featured[i] ~= true then rest[#rest + 1] = line end
+  end
+  digests.spent_ns = digests.spent_ns + (monotonic_ns() - started)
+  return { identity = hex_sha256(table.concat(lines, "\n")), rest = hex_sha256(table.concat(rest, "\n")) }
+end
+
 --- What of this host every sandboxed worker runs on, whatever its
 --- module declares, as every key holds it -- each part because it
 --- decides what the core does, or what a sandbox lets a worker do:
@@ -1138,80 +1238,7 @@ local system_variable <const> = "COSMIC_SYSTEM_ID"
 -- every verdict, though almost none turns on it.
 function declared_key.host_identity(digests: declared_key.Digests,
                                     sources?: declared_key.HostSources): string
-  local started = monotonic_ns()
-  local from: declared_key.HostSources = sources or {}
-  local lines: mut {string} = {}
-  local system = system_of(from)
-  for i = 2, 3 do
-    -- None ("", macOS's version) is read as nothing, not as the
-    -- working directory "" would open.
-    if system[i] ~= "" then
-      local text, _ = Fs.read(system[i] or "")
-      lines[#lines + 1] = tostring(system[i]) .. " " .. (text or "missing")
-    end
-  end
-  local names, _ = sys.uname()
-  if names ~= nil then lines[#lines + 1] = "uname " .. names.sysname .. " " .. names.machine end
-  -- Each distinct feature once, sorted. Only those the code a test
-  -- runs chooses code by (`dispatched`), which an audit of the vendored
-  -- C and the disassembled cores found:
-  -- mbedtls's aesni.c (`aes`, `pclmulqdq`) and aesce.c (`asimd`, `aes`,
-  -- `pmull`); xz's crc_x86_clmul.h (`pclmulqdq`, `ssse3`, `sse4_1`) and
-  -- crc32_arm64.h (`crc32`). No Linux core links a libm that
-  -- dispatches: every one, the checked core too, is static musl, and
-  -- the libm zig and musl carry chooses no code by the processor. (A
-  -- glibc host's libm would choose the variants of pow, asin, acos and
-  -- atan2 by `fma`, `avx2` and `fma4`; no verdict of such a core could
-  -- stand for another, since every key holds the core's digest
-  -- (`runtime`).) Nothing else the core carries dispatches, nor does
-  -- its build, so the processor's model and microcode, which choose no
-  -- code, are not keyed either. The whole list would split GitHub's
-  -- hosted runners of one leg on flags nothing reads (avx512*, a
-  -- hypervisor's bits, md_clear), and each split is a verdict not
-  -- shared. A vendored library that comes to dispatch on another
-  -- feature adds it to `dispatched`, to what [`sys.cpu_features`]
-  -- answers (core/syscalls.c) and to ci/cosmic_ci/host_id.tl
-  -- alike.
-  lines[#lines + 1] = "cpu " .. table.concat(features(from.cpu_features, from.machine), " ")
-  lines[#lines + 1] = "uid " .. tostring(from.uid or sys.getuid())
-  local status, _ = Fs.read(from.status or "/proc/self/status")
-  for line in (status or ""):gmatch("[^\n]+") do
-    local name = line:match("^(%a+):")
-    if name == "Uid" or name == "Gid" or name == "Groups" or (name ~= nil and
-        name:sub(1, 3) == "Cap") or name == "NoNewPrivs" or name == "Seccomp" then
-      lines[#lines + 1] = line
-    end
-  end
-  if status == nil then
-    -- No /proc/self/status (macOS): the bindings answer its Gid and
-    -- Groups, each group once, sorted, since the system lists them in
-    -- an order of its own. A list that cannot be read keys apart from
-    -- every one that can.
-    local groups: {integer} = from.groups
-    local trouble: string?
-    if groups == nil then groups, trouble = sys.getgroups() end
-    lines[#lines + 1] = "gid " .. tostring(from.gid or sys.getgid())
-    if groups == nil then
-      lines[#lines + 1] = "groups unread: " .. tostring(trouble)
-    else
-      local seen: mut {integer:boolean} = {}
-      local sorted: mut {integer} = {}
-      for _, group in ipairs(groups) do
-        if not seen[group] then seen[group], sorted[#sorted + 1] = true, group end
-      end
-      table.sort(sorted)
-      local named: mut {string} = {}
-      for i, group in ipairs(sorted) do named[i] = tostring(group) end
-      lines[#lines + 1] = "groups " .. table.concat(named, " ")
-    end
-  end
-  local own = from.own_proc
-  if own == nil then own = confine.own_proc_given() end
-  lines[#lines + 1] = "own proc " .. tostring(own)
-  local host_id = from.host_id or sys.getenv(host_variable) or ""
-  lines[#lines + 1] = "host " .. host_id
-  digests.spent_ns = digests.spent_ns + (monotonic_ns() - started)
-  return hex_sha256(table.concat(lines, "\n"))
+  return declared_key.host_split(digests, sources).identity
 end
 
 --- The system's paths the walk of what is installed covers: `paths`,

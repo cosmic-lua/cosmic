@@ -37,6 +37,11 @@ stands on another checkout's pass.
 
 - `--all` (`COSMIC_TEST_ALL=1`) runs every test.
 - `--no-shared` (`COSMIC_TEST_NO_SHARED=1`) stands on no shared verdict.
+- `COSMIC_TEST_FOREIGN_FEATURES=1`, set only by CI's checked gathering run,
+  also looks a test up under the key of another host in the shared cache
+  that differs from this one in its kernel and processor features alone
+  ([`declared_key.host_split`]), every other input as this host keys it.
+  Unset, a run reuses only the rows of its own host's keys.
 - The new checker is the tool's only one: [`build.pipeline`] reads the tree, checks it against its ceilings and writes
   the Lua. `COSMIC_GRAMMAR` takes `new` or nothing ([`build.grammar_mode`]); `teal`, the grammar of the fork that was
   deleted, is refused, pointing to the project guide, which says how to rewrite a project to the new one. A project outside cosmic's own
@@ -545,6 +550,7 @@ Other rules:
 [`cosmic.sandbox`]: ../cosmic/sandbox/init.tl
 [`cosmic.template`]: ../cosmic/template/init.tl
 [`cosmic/store_seal_test.tl`]: ../cosmic/store_seal_test.tl
+[`declared_key.host_split`]: ../build/declared_key.tl
 [`doc/performance.md`]: performance.md
 [`Fuzz.label`]: ../build/fuzz/init.tl
 [`Fuzz.more`]: ../build/fuzz/init.tl
