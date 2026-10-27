@@ -2652,7 +2652,7 @@ build/cache_test.tl field_fixed 14
 
 build/ceilings.tl field_fixed 1
 
-build/check_draws.tl field_fixed 5
+build/check_draws.tl field_fixed 4
 
 build/child_lua_fixture.tl field_fixed 2
 
@@ -2697,12 +2697,6 @@ build/fetch.tl field_fixed 5
 build/fetch_test.tl field_fixed 2
 
 build/fix/init.tl field_fixed 1
-
-build/flow.tl field_fixed 13
-
-build/flow_fuzz_test.tl field_fixed 1
-
-build/flow_test.tl field_fixed 9
 
 build/gen_syscalls.tl field_fixed 1
 
