@@ -13,7 +13,7 @@ local function test_rows_with_tabs_breaks_and_backslashes_come_back_as_written()
   assert(#back == 2 and #back[1] == 5 and #back[2] == 5, #back)
   for i, row in ipairs(rows) do
     for j, field in ipairs(row) do
-      assert(back[i][j] == field, i .. "," .. j)
+      assert(back[i][j] == field, tostring(i) .. "," .. tostring(j))
     end
   end
   assert(#check_memo.decode("") == 0)

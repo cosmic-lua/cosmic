@@ -115,7 +115,7 @@ local MODULES <const>: {string: string} = { zipx = ZIPX, tally = TALLY, decoy = 
 local function uses_of(said: Fixture.Said): string
   local out: mut {string} = {}
   for _, u in ipairs(said.refs) do
-    out[#out + 1] = u.module .. " " .. u.member .. " " .. u.line
+    out[#out + 1] = u.module .. " " .. u.member .. " " .. tostring(u.line)
   end
   return table.concat(out, "\n")
 end
@@ -132,19 +132,19 @@ end
 
 local function test_a_field_read_and_a_method_called_through_a_nested_record_are_uses_of_its_field()
   local found = same("local Z = require('zipx')\nlocal w = Z.open()\nlocal n = w.name\nlocal ok, _ = w:close()\nuse(n, ok)\n")
-  assert(found == "zipx Writer.name " .. line(3) .. "\nzipx Writer.close " .. line(4), found)
+  assert(found == "zipx Writer.name " .. tostring(line(3)) .. "\nzipx Writer.close " .. tostring(line(4)), found)
 end
 
 local function test_a_name_the_record_does_not_take_is_found_by_the_type_of_the_value_not_by_its_name()
   local found = same("local Z = require('zipx')\nlocal p = Z.plain()\nlocal q = p\nuse(q.size, q:grow())\nuse(p.size)\n")
-  assert(found == "zipx Plain.grow " .. line(4) .. "\nzipx Plain.size " .. line(4) .. "\nzipx Plain.size " .. line(5), found)
+  assert(found == "zipx Plain.grow " .. tostring(line(4)) .. "\nzipx Plain.size " .. tostring(line(4)) .. "\nzipx Plain.size " .. tostring(line(5)), found)
 end
 
 local function test_a_field_the_record_inherits_is_a_use_of_the_interface_that_declares_it()
   local found = same("local Z = require('zipx')\nlocal w = Z.open()\nlocal ok, _ = w:write('x')\nuse(ok)\n" ..
       "local c: Z.Collector = w\nlocal ok2, _ = c:write('y')\nuse(ok2)\n")
-  assert(found:find("zipx Collector.write " .. line(3), 1, true) ~= nil, found)
-  assert(found:find("zipx Collector.write " .. line(6), 1, true) ~= nil, found)
+  assert(found:find("zipx Collector.write " .. tostring(line(3)), 1, true) ~= nil, found)
+  assert(found:find("zipx Collector.write " .. tostring(line(6)), 1, true) ~= nil, found)
 end
 
 local function test_a_field_declared_by_each_of_a_chain_of_interfaces_is_a_use_of_the_deepest()
@@ -155,7 +155,7 @@ end
 local function test_an_assignment_to_a_field_is_no_use_and_the_value_it_is_reached_through_is()
   local found = same("local Z = require('zipx')\nlocal w = Z.open()\nw.name = 'x'\nlocal record Holder\n  w: Z.Writer\nend\nlocal box: Holder = { w = w }\n" ..
       "local ok, _ = box.w:close()\nuse(ok)\n")
-  assert(found == "zipx Writer.close " .. line(8), found)
+  assert(found == "zipx Writer.close " .. tostring(line(8)), found)
 end
 
 local function test_a_record_of_the_modules_own_and_one_it_keeps_to_itself_have_no_row()
@@ -168,7 +168,7 @@ end
 local function test_a_use_on_each_line_is_found_once_and_a_line_with_two_is_found_in_order()
   local found = same("local Z = require('zipx')\nlocal w = Z.open()\nuse(w.name, w.name)\nlocal ok, _ = w:close()\n" ..
       "use(ok, w:write('a'))\n")
-  assert(found:find("Writer.name " .. line(3), 1, true) ~= nil, found)
+  assert(found:find("Writer.name " .. tostring(line(3)), 1, true) ~= nil, found)
   local count = 0
   for _ in found:gmatch("Writer.name") do
     count = count + 1

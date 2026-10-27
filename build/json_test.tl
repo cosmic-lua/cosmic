@@ -500,7 +500,7 @@ local function test_every_path_flat_prints_reads_back_to_its_leaf(tmp: string)
   local lines: mut {string} = {}
   for line in flat.out:gmatch("[^\n]+") do lines[#lines + 1] = line end
   -- The 18 leaves of the document, none twice.
-  assert(#lines == 18, #lines .. "\n" .. flat.out)
+  assert(#lines == 18, tostring(#lines) .. "\n" .. flat.out)
   local seen: mut {string:boolean} = {}
   for _, line in ipairs(lines) do
     local path, value = split_flat(line)
@@ -565,7 +565,7 @@ end
 
 local function test_flat_of_many_nested_matches_prints_only_the_distinct_leaves(tmp: string)
   local parts: mut {string} = {}
-  for i = 1, 200 do parts[i] = '{"a": {"a": {"a": ' .. i .. '}}}' end
+  for i = 1, 200 do parts[i] = '{"a": {"a": {"a": ' .. tostring(i) .. '}}}' end
   local ran = run({ "--flat", "$..a", file(tmp, "[" .. table.concat(parts, ",") .. "]") })
   local lines = 0
   for _ in ran.out:gmatch("\n") do lines = lines + 1 end

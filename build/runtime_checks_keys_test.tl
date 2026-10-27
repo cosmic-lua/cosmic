@@ -91,7 +91,7 @@ local function test_no_cache_entry_is_shared_between_the_two(tmp: string)
   -- Nothing the unchecked compile kept answers the checked one.
   local checked = compile(tmp .. "/checked", cache, true)
   assert(checked.shared == 0 and checked.compiled > 0,
-    "a checked compile took an unchecked entry: " .. checked.shared .. " shared")
+    "a checked compile took an unchecked entry: " .. tostring(checked.shared) .. " shared")
   local second = lib(checked)
   assert(checks_in(second), "a checked compile carries no check")
   assert(first.key ~= second.key, "one key for a module with and without checks")
@@ -100,11 +100,11 @@ local function test_no_cache_entry_is_shared_between_the_two(tmp: string)
   -- Each kind then stands on the entry of its own.
   local plain_again = compile(tmp .. "/plain-again", cache, false)
   assert(plain_again.compiled == 0 and plain_again.shared == #plain_again.modules,
-    plain_again.compiled .. " compiled, " .. plain_again.shared .. " shared")
+    tostring(plain_again.compiled) .. " compiled, " .. tostring(plain_again.shared) .. " shared")
   assert(not checks_in(lib(plain_again)), "an unchecked compile took a checked entry")
   local checked_again = compile(tmp .. "/checked-again", cache, true)
   assert(checked_again.compiled == 0 and checked_again.shared == #checked_again.modules,
-    checked_again.compiled .. " compiled, " .. checked_again.shared .. " shared")
+    tostring(checked_again.compiled) .. " compiled, " .. tostring(checked_again.shared) .. " shared")
   assert(checks_in(lib(checked_again)), "a checked compile took an unchecked entry")
 end
 
@@ -119,7 +119,7 @@ local function test_the_working_database_keeps_the_two_apart(tmp: string)
   local plain = assert(importer.compile(handle, "keys-test", false, nil, false))
   local checked = assert(importer.compile(handle, "keys-test", false, nil, true))
   assert(checked.compiled == #checked.modules and checked.cached == 0,
-    "a checked compile read the unchecked rows: " .. checked.cached .. " cached")
+    "a checked compile read the unchecked rows: " .. tostring(checked.cached) .. " cached")
   assert(checks_in(lib(checked)) and not checks_in(lib(plain)))
   local again = assert(importer.compile(handle, "keys-test", false, nil, false))
   assert(again.compiled == #again.modules, "the rows of the checked compile answered an unchecked one")

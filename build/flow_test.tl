@@ -336,7 +336,7 @@ end
 local function test_update_over_itself_keeps_a_long_line()
   local Json = require("cosmic.json")
   local items: mut {string} = {}
-  for i = 1, 20 do items[i] = "\"item" .. i .. "\"" end
+  for i = 1, 20 do items[i] = "\"item" .. tostring(i) .. "\"" end
   local text = "{\n  a: [" .. table.concat(items, ", ") .. "],\n}\n"
   assert(formatted(text) == text)
   local doc = assert(flow.parse(text))

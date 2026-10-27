@@ -111,6 +111,6 @@ local function test_every_executable_line_of_straight_code_is_hit()
   chunk()
   local hit = Hits.snapshot()[name] or {}
   for line in pairs(executable) do
-    assert(hit[line], "executable line " .. line .. " was never hit")
+    assert(hit[line], "executable line " .. tostring(line) .. " was never hit")
   end
 end

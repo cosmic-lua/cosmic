@@ -19,11 +19,11 @@ local function test_the_variants_are_build_zigs_targets()
     n = n + 1
     local variant = assert(c.variants[n], "no variant for target " .. name)
     assert(variant.name == name and variant.target == name,
-      "variant " .. n .. " is " .. variant.name .. ", build.zig's is " .. name)
+      "variant " .. tostring(n) .. " is " .. variant.name .. ", build.zig's is " .. name)
     assert(table.concat(variant.defines, " "):find("COSMIC_TARGET_ID=" .. id, 1, true),
       name .. " does not define its id " .. id)
   end
-  assert(n == 3, "build.zig has " .. n .. " targets")
+  assert(n == 3, "build.zig has " .. tostring(n) .. " targets")
   assert(#c.variants == n + 1, "one variant beside the targets, the checked core's")
 end
 

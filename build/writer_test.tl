@@ -732,7 +732,7 @@ local function test_static_files_ship_as_payload_not_as_modules(tmp: string)
   local db = assert(Sqlite.open(tmp .. "/p.db"))
   local rows = assert(Sqlite.text_rows(db,
     "SELECT path, sha256, type, gzip IS NOT NULL, length(data) FROM payload ORDER BY path"))
-  assert(#rows == 4, #rows .. " payload rows")
+  assert(#rows == 4, tostring(#rows) .. " payload rows")
   assert(rows[1]:text(1) == "css/app.css" and rows[1]:text(2) == Hash.hex_sha256(css))
   assert(rows[1]:text(3) == "text/css; charset=utf-8" and rows[1]:text(4) == "1" and rows[1]:text(5) == tostring(#css))
   assert(rows[2]:text(1) == "logo.png" and rows[2]:text(3) == "image/png" and rows[2]:text(4) == "0")

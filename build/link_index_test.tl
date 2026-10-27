@@ -116,7 +116,7 @@ local function test_uses_lists_links_to_a_symbol_and_a_file(dir: string)
   local function listed(query: string): {string}
     local out: mut {string} = {}
     for _, use in ipairs((assert(docs.uses(view, query)))) do
-      out[#out + 1] = use.from_file .. ":" .. use.line .. (if use.link then " link " else " " end) ..
+      out[#out + 1] = use.from_file .. ":" .. tostring(use.line) .. (if use.link then " link " else " " end) ..
         use.module .. " " .. use.symbol .. " " .. use.path .. "#" .. use.anchor
     end
     return out
@@ -152,7 +152,7 @@ local function test_a_page_counts_the_links_to_its_symbol(dir: string)
   local view = assert(docs.view({ db }))
   local function page(query: string): string
     local found = assert(docs.lookup(view, query))
-    assert(#found == 1, query .. ": " .. #found)
+    assert(#found == 1, query .. ": " .. tostring(#found))
     return table.concat(assert(docs.render(view, found[1])), "\n")
   end
   -- Two links on one line count once, as `cosmic uses` lists them.
@@ -357,7 +357,7 @@ local function places(out: string, query: string): {string}
   local db = assert(Sqlite.open(out))
   local found: mut {string} = {}
   for _, use in ipairs((assert(docs.uses(assert(docs.view({ db })), query)))) do
-    found[#found + 1] = use.from_file .. ":" .. use.line .. (if use.link then " link" else "" end)
+    found[#found + 1] = use.from_file .. ":" .. tostring(use.line) .. (if use.link then " link" else "" end)
   end
   assert(db:close())
   return found
@@ -742,7 +742,7 @@ local function test_a_projects_links_to_the_standard_library_are_rows(tmp: strin
   local view = assert(docs.view({ db, handles[1] }, { false, true }))
   local listed: mut {string} = {}
   for _, use in ipairs((assert(docs.uses(view, "cosmic.fs.read")))) do
-    listed[#listed + 1] = use.from_file .. ":" .. use.line .. (if use.link then " link" else "" end)
+    listed[#listed + 1] = use.from_file .. ":" .. tostring(use.line) .. (if use.link then " link" else "" end)
   end
   same(listed, { "README.md:1 link", "cosmic/fs.tl:5 link", "greet.tl:1 link" })
   local found = assert(docs.lookup(view, "cosmic.fs.read"))

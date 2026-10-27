@@ -100,13 +100,13 @@ local function test_the_shares_deal_each_test_once()
       for id in pairs(again) do assert(dealt[id], id) end
       sizes[#sizes + 1] = size
       -- m5's fifteen tests reach every share.
-      assert(modules.m5, "share " .. index .. " of " .. count .. " holds none of m5")
+      assert(modules.m5, "share " .. tostring(index) .. " of " .. tostring(count) .. " holds none of m5")
     end
     for _, id in ipairs(ids) do
-      assert(held[id] == 1, id .. " is in " .. tostring(held[id]) .. " of " .. count .. " shares")
+      assert(held[id] == 1, id .. " is in " .. tostring(held[id]) .. " of " .. tostring(count) .. " shares")
     end
     table.sort(sizes)
-    assert(sizes[#sizes] - sizes[1] <= 1, "shares of " .. count .. " differ by more than one")
+    assert(sizes[#sizes] - sizes[1] <= 1, "shares of " .. tostring(count) .. " differ by more than one")
   end
 end
 
@@ -116,7 +116,7 @@ end
 --- a moved harness, as another timeout does.
 local function test_the_census_says_each_bump_of_the_epoch_apart()
   local word = test_key.harness_word("8-072f7458", Clock.seconds(30))
-  assert(word == "e8-072f7458-t" .. Clock.seconds(30), word)
+  assert(word == "e8-072f7458-t" .. tostring(Clock.seconds(30)), word)
   assert(word:match("^%S+$") and not word:find("[,;]"), word)
   assert(test_key.harness_word("8-3f9c2a1b", Clock.seconds(30)) ~= word, "two bumps from one count")
   assert(test_key.harness_word("8-072f7458", Clock.seconds(60)) ~= word, "another timeout")

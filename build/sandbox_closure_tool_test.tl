@@ -50,11 +50,11 @@ local function test_closure_refuses_a_script_that_does_not_compile_or_is_not_the
   assert(Fs.write(tmp .. "/mine.tl", 'local Mine = require("mine_module")\nprint(Mine)\n'))
   local program = (assert(Proc.executable()))
   local bad = cosmic(tmp, { "sandbox", "--closure", "--", program, "bad.tl" })
-  assert(bad.code == 125 and bad.out == "" and bad.err:find("^cosmic: sandbox: bad.tl:1") ~= nil, bad.code .. bad.err)
+  assert(bad.code == 125 and bad.out == "" and bad.err:find("^cosmic: sandbox: bad.tl:1") ~= nil, tostring(bad.code) .. bad.err)
   local gone = cosmic(tmp, { "sandbox", "--closure", "--", program, "absent.tl" })
-  assert(gone.code == 125 and gone.err:find("absent.tl", 1, true) ~= nil, gone.code .. gone.err)
+  assert(gone.code == 125 and gone.err:find("absent.tl", 1, true) ~= nil, tostring(gone.code) .. gone.err)
   -- A module outside the store is refused before the child starts.
   local mine = cosmic(tmp, { "sandbox", "--closure", "--", program, "mine.tl" })
-  assert(mine.code == 125 and mine.out == "" and mine.err:find("mine_module", 1, true) ~= nil, mine.code .. mine.err)
+  assert(mine.code == 125 and mine.out == "" and mine.err:find("mine_module", 1, true) ~= nil, tostring(mine.code) .. mine.err)
   assert(#left_over() == 0, "a refused script leaves nothing")
 end

@@ -25,7 +25,7 @@ Test.policy{ profiles = { "cosmic" }, loopback = { "127.0.0.1" } }
 --- Fails, listing what `during` met under build/, unless it met nothing.
 local function honest(what: string, fn: function())
   local found = TypeWatch.during(fn, "build/")
-  assert(#found == 0, what .. ": " .. #found .. " violations:\n" .. table.concat(found, "\n"))
+  assert(#found == 0, what .. ": " .. tostring(#found) .. " violations:\n" .. table.concat(found, "\n"))
 end
 
 --- A process started under the stand-in is its pid and no more.
@@ -60,7 +60,7 @@ local function tunnels(userinfo?: string)
   Poll.run(function()
     local listener = assert(Net.listen(Net.tcp("127.0.0.1", 0)))
     local variables: {string:string} = { ALL_PROXY = "socks5h://" ..
-        (if userinfo ~= nil then (userinfo .. "@") else "" end) .. "127.0.0.1:" .. assert(listener.address.port) }
+        (if userinfo ~= nil then (userinfo .. "@") else "" end) .. "127.0.0.1:" .. tostring(assert(listener.address.port)) }
     local client = Poll.spawn(function()
       code.value = connect.run({ "host.example", "80" }, {
         getenv = function(name: string): string? return variables[name] end,

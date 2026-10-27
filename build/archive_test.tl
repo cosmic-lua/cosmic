@@ -286,7 +286,7 @@ local function test_list_of_a_large_piped_tar_gz_keeps_memory_bounded(tmp: strin
   piped.close = function(_self: Stream.Reader): boolean, string return inner:close() end
   local ran = run({ "list", "-" }, piped)
   assert(ran.code == 0 and ran.err == "", ran.err)
-  assert(ran.out:find("big.bin\t" .. total .. "\t", 1, true), ran.out)
+  assert(ran.out:find("big.bin\t" .. tostring(total) .. "\t", 1, true), ran.out)
   assert(reads.value >= 100, "standard input was read " .. tostring(reads.value) .. " times")
   local grown = (peak.value - base) / 1024
   assert(grown < 4, ("memory grew %.1f MiB listing %d MiB"):format(grown, total >> 20))
@@ -357,7 +357,7 @@ end
 local function refused(path: string, tmp: string, probe: string, why: string)
   local dest = tmp .. "/dest"
   local ran = run({ "extract", "--force", path, "-C", dest })
-  assert(ran.code == 2, why .. ": exited " .. ran.code .. " " .. ran.err)
+  assert(ran.code == 2, why .. ": exited " .. tostring(ran.code) .. " " .. ran.err)
   assert(ran.err:find("cosmic: archive: ", 1, true) == 1, ran.err)
   assert(Fs.exists(probe) ~= true, why .. ": wrote " .. probe)
 end
@@ -695,7 +695,7 @@ local function test_a_command_line_that_is_not_one_is_refused(tmp: string)
       { "list", "" }, { "extract", path, "" },
   } as {{string}}) do
     local ran = run(words)
-    assert(ran.code == 2 and ran.out == "", table.concat(words, " ") .. " exited " .. ran.code)
+    assert(ran.code == 2 and ran.out == "", table.concat(words, " ") .. " exited " .. tostring(ran.code))
     assert(ran.err:find("cosmic: archive: ", 1, true) == 1, ran.err)
     assert(ran.err:find("cosmic archive list", 1, true), ran.err)
   end
@@ -899,7 +899,7 @@ local function test_a_member_that_fails_mid_stream_leaves_the_destination_untouc
           assert(Fs.write(dest .. "/mine.txt", "mine"))
         end
         local ran = run({ "extract", "-", "-C", dest }, bytes)
-        assert(ran.code == 2 and ran.out == "", pair[1] .. ": " .. ran.code .. ran.err)
+        assert(ran.code == 2 and ran.out == "", pair[1] .. ": " .. tostring(ran.code) .. ran.err)
         local seen = tree_of(case)
         local want = if holds then "deep,deep/dest,deep/dest/mine.txt" else "" end
         assert(table.concat(seen, ",") == want, pair[1] .. " left " .. table.concat(seen, ","))
