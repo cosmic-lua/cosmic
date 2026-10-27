@@ -449,7 +449,7 @@ local function test_a_staged_project_is_built_from_its_inputs_and_compiles_to_wh
       end
     end
   end
-  assert(seen["m"] and seen["m_test"] and seen["doc.guides.g"], "the guide is a module of the project")
+  assert(seen["m"] == true and seen["m_test"] == true and seen["doc.guides.g"] == true, "the guide is a module of the project")
   -- the guide is the test module its stage derived, named for its file
   local guide = assert(pipeline.build:parsed("doc.guides.g"))
   assert(guide.source.filename == "doc/guides/g.md" and guide.source.tests)

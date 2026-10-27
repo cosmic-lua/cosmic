@@ -34,7 +34,7 @@ local function test_position_keeps_an_entrys_siblings_inside()
   local ok, trouble = positioned({
     { "lib/init.tl" }, { "lib/part.tl" }, { "main.tl", "lib.part" },
   }, false)
-  assert(not ok and trouble:find("main.tl: lib.part is private to lib/", 1, true), trouble)
+  assert(not ok and trouble:find("main.tl: lib.part is private to lib/", 1, true) ~= nil, trouble)
   ok, trouble = positioned({
     { "lib/init.tl", "lib.part" }, { "lib/part.tl" }, { "main.tl", "lib" },
   }, false)
@@ -48,7 +48,7 @@ local function test_position_closes_a_nested_directory_without_an_entry()
   local ok, trouble = positioned({
     { "tool/coverage/lines.tl" }, { "tool/test.tl", "tool.coverage.lines" },
   }, false)
-  assert(not ok and trouble:find("tool/coverage/ has no init.tl entry", 1, true), trouble)
+  assert(not ok and trouble:find("tool/coverage/ has no init.tl entry", 1, true) ~= nil, trouble)
   ok, trouble = positioned({
     { "tool/coverage/lines.tl" },
     { "tool/coverage/report.tl", "tool.coverage.lines" },
@@ -80,7 +80,7 @@ local function test_position_opens_the_http_server_to_the_standard_library()
     { "cosmic/http/init.tl" }, { "cosmic/http/wire.tl" },
     { "cosmic/web/init.tl", "cosmic.http.wire" },
   }, true)
-  assert(not ok and trouble:find("cosmic.http.wire is private to cosmic/http/", 1, true), trouble)
+  assert(not ok and trouble:find("cosmic.http.wire is private to cosmic/http/", 1, true) ~= nil, trouble)
 end
 
 --- The relay's address and grant modules and the Seatbelt module are the closed members that cosmic's own tree requires by
@@ -118,7 +118,7 @@ local function test_position_closes_an_entry_nested_in_a_closed_directory()
   local ok, trouble = positioned({
     { "lib/deep/inner/init.tl" }, { "main.tl", "lib.deep.inner" },
   }, false)
-  assert(not ok and trouble:find("is private to lib/deep/", 1, true), trouble)
+  assert(not ok and trouble:find("is private to lib/deep/", 1, true) ~= nil, trouble)
   ok, trouble = positioned({
     { "lib/deep/inner/init.tl" }, { "lib/deep/user.tl", "lib.deep.inner" },
   }, false)
@@ -132,7 +132,7 @@ local function test_position_keeps_build_private_in_cosmics_own_tree()
   local ok, trouble = positioned({
     { "build/clock.tl" }, { "cosmic/time.tl", "build.clock" },
   }, true)
-  assert(not ok and trouble:find("cosmic/time.tl: build.clock is private to build/", 1, true),
+  assert(not ok and trouble:find("cosmic/time.tl: build.clock is private to build/", 1, true) ~= nil,
     trouble)
   ok, trouble = positioned({
     { "build/clock.tl" }, { "cosmic/time_example.tl", "build.clock" },
@@ -160,7 +160,7 @@ local function test_position_keeps_tests_to_tests_in_cosmics_own_tree()
     local ok, trouble = positioned({
       { "cosmic/fixture_test.tl" }, { importer, "cosmic.fixture_test" },
     }, true)
-    assert(not ok and trouble:find(importer .. ": cosmic.fixture_test is a test", 1, true),
+    assert(not ok and trouble:find(importer .. ": cosmic.fixture_test is a test", 1, true) ~= nil,
       importer .. ": " .. tostring(trouble))
   end
   local ok, trouble = positioned({
@@ -180,7 +180,7 @@ local function test_position_refuses_a_test_outside_a_closed_directory()
   local ok, trouble = positioned({
     { "lib/init.tl" }, { "lib/part.tl" }, { "main_test.tl", "lib.part" },
   }, false)
-  assert(not ok and trouble:find("main_test.tl: lib.part is private to lib/", 1, true), trouble)
+  assert(not ok and trouble:find("main_test.tl: lib.part is private to lib/", 1, true) ~= nil, trouble)
   ok, trouble = positioned({
     { "lib/init.tl" }, { "lib/part.tl" }, { "lib/part_test.tl", "lib.part" },
   }, false)
@@ -207,7 +207,7 @@ local function test_position_lets_a_closed_directory_import_an_open_namespace()
   ok, trouble = positioned({
     { "app/init.tl" }, { "app/part.tl" }, { "lib/fs.tl", "app.part" },
   }, false)
-  assert(not ok and trouble:find("lib/fs.tl: app.part is private to app/", 1, true), trouble)
+  assert(not ok and trouble:find("lib/fs.tl: app.part is private to app/", 1, true) ~= nil, trouble)
 end
 
 --- A Teal module directly in `cosmic/internal/` is shared machinery: the
@@ -227,7 +227,7 @@ local function test_position_opens_cosmic_internal_to_the_trees_own_modules()
     { "cosmic/internal/shared.tl" }, { "ci/user.tl", "cosmic.internal.shared" },
   }, true)
   assert(not ok and trouble:find("ci/user.tl: cosmic.internal.shared is internal to cosmic",
-    1, true), trouble)
+    1, true) ~= nil, trouble)
 end
 
 --- A project tree may not require a `cosmic.internal.*` name, whether its
@@ -237,12 +237,12 @@ local function test_position_refuses_cosmic_internal_in_a_project_tree()
     { "cosmic/internal/shared.tl" }, { "cosmic/net.tl", "cosmic.internal.shared" },
   }, false)
   assert(not ok and trouble:find("cosmic/net.tl: cosmic.internal.shared is internal to " ..
-      "cosmic's own tree", 1, true), trouble)
+      "cosmic's own tree", 1, true) ~= nil, trouble)
   -- A Teal module the binary carries is refused; a raw table, which it
   -- holds no row of, is the reserved namespace's to guard.
   local function carries(name: string): boolean return name == "cosmic.internal.wire" end
   ok, trouble = positioned({ { "app/main.tl", "cosmic.internal.wire" } }, false, carries)
-  assert(not ok and trouble:find("a project may not require it", 1, true), trouble)
+  assert(not ok and trouble:find("a project may not require it", 1, true) ~= nil, trouble)
   ok, trouble = positioned({ { "app/main.tl", "cosmic.internal.json" } }, false, carries)
   assert(ok, trouble)
 end

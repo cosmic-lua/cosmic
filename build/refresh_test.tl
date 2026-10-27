@@ -37,7 +37,7 @@ local function test_a_file_that_is_no_artifact_is_refused(tmp: string)
   local path = tmp .. "/plain"
   assert(Fs.write(path, "#!/bin/sh\n" .. ("# a script, not an artifact\n"):rep(4), 0x1ed))
   local lines, trouble = refresh.binary(path, tmp .. "/out", { datasets.cacert }, { cacert = bundle })
-  assert(lines == nil and trouble:find("no artifact trailer", 1, true), trouble)
+  assert(lines == nil and trouble:find("no artifact trailer", 1, true) ~= nil, trouble)
 end
 
 --- The rules a refresh keeps an sdist's files by are the PIN's own.
@@ -117,7 +117,7 @@ local function test_the_newest_sdist_is_read_from_pypi()
   assert(source.url == "https://example.com/tzdata-2099.1.tar.gz")
   assert(source.sha256 == ("b"):rep(64))
   local none, trouble = refresh.tzdata_release([[{"info": {"version": "1"}, "urls": []}]])
-  assert(none == nil and trouble:find("names no sdist", 1, true), trouble)
+  assert(none == nil and trouble:find("names no sdist", 1, true) ~= nil, trouble)
   none, trouble = refresh.tzdata_release("[]")
   assert(none == nil, trouble)
 end

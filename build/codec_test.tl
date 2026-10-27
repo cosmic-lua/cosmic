@@ -78,7 +78,7 @@ local function test_a_file_and_dash_are_read(tmp: string)
   assert(run({ "base64", path }).out == "Zm9vYmFy\n")
   assert(run({ "base64", "-" }, "foobar").out == "Zm9vYmFy\n")
   local missing = run({ "base64", tmp .. "/nope" })
-  assert(missing.code == 2 and missing.out == "" and missing.err:find("^cosmic: codec: "), missing.err)
+  assert(missing.code == 2 and missing.out == "" and missing.err:find("^cosmic: codec: ") ~= nil, missing.err)
 end
 
 local function test_wrap_breaks_lines_and_defaults_to_none()
@@ -258,7 +258,7 @@ local function test_a_fault_past_the_first_chunk_names_its_offset_in_the_input()
   local text = string.rep("Zm9v\n", 30000) .. "Zm-v\n"
   local at = #text - 3 -- the "-", 0-based
   local ran = run({ "base64", "-d" }, text)
-  assert(ran.code == 2 and ran.err:find(("byte 0x2d at offset %d is not in the base64 alphabet"):format(at), 1, true),
+  assert(ran.code == 2 and ran.err:find(("byte 0x2d at offset %d is not in the base64 alphabet"):format(at), 1, true) ~= nil,
     ran.err)
   -- What was decoded before the fault, less the chunk it lies in, was written.
   assert(#ran.out > 0 and ran.out == ("foo"):rep(#ran.out // 3), #ran.out)
@@ -307,7 +307,7 @@ local function test_short_reads_do_not_release_what_a_refusal_would_take_back()
   local refused = run_trickled({ "base64", "-d" }, "QUJDREVG!!!!")
   assert(refused.code == 2 and refused.out == "", refused.out)
   local short = run_trickled({ "base64", "-d" }, "QUJDREVGR")
-  assert(short.code == 2 and short.out == "" and short.err:find("length 9", 1, true), short.out .. short.err)
+  assert(short.code == 2 and short.out == "" and short.err:find("length 9", 1, true) ~= nil, short.out .. short.err)
   local fine = run_trickled({ "base64", "-d" }, "QUJD REVG\nR0hJ")
   assert(fine.code == 0 and fine.out == "ABCDEFGHI", fine.err)
   local encoded = run_trickled({ "hex", "--wrap", "4" }, "hello")

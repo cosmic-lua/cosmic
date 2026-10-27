@@ -400,7 +400,7 @@ end
     assert(text:find("; shard " .. tostring(index) .. " of 2\n", 1, true), text)
     if text:find("the failing test ran", 1, true) then
       failed = failed + 1
-      assert(not result.ok and text:find("test: 1 of ", 1, true), text)
+      assert(not result.ok and text:find("test: 1 of ", 1, true) ~= nil, text)
     else
       assert(result.ok, text)
     end

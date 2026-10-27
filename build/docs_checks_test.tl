@@ -45,7 +45,7 @@ local function projection(rows: {Row}): Sqlite.Handle
   end
   local seen: mut {string: boolean} = {}
   for _, item in ipairs(rows) do
-    if not seen[item.module] then
+    if seen[item.module] ~= true then
       seen[item.module] = true
       assert(Sqlite.run(db,
         "INSERT INTO modules (path, file, kind, source_hash, key, source, bytecode, tests) " ..

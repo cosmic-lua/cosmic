@@ -168,9 +168,9 @@ local function test_flat_line_prints_the_compact_value()
   assert(json_query.flat_line({}, Json.null) == "$ = null")
   assert(json_query.flat_line({ "s" }, 'a "q" = b\n') == "$.s = \"a \\\"q\\\" = b\\n\"")
   local line, err = json_query.flat_line({ "f" }, function() end)
-  assert(line == nil and err:find('the value at pointer "/f": ', 1, true), err)
+  assert(line == nil and err:find('the value at pointer "/f": ', 1, true) ~= nil, err)
   local zero, why = json_query.flat_line({ 0 }, 1)
-  assert(zero == nil and why:find("step 1 is 0", 1, true), why)
+  assert(zero == nil and why:find("step 1 is 0", 1, true) ~= nil, why)
 end
 
 local function test_every_flat_path_reads_back_to_its_leaf()
@@ -233,12 +233,12 @@ local function test_a_max_depth_out_of_range_raises_naming_the_caller()
   local walks = "json: max_depth must be an integer from 1 to " .. Json.depth_limit
   for _, bad in ipairs({ 0, Json.depth_limit + 1, 1.5, "2" } as {any}) do
     local ok, message = pcall(flatten_with, bad)
-    assert(not ok and tostring(message):find(walks, 1, true), tostring(message))
+    assert(not ok and tostring(message):find(walks, 1, true) ~= nil, tostring(message))
     assert(tostring(message):find("json_query_test", 1, true), "named where it was called: " .. tostring(message))
   end
   for _, bad in ipairs({ -1, 1.5, "2" } as {any}) do
     local ok, message = pcall(describe_with, bad)
-    assert(not ok and tostring(message):find("json: max_depth must be an integer of at least 0", 1, true),
+    assert(not ok and tostring(message):find("json: max_depth must be an integer of at least 0", 1, true) ~= nil,
       tostring(message))
     assert(tostring(message):find("json_query_test", 1, true), "named where it was called: " .. tostring(message))
   end

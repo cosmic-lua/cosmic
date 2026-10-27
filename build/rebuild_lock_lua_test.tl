@@ -224,5 +224,5 @@ local function test_a_handed_lock_lets_a_write_on_but_not_a_test_run(tmp: string
   assert(write_text == "false \n", write_text)
   assert(ok, tostring(failure) .. "\n" .. test_text)
   assert(running ~= nil and not running.finished, "a handed test run went on:\n" .. test_text)
-  assert(ran.ok and test_text:find("\ntrue \n$"), test_text)
+  assert(ran.ok and test_text:find("\ntrue \n$") ~= nil, test_text)
 end

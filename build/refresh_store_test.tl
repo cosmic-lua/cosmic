@@ -207,15 +207,15 @@ local function test_a_bad_release_writes_nothing(tmp: string)
   sdist(archive, "2099.1", { ["zoneinfo/Bad/Zone"] = "TZif not really" })
   local out = tmp .. "/refreshed"
   local lines, trouble = refresh.binary(path, out, { datasets.tzdata }, { tzdata = archive })
-  assert(lines == nil and trouble:find("zone Bad/Zone", 1, true), trouble)
+  assert(lines == nil and trouble:find("zone Bad/Zone", 1, true) ~= nil, trouble)
 
   -- A DER sequence, `30 03 'abc'`, that is no certificate: a binary
   -- carrying only it would trust nothing.
   local pem = tmp .. "/bad.pem"
   assert(Fs.write(pem, "Bad\n===\n-----BEGIN CERTIFICATE-----\nMANhYmM=\n-----END CERTIFICATE-----\n"))
   lines, trouble = refresh.binary(path, out, { datasets.cacert }, { cacert = pem })
-  assert(lines == nil and trouble:find("certificate 1 (Bad)", 1, true), trouble)
-  assert(not Fs.exists(out))
+  assert(lines == nil and trouble:find("certificate 1 (Bad)", 1, true) ~= nil, trouble)
+  assert(Fs.exists(out) ~= true)
 
   -- Among roots it can read, it is left out, as the binary would drop
   -- it, and named.
@@ -232,7 +232,7 @@ local function test_a_bad_release_writes_nothing(tmp: string)
   assert(after:close())
   assert(want:close())
   assert(Fs.remove(out))
-  assert(not Fs.exists(out))
+  assert(Fs.exists(out) ~= true)
 end
 
 --- The command line: -o is required, and a dataset it does not know is
@@ -250,7 +250,7 @@ local function test_the_command_line_is_refused_by_name(tmp: string)
   end
   -- Not a usage error, but never done: the binary it reads is not written.
   local itself = invoke.run({ "refresh", "-o", path, "--binary", path, "--cacert", pem }, { cwd = tmp })
-  assert(itself.code == 1 and itself.stderr:find("never written", 1, true), itself.stderr)
+  assert(itself.code == 1 and itself.stderr:find("never written", 1, true) ~= nil, itself.stderr)
   assert(not itself.stderr:find("\nrefresh: ", 1, true), "a failure was summarized: " .. itself.stderr)
   local result = invoke.run({ "refresh", "-o", tmp .. "/out", "--binary", path, "--cacert", pem },
     { cwd = tmp })

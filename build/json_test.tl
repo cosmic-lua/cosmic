@@ -64,7 +64,7 @@ local function test_an_index_counts_from_0_or_from_the_end(tmp: string)
   local past = run({ "$.users[2]", file(tmp) })
   assert(past.code == 1 and past.err == 'cosmic: json: no value at pointer "/users/2"\n', past.err)
   local before = run({ "$.users[-3]", file(tmp) })
-  assert(before.code == 1 and before.err:find('no element 3 from the end at pointer "/users"', 1, true), before.err)
+  assert(before.code == 1 and before.err:find('no element 3 from the end at pointer "/users"', 1, true) ~= nil, before.err)
   -- `--flat` under a place counted from the end spells it from 0.
   local flat = run({ "--flat", "$.users[-1]", file(tmp) })
   assert(flat.out == "$.users[1].id = 2\n$.users[1].name = \"bo\"\n", flat.out)
@@ -113,7 +113,7 @@ local function test_a_missing_path_exits_1_naming_its_pointer(tmp: string)
   assert(through.code == 1 and
       through.err == 'cosmic: json: the value at pointer "/n" is number, not an array or object\n', through.err)
   local kind = run({ "$.users.x", file(tmp) })
-  assert(kind.code == 1 and kind.err:find('the value at pointer "/users" is an array, not an object', 1, true),
+  assert(kind.code == 1 and kind.err:find('the value at pointer "/users" is an array, not an object', 1, true) ~= nil,
     kind.err)
 end
 
@@ -176,7 +176,7 @@ local function test_a_lone_word_is_the_path_only_when_it_begins_with_a_dollar(tm
   assert(Fs.write(dotted, '{"b": 2}'))
   assert(run({ "--compact", dotted }).out == '{"b":2}\n')
   local bracket = run({ "[0]" }, "[5]")
-  assert(bracket.code == 2 and bracket.err:find("[0]", 1, true), bracket.err)
+  assert(bracket.code == 2 and bracket.err:find("[0]", 1, true) ~= nil, bracket.err)
 end
 
 --- A path is a JSONPath query: `$` comes first, with no other start.
@@ -209,13 +209,13 @@ local function test_invalid_json_exits_2_naming_the_file(tmp: string)
   assert(ran.code == 2 and ran.out == "", ran.out)
   assert(ran.err:find("cosmic: json: " .. path .. ": ", 1, true), ran.err)
   local piped = run({ "$.a" }, "not json")
-  assert(piped.code == 2 and piped.err:find("standard input: ", 1, true), piped.err)
+  assert(piped.code == 2 and piped.err:find("standard input: ", 1, true) ~= nil, piped.err)
   assert(run({ "$.a" }, "").code == 2)
 end
 
 local function test_an_unreadable_file_exits_2(tmp: string)
   local ran = run({ "$.a", tmp .. "/absent.json" })
-  assert(ran.code == 2 and ran.err:find("absent.json", 1, true), ran.err)
+  assert(ran.code == 2 and ran.err:find("absent.json", 1, true) ~= nil, ran.err)
   local dir = run({ "$.a", tmp })
   assert(dir.code == 2, dir.err)
 end
@@ -225,9 +225,9 @@ local function test_a_bad_path_exits_2(tmp: string)
   assert(ran.code == 2 and ran.out == "", ran.out)
   assert(ran.err:find("JSONPath byte 3: the query ends inside `[`", 1, true), ran.err)
   local unclosed = run({ "$.users[*", file(tmp) })
-  assert(unclosed.code == 2 and unclosed.err:find("expected `]`", 1, true), unclosed.err)
+  assert(unclosed.code == 2 and unclosed.err:find("expected `]`", 1, true) ~= nil, unclosed.err)
   local descent = run({ "$..", file(tmp) })
-  assert(descent.code == 2 and descent.err:find("after `..` comes a name, `*` or `[`", 1, true), descent.err)
+  assert(descent.code == 2 and descent.err:find("after `..` comes a name, `*` or `[`", 1, true) ~= nil, descent.err)
   local star = run({ "$['*']", file(tmp, '{"*": 4}') })
   assert(star.code == 0 and star.out == "4\n", star.err)
 end
@@ -267,11 +267,11 @@ end
 
 local function test_an_empty_word_is_named(tmp: string)
   local file_name = run({ "" }, "{}")
-  assert(file_name.code == 2 and file_name.err:find("an empty file name", 1, true), file_name.err)
+  assert(file_name.code == 2 and file_name.err:find("an empty file name", 1, true) ~= nil, file_name.err)
   local both = run({ "$.a", "" }, "{}")
-  assert(both.code == 2 and both.err:find("an empty file name", 1, true), both.err)
+  assert(both.code == 2 and both.err:find("an empty file name", 1, true) ~= nil, both.err)
   local path = run({ "", file(tmp) })
-  assert(path.code == 2 and path.err:find("a query starts with `$`", 1, true), path.err)
+  assert(path.code == 2 and path.err:find("a query starts with `$`", 1, true) ~= nil, path.err)
 end
 
 local function test_after_dashdash_the_words_are_path_and_file(tmp: string)
@@ -293,7 +293,7 @@ local function test_a_path_before_dashdash_is_still_the_path(tmp: string)
   local before = run({ "$.n", "--" }, '{"n": 3}')
   assert(before.code == 0 and before.out == "3\n", before.err)
   local after = run({ "--compact", "--", "$.n" })
-  assert(after.code == 2 and after.err:find("$.n", 1, true), after.err)
+  assert(after.code == 2 and after.err:find("$.n", 1, true) ~= nil, after.err)
   local both = run({ "$.n", "--", file(tmp) })
   assert(both.code == 0 and both.out == "3\n", both.err)
 end
@@ -303,7 +303,7 @@ end
 local function test_a_missing_file_that_reads_like_a_path_hints_at_the_dollar(tmp: string)
   for _, word in ipairs({ ".users", "[0]", ".users[0].name" }) do
     local ran = run({ word }, "{}")
-    assert(ran.code == 2 and ran.err:find("; a path starts with `$`", 1, true), ran.err)
+    assert(ran.code == 2 and ran.err:find("; a path starts with `$`", 1, true) ~= nil, ran.err)
   end
   local plain = run({ tmp .. "/absent.json" })
   assert(plain.code == 2 and not plain.err:find("a path starts", 1, true), plain.err)
@@ -369,7 +369,7 @@ local function test_flat_under_a_path_keeps_the_full_paths(tmp: string)
   local scalar = run({ "--flat" }, '"x"')
   assert(scalar.out == '$ = "x"\n', scalar.out)
   local missing = run({ "--flat", "$.nope", file(tmp) })
-  assert(missing.code == 1 and missing.out == "" and missing.err:find('pointer "/nope"', 1, true), missing.err)
+  assert(missing.code == 1 and missing.out == "" and missing.err:find('pointer "/nope"', 1, true) ~= nil, missing.err)
 end
 
 local function test_flat_over_a_query_flattens_each_match(tmp: string)
@@ -460,7 +460,7 @@ local function test_a_name_that_is_no_shorthand_is_quoted(tmp: string)
   assert(run({ "$['*']", file(tmp, '{"*": 4}') }).out == "4\n")
   assert(run({ "$['a*']", file(tmp, '{"a*": 5}') }).out == "5\n")
   local star = run({ "$.a*", file(tmp, '{"a*": 5}') })
-  assert(star.code == 2 and star.err:find("JSONPath byte 4", 1, true), star.err)
+  assert(star.code == 2 and star.err:find("JSONPath byte 4", 1, true) ~= nil, star.err)
   local ran = run({ "$.users[0].name", file(tmp) })
   assert(ran.out == '"ann"\n', ran.out)
 end
@@ -504,7 +504,7 @@ local function test_every_path_flat_prints_reads_back_to_its_leaf(tmp: string)
   local seen: mut {string:boolean} = {}
   for _, line in ipairs(lines) do
     local path, value = split_flat(line)
-    assert(not seen[path], "twice: " .. path)
+    assert(seen[path] ~= true, "twice: " .. path)
     seen[path] = true
     local back = run({ "--compact", path, doc })
     assert(back.code == 0, path .. ": " .. back.err)
@@ -513,7 +513,7 @@ local function test_every_path_flat_prints_reads_back_to_its_leaf(tmp: string)
     local again = run({ "--flat", path, doc })
     assert(again.out:find(line, 1, true) == 1, path .. ": " .. again.out)
   end
-  assert(seen['$["it\'s"]'] and seen['$["a b"][1]["c\\"d"][0]'] and seen["$.list[2]"], flat.out)
+  assert(seen['$["it\'s"]'] == true and seen['$["a b"][1]["c\\"d"][0]'] == true and seen["$.list[2]"] == true, flat.out)
 end
 
 --- A path `--flat` prints pastes into a shell's single quotes: one of
