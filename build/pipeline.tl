@@ -668,7 +668,8 @@ local function generated_of(m: Module, built: Pipeline.Built, facts?: boolean, j
   if #lines > 0 then
     return nil, m.file .. ": the compiler refused it\n" .. table.concat(lines, "\n")
   end
-  -- The module that holds the hook the wraps call is written without them: a wrapped read in the hook would call the hook.
+  -- The module that holds the hook the wraps and the parameter checks call is written without them: a checked call in the
+  -- hook would call the hook.
   local emitted = CompileGrammar.emit(build, result, facts == true and m.path ~= "build.test_worker", true, true)
   local code = emitted.code
   if code == nil then

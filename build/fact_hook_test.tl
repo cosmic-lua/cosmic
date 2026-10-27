@@ -3,7 +3,6 @@
 --- of the value they fail the read and keep a violation of kind "fact", the row `cosmic test --check-types` lists
 --- (`type_violations`). The programs are compiled with the wraps and run in this process, beside the fork's checks
 --- (build.checked_narrowing_test).
-local Globals = require("cosmic.internal.globals")
 local Test = require("cosmic.test")
 local programs = require("build.fact_programs")
 local worker = require("build.test_worker")
@@ -157,13 +156,6 @@ local function test_violations_past_the_limit_are_counted_not_kept()
   assert(#since(kept) == 1 and worker.dropped_violations() == dropped + 1)
 end
 
---- A checked run's worker defines the hook as a global, where the Lua of the wraps finds it.
-local function test_the_worker_defines_the_hook_the_wraps_call()
-  worker.install_checks()
-  local read = assert(load("return __fact", "=hook", "t", Globals.table()))
-  assert(read() == worker.fact)
-end
-
 --- The program is compiled with the checks or without: the same lines, and the wraps only in the first.
 local function test_a_compile_with_facts_writes_the_wraps_and_without_none()
   local with = programs.compiled("sound.tl", programs.sound, true)
@@ -210,6 +202,13 @@ local function loaded(code: string, name: string, lax: boolean): any
 end
 
 local function nothing() end
+
+--- A checked run's worker defines the hooks as globals, where the Lua of the wraps and of the parameter checks finds them.
+local function test_the_worker_defines_the_hook_the_wraps_call()
+  worker.install_checks()
+  assert(loaded("return __fact", "hook", false) == worker.fact)
+  assert(loaded("return __cosmic_tc", "hook", false) ~= nil)
+end
 
 --- A chunk with wraps brings the definition of the hook it calls, for a process with none (one a test starts, a library
 --- the worker loads before it installs its own): the call answers its value, as the fork's `(__cosmic_tc or select)` does.

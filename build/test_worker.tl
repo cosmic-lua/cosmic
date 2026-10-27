@@ -210,6 +210,12 @@ local record worker
   most_kept: integer
 
   install_checks: function()
+  --- Crosses a boundary by hand, as the Lua of a checked function does by calling the `__cosmic_tc` that [`install_checks`]
+  --- defines ([`lang.boundary_checks`]): `text` is the spec ("p" parameters, "r" return values, "f" a field written) and
+  --- `values` the values crossing it. It answers nothing, where the global answers the values: a test that needs them keeps
+  --- them. A violation of a parameter is placed at the line that called `cross`, where a checked function's is placed at its
+  --- caller's.
+  cross: function(text: string, ...: any)
   --- The `__fact` that [`install_checks`] defines: the hook the calls of [`lang.fact_wraps`] run, for a test that runs
   --- the Lua of a program with them.
   fact: function(v: any, taken: string, place: string, strings?: {string}, classes?: {any}, tag?: string,
@@ -687,8 +693,13 @@ end
 worker.most_kept = 2000
 worker.fact = fact
 
---- Defines the global `__cosmic_tc` the Lua of a checked run calls, which
---- records what [`worker.violations`] answers, and `__fact`, which the Lua the
+function worker.cross(text: string, ...: any)
+  local _ = hook(2, text, ...)
+end
+
+--- Defines the global `__cosmic_tc` the Lua of a checked run calls, with the `__cosmic_ty` and `__cosmic_mt` (`type` and
+--- `math.type`, as the module took them) that the tests ahead of its call read ([`lang.boundary_checks`]). `__cosmic_tc`
+--- is defined last, since the tests run only where it is. The hook records what [`worker.violations`] answers, and `__fact`, which the Lua the
 --- new checker's code generator writes calls at a read it narrowed
 --- ([`lang.fact_wraps`]) and which records a violation of kind "fact" (the
 --- place of the read, the place as written, what the checker proved and what
@@ -696,6 +707,8 @@ worker.fact = fact
 --- module loads: the boundaries its load crosses are checked too.
 function worker.install_checks()
   local globals = _G as {string:any}
+  rawset(globals, "__cosmic_ty", lua_type)
+  rawset(globals, "__cosmic_mt", math_type)
   rawset(globals, "__cosmic_tc", hook)
   rawset(globals, "__fact", fact)
 end

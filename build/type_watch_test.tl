@@ -1,4 +1,4 @@
---- [`TypeWatch.during`] skips its test in a checked run too: no compile writes the boundary checks, so a pass would be vacuous.
+--- [`TypeWatch.during`] skips its test in a checked run too: no compile writes the checks of returns and fields yet, so a pass would be partial.
 
 local Test = require("cosmic.test")
 local TypeWatch = require("build.type_watch")

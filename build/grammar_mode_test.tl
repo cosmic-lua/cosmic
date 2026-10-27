@@ -34,7 +34,7 @@ end
 -- The strings the keys of compiled rows, shared compiles and verdicts are made of, for a tool, and the checked variants.
 local function test_a_compile_is_keyed_by_the_tool_the_mode_and_whether_it_wraps_facts()
   assert(GrammarMode.tool("a", "new") == "a340d8fb401ad242f252858c92a6f1f4cb8242e94eb13d192dd79abc5fbb0f31")
-  assert(GrammarMode.tool("a", "new", true) == "621455f4b8753f06c86c88f0c84841e3b89fc5ffc43cf1af5a5d91d40afdffb4")
+  assert(GrammarMode.tool("a", "new", true) == "fa7fc86c5a42434c729e342c86f88e4336873e543b9f103b037d5e7fee7536fa")
   local kinds: mut {string: string} = {}
   local count = 0
   for _, tool in ipairs({ "a", "b" }) do

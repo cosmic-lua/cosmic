@@ -10,6 +10,8 @@ cosmic/fs.tl
 cosmic/hash.tl
 cosmic/string.tl
 lang/ast.tl
+lang/boundaries.tl
+lang/boundary_checks.tl
 lang/check.tl
 lang/check_codes.tl
 lang/codegen.tl
