@@ -195,3 +195,48 @@ local function test_a_script_with_a_hashbang_line_runs_and_keeps_its_line_number
   assert(refused.code ~= 0 and (refused.stderr or ""):find("refused.tl:3:", 1, true) ~= nil and
       (refused.stderr or ""):find("(not_assignable)", 1, true) ~= nil, tostring(refused.stderr))
 end
+
+--- A file that is Lua is not run, nor is any file that is not Teal: cosmic runs Teal, checked, and says so with
+--- what to do, before it builds anything or runs a word of the file.
+local function test_a_lua_file_is_refused_and_not_run(tmp: string)
+  local root = tmp .. "/lua"
+  assert(Fs.mkdirs(root))
+  assert(Fs.write(root .. "/hello.lua", 'print("ran as lua")\n'))
+  assert(Fs.write(root .. "/notes.txt", "words\n"))
+  for _, named in ipairs({ "hello.lua", "./hello.lua", root .. "/hello.lua" }) do
+    local result = run_in(root, named)
+    assert(result.code == 1 and result.stdout == "", named .. ": " .. tostring(result.stdout) ..
+        tostring(result.stderr))
+    local said = result.stderr or ""
+    assert(said:find("is Lua, and cosmic runs Teal, checked", 1, true) ~= nil and
+        said:find("rename it to hello.tl", 1, true) ~= nil and said:find("cosmic fix", 1, true) ~= nil, said)
+  end
+  local other = run_in(root, "./notes.txt")
+  assert(other.code == 1 and other.stdout == "" and
+      (other.stderr or ""):find("is not a Teal source: cosmic runs files that end in .tl", 1, true) ~= nil,
+    tostring(other.stderr))
+end
+
+--- A `.lua` file beside a Teal module is no module of the program: the build stages Teal, so a `require` of it is
+--- refused as any module the project does not have.
+local function test_a_lua_module_beside_a_teal_one_is_no_module(tmp: string)
+  local root = tmp .. "/beside"
+  assert(Fs.mkdirs(root))
+  assert(Fs.write(root .. "/helper.lua", "return { answer = 42 }\n"))
+  assert(Fs.write(root .. "/main.tl", 'local Helper = require("helper")\nprint(Helper.answer)\n'))
+  local result = run_in(root, "main.tl")
+  assert(result.code ~= 0 and result.stdout == "", tostring(result.stdout) .. tostring(result.stderr))
+  assert((result.stderr or ""):find("helper", 1, true) ~= nil, tostring(result.stderr))
+end
+
+--- `--standalone` takes the file's name as it is given, and checks and compiles what it holds as Teal whatever it is
+--- called: a `.lua` file with Lua's looseness is refused by the checker, not run as Lua.
+local function test_a_lua_file_run_standalone_is_checked_as_teal(tmp: string)
+  local file = tmp .. "/loose.lua"
+  assert(Fs.write(file, "local function twice(n) return n * 2 end\nprint(twice(21))\n"))
+  local started = this_program.program({ "--standalone", file }, { env = this_program.environment(),
+    stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(60) })
+  local result = assert(Child.run(started.argv, started.options))
+  assert(result.code == 1 and result.stdout == "" and (result.stderr or ""):find("param_untyped", 1, true) ~= nil,
+    tostring(result.stdout) .. tostring(result.stderr))
+end
