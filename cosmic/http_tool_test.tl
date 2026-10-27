@@ -89,7 +89,7 @@ return function(argv: {string}): integer
 end
 ]]))
   local server <close> = assert(Net.listen(Net.tcp("127.0.0.1", 0), { timeout_ns = Clock.seconds(20) }))
-  local url = "http://127.0.0.1:" .. assert(server.address.port) .. "/"
+  local url = "http://127.0.0.1:" .. tostring(assert(server.address.port)) .. "/"
   local marker = tmp .. "/marker"
   local started = this_program.program({ "--standalone", script, url, marker },
     { stdout = "capture", stderr = "capture" })
@@ -121,7 +121,7 @@ local function test_a_caught_signal_ends_a_read_that_waits(tmp: string)
 ]], function(conn: Net.Conn, _head: string)
   assert(conn:write("HTTP/1.1 200 OK\r\nContent-Length: 100000\r\n\r\npart"))
 end)
-  assert(said == "nil interrupted " .. sys.SIGINT, said)
+  assert(said == "nil interrupted " .. tostring(sys.SIGINT), said)
 end
 
 --- A download that waits on a server that sent part of the body and
@@ -141,7 +141,7 @@ local function test_a_caught_signal_ends_a_download_that_waits(tmp: string)
 ]], function(conn: Net.Conn, _head: string)
   assert(conn:write("HTTP/1.1 200 OK\r\nContent-Length: 100000\r\n\r\npart"))
 end)
-  assert(said == "false interrupted " .. sys.SIGINT, said)
+  assert(said == "false interrupted " .. tostring(sys.SIGINT), said)
   for _, name in ipairs((assert(Fs.list(tmp)))) do
     assert(not name:find(".target", 1, true), "left behind: " .. name)
   end
@@ -167,7 +167,7 @@ return function(argv: {string}): integer
 end
 ]]))
   local server <close> = assert(Net.listen(Net.tcp("127.0.0.1", 0), { timeout_ns = Clock.seconds(20) }))
-  local url = "http://127.0.0.1:" .. assert(server.address.port) .. "/items/1"
+  local url = "http://127.0.0.1:" .. tostring(assert(server.address.port)) .. "/items/1"
   local args = { "--standalone", script, method, url }
   if body ~= nil then args[#args + 1] = body end
   local started = this_program.program(args, { stdout = "capture", stderr = "capture" })

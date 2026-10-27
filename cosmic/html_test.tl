@@ -56,9 +56,9 @@ local function test_escape_attr_encodes_every_ascii_byte_but_letters_and_digits(
     local c = string.char(byte)
     local out = Html.raw_attr(Html.escape_attr(c))
     if c:find("^%w$") then
-      assert(out == c, "a letter or digit changed: " .. byte)
+      assert(out == c, "a letter or digit changed: " .. tostring(byte))
     else
-      assert(out == "&#" .. byte .. ";", byte .. " became " .. out)
+      assert(out == "&#" .. tostring(byte) .. ";", tostring(byte) .. " became " .. out)
     end
   end
   assert(Html.raw_attr(Html.escape_attr("a b\"c'd=e<f>g`h&i")) ==
@@ -331,7 +331,7 @@ local function test_url_part_agrees_with_url_escape_on_every_byte_and_many_strin
   for byte = 0, 255 do
     local c = string.char(byte)
     if c ~= "." then
-      assert(part_of(c) == Url.escape(c), "byte " .. byte)
+      assert(part_of(c) == Url.escape(c), "byte " .. tostring(byte))
     end
   end
   for _, text in ipairs(sample_strings(500)) do

@@ -53,7 +53,7 @@ local function test_equal_compares_every_byte()
       local bytes = { mac:byte(1, -1) }
       bytes[at] = bytes[at] ~ flip
       assert(not Hash.equal(mac, string.char(table.unpack(bytes))),
-        "byte " .. at .. " flipped by " .. flip)
+        "byte " .. tostring(at) .. " flipped by " .. tostring(flip))
     end
   end
 end
@@ -125,7 +125,7 @@ local function test_incremental_hmac_matches_published_vectors()
     local algorithm = case[1] as Hash.Algorithm
     for _, step in ipairs({ 1, 3, 64, 1000 }) do
       assert(Codec.hex(chunked_hmac(algorithm, case[2], case[3], step)) == case[4],
-        case[1] .. " in chunks of " .. step)
+        case[1] .. " in chunks of " .. tostring(step))
     end
   end
 end
@@ -145,7 +145,7 @@ local function test_incremental_hmac_agrees_with_hmac_for_every_algorithm()
       local want = Hash.hmac(algorithm, key, message)
       for _, step in ipairs({ 1, 7, 128, #message }) do
         assert(chunked_hmac(algorithm, key, message, step) == want,
-          algorithm .. " key " .. length .. " chunks of " .. step)
+          algorithm .. " key " .. tostring(length) .. " chunks of " .. tostring(step))
       end
       -- An empty message: no update at all, and one empty update.
       local none = assert(Hash.hmac_hasher(algorithm, key))
@@ -164,13 +164,13 @@ end
 local function test_many_unfinished_incremental_hmacs_can_be_live_at_once()
   local live: mut {Hash.Hasher} = {}
   for i = 1, 100 do
-    local mac, trouble = Hash.hmac_hasher("sha256", "key" .. i)
-    assert(mac ~= nil, "hasher " .. i .. ": " .. trouble)
-    mac:update("message " .. i)
+    local mac, trouble = Hash.hmac_hasher("sha256", "key" .. tostring(i))
+    assert(mac ~= nil, "hasher " .. tostring(i) .. ": " .. trouble)
+    mac:update("message " .. tostring(i))
     live[i] = mac
   end
   for i, mac in ipairs(live) do
-    assert(mac:digest() == Hash.hmac("sha256", "key" .. i, "message " .. i), "hasher " .. i)
+    assert(mac:digest() == Hash.hmac("sha256", "key" .. tostring(i), "message " .. tostring(i)), "hasher " .. tostring(i))
   end
 end
 
@@ -449,7 +449,7 @@ local function test_siphash_matches_reference_vectors()
     local tags = case[2] as {string}
     for i, n in ipairs(siphash_lengths) do
       local got = Codec.hex(Hash.siphash(key, message:sub(1, n), options))
-      assert(got == tags[i], n .. " bytes: " .. got .. " ~= " .. tags[i])
+      assert(got == tags[i], tostring(n) .. " bytes: " .. got .. " ~= " .. tags[i])
     end
   end
 end

@@ -156,7 +156,7 @@ local function started_under(at: Place, limit: integer, wanted: integer): intege
   local ran = under(at.probe, { isolate = { "proc" }, promises = { "fork" },
     grants = { { path = at.probe, letters = "rx" }, { path = at.work, letters = "r" } },
     limits = { processes = limit } }, at.work,
-    "start-count " .. wanted .. " " .. at.probe .. " sleep-forever")
+    "start-count " .. tostring(wanted) .. " " .. at.probe .. " sleep-forever")
   if ran == nil then return -1, "" end
   assert(ran.code == 0, ran.said)
   local count, rest = ran.said:match("^started (%d+)(.*)\n$")
@@ -172,7 +172,7 @@ local function test_processes_holds_the_whole_sandbox_to_a_count(tmp: string)
   -- The program is one of the processes counted; the sandbox's init is
   -- another where it is in the same user namespace, which it is not for a
   -- root caller's program, which makes one of its own beneath.
-  assert(count >= limit - 2 and count <= limit - 1, count .. rest)
+  assert(count >= limit - 2 and count <= limit - 1, tostring(count) .. rest)
   assert(rest:find("Resource temporarily unavailable", 1, true), rest)
 end
 

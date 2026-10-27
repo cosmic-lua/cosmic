@@ -6992,99 +6992,19 @@ build/writer_test.tl concat_type 1
 
 build/zig_test.tl concat_type 1
 
-cosmic/archive_fuzz_test.tl concat_type 8
-
-cosmic/archive_test.tl concat_type 7
-
-cosmic/channel_test.tl concat_type 3
-
 cosmic/child.tl concat_type 29
-
-cosmic/child_declared_types_test.tl concat_type 1
-
-cosmic/child_policy_anywhere_test.tl concat_type 4
-
-cosmic/child_policy_isolate_test.tl concat_type 3
-
-cosmic/child_policy_nest_test.tl concat_type 5
-
-cosmic/child_policy_root_user_test.tl concat_type 16
-
-cosmic/child_policy_system_test.tl concat_type 1
-
-cosmic/child_policy_test.tl concat_type 4
-
-cosmic/child_policy_user_test.tl concat_type 2
-
-cosmic/child_relay_curl_test.tl concat_type 6
-
-cosmic/child_relay_seatbelt_test.tl concat_type 5
-
-cosmic/child_relay_test.tl concat_type 12
-
-cosmic/child_seatbelt_test.tl concat_type 1
-
-cosmic/child_task_tool_test.tl concat_type 7
-
-cosmic/compress_test.tl concat_type 14
 
 cosmic/csv.tl concat_type 10
 
-cosmic/csv_fuzz_test.tl concat_type 26
-
-cosmic/csv_load_test.tl concat_type 2
-
-cosmic/csv_test.tl concat_type 7
-
-cosmic/declared_types_test.tl concat_type 1
-
-cosmic/flags_test.tl concat_type 2
-
-cosmic/fs_append_test.tl concat_type 2
-
-cosmic/fs_test.tl concat_type 19
-
-cosmic/hash_test.tl concat_type 12
-
-cosmic/html_test.tl concat_type 4
-
-cosmic/html_wpt_test.tl concat_type 2
-
-cosmic/http/multipart_fuzz_test.tl concat_type 3
-
-cosmic/http/multipart_test.tl concat_type 1
-
-cosmic/http/server_declared_types_test.tl concat_type 1
-
-cosmic/http/server_tool_test.tl concat_type 2
-
 cosmic/http/wire.tl concat_type 2
-
-cosmic/http/wire_fuzz_test.tl concat_type 6
-
-cosmic/http_test.tl concat_type 4
-
-cosmic/http_tool_test.tl concat_type 4
 
 cosmic/internal/connector.tl concat_type 6
 
-cosmic/internal/connector_test.tl concat_type 5
-
 cosmic/internal/relay_config.tl concat_type 6
-
-cosmic/internal/relay_direct_test.tl concat_type 6
-
-cosmic/internal/relay_handed_lost_test.tl concat_type 3
-
-cosmic/internal/relay_handed_test.tl concat_type 2
 
 cosmic/internal/relay_main.tl concat_type 3
 
 cosmic/internal/relay_server.tl concat_type 1
-
-cosmic/internal/relay_server_native_test.tl concat_type 9
-
-cosmic/internal/relay_server_test.tl concat_type 163
 
 cosmic/internal/relay_start.tl concat_type 1
 

@@ -100,8 +100,8 @@ local function test_a_start_under_a_policy_is_refused_where_the_platform_has_no_
     -- It starts in the directory that holds the probe: under isolate file the
     -- start directory must be at, beneath or above a grant.
     local result, why = Child.run({ probe, "print hi" }, { policy = policy, cwd = probe:match("^(.*)/") })
-    assert(result == nil, "policy " .. i .. " started a child where there is no sandbox")
-    assert(unsandboxable(why), "policy " .. i .. ": " .. why)
+    assert(result == nil, "policy " .. tostring(i) .. " started a child where there is no sandbox")
+    assert(unsandboxable(why), "policy " .. tostring(i) .. ": " .. why)
   end
 end
 
@@ -239,12 +239,14 @@ local function test_a_policy_of_too_many_grants_fails_before_it_makes_anything(t
   local most = confine.unveil_max
   for _, count in ipairs({ most, most + 44 }) do
     local grants = itself(probe)
-    for i = #grants + 1, count do grants[i] = { path = tmp .. "/g" .. i, letters = "r" } end
+    for i = #grants + 1, count do
+      grants[i] = { path = tmp .. "/g" .. tostring(i), letters = "r" }
+    end
     local none, why = Child.start({ probe, "print hi" }, { policy = { grants = grants, tmp = true } })
     assert(none == nil, "a start over the most was made")
     assert(why:find("^child: start: sandbox: grants: "), why)
     assert(why:find("takes, " .. tostring(most) .. ";", 1, true), why)
-    assert(#sandbox_directories() == before, count .. " grants left a directory behind")
+    assert(#sandbox_directories() == before, tostring(count) .. " grants left a directory behind")
   end
 end
 
