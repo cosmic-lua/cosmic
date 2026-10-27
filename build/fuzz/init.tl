@@ -287,7 +287,7 @@ local function check_corpus(p: Fuzz.Property, budget: integer, kept: string?): i
   local there, trouble = Fs.exists(dir)
   if there == false then return 0 end
   local names: {string}?
-  if there then names, trouble = Fs.list(dir) end
+  if there == true then names, trouble = Fs.list(dir) end
   if names == nil then
     error(("fuzz %s: corpus %s: %s"):format(p.name, dir, trouble), 0)
   end
@@ -468,7 +468,7 @@ local function run(p: Fuzz.Property): integer
   for name in pairs(shares) do shared[#shared + 1] = name end
   table.sort(shared)
   for _, name in ipairs(shared) do
-    if not is_named[name] then named[#named + 1] = name end
+    if is_named[name] ~= true then named[#named + 1] = name end
   end
   local line = label_counts(counts, named, iters)
   if line ~= nil then print(("fuzz %s: labels: %s"):format(p.name, line)) end

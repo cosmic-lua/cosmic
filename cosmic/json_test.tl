@@ -264,7 +264,7 @@ local function test_duplicate_keys_are_refused()
     members[#members + 1] = '"k1": 0'
     assert(decode_failure("{" .. table.concat(members, ", ") .. "}") ==
         "json: duplicate key at line 1, column 33 (pointer \"/k2/x\")",
-      size .. " members, compared in pairs, in a set or in the table: a repeat inside an earlier member comes first")
+      tostring(size) .. " members, compared in pairs, in a set or in the table: a repeat inside an earlier member comes first")
     -- Scalars but for one value nested too deep, after a null and
     -- before the repeated key: the nesting is named, and nothing held
     -- for the null is left behind.
@@ -277,7 +277,7 @@ local function test_duplicate_keys_are_refused()
     assert(decode_failure("{" .. table.concat(flat, ", ") .. "}", { max_depth = 2 }) ==
         ("json: JSON nests deeper than 2 levels at line 1, column %d (pointer \"/deep/0\")"):format(
           #("{" .. table.concat(flat, ", ", 1, size - 2) .. ', "deep": [') + 1),
-      size .. " members: nesting too deep before the repeat is named first")
+      tostring(size) .. " members: nesting too deep before the repeat is named first")
   end
   -- An object looked up as it is built holds a null member's key until
   -- it is whole, so a key twice after a null is found, and the null's
@@ -454,7 +454,7 @@ local function test_a_large_document_round_trips()
   local back = decoded(text) as {integer}
   assert(#back == 5000 and back[5000] == 0, "every element")
   local big: mut {string: any} = {}
-  for i = 1, 2000 do big["key" .. i] = Json.array({ i, tostring(i), i + 0.5 }) end
+  for i = 1, 2000 do big["key" .. tostring(i)] = Json.array({ i, tostring(i), i + 0.5 }) end
   assert(same(decoded(encoded(big)), big), "a wide object round-trips whole")
 end
 

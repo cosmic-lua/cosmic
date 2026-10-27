@@ -110,7 +110,7 @@ local function names_by_hash(db: Sqlite.Handle,
     end
     list[#list + 1] = row:text(2)
   end
-  return out
+  return out, ""
 end
 
 local record Dependency
@@ -753,7 +753,7 @@ function plans.ordered(modules: {Module}): {Module}?, string
       return nil, trouble
     end
   end
-  return out
+  return out, ""
 end
 
 --- Whether `m`'s own source both defines tests of its own and returns

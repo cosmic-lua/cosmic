@@ -45,7 +45,7 @@ local function test_parse_never_raises_and_keeps_to_its_limits(tmp: string)
           return false, ("name %q is not in the header"):format(name)
         end
       end
-      if n > 100 then return false, n .. " cookies" end
+      if n > 100 then return false, tostring(n) .. " cookies" end
       Fuzz.label(if n > 0 then "some" else "none" end)
       return true, ""
     end,

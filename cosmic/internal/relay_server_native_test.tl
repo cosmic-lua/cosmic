@@ -46,7 +46,7 @@ local function read_exact(conn: Net.Conn, count: integer): string
   local out = ""
   while #out < count do
     local data, why = conn:read(count - #out)
-    assert(data ~= nil, "the connection ended after " .. #out .. " of " .. count .. " bytes: " .. why)
+    assert(data ~= nil, "the connection ended after " .. tostring(#out) .. " of " .. tostring(count) .. " bytes: " .. why)
     out = out .. data
   end
   return out
@@ -84,7 +84,7 @@ local function test_the_relay_connects_through_the_native_connector()
     local connector = assert(Net.connector({}, { public = { deny = {} } }))
     local log: mut {string} = {}
     local relay = Relay.start({
-      http = front, grants = { "127.0.0.1:" .. port, "127.0.0.1:" .. closed },
+      http = front, grants = { "127.0.0.1:" .. tostring(port), "127.0.0.1:" .. tostring(closed) },
       connector = function(address: string, to: integer, timeout_ns: integer): Net.Conn?, string
         asked.value = asked.value + 1
         return connector:connect(Net.tcp(address, to), { timeout_ns = timeout_ns })
@@ -99,7 +99,7 @@ local function test_the_relay_connects_through_the_native_connector()
       return conn
     end
     local conn = dial()
-    assert(conn:write(Fixture.connect("127.0.0.1:" .. port)))
+    assert(conn:write(Fixture.connect("127.0.0.1:" .. tostring(port))))
     local head = ""
     while not head:find("\r\n\r\n", 1, true) do
       head = head .. assert(conn:read(1))
@@ -111,13 +111,13 @@ local function test_the_relay_connects_through_the_native_connector()
     local _, _ = conn:close()
     -- A port nothing listens at: the connector's errno is the reason.
     local refused = dial()
-    assert(refused:write(Fixture.connect("127.0.0.1:" .. closed)))
+    assert(refused:write(Fixture.connect("127.0.0.1:" .. tostring(closed))))
     local answer = ""
     while not answer:find("\r\n\r\n", 1, true) do
       answer = answer .. assert(refused:read(1))
     end
     -- Whatever took the port since, nothing answers a CONNECT there: the reason is the connector's.
-    assert(answer:find("^HTTP/1.1 502 could not connect to 127.0.0.1:" .. closed .. ": "), answer)
+    assert(answer:find("^HTTP/1.1 502 could not connect to 127.0.0.1:" .. tostring(closed) .. ": "), answer)
     local _, _ = refused:close()
     relay:stop()
     relay:wait()
@@ -125,7 +125,7 @@ local function test_the_relay_connects_through_the_native_connector()
     echoed:cancel()
     local _, _ = listener:close()
     local _, _ = front:close()
-    assert(#log == 2 and log[1]:find("allowed via 127.0.0.1:" .. port, 1, true), table.concat(log, "\n"))
-    assert(log[2]:find("refused: could not connect to 127.0.0.1:" .. closed .. ": ", 1, true), log[2])
+    assert(#log == 2 and log[1]:find("allowed via 127.0.0.1:" .. tostring(port), 1, true), table.concat(log, "\n"))
+    assert(log[2]:find("refused: could not connect to 127.0.0.1:" .. tostring(closed) .. ": ", 1, true), log[2])
   end)
 end

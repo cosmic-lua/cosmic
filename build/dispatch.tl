@@ -325,7 +325,7 @@ local function root_of(file: string): string?, string
   end
   local here, _ = Fs.absolute(".")
   if here ~= nil and Fs.within(resolved, here) then
-    return here
+    return here, ""
   end
   return directory_of(file)
 end
@@ -344,11 +344,15 @@ local function module_of(root: string, file: string): string?, string
     return nil, file .. " is not inside " .. root
   end
   local relative = resolved:sub(#root + 2)
+  if String.ends_with(relative, ".lua") then
+    return nil, file .. " is Lua, and cosmic runs Teal, checked: rename it to " ..
+      (relative:gsub("%.lua$", ".tl")) .. " and run `cosmic fix` on it to see what the checker asks of it"
+  end
   if not String.ends_with(relative, ".tl") then
-    return nil, file .. " is not a Teal source"
+    return nil, file .. " is not a Teal source: cosmic runs files that end in .tl"
   end
   local name = relative:gsub("/init%.tl$", ""):gsub("%.tl$", "")
-  return (name:gsub("/", "."))
+  return (name:gsub("/", ".")), ""
 end
 
 --- Runs a file. The file is a module: it is required once its tree is
@@ -544,10 +548,13 @@ local function version(argv: {string}): integer
   return 0
 end
 
---- `cosmic -e <chunk> [args...]`: runs `chunk` as Lua, the way `lua -e`
---- does, against this binary's own standard library, with no tree around
---- it. The words after it are its `...`; what it returns is the exit
---- code as a file run's is -- see build/exit_status.tl.
+--- `cosmic -e <chunk> [args...]`: runs `chunk` as the body of a Teal file, against this binary's own standard
+--- library, with no tree around it. The chunk is parsed, checked as strictly as a tree build checks (a warning
+--- is refused with an error) and compiled by [`build.standalone`]; a chunk the checker refuses does not run, and
+--- exits 1 with the checker's own messages. It reaches the standard library as a file does, by
+--- `require("cosmic.json")` with a literal name, and may require the tool's own modules too, which are the
+--- tool's one-liner's to use; nothing is bound for it. The words after it are its `...` (each a `string?`); what it
+--- returns is the exit code as a file run's is -- see build/exit_status.tl.
 --- @param argv the whole command line, `-e` at slot 1
 local function evaluate(argv: {string}): integer
   local chunk = argv[2]
@@ -555,10 +562,11 @@ local function evaluate(argv: {string}): integer
     log:complain("usage: cosmic -e '<chunk>' [args...]")
     return 2
   end
-  local Globals = require("cosmic.internal.globals")
-  local loaded, trouble = load(chunk, "=-e", "t", Globals.table())
+  local loaded, trouble = require("build.standalone").compile("-e", chunk, nil, true)
   if loaded == nil then
-    log:complain(tostring(trouble))
+    local Fs = require("cosmic.fs")
+    local _, _ = Fs.put(Fs.stderr, trouble .. "\n")
+    log:complain("-e runs its chunk as Teal, checked as a file is: see `cosmic help -e`")
     return 1
   end
   local arguments: mut {string} = {}
@@ -731,7 +739,7 @@ end
 function Dispatch.main(argv: {string}): integer
   local word = argv[1]
   if word == "-e" then
-    -- Lua's one-liner idiom: like --standalone, no tree and no staleness.
+    -- The one-liner: a checked chunk of Teal, like --standalone with no tree and no staleness.
     return evaluate(argv)
   end
   if word == "--version" then

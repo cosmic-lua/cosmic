@@ -516,7 +516,7 @@ local function generated(run: Programs.Run, wraps: {integer: string}, kind_only:
   for id, decl in pairs(run.result.literals) do
     classes[id] = decl.name
   end
-  return Codegen.generate(run.chunk, run.scoped, nil, classes, if kind_only then {} else Check.enums(run.lowered) end, wraps).text
+  return Codegen.generate(run.chunk, run.scoped, nil, classes, if kind_only == true then {} else Check.enums(run.lowered) end, wraps).text
 end
 
 function Programs.lua(run: Programs.Run): string

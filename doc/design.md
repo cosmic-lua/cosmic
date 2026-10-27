@@ -929,8 +929,8 @@ the checker and compiler are the tree's own source, `lang/`, and the language is
 syntax where that serves and breaks with it where Teal or a Lua idiom costs soundness, simplicity or speed
 ([`doc/plans/strict-teal.md`] states the rules, their reasons and the order they landed in). there is one
 checker. the fork of tl 0.24.8 that came before it is deleted, with its formatter, its comparison harness and its
-patch records; `cosmic migrate` rewrites a project written in the old grammar to this one, and
-`COSMIC_GRAMMAR=teal` is refused, naming it.
+patch records; a project written in the old grammar is rewritten to this one by hand
+([`doc/guides/project.md`]), and `COSMIC_GRAMMAR=teal` is refused, pointing to that guide.
 
 the pieces are small modules, each deciding one thing and asked by the rest:
 
@@ -1119,9 +1119,12 @@ a claim.
 
 verbs, with a bare path meaning run: `cosmic build`, `cosmic test`,
 `cosmic fix`, `cosmic docs`; `cosmic file.tl` runs a
-file; `-e` stays as Lua's one-liner idiom: `cosmic -e '<chunk>'` runs
-a chunk of Lua against the standard library, with no tree, and the
-words after it are its `...`. `build` builds the tree and
+file; `-e` is the one-liner: `cosmic -e '<chunk>'` runs a chunk of Teal
+against the standard library, with no tree. The chunk is checked as a
+file is, so a type error exits 1 with the checker's messages and
+nothing runs; it takes the library by `require("cosmic.json")`, as a
+file does (and the tool's own modules, which only the tool's one-liner
+may require), with nothing pre-bound, and the words after it are its `...`. `build` builds the tree and
 writes an executable for each `cmd/<name>/` in it, so a library tree
 builds too and a tree with binaries ships from the one verb. every verb
 takes paths to narrow it (`uses` after its symbol), except `docs`,
@@ -1356,4 +1359,5 @@ in [roadmap.md](roadmap.md).
 [`build.pipeline`]: ../build/pipeline.tl
 [`cosmic.internal.globals`]: ../cosmic/internal/globals.d.tl
 [`cosmic.shape`]: ../cosmic/shape.tl
+[`doc/guides/project.md`]: guides/project.md
 [`lang/SEED_DIFFERS`]: ../lang/SEED_DIFFERS

@@ -218,17 +218,17 @@ function StaticFiles.handler(opts?: StaticFiles.Options): Types.Handler
     end
     local rel = relative(req)
     if rel == nil then return missing(req) end
-    if req.trailing and not o.html then return missing(req) end
+    if req.trailing and o.html ~= true then return missing(req) end
     local asset: Assets.Asset
     local by_digest: boolean
     local trouble: string
-    if o.html and (rel == "" or req.trailing) then
+    if o.html == true and (rel == "" or req.trailing) then
       asset, by_digest, trouble = find(if rel == "" then "index.html" else rel .. "/index.html" end)
     elseif rel == "" then
       return missing(req)
     else
       asset, by_digest, trouble = find(rel)
-      if asset == nil and o.html then
+      if asset == nil and o.html == true then
         local index, _ = source:get(rel .. "/index.html")
         if index ~= nil then
           local location = req.path .. "/"

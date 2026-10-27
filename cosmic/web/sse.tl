@@ -447,7 +447,7 @@ local function not_checked(given: any, known: {string:boolean}, what: string): s
   if given == nil then return nil end
   if not given is {any:any} then return "sse: " .. what .. " takes a table of options" end
   for key in pairs(given) do
-    if not (key is string and known[key]) then
+    if not (key is string and known[key] == true) then
       return ("sse: %s has no option %s"):format(what, tostring(key))
     end
   end
@@ -726,7 +726,7 @@ function State.subscribe(self: State, topics: {string}, opts?: Sse.SubscribeOpti
   local seen: mut {string: boolean} = {}
   for _, name in ipairs(topics) do
     if not name is string then error("sse: subscribe takes a list of topic names", 2) end
-    if not seen[name] then
+    if seen[name] ~= true then
       seen[name] = true
       names[#names + 1] = name
     end
@@ -763,7 +763,7 @@ function State.subscribe(self: State, topics: {string}, opts?: Sse.SubscribeOpti
     closed = Sub.closed, dropped = Sub.dropped, detach = function() end }
   local attachment = { attached = true }
   sub.detach = function()
-    if not attachment.attached then return end
+    if attachment.attached ~= true then return end
     attachment.attached = false
     queue:close()
     self.total = self.total - 1
@@ -793,7 +793,7 @@ function State.close(self: State)
   local seen: mut {Sub: boolean} = {}
   for _, topic in pairs(self.topics) do
     for sub in pairs(topic.subs) do
-      if not seen[sub] then
+      if seen[sub] ~= true then
         seen[sub] = true
         all[#all + 1] = sub
       end

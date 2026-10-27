@@ -64,7 +64,7 @@ local function both(): {Entry}
   return { { run = Child.run, start = Child.start }, without_exit_watch() }
 end
 
---- This program again, past its launcher, running the Lua chunk `chunk`.
+--- This program again, past its launcher, running the Teal chunk `chunk`.
 local function lua(chunk: string, opts?: Child.Options): {string}, Child.Options
   local started = this_program.program({ "-e", chunk }, opts)
   return started.argv, started.options
@@ -108,7 +108,7 @@ local function test_a_run_in_a_task_lets_the_others_run()
     end)
     local finished = assert(r.value)
     assert(finished.ok and finished.stdout == "done\n", tostring(finished.stdout))
-    assert(ticks >= 2, "the other task ticked " .. ticks .. " times while the child ran")
+    assert(ticks >= 2, "the other task ticked " .. tostring(ticks) .. " times while the child ran")
   end
 end
 
@@ -239,7 +239,7 @@ local function test_a_wait_in_a_task_ends_its_child_at_the_timeout()
   end)
   local ended = assert(timed.value, "the wait never answered")
   assert(ended.timed_out and ended.signal == sys.SIGTERM, tostring(ended.signal))
-  assert(ticks >= 2, "the other task ticked " .. ticks .. " times")
+  assert(ticks >= 2, "the other task ticked " .. tostring(ticks) .. " times")
 end
 
 --- A cancelled task's wait answers nil and CANCELLED at once, and leaves
@@ -380,7 +380,7 @@ local function test_a_child_that_holds_sigterm_is_ended_within_the_deadline(tmp:
     local r = assert(h:wait(Clock.ms(100)))
     local took = Clock.monotonic_ns() - started
     assert(r.timed_out and not r.ok and r.signal == sys.SIGKILL, tostring(r.signal))
-    assert(took >= Clock.ms(300) and took < Clock.seconds(8), "ended after " .. took // Clock.ms(1) .. " ms")
+    assert(took >= Clock.ms(300) and took < Clock.seconds(8), "ended after " .. tostring(took // Clock.ms(1)) .. " ms")
     assert(sys.kill(pid, 0) == false, "the child outlived its wait")
     local closing = assert(module.start(lua(holding_term(report))))
     by = Clock.monotonic_ns() + Clock.seconds(30)
@@ -390,7 +390,7 @@ local function test_a_child_that_holds_sigterm_is_ended_within_the_deadline(tmp:
     started = Clock.monotonic_ns()
     assert(closing:close())
     took = Clock.monotonic_ns() - started
-    assert(took < Clock.seconds(8), "closed after " .. took // Clock.ms(1) .. " ms")
+    assert(took < Clock.seconds(8), "closed after " .. tostring(took // Clock.ms(1)) .. " ms")
     assert(sys.kill(closing_pid, 0) == false, "the child outlived its close")
   end
 end
@@ -488,8 +488,8 @@ local function test_streams_in_a_task_let_the_others_run()
     end)
     assert(table.concat(got) == "ab", table.concat(got, "|"))
     local echoed = assert(fed.value, "the child never answered")
-    assert(echoed.ok and echoed.stdout == input, "fed " .. #tostring(echoed.stdout) .. " bytes back")
-    assert(ticks >= 2, "the other task ticked " .. ticks .. " times")
+    assert(echoed.ok and echoed.stdout == input, "fed " .. tostring(#tostring(echoed.stdout)) .. " bytes back")
+    assert(ticks >= 2, "the other task ticked " .. tostring(ticks) .. " times")
   end
 end
 
@@ -514,7 +514,7 @@ local function test_wait_any_in_a_task_ends_at_the_first_exit()
   end)
   assert(first.value == 1, "the slow child ended first")
   assert(cancelled.value == Poll.CANCELLED, cancelled.value)
-  assert(ticks >= 2, "the other task ticked " .. ticks .. " times")
+  assert(ticks >= 2, "the other task ticked " .. tostring(ticks) .. " times")
 end
 
 --- A signal a guard catches ends a run waiting in a task at once, as it
@@ -526,37 +526,49 @@ local function test_a_signal_ends_a_run_in_a_task(tmp: string)
   local started = this_program.program({ "-e", [[
 local Child = require("cosmic.child")
 local Clock = require("cosmic.clock")
+local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
 local Poll = require("cosmic.poll")
+local Proc = require("cosmic.proc")
 local Signal = require("cosmic.signal")
 local sys = require("cosmic.sys")
-local this_program = require("build.this_program")
+local record Held
+  mut answer: string
+  mut ticks: integer
+  mut took: integer
+end
+local report = ...
+if report == nil then return 2 end
 local outer = assert(Signal.guard())
-local answer = ""
-local ticks = 0
-local took = 0
+local held: Held = { answer = "", ticks = 0, took = 0 }
 Poll.run(function()
   local runner = Poll.spawn(function()
-    local sleeper = this_program.program({ "-e", 'require("cosmic.clock").sleep_ns(require("cosmic.clock").seconds(100000))' })
-    local r, why = Child.run(sleeper.argv, sleeper.options)
-    answer = tostring(r) .. " " .. why
+    local relaunch = assert(Proc.relaunch())
+    local argv: mut {string} = {}
+    for _, word in ipairs(relaunch.argv) do argv[#argv + 1] = word end
+    argv[#argv + 1] = "-e"
+    argv[#argv + 1] = 'require("cosmic.clock").sleep_ns(require("cosmic.clock").seconds(100000))'
+    local env: mut {string:string} = Env.all()
+    for name, value in pairs(relaunch.env) do env[name] = value end
+    local r, why = Child.run(argv, { env = env, fds = relaunch.fds })
+    held.answer = tostring(r) .. " " .. why
   end)
   local ticker = Poll.spawn(function()
-    while answer == "" do
+    while held.answer == "" do
       assert(Poll.delay(Clock.ms(5)))
-      ticks = ticks + 1
+      held.ticks = held.ticks + 1
     end
   end)
   assert(Poll.delay(Clock.ms(200)))
   local sent = Clock.monotonic_ns()
   assert(sys.kill(sys.getpid(), sys.SIGTERM))
   assert(runner:join(Clock.seconds(30)))
-  took = Clock.monotonic_ns() - sent
+  held.took = Clock.monotonic_ns() - sent
   assert(ticker:join())
 end)
 local kept = assert(outer:release())
-assert(Fs.write(..., answer .. "|" .. tostring(kept) .. "|" ..
-  tostring(ticks >= 2) .. "|" .. tostring(took < Clock.seconds(5))))
+assert(Fs.write(report, held.answer .. "|" .. tostring(kept) .. "|" ..
+  tostring(held.ticks >= 2) .. "|" .. tostring(held.took < Clock.seconds(5))))
 ]], report }, { stderr = "capture", timeout_ns = Clock.seconds(60) })
   local r = assert(Child.run(started.argv, started.options))
   assert(r.ok, "code=" .. tostring(r.code) .. " signal=" .. tostring(r.signal) ..

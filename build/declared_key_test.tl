@@ -162,12 +162,11 @@ local function test_a_lua_module_is_keyed_by_its_closure_not_the_program(tmp: st
   assert(key_of(tmp, s) ~= tool_before)
 end
 
---- A module that declares `lua` alone is keyed without what `cosmic
---- --standalone` loads beyond `-e` (build.test_inputs' `standalone_loads`):
---- an edit to the module that runs a standalone file, build/standalone.tl, leaves its key, while it moves
---- the key of one that requires build.standalone, whose closure holds
---- them, and an edit to what `-e` loads moves both.
-local function test_a_chunk_module_is_keyed_without_what_standalone_loads(tmp: string)
+--- A module that declares `lua` is keyed with what `cosmic -e` loads
+--- (build.test_inputs' `lua_loads`, and the checker the chunk runs
+--- through, `standalone_loads`), as a module that requires
+--- build.standalone is: an edit to the standalone runner moves both keys.
+local function test_a_chunk_module_is_keyed_with_what_dash_e_loads(tmp: string)
   tree(tmp)
   local by_path: mut {string:positions.Module} = {}
   for _, list in ipairs({ test_inputs.lua_loads, test_inputs.standalone_loads }) do
@@ -201,13 +200,12 @@ local function test_a_chunk_module_is_keyed_without_what_standalone_loads(tmp: s
     return key_of(tmp, s)
   end
   local chunk, both = key_declaring(false), key_declaring(true)
-  assert(chunk ~= both)
   assert(Fs.write(tmp .. "/build/standalone.tl", "return {} -- the standalone runner, edited\n"))
-  assert(key_declaring(false) == chunk, "a standalone runner edit moved a chunk module's key")
-  local both_after = key_declaring(true)
-  assert(both_after ~= both, "a standalone runner edit left a standalone module's key")
+  assert(key_declaring(false) ~= chunk, "a standalone runner edit left a chunk module's key")
+  assert(key_declaring(true) ~= both, "a standalone runner edit left a standalone module's key")
+  local chunk_after, both_after = key_declaring(false), key_declaring(true)
   assert(Fs.write(tmp .. "/build/dispatch.tl", "return {} -- dispatch, edited\n"))
-  assert(key_declaring(false) ~= chunk and key_declaring(true) ~= both_after)
+  assert(key_declaring(false) ~= chunk_after and key_declaring(true) ~= both_after)
 end
 
 --- A module the closure reaches only through a `local type` require
@@ -662,16 +660,16 @@ local function test_a_link_out_of_the_tree_has_no_key(tmp: string)
   assert(Fs.write(tmp .. "/outside.txt", "o\n"))
   assert(Fs.symlink("../../../../outside.txt", root .. "/suite/data/deeper/out"))
   local key, why = declared_key.compute(declared_key.digests(root), spec())
-  assert(key == nil and why:find("leads out of the tree", 1, true), why)
+  assert(key == nil and why:find("leads out of the tree", 1, true) ~= nil, why)
   assert(Fs.remove(root .. "/suite/data/deeper/out"))
   assert(Fs.symlink("/etc/passwd", root .. "/suite/data/abs"))
   key, why = declared_key.compute(declared_key.digests(root), spec())
-  assert(key == nil and why:find("/etc/passwd", 1, true), why)
+  assert(key == nil and why:find("/etc/passwd", 1, true) ~= nil, why)
   -- Dangling, and absolute: out of the tree by what it says.
   assert(Fs.remove(root .. "/suite/data/abs"))
   assert(Fs.symlink("/nowhere/at/all", root .. "/suite/data/abs"))
   key, why = declared_key.compute(declared_key.digests(root), spec())
-  assert(key == nil and why:find("/nowhere/at/all", 1, true), why)
+  assert(key == nil and why:find("/nowhere/at/all", 1, true) ~= nil, why)
   assert(Fs.remove(root .. "/suite/data/abs"))
   assert(Fs.symlink("../../lib.tl", root .. "/suite/data/deeper/in"))
   assert(key_of(root) ~= nil)

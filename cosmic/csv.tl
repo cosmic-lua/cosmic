@@ -331,7 +331,7 @@ function Csv.column_names(header: {string}, reserved?: {string}): {string}
     local name = if field == "" then "_" else (field:gsub("\0", "_")) end
     local candidate = name
     local number = 1
-    while taken[candidate:lower()] do
+    while taken[candidate:lower()] == true do
       number = number + 1
       candidate = name .. "_" .. number
     end

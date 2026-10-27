@@ -40,7 +40,7 @@ local function test_compiles_trim_even_when_no_row_was_reached(tmp: string)
   local result = trim(path, "compiles", 5)
   assert(result.complete, result.report.files[1].reason)
   local file = result.report.files[1]
-  assert(file.kept == 0 and file.removed == 2 and not file.reached)
+  assert(file.kept == 0 and file.removed == 2 and file.reached ~= true)
   assert(count(path, "compiled_v2") == 0 and count(path, "parsed_v1") == 0)
 end
 
@@ -91,7 +91,7 @@ local function test_verdicts_keep_unreached_then_trim_all_supported_tables(tmp: 
   assert(db:close())
   local untouched = trim(path, "verdicts", 5)
   assert(untouched.complete and untouched.report.files[1].kept == 3 and
-      untouched.report.files[1].removed == 0 and not untouched.report.files[1].reached)
+      untouched.report.files[1].removed == 0 and untouched.report.files[1].reached ~= true)
   db = assert(Sqlite.open(path, { writable = true }))
   assert(db:exec("INSERT INTO stores_v1 VALUES ('new','digest',5)"))
   assert(db:close())
@@ -279,7 +279,7 @@ local function test_cli_usage_and_json_empty_arrays(tmp: string)
   }
   local argv: mut {string} = { "cache", "trim", "compiles", tmp .. "/missing", "--since-ns", "0", "--json" }
   assert(cache.run(argv, io) == 0 and trouble.value == "", trouble.value)
-  assert(Json.decode(output.value) ~= nil and output.value:find('"warnings":[]', 1, true), output.value)
+  assert(Json.decode(output.value) ~= nil and output.value:find('"warnings":[]', 1, true) ~= nil, output.value)
   argv[6] = "-1"
   assert(cache.run(argv, io) == 2)
 end
@@ -389,7 +389,7 @@ local function test_vacuum_failure_reports_already_committed_row_counts(tmp: str
   local original = Sqlite.run
   Sqlite.run = function(handle: Sqlite.Handle, sql: string, values?: {Sqlite.Value}): boolean, string
     local ok, why = original(handle, sql, values)
-    if ok and sql:find('DELETE FROM "compiled_v2"', 1, true) then
+    if ok and sql:find('DELETE FROM "compiled_v2"', 1, true) ~= nil then
       -- VACUUM needs its temporary attached database; COMMIT needs none.
       local _ = handle:limit("attached", 0)
     end

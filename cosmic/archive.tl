@@ -505,7 +505,7 @@ local function extract_from(from: string | Archive.Reader, dest: string,
       if pending[rel] ~= nil then
         return false, "archive: refusing to write through a symlink: " .. entry_path
       end
-      if not real_dirs[rel] then
+      if real_dirs[rel] ~= true then
         local full = dest .. "/" .. rel
         local found, why, errno = sys.lstat(full)
         if found == nil then
@@ -701,7 +701,7 @@ local function extract_from(from: string | Archive.Reader, dest: string,
           -- checked (and so every directory above it) needs no
           -- second look.
           if kind == "dir" then
-            if pending_count > 0 or not real_dirs[rel] then
+            if pending_count > 0 or real_dirs[rel] ~= true then
               local split = parts or components(rel)
               parts = split
               local ok, dtrouble = ensure_dirs(split, #split, entry.path)
@@ -709,7 +709,7 @@ local function extract_from(from: string | Archive.Reader, dest: string,
             end
             dir_times[#dir_times + 1] = { path = dest_path, mtime = entry.mtime }
           else
-            if parent ~= nil and (pending_count > 0 or not real_dirs[parent]) then
+            if parent ~= nil and (pending_count > 0 or real_dirs[parent] ~= true) then
               local split = parts or components(rel)
               parts = split
               local ok, dtrouble = ensure_dirs(split, #split - 1, entry.path)

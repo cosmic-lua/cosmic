@@ -207,9 +207,9 @@ local function test_two_files_of_one_name_or_module_are_refused(tmp: string)
   local dotted = file(tmp, "x.y.tl", "return 2\n")
   local same = file(tmp, "other/x/y.tl", "return 3\n")
   local module = run({ "-o", tmp .. "/o", nested, dotted })
-  assert(module.code == 2 and module.err:find("both the module x.y", 1, true), module.err)
+  assert(module.code == 2 and module.err:find("both the module x.y", 1, true) ~= nil, module.err)
   local base = run({ "-o", tmp .. "/o", nested, same })
-  assert(base.code == 2 and base.err:find("compile them in two runs", 1, true), base.err)
+  assert(base.code == 2 and base.err:find("compile them in two runs", 1, true) ~= nil, base.err)
   assert(Fs.exists(tmp .. "/o/y.lua") == false)
 end
 

@@ -91,9 +91,9 @@ end
   assert(Fs.write(itself, assert(artifact.host_program(assert(artifact.trusted_core()),
     parts.database)), 0x1ed))
   local ok, text = run(itself, "first")
-  assert(ok and text:find("1 ran, 0 stood", 1, true), text)
+  assert(ok and text:find("1 ran, 0 stood", 1, true) ~= nil, text)
   ok, text = run(itself, "again")
-  assert(ok and text:find("0 ran, 1 stood", 1, true), text)
+  assert(ok and text:find("0 ran, 1 stood", 1, true) ~= nil, text)
 
   -- A release of one zone, Paris not among them.
   local archive = tmp .. "/tzdata-2099.1.tar.gz"
@@ -103,5 +103,5 @@ end
   local refreshed = tmp .. "/refreshed"
   assert(refresh.binary(itself, refreshed, { datasets.tzdata }, { tzdata = archive }))
   ok, text = run(refreshed, "refreshed")
-  assert(not ok and text:find("1 of 1 test failed", 1, true) and text:find("Europe/Paris", 1, true), text)
+  assert(not ok and text:find("1 of 1 test failed", 1, true) ~= nil and text:find("Europe/Paris", 1, true) ~= nil, text)
 end

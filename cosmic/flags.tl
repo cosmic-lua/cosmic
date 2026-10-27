@@ -128,7 +128,7 @@ end
 function Flags.parse(argv: {string}, from: integer,
                      spec: {string:boolean | Flags.Option}): Flags.Parsed?, string
   for name in pairs(spec) do
-    if name:sub(1, 1) ~= "-" or name == "-" or name == "--" or name:find("=", 2, true) then
+    if name:sub(1, 1) ~= "-" or name == "-" or name == "--" or name:find("=", 2, true) ~= nil then
       error("flags: " .. name .. " is not an option a spec can name", 2)
     end
     local entry = spec[name]

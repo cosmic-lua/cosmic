@@ -249,7 +249,7 @@ local function test_a_refusal_exits_1_with_one_line_naming_what_the_reply_means(
     asked(relay)
     assert(relay:write("\5\200\0\1\0\0\0\0\0\0"))
   end)
-  assert(unknown.code == 1 and unknown.complaints[1]:find("unknown reply code 200", 1, true), unknown.complaints[1])
+  assert(unknown.code == 1 and unknown.complaints[1]:find("unknown reply code 200", 1, true) ~= nil, unknown.complaints[1])
 end
 
 local function test_a_relay_that_breaks_the_protocol_or_goes_away_is_a_failure()
@@ -257,17 +257,17 @@ local function test_a_relay_that_breaks_the_protocol_or_goes_away_is_a_failure()
     asked(relay)
     assert(relay:write("\4\90\0\0\0\0\0\0"))
   end)
-  assert(version.code == 1 and version.complaints[1]:find("SOCKS version 4", 1, true), version.complaints[1])
+  assert(version.code == 1 and version.complaints[1]:find("SOCKS version 4", 1, true) ~= nil, version.complaints[1])
   local silent = against({ "h", "1" }, function(relay: Net.Conn)
     asked(relay)
   end)
-  assert(silent.code == 1 and silent.complaints[1]:find("closed the connection before it answered", 1, true),
+  assert(silent.code == 1 and silent.complaints[1]:find("closed the connection before it answered", 1, true) ~= nil,
     silent.complaints[1])
   local method = against({ "h", "1" }, function(relay: Net.Conn)
     assert(bytes(relay, 3) == "\5\1\0")
     assert(relay:write(RelayWire.socks_method_reply(255)))
   end)
-  assert(method.code == 1 and method.complaints[1]:find("no authentication method", 1, true), method.complaints[1])
+  assert(method.code == 1 and method.complaints[1]:find("no authentication method", 1, true) ~= nil, method.complaints[1])
 end
 
 local function test_it_refuses_a_command_line_or_environment_that_is_not_a_sandboxs()
@@ -331,7 +331,7 @@ local function test_nothing_listening_is_a_failure_naming_the_relay(_: string)
     write = function(): boolean, string return true, "" end,
     finish = function(): boolean, string return true, "" end,
   })
-  assert(code == 1 and complaints[1]:find("the relay at " .. proxy_at(closed), 1, true), tostring(complaints[1]))
+  assert(code == 1 and complaints[1]:find("the relay at " .. proxy_at(closed), 1, true) ~= nil, tostring(complaints[1]))
 end
 
 local function test_a_relay_that_never_answers_is_a_failure_after_the_timeout_naming_the_relay()
@@ -408,24 +408,24 @@ local function test_a_relay_that_answers_a_password_otherwise_is_a_failure()
     assert(bytes(relay, 3) == "\5\1\2")
     assert(relay:write(RelayWire.socks_method_reply(255)))
   end, nil, nil, "u:tok")
-  assert(none.code == 1 and none.complaints[1]:find("no authentication method", 1, true), none.complaints[1])
+  assert(none.code == 1 and none.complaints[1]:find("no authentication method", 1, true) ~= nil, none.complaints[1])
   -- A relay that takes no token selects "no authentication", which was not offered.
   local open = against({ "h", "1" }, function(relay: Net.Conn)
     assert(bytes(relay, 3) == "\5\1\2")
     assert(relay:write(RelayWire.socks_method_reply(0)))
   end, nil, nil, "u:tok")
-  assert(open.code == 1 and open.complaints[1]:find("the method 0 chosen is not one offered (only 2)", 1, true),
+  assert(open.code == 1 and open.complaints[1]:find("the method 0 chosen is not one offered (only 2)", 1, true) ~= nil,
     open.complaints[1])
   local version = against({ "h", "1" }, function(relay: Net.Conn)
     asked_with_login(relay, "\5\0")
   end, nil, nil, "u:tok")
-  assert(version.code == 1 and version.complaints[1]:find("username/password version 5", 1, true),
+  assert(version.code == 1 and version.complaints[1]:find("username/password version 5", 1, true) ~= nil,
     version.complaints[1])
   local early = against({ "h", "1" }, function(relay: Net.Conn)
     assert(bytes(relay, 3) == "\5\1\2")
     assert(relay:write(RelayWire.socks_method_reply(2) .. "\1\0"))
   end, nil, nil, "u:tok")
-  assert(early.code == 1 and early.complaints[1]:find("answered before it was asked", 1, true), early.complaints[1])
+  assert(early.code == 1 and early.complaints[1]:find("answered before it was asked", 1, true) ~= nil, early.complaints[1])
 end
 
 local function test_a_userinfo_that_cannot_be_used_is_refused_and_never_echoed()

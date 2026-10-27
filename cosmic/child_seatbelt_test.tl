@@ -227,7 +227,7 @@ local function test_more_paths_than_a_start_takes_are_refused(tmp: string)
   macos_only()
   local grants: mut {Sandbox.Grant} = {}
   for i = 1, 520 do
-    local path = tmp .. "/many-" .. i
+    local path = tmp .. "/many-" .. tostring(i)
     assert(Fs.write(path, "x"))
     grants[i] = { path = path, letters = "r" }
   end

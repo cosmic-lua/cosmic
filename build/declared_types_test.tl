@@ -130,16 +130,16 @@ local function test_a_reference_naming_no_type_is_as_declared()
   honest("build.alias_members", function()
     local source: alias_members.Source<alias_members.Declared> = {
       declared = function(_module: string, _name: string): alias_members.Declared?, string
-        return nil
+        return nil, ""
       end,
       exported = function(_module: string, _name: string): alias_members.Declared?, string
-        return nil
+        return nil, ""
       end,
       bound = function(_module: string, _name: string): string?, string
-        return nil
+        return nil, ""
       end,
       under = function(_target: alias_members.Declared): {alias_members.Declared}?, string
-        return {}
+        return {}, ""
       end,
       as_member = function(_owner: alias_members.Declared, member: alias_members.Declared,
                            _name: string): alias_members.Declared

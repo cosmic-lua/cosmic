@@ -1,0 +1,14 @@
+local function maybe(): integer?
+  return nil
+end
+local function one(): integer?
+  return 1
+end
+local function f(x: integer?): integer
+  if x == nil then return 0 end
+  local g = function(): integer return x + 1 end
+  x = nil
+  return g()
+end
+local sink: integer = f(1)
+return sink

@@ -219,7 +219,7 @@ local function checked(opts: any, known: {string:boolean}, what: string)
   if opts == nil then return end
   if not opts is {any:any} then error("web: " .. what .. " takes a table", 3) end
   for key in pairs(opts) do
-    if not (key is string and known[key]) then
+    if not (key is string and known[key] == true) then
       error(("web: %s has no field %s"):format(what, tostring(key)), 3)
     end
   end
@@ -300,7 +300,7 @@ local function scan(roots: {string}, ignored: function(string, string): boolean,
   for _, root in ipairs(roots) do
     local files: {string} = {}
     local present, _ = Fs.exists(root)
-    if not (absent_ok and present == false) then
+    if not (absent_ok == true and present == false) then
       local listed, why = Fs.walk_following(root, function(rel: string, name: string, _kind: Fs.Kind): boolean
         return ignored(rel, name)
       end)

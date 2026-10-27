@@ -847,13 +847,13 @@ local function test_the_module_has_the_templates_lines()
   local src = "\n{{type T from m.t}}\n{{mode text}}\nL4 {{.a\n   | m.f\n}} L6\n{{if .a}}\nL8\n{{else if .b}}\nL10\n" ..
     "{{else}}\nL12\n{{end}}\n{{range .c}}{{- .d -}}\nL15\n  {{end}}\n{{with .e}}\n L18\n{{end}}\nL20"
   local out = compiled(src)
-  assert(newlines(out) == newlines(src) + 1, "lines: " .. newlines(out) .. " for " .. newlines(src))
+  assert(newlines(out) == newlines(src) + 1, "lines: " .. tostring(newlines(out)) .. " for " .. tostring(newlines(src)))
   local lines: mut {string} = {}
   for line in out:gmatch("([^\n]*)\n") do
     lines[#lines + 1] = line
   end
   for number = 1, 20 do
-    local mark = "L" .. number
+    local mark = "L" .. tostring(number)
     local at = 0
     for index, line in ipairs(lines) do
       if line:find('"' .. mark, 1, true) or line:find(" " .. mark, 1, true) then
@@ -861,7 +861,7 @@ local function test_the_module_has_the_templates_lines()
       end
     end
     if src:find(mark .. "%D") or src:find(mark .. "$") then
-      assert(at == number, mark .. " is on line " .. at .. " of the module:\n" .. out)
+      assert(at == number, mark .. " is on line " .. tostring(at) .. " of the module:\n" .. out)
     end
   end
   assert(lines[#lines]:find("local _module: _Module = {render = render} return _module", 1, true), "last line: " .. lines[#lines])
@@ -878,7 +878,7 @@ local function test_each_loop_and_with_has_a_dot_of_its_own()
   local out = compiled(HEAD .. "{{range .a}}{{range .b}}{{with .c}}{{.d}}{{end}}{{.e}}{{end}}{{end}}{{.f}}")
   for _, name in ipairs({ "for _, d1 in", "for _, d2 in", "local d3 = " }) do
     local _, count = out:gsub(name, "")
-    assert(count == 1, name .. " " .. count .. " times in " .. out)
+    assert(count == 1, name .. " " .. tostring(count) .. " times in " .. out)
   end
   assert(out:find("= d3.d parts[#parts + 1] = _text(v)", 1, true) and out:find("= d2.e parts[#parts + 1] = _text(v)", 1, true) and
       out:find("= d.f parts[#parts + 1] = _text(v)", 1, true), out)

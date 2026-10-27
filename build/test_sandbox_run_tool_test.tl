@@ -113,13 +113,13 @@ local function test_a_sandboxed_run_holds_each_worker_to_its_inputs(tmp: string)
   -- Required where it can be, the same.
   env.COSMIC_TEST_SANDBOX = "1"
   text, ok = run(root, tmp .. "/required", env)
-  assert(not ok and text:find("; sandboxed", 1, true), text)
+  assert(not ok and text:find("; sandboxed", 1, true) ~= nil, text)
   assert(text:find("rerun: COSMIC_TEST_SANDBOX=1 cosmic test suite/view_test.tl:test_view", 1,
     true), text)
   -- A misspelt switch is refused.
   env.COSMIC_TEST_SANDBOX = "yes"
   text, ok = run(root, tmp .. "/misspelt", env)
-  assert(not ok and text:find('COSMIC_TEST_SANDBOX is "yes"', 1, true), text)
+  assert(not ok and text:find('COSMIC_TEST_SANDBOX is "yes"', 1, true) ~= nil, text)
 end
 
 --- End to end: a sandboxed worker writes a host cache its module
@@ -157,7 +157,7 @@ end
   if unsandboxed(text) then return end
   assert(text:find("wrote|true|false|end", 1, true), text)
   assert(Fs.read(xdg .. "/cosmic/zig-global/entry") == "cached")
-  assert(not Fs.exists(xdg .. "/cosmic/bootstrap"))
+  assert(Fs.exists(xdg .. "/cosmic/bootstrap") ~= true)
 end
 
 --- End to end: a module that grants a `host` path has its worker given
@@ -311,7 +311,7 @@ local function test_second(tmp: string) hold(tmp) end
   local function held(): integer
     local count = 0
     for _, name in ipairs(Fs.list(temp) or {}) do
-      if name:sub(1, 12) == "cosmic-test-" and Fs.exists(temp .. "/" .. name .. "/real/kept") then
+      if name:sub(1, 12) == "cosmic-test-" and Fs.exists(temp .. "/" .. name .. "/real/kept") == true then
         count = count + 1
       end
     end

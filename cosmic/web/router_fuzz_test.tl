@@ -166,7 +166,7 @@ local function test_the_app_answers_any_path_with_a_sane_status(tmp: string)
         Fuzz.label("ok")
       end
       if location ~= nil and res.status ~= 308 then
-        return false, "a Location beside " .. res.status
+        return false, "a Location beside " .. tostring(res.status)
       end
       return true, ""
     end,

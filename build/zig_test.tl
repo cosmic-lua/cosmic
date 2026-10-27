@@ -504,8 +504,7 @@ local function test_snapshot_names_a_same_size_rewrite_with_preserved_mtime(tmp:
       st.ctime = 100
       st.ctime_ns = tick.value
     end
-    if st ~= nil then return st end
-    return nil, trouble, errno
+    return st, trouble, errno
   end
   local ok, trouble = pcall(function()
     local was = assert(Fs.stat(path))
@@ -536,7 +535,7 @@ local function test_selected_output_controls_installation_and_lock(tmp: string)
     return 7
   end)
   assert(status == 7)
-  assert(not Fs.exists(root .. "/o"))
+  assert(Fs.exists(root .. "/o") ~= true)
 end
 
 local function test_cache_fallbacks_follow_selected_output()

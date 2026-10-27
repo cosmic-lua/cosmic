@@ -342,7 +342,7 @@ local function previous_runs(handle: Sqlite.Handle): {string:boolean}?, string
   end
   local out: mut {string:boolean} = {}
   for _, row in ipairs(rows) do out[row:text(1) .. " " .. row:text(2)] = true end
-  return out
+  return out, ""
 end
 
 --- How many runs a verdict stays after the last one that relied on it.

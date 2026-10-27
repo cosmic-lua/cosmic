@@ -278,7 +278,7 @@ function c.sources(dir: string): {string}?, string
   for _, file in ipairs(files) do
     if link_files.checked(file, true) == "c" then out[#out + 1] = file end
   end
-  return out
+  return out, ""
 end
 
 --- What the binding headers under `root` (core/syscalls.h and
@@ -374,17 +374,17 @@ end
 --- What checking `file` came to, and what it defines and refers to.
 local function outcome(root: string, file: string, result: Child.Result?, trouble: string,
                        declared: {string: rules.Declared}, limit: integer):
-    c.Outcome, rules.Unit
+    c.Outcome, rules.Unit?
   if result == nil then
-    return { file = file, trouble = trouble }
+    return { file = file, trouble = trouble }, nil
   end
   if not result.ok then
     local err = tostring(result.stderr or "")
-    return { file = file, trouble = "clang could not read it:\n" .. (err:gsub("\n+$", "")) }
+    return { file = file, trouble = "clang could not read it:\n" .. (err:gsub("\n+$", "")) }, nil
   end
   if result.truncated then
     return { file = file, trouble = "its syntax tree is larger than " .. plural.count(limit, "byte") ..
-        ", the most that is read of one" }
+        ", the most that is read of one" }, nil
   end
   local decls = tree.parse(tostring(result.stdout or ""), root)
   return { file = file, findings = rules.check(decls, file, declared) },
@@ -582,11 +582,12 @@ function c.check(root: string, files: {string}, cwd?: string, limit?: integer, s
           local job = jobs[which[done]]
           local made, unit = outcome(root, files[job.file], result,
             wait_trouble, declared, limit or dump_limit)
-          results[which[done]], units[which[done]] = made, unit
+          results[which[done]] = made
+          if unit ~= nil then units[which[done]] = unit end
           local made_findings = made.findings
           local made_key = keys[which[done]]
           -- A compile that made findings made a unit too.
-          if store ~= nil and made_key ~= nil and made_findings ~= nil then
+          if store ~= nil and made_key ~= nil and made_findings ~= nil and unit ~= nil then
             check_memo.put(store, "c", made_key, encoded(made_findings, unit))
           end
           local still: mut {Child.Handle} = {}

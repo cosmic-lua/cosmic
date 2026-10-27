@@ -155,7 +155,7 @@ local function alias_for(g: Gen, module_path: string): string
   local base = module_path:match("[^.]+$") or module_path
   local alias = base
   local number = 1
-  while RESERVED[alias] or types.keywords[alias] or imports.taken[alias] or alias:find("^d%d*$") do
+  while RESERVED[alias] == true or types.keywords[alias] == true or imports.taken[alias] == true or alias:find("^d%d*$") ~= nil do
     number = number + 1
     alias = base .. "_" .. number
   end
@@ -173,7 +173,7 @@ end
 
 --- `base` then the field `name`: `.name`, or `["name"]` for a keyword.
 local function member(base: string, name: string): string
-  if types.keywords[name] then
+  if types.keywords[name] == true then
     return base .. '["' .. name .. '"]'
   end
   return base .. "." .. name
@@ -207,7 +207,7 @@ local function value(g: Gen, pipe: types.Pipeline, dot: Dot, raw?: boolean): str
       expr = held
     end
   end
-  if raw then
+  if raw == true then
     expr = written
   end
   for _, stage in ipairs(pipe.stages) do
@@ -490,14 +490,14 @@ function Codegen.generate(template: types.Template): string
 
   local head: mut {string} = {}
   for _, path in ipairs(g.imports.order) do
-    head[#head + 1] = (if g.imports.as_value[path] then "local " else "local type " end) .. g.imports.alias_of[path] ..
+    head[#head + 1] = (if g.imports.as_value[path] == true then "local " else "local type " end) .. g.imports.alias_of[path] ..
       " = require(\"" .. path .. "\")"
   end
   if g.staged then
     head[#head + 1] = "local function _one<T>(v: T): T return v end"
   end
   for _, ctx in ipairs(HELPER_ORDER) do
-    if g.helpers[ctx] then
+    if g.helpers[ctx] == true then
       head[#head + 1] = helper(g, ctx)
     end
   end

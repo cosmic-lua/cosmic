@@ -145,14 +145,14 @@ local function test_a_form_the_grammar_cuts_is_a_syntax_error(tmp: string)
   assert(ran.err:find("cut.tl:1:", 1, true) and ran.err:find("(nil_union)", 1, true), ran.err)
 end
 
---- The grammar is the new one, named or not: the fork's is refused naming `cosmic migrate`, and a text in the fork's forms is a
+--- The grammar is the new one, named or not: the fork's is refused pointing to the project guide, and a text in the fork's forms is a
 --- syntax error.
 local function test_the_grammar_is_new_and_teal_is_refused(tmp: string)
   local new_only = file(tmp, "new.tl", "for i = 1, 2 do\n  if i == 1 then continue end\nend\nreturn 1\n")
   local teal_only = file(tmp, "teal.tl", "local x: string | nil = nil\nreturn x\n")
   local as_teal = run({ "--grammar", "teal", new_only })
   assert(as_teal.code == 2, as_teal.err)
-  assert(as_teal.err:find("the fork's grammar is gone", 1, true) and as_teal.err:find("cosmic migrate", 1, true), as_teal.err)
+  assert(as_teal.err:find("the fork's grammar is gone", 1, true) and as_teal.err:find("doc/guides/project.md", 1, true), as_teal.err)
   local as_new = run({ teal_only })
   assert(as_new.code == 2, as_new.err)
   assert(as_new.err:find("teal.tl:1:", 1, true), as_new.err)

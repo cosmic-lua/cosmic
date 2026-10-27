@@ -11,9 +11,14 @@ start needs no shell.
 
 ## a one-liner
 
-`cosmic -e '<chunk>'` runs a chunk of Lua, as `lua -e` does, against
-the standard library. No tree is built. The words after the chunk are
-its `...`, and an integer it returns is the exit code.
+`cosmic -e '<chunk>'` runs a chunk of Teal against the standard
+library. No tree is built. The chunk is checked as a file is, and one
+the checker refuses does not run: its messages are printed and `-e`
+exits 1. It takes the library by `require("cosmic.json")`, with a
+literal name, as a file does, and the tool's own modules the same way;
+nothing is bound for it. The words after
+the chunk are its `...`, each a `string?`, and an integer it returns is
+the exit code.
 
 ```teal
 local Child = require("cosmic.child")
@@ -52,8 +57,13 @@ executable and make its first line `#!/usr/bin/env cosmic`. The language
 skips that line, as Lua does, so the lines after it keep their numbers in
 errors and tracebacks. Only the first line of the file, from its first
 byte, is skipped, and only when it begins `#!`; a `#!` anywhere else is a
-syntax error. `cosmic migrate` and the language
-server leave the line as it is.
+syntax error. The language
+server leaves the line as it is.
+
+The file is Teal, in a file that ends in `.tl`. A `.lua` file is not run,
+and no `require` finds one: `cosmic hello.lua` says that cosmic runs
+Teal, checked, and to rename the file to `hello.tl` and run `cosmic fix`
+on it to see what the checker asks of it.
 
 ## help for one verb
 

@@ -93,8 +93,8 @@ end
 --- An absolute, normalized path, not SBPL text. Quotes, parentheses and
 --- newlines are safe in parameters; a NUL cannot cross the C API.
 local function absolute(path: string): boolean
-  if path:sub(1, 1) ~= "/" or path:find("\0", 1, true) then return false end
-  if path ~= "/" and (path:sub(-1) == "/" or path:find("//", 1, true)) then return false end
+  if path:sub(1, 1) ~= "/" or path:find("\0", 1, true) ~= nil then return false end
+  if path ~= "/" and (path:sub(-1) == "/" or path:find("//", 1, true) ~= nil) then return false end
   for part in path:gmatch("[^/]+") do
     if part == "." or part == ".." then return false end
   end
@@ -139,7 +139,7 @@ local function allow(text: mut {string}, fattr: boolean, letters: string, at: st
     text[#text + 1] = "(allow file-write-data " .. at .. ")"
   end
   if letters:find("x", 1, true) then
-    text[#text + 1] = (if map_only then "(allow file-map-executable " else "(allow process-exec file-map-executable " end) ..
+    text[#text + 1] = (if map_only == true then "(allow file-map-executable " else "(allow process-exec file-map-executable " end) ..
       at .. ")"
   end
   if letters:find("c", 1, true) then
@@ -148,7 +148,7 @@ local function allow(text: mut {string}, fattr: boolean, letters: string, at: st
   if letters:find("u", 1, true) then
     text[#text + 1] = "(allow network-outbound " .. at .. ")"
   end
-  if fattr and (letters:find("w", 1, true) or letters:find("c", 1, true)) then
+  if fattr and (letters:find("w", 1, true) or letters:find("c", 1, true)) ~= nil then
     text[#text + 1] = "(allow file-write-mode file-write-owner file-write-times " ..
       "file-write-flags file-write-xattr " .. at .. ")"
   end
@@ -281,11 +281,11 @@ function Seatbelt.compile(policy: rules.Policy, options?: Seatbelt.Options): Sea
   for i, grant in ipairs(merged.grants or {}) do
     local name = "PATH_" .. i
     parameters[name] = grant.path
-    allow(text, fattr, grant.letters, '(' .. (if directories[grant.path] then "subpath" else "literal" end) ..
+    allow(text, fattr, grant.letters, '(' .. (if directories[grant.path] == true then "subpath" else "literal" end) ..
         ' (param "' .. name .. '"))', serves ~= nil and grant.path ~= runs)
   end
   local tmp: string?
-  if policy.tmp then
+  if policy.tmp == true then
     tmp = TMP_PARAMETER
     allow(text, fattr, "rwc", '(subpath (param "' .. tmp .. '"))')
   end

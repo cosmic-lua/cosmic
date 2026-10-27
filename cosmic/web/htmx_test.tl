@@ -343,7 +343,7 @@ local function test_the_assets_have_ranges_and_gzip_from_the_static_files_handle
   local whole = client:get(Htmx.path())
   local part = client:get(Htmx.path(), { headers = { ["Range"] = "bytes=0-9" } })
   assert(part.status == 206 and part.body == whole.body:sub(1, 10), part.status)
-  assert(part.headers["content-range"] == "bytes 0-9/" .. #whole.body)
+  assert(part.headers["content-range"] == "bytes 0-9/" .. tostring(#whole.body))
   assert(part.headers["cross-origin-resource-policy"] == "same-origin")
   local packed = client:get(Htmx.path(), { headers = { ["Accept-Encoding"] = "gzip" } })
   assert(packed.status == 200 and packed.headers["content-encoding"] == "gzip")

@@ -7,6 +7,7 @@ local Fixture = require("cosmic_ci.fixture")
 local Fs = require("cosmic.fs")
 local Predicate = require("cosmic_ci.fs_predicate")
 local Hash = require("cosmic.hash")
+local HostId = require("cosmic_ci.host_id")
 local LauncherSetup = require("cosmic_ci.launcher_setup")
 local Maps = require("cosmic_ci.maps")
 local ProductSetup = require("cosmic_ci.product_setup")
@@ -56,6 +57,8 @@ local record Orchestration
     low?: integer
   end
   harness_moved: function(root: string, base: string): Moved
+  stale_rows: function(path: string, features: string): integer?, string
+  gather_bound: function(stale: integer): integer
   test_words: function(env: {string:string}): {string}
   shares: function(env: {string:string}): {string:string}
   sandboxed_fixtures: function(): {string:boolean}
@@ -644,11 +647,64 @@ local checked_shard_timeout_ns <const> = Clock.seconds(600)
 --- and keying the tests, and the few tests that keep no verdict (187 of
 --- 8200 in a local run, 34 s in all on the release core where all the rest
 --- stood), some three times that on the checked core.
--- TODO: lower this bound once CI's own runs of the step show its time; it
--- is sized from that one local run, times the checked core's slowdown, and
--- says only that a run that merged no share's verdicts, which runs the
--- whole suite, fails in minutes rather than pass in twenty.
+---
+--- That holds only for the rows whose key this host reaches. A share that
+--- ran on a host of other host features (build/declared_key.tl's
+--- `host_features`: the processor features a core dispatches on, and the
+--- kernel's release and version, which a sandboxed verdict can depend on,
+--- so they are rightly in the key) keeps rows this run cannot stand on,
+--- and the run runs those tests again, one after another. Run 40495570639
+--- of cosmic-lua/cosmic#3263 read 5751 rows under one host's features and
+--- 1914 under another's, and ran 2046 tests in the 300 s this bound was,
+--- at some 330 a minute, and timed out; the run that moved the harness
+--- epoch and found 7665 of 7801 rows standing took 167 s in all.
+---
+--- So the bound is the base time, 300 s, that run's share of the harness'
+--- time with room, and a time for each row [`stale_rows`] counts under
+--- other host features: `gather_row_ns`, 0.3 s, some 1.7 times the 0.18 s a
+--- test took there, and capped by `checked_gather_cap_ns`.
 local checked_gather_timeout_ns <const> = Clock.seconds(300)
+--- What a test the gathering run runs again may take of its bound, on
+--- average: 1.7 times the 0.18 s of run 40495570639's pace.
+local gather_row_ns <const> = Clock.ms(300)
+--- The most the gathering run is given, whatever it must run again: 13
+--- minutes, which leaves ci.yml's `checked` job, whose 20 minutes
+--- build/workflows_test.tl holds it to, the five or so of its boot,
+--- checked build and merge before the step and its steps after (a whole
+--- suite run, which takes 1096 s where no verdict stands, fits in no
+--- gather). A run that needs more ends here, with the line
+--- [`gather_budget`] said, not at the job's timeout without one.
+local checked_gather_cap_ns <const> = Clock.seconds(780)
+
+--- How many rows the verdict cache at `path` holds that a host of
+--- `features` ([`HostId.features`]) cannot stand on: those stamped with
+--- other key parts, or none (build/shared_verdicts.tl's `parts`, whose
+--- first is "host features <digest>"). Nil and why where `path` is no
+--- cache of this format, which a gathering run then bounds as one with
+--- nothing to run again.
+function Orchestration.stale_rows(path: string, features: string): integer?, string
+  if features:match("^%x+$") == nil then
+    return nil, "host features " .. features .. " are no digest"
+  end
+  local db, open_trouble = Sqlite.open(path)
+  if db == nil then return nil, path .. ": " .. open_trouble end
+  local rows, trouble = Sqlite.text_rows(db, "SELECT COUNT(*) FROM declared_v1 " ..
+      "WHERE parts NOT LIKE 'host features " .. features .. ",%'")
+  local _, _ = db:close()
+  if rows == nil then return nil, path .. ": " .. trouble end
+  local first = rows[1]
+  if first == nil then return nil, path .. ": no count" end
+  return math.tointeger(tonumber(first:text(1)) or -1), ""
+end
+
+--- The time the gathering run is given when `stale` rows of the shares'
+--- verdicts are under other host features: the base, and a
+--- `gather_row_ns` for each, up to `checked_gather_cap_ns`.
+function Orchestration.gather_bound(stale: integer): integer
+  local bound = checked_gather_timeout_ns + stale * gather_row_ns
+  if bound > checked_gather_cap_ns then return checked_gather_cap_ns end
+  return bound
+end
 -- Each test's bound on the checked core: the release suites' (below)
 -- scaled by how much slower the checked core runs a test, about 2.9
 -- times over the suite and 5.5 times for a compile-heavy module
@@ -1035,6 +1091,31 @@ local function performance_fixture(c: Context, work: string, kind: string, progr
   return fixture_run_spec(c, work, performance_spec(c, work, kind, program))
 end
 
+--- The gathering run's bound ([`Orchestration.gather_bound`]) over the
+--- cache at `path` merged from the shares, with a line on standard error
+--- when rows of it stand on another host's features: that those tests run
+--- again here, how many, and how long the run is given, so a step that
+--- ends at its bound is read for what it was given.
+local function gather_budget(path: string): integer
+  local features = HostId.features(HostId.live(Env.all()))
+  local stale, trouble = Orchestration.stale_rows(path, features)
+  if stale == nil then
+    local _, _ = Fs.put(Fs.stderr, "checked suite: gathering bound: no count of the shares' rows under " ..
+        "other host features (" .. trouble .. "); the base bound\n")
+    return Orchestration.gather_bound(0)
+  end
+  local bound = Orchestration.gather_bound(stale)
+  if stale > 0 then
+    local capped = ""
+    if bound == checked_gather_cap_ns then capped = ", the most it is ever given" end
+    local _, _ = Fs.put(Fs.stderr, "checked suite: " .. Plural.count(stale, "row") ..
+        " of the shares' verdicts are under host features other than this host's (" .. features ..
+        "): their tests run again here, one after another, so the gathering run is given " ..
+        tostring(bound // Clock.seconds(1)) .. " s" .. capped .. "\n")
+  end
+  return bound
+end
+
 --- The checked core, verified on every leg -- its manifest entry in the
 --- checked artifact, read by `decoder` (the contract's
 --- format-test-<target>), its range, and that the artifact runs it --
@@ -1122,7 +1203,7 @@ local function checked_suite(c: Context, target: string, work: string,
   -- which builds and writes nothing.
   local context = work .. "/checked-context.txt"
   s = capture_small(c, "checked runtime context", { cosmic, "-e",
-    "local Store = require('cosmic.store'); print(Store.meta('runtime_context'), " ..
+    "local Store = require('cosmic.store') print(Store.meta('runtime_context'), " ..
       "Store.meta('host'), Store.meta('host_image'))" }, context, Clock.seconds(30))
   if s ~= 0 then return s end
   assert(read(context) == "portable-v1\t" .. target .. "\t" .. digest .. "\n",
@@ -1224,7 +1305,7 @@ local function checked_suite(c: Context, target: string, work: string,
   if share ~= nil then
     bound = checked_shard_timeout_ns
   elseif gathering then
-    bound = checked_gather_timeout_ns
+    bound = gather_budget(Orchestration.suite_verdicts(Env.all(), "checked"))
   end
   s = logged(c, "checked suite", checked_argv,
     diagnostics .. "/checked-test.out", diagnostics .. "/checked-test.err",

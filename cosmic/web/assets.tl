@@ -318,7 +318,7 @@ end
 --- @return Assets.Source The source
 function Assets.default(opts?: Assets.DefaultOptions): Assets.Source
   local root = opts and opts.root or "static"
-  if opts ~= nil and opts.dev then return Assets.directory(root) end
+  if opts ~= nil and opts.dev == true then return Assets.directory(root) end
   if is_built() then return Assets.embedded() end
   local log = opts and opts.log or function(text: string)
     local _, _ = Fs.put(Fs.stderr, text .. "\n")

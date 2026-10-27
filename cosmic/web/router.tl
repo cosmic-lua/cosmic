@@ -127,7 +127,7 @@ local function parse(pattern: string, mount: boolean): Parsed?, string
           format(piece)
       end
       if mount then return nil, "a mount's prefix holds no parameter" end
-      if seen[name] then return nil, ("the parameter '%s' is named twice"):format(name) end
+      if seen[name] == true then return nil, ("the parameter '%s' is named twice"):format(name) end
       seen[name] = true
       parsed.names[#parsed.names + 1] = name
       if first == "*" then
@@ -303,7 +303,7 @@ local function add_mount(route: Types.Route, ctx: Router.Context, root: Types.No
   local own: mut {Types.Middleware} = {}
   for _, mw in ipairs(ctx.chain) do own[#own + 1] = mw end
   for _, mw in ipairs(route.middleware or {}) do own[#own + 1] = mw end
-  if route.name ~= "" and route.name:find(":", 1, true) then
+  if route.name ~= "" and route.name:find(":", 1, true) ~= nil then
     refuse(what, "a mount's name holds no ':'")
   end
   local mount: Types.Mount = { prefix = full_prefix }
@@ -422,8 +422,8 @@ end
 local function allow_of(verbs: {string:boolean}): string
   local list: mut {string} = {}
   for method in pairs(verbs) do list[#list + 1] = method end
-  if verbs["GET"] and not verbs["HEAD"] then list[#list + 1] = "HEAD" end
-  if not verbs["OPTIONS"] then list[#list + 1] = "OPTIONS" end
+  if verbs["GET"] == true and verbs["HEAD"] ~= true then list[#list + 1] = "HEAD" end
+  if verbs["OPTIONS"] ~= true then list[#list + 1] = "OPTIONS" end
   table.sort(list)
   return table.concat(list, ", ")
 end
@@ -530,7 +530,7 @@ local function reverse(self: Types.Router, name: string, params?: {string: strin
     strings[key] = value is string and value or ("%d"):format(value)
   end
   local path: string
-  if entry.mount then
+  if entry.mount == true then
     if entry.resolve == nil then return nil, ('url_for: mount "%s" has no reverse'):format(name) end
     local url, why = entry.resolve(assert(entry.prefix), strings)
     if url == nil then return nil, why end
@@ -564,10 +564,10 @@ local function reverse(self: Types.Router, name: string, params?: {string: strin
       end
     end
     for key in pairs(strings) do
-      if not used[key] then return nil, ('url_for "%s": unknown param %s'):format(name, key) end
+      if used[key] ~= true then return nil, ('url_for "%s": unknown param %s'):format(name, key) end
     end
     path = "/" .. table.concat(parts, "/")
-    if (entry.slash or open_rest) and #parts > 0 then path = path .. "/" end
+    if (entry.slash == true or open_rest) and #parts > 0 then path = path .. "/" end
   end
   if query ~= nil and next(query) ~= nil then
     local names: mut {string} = {}

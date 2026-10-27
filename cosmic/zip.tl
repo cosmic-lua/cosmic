@@ -555,7 +555,7 @@ local function next_record(c: Cursor, mt: metatable<Zip.Entry>, bare?: boolean):
         tostring(local_offset) .. ", " .. String.counted(csize, "compressed byte") .. ") runs past " ..
         "the start of the central directory at " .. tostring(cd_offset))
   end
-  if bare and kind ~= "symlink" then return CHECKED, "" end
+  if bare == true and kind ~= "symlink" then return CHECKED, "" end
   local entry: Zip.Entry = setmetatable({
     path = buf:sub(name_start, name_end),
     kind = kind,
@@ -737,7 +737,7 @@ function Zip.open(path: string): Zip.Reader?, string
   local reading = { closed = false }
   local pread: Pread = function(offset: integer, count: integer): string?, string
     -- Once closed, `fd` may already name some other file.
-    if reading.closed then return refuse(path .. ": the reader is closed") end
+    if reading.closed == true then return refuse(path .. ": the reader is closed") end
     local data, ptrouble = sys.pread(fd, count, offset)
     if data == nil then return nil, ptrouble end
     return data, ""
@@ -758,7 +758,7 @@ end
 function Zip.open_string(data: string): Zip.Reader?, string
   local reading = { closed = false }
   local pread: Pread = function(offset: integer, count: integer): string?, string
-    if reading.closed then return refuse("the reader is closed") end
+    if reading.closed == true then return refuse("the reader is closed") end
     if offset >= #data then return "", "" end
     return data:sub(offset + 1, offset + count), ""
   end
@@ -789,7 +789,7 @@ local function local_header(name: string, method: integer, dos_time: integer, do
                             crc: integer, csize: integer, usize: integer, flags?: integer, wide?: boolean): string
   local extra = ""
   local version = 20
-  if wide or usize >= U32_MAX or csize >= U32_MAX then
+  if wide == true or usize >= U32_MAX or csize >= U32_MAX then
     extra = zip64_extra({ usize, csize })
     -- Whenever the field is there, the fields it stands for are the
     -- sentinel (a streamed entry's, which announces zip64 before it

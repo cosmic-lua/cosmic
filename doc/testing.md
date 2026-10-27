@@ -39,7 +39,7 @@ stands on another checkout's pass.
 - `--no-shared` (`COSMIC_TEST_NO_SHARED=1`) stands on no shared verdict.
 - The new checker is the tool's only one: [`build.pipeline`] reads the tree, checks it against its ceilings and writes
   the Lua. `COSMIC_GRAMMAR` takes `new` or nothing ([`build.grammar_mode`]); `teal`, the grammar of the fork that was
-  deleted, is refused, naming `cosmic migrate`, which rewrites a project to the new one. A project outside cosmic's own
+  deleted, is refused, pointing to the project guide, which says how to rewrite a project to the new one. A project outside cosmic's own
   has no ceilings: every error refuses, its globals are the declarations of the standard library the tool carries
   ([`build.checker_declarations`]), and a form of the old grammar is refused with the new checker's words and fix. A
   lone file run (`cosmic --standalone`, `cosmic sandbox`) and a file run (`cosmic <file>`) are built by it too. `cosmic
@@ -163,13 +163,24 @@ refuses a module of the tree outside the closure.
 - To start this program, declare the profile `"cosmic"` with the grant
   `{ path = "o/bin", letters = "rx" }` beside it (`tool`). That gives
   the program and nothing else.
-- To run Lua in the program only (`-e`), the profile `"cosmic"` alone
-  is enough (`lua`). Its key holds the closure, not the whole program.
+- To run a Teal chunk in the program only (`-e`), the profile `"cosmic"`
+  alone is enough (`lua`). `-e` checks its chunk as a file is checked, so
+  the chunk is Teal. It requires `cosmic.*` modules and the tool's own
+  modules, typed from their sources, but only those of the test module's
+  closure are in the store its children run (a `require` of another is
+  refused where the chunk is checked, naming it). The key holds the
+  closure and the checker `-e` runs, not the whole program.
   It is refused beside the profile `"system"`, the `o/cosmic.db` store
   grant or a `/cache/` grant, since a host program or a cosmic a cache
   holds could start the program with no hold on what it loads. Declare
   the `o/bin` grant beside the profile instead, to run the program
   itself.
+- A chunk is Teal and cannot reach what a test module reaches by a cast
+  (the C bindings' raw tables) or by changing a library's table. Code that
+  must run in a process of the program for that reason goes in the test
+  module, registered with [`build.test_child`] at its top level and started
+  with `test_child.words(tmp, "<the module>", "<name>", args)` as the
+  words after the program, where the chunk is written for it.
 - A test that starts cosmic's core past the launcher uses
   [`build.this_program`]'s `program` and needs no `"system"` profile.
   Build a child's environment from its `environment()` only where the
@@ -406,25 +417,18 @@ seeded source. A check must hold for all of them. The module doc of
 ## a change to the checker's verdicts
 
 A change to the type checker that must not move a verdict, or must move
-only the ones it says, is held to the gate's verdict table,
-[`testdata/gate/verdicts.json`] ([`lang.check_verdicts`]): one row for each
-program the fork's tests pinned and each input of the checker's fuzz
-corpora (`testdata/fuzz/checker-*`), with what the fork said of it (frozen
-data: the fork went with the switch) and what the new checker says.
-[`lang/check_verdicts_test.tl`] holds the checker to the table, so a verdict
-that moves fails it by program, saying what the table has and what the
-checker now says. A change that moves verdicts on purpose runs
-`bin/cosmic build/gate_record.tl`, which writes the new checker's side of
-the table again, and reads the diff: each row that moved is a program
-whose verdict the change moves, and a difference from the fork's side
-needs its rule in [`testdata/gate/rules.json`], `retired.json` or
-`open.json`, which the same test checks.
+only the ones it says, is held by the tests of each rule
+(`lang/check_*_test.tl`, which name a program and the code it gets) and
+by the checker's fuzz properties ([`lang/check_flow_fuzz_test.tl`],
+[`lang/check_total_fuzz_test.tl`], [`lang/check_assigned_fuzz_test.tl`]),
+which run the checker on drawn programs and on the corpora in
+`testdata/fuzz/checker-*`.
 
 The tree alone is weak evidence for a change to narrowing: the tree's own
 code is written to pass, and a checker that narrowed less or more leaves
-most of its lines as they are. The corpora carry that sensitivity, so a
-narrowing change reads the diff of the whole table, not of the tree's
-ceilings alone.
+most of its lines as they are. The fuzz properties carry that sensitivity,
+so a narrowing change runs them with a larger `FUZZ_ITERS` as well as
+reading the tree's ceilings.
 
 ## other hazards
 
@@ -521,6 +525,7 @@ Other rules:
 [`build.pipeline`]: ../build/pipeline.tl
 [`build.rebuild`]: ../build/rebuild.tl
 [`build.sandboxed_verdicts_test`]: ../build/sandboxed_verdicts_test.tl
+[`build.test_child`]: ../build/test_child.tl
 [`build.test_sandbox_probe`]: ../build/test_sandbox_probe.tl
 [`build.test_sandbox`]: ../build/test_sandbox.tl
 [`build.test_worker`]: ../build/test_worker.tl
@@ -546,13 +551,11 @@ Other rules:
 [`importer.checked_tool`]: ../build/importer.tl
 [`lang.boundary_checks`]: ../lang/boundary_checks.tl
 [`lang.check_programs`]: ../lang/check_programs.tl
-[`lang.check_verdicts`]: ../lang/check_verdicts.tl
 [`lang.codegen`]: ../lang/codegen.tl
 [`lang.fact_wraps`]: ../lang/fact_wraps.tl
+[`lang/check_assigned_fuzz_test.tl`]: ../lang/check_assigned_fuzz_test.tl
 [`lang/check_flow_fuzz_test.tl`]: ../lang/check_flow_fuzz_test.tl
-[`lang/check_verdicts_test.tl`]: ../lang/check_verdicts_test.tl
+[`lang/check_total_fuzz_test.tl`]: ../lang/check_total_fuzz_test.tl
 [`Test.passed_unchecked`]: ../cosmic/test.tl
 [`Test.policy`]: ../cosmic/test.tl
 [`Test.skip`]: ../cosmic/test.tl
-[`testdata/gate/rules.json`]: ../testdata/gate/rules.json
-[`testdata/gate/verdicts.json`]: ../testdata/gate/verdicts.json

@@ -226,7 +226,7 @@ end
 
 local function test_last_event_id_replays_what_the_ring_holds_after_it()
   local hub = Sse.new_hub({ replay = 3, queue = 8 })
-  for i = 1, 5 do assert(hub:publish("t", { data = "e" .. i }) == 0) end
+  for i = 1, 5 do assert(hub:publish("t", { data = "e" .. tostring(i) }) == 0) end
   Web.with_server(hub_app(hub), function(client: Web.LoopbackClient)
     local feed = open(client.host, "/events/t", { ["Last-Event-ID"] = "3" })
     assert(chunk(feed) == "retry: 100\n\n")
@@ -243,7 +243,7 @@ end
 
 local function test_a_last_event_id_the_ring_lost_starts_with_a_reset()
   local hub = Sse.new_hub({ replay = 3 })
-  for i = 1, 5 do hub:publish("t", { data = "e" .. i }) end
+  for i = 1, 5 do hub:publish("t", { data = "e" .. tostring(i) }) end
   Web.with_server(hub_app(hub), function(client: Web.LoopbackClient)
     for _, lost in ipairs({ "1", "99", "not a number" }) do
       local feed = open(client.host, "/events/t", { ["Last-Event-ID"] = lost })
@@ -266,7 +266,7 @@ local function test_a_topic_that_dropped_newer_events_makes_a_replay_across_topi
   Poll.run(function()
     local hub = Sse.new_hub({ replay = 2 })
     hub:publish("a", { data = "a1" })
-    for i = 1, 5 do hub:publish("b", { data = "b" .. i }) end
+    for i = 1, 5 do hub:publish("b", { data = "b" .. tostring(i) }) end
     local sub = assert(hub:subscribe({ "a", "b" }, { after = "1" }))
     assert(sub.gap, "b has dropped events newer than the client's")
     assert(assert(sub:next(0)).event == "reset")
@@ -278,7 +278,7 @@ end
 local function test_the_ring_boundary_is_oldest_minus_one_against_oldest()
   Poll.run(function()
     local hub = Sse.new_hub({ replay = 3 })
-    for i = 1, 5 do hub:publish("t", { data = "e" .. i }) end
+    for i = 1, 5 do hub:publish("t", { data = "e" .. tostring(i) }) end
     local lost = assert(hub:subscribe({ "t" }, { after = "2" }))
     assert(lost.gap, "the event before the oldest is gone, and so may be its successors")
     local held = assert(hub:subscribe({ "t" }, { after = "3" }))
@@ -291,7 +291,7 @@ local function test_subscribing_to_names_and_leaving_leaves_no_topic_behind()
   Poll.run(function()
     local hub = Sse.new_hub({})
     for i = 1, 50 do
-      local sub = assert(hub:subscribe({ "fresh" .. i }, { after = "x" }))
+      local sub = assert(hub:subscribe({ "fresh" .. tostring(i) }, { after = "x" }))
       sub:close()
     end
     local none = Sse.new_hub({ replay = 0 })
@@ -303,7 +303,7 @@ local function test_subscribing_to_names_and_leaving_leaves_no_topic_behind()
         count = count + 1
       end
     end
-    assert(count == 0, "topics left: " .. count)
+    assert(count == 0, "topics left: " .. tostring(count))
     local keep = assert(hub:subscribe({ "live" }))
     hub:publish("live", { data = "x" })
     keep:close()
@@ -400,7 +400,7 @@ local function test_a_slow_client_over_the_wire_is_cut_off_and_reconnects_to_its
     local feed = open(client.host, "/events/t")
     assert(chunk(feed) == "retry: 100\n\n")
     -- Published with no wait between: the stream task has not run to drain the queue.
-    for i = 1, 4 do hub:publish("t", { data = "e" .. i }) end
+    for i = 1, 4 do hub:publish("t", { data = "e" .. tostring(i) }) end
     assert(hub:subscribers() == 0, "overflow dropped the subscription")
     assert(chunk(feed) == "id: 1\ndata: e1\n\n" and chunk(feed) == "id: 2\ndata: e2\n\n")
     assert(chunk(feed) == nil, "its stream ends, so the browser reconnects")
@@ -473,7 +473,7 @@ local function serving(app: Web.App, grace_ns: integer, fn: function(host: strin
   local ok, why = Web.serve(app, { listeners = { Net.tcp("127.0.0.1", 0) }, grace_ns = grace_ns,
     on_ready = function(addresses: {Net.Address}, server: Net.Server)
       local ran, trouble = pcall(function()
-        fn("127.0.0.1:" .. assert(addresses[1].port), server)
+        fn("127.0.0.1:" .. tostring(assert(addresses[1].port)), server)
       end)
       if not ran then failure.value = tostring(trouble) end
       server:stop()
@@ -621,7 +621,7 @@ local function test_a_quiet_stream_with_heartbeats_outlives_the_servers_timeouts
     timeout_ns = Clock.ms(100), idle_ns = Clock.ms(100), grace_ns = Clock.seconds(1),
     on_ready = function(addresses: {Net.Address}, server: Net.Server)
       local ran, trouble = pcall(function()
-        local feed = open("127.0.0.1:" .. assert(addresses[1].port), "/events/t")
+        local feed = open("127.0.0.1:" .. tostring(assert(addresses[1].port)), "/events/t")
         assert(chunk(feed) == "retry: 100\n\n")
         local beats = 0
         local started = Clock.monotonic_ns()
