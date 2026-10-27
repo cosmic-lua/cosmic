@@ -100,6 +100,23 @@ local record host_requires
     "refused"
   end
 
+  --- The outcome a probe answers: whether present, and what a key holds or
+  --- why not.
+  record Found
+    present: boolean
+    text: string
+  end
+
+  --- A requirement's table entry.
+  record Entry
+    --- Of a `platform` entry, whether this platform ever has it, where the
+    --- answer is no probe's but the platform's own; the outcome is `na`
+    --- where it does not.
+    platform_has?: function(host: host_requires.Host): boolean
+    --- The probe, handed its argument ("" for none) and the host.
+    probe: function(argument: string, host: host_requires.Host): Found
+  end
+
   --- One requirement's outcome.
   record Answer
     --- The requirement as written.
@@ -191,22 +208,8 @@ local function linux(host: host_requires.Host): boolean
   return sandbox_platform()
 end
 
---- The outcome a probe answers: whether present, and what a key holds or
---- why not.
-local record Found
-  present: boolean
-  text: string
-end
-
---- A requirement's table entry.
-local record Entry
-  --- Of a `platform` entry, whether this platform ever has it, where the
-  --- answer is no probe's but the platform's own; the outcome is `na`
-  --- where it does not.
-  platform_has?: function(host: host_requires.Host): boolean
-  --- The probe, handed its argument ("" for none) and the host.
-  probe: function(argument: string, host: host_requires.Host): Found
-end
+local type Found = host_requires.Found
+local type Entry = host_requires.Entry
 
 --- Whether `path` is there; raises where the host cannot say, as for a
 --- directory it may not search.
@@ -579,8 +582,10 @@ end
 --- any other asks its probe, once per `host`, and answers `present` with
 --- its key text, or `skipped`. Raises where a probe cannot tell.
 --- @param names requirements as written
+--- @param entries the table to read in place of the real one, for a test
 --- @return an answer for each
-function host_requires.answer(host: host_requires.Host, names: {string}): {host_requires.Answer}
+function host_requires.answer(host: host_requires.Host, names: {string},
+                              entries?: {string: host_requires.Entry}): {host_requires.Answer}
   local out: mut {host_requires.Answer} = {}
   for i, name in ipairs(names) do
     local cached = host.found[name]
@@ -589,7 +594,7 @@ function host_requires.answer(host: host_requires.Host, names: {string}): {host_
       if spec == nil then
         cached = { name = name, class = "host", kind = "refused", key = "", why = why }
       else
-        local entry = table_of[spec.base]
+        local entry = (entries or table_of)[spec.base]
         local has = entry.platform_has
         if spec.class == "platform" and has == nil then
           error("host_requires: " .. spec.base .. " is a platform requirement with no platform_has", 0)
