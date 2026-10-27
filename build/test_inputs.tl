@@ -109,6 +109,10 @@ for _, name in ipairs(this_program.runtime_environment) do pinned_env[#pinned_en
 --- `sealed_for`), which carries no other module of the program. A module
 --- added to that way is not found by such a process until it is added
 --- here; build/lua_children_test.tl holds a `-e` child to loading no more.
+-- TODO: hold cosmic.errors and its closure here too: the core
+-- requires it for an uncaught error's guidance (core/main.c's
+-- `ask_guidance`), which a child of a `lua` module cannot load and so
+-- prints none, silently, where another prints the catalog's.
 test_inputs.lua_loads = {
   "build.dispatch", "build.exit_status", "build.help_source", "build.paths", "build.logger",
   "cmd.cosmic.main", "cosmic.codec", "cosmic.env", "cosmic.fs", "cosmic.hash", "cosmic.log",
