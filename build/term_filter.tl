@@ -383,7 +383,7 @@ function TermFilter.new(): Filter
     table.sort(numbers)
     for _, number in ipairs(numbers) do
       if modes[number] ~= MODE_DEFAULTS[number] then
-        resets[#resets + 1] = "\27[?" .. number .. (if MODE_DEFAULTS[number] then "h" else "l" end)
+        resets[#resets + 1] = "\27[?" .. tostring(number) .. (if MODE_DEFAULTS[number] then "h" else "l" end)
         modes[number] = MODE_DEFAULTS[number]
       end
     end

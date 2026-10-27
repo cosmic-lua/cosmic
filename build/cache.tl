@@ -84,7 +84,7 @@ function verb.run(argv: {string}, io?: verb.Io): integer
       local line = file.path .. ": " .. file.state
       local kept, removed = file.kept, file.removed
       if kept ~= nil and removed ~= nil then
-        line = line .. "; kept " .. kept .. ", removed " .. removed
+        line = line .. "; kept " .. tostring(kept) .. ", removed " .. tostring(removed)
       end
       if #file.unknown_tables > 0 then
         line = line .. "; unknown tables kept: " .. table.concat(file.unknown_tables, ", ")
@@ -97,7 +97,7 @@ function verb.run(argv: {string}, io?: verb.Io): integer
     local digest = report.digest
     if digest ~= nil then lines[#lines + 1] = "digest " .. digest end
     local fresh = report.fresh
-    if fresh ~= nil then lines[#lines + 1] = "fresh " .. fresh end
+    if fresh ~= nil then lines[#lines + 1] = "fresh " .. tostring(fresh) end
     output = table.concat(lines, "\n") .. "\n"
   end
   if not bare.delivered(complain, to.out(output)) then return 1 end

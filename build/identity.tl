@@ -450,7 +450,7 @@ local function hash_of(db: Sqlite.Handle, names: {string}, extra: string): strin
   local slots: mut {string} = {}
   local values: mut {Sqlite.Value} = {}
   for index, name in ipairs(names) do
-    slots[#slots + 1] = "?" .. index
+    slots[#slots + 1] = "?" .. tostring(index)
     values[#values + 1] = text(name)
   end
   local rows, trouble = Sqlite.text_rows(db,

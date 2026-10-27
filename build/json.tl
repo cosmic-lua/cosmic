@@ -168,7 +168,7 @@ end
 local function keys_of(value: any): string?, string
   if value is {any:any} then
     local layout = Json.layout(value)
-    if layout == "array" then return rawlen(value) .. "\n", "" end
+    if layout == "array" then return tostring(rawlen(value)) .. "\n", "" end
     if layout == "object" then
       local names: mut {string} = {}
       for key in pairs(value) do

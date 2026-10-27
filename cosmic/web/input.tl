@@ -465,18 +465,18 @@ local function read_multipart(req: Types.Request, limit: integer, opts: Types.In
   local spooled: Spooled = { kept = {} }
   local fields: Url.Query = { pairs = {}, by_name = {} }
   local files: mut {string:{Input.Upload}} = {}
-  local m: Input.Multipart = { fields = fields, files = files, size = 0 }
-  m.discard = function(_self: Input.Multipart)
-    for _, upload in ipairs(spooled.kept) do
-      local _, _ = Fs.remove(upload.path)
-    end
-    spooled.kept = {}
-    local made = spooled.made
-    if made ~= nil then
-      local _, _ = Fs.remove_tree(made)
-      spooled.made = nil
-    end
-  end
+  local m: Input.Multipart = { fields = fields, files = files, size = 0,
+    discard = function(_self: Input.Multipart)
+      for _, upload in ipairs(spooled.kept) do
+        local _, _ = Fs.remove(upload.path)
+      end
+      spooled.kept = {}
+      local made = spooled.made
+      if made ~= nil then
+        local _, _ = Fs.remove_tree(made)
+        spooled.made = nil
+      end
+    end }
   -- A task killed while it waits for the body (a client that went away)
   -- runs no code after the wait, only its pending closes: they remove what
   -- is spooled so far.

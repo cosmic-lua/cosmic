@@ -207,7 +207,7 @@ local function blame_args(file: string, lines: {integer}, ignored: string?): {st
   end
   for _, line in ipairs(lines) do
     args[#args + 1] = "-L"
-    args[#args + 1] = line .. "," .. line
+    args[#args + 1] = tostring(line) .. "," .. tostring(line)
   end
   args[#args + 1] = "--"
   args[#args + 1] = file
@@ -609,7 +609,7 @@ function todos.render(todo: todos.Todo): string
     when = todos.date(todo.author_time)
     commit = (if todo.boundary then "^" else "" end) .. todo.commit:sub(1, 7)
   end
-  return todo.file .. ":" .. todo.line .. ": " .. when .. " " .. commit ..
+  return todo.file .. ":" .. tostring(todo.line) .. ": " .. when .. " " .. commit ..
     " " .. link_text.unlinked(todo.text)
 end
 

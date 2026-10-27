@@ -146,7 +146,7 @@ function link_resolve.anchors(text: string): {string: boolean}
       out[slug] = true
     else
       count[slug] = seen + 1
-      out[slug .. "-" .. (seen + 1)] = true
+      out[slug .. "-" .. tostring((seen + 1))] = true
     end
   end
   local previous: string? = nil
@@ -316,7 +316,7 @@ local function one_of(found: mut {string}, none: string): string?
     return none
   end
   table.sort(found)
-  return "it names " .. #found .. ": " .. table.concat(found, ", ", 1, math.min(#found, 5)) ..
+  return "it names " .. tostring(#found) .. ": " .. table.concat(found, ", ", 1, math.min(#found, 5)) ..
     (if #found > 5 then ", ..." else "" end) .. "; link the one meant in full"
 end
 
@@ -469,7 +469,7 @@ function link_resolve.resolve(resolver: link_resolve.Resolver, from: string, tar
   end
   if #found > 1 and file ~= nil then
     table.sort(found)
-    return nil, "it names " .. #found .. ": " .. table.concat(found, ", ") ..
+    return nil, "it names " .. tostring(#found) .. ": " .. table.concat(found, ", ") ..
       "; write ./" .. shown(resolver, file) .. " for the file, or the symbol in full"
   end
   local problem = one_of(found, why)

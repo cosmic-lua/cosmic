@@ -128,9 +128,9 @@ local function test_a_sandbox_the_platform_lacks_is_refused(tmp: string)
   for index, sandbox in ipairs(sandboxes) do
     local ok, pid, trouble, errno = pcall(process.spawn, probe, { probe, "print hi" }, nil, tmp, nil,
       nil, nil, false, nil, sandbox)
-    assert(ok, "a start of a sandbox the platform lacks is refused, not raised, " .. index .. ": " .. tostring(pid))
+    assert(ok, "a start of a sandbox the platform lacks is refused, not raised, " .. tostring(index) .. ": " .. tostring(pid))
     assert(pid == nil and (errno == sys.ENOSYS or errno == sys.EPERM or errno == sys.EACCES or
-      errno == sys.EINVAL or errno == sys.ENOSPC), index .. ": " .. tostring(trouble))
+      errno == sys.EINVAL or errno == sys.ENOSPC), tostring(index) .. ": " .. tostring(trouble))
   end
   assert(not process.subreaper(), "there is no subreaper to be")
 end

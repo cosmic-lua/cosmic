@@ -92,11 +92,11 @@ local function to_items(blocks: {Block}): {Item}?, string
       current = nil
     elseif b.lang == "output" then
       if current == nil then
-        return nil, "line " .. b.line ..
+        return nil, "line " .. tostring(b.line) ..
           ": an output block must immediately follow an example"
       end
       if current.has_output then
-        return nil, "line " .. b.line .. ": this example already has an output block"
+        return nil, "line " .. tostring(b.line) .. ": this example already has an output block"
       end
       current.has_output = true
       current.output_text = b.content
@@ -130,7 +130,7 @@ local function to_items(blocks: {Block}): {Item}?, string
         end
       elseif b.modifiers.continue then
         if current == nil then
-          return nil, "line " .. b.line ..
+          return nil, "line " .. tostring(b.line) ..
             ": 'teal continue' has no open example to continue"
         end
         current.statements[#current.statements + 1] = b.content
@@ -151,7 +151,7 @@ local function to_items(blocks: {Block}): {Item}?, string
   end
 
   if #pending_files > 0 then
-    return nil, "line " .. pending_files[1].line ..
+    return nil, "line " .. tostring(pending_files[1].line) ..
       ": a file= block has no entry block to attach it to"
   end
 
@@ -160,7 +160,7 @@ local function to_items(blocks: {Block}): {Item}?, string
     local example = item.example
     if item.kind == "example" and example ~= nil then
       n = n + 1
-      example.name = (if example.has_output then "test_" else "example_" end) .. n
+      example.name = (if example.has_output then "test_" else "example_" end) .. tostring(n)
     end
   end
   return items, ""
@@ -328,12 +328,12 @@ function generate.from_blocks(blocks: {Block}, file: string, prose?: string): st
   local declared: Block? = nil
   for _, b in ipairs(blocks) do
     if b.lang == "policy" and declared ~= nil then
-      return nil, "line " .. b.line .. ": a doc declares its policy once; line " ..
-        declared.line .. " did already"
+      return nil, "line " .. tostring(b.line) .. ": a doc declares its policy once; line " ..
+        tostring(declared.line) .. " did already"
     elseif b.lang == "policy" then
       local why = unspliceable(b.content)
       if why ~= "" then
-        return nil, "line " .. b.line .. ": the policy line " .. why
+        return nil, "line " .. tostring(b.line) .. ": the policy line " .. why
       end
       declared = b
     end
@@ -456,7 +456,7 @@ end
   for _, item in ipairs(items) do
     local example = item.example
     if item.kind == "example" and example ~= nil then
-      out[#out + 1] = "-- line " .. example.name .. " " .. example.line
+      out[#out + 1] = "-- line " .. example.name .. " " .. tostring(example.line)
     end
   end
 

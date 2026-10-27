@@ -347,7 +347,7 @@ function verb.run(argv: {string}, io?: verb.Io): integer
   local options: Http.Options = { script = to.script, roots = roots, ca = ca, pin = pins }
   options.redirect_protocols = verb.redirect_protocols(url, parsed.set["--allow-downgrade"] or false)
   local function failed_status(status: integer): integer
-    complain(shown .. ": HTTP " .. status)
+    complain(shown .. ": HTTP " .. tostring(status))
     return bare.failed
   end
   local function written(ok: boolean, why: string): integer
@@ -401,7 +401,7 @@ function verb.run(argv: {string}, io?: verb.Io): integer
       text = encoded .. "\n"
     else
       -- The reason phrase is not kept, so the status line is `HTTP <code>`.
-      local lines: mut {string} = { "HTTP " .. response.status }
+      local lines: mut {string} = { "HTTP " .. tostring(response.status) }
       for _, name in ipairs(names) do
         -- A repeated Set-Cookie arrives joined with "\n": a line each.
         for value in String.lines(response.headers[name]) do

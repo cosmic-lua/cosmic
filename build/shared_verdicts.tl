@@ -423,7 +423,7 @@ function shared_verdicts.settle(cache: shared_verdicts.Cache, origin: string,
       if not aged then return false, age_trouble end
       local bounded, bound_trouble = Sqlite.run(db, "DELETE FROM " .. name ..
           " WHERE " .. key .. " IN (SELECT " .. key .. " FROM " .. name .. " " ..
-          "ORDER BY used_ns DESC LIMIT -1 OFFSET " .. kept_rows .. ")")
+          "ORDER BY used_ns DESC LIMIT -1 OFFSET " .. tostring(kept_rows) .. ")")
       if not bounded then return false, bound_trouble end
     end
     return true, ""

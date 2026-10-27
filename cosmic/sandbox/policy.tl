@@ -180,7 +180,7 @@ local record rules
     --- The file's absolute path, with no "..".
     path: string
     --- The SHA-256 of the file's bytes, in lowercase hex; nil for a path alone.
-    sha256: string?
+    sha256?: string
   end
 end
 

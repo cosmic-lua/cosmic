@@ -71,7 +71,7 @@ local record Archive
     --- negative count raises.
     strip_components?: integer
     --- Asked with a path already stripped; false skips the entry.
-    filter: function(string): boolean
+    filter?: function(string): boolean
     --- "skip" (the default) or "create". Created symlinks are made
     --- last, after every other entry, and nothing is ever written
     --- through one, so no symlink -- this archive's or one already in

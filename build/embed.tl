@@ -78,7 +78,7 @@ local function copy_rows(from: Sqlite.Handle, into: Sqlite.Handle,
   end
   local slots: mut {string} = {}
   for index = 1, #columns do
-    slots[index] = "?" .. index
+    slots[index] = "?" .. tostring(index)
   end
   local insert = "INSERT OR IGNORE INTO " .. table_name .. " (" ..
     table.concat(columns, ", ") .. ") VALUES (" .. table.concat(slots, ", ") .. ")"

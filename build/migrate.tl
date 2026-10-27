@@ -252,7 +252,7 @@ end
 local function rewrite_of(code: string, edits: {Edit}): Rewrite
   local keys: mut {string} = {}
   for _, e in ipairs(edits) do
-    keys[#keys + 1] = e.lo .. ":" .. e.hi .. ":" .. e.text
+    keys[#keys + 1] = tostring(e.lo) .. ":" .. tostring(e.hi) .. ":" .. e.text
   end
   return { code = code, edits = edits, key = table.concat(keys, "\0") }
 end
@@ -1081,7 +1081,7 @@ function Migrate.run(files: {string: string}, options?: Migrate.Options): Migrat
     local translated = Translate.translate(assert(files[path]), path)
     result.texts[path] = translated.text
     for _, e in ipairs(translated.errors) do
-      result.untranslated[#result.untranslated + 1] = path .. ":" .. e.y .. ":" .. e.x .. ": " .. e.msg .. " (" .. e.code .. ")"
+      result.untranslated[#result.untranslated + 1] = path .. ":" .. tostring(e.y) .. ":" .. tostring(e.x) .. ": " .. e.msg .. " (" .. e.code .. ")"
     end
   end
   local found = survey(result.texts, paths, checking)
@@ -1140,7 +1140,7 @@ end
 local function listed(counts: {string: integer}): string
   local parts: mut {string} = {}
   for code, n in pairs(counts) do
-    parts[#parts + 1] = code .. " " .. n
+    parts[#parts + 1] = code .. " " .. tostring(n)
   end
   table.sort(parts)
   return if #parts == 0 then "none" else table.concat(parts, ", ") end
@@ -1314,7 +1314,7 @@ function Migrate.main(argv: {string}, streams?: Migrate.Io): integer
       lines[#lines + 1] = "... and " .. plural.count(#result.left - LISTED, "more finding") .. ", counted by code in the summary"
       break
     end
-    local line = f.path .. ":" .. f.y .. ":" .. f.x .. ": " .. f.msg .. " (" .. f.code .. ")"
+    local line = f.path .. ":" .. tostring(f.y) .. ":" .. tostring(f.x) .. ": " .. f.msg .. " (" .. f.code .. ")"
     if f.note ~= "" then
       line = line .. "; not rewritten: " .. f.note
     end
@@ -1329,8 +1329,8 @@ function Migrate.main(argv: {string}, streams?: Migrate.Io): integer
     paths_count = paths_count + 1
   end
   lines[#lines + 1] = "read " .. plural.count(paths_count, "file") .. ", " .. (if checking then "would change " else "changed " end) ..
-    #result.changed .. "; findings " .. total(result.before) .. " after the translation (" .. listed(result.before) ..
-    "), " .. total(result.after) .. " after " .. plural.count(total(result.rewrites), "rewrite") .. " in " ..
+    tostring(#result.changed) .. "; findings " .. tostring(total(result.before)) .. " after the translation (" .. listed(result.before) ..
+    "), " .. tostring(total(result.after)) .. " after " .. plural.count(total(result.rewrites), "rewrite") .. " in " ..
     plural.count(result.rounds, "round") .. " (" .. listed(result.after) .. ")"
   local open: mut {string} = {}
   if checking and #result.changed > 0 then

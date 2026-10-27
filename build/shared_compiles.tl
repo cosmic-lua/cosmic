@@ -198,7 +198,7 @@ end
 --- What a row's digest is of: its Lua, bytecode and packed uses, each
 --- but the last led by its length, so no two rows' parts run together.
 local function digest_of(lua: string, bytecode: string, refs: string): string
-  return Hash.hex_sha256(#lua .. "\n" .. lua .. #bytecode .. "\n" .. bytecode .. refs)
+  return Hash.hex_sha256(tostring(#lua) .. "\n" .. lua .. tostring(#bytecode) .. "\n" .. bytecode .. refs)
 end
 
 --- The names a parse requires, a line each.
@@ -223,8 +223,8 @@ end
 --- its rows, each but the last led by its length.
 local function parse_digest(key: shared_compiles.ParseKey, requires: string,
                             rows: string): string
-  return Hash.hex_sha256(#key.analyzer .. "\n" .. key.analyzer .. key.source_hash .. "\n" ..
-      (if key.mapped then "mapped" else "own" end) .. "\n" .. #requires .. "\n" .. requires .. rows)
+  return Hash.hex_sha256(tostring(#key.analyzer) .. "\n" .. key.analyzer .. key.source_hash .. "\n" ..
+      (if key.mapped then "mapped" else "own" end) .. "\n" .. tostring(#requires) .. "\n" .. requires .. rows)
 end
 
 --- Whether `path` is `kind` (a "dir" or a "file"), this user's and
