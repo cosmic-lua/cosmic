@@ -69,9 +69,10 @@
 -- has a use for one ([`lang.check`]'s `class_scope` refuses both): the table is the module's own local.
 --
 -- TODO: take truthiness from the new checker's types, in place of the translator's syntactic rule
--- ([`lang.truthy`]), once expressions land (doc/plans/new-checker-types.md, "expressions
--- without flow"): a name or a call whose type is neither boolean nor optional is then truthy, and its `if`
--- expression is `c and a or b` and not a function called on the spot.
+-- ([`lang.truthy`]), once the nil codes (`nil_not_allowed`, `index_may_be_nil`) are closed, so that a type cannot
+-- lie about nil (doc/plans/new-checker-types.md, "expressions without flow"): a name or a call whose type is
+-- neither boolean nor optional is then truthy, and its `if` expression is `c and a or b` and not a function called
+-- on the spot.
 --
 -- TODO: write `local _ = require("m")` as nothing where `m` returns a type, and an `is` of an imported enum as a
 -- test for a string and of an imported userdata record as one for userdata, once the new checker's type report
