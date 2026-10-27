@@ -1290,7 +1290,7 @@ and the worker that compared the two. what the change did, and what it decided:
   wrapper set `COSMIC_GRAMMAR=new`), and what they cannot yet spell waits on the pin (`bin/cosmic todos
   '"cosmic-driver.pin"'`).
 - **the boot.** the bridge compiles the files of [`build/seed.txt`] with the pinned release as the seed, compiles them
-  again from the tree, and builds the tool with the second; `lang/SEED_DIFFERS` names the files a generator change
+  again from the tree, and builds the tool with the second; [`lang/SEED_DIFFERS`] names the files a generator change
   ahead of the pin makes differ. no stage reads the fork.
 - **the readers.** `cosmic fix`, the tree checks, the language server, the doc and link readers, coverage, the
   sandbox's closure and the template compiler read the syntax tree of the new grammar. `cosmic fix` reads and checks
@@ -1581,5 +1581,6 @@ since the seed's Lua runs on the tree's VM.
 [`build/type_watch.tl`]: ../../build/type_watch.tl
 [`Child.Handle`]: ../../cosmic/child.tl
 [`cosmic.json.array`]: ../../cosmic/json.tl
+[`lang/SEED_DIFFERS`]: ../../lang/SEED_DIFFERS
 [`testdata/gate/retired.json`]: ../../testdata/gate/retired.json
 [`Types.Atom`]: ../../lang/types.tl

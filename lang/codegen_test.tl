@@ -1139,7 +1139,173 @@ local function test_an_if_expression_whose_values_are_never_false_is_and_or_and_
   -- Left to the syntax, a value that may be false is no `and`/`or`; an arithmetic is.
   assert(not generated("local x = if y then z else 2 end\n").text:find(" and ", 1, true))
   assert(generated("local x = if y then z + 1 else 2 end\n").text:find("y and z + 1 or 2", 1, true))
-  assert(generated("local x = if y then false else 2 end\n").text:find("function", 1, true))
+  assert(generated("f(if y then false else 2 end)\n").text:find("function", 1, true))
+end
+
+-- if expressions written as if statements ---------------------------------------------------------------------------
+
+--- Whether `text` has a function made and called on the spot.
+local function has_closure(text: string): boolean
+  return text:find("(function(", 1, true) ~= nil
+end
+
+local function test_an_if_expression_that_may_be_false_is_an_if_statement_in_a_local_an_assignment_and_a_return()
+  local cases: {string: string} = {
+    ["local x = if c then a else b end\nreturn x\n"] = "local x; if c then x = a else x = b end\nreturn x\n",
+    ["x = if c then a else b end\n"] = "if c then x = a else x = b end\n",
+    ["return if c then a else b end\n"] = "if c then return (a) else return (b) end\n",
+    ["local x = if c then a elseif d then false else b end\n"] = "local x; if c then x = a elseif d then x = false else x = b end\n",
+    ["local x = if c then (if d then a else b end) else f() end\n"] = "local x; if c then if d then x = a else x = b end else x = f() end\n",
+    ["local x = if c then if d then a else 1 end else f() end\n"] = "local x; if c then if d then x = a else x = 1 end else x = f() end\n",
+  }
+  for source, expected in pairs(cases) do
+    local text = generated(source).text
+    -- The text has no newline after its last line.
+    assert(text .. "\n" == expected, "for " .. source .. "the generator wrote\n" .. text .. "\nnot\n" .. expected)
+  end
+end
+
+local function test_the_common_if_expressions_make_no_function()
+  local sources: {string} = {
+    "local x = if c then a else b end\n",
+    "local x = if c then a elseif d then b else 3 end\n",
+    "x = if c then a else nil end\n",
+    "return if c then a else b end\n",
+    "local x = if c then if d then a else b end else 3 end\n",
+    "local x = if c then 1 else 2 end\n",
+    "local function f(...: any): any\n  return if c then ... else 0 end\nend\n",
+    "local function f(): any\n  return if c then g() else (h()) end\nend\n",
+  }
+  for _, source in ipairs(sources) do
+    local text = generated(source).text
+    assert(not has_closure(text), "a function in\n" .. text)
+  end
+end
+
+local function test_an_if_expression_in_a_place_where_order_is_not_kept_stays_a_function()
+  local sources: {string} = {
+    "f(1, if c then a else b end)\n",
+    "t.k = if c then a else b end\n",
+    "return 1, if c then a else b end\n",
+    "local x <const> = if c then a else b end\n",
+    "local x <close> = if c then a else b end\n",
+    "local x, y = if c then a else b end\n",
+    "local x = if c then x else 1 end\n",
+    "local x = 1 + (if c then a else b end)\n",
+    "a, b = if c then a else b end, 2\n",
+  }
+  for _, source in ipairs(sources) do
+    assert(has_closure(generated(source).text), "no function for " .. source)
+  end
+end
+
+local function test_an_if_statement_takes_only_the_arm_that_holds_and_in_the_order_of_the_source()
+  local source = program(
+    "local log: {string} = {}",
+    "local function see(name: string, value: any): any",
+    "  log[#log + 1] = name",
+    "  return value",
+    "end",
+    "local a = if see(\"c1\", false) then see(\"a\", 1) elseif see(\"c2\", true) then see(\"b\", false) else see(\"c\", 3) end",
+    "local b",
+    "b = if see(\"c3\", nil) then see(\"d\", 1) else see(\"e\", nil) end",
+    "local function r(): any",
+    "  return if see(\"c4\", true) then see(\"f\", false) else see(\"g\", 1) end",
+    "end",
+    "local c = r()",
+    "return a, b, c, table.concat(log, \",\")")
+  local a, b, c, order = run(source)
+  assert(a == false and b == nil and c == false, tostring(a) .. " " .. tostring(b) .. " " .. tostring(c))
+  assert(order == "c1,c2,b,c3,e,c4,f", order)
+end
+
+local function test_an_if_statement_gives_false_and_nil_as_they_are_and_one_value()
+  local source = program(
+    "local function two(): integer, integer return 1, 2 end",
+    "local function count(...: any): integer return select(\"#\", ...) end",
+    "local function one(c: boolean): any",
+    "  return if c then two() else nil end",
+    "end",
+    "local function none(c: boolean): any",
+    "  return if c then nil else false end",
+    "end",
+    "local function rest(...: any): any",
+    "  local x = if select(\"#\", ...) > 1 then ... else false end",
+    "  return x",
+    "end",
+    "local function rest_return(...: any): any",
+    "  return if select(\"#\", ...) > 1 then ... else false end",
+    "end",
+    "return count(one(true)) * 10000 + count(none(true)) * 1000 + count(none(false)) * 100 + count(rest_return(5, 6)) * 10",
+    "  + count(rest_return()), rest(5, 6), rest(5), none(false)")
+  local counts, first, second, third = run(source)
+  assert(counts == 11111 and first == 5 and second == false and third == false, tostring(counts))
+end
+
+local function test_a_local_made_from_an_if_statement_is_not_the_one_its_arms_read()
+  local source = program(
+    "local x = 10",
+    "do",
+    "  local x = if x > 5 then x else false end",
+    "  local y = if x then x else false end",
+    "  x = if not y then 1 else nil end",
+    "  return x, y",
+    "end")
+  local x, y = run(source)
+  assert(x == nil and y == 10)
+  local text = generated("local x = 10\nlocal x = if x > 5 then x else false end\nreturn x\n").text
+  assert(has_closure(text), text)
+end
+
+local function test_a_nested_if_expression_and_a_loop_with_continue_stay_correct()
+  local source = program(
+    "local function grade(n: integer): any",
+    "  return if n > 90 then if n > 99 then false else \"a\" end elseif n > 50 then nil else (if n > 10 then \"c\" else false end) end",
+    "end",
+    "local out: {any} = {}",
+    "for i = 1, 4 do",
+    "  if i == 2 then continue end",
+    "  local g = if i == 1 then false else i end",
+    "  out[#out + 1] = g",
+    "  if i == 4 then",
+    "    return grade(100) == false and grade(95) == \"a\" and grade(60) == nil and grade(20) == \"c\" and grade(1) == false,",
+    "      out[1] == false and out[2] == 3 and out[3] == 4 and #out == 3",
+    "  end",
+    "end")
+  local graded, looped = run(source)
+  assert(graded == true and looped == true)
+end
+
+local function test_an_if_statement_keeps_the_lines_of_the_source_for_an_error_in_an_arm()
+  local source = program(
+    "local function boom(): any",
+    "  error(\"boom\")",
+    "end",
+    "local function run(): any",
+    "  local x = if false then boom",
+    "    elseif false then boom",
+    "    else boom()",
+    "  end",
+    "  return x",
+    "end",
+    "return pcall(run)")
+  local text = generated(source).text
+  assert(not has_closure(text), text)
+  local ok, message = run(source)
+  assert(ok == false and tostring(message):find("^t:2: boom") ~= nil, tostring(message))
+  local _, lines = text:gsub("\n", "\n")
+  local _, source_lines = source:gsub("\n", "\n")
+  assert(lines + 1 == source_lines, "the Lua has " .. tostring(lines) .. " lines to the source's " .. tostring(source_lines))
+  -- The keywords stay on the lines the source has them on.
+  local at = 0
+  local found = 0
+  for line in (text .. "\n"):gmatch("(.-)\n") do
+    at = at + 1
+    if line:find("^%s*else x = boom") ~= nil or line:find("^%s*else") ~= nil and line:find("x = boom()", 1, true) ~= nil then
+      found = at
+    end
+  end
+  assert(found == 7, "the else is at line " .. tostring(found) .. "\n" .. text)
 end
 
 -- continue that run -------------------------------------------------------------------------------------------------

@@ -10,7 +10,8 @@
 --     tool never depends on the pin's emitter: it is the tree's own generator applied to the tree's own source. A file
 --     whose Lua stage two writes otherwise than the seed does must be named in `lang/SEED_DIFFERS`, one path a line (a
 --     change to what the generator writes adds it; the move of ci/cosmic-driver.pin to a release carrying the change
---     removes it).
+--     removes it). A seed that `COSMIC_BOOTSTRAP` names instead of the pin is not held to a listed file that does not
+--     differ (the boot of the tree by its own tool); the pinned seed is.
 --   * Stage two is loaded the same way, as [`build.seed`]: its `program(root, declared)` is a build of the new checker over
 --     the tree, and the searcher answers `build.*` and the rest up to [`build.boot`] with the Lua it writes, a module at
 --     a time. Type errors are not refused (the tree's checks hold the code to its ceilings); a syntax error and a
@@ -548,7 +549,12 @@ end
 -- Holds the files whose Lua stage two writes otherwise than the seed does to `lang/SEED_DIFFERS`, both ways. Raises
 -- the complaint, naming the files, for a seed that miscompiles or a change to the generator the file does not declare,
 -- for a file it lists that does not differ, for a name that is no file of the seed list and for an empty file.
-local function hold_to_declared(list, seed, stage_two, seed_dir)
+--
+-- A seed that `COSMIC_BOOTSTRAP` names is not the pinned release, and a file the list holds that does not differ is not
+-- refused then: the tree's own tool as the seed compiles every file as stage two does, so no entry can differ, while
+-- the boot with the pin still refuses a stale entry and so takes it out at the pin move. A difference the list does
+-- not hold is refused for any seed: the tool can be older than the tree's generator, and the entry is still due.
+local function hold_to_declared(list, seed, stage_two, seed_dir, variables)
   local differ = {}
   for _, relative in ipairs(differing(list, stage_two, seed)) do differ[relative] = true end
   local listed_files, present = seed_differs_declared()
@@ -570,8 +576,10 @@ local function hold_to_declared(list, seed, stage_two, seed_dir)
   for name in pairs(differ) do
     if not listed_files[name] then undeclared[name] = true end
   end
-  for name in pairs(listed_files) do
-    if not differ[name] then stale[name] = true end
+  if variable(variables, 'COSMIC_BOOTSTRAP') == '' then
+    for name in pairs(listed_files) do
+      if not differ[name] then stale[name] = true end
+    end
   end
   if next(undeclared) then
     error('the seed in ' .. seed_dir .. ' differs from the build compiled by itself in ' .. joined(undeclared) ..
@@ -672,7 +680,7 @@ local function bootstrap(seed_dir, entry, variables)
       keep(made, 'compiler', compiler_key, '', pack_records(records))
     end
   end
-  hold_to_declared(list, seed, stage_two, seed_dir)
+  hold_to_declared(list, seed, stage_two, seed_dir, variables)
 
   local codes = {}
   for _, relative in ipairs(list) do
