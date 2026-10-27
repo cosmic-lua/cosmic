@@ -1322,8 +1322,6 @@ cosmic/test_policy_test.tl nil_not_allowed 11
 
 cosmic/test_test.tl nil_not_allowed 1
 
-cosmic/test_tool_test.tl nil_not_allowed 4
-
 cosmic/time.tl nil_not_allowed 78
 
 cosmic/time_duration_fuzz_test.tl nil_not_allowed 1
@@ -2338,10 +2336,6 @@ build/lsp/source.tl view_written 1
 
 build/lsp/syntax_read.tl view_written 1
 
-build/must_confine_sandboxed_test.tl view_written 1
-
-build/must_confine_test.tl view_written 1
-
 build/pipeline.tl view_written 2
 
 build/pipeline_check.tl view_written 1
@@ -3245,10 +3239,6 @@ build/link_index.tl map_field 4
 
 build/link_resolve.tl map_field 6
 
-build/must_confine_fixture.tl map_field 4
-
-build/must_confine_test.tl map_field 2
-
 build/patch_test.tl map_field 18
 
 build/paths_test.tl map_field 3
@@ -3368,8 +3358,6 @@ build/test_standing_test.tl map_field 10
 build/test_test.tl map_field 1
 
 build/test_worker.tl map_field 10
-
-build/test_worker_exit_tool_test.tl map_field 6
 
 build/test_worker_test.tl map_field 7
 

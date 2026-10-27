@@ -1,8 +1,8 @@
 --- `cosmic test --check-types` end to end for the facts of the new checker: a project's source is read, checked and written
 --- by the new checker (`COSMIC_GRAMMAR=new`), each read of a place a test narrowed is wrapped in a call of `__fact`
---- ([`lang.fact_wraps`]), and the tool's worker runs the tests with the hook that checks them. A narrowing that is false at
---- run time is reported at its read in the summary and in the working database's `type_violations`, as kind "fact"; a
---- correct program reports nothing.
+--- ([`lang.fact_wraps`]), and the tool's worker runs the tests with the hook that checks them. A correct program reports
+--- nothing to the summary or to the working database's `type_violations`. The report of a narrowing that is false is
+--- [`build.fact_hook_test`]'s: no program the checker takes provokes one.
 ---
 --- The project is compiled by the tool the test starts, in the new mode whatever the mode of the suite that runs this test.
 local Child = require("cosmic.child")
@@ -44,23 +44,15 @@ local LIB <const> = table.concat({
   "",
 }, "\n")
 
---- The tests of the project: a sound read passes, and a read after an `assert` that does not raise (the global is replaced
---- by one that answers its arguments, as a program that shadows `assert` would) is found where it is false.
+--- The tests of the project: a sound read, whose narrowing is true. A narrowing that is false at run time is the
+--- checker's own error, which no program of its grammar provokes (the value a test takes nil out of is tested, and
+--- `assert` cannot be replaced), so [`build.fact_hook_test`] holds the hook to it with the values the wraps hand it.
 local SUITE <const> = table.concat({
-  "local Globals = require(\"cosmic.internal.globals\")",
   "local Lib = require(\"lib\")",
   "",
   "local function test_a_sound_read_passes()",
   "  assert(Lib.sound(\"a\") == \"a\" and Lib.sound(nil) == \"none\")",
-  "end",
-  "",
-  "local function test_an_unsound_read_is_found()",
-  "  local plant = assert(load(\"planted = assert; assert = function(...) return ... end\", \"=plant\", \"t\", Globals.table()))",
-  "  local restore = assert(load(\"assert = planted\", \"=restore\", \"t\", Globals.table()))",
-  "  plant()",
-  "  local ok, message = pcall(Lib.read, nil)",
-  "  restore()",
-  "  assert(not ok and tostring(message):find(\"fact violated at lib.tl:\", 1, true) ~= nil, tostring(message))",
+  "  assert(Lib.read(\"b\") == \"b\")",
   "end",
   "",
 }, "\n")
@@ -101,19 +93,16 @@ local function violations(root: string): Sqlite.Rows
   return rows
 end
 
-local function test_a_checked_run_reports_the_fact_that_is_false(tmp: string)
+local function test_a_checked_run_wraps_the_reads_the_tests_narrowed_and_reports_none_that_is_false(tmp: string)
   local root = project(tmp)
   local checked, text = invoke(root, tmp, { "test", "--check-types" })
   assert(checked.ok, text)
-  assert(text:find("test: 2 tests passed in ", 1, true) ~= nil, text)
-  assert(text:find("run-time types: 1 violation, 1 distinct, at 1 place", 1, true) ~= nil, text)
-  assert(text:find("lib.tl:9:12: x declared not nil got nil (1 time)", 1, true) ~= nil, text)
-
-  local rows = violations(root)
-  assert(#rows == 1, tostring(#rows) .. " rows")
-  local row = assert(rows[1])
-  assert(table.concat(row:texts(), " | ") == "fact | lib.tl:9:12 | x | not nil | nil | 1",
-    table.concat(row:texts(), " | "))
+  assert(text:find("test: 1 test passed in ", 1, true) ~= nil, text)
+  assert(text:find("run-time types: 0 violations, 0 distinct, at 0 places", 1, true) ~= nil, text)
+  assert(#violations(root) == 0, "a sound read was reported")
+  -- the module the run was made of carries the wrap of the read `assert` narrowed
+  local aside = assert(Fs.read(assert(build_paths.directory(root)) .. "/cosmic.checked.db"))
+  assert(aside:find("__fact", 1, true) ~= nil, "the checked projection carries no wrap")
 end
 
 --- What a drawn program leaves unused of its header, read, so that the tool, which refuses a warning, takes it, and the

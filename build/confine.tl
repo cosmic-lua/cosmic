@@ -693,8 +693,7 @@ end
 -- cannot give, falling back or, under [`must_confine`], refused, once
 -- [`process.spawn`] says which step failed (the TODO above): today the
 -- spawn fails with it outright, so a test that passes over a failed
--- spawn passes having run nothing, even in must mode, as
--- build/must_confine_test.tl's nested case does there. Where the kernel
+-- spawn passes having run nothing, even in must mode. Where the kernel
 -- gives a sandbox a /proc of its own, as a host does, it confines one
 -- of its own.
 local unconfinable: {integer:boolean} = {

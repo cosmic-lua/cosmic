@@ -159,8 +159,7 @@ allowed["cosmic.net.nameservers"] = "the public way to list the system's DNS ser
 
 allowed["cosmic.internal.relay_config.parse_addresses"] = "tested directly: the reading of Linux's " ..
   "interface tables over fixture text, which host_addresses makes of the host's own"
-for _, name in ipairs({ "plan", "name_servers", "upstream_addresses", "resolved_upstream", "table", "public",
-    "loopback_listeners" }) do
+for _, name in ipairs({ "resolved_upstream", "table", "public", "loopback_listeners" }) do
   allowed["cosmic.internal.relay_start." .. name] = "tested directly: a step of `handover` and " ..
     "`direct_handover`, which are composed from it, each tested over fixtures of its own"
 end
@@ -173,9 +172,6 @@ allowed["cosmic.sandbox.policy.system_profile"] = "the seam that lets a test dra
   "other host's \"system\" profile; rules.profile calls it with this host's"
 allowed["build.c.variants"] = "the ways the C check dumps a file, written out as build.zig " ..
   "has no form to read them from; build/c/variants_test.tl holds them to it"
-allowed["cosmic.net.connector"] = "tested directly: the library's face of the native connector, " ..
-  "which ResolveOptions.connector takes; its callers in the tree start the process with " ..
-  "cosmic.internal.connector and adopt it there instead"
 allowed["cosmic.sandbox.restrict"] = "tested directly: it holds the process that calls it " ..
   "for good, so a worked example would hold the run that shows it; the test restricts " ..
   "a child of this program, and the harness holds its workers with it once the " ..
@@ -995,9 +991,9 @@ local requirers: {string: Restriction} = {
   },
   ["cosmic.internal.globals"] = {
     files = { "build.fuzz", "build.load_module",
-      "build.raw_tables_test", "build.sandbox", "build.sandboxed_verdicts_test", "build.sealed_worker_test", "build.standalone",
+      "build.raw_tables_test", "build.sandbox", "build.sealed_worker_test", "build.standalone",
       "build.test_closure_diagnostic_test", "build.test_closure_test", "build.type_watch", "core.load_env_test", "core.surface_test",
-      "cosmic.coverage_test", "cosmic.flags_test", "cosmic.test_tool_test", "test.coverage_cache_test" },
+      "cosmic.coverage_test", "cosmic.flags_test", "test.coverage_cache_test" },
     why = "only the modules that run a program or a hook as a chunk of Lua text take the globals whole, as its " ..
       "environment: it holds `require`, which a chunk loads modules the build does not see by; any other module " ..
       "passes the chunk the few names it needs",
@@ -2608,8 +2604,6 @@ local loaders: {string: string} = {
   ["build/fuzz/init.tl"] = "the constant chunk `return __cosmic_tc`, the hook a checked run defines",
   ["build/load_module.tl"] = "the named loader: the constant chunk `return require((...))`",
   ["build/lua_tail.tl"] = "the Lua the compiler wrote, loaded in an environment of its own to dump its bytecode",
-  ["build/must_confine_fixture.tl"] = "constant chunks of the test support that probe the confinement of a worker, " ..
-    "which no typed file may do",
   ["build/sandbox.tl"] = "the script the checker compiled ([`build.standalone`]'s `code`), as the main of a sealed program",
   ["build/standalone.tl"] = "the Lua the checker compiled from a file or a `-e` chunk, or kept from such a compile",
   ["build/test_worker.tl"] = "the constant chunk that reads a value's metatable in the form the compiler writes",

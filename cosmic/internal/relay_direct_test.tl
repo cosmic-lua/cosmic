@@ -3,13 +3,12 @@
 --- descriptor 3, which [`cosmic.internal.relay_start`]'s `loopback_listeners` binds
 --- at one port of 127.0.0.1 and ::1, each for both protocols behind the
 --- config's token, and connects itself. It runs here as this program,
---- standalone, unconfined: what holds it on macOS is
+--- as a child of this module, unconfined: what holds it on macOS is
 --- cosmic/child_relay_seatbelt_test.tl's.
 
 local Child = require("cosmic.child")
 local Clock = require("cosmic.clock")
 local Codec = require("cosmic.codec")
-local Fs = require("cosmic.fs")
 local Net = require("cosmic.net")
 local Poll = require("cosmic.poll")
 local RelayConfig = require("cosmic.internal.relay_config")
@@ -17,17 +16,12 @@ local RelayStart = require("cosmic.internal.relay_start")
 local Stream = require("cosmic.stream")
 local Test = require("cosmic.test")
 local this_program = require("build.this_program")
-local _ = require("build.standalone")
-local _ = require("cosmic.internal.relay_main")
+local _ = require("build.relay_children")
+local test_child = require("build.test_child")
 
 --- The program itself, which runs the relay; its servers and its listener
 --- are on the loopback.
 Test.policy{ profiles = { "cosmic" }, loopback = { "127.0.0.1" } }
-
---- The relay's main, as a standalone script runs it.
-local SCRIPT <const> = [[
-return require("cosmic.internal.relay_main")
-]]
 
 local TOKEN <const> = string.rep("5a", 32)
 
@@ -51,8 +45,8 @@ end
 
 --- Starts the relay's main on `config`, handed `fds`: the process, a writer of
 --- its standard input and the lines of its standard output.
-local function relay_started(script: string, fds: {integer:integer}): Child.Handle
-  local started = this_program.program({ "--standalone", script }, { stdin = "stream", stdout = "stream",
+local function relay_started(tmp: string, fds: {integer:integer}): Child.Handle
+  local started = this_program.program(test_child.words(tmp, "build.relay_children", "relay"), { stdin = "stream", stdout = "stream",
     stderr = "capture", fds = fds, timeout_ns = Clock.seconds(60) })
   return (assert(Child.start(started.argv, started.options)))
 end
@@ -60,13 +54,11 @@ end
 --- A relay on the host's loopback must be given its token: one listening
 --- where every user of the host reaches it does not start without.
 local function test_a_direct_relay_without_a_token_does_not_start(tmp: string)
-  local script = tmp .. "/relay.tl"
-  assert(Fs.write(script, SCRIPT))
   local loopback = assert(RelayStart.loopback_listeners())
   local fds: mut {integer:integer} = {}
   for i, socket in ipairs(loopback.sockets) do fds[2 + i] = socket:fd() end
   Poll.run(function()
-    local relay <close> = relay_started(script, fds)
+    local relay <close> = relay_started(tmp, fds)
     local feed, lines = assert(relay.stdin_stream), Stream.lines(assert(relay.stdout_stream))
     assert(feed:write(RelayConfig.encode({ grants = {}, own_addresses = {}, log = "null", direct = true,
       listeners = #loopback.sockets }) .. "\n"))
@@ -84,8 +76,6 @@ end
 --- and only with its token; no other listener can take the port; it ends,
 --- status 0, once its standard input does.
 local function test_a_direct_relay_listens_itself_and_serves_both_protocols_behind_its_token(tmp: string)
-  local script = tmp .. "/relay.tl"
-  assert(Fs.write(script, SCRIPT))
   Poll.run(function()
     local server = assert(Net.listen(Net.tcp("127.0.0.1", 0)))
     local other = assert(Net.listen(Net.tcp("127.0.0.1", 0)))
@@ -105,7 +95,7 @@ local function test_a_direct_relay_listens_itself_and_serves_both_protocols_behi
     local port = loopback.port
     local fds: mut {integer:integer} = {}
     for i, socket in ipairs(loopback.sockets) do fds[2 + i] = socket:fd() end
-    local relay <close> = relay_started(script, fds)
+    local relay <close> = relay_started(tmp, fds)
     -- The relay holds the port now; this process's hold goes.
     for _, socket in ipairs(loopback.sockets) do assert(socket:close()) end
     local feed, lines = assert(relay.stdin_stream), Stream.lines(assert(relay.stdout_stream))
