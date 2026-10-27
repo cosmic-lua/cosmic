@@ -1010,7 +1010,7 @@ core/connector_public_fuzz_test.tl nil_not_allowed 13
 
 core/connector_public_test.tl nil_not_allowed 5
 
-core/connector_request_fuzz_test.tl nil_not_allowed 5
+core/connector_request_fuzz_test.tl nil_not_allowed 2
 
 core/database_start_test.tl nil_not_allowed 2
 
