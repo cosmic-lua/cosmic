@@ -1563,7 +1563,7 @@ lang/translate_test.tl nil_not_allowed 26
 
 lang/truthy_test.tl nil_not_allowed 1
 
-lang/types.tl nil_not_allowed 37
+lang/types.tl nil_not_allowed 29
 
 lang/types_programs.tl nil_not_allowed 6
 
@@ -3967,37 +3967,6 @@ lang/translate.tl overload_none 2
 lang/translate_fuzz_test.tl overload_none 1
 
 test/coverage_cache_test.tl overload_none 1
-
-# a `return` of fewer values than the function answers (`return nil` for `T?, string`)
-cosmic/archive_test.tl return_arity 1
-
-cosmic/child_drain_test.tl return_arity 1
-
-cosmic/child_stream_failure_test.tl return_arity 1
-
-cosmic/child_task_tool_test.tl return_arity 1
-
-cosmic/fs_test.tl return_arity 4
-
-cosmic/hash_test.tl return_arity 1
-
-cosmic/internal/relay_wire.tl return_arity 7
-
-cosmic/sandbox/init.tl return_arity 3
-
-cosmic/store.tl return_arity 1
-
-cosmic/web/htmx.tl return_arity 8
-
-cosmic/web/input.tl return_arity 1
-
-lang/check.tl return_arity 22
-
-lang/scopes.tl return_arity 1
-
-lang/types.tl return_arity 1
-
-test/sqlite_json_test.tl return_arity 1
 
 # untrusted data read, operated on or stored: the rewrite validates it with a [`cosmic.shape`] validator
 

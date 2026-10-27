@@ -709,7 +709,7 @@ local function reader_of_one_file(path: string, size: integer,
         return answer(max_bytes or 65536)
       end
       r.close = function(_self: Stream.Reader): boolean, string return true, "" end
-      return r
+      return r, ""
     end,
   }
   local given = { value = false }
