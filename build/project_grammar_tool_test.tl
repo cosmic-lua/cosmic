@@ -48,7 +48,7 @@ local function test_a_project_outside_the_tree_is_built_and_tested_with_the_new_
   -- the fork's grammar is gone: the mode that names it is refused, naming the verb that rewrites a project to the new one
   local forked, forked_text = tested(copy_of(tmp, "project", "teal"), tmp, "teal")
   assert(not forked.ok and forked_text:find("COSMIC_GRAMMAR=teal: the fork's grammar is gone; " ..
-      "`cosmic migrate` rewrites a project to the new one", 1, true) ~= nil, forked_text)
+      "rewrite a project to the new grammar by hand, as doc/guides/project.md says", 1, true) ~= nil, forked_text)
 end
 
 local function test_a_project_written_in_forms_the_new_grammar_refuses_is_refused_with_the_fix(tmp: string)

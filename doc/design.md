@@ -929,8 +929,8 @@ the checker and compiler are the tree's own source, `lang/`, and the language is
 syntax where that serves and breaks with it where Teal or a Lua idiom costs soundness, simplicity or speed
 ([`doc/plans/strict-teal.md`] states the rules, their reasons and the order they landed in). there is one
 checker. the fork of tl 0.24.8 that came before it is deleted, with its formatter, its comparison harness and its
-patch records; `cosmic migrate` rewrites a project written in the old grammar to this one, and
-`COSMIC_GRAMMAR=teal` is refused, naming it.
+patch records; a project written in the old grammar is rewritten to this one by hand
+([`doc/guides/project.md`]), and `COSMIC_GRAMMAR=teal` is refused, pointing to that guide.
 
 the pieces are small modules, each deciding one thing and asked by the rest:
 
@@ -1356,4 +1356,5 @@ in [roadmap.md](roadmap.md).
 [`build.pipeline`]: ../build/pipeline.tl
 [`cosmic.internal.globals`]: ../cosmic/internal/globals.d.tl
 [`cosmic.shape`]: ../cosmic/shape.tl
+[`doc/guides/project.md`]: guides/project.md
 [`lang/SEED_DIFFERS`]: ../lang/SEED_DIFFERS

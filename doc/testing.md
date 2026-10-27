@@ -39,7 +39,7 @@ stands on another checkout's pass.
 - `--no-shared` (`COSMIC_TEST_NO_SHARED=1`) stands on no shared verdict.
 - The new checker is the tool's only one: [`build.pipeline`] reads the tree, checks it against its ceilings and writes
   the Lua. `COSMIC_GRAMMAR` takes `new` or nothing ([`build.grammar_mode`]); `teal`, the grammar of the fork that was
-  deleted, is refused, naming `cosmic migrate`, which rewrites a project to the new one. A project outside cosmic's own
+  deleted, is refused, pointing to the project guide, which says how to rewrite a project to the new one. A project outside cosmic's own
   has no ceilings: every error refuses, its globals are the declarations of the standard library the tool carries
   ([`build.checker_declarations`]), and a form of the old grammar is refused with the new checker's words and fix. A
   lone file run (`cosmic --standalone`, `cosmic sandbox`) and a file run (`cosmic <file>`) are built by it too. `cosmic

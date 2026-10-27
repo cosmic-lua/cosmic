@@ -289,14 +289,14 @@ local function test_db_and_sql_read_the_rows_the_new_checkers_syntax_tree_made(t
   assert(databases:find("syntax error", 1, true) == nil, databases)
 end
 
---- The fork's grammar, which `COSMIC_GRAMMAR=teal` names, is gone: a lookup refuses it, naming the verb that rewrites a
---- project to the new one, and answers nothing.
-local function test_a_lookup_refuses_the_forks_grammar_naming_migrate(tmp: string)
+--- The fork's grammar, which `COSMIC_GRAMMAR=teal` names, is gone: a lookup refuses it, pointing to the project guide, and
+--- answers nothing.
+local function test_a_lookup_refuses_the_forks_grammar_pointing_to_the_guide(tmp: string)
   local root = started(tmp, "forked")
   for _, args in ipairs({ { "docs", "Box" }, { "uses", "Box.grow" } }) do
     local result, out, err = ran(root, tmp, "teal", args)
     assert(result.code == 1 and out == "", out .. err)
-    holds(err, "COSMIC_GRAMMAR=teal: the fork's grammar is gone; `cosmic migrate` rewrites a project to the new one")
+    holds(err, "COSMIC_GRAMMAR=teal: the fork's grammar is gone; rewrite a project to the new grammar by hand, as doc/guides/project.md says")
   end
 end
 

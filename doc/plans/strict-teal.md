@@ -1278,8 +1278,8 @@ and the worker that compared the two. what the change did, and what it decided:
   [`lang/check_assigned_fuzz_test.tl`] and [`bin/gate-sweep`], whose result is [`testdata/gate/sweep.txt`]. the fork's
   answers to the programs the tests compared are kept as text beside the cases ([`lang/forked.tl`]).
 - **one grammar.** the tool reads the new grammar and no other. `COSMIC_GRAMMAR` takes `new` or nothing; `teal` and
-  `cosmic compile --grammar teal` are refused, naming `cosmic migrate`, which translates a project and is kept for one
-  release as a user-facing verb and then goes. a project outside the tree is a hard cutover: it compiles with the
+  `cosmic compile --grammar teal` are refused, pointing to the project guide (`cosmic migrate`, which translated a project,
+  was kept for one release as a user-facing verb and then removed, leaving a word that says so). a project outside the tree is a hard cutover: it compiles with the
   new checker, with no fork to fall back to, against the declarations of the standard library the tool carries
   ([`lang/stdlib.d.tl`], [`lang/prelude.d.tl`]), and has no ceilings, so every error refuses. a form of the old grammar
   that it meets carries the new checker's fix ([`build/error_catalog.tl`], [`build/removed_fix.tl`]).
@@ -1314,7 +1314,7 @@ and the worker that compared the two. what the change did, and what it decided:
 
 what remains of the switch is bookkeeping with a home of its own: the records of [`lang/types.tl`] and [`lang/ast.tl`]
 are tagged now, and the two walkers of [`lang/ast.tl`] still read a node as `{string: any}` (a `TODO:` there);
-`cosmic migrate` goes in the release after this one; and the TODOs that wait on the pin move are listed by `bin/cosmic todos '"cosmic-driver.pin"'`.
+`cosmic migrate` is removed, leaving a word that says so; and the TODOs that wait on the pin move are listed by `bin/cosmic todos '"cosmic-driver.pin"'`.
 
 #### owner decisions
 
