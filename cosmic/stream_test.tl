@@ -11,8 +11,8 @@ local record Fake is Stream.Transform
   pending: function(Fake): boolean
   update: function(Fake, string): string?, string
   finish: function(Fake): string?, string
-  done: function(Fake): boolean
-  rest: function(Fake): string
+  done?: function(Fake): boolean
+  rest?: function(Fake): string
 end
 
 local function drain(reader: Stream.Reader, max_bytes?: integer): string

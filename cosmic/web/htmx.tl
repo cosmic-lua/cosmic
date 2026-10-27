@@ -59,7 +59,7 @@ local record Htmx
     --- The event's name: not empty, no comma, quote or control byte.
     name: string
     --- Becomes `event.detail`; nil sends an empty one.
-    detail: Json.Value?
+    detail?: Json.Value
   end
 
   --- The object form of `HX-Location`: a client-side navigation with
@@ -78,9 +78,9 @@ local record Htmx
     --- An event to trigger on the source.
     event?: string
     --- Values to submit with the request.
-    values: any
+    values?: any
     --- Headers to send with the request.
-    headers: any
+    headers?: any
   end
 
   --- The effects of a response on the page, each optional; written by

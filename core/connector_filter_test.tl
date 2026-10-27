@@ -67,7 +67,7 @@ local function run(code: {Insn}, architecture: integer, number: integer, args: {
     elseif insn.code == 0x06 then
       return insn.k
     else
-      error("unknown filter instruction " .. insn.code)
+      error("unknown filter instruction " .. tostring(insn.code))
     end
   end
 end
@@ -162,7 +162,7 @@ local function test_every_call_outside_the_explicit_allowlist_is_refused()
     for number = 0, 1024 do
       if not allowed[number] then
         assert(run(code, audit[architecture], number, { CONTROL, BASE, 16 }) == REFUSE,
-          architecture .. " unexpectedly allowed syscall " .. number)
+          architecture .. " unexpectedly allowed syscall " .. tostring(number))
       end
     end
   end

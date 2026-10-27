@@ -12,7 +12,7 @@ end
 
 --- The time since `from` as a summary says it: "<ms> ms".
 function clock.took(from: integer): string
-  return clock.elapsed_ms(from) .. " ms"
+  return tostring(clock.elapsed_ms(from)) .. " ms"
 end
 
 return clock

@@ -1,6 +1,13 @@
 --- The ceilings of the new checker: how many errors of each code each file of the tree may still have, per stage, as data
---- in [`build/ceilings.txt`] and not as Teal compiled into the tool. A ceiling only falls: a rewrite removes the places it
---- counts and lowers the number, and a file that goes over one is refused.
+--- in [`build/ceilings.txt`] and not as Teal compiled into the tool.
+---
+--- A ceiling only falls, and three things enforce it. A file that goes over its ceiling is refused, by a compile of a module
+--- and by the check of the tree ([`Ceilings.over`]); a missing row is a ceiling of 0. A change to the data file that
+--- raises a count, or adds a row, is refused by [`Ceilings.rises`] against the file at the merge base with main, in the
+--- check of the tree ([`build.ceilings_base`], which CI runs on every branch push and in the merge queue, and
+--- `bin/cosmic fix --check .` runs wherever a base can be named). And a code that has no row left in any stage is
+--- closed ([`Ceilings.closed`]): [`Ceilings.parse`] refuses a line keyed by it. A rewrite removes the places a ceiling
+--- counts and lowers the number; nothing raises it.
 ---
 --- The file is text, a section per stage (`[checked]`) and a line per ceiling: a file, a code and a count, or for the stage
 --- `untyped` a file and a count. A line that begins with `#` is a comment, and a comment before the lines it explains
@@ -55,8 +62,18 @@ local record Ceilings
 
   --- The ceilings `text` holds, or nil and what is wrong with it: a line of no section or of the wrong shape, a stage no
   --- check has, a count that is not a positive integer, a key that two lines give, and a key that can never be met: one
-  --- of a stage that counts by code whose code is none of that stage's, or whose shape is not the stage's.
-  parse: function(text: string): Table?, string
+  --- of a stage that counts by code whose code is none of that stage's, or whose shape is not the stage's, and a line
+  --- keyed by a closed code ([`Ceilings.closed`], or `closed` where a caller gives its own list: a test of a checker that
+  --- finds an error of a code the tree has closed holds it to a pin of its own).
+  parse: function(text: string, closed?: {string}): Table?, string
+
+  --- The codes that no file may be pinned for: each has no row left in any stage, so the tree keeps its rule with no
+  --- exceptions. It is a list and not "every code that has no row", because a file that gives a row to such a code
+  --- would be the row: only a list stays closed against the text it is asked to judge. The list is held to its
+  --- meaning by [`build/ceilings_test.tl`]: a code of a stage with no row must be listed, so that the change that removes
+  --- a code's last row closes it, and a listed code must be a code of some stage. A new code of a stage starts with no
+  --- row, so it is listed with the change that adds it.
+  closed: function(): {string}
 
   --- The ceilings of the tree at `root` ([`Ceilings.path`]).
   read: function(root: string): Table?, string
@@ -70,6 +87,14 @@ local record Ceilings
   --- The keys of `ceilings` that name a file `root` lacks, one line each: a ceiling that no run can meet, since the check of
   --- the tree finds no error in a file that is not there.
   dead: function(root: string, ceilings: Table): {string}
+
+  --- The lines of `text`, the ceilings file as it stands, that raise a ceiling over `base`, the file as it stood at the
+  --- merge base with main: a row whose count is above the base's and a row the base lacks (a new file, a code at
+  --- zero, a stage it was moved to, a renamed file), one line each with its place in `text`; none where the file only
+  --- falls (a count lowered, a row removed, both unchanged). A row is the same when its stage and key are. `base` is
+  --- read as far as its rows go, so that a base that holds what `parse` now refuses (a row of a code closed since) is
+  --- still a base.
+  rises: function(base: string, text: string): {string}
 
   --- The ceilings of `stage` in `ceilings`: empty for a stage the table has none of.
   of: function(ceilings: Table, stage: Stage): {string: integer}
@@ -94,6 +119,82 @@ local record Ceilings
 end
 
 Ceilings.path = "build/ceilings.txt"
+
+local CLOSED_CODES <const>: {string} = {
+  "alias_cycle",
+  "arity",
+  "array_part_map",
+  "assign_repeated",
+  "bound_not_interface",
+  "bound_not_met",
+  "bound_unmet",
+  "captured_assigned",
+  "class_scope",
+  "const_assigned",
+  "declaration_value",
+  "enum_member",
+  "env_reserved",
+  "format_malformed",
+  "generic_op",
+  "gsub_key",
+  "infer_conflict",
+  "invariant_mut",
+  "iterator_extra",
+  "iterator_variables",
+  "listing_too_large",
+  "lists_overlap",
+  "literal_ambiguous",
+  "literal_repeated",
+  "local_untyped",
+  "match_missing",
+  "match_pattern",
+  "match_redundant",
+  "metamethod_signature",
+  "metamethod_unknown",
+  "narrows_unproved",
+  "not_a_type",
+  "not_a_value",
+  "not_callable",
+  "not_indexable",
+  "operand_type",
+  "optional_generic",
+  "optional_metamethod",
+  "outer_type_parameter",
+  "pack_malformed",
+  "param_untyped",
+  "paren_is",
+  "pattern_malformed",
+  "primitive_type_name",
+  "record_as_map",
+  "record_index",
+  "repeated_field",
+  "repeated_value",
+  "require_unknown",
+  "return_unexpected",
+  "shadows",
+  "static_before_definition",
+  "store_refused",
+  "super_cycle",
+  "super_not_interface",
+  "type_arguments",
+  "type_name",
+  "type_too_deep",
+  "unknown_parameter",
+  "unknown_type",
+  "unknown_variable",
+  "unused_type_parameter",
+  "value_count",
+  "vararg_outside",
+}
+
+local CLOSED: mut {string: boolean} = {}
+for _, code in ipairs(CLOSED_CODES) do
+  CLOSED[code] = true
+end
+
+function Ceilings.closed(): {string}
+  return CLOSED_CODES
+end
 
 --- The codes of the errors each stage that counts by code counts.
 local function codes_of(stage: string): {string}?
@@ -135,11 +236,32 @@ local function unmeetable(stage: string, key: string): string
   return "`" .. code .. "` is no code of [" .. stage .. "]"
 end
 
+--- The closed code ([`Ceilings.closed`]) `key`, a ceiling of `stage`, is keyed by, or "" where it is keyed by none: a stage
+--- that counts by file alone has no code to close.
+local function closed_code(shut: {string: boolean}, stage: string, key: string): string
+  if stage == "untyped" then
+    return ""
+  end
+  local code = key:match("^%S+ (%S+)$")
+  if code ~= nil and shut[code] == true then
+    return code
+  end
+  return ""
+end
+
 local STAGES <const>: {string: boolean} = {
   scoped = true, declared = true, untyped = true, checked = true, examples = true, testdata = true,
 }
 
-function Ceilings.parse(text: string): Ceilings.Table?, string
+function Ceilings.parse(text: string, closed?: {string}): Ceilings.Table?, string
+  local shut = CLOSED
+  if closed ~= nil then
+    local own: mut {string: boolean} = {}
+    for _, code in ipairs(closed) do
+      own[code] = true
+    end
+    shut = own
+  end
   local out: Ceilings.Table = { stages = {}, none = nil }
   local held: mut {string: integer}? = nil
   local stage = ""
@@ -173,11 +295,66 @@ function Ceilings.parse(text: string): Ceilings.Table?, string
         if why ~= "" then
           return nil, at .. why
         end
+        local code = closed_code(shut, stage, key)
+        if code ~= "" then
+          return nil, at .. code .. " is closed: the tree keeps this rule with no exceptions; fix the code instead"
+        end
         held[key] = n
       end
     end
   end
   return out, ""
+end
+
+function Ceilings.rises(base: string, text: string): {string}
+  -- The count of each row of `source` by stage and key, in the order of the file, with the line of each.
+  local function rows(source: string): {string: integer}, {string}, {integer}
+    local count: mut {string: integer} = {}
+    local order: mut {string} = {}
+    local at: mut {integer} = {}
+    local stage = ""
+    local number = 0
+    for line in (source .. "\n"):gmatch("(.-)\n") do
+      number = number + 1
+      if line ~= "" and line:sub(1, 1) ~= "#" then
+        local name = line:match("^%[([a-z]+)%]$")
+        if name ~= nil then
+          stage = name
+        else
+          local key, digits = line:match("^(%S.-)%s+(%d+)$")
+          local n: integer? = nil
+          if digits ~= nil then
+            n = math.tointeger(tonumber(digits))
+          end
+          if key ~= nil and n ~= nil then
+            local id = "[" .. stage .. "] " .. key
+            if count[id] == nil then
+              order[#order + 1] = id
+              at[#at + 1] = number
+            end
+            count[id] = n
+          end
+        end
+      end
+    end
+    return count, order, at
+  end
+  local was = rows(base)
+  local now, order, at = rows(text)
+  local out: mut {string} = {}
+  for i, id in ipairs(order) do
+    local n = assert(now[id])
+    local before = was[id]
+    local place = Ceilings.path .. ":" .. tostring(at[i]) .. ": "
+    if before == nil then
+      out[#out + 1] = place .. id .. " is a row the merge base lacks, pinned " .. tostring(n) ..
+        "; a ceiling only falls and a row is never added: fix the code instead"
+    elseif n > before then
+      out[#out + 1] = place .. id .. " rose from " .. tostring(before) .. " to " .. tostring(n) ..
+        "; a ceiling only falls: fix the code instead"
+    end
+  end
+  return out
 end
 
 function Ceilings.crowded(text: string): string

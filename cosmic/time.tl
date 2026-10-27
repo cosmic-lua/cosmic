@@ -1109,7 +1109,7 @@ local REFUSED_KEPT <const> = 1024
 
 --- Every zone name the binary carries, read at the first lookup.
 local record Carried
-  mut names: {string:boolean}?
+  mut names?: {string:boolean}
 end
 
 local carried_zones: Carried = {}

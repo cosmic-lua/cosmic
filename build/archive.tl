@@ -288,7 +288,7 @@ local function note_clash(clashes: Clashes, name: string)
 end
 
 local function overwrite_refusal(dest: string, clashes: Clashes): Outcome
-  return fail(bare.failed, "would overwrite " .. clashes.count .. " existing " ..
+  return fail(bare.failed, "would overwrite " .. tostring(clashes.count) .. " existing " ..
       (if clashes.count == 1 then "path" else "paths" end) .. " under " .. dest .. " (" ..
       table.concat(clashes.first, ", ") .. (if clashes.count > 5 then ", ..." else "" end) ..
       "); nothing written, use --force to replace")
@@ -414,7 +414,7 @@ local function apply_steps(tree: string, dest: string, aside: string, steps: {St
     else
       if step.replace then
         local _, _ = sys.mkdir(aside)
-        step.backup = aside .. "/" .. slot
+        step.backup = aside .. "/" .. tostring(slot)
         local moved, why = Fs.rename(target, step.backup)
         if not moved then
           trouble = why

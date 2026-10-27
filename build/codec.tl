@@ -89,8 +89,8 @@ local record verb
     --- reads it when no file is named; `stdin` is the whole of it, in
     --- a test's stead, and is used only when `input` is not given.
     --- One of the two is required: `run` says so when neither is.
-    input: function(): Stream.Reader?, string
-    stdin: function(): string?, string
+    input?: function(): Stream.Reader?, string
+    stdin?: function(): string?, string
   end
 end
 
@@ -302,14 +302,14 @@ end
 
 local function hex_decoder(): verb.Coder
   local c: HexDecoder = {
-    total = 0, carry = "", bad_byte = 0, done = false,
+    total = 0, carry = "", bad_byte = 0, bad_at = nil, done = false,
   }
   return c
 end
 
 local function base64_decoder(a: Alphabet): verb.Coder
   local c: Base64Decoder = {
-    alphabet = a, total = 0, carry = "", bad_byte = 0, run = 0, run_pad = false, done = false,
+    alphabet = a, total = 0, carry = "", bad_byte = 0, bad_at = nil, run = 0, run_pad = false, done = false,
   }
   return c
 end
@@ -557,7 +557,7 @@ end
 function verb.decoding(name: verb.Name, lenient: boolean): verb.Coder
   local c: Decoding = {
     inner = verb.decoder(name), name = name, wrong = refused[name], lenient = lenient,
-    fed = 0, seen = 0, pad_run = 0, pad_other = false,
+    fed = 0, seen = 0, last = nil, pad_at = nil, pad_run = 0, pad_other = false, failed = nil,
   }
   return c
 end
@@ -586,7 +586,7 @@ local record Request
   decode: boolean
   mut wrap: integer
   lenient: boolean
-  mut file: string?
+  mut file?: string
 end
 
 --- What `argv` asks for, or nil and why it is refused.
@@ -706,7 +706,7 @@ function verb.run(argv: {string}, io?: verb.Io): integer
   -- A Writer over `to.out`, local because no Stream helper adapts a
   -- function to a Writer and no other verb needs one. `lost` is why a
   -- write failed, which tells it from a coder's refusal.
-  local standard_output: OutputWriter = { out = to.out }
+  local standard_output: OutputWriter = { out = to.out, lost = nil }
   -- A decoder's output is held one chunk back, so that an input of at
   -- most one chunk that is refused writes nothing: see the head of this
   -- file.

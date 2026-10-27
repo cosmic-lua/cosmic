@@ -266,7 +266,7 @@ function near.notes(module: string, candidates: {near.Candidate},
           end
         end
         if why ~= nil and not names(lower, qualified[index], coded[index]) then
-          out[#out + 1] = mine.line .. ": " .. mine.source_symbol .. ": " ..
+          out[#out + 1] = tostring(mine.line) .. ": " .. mine.source_symbol .. ": " ..
             other.source_symbol .. " (" .. other.module .. ") " .. why ..
             "; see cosmic docs " .. other.source_symbol
         end
