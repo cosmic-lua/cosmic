@@ -145,7 +145,7 @@ local function test_no_more_solvers_run_than_jobs_and_no_grade_starts_before_the
   local plan = Round.plan(o, "/repo", "/t", "abc", "/out")
   local f = fake({}, {})
   assert(Round.execute(plan, f.system) == 0, table.concat(f.events, "\n"))
-  assert(f.most == 2, "most solvers at once: " .. f.most)
+  assert(f.most == 2, "most solvers at once: " .. tostring(f.most))
   local last_solved, first_graded, first_summary = 0, #f.events, #f.events
   for i, event in ipairs(f.events) do
     if event:sub(1, 7) == "solved " then last_solved = i end

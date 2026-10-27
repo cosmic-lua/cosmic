@@ -501,7 +501,7 @@ local function same_run(new: string, reference: string): boolean, string
     return false, "the reference " .. their_why
   end
   if not alike(mine, theirs) then
-    return false, "the program returned " .. #mine .. " values, the first " .. tostring(mine[1]) .. " and " .. tostring(mine[2]) ..
+    return false, "the program returned " .. tostring(#mine) .. " values, the first " .. tostring(mine[1]) .. " and " .. tostring(mine[2]) ..
       ", where Lua gives " .. tostring(theirs[1]) .. " and " .. tostring(theirs[2]) .. "\n" .. new
   end
   Fuzz.label("ran")
@@ -555,8 +555,8 @@ end
 --- The variant of a loop with a `continue`, its size, the number it skips at, whether its body ends in a `return` and
 --- whether it holds a loop with a `continue` of its own.
 local function gen_loop(src: Fuzz.Source): string
-  return Fuzz.pick(src, { "for", "while", "repeat" }) .. " " .. src:int(1, 8) .. " " .. src:int(1, 4) .. " " ..
-    src:int(0, 1) .. " " .. src:int(0, 1)
+  return Fuzz.pick(src, { "for", "while", "repeat" }) .. " " .. tostring(src:int(1, 8)) .. " " .. tostring(src:int(1, 4)) .. " " ..
+    tostring(src:int(0, 1)) .. " " .. tostring(src:int(0, 1))
 end
 
 --- A loop whose pass `continue`s, and may end in a `return`, runs as the loop written with the plain Lua `goto`.

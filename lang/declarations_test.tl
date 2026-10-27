@@ -21,7 +21,7 @@ end
 --- The one error of `source`.
 local function only(source: string): Declarations.Error
   local errors = errors_of(source)
-  assert(#errors == 1, #errors .. " errors in\n" .. source)
+  assert(#errors == 1, tostring(#errors) .. " errors in\n" .. source)
   return errors[1]
 end
 
@@ -50,10 +50,10 @@ local function ladder(rungs: integer): string
   local out: mut {string} = {}
   for i = 1, rungs do
     if i < rungs then
-      out[#out + 1] = "local interface Rung" .. i .. "<T> is Rung" .. (i + 1) .. "<{T}>, Rung" .. (i + 1) ..
+      out[#out + 1] = "local interface Rung" .. tostring(i) .. "<T> is Rung" .. tostring((i + 1)) .. "<{T}>, Rung" .. tostring((i + 1)) ..
         "<{integer: T}>\nend\n"
     else
-      out[#out + 1] = "local interface Rung" .. i .. "<T>\nend\n"
+      out[#out + 1] = "local interface Rung" .. tostring(i) .. "<T>\nend\n"
     end
   end
   return table.concat(out)
@@ -495,7 +495,7 @@ end
 
 local function test_an_alias_in_a_function_body_or_repeated_at_the_top_is_lowered_and_held_to_the_rules()
   local body = errors_of("local function f()\n  local type A = {string?}\n  local x: A\nend\n")
-  assert(#body == 1 and body[1].code == "array_of_optional", #body .. " " .. (body[1] and body[1].code or ""))
+  assert(#body == 1 and body[1].code == "array_of_optional", tostring(#body) .. " " .. (body[1] and body[1].code or ""))
   local used = errors_of("local function f()\n  local type A = {integer}\n  local x: A\n  local y: A\nend\n")
   assert(#used == 0, used[1] and used[1].msg or "")
   local twice = errors_of("local type A = integer\nlocal type A = {number: string}\nlocal x: A\n")
@@ -659,7 +659,7 @@ end
 local function test_a_type_nested_past_the_store_depth_through_aliases_is_invalid_and_reported()
   local out: mut {string} = { "local type A0 = integer\n" }
   for i = 1, 1005 do
-    out[#out + 1] = "local type A" .. i .. " = {A" .. (i - 1) .. "}\n"
+    out[#out + 1] = "local type A" .. tostring(i) .. " = {A" .. tostring((i - 1)) .. "}\n"
   end
   -- The aliases lower where first used, so the chain nests as deep as the use is far: a use of A1005 first
   -- recurses through all of them.
@@ -679,7 +679,7 @@ local function test_a_chain_of_aliases_longer_than_the_nesting_limit_is_reported
   -- declared last first, so that lowering the first recurses through all
   local out: mut {string} = {}
   for i = 400, 1, -1 do
-    out[#out + 1] = "local type A" .. i .. " = A" .. (i - 1) .. "\n"
+    out[#out + 1] = "local type A" .. tostring(i) .. " = A" .. tostring((i - 1)) .. "\n"
   end
   out[#out + 1] = "local type A0 = integer\nlocal x: A400\n"
   local e = errors_of(table.concat(out))

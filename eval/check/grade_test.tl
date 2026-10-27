@@ -291,7 +291,7 @@ local function test_api_failures_names_each_failing_test_and_refused_line()
     failures[1])
   local refusals: mut {string} = { "cosmic: kv_api_test.tl: the compiler refused it" }
   for i = 1, 7 do
-    refusals[#refusals + 1] = "kv_api_test.tl:" .. i .. ":1: unknown type kv.Lru"
+    refusals[#refusals + 1] = "kv_api_test.tl:" .. tostring(i) .. ":1: unknown type kv.Lru"
   end
   failures = Grader.api_failures(table.concat(refusals, "\n"))
   assert(#failures == 6, table.concat(failures, "; "))
@@ -325,7 +325,7 @@ local function graded_api(dir: string, lines: {string}, code: integer,
   for _, line in ipairs(lines) do
     script[#script + 1] = "[test] print " .. line
   end
-  script[#script + 1] = "[test] exit " .. code
+  script[#script + 1] = "[test] exit " .. tostring(code)
   script[#script + 1] = "exit 0"
   local probe = assert(stand_in.build(dir .. "/stand-in"))
   assert(stand_in.place(probe, dir .. "/bin/cosmic", table.concat(script, "\n")))
@@ -373,13 +373,13 @@ local function test_both_cosmic_test_steps_get_the_unsandboxed_environment(dir: 
   local expected = "COSMIC_TEST_SANDBOX=0\nCOSMIC_SANDBOX unset\nCOSMIC_CI_REQUIRE_SANDBOX unset\n"
   local seen = 0
   for n = 1, 8 do
-    local out = Fs.read(dir .. "/grades/1/check-" .. n .. ".out")
+    local out = Fs.read(dir .. "/grades/1/check-" .. tostring(n) .. ".out")
     if out ~= nil and out:find("COSMIC_TEST_SANDBOX", 1, true) then
       seen = seen + 1
-      assert(out:sub(1, #expected) == expected, "grades/1/check-" .. n .. ".out: " .. out)
+      assert(out:sub(1, #expected) == expected, "grades/1/check-" .. tostring(n) .. ".out: " .. out)
     end
   end
-  assert(seen == 2, "env-of ran in " .. seen .. " steps, not the test step and the hidden one")
+  assert(seen == 2, "env-of ran in " .. tostring(seen) .. " steps, not the test step and the hidden one")
 end
 
 local function test_a_hidden_test_that_passes_is_one_check_that_passes(dir: string)

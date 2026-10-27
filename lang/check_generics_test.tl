@@ -113,7 +113,7 @@ local function test_a_conflict_names_both_arguments_and_the_fix()
     e.msg)
   assert(e.fix:find("pass values of one type to `pick`", 1, true) ~= nil, e.fix)
   local _, lines = HEAD:gsub("\n", "")
-  assert(e.y == lines + 3 and e.x == 19, e.y .. ":" .. e.x)
+  assert(e.y == lines + 3 and e.x == 19, tostring(e.y) .. ":" .. tostring(e.x))
 end
 
 local function test_a_mut_collection_fixes_the_type_exactly_and_the_other_arguments_are_held_to_it()

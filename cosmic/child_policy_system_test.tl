@@ -43,7 +43,7 @@ local function test_the_system_profile_lets_a_host_program_read_what_is_granted(
   local policy: Sandbox.Policy = { profiles = { "system" }, grants = { { path = tmp .. "/ro", letters = "r" } } }
   local said, code = cat(policy, tmp .. "/ro/a")
   if said == nil then return end
-  assert(code == 0 and said == "alpha\n", code .. ": " .. said)
+  assert(code == 0 and said == "alpha\n", tostring(code) .. ": " .. said)
   local sibling, status = cat(policy, tmp .. "/other/b")
   assert(status ~= 0 and sibling:find("Permission denied", 1, true), sibling)
   -- The profile reaches the system's own files and no other of the host's.

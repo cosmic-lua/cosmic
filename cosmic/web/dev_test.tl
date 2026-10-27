@@ -292,7 +292,7 @@ local function test_a_host_the_app_does_not_trust_is_refused()
   Web.with_client(app, function(client: Web.TestClient)
     for _, path in ipairs({ "/", "/_web/dev.js", "/_web/dev/events", "/boom" }) do
       local res = client:get(path, local_opts(nil, "evil.example"))
-      assert(res.status == 400, path .. ": " .. res.status)
+      assert(res.status == 400, path .. ": " .. tostring(res.status))
       assert(not res.body:find("kaboom", 1, true) and not res.body:find("EventSource", 1, true))
     end
     for _, host in ipairs({ "localhost:8080", "127.0.0.1:9", "[::1]:3000", "LOCALHOST" }) do

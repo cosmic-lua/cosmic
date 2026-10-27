@@ -109,7 +109,7 @@ local function written(r: Request): string
   local body = table.concat(r.chunks)
   local encoded = ""
   if framing == "length" then
-    lines[#lines + 1] = "Content-Length: " .. #body
+    lines[#lines + 1] = "Content-Length: " .. tostring(#body)
     encoded = body
   elseif framing == "chunked" then
     lines[#lines + 1] = "Transfer-Encoding: chunked"
@@ -162,9 +162,9 @@ local function transcript(data: string, sizes: {integer}): string
     local read = wire.read_head(input, LIMITS)
     local head = read.head
     if head == nil then
-      assert(read.status == 0 or REFUSALS[read.status], "status " .. read.status)
+      assert(read.status == 0 or REFUSALS[read.status], "status " .. tostring(read.status))
       if read.status ~= 0 then Fuzz.label("refused") end
-      out[#out + 1] = "end " .. read.status
+      out[#out + 1] = "end " .. tostring(read.status)
       return table.concat(out, "\n")
     end
     Fuzz.label("head")
@@ -291,7 +291,7 @@ local function test_a_written_request_reads_back(tmp: string)
           return true, ""
         end
       end
-      if head == nil then return false, "refused: " .. read.status .. " " .. read.why end
+      if head == nil then return false, "refused: " .. tostring(read.status) .. " " .. read.why end
       local target = TARGETS[r.target]
       if head.method ~= r.method or head.target ~= target[1] or head.version ~= r.version or
           head.path ~= target[2] or head.query ~= target[3] then
@@ -398,7 +398,9 @@ local function test_a_reply_is_framed_as_its_status_and_method_say(tmp: string)
       local length = reply.length
       if declared ~= nil and ((length ~= nil and declared ~= length) or
           (bodiless and status ~= 304) or (not bodiless and own ~= nil and declared ~= own)) then
-        if why == "" then return false, "a Content-Length of " .. declared .. " was taken" end
+        if why == "" then
+          return false, "a Content-Length of " .. tostring(declared) .. " was taken"
+        end
         Fuzz.label("refused length")
         return true, ""
       end
@@ -418,7 +420,7 @@ local function test_a_reply_is_framed_as_its_status_and_method_say(tmp: string)
         if name == "Set-Cookie" then
           lines = lines + 1
           if value ~= ("c%d=v; Expires=Wed, 21 Oct 2026"):format(lines) then
-            return false, "Set-Cookie line " .. lines .. " is " .. value
+            return false, "Set-Cookie line " .. tostring(lines) .. " is " .. value
           end
         elseif headers[name:lower()] ~= nil then
           return false, "header " .. name .. " is written twice"

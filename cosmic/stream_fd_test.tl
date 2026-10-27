@@ -48,7 +48,7 @@ local function test_a_read_with_a_timeout_fails_with_the_timeout_word(tmp: strin
   local elapsed = Clock.monotonic_ns() - before
   assert(chunk == nil and why == Poll.TIMEOUT, tostring(why))
   assert(elapsed >= Clock.ms(79) and elapsed < Clock.seconds(5),
-    "timed out after " .. elapsed // Clock.ms(1) .. " ms")
+    "timed out after " .. tostring(elapsed // Clock.ms(1)) .. " ms")
   assert(sys.write(writer, "late") == 4)
   assert(r:read() == "late")
   assert(sys.close(writer))
@@ -139,9 +139,9 @@ local function test_a_write_that_expires_reports_the_bytes_written(tmp: string)
   local elapsed = Clock.monotonic_ns() - before
   assert(not ok and why == Poll.TIMEOUT, tostring(why))
   assert(elapsed >= Clock.ms(59) and elapsed < Clock.seconds(5),
-    "timed out after " .. elapsed // Clock.ms(1) .. " ms")
+    "timed out after " .. tostring(elapsed // Clock.ms(1)) .. " ms")
   local went = w:written()
-  assert(went > 0 and went < #body, "wrote " .. went)
+  assert(went > 0 and went < #body, "wrote " .. tostring(went))
   assert(drained(reader) == body:sub(1, went), "the reader found other bytes than went")
   assert(w:write(body:sub(went + 1, went + 4)))
   assert(w:written() == went + 4)

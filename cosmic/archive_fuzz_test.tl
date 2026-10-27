@@ -511,7 +511,7 @@ local function build_capped(fields: {string}): string?, {integer}
     local unit = if fields[i + 1] == "z" then "\0" else "pq1" end
     local body = unit:rep(size // #unit + 1):sub(1, size)
     sizes[#sizes + 1] = size
-    if not w:add_file("f" .. #sizes, body) then return nil, sizes end
+    if not w:add_file("f" .. tostring(#sizes), body) then return nil, sizes end
   end
   if not w:close() then return nil, sizes end
   local archive = out:result()
@@ -578,9 +578,9 @@ local function test_extraction_stays_under_its_byte_limits(tmp: string)
       -- the other limit first, as it does when both are in reach.
       local either: {string} = {}
       for i, size in ipairs(sizes) do
-        local entry_says = "archive: f" .. i .. " is larger than max_entry_bytes (" ..
+        local entry_says = "archive: f" .. tostring(i) .. " is larger than max_entry_bytes (" ..
           String.counted(per_file or 0, "byte") .. ")"
-        local total_says = "archive: extracting f" .. i .. " would write more than max_bytes (" ..
+        local total_says = "archive: extracting f" .. tostring(i) .. " would write more than max_bytes (" ..
           String.counted(total or 0, "byte") .. ")"
         if per_file ~= nil and size > per_file then
           refusal = entry_says
@@ -610,22 +610,24 @@ local function test_extraction_stays_under_its_byte_limits(tmp: string)
         local names = Fs.list(dest) or {}
         table.sort(names)
         local want: mut {string} = {}
-        for i = 1, kept do want[i] = "f" .. i end
+        for i = 1, kept do want[i] = "f" .. tostring(i) end
         table.sort(want)
         if table.concat(names, ",") ~= table.concat(want, ",") then
           return false, "left " .. table.concat(names, ",") .. ", not " .. table.concat(want, ",")
         end
         local wrote = 0
         for i = 1, kept do
-          local body = Fs.read(dest .. "/f" .. i)
-          if body == nil or #body ~= sizes[i] then return false, "f" .. i .. " is not whole" end
+          local body = Fs.read(dest .. "/f" .. tostring(i))
+          if body == nil or #body ~= sizes[i] then
+            return false, "f" .. tostring(i) .. " is not whole"
+          end
           wrote = wrote + #body
           if per_file ~= nil and #body > per_file then
-            return false, "f" .. i .. " passes max_entry_bytes"
+            return false, "f" .. tostring(i) .. " passes max_entry_bytes"
           end
         end
         if total ~= nil and wrote > total then
-          return false, "wrote " .. wrote .. ", past max_bytes"
+          return false, "wrote " .. tostring(wrote) .. ", past max_bytes"
         end
         return true, ""
       end

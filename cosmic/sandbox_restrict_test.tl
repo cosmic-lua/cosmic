@@ -312,8 +312,7 @@ end
 ]]))
   if said == nil then return end
   for i, n in ipairs({ 50, 25, 10 }) do
-    assert(said.lines["r" .. tostring(i)] == "true " and said.lines["cpu" .. tostring(i)] == tostring(n) .. " " .. tostring(n),
-      said.raw)
+    assert(said.lines["r" .. tostring(i)] == "true " and said.lines["cpu" .. tostring(i)] == tostring(n) .. " " .. tostring(n), said.raw)
   end
 end
 
@@ -374,7 +373,7 @@ local function test_every_refusal_holds_nothing(tmp: string)
   local probe = assert(stand_in.build(tmp .. "/stand-in"))
   local lines: mut {string} = {}
   for i, case in ipairs(REFUSED) do
-    lines[#lines + 1] = string.format("say(%q, Sandbox.restrict(%s))", "case" .. i, case[1])
+    lines[#lines + 1] = string.format("say(%q, Sandbox.restrict(%s))", "case" .. tostring(i), case[1])
   end
   local said = in_child(table.concat(lines, "\n") .. "\n" .. string.format([[
 -- What the kernel's side refuses: an open descriptor, one fds names that is
@@ -401,7 +400,7 @@ say("free", reads(%q))
 ]], tmp .. "/held", tmp .. "/absent", probe, tmp .. "/free"))
   if said == nil then return end
   for i, case in ipairs(REFUSED) do
-    local answer = said.lines["case" .. i] or ""
+    local answer = said.lines["case" .. tostring(i)] or ""
     assert(answer:find("^false sandbox: ") and answer:find(case[2], 1, true),
       case[1] .. " -> " .. answer)
   end

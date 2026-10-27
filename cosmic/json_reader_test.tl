@@ -68,7 +68,7 @@ local function test_any_split_reads_the_same()
   for size = 1, 7 do
     local got, err = tokens(DOCUMENT, size)
     assert(err == "", err)
-    assert(table.concat(got, " ") == whole, size .. ": " .. table.concat(got, " "))
+    assert(table.concat(got, " ") == whole, tostring(size) .. ": " .. table.concat(got, " "))
   end
 end
 
@@ -107,7 +107,7 @@ local function test_refusals_name_where()
   for _, case in ipairs(cases) do
     for _, size in ipairs({ 1, 3, 100 }) do
       local _, err = tokens(case[1], size)
-      assert(err == case[2], case[1] .. " in chunks of " .. size .. ": " .. err)
+      assert(err == case[2], case[1] .. " in chunks of " .. tostring(size) .. ": " .. err)
     end
   end
   local r = Json.reader(Stream.from_string("[1,]"))

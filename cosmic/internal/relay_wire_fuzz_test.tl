@@ -391,7 +391,7 @@ local function test_feeding_in_pieces_agrees_with_feeding_the_whole(tmp: string)
 end
 
 local function authority_of(host: string, kind: string, port: integer): string
-  return (if kind == "ipv6" then "[" .. host .. "]" else host end) .. ":" .. port
+  return (if kind == "ipv6" then "[" .. host .. "]" else host end) .. ":" .. tostring(port)
 end
 
 local function test_a_request_built_from_an_answer_reads_back_the_same(tmp: string)

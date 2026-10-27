@@ -546,7 +546,7 @@ local function test_in_a_run_a_server_serves_connections_at_once()
       clients[i] = assert(Net.connect(server.address, { timeout_ns = Clock.seconds(5) }))
     end
     for i = 3, 1, -1 do
-      assert(clients[i]:write("c" .. i .. "\n"))
+      assert(clients[i]:write("c" .. tostring(i) .. "\n"))
       answered[#answered + 1] = assert(Stream.lines(clients[i]):read())
       assert(clients[i]:close())
     end
@@ -628,7 +628,7 @@ local function test_in_a_run_a_write_waits_while_another_task_drains()
       end
     end)
   end)
-  assert(got.value == size, "got " .. got.value .. " of " .. size .. " bytes")
+  assert(got.value == size, "got " .. got.value .. " of " .. tostring(size) .. " bytes")
 end
 
 --- In a task, a wait past its timeout fails with Poll.TIMEOUT, as it does out

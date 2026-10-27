@@ -205,7 +205,7 @@ local function test_dispatch_runs_the_command_with_its_own_options()
     },
     clean = {
       run = function(got: Flags.Parsed): integer
-        ran[#ran + 1] = "clean " .. #got.words
+        ran[#ran + 1] = "clean " .. tostring(#got.words)
         return 0
       end,
     },
@@ -308,7 +308,7 @@ local function test_help_after_a_double_dash_or_named_by_the_spec_is_not_help()
     },
     help = {
       run = function(got: Flags.Parsed): integer
-        seen[#seen + 1] = "own help " .. #got.words
+        seen[#seen + 1] = "own help " .. tostring(#got.words)
         return 0
       end,
     },

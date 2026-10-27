@@ -30,14 +30,14 @@ end
 --- The one error of `source`, which has exactly one.
 local function only_error(source: string): Lexer.Error
   local errors = lex(source).errors
-  assert(#errors == 1, "expected one error, found " .. #errors .. " in " .. source)
+  assert(#errors == 1, "expected one error, found " .. tostring(#errors) .. " in " .. source)
   return errors[1]
 end
 
 --- The token at `index`, which exists.
 local function token(source: string, index: integer): Lexer.Token
   local tokens = lex(source).tokens
-  assert(index <= Lexer.count(tokens), "no token " .. index .. " in " .. source)
+  assert(index <= Lexer.count(tokens), "no token " .. tostring(index) .. " in " .. source)
   return Lexer.token(tokens, index)
 end
 
@@ -189,7 +189,7 @@ end
 local function test_a_long_string_spans_lines_and_moves_the_lines_that_follow()
   local lexed = lex("local s = [==[\nab\ncd]==] .. x")
   local str, dots = Lexer.token(lexed.tokens, 4), Lexer.token(lexed.tokens, 5)
-  assert(str.y == 1 and str.x == 11 and str.yend == 3 and str.xend == 6, str.yend .. ":" .. str.xend)
+  assert(str.y == 1 and str.x == 11 and str.yend == 3 and str.xend == 6, tostring(str.yend) .. ":" .. tostring(str.xend))
   assert(str.length == 14)
   assert(dots.y == 3 and dots.x == 8 and dots.text == "..")
 end
@@ -546,11 +546,11 @@ end
 
 local function test_a_bad_escape_is_placed_on_its_own_line_in_a_string_across_lines()
   local first = bad_escape_at("x = 'a\\q\\\nb'")
-  assert(first.y == 1 and first.x == 7 and first.offset == 7, first.y .. ":" .. first.x)
+  assert(first.y == 1 and first.x == 7 and first.offset == 7, tostring(first.y) .. ":" .. tostring(first.x))
   local second = bad_escape_at("x = 'a\\\nb\\q'")
-  assert(second.y == 2 and second.x == 2 and second.offset == 10, second.y .. ":" .. second.x)
+  assert(second.y == 2 and second.x == 2 and second.offset == 10, tostring(second.y) .. ":" .. tostring(second.x))
   local across = bad_escape_at("x = 'a\\z\n\n  \\q'")
-  assert(across.y == 3 and across.x == 3, across.y .. ":" .. across.x)
+  assert(across.y == 3 and across.x == 3, tostring(across.y) .. ":" .. tostring(across.x))
 end
 
 --- A long line lexes in time that holds the line's length once: a search

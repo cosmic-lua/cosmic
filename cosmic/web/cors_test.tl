@@ -99,7 +99,7 @@ local function test_errors_carry_the_headers_so_the_browser_shows_them()
   local client = Web.test_client(make_app{ allow_origins = { APP } })
   for _, case in ipairs({ { "/missing", 404 }, { "/denied", 403 }, { "/boom", 500 } }) do
     local res = get(client, APP, case[1] as string)
-    assert(res.status == case[2], case[1] as string .. " " .. res.status)
+    assert(res.status == case[2], case[1] as string .. " " .. tostring(res.status))
     assert(res.headers["access-control-allow-origin"] == APP, case[1] as string)
     assert(res.headers["vary"]:find("Origin", 1, true), case[1] as string)
   end
@@ -186,7 +186,7 @@ local function test_a_preflight_the_config_does_not_allow_is_a_403_without_a_gra
   local client = Web.test_client(make_app{ allow_origins = { APP }, allow_credentials = true,
     allow_headers = { "X-Token" } })
   local function refused(res: Web.TestResponse, why: string)
-    assert(res.status == 403, why .. " " .. res.status)
+    assert(res.status == 403, why .. " " .. tostring(res.status))
     for name in pairs(res.headers) do
       assert(not name:find("^access%-control%-allow"), why .. " leaked " .. name)
     end

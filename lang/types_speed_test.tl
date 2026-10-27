@@ -14,7 +14,7 @@ Test.policy{}
 local function populate(store: Types.Store, n: integer): {Types.Type}
   local out: mut {Types.Type} = {}
   for i = 1, n do
-    local decl = store:declare("record", "m", { "R" .. i })
+    local decl = store:declare("record", "m", { "R" .. tostring(i) })
     out[i] = store:array(store:named(decl))
   end
   return out
@@ -32,7 +32,7 @@ local function test_making_types_again_costs_no_more_than_making_them()
     local _ = populate(store, n)
   end)
   -- Declaring again finds the declaration, and each type is found, so only the lookups remain.
-  assert(again <= 2 * first, "making again took " .. again // 1000 .. " us against " .. first // 1000 .. " us")
+  assert(again <= 2 * first, "making again took " .. tostring(again // 1000) .. " us against " .. tostring(first // 1000) .. " us")
 end
 
 --- Forms that a store could make slower than their length, each as a function of how many to make.
@@ -79,7 +79,7 @@ local FORMS <const>: {string: function(n: integer)} = {
     local store = Types.new()
     local fields: mut {Types.Field} = {}
     for i, t in ipairs(populate(store, n * 10)) do
-      fields[i] = { name = "f" .. i, type = t, mut = i % 2 == 0 }
+      fields[i] = { name = "f" .. tostring(i), type = t, mut = i % 2 == 0 }
     end
     local decl = store:declare("record", "m", { "Wide" })
     store:define(decl, { tparams = {}, supers = {}, fields = fields, methods = {}, values = {} })
