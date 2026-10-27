@@ -3945,97 +3945,51 @@ lang/translate_fuzz_test.tl overload_none 1
 test/coverage_cache_test.tl overload_none 1
 
 # a `return` of fewer values than the function answers (`return nil` for `T?, string`)
-build/alias_members.tl return_arity 5
 
-build/bom.tl return_arity 10
 
-build/c/init.tl return_arity 4
 
-build/plans.tl return_arity 2
 
-build/confine.tl return_arity 3
 
-build/databases.tl return_arity 2
 
-build/dataset.tl return_arity 6
 
-build/declared_types_test.tl return_arity 4
 
-build/dispatch.tl return_arity 2
 
-build/docs.tl return_arity 41
 
-build/docs_checks.tl return_arity 1
 
-build/doctest_test.tl return_arity 1
 
-build/embed.tl return_arity 3
 
-build/fix/init.tl return_arity 10
 
-build/flow.tl return_arity 2
 
-build/gen_syscalls.tl return_arity 5
 
-build/grammar_mode.tl return_arity 1
 
-build/host_names.tl return_arity 5
 
-build/host_requires.tl return_arity 3
 
-build/identity.tl return_arity 5
 
-build/importer.tl return_arity 2
 
-build/importer_test.tl return_arity 1
 
-build/link_files.tl return_arity 1
 
-build/link_index.tl return_arity 3
 
-build/link_index_test.tl return_arity 2
 
-build/link_resolve.tl return_arity 8
 
-build/lua_tail.tl return_arity 1
 
-build/pipeline.tl return_arity 1
 
-build/reboot.tl return_arity 3
 
-build/roots.tl return_arity 1
 
-build/shared_compiles.tl return_arity 1
 
-build/shared_verdicts.tl return_arity 1
 
-build/sql.tl return_arity 8
 
-build/stand_in.tl return_arity 2
 
-build/symbol_index.tl return_arity 4
 
-build/test.tl return_arity 1
 
-build/test_key.tl return_arity 1
 
-build/todos.tl return_arity 4
 
-build/tree_checks.tl return_arity 5
 
-build/tree_program.tl return_arity 3
 
-build/tree_root.tl return_arity 1
 
-build/work.tl return_arity 5
 
-build/work_test.tl return_arity 1
 
-build/writer.tl return_arity 4
 
-build/writer_test.tl return_arity 1
 
-build/zig_test.tl return_arity 1
 
 # untrusted data read, operated on or stored: the rewrite validates it with a [`cosmic.shape`] validator
 
@@ -6774,7 +6728,6 @@ lang/types.tl concat_type 26
 # an operand an operator does not take: a string in arithmetic, a map under `#`
 # an `==` of two types that share no value: mostly a comparison with nil of a value its declaration says is never nil
 # (the first value of a `T, string` answer of the tree, a count), and the dead tests the rewrite removes
-build/alias_members.tl compare_disjoint 5
 
 build/c/rules.tl compare_disjoint 16
 
@@ -6790,7 +6743,7 @@ build/declared_key_test.tl compare_disjoint 1
 
 build/dispatched_features_test.tl compare_disjoint 1
 
-build/docs.tl compare_disjoint 7
+build/docs.tl compare_disjoint 1
 
 build/docs_test.tl compare_disjoint 2
 
@@ -6834,7 +6787,6 @@ build/test_worker.tl compare_disjoint 2
 
 build/todos.tl compare_disjoint 1
 
-build/tree_checks.tl compare_disjoint 1
 
 build/work.tl compare_disjoint 4
 

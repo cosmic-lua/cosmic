@@ -797,7 +797,7 @@ local function stage_files(root: string, files: {string:string}): work.Staged?, 
   local handle = assert(work.open(root))
   local staged, trouble = work.stage(handle, false)
   assert(work.close(handle))
-  if staged ~= nil then return staged end
+  if staged ~= nil then return staged, "" end
   return nil, trouble
 end
 

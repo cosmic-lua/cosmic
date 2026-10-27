@@ -695,7 +695,7 @@ local function library(dir: string, identity: string, with_write: boolean): link
       "--- Opens.", "function raw.open(): integer", "  return 0", "end", "", "return raw"),
   })
   return { identity = identity,
-    databases = function(): {Sqlite.Handle}?, string return { db } end }
+    databases = function(): {Sqlite.Handle}?, string return { db }, "" end }
 end
 
 --- A project whose module and README link to the standard library.
@@ -738,7 +738,7 @@ local function test_a_projects_links_to_the_standard_library_are_rows(tmp: strin
         "greet.tl 1 24 greet cosmic.fs read",
         "greet.tl 1 47 greet cosmic.fs write",
       })
-  local handles = assert(stdlib.databases())
+  local handles = assert(assert(stdlib.databases)())
   local view = assert(docs.view({ db, handles[1] }, { false, true }))
   local listed: mut {string} = {}
   for _, use in ipairs((assert(docs.uses(view, "cosmic.fs.read")))) do
@@ -780,7 +780,7 @@ local function test_a_projects_links_through_required_modules_are_rows(tmp: stri
       "return Archive"),
   })
   local streams: link_index.Library = { identity = "docs streams",
-    databases = function(): {Sqlite.Handle}?, string return { stdlib } end }
+    databases = function(): {Sqlite.Handle}?, string return { stdlib }, "" end }
   local root = assert(Fs.absolute(tmp)) .. "/project"
   assert(Fs.mkdirs(root))
   assert(Fs.write(root .. "/greet.tl", source(
