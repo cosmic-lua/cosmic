@@ -49,7 +49,7 @@ local function test_a_modules_load_and_test_hits_are_two_lines_of_its_row()
   local row = test.take_hits(hits, { ["core"] = {} }, folded, spelled,
     { ["build.a"] = loaded, ["core"] = { [9] = true } }, { ["build.a"] = { [7] = true } })
   assert(row == "build.a\t1,3\nbuild.a\t7\n", row)
-  assert(hits["build.a"][1] and hits["build.a"][3] and hits["build.a"][7])
+  assert(hits["build.a"][1] == true and hits["build.a"][3] == true and hits["build.a"][7] == true)
   assert(hits["core"] == nil)
   hits["build.a"][1] = nil
   row = test.take_hits(hits, {}, folded, spelled, { ["build.a"] = loaded }, {})
@@ -67,7 +67,7 @@ local function test_a_shard_is_one_of_n_shares_from_one()
   for _, text in ipairs({ "0/2", "3/2", "1/0", "2", "/2", "1/", "-1/2", "1.5/2",
       "1/2/3", " 1/2", "99999999999999999999/99999999999999999999" }) do
     local refused, why = test.shard(text)
-    assert(refused == nil and why:find("--shard must be I/N", 1, true), text)
+    assert(refused == nil and why:find("--shard must be I/N", 1, true) ~= nil, text)
   end
 end
 
@@ -296,23 +296,23 @@ local function test_the_harness_holds_what_a_worker_runs_and_what_keys_it()
   -- The harness's modules are named, and those it runs apart.
   local named: mut {string:boolean} = {}
   for _, name in ipairs(before.names) do named[name] = true end
-  assert(named["build.caches"] and named["build.zig_caches"] and named["build.test_key"] and
+  assert(named["build.caches"] == true and named["build.zig_caches"] == true and named["build.test_key"] == true and
       named["build.test"] == nil and named["build.test_state"] == nil and
-      not named["build.harness_epoch"] and not named["build.test_report"])
+      named["build.harness_epoch"] ~= true and named["build.test_report"] ~= true)
   local runs: mut {string:boolean} = {}
   for _, name in ipairs(before.runs) do runs[name] = true end
-  assert(runs["build.test_sandbox"] and runs["build.test_policy"] and runs["build.test_worker"] and
-      not runs["build.test_key"])
+  assert(runs["build.test_sandbox"] == true and runs["build.test_policy"] == true and runs["build.test_worker"] == true and
+      runs["build.test_key"] ~= true)
   -- A module that makes a key and that the binary does not carry fails
   -- the harness, naming it.
   assert(db:exec("DELETE FROM modules WHERE path = 'build.artifact'"))
   local none, why = test_key.harness(db)
-  assert(none == nil and why:find("build.artifact", 1, true), why)
+  assert(none == nil and why:find("build.artifact", 1, true) ~= nil, why)
   set("build.artifact", "return 'a key'\n", "bytecode")
   -- So does one the store's writer requires.
   assert(db:exec("DELETE FROM modules WHERE path = 'cosmic.sqlite'"))
   none, why = test_key.harness(db)
-  assert(none == nil and why:find("cosmic.sqlite", 1, true), why)
+  assert(none == nil and why:find("cosmic.sqlite", 1, true) ~= nil, why)
   db:close()
 end
 
@@ -357,8 +357,8 @@ local function test_the_harness_walks_the_key_code_by_value()
   db:close()
   local named: mut {string:boolean} = {}
   for _, name in ipairs(found.names) do named[name] = true end
-  assert(named["build.artifact"] and named["cosmic.sqlite"] and named["cosmic.child"])
-  assert(not named["cosmic.stream"] and not named["cosmic.time"])
+  assert(named["build.artifact"] == true and named["cosmic.sqlite"] == true and named["cosmic.child"] == true)
+  assert(named["cosmic.stream"] ~= true and named["cosmic.time"] ~= true)
 end
 
 --- A run keeps the coverage of the newest ten runs and drops that of the

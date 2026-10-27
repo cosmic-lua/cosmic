@@ -92,7 +92,7 @@ local function forgotten(names: RunNames, text: string, allowed: {string:boolean
   local seen: mut {string:boolean} = {}
   for name in text:gmatch("[%u%d_]+") do
     -- CI is a word of prose too often to tell a read of it.
-    if name ~= "CI" and not seen[name] and not allowed[name] and names_the_run(names, name) then
+    if name ~= "CI" and seen[name] ~= true and allowed[name] ~= true and names_the_run(names, name) then
       found[#found + 1] = name
     end
     seen[name] = true
@@ -147,7 +147,7 @@ local function test_the_darwin_list_names_test_modules_of_the_tree()
   assert(#modules > 0, "the darwin list names no module")
   local seen: mut {string:boolean} = {}
   for _, module in ipairs(modules) do
-    assert(not seen[module], module .. ": listed twice")
+    assert(seen[module] ~= true, module .. ": listed twice")
     seen[module] = true
     assert(module:match("^[%w_/]+_test%.tl$"), module .. ": not a test module's path")
     local st = Fs.stat(module)

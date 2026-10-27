@@ -174,7 +174,7 @@ end
   assert(failure(text, "test_passed_over") == refused, text)
   local raised = assert(failure(text, "test_raised_too"))
   assert(String.starts_with(raised, refused .. "; and then: ") and
-      raised:find("its own failure$"), text)
+      raised:find("its own failure$") ~= nil, text)
   assert(assert(failure(text, "test_too_many")):find("^must_confine: bin/probe could not start " ..
       "confined: unveil could not be applied: %d+ paths, more than the " .. tostring(confine.unveil_max) ..
       " a sandbox unveils %(EINVAL%)$"), text)
@@ -209,7 +209,7 @@ local function test_a_worker_held_by_landlock_is_refused_a_root_of_its_own(tmp: 
   env.COSMIC_TEST_SANDBOX = "0"
   env[confine.held_variable] = "suite.outer_test"
   local text, ok = run(root, tmp .. "/held", env, { "--all" })
-  assert(not ok and text:find("2 of 3 tests failed", 1, true), text)
+  assert(not ok and text:find("2 of 3 tests failed", 1, true) ~= nil, text)
   local refused = fixture.refusal("suite.outer_test")
   assert(failure_of(text, "held_test", "test_confined") == refused, text)
   assert(failure_of(text, "held_test", "test_own_sandbox") == refused, text)
@@ -217,8 +217,8 @@ local function test_a_worker_held_by_landlock_is_refused_a_root_of_its_own(tmp: 
   env.COSMIC_TEST_SANDBOX = nil
   text, ok = run(root, tmp .. "/nested", env)
   assert(not ok and text:find("test: this run was started in suite.outer_test's worker, " ..
-      "which a Landlock ruleset holds", 1, true) and
-      text:find("declare the promise \"nest\" in its Test.policy", 1, true), text)
+      "which a Landlock ruleset holds", 1, true) ~= nil and
+      text:find("declare the promise \"nest\" in its Test.policy", 1, true) ~= nil, text)
 end
 
 --- Where the platform has no sandbox to confine with, a process under
@@ -236,7 +236,7 @@ local function test_a_must_confined_process_is_refused_where_no_sandbox_is_given
   assert(not ok, text)
   local why = text:match("FAIL  suite%.real_test test_confined: ([^\n]*)")
   assert(why ~= nil and why:find("^must_confine: %S*bin/probe could not start confined: .+ could " ..
-      "not be applied: .+ %(E[A-Z0-9]+%)$"), text)
+      "not be applied: .+ %(E[A-Z0-9]+%)$") ~= nil, text)
 end
 
 --- Where the platform has no sandbox, a `confine` that cannot confine falls
@@ -251,7 +251,7 @@ local function test_a_confine_falls_back_and_stands_where_no_sandbox_is_given(tm
   local root = tmp .. "/root"
   fixture.fallback_suite(tmp, root)
   local text, ok = run(root, tmp .. "/first", environment(nil))
-  assert(ok and text:find("1 ran", 1, true), text)
+  assert(ok and text:find("1 ran", 1, true) ~= nil, text)
   text, ok = run(root, tmp .. "/stood", environment(nil))
-  assert(ok and text:find("0 ran, 1 stood", 1, true), text)
+  assert(ok and text:find("0 ran, 1 stood", 1, true) ~= nil, text)
 end

@@ -29,7 +29,7 @@ local function gen_doc(src: Fuzz.Source, depth: integer): string
   local used: mut {string:boolean} = {}
   while Fuzz.more(src, #parts, 4) do
     local name = Fuzz.pick(src, names)
-    if not used[name] then
+    if used[name] ~= true then
       used[name] = true
       parts[#parts + 1] = Json.quote(name) .. ":" .. gen_doc(src, depth + 1)
     end
@@ -79,8 +79,8 @@ local function test_every_flattened_path_reads_back_and_is_selectable(tmp: strin
         end
         if a == "{}" or a == "[]" then Fuzz.label("empty container") end
         if path:find('["', 1, true) ~= nil then Fuzz.label("quoted") end
-        if not selectable[normal] then return false, path .. " is not selected by $..*" end
-        if seen[path] then return false, path .. " twice" end
+        if selectable[normal] ~= true then return false, path .. " is not selected by $..*" end
+        if seen[path] == true then return false, path .. " twice" end
         seen[path] = true
       end
       return true, ""

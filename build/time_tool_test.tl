@@ -34,7 +34,7 @@ local function test_now_prints_the_time_and_no_summary(tmp: string)
   assert(ran.code == 0 and ran.err == "", ran.err)
   assert(ran.out:match("^%d%d%d%d%-%d%d%-%d%dT%d%d:%d%d:%d%d%+09:00\n$"), ran.out)
   local epoch = cosmic(tmp, { "time", "now", "--format", "epoch" })
-  assert(epoch.code == 0 and epoch.out:match("^%d+\n$"), epoch.out)
+  assert(epoch.code == 0 and epoch.out:match("^%d+\n$") ~= nil, epoch.out)
   local http = cosmic(tmp, { "time", "now", "--format", "http", "--zone", "America/New_York" })
   assert(http.out:match(" GMT\n$"), http.out)
 end
@@ -59,7 +59,7 @@ local function test_the_exit_status_is_the_verdict(tmp: string)
   assert(bad.code == 2 and bad.out == "", bad.out)
   assert(not bad.err:find("time: FAIL", 1, true), bad.err)
   local usage = cosmic(tmp, { "time", "--bogus" })
-  assert(usage.code == 2 and usage.out == "" and usage.err:find("no such option: --bogus", 1, true), usage.err)
+  assert(usage.code == 2 and usage.out == "" and usage.err:find("no such option: --bogus", 1, true) ~= nil, usage.err)
 end
 
 --- Help reads the store's docs, which a test not declaring `store` is not

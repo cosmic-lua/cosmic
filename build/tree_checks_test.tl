@@ -663,7 +663,7 @@ local function test_a_requirement_no_leg_promises_is_refused()
   assert(#tree_checks.promises({ ["a_test"] = { "nest" } }, legs) == 0)
   assert(#tree_checks.promises({}, legs) == 0)
   local refused = tree_checks.promises({}, { linux = { "nope" } })
-  assert(#refused == 1 and refused[1]:find("leg linux promises \"nope\", which is refused", 1, true), refused[1])
+  assert(#refused == 1 and refused[1]:find("leg linux promises \"nope\", which is refused", 1, true) ~= nil, refused[1])
 end
 
 --- The legs are read out of ci/cosmic_ci/capabilities.json, and a file
@@ -708,8 +708,8 @@ local function test_the_unsealed_modules_are_those_declaring_a_launcher_reader()
   assert(db:exec("INSERT INTO test_inputs VALUES ('h1', 1, 'tool', 'true'), ('h2', 1, 'store', 'true'), " ..
       "('h3', 1, 'requires', 'portable'), ('h4', 1, 'requires', 'proc'), ('h5', 1, 'nests', 'true')"))
   local found = assert(tree_checks.unsealed(db))
-  assert(found["m.a_test"] and found["m.b_test"] and found["m.c_test"])
-  assert(not found["m.d_test"] and not found["m.e_test"])
+  assert(found["m.a_test"] == true and found["m.b_test"] == true and found["m.c_test"] == true)
+  assert(found["m.d_test"] ~= true and found["m.e_test"] ~= true)
   local _, _ = db:close()
 end
 

@@ -176,9 +176,9 @@ end
 local function test_sample_counts_are_validated_apart_for_benchmark_and_lifecycle()
   -- Each refuses before it makes an output directory.
   local ok, trouble = pcall(Perf.benchmark, argv_with("29"), "perf.tl")
-  assert(not ok and tostring(trouble):find("30 to 2000", 1, true))
+  assert(not ok and tostring(trouble):find("30 to 2000", 1, true) ~= nil)
   for _, count in ipairs({ "5", "30" }) do
     local lifecycle_ok, lifecycle_trouble = pcall(Perf.rehearse, argv_with(count), "perf.tl")
-    assert(not lifecycle_ok and tostring(lifecycle_trouble):find("6 to 29", 1, true))
+    assert(not lifecycle_ok and tostring(lifecycle_trouble):find("6 to 29", 1, true) ~= nil)
   end
 end

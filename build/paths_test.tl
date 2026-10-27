@@ -115,7 +115,7 @@ local function test_prepare_records_the_use(tmp: string)
   local directory = assert(paths.required(root, env))
   local used = paths.under(directory).used
   assert(used == directory .. "/used")
-  assert(not Fs.exists(used), "a lookup recorded a use")
+  assert(Fs.exists(used) ~= true, "a lookup recorded a use")
   assert(paths.prepare(root, env) == directory)
   local now = Clock.now_ns() // 1000000000
   assert(math.abs(assert(sys.stat(used)).mtime - now) < 60, "no use was recorded")

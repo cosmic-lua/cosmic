@@ -60,7 +60,7 @@ local function test_a_paired_declaration_runs_its_implementation(tmp: string)
   assert(Fs.write(root .. "/foo.d.tl",
     "local record Foo\n  renamed: integer\nend\nreturn Foo\n"))
   local refused = run()
-  assert(refused.code ~= 0 and (refused.stderr or ""):find("answer", 1, true),
+  assert(refused.code ~= 0 and (refused.stderr or ""):find("answer", 1, true) ~= nil,
     (refused.stdout or "") .. (refused.stderr or ""))
 end
 

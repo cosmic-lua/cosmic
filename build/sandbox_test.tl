@@ -115,7 +115,7 @@ local function test_a_policy_with_no_option_is_the_empty_one()
   local ran = run({ "prog" })
   assert(ran.code == 0)
   local policy = assert(ran.opts.policy)
-  assert(#(policy.grants or {}) == 0 and #(policy.profiles or {}) == 0 and not policy.tmp)
+  assert(#(policy.grants or {}) == 0 and #(policy.profiles or {}) == 0 and policy.tmp ~= true)
   assert(ran.opts.timeout_ns == nil and next(assert(ran.opts.fds)) == nil)
 end
 
@@ -145,7 +145,7 @@ end
 local function test_words_after_the_program_are_the_programs()
   local ran = run({ "--system", "ls", "--read", "x", "-l", "--", "--tmp" })
   same(ran.argv, { "ls", "--read", "x", "-l", "--", "--tmp" })
-  assert(#(assert(ran.opts.policy).grants or {}) == 0 and not assert(ran.opts.policy).tmp)
+  assert(#(assert(ran.opts.policy).grants or {}) == 0 and assert(ran.opts.policy).tmp ~= true)
   ran = run({ "--", "--read", "x" })
   same(ran.argv, { "--read", "x" })
   ran = run({ "--read", "a", "--", "prog", "--", "b" })
@@ -245,7 +245,7 @@ local function client_of(words: {string}): {string}?, integer
       return 42
     end,
   })
-  assert(not started.value or given.value == nil, "the client and a program are not both run")
+  assert(started.value ~= true or given.value == nil, "the client and a program are not both run")
   return given.value, code
 end
 
@@ -276,7 +276,7 @@ local function test_the_programs_end_is_the_exit_status()
   assert(killed.code == 137 and killed.err == "", killed.err)
   assert(run({ "p" }, { result = finished(nil, 15) }).code == 143)
   local late = run({ "--timeout", "2", "p" }, { result = finished(nil, 15, true) })
-  assert(late.code == 124 and late.err:find("timed out after 2 seconds", 1, true), late.err)
+  assert(late.code == 124 and late.err:find("timed out after 2 seconds", 1, true) ~= nil, late.err)
   local quiet = run({ "p" }, { result = finished(0) })
   assert(quiet.err == "", "nothing is said when the program starts")
 end
@@ -300,7 +300,7 @@ end
 
 local function test_127_is_only_for_a_failure_that_is_the_program_not_found(tmp: string)
   local ran = run({ "zzqqx-no-such-program" }, { why = "child: start: cwd \"/x\" does not exist" })
-  assert(ran.code == 125 and ran.err:find("cwd", 1, true), ran.code .. ran.err)
+  assert(ran.code == 125 and ran.err:find("cwd", 1, true) ~= nil, ran.code .. ran.err)
   ran = run({ tmp .. "/absent" }, { why = "child: start: grant /y: No such file or directory" })
   assert(ran.code == 125, ran.code .. ran.err)
 end
@@ -309,7 +309,7 @@ local function test_a_program_that_cannot_be_run_exits_126(tmp: string)
   assert(Fs.write(tmp .. "/plain", "x"))
   assert(sys.chmod(tmp .. "/plain", 420))
   local ran = run({ tmp .. "/plain" }, { why = "child: start: Permission denied" })
-  assert(ran.code == 126 and ran.err:find("Permission denied", 1, true), ran.code .. ran.err)
+  assert(ran.code == 126 and ran.err:find("Permission denied", 1, true) ~= nil, ran.code .. ran.err)
   -- Where it can run, a failure is the start's.
   assert(Fs.write(tmp .. "/runs", "x"))
   assert(sys.chmod(tmp .. "/runs", 493))
@@ -454,7 +454,7 @@ local function test_every_policy_field_has_a_flag()
         " has no flag: add one, and say so here")
   end
   for flag in pairs(Cli.verbs.sandbox.spec or {}) do
-    assert(seen[flag] or others[flag], flag .. " sets no field of the policy")
+    assert(seen[flag] == true or others[flag] == true, flag .. " sets no field of the policy")
   end
   for name in pairs(samples) do
     assert(assert(Cli.verbs.sandbox.spec)[samples[name][1]] ~= nil, name .. ": no such flag")

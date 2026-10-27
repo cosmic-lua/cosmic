@@ -31,7 +31,7 @@ local function cosmic(dir: string, words: {string}, fds?: {integer:integer}): fi
   searchable.open(dir)
   local ran = fixture.cosmic(dir, words, fds)
   if ran.code == 125 and (ran.err:find("Landlock", 1, true) or ran.err:find("seccomp", 1, true) or
-      ran.err:find("not implemented", 1, true)) then
+      ran.err:find("not implemented", 1, true)) ~= nil then
     Test.skip(ran.err)
   end
   return ran
@@ -45,7 +45,7 @@ local function test_a_granted_file_is_read_and_an_ungranted_one_is_not(tmp: stri
   assert(ran.code == 0 and ran.out == "alpha\n" and ran.err == "", ran.code .. ran.out .. ran.err)
   local denied = cosmic(tmp, { "sandbox", "--system", "--read=" .. tmp .. "/ro", "cat", tmp .. "/other/b" })
   assert(denied.code ~= 0 and denied.code < 125, tostring(denied.code))
-  assert(denied.out == "" and denied.err:find("Permission denied", 1, true), denied.err)
+  assert(denied.out == "" and denied.err:find("Permission denied", 1, true) ~= nil, denied.err)
   -- Nothing but what is granted: not the working directory either.
   local here = cosmic(tmp, { "sandbox", "--system", "cat", tmp .. "/ro/a" })
   assert(here.code ~= 0 and here.out == "", here.out)
@@ -68,7 +68,7 @@ end
 
 local function test_a_program_that_runs_past_the_timeout_exits_124(tmp: string)
   local ran = cosmic(tmp, { "sandbox", "--system", "--timeout", "1", "--", "sleep", "30" })
-  assert(ran.code == 124 and ran.err:find("timed out after 1 second", 1, true), ran.code .. ran.err)
+  assert(ran.code == 124 and ran.err:find("timed out after 1 second", 1, true) ~= nil, ran.code .. ran.err)
 end
 
 local function test_a_start_that_fails_exits_125_with_the_reason(tmp: string)
@@ -77,12 +77,12 @@ local function test_a_start_that_fails_exits_125_with_the_reason(tmp: string)
   assert(ran.err:find("^cosmic: sandbox: ") and ran.err:find("limits.processes", 1, true), ran.err)
   -- A grant that names nothing is a start that cannot be met.
   local missing = cosmic(tmp, { "sandbox", "--system", "--read", tmp .. "/absent", "--", "true" })
-  assert(missing.code == 125 and missing.err:find("absent", 1, true), missing.code .. missing.err)
+  assert(missing.code == 125 and missing.err:find("absent", 1, true) ~= nil, missing.code .. missing.err)
 end
 
 local function test_help_is_the_verbs_before_the_program_and_the_programs_after(tmp: string)
   local ran = cosmic(tmp, { "sandbox", "--help" })
-  assert(ran.code == 0 and ran.out:find("cosmic sandbox", 1, true) and ran.out:find("--read", 1, true),
+  assert(ran.code == 0 and ran.out:find("cosmic sandbox", 1, true) ~= nil and ran.out:find("--read", 1, true) ~= nil,
     ran.out)
   assert(cosmic(tmp, { "sandbox", "--system", "--help" }).out:find("--isolate", 1, true))
   local index = cosmic(tmp, { "help" })
@@ -106,7 +106,7 @@ local function test_fd_hands_the_callers_descriptor_to_the_program(tmp: string)
   assert(shut.code ~= 0 and shut.out == "", shut.code .. shut.out)
   -- A descriptor the caller does not hold fails the start.
   local none = cosmic(tmp, { "sandbox", "--system", "--fd", "9", "--", "true" })
-  assert(none.code == 125 and none.err:find("^cosmic: sandbox: "), none.code .. none.err)
+  assert(none.code == 125 and none.err:find("^cosmic: sandbox: ") ~= nil, none.code .. none.err)
 end
 
 local function test_cwd_starts_the_program_there_and_relative_paths_are_its(tmp: string)
@@ -146,7 +146,7 @@ local function test_a_program_named_connect_is_run_after_an_option_or_a_dash_das
       { "sandbox", "--system", "connect", "a", "22" }, { "sandbox", "--", "connect" } }) do
     local ran = cosmic(tmp, words)
     -- No such program on the PATH: the status of a program that is not there.
-    assert(ran.code == 127 and ran.err:find("connect", 1, true) and not ran.err:find("ALL_PROXY", 1, true),
+    assert(ran.code == 127 and ran.err:find("connect", 1, true) ~= nil and not ran.err:find("ALL_PROXY", 1, true),
       ran.code .. ran.out .. ran.err)
   end
 end

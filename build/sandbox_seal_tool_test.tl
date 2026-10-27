@@ -50,7 +50,7 @@ local function cosmic(dir: string, words: {string}, grammar?: string): Ran
   local result = assert(Child.run(started.argv, started.options))
   local ran: Ran = { code = result.code or -1, out = result.stdout or "", err = result.stderr or "" }
   if ran.code == 125 and (ran.err:find("Landlock", 1, true) or ran.err:find("seccomp", 1, true) or
-      ran.err:find("not implemented", 1, true)) then
+      ran.err:find("not implemented", 1, true)) ~= nil then
     Test.skip(ran.err)
   end
   return ran
@@ -95,7 +95,7 @@ local function test_closure_runs_a_script_on_the_modules_it_requires(tmp: string
   -- No cache or directory was made for it beforehand, and none is left.
   assert(#left_over() == 0, table.concat(left_over(), " "))
   local again = cosmic(tmp, { "sandbox", "--closure", "--", program, "run.tl" })
-  assert(again.code == 3 and again.out:find("main\tnil", 1, true), again.out .. again.err)
+  assert(again.code == 3 and again.out:find("main\tnil", 1, true) ~= nil, again.out .. again.err)
 end
 
 --- A script in the new grammar (`mut`) is compiled by the new checker, and the modules it requires are read from its syntax
@@ -154,20 +154,20 @@ local function test_database_runs_a_sealed_file(tmp: string)
   searchable.share(tmp .. "/p.db")
   local program = (assert(Proc.executable()))
   local ran = cosmic(tmp, { "sandbox", "--database", "p.db", "--", program, "a" })
-  assert(ran.code == 4 and ran.out:find("^db\ta\tfalse"), ran.code .. ran.out .. ran.err)
+  assert(ran.code == 4 and ran.out:find("^db\ta\tfalse") ~= nil, ran.code .. ran.out .. ran.err)
   local bare = cosmic(tmp, { "sandbox", "--database=" .. tmp .. "/p.db" })
-  assert(bare.code == 4 and bare.out:find("^db\tnil\tfalse"), bare.code .. bare.out .. bare.err)
+  assert(bare.code == 4 and bare.out:find("^db\tnil\tfalse") ~= nil, bare.code .. bare.out .. bare.err)
   assert(#left_over() == 0, "--database seals nothing")
   -- Only this program runs on a database.
   local other = cosmic(tmp, { "sandbox", "--system", "--database", "p.db", "--", "true" })
-  assert(other.code == 125 and other.err:find("is not this program", 1, true), other.code .. other.err)
+  assert(other.code == 125 and other.err:find("is not this program", 1, true) ~= nil, other.code .. other.err)
   -- A path no one can search is refused, naming it.
   assert(Fs.mkdirs(tmp .. "/shut"))
   assert(Fs.write(tmp .. "/shut/p.db", (assert(Fs.read(tmp .. "/p.db")))))
   assert(sys.chmod(tmp .. "/shut", 0))
   local shut = cosmic(tmp, { "sandbox", "--database", tmp .. "/shut/p.db" })
   assert(sys.chmod(tmp .. "/shut", 448))
-  assert(shut.code == 2 and shut.err:find("shut", 1, true), shut.code .. shut.err)
+  assert(shut.code == 2 and shut.err:find("shut", 1, true) ~= nil, shut.code .. shut.err)
 end
 
 --- `--modules` seals exactly the modules it names, the first the main:
@@ -176,7 +176,7 @@ local function test_modules_seals_exactly_the_named_modules(tmp: string)
   local program = (assert(Proc.executable()))
   local main = "build.stand_in_probe"
   local alone = cosmic(tmp, { "sandbox", "--modules", main, "--", program, "exit 3" })
-  assert(alone.code ~= 0 and alone.code < 125 and alone.err:find("cosmic.child", 1, true),
+  assert(alone.code ~= 0 and alone.code < 125 and alone.err:find("cosmic.child", 1, true) ~= nil,
     alone.code .. alone.err)
   local names: mut {string} = { main }
   for _, name in ipairs(Store.closure({ main })) do
@@ -188,9 +188,9 @@ local function test_modules_seals_exactly_the_named_modules(tmp: string)
   assert(#left_over() == 0, "the sealed database goes with the run")
   -- The core's own module needs no database; as the main it has none to run.
   local core = cosmic(tmp, { "sandbox", "--modules", "cosmic.fs,cosmic.env,cosmic.sys", "--", program })
-  assert(core.code ~= 125 and core.err:find("not a function", 1, true), core.code .. core.err)
+  assert(core.code ~= 125 and core.err:find("not a function", 1, true) ~= nil, core.code .. core.err)
   local own = cosmic(tmp, { "sandbox", "--modules", "cosmic.sys,cosmic.fs,cosmic.env", "--", program })
-  assert(own.code == 2 and own.err:find("cosmic.sys", 1, true), own.code .. own.err)
+  assert(own.code == 2 and own.err:find("cosmic.sys", 1, true) ~= nil, own.code .. own.err)
   local missing = cosmic(tmp, { "sandbox", "--modules", "nowhere.module", "--", program })
-  assert(missing.code == 2 and missing.err:find("nowhere.module", 1, true), missing.code .. missing.err)
+  assert(missing.code == 2 and missing.err:find("nowhere.module", 1, true) ~= nil, missing.code .. missing.err)
 end

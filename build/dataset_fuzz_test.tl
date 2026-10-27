@@ -88,14 +88,14 @@ local function test_a_loaded_row_reads_back_through_json(tmp: string)
       if made.count ~= #rows then return false, "counted " .. made.count .. " of " .. #rows end
       local seen: mut {string:boolean} = {}
       for _, column in ipairs(made.columns) do
-        if seen[column:lower()] then return false, column .. " is a column twice" end
+        if seen[column:lower()] == true then return false, column .. " is a column twice" end
         seen[column:lower()] = true
       end
       local keys: mut {string:boolean} = {}
       local distinct = 0
       for _, row in ipairs(rows) do
         for key in pairs(row) do
-          if not keys[key] then distinct = distinct + 1 end
+          if keys[key] ~= true then distinct = distinct + 1 end
           keys[key] = true
         end
       end
@@ -345,7 +345,7 @@ local function test_load_text_makes_the_table_read_and_load_make(tmp: string)
       if got ~= want then
         return closed(false, string.format("%q: load_text's rows\n%s\nread and load's\n%s", text, got, want))
       end
-      if fast.copied then
+      if fast.copied == true then
         Fuzz.label("copied in C")
         if format == "tsv" then Fuzz.label("tsv copied in C") end
       end

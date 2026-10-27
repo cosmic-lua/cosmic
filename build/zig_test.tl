@@ -536,7 +536,7 @@ local function test_selected_output_controls_installation_and_lock(tmp: string)
     return 7
   end)
   assert(status == 7)
-  assert(not Fs.exists(root .. "/o"))
+  assert(Fs.exists(root .. "/o") ~= true)
 end
 
 local function test_cache_fallbacks_follow_selected_output()

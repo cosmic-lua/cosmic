@@ -52,7 +52,7 @@ local function parse_holds(input: string): boolean, string
   end
   for _, link in ipairs(found) do
     Fuzz.label(link.form)
-    if not FORMS[link.form] then return false, "an unknown form: " .. link.form end
+    if FORMS[link.form] ~= true then return false, "an unknown form: " .. link.form end
     local line = lines[link.line]
     if line == nil then return false, "a link past the last line: " .. link.line end
     if line:sub(link.column, link.column) ~= "[" then

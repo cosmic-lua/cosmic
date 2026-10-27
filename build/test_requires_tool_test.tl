@@ -195,7 +195,7 @@ error("a module with an absent requirement must not load")
     -- Without a leg's name, the run is named.
     extra.COSMIC_TEST_LEG = nil
     out, code = run(root, extra)
-    assert(code ~= 0 and out:find("this run promises nest", 1, true), out)
+    assert(code ~= 0 and out:find("this run promises nest", 1, true) ~= nil, out)
     -- Not promised: the same absences fail nothing.
     extra.COSMIC_TEST_PROMISES = "sandbox,userns"
     out, code = run(root, extra)
@@ -215,7 +215,7 @@ local function test_a_promise_the_table_refuses_fails_a_held_run(tmp: string)
   local root = project(tmp)
   assert(Fs.write(root .. "/plain_test.tl", "local function test_c() assert(true) end\n"))
   local out, code = run(root, { COSMIC_TEST_PROMISES = "nest,sandbxo", COSMIC_SANDBOX = "must" })
-  assert(code ~= 0 and out:find("COSMIC_TEST_PROMISES: unknown requirement \"sandbxo\"", 1, true), out)
+  assert(code ~= 0 and out:find("COSMIC_TEST_PROMISES: unknown requirement \"sandbxo\"", 1, true) ~= nil, out)
   out, code = run(root, { COSMIC_TEST_PROMISES = "nest,sandbxo" })
   assert(code == 0, out)
 end

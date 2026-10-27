@@ -59,16 +59,16 @@ local function test_an_unsandboxed_worker_reads_a_file_above_the_project(tmp: st
   assert(Fs.mkdirs(base .. "/dir"))
   assert(Fs.write(base .. "/dir/up.txt", "above"))
   local ran = fixture.run(root, base .. "/plain", run_environment("0"))
-  assert(not ran.ok and ran.text:find("read|" .. base .. "/root/../dir/up.txt|above|false|end", 1, true),
+  assert(not ran.ok and ran.text:find("read|" .. base .. "/root/../dir/up.txt|above|false|end", 1, true) ~= nil,
     ran.text)
   assert(Fs.remove(base .. "/dir/up.txt"))
   local lacking = fixture.run(root, base .. "/lacking", run_environment("0"))
-  assert(not lacking.ok and lacking.text:find("grant of /parent/dir/up.txt", 1, true) and
-      lacking.text:find("is not there", 1, true) and not lacking.text:find("read|", 1, true),
+  assert(not lacking.ok and lacking.text:find("grant of /parent/dir/up.txt", 1, true) ~= nil and
+      lacking.text:find("is not there", 1, true) ~= nil and not lacking.text:find("read|", 1, true),
     lacking.text)
   assert(Fs.mkdirs(base .. "/dir/up.txt"))
   local directory = fixture.run(root, base .. "/directory", run_environment("0"))
-  assert(not directory.ok and directory.text:find("is not a file", 1, true) and
+  assert(not directory.ok and directory.text:find("is not a file", 1, true) ~= nil and
       not directory.text:find("read|", 1, true), directory.text)
 end
 
@@ -86,7 +86,7 @@ local function test_a_sandboxed_worker_reads_a_file_above_the_project(tmp: strin
   if ran.text:find("no worker can be sandboxed here", 1, true) ~= nil then
     Test.skip(confine.unsandboxed_reason(ran.text))
   end
-  assert(not ran.ok and ran.text:find("read|/tree-up/dir/up.txt|above|false|end", 1, true), ran.text)
+  assert(not ran.ok and ran.text:find("read|/tree-up/dir/up.txt|above|false|end", 1, true) ~= nil, ran.text)
   -- A file the plan gives already, the module's own, is bound at one place
   -- only: the grant is refused, not left reading nothing.
   local again = base .. "/again"
@@ -101,6 +101,6 @@ local function test_self()
 end
 ]]))
   local twice = fixture.run(again, base .. "/twice", run_environment(nil))
-  assert(not twice.ok and twice.text:find("is given another way", 1, true) and
+  assert(not twice.ok and twice.text:find("is given another way", 1, true) ~= nil and
       not twice.text:find("self-test-ran-marker", 1, true), twice.text)
 end

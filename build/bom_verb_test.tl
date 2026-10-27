@@ -39,7 +39,7 @@ local function test_the_verb_prints_the_binary_s_own_rows(tmp: string)
   for _, component in ipairs(decoded.components) do
     names[component.name] = true
   end
-  assert(names["lua"] and names["curl"] and names["musl"], "the document names the components")
+  assert(names["lua"] == true and names["curl"] == true and names["musl"] == true, "the document names the components")
   local notices = invoke.run({ "bom", "--licenses" }, { cwd = tmp })
   assert(notices.code == 0, notices.stderr)
   assert(notices.stdout:find("Lua.org, PUC-Rio", 1, true), "lua's notice is printed")
