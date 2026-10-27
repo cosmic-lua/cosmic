@@ -27,7 +27,7 @@ local function gen_base(src: Fuzz.Source, depth: integer): string
     local form = src:int(1, 4)
     local t = gen_type(src, depth - 1)
     if form == 1 then
-      params[#params + 1] = "p" .. #params .. ": " .. t
+      params[#params + 1] = "p" .. tostring(#params) .. ": " .. t
     elseif form == 2 then
       params[#params + 1] = "? " .. t
     elseif form == 3 then
@@ -79,15 +79,15 @@ end
 --- One top-level statement, ended by a line break, and the comment it carries.
 local function gen_statement(src: Fuzz.Source, n: integer, out: mut {string}, classes: mut {integer})
   local k = src:int(1, 21)
-  local tag = "-- c" .. n
+  local tag = "-- c" .. tostring(n)
   if k <= 3 then
-    out[#out + 1] = "local v" .. n .. ": " .. gen_type(src, 1) .. " " .. tag
+    out[#out + 1] = "local v" .. tostring(n) .. ": " .. gen_type(src, 1) .. " " .. tag
   elseif k == 4 then
-    out[#out + 1] = "local function f" .. n .. "(a: " .. gen_type(src, 1) .. "): " .. gen_type(src, 1) .. ", string " .. tag
+    out[#out + 1] = "local function f" .. tostring(n) .. "(a: " .. gen_type(src, 1) .. "): " .. gen_type(src, 1) .. ", string " .. tag
     out[#out + 1] = "  return nil, \"\""
     out[#out + 1] = "end"
   elseif k == 5 or k == 6 then
-    out[#out + 1] = "local t" .. n .. " = " .. gen_ternary(src) .. "; " .. tag
+    out[#out + 1] = "local t" .. tostring(n) .. " = " .. gen_ternary(src) .. "; " .. tag
   elseif k == 7 then
     out[#out + 1] = if Fuzz.pick(src, { "for", "while", "repeat" }) == "repeat" then "repeat" else "for i = 1, 3 do " .. tag end
     local last = out[#out]
@@ -102,63 +102,63 @@ local function gen_statement(src: Fuzz.Source, n: integer, out: mut {string}, cl
       out[#out + 1] = "end"
     end
   elseif k == 8 then
-    out[#out + 1] = "local type R" .. n .. " = " .. Fuzz.pick(src, { "record", "enum" }) .. " " .. tag
+    out[#out + 1] = "local type R" .. tostring(n) .. " = " .. Fuzz.pick(src, { "record", "enum" }) .. " " .. tag
     out[#out + 1] = "  " .. (if out[#out]:find("enum", 1, true) then "\"a\"" else "x: " .. gen_type(src, 1) end)
     out[#out + 1] = "end"
   elseif k == 9 then
-    out[#out + 1] = "local n" .. n .. " = " .. Fuzz.pick(src, { "1_000", "0x1p4", "0xFF_FF", "3" }) .. " " .. tag
+    out[#out + 1] = "local n" .. tostring(n) .. " = " .. Fuzz.pick(src, { "1_000", "0x1p4", "0xFF_FF", "3" }) .. " " .. tag
   elseif k == 10 then
-    out[#out + 1] = "--[[ long " .. n .. " ]]"
+    out[#out + 1] = "--[[ long " .. tostring(n) .. " ]]"
     out[#out + 1] = "--[==["
-    out[#out + 1] = "  more " .. n
-    out[#out + 1] = "]==] -- c" .. n
+    out[#out + 1] = "  more " .. tostring(n)
+    out[#out + 1] = "]==] -- c" .. tostring(n)
   elseif k == 11 then
-    out[#out + 1] = "local g" .. n .. ": " .. gen_type(src, 1) .. " = " .. Fuzz.pick(src, { "nil", "x as " .. gen_type(src, 0) }) .. " " .. tag
+    out[#out + 1] = "local g" .. tostring(n) .. ": " .. gen_type(src, 1) .. " = " .. Fuzz.pick(src, { "nil", "x as " .. gen_type(src, 0) }) .. " " .. tag
   elseif k == 12 then
-    out[#out + 1] = "local record P" .. n .. " " .. tag
-    out[#out + 1] = "  metamethod __close: function(P" .. n .. ")"
+    out[#out + 1] = "local record P" .. tostring(n) .. " " .. tag
+    out[#out + 1] = "  metamethod __close: function(P" .. tostring(n) .. ")"
     out[#out + 1] = "  v: " .. gen_type(src, 1)
     out[#out + 1] = "  readonly w: integer"
     out[#out + 1] = "end"
   elseif k == 15 then
     -- An interface and two records that implement it: one write makes all three `mut`.
     classes[2] = classes[2] + 1
-    out[#out + 1] = "local interface I" .. n .. " " .. tag
+    out[#out + 1] = "local interface I" .. tostring(n) .. " " .. tag
     out[#out + 1] = "  v: integer"
     out[#out + 1] = "end"
-    out[#out + 1] = "local record A" .. n .. " is I" .. n
+    out[#out + 1] = "local record A" .. tostring(n) .. " is I" .. tostring(n)
     out[#out + 1] = "  v: integer"
     out[#out + 1] = "end"
-    out[#out + 1] = "local record B" .. n .. " is I" .. n
+    out[#out + 1] = "local record B" .. tostring(n) .. " is I" .. tostring(n)
     out[#out + 1] = "  v: integer"
     out[#out + 1] = "end"
-    out[#out + 1] = "local function g" .. n .. "(a: A" .. n .. ")"
+    out[#out + 1] = "local function g" .. tostring(n) .. "(a: A" .. tostring(n) .. ")"
     out[#out + 1] = "  a.v = 1"
     out[#out + 1] = "end"
   elseif k == 16 then
     -- A name declared before a record and again between it and its method.
     classes[1] = classes[1] + 1
-    out[#out + 1] = "local x" .. n .. " = 1"
-    out[#out + 1] = "local record S" .. n .. " " .. tag
+    out[#out + 1] = "local x" .. tostring(n) .. " = 1"
+    out[#out + 1] = "local record S" .. tostring(n) .. " " .. tag
     out[#out + 1] = "  n: integer"
     out[#out + 1] = "end"
     if src:int(0, 1) == 1 then
-      out[#out + 1] = "local x" .. n .. " = 2"
+      out[#out + 1] = "local x" .. tostring(n) .. " = 2"
     end
-    out[#out + 1] = "function S" .. n .. ":get(): integer"
-    out[#out + 1] = "  return x" .. n .. " + self.n"
+    out[#out + 1] = "function S" .. tostring(n) .. ":get(): integer"
+    out[#out + 1] = "  return x" .. tostring(n) .. " + self.n"
     out[#out + 1] = "end"
   elseif k == 17 then
     local items = src:int(2, 5)
     local parts: mut {string} = {}
     local keyed = src:int(0, 1) == 1
     for i = 1, items do
-      parts[i] = if keyed then "k" .. i .. " = " .. i else tostring(i) end
+      parts[i] = if keyed then "k" .. tostring(i) .. " = " .. tostring(i) else tostring(i) end
     end
-    out[#out + 1] = "local t" .. n .. " = { " .. table.concat(parts, "; ") .. (if src:int(0, 1) == 1 then ";" else "" end) .. " } " .. tag
+    out[#out + 1] = "local t" .. tostring(n) .. " = { " .. table.concat(parts, "; ") .. (if src:int(0, 1) == 1 then ";" else "" end) .. " } " .. tag
   elseif k == 18 then
-    out[#out + 1] = "--[[ a" .. n .. " ]] --[==[ b ]==] " .. tag
-    out[#out + 1] = "local y" .. n .. " = 1"
+    out[#out + 1] = "--[[ a" .. tostring(n) .. " ]] --[==[ b ]==] " .. tag
+    out[#out + 1] = "local y" .. tostring(n) .. " = 1"
   elseif k == 19 then
     out[#out + 1] = "for i = 1, 3 do " .. tag
     out[#out + 1] = "  if f() then goto continue end"
@@ -173,38 +173,38 @@ local function gen_statement(src: Fuzz.Source, n: integer, out: mut {string}, cl
     for i = 1, src:int(2, 4) do
       local form = src:int(1, 3)
       if form == 1 then
-        parts[i] = "{ " .. src:int(1, 9) .. "; " .. src:int(1, 9) .. " }"
+        parts[i] = "{ " .. tostring(src:int(1, 9)) .. "; " .. tostring(src:int(1, 9)) .. " }"
       elseif form == 2 then
-        parts[i] = "{ k = { " .. src:int(1, 9) .. "; " .. src:int(1, 9) .. " }; z = 1 }"
+        parts[i] = "{ k = { " .. tostring(src:int(1, 9)) .. "; " .. tostring(src:int(1, 9)) .. " }; z = 1 }"
       else
         parts[i] = tostring(src:int(1, 9))
       end
     end
-    out[#out + 1] = "local nest" .. n .. " = { " .. table.concat(parts, "; ") .. " } " .. tag
+    out[#out + 1] = "local nest" .. tostring(n) .. " = { " .. table.concat(parts, "; ") .. " } " .. tag
   elseif k == 21 then
     -- An interface nested in a record of the same file, named with its qualifier.
-    out[#out + 1] = "local record Stream" .. n .. " " .. tag
-    out[#out + 1] = "  interface Reader" .. n
+    out[#out + 1] = "local record Stream" .. tostring(n) .. " " .. tag
+    out[#out + 1] = "  interface Reader" .. tostring(n)
     out[#out + 1] = "    w: integer"
     out[#out + 1] = "  end"
     out[#out + 1] = "end"
-    out[#out + 1] = "local record Fd" .. n .. " is Stream" .. n .. ".Reader" .. n
+    out[#out + 1] = "local record Fd" .. tostring(n) .. " is Stream" .. tostring(n) .. ".Reader" .. tostring(n)
     out[#out + 1] = "  w: integer"
     out[#out + 1] = "end"
-    out[#out + 1] = "local function use" .. n .. "(f: Fd" .. n .. ")"
+    out[#out + 1] = "local function use" .. tostring(n) .. "(f: Fd" .. tostring(n) .. ")"
     out[#out + 1] = "  f.w = 1"
     out[#out + 1] = "end"
   else
     -- A record with methods, which becomes a class.
     classes[1] = classes[1] + 1
-    out[#out + 1] = "local record C" .. n .. " " .. tag
+    out[#out + 1] = "local record C" .. tostring(n) .. " " .. tag
     out[#out + 1] = "  count: integer"
     out[#out + 1] = "  items: {string}"
     -- the method gives the field's results, since a field that disagrees with its method is refused
     local rets = gen_type(src, 1)
-    out[#out + 1] = "  bump: function(C" .. n .. "): " .. rets
+    out[#out + 1] = "  bump: function(C" .. tostring(n) .. "): " .. rets
     out[#out + 1] = "end"
-    out[#out + 1] = "function C" .. n .. ":bump(): " .. rets
+    out[#out + 1] = "function C" .. tostring(n) .. ":bump(): " .. rets
     out[#out + 1] = "  self.count = self.count + 1"
     out[#out + 1] = "  table.insert(self.items, \"x\")"
     out[#out + 1] = "  return nil"
@@ -269,7 +269,7 @@ local function test_a_teal_module_translates_to_a_module_that_parses_and_is_its_
       local first = Translate.translate(input, "f.tl")
       local e = first.errors[1]
       if e ~= nil then
-        return false, "the translation has the error " .. e.code .. " at " .. e.y .. ":" .. e.x .. ": " .. e.msg .. "\n" .. first.text
+        return false, "the translation has the error " .. e.code .. " at " .. tostring(e.y) .. ":" .. tostring(e.x) .. ": " .. e.msg .. "\n" .. first.text
       end
       local second = Translate.translate(first.text, "f.tl")
       if second.text ~= first.text then
@@ -277,7 +277,7 @@ local function test_a_teal_module_translates_to_a_module_that_parses_and_is_its_
       end
       local classes = first.counts["class"] or 0
       if classes == 0 and lines_of(first.text) ~= lines_of(input) then
-        return false, "the lines moved from " .. lines_of(input) .. " to " .. lines_of(first.text) .. ":\n" .. first.text
+        return false, "the lines moved from " .. tostring(lines_of(input)) .. " to " .. tostring(lines_of(first.text)) .. ":\n" .. first.text
       end
       if marks(first.text) ~= marks(input) and classes == 0 then
         return false, "the comments changed: " .. marks(input) .. " to " .. marks(first.text)
@@ -286,12 +286,12 @@ local function test_a_teal_module_translates_to_a_module_that_parses_and_is_its_
       local _, interfaces = input:gsub("interface I%d+", "")
       local _, muts = first.text:gsub("mut v: integer", "")
       if muts ~= 3 * interfaces then
-        return false, "the interface and its records do not agree on mut: " .. muts .. " of " .. 3 * interfaces .. "\n" .. first.text
+        return false, "the interface and its records do not agree on mut: " .. tostring(muts) .. " of " .. tostring(3 * interfaces) .. "\n" .. first.text
       end
       local _, streams = input:gsub("record Stream%d+", "")
       local _, wmuts = first.text:gsub("mut w: integer", "")
       if wmuts ~= 2 * streams then
-        return false, "a qualified interface and its record do not agree on mut: " .. wmuts .. " of " .. 2 * streams
+        return false, "a qualified interface and its record do not agree on mut: " .. tostring(wmuts) .. " of " .. tostring(2 * streams)
       end
       -- The names, the strings and the keywords are the translation's own
       -- or the source's: nothing else is written or lost.

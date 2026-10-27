@@ -187,7 +187,7 @@ local function test_a_refusal_names_the_position_of_each_member_of_the_union_tha
   local alternatives = r.alternatives
   assert(alternatives ~= nil and #alternatives == 4)
   for i, alternative in ipairs(alternatives) do
-    assert(steps(alternative):find("^target_alternative " .. i) ~= nil, steps(alternative))
+    assert(steps(alternative):find("^target_alternative " .. tostring(i)) ~= nil, steps(alternative))
     assert(alternative.super == union.members[i] and alternative.sub == s.integer)
   end
 end
@@ -197,7 +197,7 @@ local function test_a_union_of_many_members_explains_the_first_few()
   local s = w.store
   local members: mut {Types.Type} = {}
   for i = 1, 40 do
-    members[i] = s:named(s:declare("record", "many", { "R" .. i }))
+    members[i] = s:named(s:declare("record", "many", { "R" .. tostring(i) }))
   end
   local r = refused(w, s.integer, s:union(members), "union_none")
   local alternatives = r.alternatives
@@ -922,7 +922,7 @@ local function test_a_pair_that_two_parents_reach_in_one_request_is_explained_un
   local indexes: mut {integer: boolean} = {}
   for _, alternative in ipairs(alternatives) do
     local index = alternative.path[1].index
-    assert(index ~= nil and steps(alternative) == "target_alternative " .. index .. " > item 1", steps(alternative))
+    assert(index ~= nil and steps(alternative) == "target_alternative " .. tostring(index) .. " > item 1", steps(alternative))
     assert(alternative.code == "number_for_integer" and alternative.sub == s.number and alternative.super == s.integer)
     indexes[index] = true
   end
@@ -949,7 +949,7 @@ local function test_a_ladder_of_interfaces_that_each_list_the_next_twice_has_a_c
   local s = w.store
   local rungs: mut {Types.Decl} = {}
   for i = 1, 14 do
-    rungs[i] = s:declare("interface", "m", { "Rung" .. i }, 1)
+    rungs[i] = s:declare("interface", "m", { "Rung" .. tostring(i) }, 1)
   end
   for i, rung in ipairs(rungs) do
     local supers: {Types.Type} = {}
@@ -995,7 +995,7 @@ local function test_a_listing_whose_argument_is_as_deep_as_the_store_allows_ends
   -- Every rung lists the next with its argument in an array: one level deeper at each step.
   local rungs: mut {Types.Decl} = {}
   for i = 1, 40 do
-    rungs[i] = s:declare("interface", "m", { "Wrap" .. i }, 1)
+    rungs[i] = s:declare("interface", "m", { "Wrap" .. tostring(i) }, 1)
   end
   for i, rung in ipairs(rungs) do
     local next_rung = rungs[i + 1]
@@ -1030,7 +1030,7 @@ local function test_a_chain_of_listings_that_does_not_grow_is_followed_to_its_en
   local previous: Types.Type?
   local first: Types.Type?
   for i = 1, 300 do
-    local decl = s:declare("interface", "m", { "Chain" .. i }, 0)
+    local decl = s:declare("interface", "m", { "Chain" .. tostring(i) }, 0)
     local supers: mut {Types.Type} = {}
     if previous ~= nil then
       supers[1] = previous
@@ -1309,7 +1309,7 @@ local function test_a_chain_of_listings_longer_than_a_closure_holds_is_followed_
   local decls: mut {Types.Decl} = {}
   local uses: mut {Types.Type} = {}
   for i = 1, 4200 do
-    decls[i] = s:declare("interface", "m", { "Long" .. i }, 0)
+    decls[i] = s:declare("interface", "m", { "Long" .. tostring(i) }, 0)
     uses[i] = s:named(decls[i])
   end
   -- Defined from the top down, so that the store's check for a cycle stops at a declaration it has no
@@ -1330,7 +1330,7 @@ local function test_a_chain_of_generic_interfaces_that_pass_their_argument_on_is
   -- 100 generic interfaces, each listing the next with its own argument.
   local decls: mut {Types.Decl} = {}
   for i = 1, 100 do
-    decls[i] = s:declare("interface", "m", { "G" .. i }, 1)
+    decls[i] = s:declare("interface", "m", { "G" .. tostring(i) }, 1)
   end
   for i = 1, 100 do
     local supers: mut {Types.Type} = {}

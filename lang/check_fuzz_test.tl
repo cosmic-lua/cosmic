@@ -200,7 +200,7 @@ end
 
 local function fresh(g: Gen, prefix: string): string
   g.count = g.count + 1
-  return prefix .. g.count
+  return prefix .. tostring(g.count)
 end
 
 local gen_statements: function(g: Gen, n: integer, depth: integer, indent: string)
@@ -350,7 +350,7 @@ local function checks_clean(input: string): boolean, string
   end
   if #r.errors > 0 then
     local e = r.errors[1]
-    return false, e.y .. ":" .. e.x .. " " .. e.code .. ": " .. e.msg .. " in\n" .. input
+    return false, tostring(e.y) .. ":" .. tostring(e.x) .. " " .. e.code .. ": " .. e.msg .. " in\n" .. input
   end
   Fuzz.label("clean")
   return true, ""

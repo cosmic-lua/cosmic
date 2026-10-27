@@ -58,7 +58,7 @@ local FORMS <const>: {string: function(n: integer): string} = {
   end,
   ["a record"] = function(n: integer): string
     local fields: mut {string} = {}
-    for i = 1, n * 25 do fields[i] = "f" .. i .. ": integer\n" end
+    for i = 1, n * 25 do fields[i] = "f" .. tostring(i) .. ": integer\n" end
     return "local record R\n" .. table.concat(fields) .. "end"
   end,
   ["a match"] = function(n: integer): string

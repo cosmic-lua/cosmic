@@ -536,7 +536,7 @@ local function test_a_name_declared_between_the_record_and_a_method_is_reported(
     "end"))
   local h = result.hazards[1]
   assert(#result.hazards == 1 and h.class == "R" and h.method == "f" and h.name == "helper" and h.y == 5,
-    #result.hazards .. " hazards")
+    tostring(#result.hazards) .. " hazards")
 end
 
 -- class literals
@@ -1136,7 +1136,7 @@ local function test_a_method_that_reads_a_name_declared_again_between_is_reporte
     "  return x + self.n",
     "end"))
   local h = result.hazards[1]
-  assert(#result.hazards == 1 and h.kind == "shadow" and h.name == "x" and h.method == "get", #result.hazards .. " hazards")
+  assert(#result.hazards == 1 and h.kind == "shadow" and h.name == "x" and h.method == "get", tostring(#result.hazards) .. " hazards")
 end
 
 local function test_a_name_declared_only_between_is_a_scope_hazard()
@@ -1300,7 +1300,7 @@ end
 local function test_a_table_of_data_with_many_semicolons_is_translated_in_one_read()
   local items = ("1; k = 2; {3; 4}; "):rep(100)
   local result = clean("local t = {" .. items .. "}\n")
-  assert(result.reads == 2 and not result.text:find(";", 1, true), result.reads .. " reads")
+  assert(result.reads == 2 and not result.text:find(";", 1, true), tostring(result.reads) .. " reads")
   assert(result.text:sub(1, 30) == "local t = {1, k = 2, {3, 4}, 1")
 end
 
@@ -1777,7 +1777,7 @@ local function test_a_local_function_between_the_record_and_a_method_that_reads_
     "function R:next(): integer",
     "  return bump(self)",
     "end"))
-  assert(#result.hazards == 0, #result.hazards .. " hazards")
+  assert(#result.hazards == 0, tostring(#result.hazards) .. " hazards")
   local at_function, at_class = result.text:find("local function bump", 1, true), result.text:find("local class R", 1, true)
   assert(at_function ~= nil and at_class ~= nil and at_function < at_class, result.text)
   -- its docs go with it, and the record keeps its own
@@ -1803,7 +1803,7 @@ local function test_a_function_moves_with_the_functions_it_reads_in_the_order_it
     "function R:next(): integer",
     "  return second(self)",
     "end"))
-  assert(#result.hazards == 0, #result.hazards .. " hazards")
+  assert(#result.hazards == 0, tostring(#result.hazards) .. " hazards")
   local a, b = result.text:find("local function first", 1, true), result.text:find("local function second", 1, true)
   local c, d = result.text:find("local class R", 1, true), result.text:find("local function unread", 1, true)
   assert(a ~= nil and b ~= nil and c ~= nil and d ~= nil and a < b and b < c and c < d, result.text)
@@ -1821,7 +1821,7 @@ local function test_a_literal_the_function_reads_moves_with_it_and_a_value_made_
     "function R:next(): integer",
     "  return bump(self)",
     "end"))
-  assert(#moved.hazards == 0, #moved.hazards .. " hazards")
+  assert(#moved.hazards == 0, tostring(#moved.hazards) .. " hazards")
   local at_step, at_bump, at_class = moved.text:find("local step = 2", 1, true), moved.text:find("local function bump", 1, true),
     moved.text:find("local class R", 1, true)
   assert(at_step ~= nil and at_bump ~= nil and at_class ~= nil and at_step < at_bump and at_bump < at_class, moved.text)
@@ -1858,7 +1858,7 @@ local function test_a_function_that_reads_the_record_as_a_value_stays()
     "function R:again(): R",
     "  return fresh()",
     "end"))
-  assert(#result.hazards == 1 and result.hazards[1].name == "fresh", #result.hazards .. " hazards")
+  assert(#result.hazards == 1 and result.hazards[1].name == "fresh", tostring(#result.hazards) .. " hazards")
 end
 
 local function test_a_function_that_names_a_type_in_a_local_annotation_moves_with_the_type_unless_the_type_is_a_class()
@@ -1876,7 +1876,7 @@ local function test_a_function_that_names_a_type_in_a_local_annotation_moves_wit
     "function R:both(): integer",
     "  return pair(self)",
     "end"))
-  assert(#moved.hazards == 0, #moved.hazards .. " hazards")
+  assert(#moved.hazards == 0, tostring(#moved.hazards) .. " hazards")
   local at_type, at_function, at_class = moved.text:find("local record Pair", 1, true), moved.text:find("local function pair", 1, true),
     moved.text:find("local class R", 1, true)
   assert(at_type ~= nil and at_function ~= nil and at_class ~= nil and at_type < at_function and at_function < at_class, moved.text)
@@ -1898,7 +1898,7 @@ local function test_a_function_that_names_a_type_in_a_local_annotation_moves_wit
     "function Pair:twice(): integer",
     "  return self.a * 2",
     "end"))
-  assert(#stays.hazards == 1 and stays.hazards[1].name == "pair", #stays.hazards .. " hazards")
+  assert(#stays.hazards == 1 and stays.hazards[1].name == "pair", tostring(#stays.hazards) .. " hazards")
   -- the same function that names the type in its signature alone moves
   local signature = clean(lines(
     "local record R",
@@ -1982,7 +1982,7 @@ local function test_a_function_the_second_record_reads_through_another_finds_wha
     "function B:g(): integer",
     "  return twice(self.n)",
     "end"))
-  assert(#result.hazards == 0, #result.hazards .. " hazards\n" .. result.text)
+  assert(#result.hazards == 0, tostring(#result.hazards) .. " hazards\n" .. result.text)
   assert(select(2, result.text:gsub("local function shared", "")) == 1, result.text)
   assert(select(2, result.text:gsub("local function twice", "")) == 1, result.text)
   local shared_at, twice_at = result.text:find("local function shared", 1, true), result.text:find("local function twice", 1, true)
@@ -2006,7 +2006,7 @@ local function test_a_record_and_a_table_a_function_reads_move_above_the_record_
     "function R:size(): integer",
     "  return look()",
     "end"))
-  assert(#result.hazards == 0, #result.hazards .. " hazards")
+  assert(#result.hazards == 0, tostring(#result.hazards) .. " hazards")
   local at_class, at_table, at_look, at_type = result.text:find("local class R", 1, true), result.text:find("local info:", 1, true),
     result.text:find("local function look", 1, true), result.text:find("local record Info", 1, true)
   assert(at_class ~= nil and at_table ~= nil and at_look ~= nil and at_type ~= nil, result.text)

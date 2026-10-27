@@ -27,7 +27,7 @@ end
 local function test_there_are_hidden_tests_to_hold()
   local count = 0
   for _ in pairs(sources()) do count = count + 1 end
-  assert(count >= 6, "found " .. count)
+  assert(count >= 6, "found " .. tostring(count))
 end
 
 local function test_no_hidden_test_listens_on_a_socket_file()

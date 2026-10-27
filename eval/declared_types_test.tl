@@ -16,7 +16,7 @@ local TypeWatch = require("build.type_watch")
 --- Fails, listing what `during` met under eval/, unless it met nothing.
 local function honest(what: string, fn: function())
   local found = TypeWatch.during(fn, "eval/")
-  assert(#found == 0, what .. ": " .. #found .. " violations:\n" .. table.concat(found, "\n"))
+  assert(#found == 0, what .. ": " .. tostring(#found) .. " violations:\n" .. table.concat(found, "\n"))
 end
 
 local function call(id: string, name: string, input: {string: any}): string
