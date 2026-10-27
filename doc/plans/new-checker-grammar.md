@@ -564,7 +564,7 @@ draft was loose, the parser chose the smallest form that fits it:
 
 ### what the translator settled
 
-[`lang/translate.tl`] reads Teal with [`lang/parser.tl`]: the grammar is Teal
+`lang/translate.tl` reads Teal with [`lang/parser.tl`]: the grammar is Teal
 less the cut forms, and the parser keeps a tree for each form it refuses
 (`T | nil` is a `TypeUnion` with a `TypeNil`, `function R:m` a `Function`,
 `goto continue` an `Error` and a `Continue`), so a rewrite is an edit of the
@@ -853,7 +853,7 @@ returns as the production named, when a use appears.
   `_shape_specs`, `_derivation` and
   [`build/coverage/syntax_lines.tl`]), each taking the tree and never the compiler. `build/syntax_compared.tl`
   reads every file of the tree through the fork's readers and through these, over the translated file
-  ([`lang.translate`]), and `fix --check .` holds the answers equal but for the `[read]` pins of
+  (`lang.translate`), and `fix --check .` holds the answers equal but for the `[read]` pins of
   [`build/ceilings.txt`] (no program declares a global and the check leaves out declaration files, so the globals are
   compared by the unit tests alone; a pattern `function $F() end` no longer compiles, as a program may not declare
   a global function). The switch deletes the fork's readers and the comparison, and moves each
@@ -942,12 +942,10 @@ returns as the production named, when a use appears.
 [`cosmic/http/wire.tl`]: ../../cosmic/http/wire.tl
 [`cosmic/removed_example.tl`]: ../../cosmic/removed_example.tl
 [`cosmic/web/init.tl`]: ../../cosmic/web/init.tl
-[`lang.translate`]: ../../lang/translate.tl
 [`lang/ast.tl`]: ../../lang/ast.tl
 [`lang/lexer.tl`]: ../../lang/lexer.tl
 [`lang/parser.tl`]: ../../lang/parser.tl
 [`lang/scopes.tl`]: ../../lang/scopes.tl
-[`lang/translate.tl`]: ../../lang/translate.tl
 [`Name.binding`]: ../../lang/ast.tl
 [`Stream.Reader`]: ../../cosmic/stream.tl
 [`Var.copies`]: ../../lang/scopes.tl

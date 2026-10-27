@@ -1,12 +1,8 @@
 --- Tests of [`build.policy_rules`]: the rules a `policy` is held to, through the analyzer on the new tree
---- ([`build.syntax_analyzer`]). It answers for each case as the fork's analyzer did, whose answers are kept as text
---- ([`testdata/forked/policy.txt`], [`lang.forked`]).
+--- ([`build.syntax_analyzer`]). Each case is a policy call and either a word its refusal holds or the declaration it is read
+--- into.
 local Analyzer = require("build.syntax_analyzer")
-local Forked = require("lang.forked")
 local PolicyRules = require("build.policy_rules")
-local Test = require("cosmic.test")
-
-Test.policy{ grants = { { path = "testdata/forked/policy.txt", letters = "r" } } }
 
 --- A declaration as one line.
 local function described(found: PolicyRules.Declared?): string
@@ -27,97 +23,90 @@ end
 local record Case
   body: string
   refused: string
+  --- For a policy that is accepted, the declaration it is read into, as `described` spells it.
+  inputs: string
 end
 
 local CASES: {Case} = {
-  { body = "Test.policy{}", refused = "" },
-  { body = 'Test.policy{ profiles = { "cosmic" } }', refused = "" },
-  { body = 'Test.policy{ profiles = { "nope" } }', refused = "no profile nope" },
-  { body = 'Test.policy{ isolate = { "net" } }', refused = "isolate" },
-  { body = 'Test.policy{ promises = { "nest" } }', refused = "" },
-  { body = 'Test.policy{ promises = { "stdio" } }', refused = "no promise stdio" },
-  { body = 'Test.policy{ connect = { "a:1" } }', refused = "connect is refused" },
-  { body = 'Test.policy{ loopback = { "127.0.0.1" } }', refused = "" },
-  { body = 'Test.policy{ loopback = { "localhost" } }', refused = "loopback" },
-  { body = 'Test.policy{ loopback = { "127.0.0.256" } }', refused = "loopback" },
-  { body = 'Test.policy{ loopback = { "127.00.0.1" } }', refused = "loopback" },
-  { body = 'Test.policy{ loopback = { "127.0.0.1:80" } }', refused = "loopback" },
-  { body = 'Test.policy{ env = { "HOME" } }', refused = "" },
-  { body = 'Test.policy{ env = { "a b" } }', refused = "" },
-  { body = 'Test.policy{ env = { "*" } }', refused = "wildcard" },
-  { body = 'Test.policy{ requires = { "own_proc" } }', refused = "" },
-  { body = 'Test.policy{ set_env = { A = "b" } }', refused = "set_env" },
-  { body = 'Test.policy{ set_env_digests = { A = "b" } }', refused = "set_env_digests" },
-  { body = 'Test.policy{ grants = { { path = "build", letters = "r" } } }', refused = "" },
-  { body = 'Test.policy{ grants = { { path = "../x", letters = "r" } } }', refused = "spell the path plainly" },
-  { body = 'Test.policy{ grants = { { path = "/etc/", letters = "r" } } }', refused = "names a directory" },
-  { body = 'Test.policy{ grants = { { path = "/etc/hosts", letters = "r" } } }', refused = "" },
-  { body = 'Test.policy{ grants = { { path = "x", letters = "rwx", bad = "q" } } }', refused = "has no field bad" },
-  { body = 'Test.policy{ grants = { "x" } }', refused = "takes a table" },
-  { body = 'Test.policy{ grants = 3 }', refused = "grants takes a list" },
-  { body = 'Test.policy{ grants = { { path = "$HOME", letters = "r" } } }', refused = "names a variable" },
-  { body = 'Test.policy{ grants = { { path = "a//b", letters = "r" } } }', refused = "spell the path plainly" },
-  { body = 'Test.policy{ grants = { { path = "o/cosmic.db", letters = "r" } } }', refused = "" },
-  { body = 'Test.policy{ grants = { { path = "/cache/zig", letters = "rwxc" } } }', refused = "" },
-  { body = 'Test.policy{ grants = { { path = "/cache/nowhere", letters = "rwxc" } } }', refused = "no cache nowhere" },
-  { body = 'Test.policy{ grants = { { path = "/parent/x.txt", letters = "r" } } }', refused = "" },
-  { body = 'Test.policy{ grants = { { path = "/parent/", letters = "r" } } }', refused = "names no file" },
-  { body = 'Test.policy{ grants = { { path = "o/bin", letters = "rx" } } }', refused = "beside the profile" },
-  { body = 'Test.policy{ profiles = { "cosmic" }, grants = { { path = "o/bin", letters = "rx" } } }', refused = "" },
+  { body = "Test.policy{}", refused = "", inputs = "2|||||false|false|false|false|false|false|||" },
+  { body = 'Test.policy{ profiles = { "cosmic" } }', refused = "", inputs = "2|||||false|true|false|false|false|false|||" },
+  { body = 'Test.policy{ profiles = { "nope" } }', refused = "no profile nope", inputs = "" },
+  { body = 'Test.policy{ isolate = { "net" } }', refused = "isolate", inputs = "" },
+  { body = 'Test.policy{ promises = { "nest" } }', refused = "", inputs = "2|||||false|false|true|false|false|false|||" },
+  { body = 'Test.policy{ promises = { "stdio" } }', refused = "no promise stdio", inputs = "" },
+  { body = 'Test.policy{ connect = { "a:1" } }', refused = "connect is refused", inputs = "" },
+  { body = 'Test.policy{ loopback = { "127.0.0.1" } }', refused = "", inputs = "2||||127.0.0.1|false|false|false|false|false|false|||" },
+  { body = 'Test.policy{ loopback = { "localhost" } }', refused = "loopback", inputs = "" },
+  { body = 'Test.policy{ loopback = { "127.0.0.256" } }', refused = "loopback", inputs = "" },
+  { body = 'Test.policy{ loopback = { "127.00.0.1" } }', refused = "loopback", inputs = "" },
+  { body = 'Test.policy{ loopback = { "127.0.0.1:80" } }', refused = "loopback", inputs = "" },
+  { body = 'Test.policy{ env = { "HOME" } }', refused = "", inputs = "2|||HOME||false|false|false|false|false|false|||" },
+  { body = 'Test.policy{ env = { "a b" } }', refused = "", inputs = "2|||a b||false|false|false|false|false|false|||" },
+  { body = 'Test.policy{ env = { "*" } }', refused = "wildcard", inputs = "" },
+  { body = 'Test.policy{ requires = { "own_proc" } }', refused = "", inputs = "2|||||false|false|false|false|false|false|||own_proc" },
+  { body = 'Test.policy{ set_env = { A = "b" } }', refused = "set_env", inputs = "" },
+  { body = 'Test.policy{ set_env_digests = { A = "b" } }', refused = "set_env_digests", inputs = "" },
+  { body = 'Test.policy{ grants = { { path = "build", letters = "r" } } }', refused = "", inputs = "2|build||||false|false|false|false|false|false|||" },
+  { body = 'Test.policy{ grants = { { path = "../x", letters = "r" } } }', refused = "spell the path plainly", inputs = "" },
+  { body = 'Test.policy{ grants = { { path = "/etc/", letters = "r" } } }', refused = "names a directory", inputs = "" },
+  { body = 'Test.policy{ grants = { { path = "/etc/hosts", letters = "r" } } }', refused = "", inputs = "2||/etc/hosts|||false|false|false|false|false|false|||" },
+  { body = 'Test.policy{ grants = { { path = "x", letters = "rwx", bad = "q" } } }', refused = "has no field bad", inputs = "" },
+  { body = 'Test.policy{ grants = { "x" } }', refused = "takes a table", inputs = "" },
+  { body = 'Test.policy{ grants = 3 }', refused = "grants takes a list", inputs = "" },
+  { body = 'Test.policy{ grants = { { path = "$HOME", letters = "r" } } }', refused = "names a variable", inputs = "" },
+  { body = 'Test.policy{ grants = { { path = "a//b", letters = "r" } } }', refused = "spell the path plainly", inputs = "" },
+  { body = 'Test.policy{ grants = { { path = "o/cosmic.db", letters = "r" } } }', refused = "", inputs = "2|||||false|false|false|false|true|false|||" },
+  { body = 'Test.policy{ grants = { { path = "/cache/zig", letters = "rwxc" } } }', refused = "", inputs = "2|||||false|false|false|false|false|false|zig||" },
+  { body = 'Test.policy{ grants = { { path = "/cache/nowhere", letters = "rwxc" } } }', refused = "no cache nowhere", inputs = "" },
+  { body = 'Test.policy{ grants = { { path = "/parent/x.txt", letters = "r" } } }', refused = "", inputs = "2|||||false|false|false|false|false|false||x.txt|" },
+  { body = 'Test.policy{ grants = { { path = "/parent/", letters = "r" } } }', refused = "names no file", inputs = "" },
+  { body = 'Test.policy{ grants = { { path = "o/bin", letters = "rx" } } }', refused = "beside the profile", inputs = "" },
+  { body = 'Test.policy{ profiles = { "cosmic" }, grants = { { path = "o/bin", letters = "rx" } } }', refused = "", inputs = "2|||||true|false|false|false|false|false|||" },
   { body = 'Test.policy{ profiles = { "cosmic" }, grants = { { path = "o/cosmic.db", letters = "r" } } }',
-    refused = "which is refused beside" },
-  { body = 'Test.policy{ limits = { open_files = 3 } }', refused = "limits" },
-  { body = 'Test.policy{ limits = { nope = 3 } }', refused = "limits takes open_files" },
-  { body = 'Test.policy{ limits = { open_files = "x" } }', refused = "limits takes open_files" },
-  { body = 'Test.policy{ limits = 3 }', refused = "limits takes a table" },
-  { body = "Test.policy{ tmp = true }", refused = "" },
-  { body = "Test.policy{ tmp = false }", refused = "tmp = false" },
-  { body = "Test.policy{ tmp = 3 }", refused = "takes true or false" },
-  { body = "Test.policy{ user = 3, group = 4 }", refused = "is refused" },
-  { body = 'Test.policy{ user = "x" }', refused = "takes a whole number" },
-  { body = 'Test.policy{ database = "d" }', refused = "database is refused" },
-  { body = "Test.policy{ database = 4 }", refused = "takes a string written out" },
-  { body = "Test.policy{ nope = 1 }", refused = "has no field nope" },
-  { body = "Test.policy{ env = {}, env = {} }", refused = "declared twice" },
-  { body = "Test.policy{ [1] = 2 }", refused = "an entry with no name" },
-  { body = 'Test.policy{ "x" }', refused = "an entry with no name" },
-  { body = "Test.policy(3)", refused = "hand it one table" },
-  { body = "Test.policy()", refused = "hand it one table" },
-  { body = 'Test.policy{ env = { "A", "B" }, requires = { "x" } }', refused = "unknown requirement" },
-  { body = 'local p = { env = { "A" } }\nTest.policy(p)', refused = "hand it one table" },
-  { body = 'Test.policy{ env = { "A" .. "B" } }', refused = "string written out as a literal" },
-  { body = 'Test.policy{ env = { "a\\tb" } }', refused = "without escapes" },
-  { body = "if true then Test.policy{} end", refused = "at the module's top level" },
-  { body = "Test.policy{}\nTest.policy{}", refused = "declares its policy once" },
+    refused = "which is refused beside", inputs = "" },
+  { body = 'Test.policy{ limits = { open_files = 3 } }', refused = "limits", inputs = "" },
+  { body = 'Test.policy{ limits = { nope = 3 } }', refused = "limits takes open_files", inputs = "" },
+  { body = 'Test.policy{ limits = { open_files = "x" } }', refused = "limits takes open_files", inputs = "" },
+  { body = 'Test.policy{ limits = 3 }', refused = "limits takes a table", inputs = "" },
+  { body = "Test.policy{ tmp = true }", refused = "", inputs = "2|||||false|false|false|false|false|false|||" },
+  { body = "Test.policy{ tmp = false }", refused = "tmp = false", inputs = "" },
+  { body = "Test.policy{ tmp = 3 }", refused = "takes true or false", inputs = "" },
+  { body = "Test.policy{ user = 3, group = 4 }", refused = "is refused", inputs = "" },
+  { body = 'Test.policy{ user = "x" }', refused = "takes a whole number", inputs = "" },
+  { body = 'Test.policy{ database = "d" }', refused = "database is refused", inputs = "" },
+  { body = "Test.policy{ database = 4 }", refused = "takes a string written out", inputs = "" },
+  { body = "Test.policy{ nope = 1 }", refused = "has no field nope", inputs = "" },
+  { body = "Test.policy{ env = {}, env = {} }", refused = "declared twice", inputs = "" },
+  { body = "Test.policy{ [1] = 2 }", refused = "an entry with no name", inputs = "" },
+  { body = 'Test.policy{ "x" }', refused = "an entry with no name", inputs = "" },
+  { body = "Test.policy(3)", refused = "hand it one table", inputs = "" },
+  { body = "Test.policy()", refused = "hand it one table", inputs = "" },
+  { body = 'Test.policy{ env = { "A", "B" }, requires = { "x" } }', refused = "unknown requirement", inputs = "" },
+  { body = 'local p = { env = { "A" } }\nTest.policy(p)', refused = "hand it one table", inputs = "" },
+  { body = 'Test.policy{ env = { "A" .. "B" } }', refused = "string written out as a literal", inputs = "" },
+  { body = 'Test.policy{ env = { "a\\tb" } }', refused = "without escapes", inputs = "" },
+  { body = "if true then Test.policy{} end", refused = "at the module's top level", inputs = "" },
+  { body = "Test.policy{}\nTest.policy{}", refused = "declares its policy once", inputs = "" },
 }
 
-local function test_the_analyzer_applies_the_rules_to_each_policy_as_the_forks_did()
-  local kept = Forked.load("testdata/forked/policy.txt")
+local function test_the_analyzer_applies_the_rules_to_each_policy()
   local accepted, refused = 0, 0
   local wrong: mut {string} = {}
   for _, case in ipairs(CASES) do
     local source = 'local Test = require("cosmic.test")\n' .. case.body .. "\nlocal function test_a() end\n"
-    local said = Forked.said(kept, source)
-    assert(said.known and said.text ~= nil, "the fork's answer is not kept for:\n" .. source)
-    local old = assert(said.text)
-    local new, new_why = Analyzer.analyze(source, "p_test.tl")
-    if old:sub(1, 9) == "refused: " then
-      local old_why = old:sub(10)
-      if new ~= nil then
-        wrong[#wrong + 1] = case.body .. ": accepted, where the fork said " .. old_why
-      elseif old_why ~= new_why then
-        wrong[#wrong + 1] = case.body .. ": " .. old_why .. " against " .. new_why
-      elseif case.refused == "" or old_why:find(case.refused, 1, true) == nil then
-        wrong[#wrong + 1] = case.body .. ": refused as " .. old_why
+    local read, why = Analyzer.analyze(source, "p_test.tl")
+    if case.refused ~= "" then
+      if read ~= nil then
+        wrong[#wrong + 1] = case.body .. " is accepted"
+      elseif why:find(case.refused, 1, true) == nil then
+        wrong[#wrong + 1] = case.body .. ": refused as " .. why .. ", not with " .. case.refused
       end
       refused = refused + 1
     else
-      if new == nil then
-        wrong[#wrong + 1] = case.body .. ": refused as " .. tostring(new_why) .. ", where the fork accepted"
-      elseif case.refused ~= "" then
-        wrong[#wrong + 1] = case.body .. " is accepted"
-      elseif "accepted: " .. described(new.inputs) ~= old then
-        wrong[#wrong + 1] = case.body .. ": " .. old .. " against " .. described(new.inputs)
+      if read == nil then
+        wrong[#wrong + 1] = case.body .. ": refused as " .. tostring(why)
+      elseif described(read.inputs) ~= case.inputs then
+        wrong[#wrong + 1] = case.body .. ": read as " .. described(read.inputs) .. ", not " .. case.inputs
       end
       accepted = accepted + 1
     end

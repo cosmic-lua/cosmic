@@ -1,25 +1,19 @@
 --- The code generator of the new checker's grammar
---- ([`doc/plans/new-checker-grammar.md`], "departures from Teal, and what the
---- translator does"): the syntax tree [`lang.parser`] builds, written as Lua.
+--- ([`doc/plans/new-checker-grammar.md`]): the syntax tree [`lang.parser`] builds, written as Lua.
 ---
---- The Lua is the fork's. A statement on source line N lands on line N, types
---- are erased, and for every construct the plan classes as a respelling the
---- bytes are the ones the fork's generator wrote ([`lang/forked.tl`] holds them) for the Teal the
---- translator ([`lang.translate`]) started from: the same indent, the same
---- `; ` between statements on a line, a trailing `,` in a table that spans
---- lines, `type(x) == "string"` for `x is string`. A node is placed at the line
---- the fork's parser gave it, which is the line of its operator token for a
---- binary operator, a field, an index, a call and a test, and of its first token
---- for the rest. The fork writes no comment and no type, so neither does this.
---- A `;` that ends a statement in the Teal is not in the grammar and is not written, except where the next
+--- A statement on source line N lands on line N, types are erased, and every construct is written in one layout: the
+--- same indent, the same `; ` between statements on a line, a trailing `,` in a table that spans lines,
+--- `type(x) == "string"` for `x is string`. A node is placed at the line of its operator token for a binary operator, a
+--- field, an index, a call and a test, and of its first token for the rest. No comment and no type is written.
+--- A `;` that ends a statement is not in the grammar and is not written, except where the next
 --- statement begins a line with `(`, which would otherwise continue it.
 ---
---- Where the fork's Lua is not Lua, or not what the program means, this writes what it means:
+--- Where a plain respelling would not be Lua, or not what the program means, this writes what it means:
 ---
 --- * A `-` before a `-` gets a space, as `--` begins a comment.
 --- * A test whose type is on a later line than its value is not broken inside the quotes of the type.
---- * A test of a union through an alias is a test for each member as what the member stands for (the fork tests
----   a named member for a table), and a value that is no name is evaluated once, in a function called on the spot.
+--- * A test of a union through an alias is a test for each member as what the member stands for (a named member is
+---   not tested for a table), and a value that is no name is evaluated once, in a function called on the spot.
 ---   An alias of `integer`, `true` or `false` tests for that.
 --- * An operand of a comparison that is a test is in parentheses.
 --- * An `if` expression is `c and a or b` only where every value is truthy ([`generate`]). Otherwise, as the one value of
@@ -30,10 +24,8 @@
 --- * A field, a key or a function of a record named `goto` or `global`, which Lua 5.5 reserves, is
 ---   `x["goto"]`, `["goto"] = v` and `R["goto"] = function() end`.
 ---
---- A layout construct differs in one place: a `continue` is `goto continue`,
---- and the loop around it ends with `::continue::` on the line of its `end`
---- (or of its `until`), where the fork's source had the label on a line of its
---- own. The `::continue::` is the only text that moves.
+--- A `continue` is `goto continue`, and the loop around it ends with `::continue::` on the line of its `end`
+--- (or of its `until`), so that no line of the program moves.
 ---
 --- A `match` is plain Lua: the call's values are held in locals of a `do`
 --- block, and each arm is an `if` on the `true` and `false` of its pattern that
@@ -51,7 +43,7 @@
 --- declared inside another type (`class_nested_refused`), which has no table of its own at run time.
 ---
 --- [`generate`] needs the names the scope builder ([`lang.scopes`]) resolved:
---- the fork writes a `local record R` as `local R = {}` only where `R` is read
+--- a `local record R` is written as `local R = {}` only where `R` is read
 --- as a value, and an `is` of a local enum or alias writes the Lua type it
 --- stands for. It reads nothing of other modules, so an `is` of an imported
 --- type is a test for a table.
@@ -68,14 +60,14 @@
 -- TODO: reach the table of a class of another module, for a class literal or an `is` of it there, once the checker
 -- has a use for one ([`lang.check`]'s `class_scope` refuses both): the table is the module's own local.
 --
--- TODO: take truthiness from the new checker's types, in place of the translator's syntactic rule
+-- TODO: take truthiness from the new checker's types, in place of the syntactic rule
 -- ([`lang.truthy`]), once expressions land (doc/plans/new-checker-types.md, "expressions
 -- without flow"): a name or a call whose type is neither boolean nor optional is then truthy, and its `if`
 -- expression is `c and a or b` and not a function called on the spot.
 --
 -- TODO: write `local _ = require("m")` as nothing where `m` returns a type, and an `is` of an imported enum as a
 -- test for a string and of an imported userdata record as one for userdata, once the new checker's type report
--- reaches the generator: the fork knows what a required module returns, and this generator is given a single file.
+-- reaches the generator: this generator is given a single file, and knows nothing of what a required module returns.
 local Ast = require("lang.ast")
 local Lexer = require("lang.lexer")
 local Scopes = require("lang.scopes")
@@ -113,17 +105,17 @@ local record Codegen
   --- than `false` and `nil`, a table, a function, an arithmetic or a concatenation). `classes` names the class of each
   --- table literal that makes a value of one, by the id of its node: [`lang.check`]'s [`Checked.literals`] with the
   --- name of each class. `enums` gives the values of the enum a type node stands for, by the id of the node, and `v is E`
-  --- is then a test of membership, `({["a"] = true, ...})[v] == true`, where the fork's is for the kind (`type(v) ==
+  --- is then a test of membership, `({["a"] = true, ...})[v] == true`, not for the kind (`type(v) ==
   --- "string"`): a string is no member of an enum for being a string, and a program that is told otherwise is wrong.
   --- `wraps` names, by the id of an expression, the arguments after its value of a call of `__fact` that wraps it:
   --- `__fact(v, <arguments>)`, which a run that checks what [`lang.check`] concluded of a read defines. A chunk with any begins
   --- with a definition of it that answers `v`, where none is (a process that installed no hook, a module loaded before the
-  --- worker installs its own), as the fork's `(__cosmic_tc or select)` answers it; a call that begins a line is no call of the
+  --- worker installs its own), as `(__cosmic_tc or select)` answers it; a call that begins a line is no call of the
   --- line above.
   --- `kinds` says what [`lang.check`] resolved a type name to, by the id of the name: `integer`, `number`, `string`,
   --- `boolean`, `function`, `true`, `false` or `nil`. A test `v is T` of a name of another module, whose declaration
   --- this generator cannot see, is then a test for that, where without it the name is a table.
-  --- `served` says the Lua is for a build that serves every module, as the fork compiles one: it drops every `local type`
+  --- `served` says the Lua is for a build that serves every module: it drops every `local type`
   --- import that the file does not read or write as a value. A file compiled alone drops only the imports it uses as a type
   --- and keeps the `require` of the rest.
   --- `checks` names, by the id of a function's node (an [`Ast.Fn`], or a class's [`Ast.Method`]), the statement that checks
@@ -133,10 +125,9 @@ local record Codegen
                      classes?: {integer: string}, enums?: {integer: {string}}, wraps?: {integer: string},
                      kinds?: {integer: string}, served?: boolean, checks?: {integer: string}): Generated
 
-  --- `lua`, the Lua of this generator or of the fork's for the same Teal, once the layout of a `continue` is set
-  --- aside: the `::continue::` that ends a loop is deleted, since the fork's source has it on a line of its own and
-  --- this generator's on the line of the loop's `end`, and a line's trailing blanks are ignored. Two texts that
-  --- are equal then are the same Lua, line for line.
+  --- `lua`, the Lua of this generator, once the layout of a `continue` is set aside: the `::continue::` that ends a
+  --- loop is deleted, and a line's trailing blanks are ignored. Two texts that are equal then are the same Lua, line for
+  --- line.
   compared: function(lua: string): string
 
   --- Every [`Code`], in the order the enum lists them.
@@ -430,7 +421,7 @@ local function declaration_of(t: Ast.TypeName): Ast.Node?, boolean
   return declaration, true
 end
 
---- The Lua type a value of `t` has: what `type(v)` answers for it, as the fork writes it. A type the fork does not
+--- The Lua type a value of `t` has: what `type(v)` answers for it. A type this file does not
 --- resolve (one of another module) is a table. `hops` bounds the aliases followed.
 lua_type = function(t: Ast.Type, hops: integer): string
   if (t.kind == "TypeName") then
@@ -465,7 +456,7 @@ local function append_members(out: mut {Ast.Type}, t: Ast.Type, hops: integer)
 end
 
 --- The types a union stands for, which `t` is where it is written as an alias of one (a program cannot write the
---- union in a test, which has one type): the fork tests a value of a union for each member in turn. Nil where `t` is
+--- union in a test, which has one type): a value of a union is tested for each member in turn. Nil where `t` is
 --- no union.
 union_members = function(t: Ast.Type, hops: integer): {Ast.Type}?
   local out: mut {Ast.Type} = {}
@@ -609,7 +600,7 @@ local function exps(values: {Ast.Exp}, y: integer): Output
   return list(y, outs)
 end
 
---- The number's text, as the fork writes it.
+--- The number's text, without its digit separators.
 local function number_text(token: integer): string
   return (G.tokens.text[token]:gsub("_", ""))
 end
@@ -624,7 +615,7 @@ local function params_of(open: integer, params: {Ast.Param}): Output
   return list(line_of(open), outs)
 end
 
---- The fields of a table literal, written as the fork writes them.
+--- The fields of a table literal.
 local function item(it: Ast.Item): Output
   local y = line_of(it.first)
   local out = new(y)
@@ -726,7 +717,7 @@ local function class_named(t: Ast.Type): Ast.Class?
   return nil
 end
 
---- The test of `value` for the type `t`, on the line `y`: one of the three shapes the fork writes, for what `t`
+--- The test of `value` for the type `t`, on the line `y`: one of three shapes, for what `t`
 --- stands for through its aliases, or for a class the test of its metatable: `@v == C`. `operand` is the
 --- expression `value` writes, which a prefix operator takes in parentheses where it binds looser.
 local function type_test(declared: Ast.Type, value: Output, y: integer, operand?: Ast.Exp): Output
@@ -774,7 +765,7 @@ local function type_test(declared: Ast.Type, value: Output, y: integer, operand?
   else
     put(out, "type(")
     add_child(out, value, "", G.indent)
-    -- The fork breaks the line inside the quotes where the type is on a later line than the test, which is no Lua.
+    -- The line must not break inside the quotes where the type is on a later line than the test, which is no Lua.
     local word = resolved
     if word == nil then
       word = lua_type(t, 32)
@@ -784,8 +775,8 @@ local function type_test(declared: Ast.Type, value: Output, y: integer, operand?
   return out
 end
 
---- A test `v is T`. Where `T` is a union (through an alias), it is a test for each member, joined by `or`, as the
---- fork writes it for a name; any other value is held in the parameter of a function called on the spot, so that it
+--- A test `v is T`. Where `T` is a union (through an alias), it is a test for each member, joined by `or`, for
+--- a name; any other value is held in the parameter of a function called on the spot, so that it
 --- is evaluated once.
 local function is_test(node: Ast.IsTest, value: Output): Output
   local value_node = node.value
@@ -822,7 +813,7 @@ local function is_test(node: Ast.IsTest, value: Output): Output
 end
 
 --- `e` given the output `left` of the expression to its left, the one [`left_of`] finds. The pieces of `e` are all
---- written before the indent is read, as the fork writes a node after its children.
+--- written before the indent is read: a node is written after its children.
 local function combine(e: Ast.Exp, left: Output): Output
   if (e.kind == "Binary") then
     local op = e.op
@@ -1176,7 +1167,7 @@ block = function(b: Ast.Block): Output
   local space: string? = nil
   for i = 1, #stats do
     add_child(out, children[i], space, G.indent)
-    -- The fork's parser ends a statement with a `;` where the next begins a line with `(`, which would continue it.
+    -- A statement ends with a `;` where the next begins a line with `(`, which would continue it.
     local s = stats[i]
     local following = stats[i + 1]
     local ends = following ~= nil and ends_in_expression(s) and G.tokens.text[base_of(following).first] == "(" and
@@ -1244,7 +1235,7 @@ end
 
 --- `local type T = require("m")` is `local T = require("m")` where `T` is read or written as a value, and is erased where `T` is
 --- used as a type alone. A file compiled alone also keeps the import of a name it does not use; a build that serves every module
---- (`G.served`) erases it, as the fork then erases every `local type`.
+--- (`G.served`) erases every `local type`.
 local function import_statement(node: Ast.Import): Output
   local var = G.scoped.vars[node.name.id]
   if G.served and (var == nil or (#var.reads == 0 and #var.writes == 0)) then

@@ -97,8 +97,6 @@ cosmic/web/types.tl key_type 3
 
 eval/check/grade.tl key_type 2
 
-lang/translate.tl key_type 2
-
 # a type named through a field of a record ([`importer.Module`] is the field `Module: Module`): write `type Module = ...`
 # inside the record, where the grammar declares a nested type
 build/c/init.tl member_missing 1
@@ -356,8 +354,6 @@ lang/scopes.tl 3
 
 lang/lexer.tl 67
 
-lang/translate.tl 8
-
 lang/types.tl 1
 
 [checked]
@@ -371,7 +367,7 @@ lang/types.tl 1
 # ([`build.tree_program`]), so that the pins and the compile agree: a call of [`Shape.record_of`] is resolved
 # ([`build.syntax_shape_specs`]), which removes the `cannot_infer` it was and shows the errors it hid. The pins below are grouped by code, with the rule or the later
 # piece that brings each to zero.
-# a call of `setmetatable`, which the translator writes as the literal of a class where the metatable is a
+# a call of `setmetatable`, which is written as the literal of a class where the metatable is a
 # class's and the place gives the class: the calls left (a metatable that holds a `__gc` or a `__mode`, a table
 # built before the call, a place that gives no class, a metatable chosen at run time) wait for the rewrite to a
 # class, a weak table of the standard library or a resource C owns
@@ -1548,12 +1544,6 @@ lang/scopes_test.tl nil_not_allowed 24
 
 lang/stdlib_test.tl nil_not_allowed 3
 
-lang/translate.tl nil_not_allowed 88
-
-lang/translate_fuzz_test.tl nil_not_allowed 5
-
-lang/translate_test.tl nil_not_allowed 26
-
 lang/truthy_test.tl nil_not_allowed 1
 
 lang/types.tl nil_not_allowed 29
@@ -1667,8 +1657,6 @@ lang/scopes.tl not_assigned 5
 lang/scopes_fuzz_test.tl not_assigned 2
 
 lang/scopes_programs.tl not_assigned 2
-
-lang/translate_fuzz_test.tl not_assigned 1
 
 lang/types.tl not_assigned 3
 
@@ -2241,8 +2229,6 @@ lang/scopes_programs.tl index_may_be_nil 4
 
 lang/scopes_test.tl index_may_be_nil 2
 
-lang/translate.tl index_may_be_nil 10
-
 lang/types.tl index_may_be_nil 7
 
 lang/types_fuzz_test.tl index_may_be_nil 3
@@ -2255,7 +2241,7 @@ test/sqlite_json_test.tl index_may_be_nil 1
 
 test/sqlite_row_test.tl index_may_be_nil 1
 
-# an index write through a collection that is a view: the translator writes `mut` on the parameters a function
+# an index write through a collection that is a view: `mut` is written on the parameters a function
 # changes and not yet on the locals, which are declared `{T}`
 
 build/archive.tl view_written 2
@@ -2524,8 +2510,6 @@ lang/scopes_test.tl view_written 1
 
 lang/stdlib_test.tl view_written 2
 
-lang/translate.tl view_written 27
-
 lang/types.tl view_written 2
 
 lang/types_programs.tl view_written 4
@@ -2608,16 +2592,12 @@ lang/relation_test.tl view_as_mut 2
 
 lang/scopes.tl view_as_mut 3
 
-lang/translate.tl view_as_mut 7
-
-lang/translate_fuzz_test.tl view_as_mut 2
-
 lang/types.tl view_as_mut 3
 
 lang/warnings.tl view_as_mut 1
 
-# a field assigned after its record is made, not declared `mut`: the translator writes `mut` on the fields its
-# rows show assigned and not on those it cannot attribute (a field of a module record assigned through its name)
+# a field assigned after its record is made, not declared `mut`: `mut` is written on the fields its
+# rows show assigned and not on those that cannot be attributed (a field of a module record assigned through its name)
 build/analysis_schema.tl field_fixed 2
 
 build/archive.tl field_fixed 2
@@ -3111,8 +3091,6 @@ lang/relation_programs.tl field_fixed 19
 lang/scopes.tl field_fixed 17
 
 lang/syntax_codes.tl field_fixed 1
-
-lang/translate.tl field_fixed 2
 
 lang/types.tl field_fixed 3
 
@@ -3717,10 +3695,6 @@ lang/relation_speed_test.tl map_field 4
 
 lang/scopes_test.tl map_field 9
 
-lang/translate.tl map_field 10
-
-lang/translate_test.tl map_field 9
-
 lang/types.tl map_field 4
 
 lang/types_test.tl map_field 4
@@ -3759,8 +3733,6 @@ lang/codegen_test.tl overload_value 4
 lang/lexer.tl overload_value 1
 
 lang/lexer_cover.tl overload_value 1
-
-lang/translate.tl overload_value 1
 
 # a method of an interface read as a value, or called as a field (`s.size(s)`, `local f = s.read`): call it as
 # `s:size()`
@@ -3938,10 +3910,6 @@ lang/parser_cover.tl overload_none 1
 lang/scopes.tl overload_none 3
 
 lang/scopes_fuzz_test.tl overload_none 1
-
-lang/translate.tl overload_none 2
-
-lang/translate_fuzz_test.tl overload_none 1
 
 test/coverage_cache_test.tl overload_none 1
 
@@ -4375,8 +4343,6 @@ lang/codegen_test.tl any_use 12
 lang/literals_test.tl any_use 5
 
 lang/relation_fuzz_test.tl any_use 2
-
-lang/translate.tl any_use 146
 
 test/sqlite_parameter_test.tl any_use 9
 
@@ -4962,8 +4928,6 @@ eval/summarize.tl is_on_record 9
 lang/ast_dump.tl is_on_record 3
 
 lang/check_programs.tl is_on_record 1
-
-lang/translate.tl is_on_record 3
 
 test/sqlite_result_test.tl is_on_record 2
 
@@ -5643,10 +5607,6 @@ lang/relation_test.tl condition_type 4
 lang/scopes_fuzz_test.tl condition_type 2
 
 
-lang/translate.tl condition_type 1
-
-lang/translate_fuzz_test.tl condition_type 1
-
 lang/types.tl condition_type 6
 
 lang/types_fuzz_test.tl condition_type 6
@@ -6212,8 +6172,6 @@ lang/scopes.tl or_mix 1
 
 
 
-lang/translate_test.tl or_mix 2
-
 
 lang/types_fuzz_test.tl or_mix 1
 
@@ -6223,7 +6181,7 @@ test/sqlite_prepare_test.tl or_mix 4
 
 test/sqlite_row_test.tl or_mix 1
 
-# a ternary `c and x or y`, which the translator writes as an `if` expression where it can
+# a ternary `c and x or y`, which is written as an `if` expression where it can
 build/alias_members.tl and_ternary 1
 
 build/archive.tl and_ternary 7
@@ -6692,8 +6650,6 @@ lang/scopes_test.tl and_ternary 1
 
 lang/stdlib_test.tl and_ternary 1
 
-lang/translate.tl and_ternary 21
-
 lang/types.tl and_ternary 7
 
 lang/types_fuzz_test.tl and_ternary 2
@@ -6974,8 +6930,6 @@ lang/scopes_cover.tl concat_type 13
 
 lang/speed.tl concat_type 3
 
-lang/translate.tl concat_type 1
-
 lang/types.tl concat_type 26
 
 # an operand an operator does not take: a string in arithmetic, a map under `#`
@@ -7251,8 +7205,6 @@ lang/declarations.tl literal_missing 6
 lang/relation.tl literal_missing 1
 
 lang/scopes.tl literal_missing 1
-
-lang/translate.tl literal_missing 4
 
 lang/types.tl literal_missing 2
 
@@ -7576,8 +7528,6 @@ lang/declarations.tl literal_needs_type 2
 lang/literals_test.tl literal_needs_type 1
 
 lang/stdlib_test.tl literal_needs_type 2
-
-lang/translate.tl literal_needs_type 1
 
 test/sqlite_parameter_test.tl literal_needs_type 11
 
@@ -7941,10 +7891,6 @@ lang/scopes.tl array_hole 7
 
 lang/scopes_programs.tl array_hole 4
 
-lang/translate.tl array_hole 13
-
-lang/translate_fuzz_test.tl array_hole 6
-
 lang/types.tl array_hole 28
 
 lang/types_programs.tl array_hole 2
@@ -8192,8 +8138,6 @@ eval/check/grade.tl not_assignable 1
 lang/declarations.tl not_assignable 1
 
 lang/parser.tl not_assignable 1
-
-lang/translate.tl not_assignable 1
 
 # a call that answers one of several lists used as the value of one name: a `pcall` whose first value is read
 # (`assert(not pcall(f))`, `local ok = pcall(f)`), which the rewrite makes a `match`

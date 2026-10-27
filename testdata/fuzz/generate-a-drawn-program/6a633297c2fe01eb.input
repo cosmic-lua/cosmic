@@ -1,0 +1,4 @@
+local x: any = 1
+local ok = x is thread
+local after = 1
+return ok, after
