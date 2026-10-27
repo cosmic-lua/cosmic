@@ -247,14 +247,14 @@ end
 
 --- `path` made absolute against `cwd` (the process's own when nil).
 local function absolute(path: string, cwd?: string): string?, string
-  if path:sub(1, 1) == "/" then return path end
+  if path:sub(1, 1) == "/" then return path, "" end
   local base = cwd
   if base == nil then
     local got, why = sys.getcwd()
     if got == nil then return nil, why end
     base = got
   end
-  return base .. "/" .. path
+  return base .. "/" .. path, ""
 end
 
 --- The file the kernel reads to start a program, past its own bytes: the
@@ -679,7 +679,7 @@ function Sandbox.user_id(uid_map: string, gid_map: string, serial: integer): int
         top .. ", from which a sandbox's own user is taken: a root caller's program never " ..
         "runs as root, so it needs a namespace that maps more ids, as a host's does")
   end
-  return first + serial % USER_POOL
+  return first + serial % USER_POOL, ""
 end
 
 --- Whether `id` is one of the pool [`Sandbox.user_id`] takes a root
