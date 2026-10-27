@@ -176,6 +176,15 @@ local function test_a_difference_not_listed_is_refused_whatever_the_seed(tmp: st
   assert(booted.stderr:find("differs from the build compiled by itself in build/seed.tl", 1, true), booted.stderr)
 end
 
+local function test_a_boot_whose_seed_is_not_the_pin_still_refuses_a_bad_declaration_file(tmp: string)
+  local empty = boot(tmp, tree_of(tmp, ENTRY, "\n"), nil, nil, nil, "/some/cosmic")
+  assert(empty.code == 1, "exit " .. tostring(empty.code))
+  assert(empty.stderr:find("lang/SEED_DIFFERS names no file: remove it", 1, true), empty.stderr)
+  local nameless = boot(tmp, tree_of(tmp, ENTRY, "codegen.lua\n"), nil, nil, nil, "/some/cosmic")
+  assert(nameless.code == 1, "exit " .. tostring(nameless.code))
+  assert(nameless.stderr:find("codegen.lua names no file of build/seed.txt", 1, true), nameless.stderr)
+end
+
 local function test_a_declaration_file_that_names_nothing_is_refused(tmp: string)
   local booted = boot(tmp, tree_of(tmp, ENTRY, "\n"))
   assert(booted.code == 1, "exit " .. tostring(booted.code))

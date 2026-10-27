@@ -961,7 +961,7 @@ runs `bin/cosmic-bootstrap compile` over the files [`build/seed.txt`] lists, and
 two is the tree's own generator applied to the tree's own source, so the tool never depends on the pin's emitter, and it
 is what builds the rest of the tree. the boot checks that the first stage equals the second wherever the generator
 writes what the release's does, and fails naming the files unless [`lang/SEED_DIFFERS`] lists them (one path a line) as
-declared to differ, a generator change ahead of the pin; a file listed that does not differ fails too. the sources are in
+declared to differ, a generator change ahead of the pin; a file listed that does not differ fails too, unless `COSMIC_BOOTSTRAP` names the seed instead of the pin. the sources are in
 the compiler's identity, so in every compile's key, and in the tool's boot hash, so an edit to one boots the tool.
 
 the grammar is Teal's, made smaller and explicit. a declaration is `local record R`, `local class C`, `local interface
