@@ -288,7 +288,9 @@
         COSMIC_CI_EVENT: "${{ github.event_name }}",
         # The queue's base, or a full branch push's (its merge base with
         # main, from `scope`), against which a moved build/harness_epoch.tl
-        # runs every test; empty for any other run.
+        # runs every test and the format check holds build/ceilings.txt
+        # (build/ceilings_base.tl: a ceiling only falls); empty for any
+        # other run.
         COSMIC_CI_BASE_SHA: "${{ github.event.merge_group.base_sha || needs.scope.outputs.base }}",
       },
       steps: [
@@ -2137,6 +2139,17 @@
           "continue-on-error": true,
           env: {GH_TOKEN: "${{ github.token }}", REPOSITORY: "${{ github.repository }}", SHA: "${{ github.sha }}", EVENT: "${{ github.event_name }}", REF: "${{ github.ref }}", QUEUE_BASE: "${{ github.event.merge_group.base_sha }}"},
           run: "cosmic-driver cosmic_ci/driver.tl merge-base",
+        },
+        # The base the format check holds build/ceilings.txt to (build/ceilings_base.tl): a ceiling only
+        # falls, so a count raised or a row added since the tree's base on main fails the check. Where the
+        # step above found no base this sets none, and the check fails, since skipping it there would let a
+        # raise through whenever GitHub could not name the base; run the job again.
+        {
+          name: "name the base the ceilings are held to",
+          if: "steps.merge-base.outputs.sha != ''",
+          shell: "sh",
+          env: {BASE: "${{ steps.merge-base.outputs.sha }}"},
+          run: "echo \"COSMIC_CEILINGS_BASE=$BASE\" >> \"$GITHUB_ENV\"",
         },
         # What a branch changed since that base, whose tree main's run
         # held to the whole format check: the check lays out only these,

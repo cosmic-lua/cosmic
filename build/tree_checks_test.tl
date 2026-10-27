@@ -1421,18 +1421,18 @@ local function test_the_scope_check_refuses_a_ceiling_with_a_neighbour_in_the_tr
   assert(Fs.mkdirs(root .. "/build"))
   assert(Fs.write(root .. "/build/there.tl", source("local x: integer = 1", "return x")))
   assert(Fs.write(root .. "/build/ceilings.txt",
-    "[scoped]\nbuild/there.tl shadows 1\nbuild/there.tl unknown_type 1\n\nbuild/there.tl unknown_variable 1\nbuild/there.tl not_a_type 1\n"))
+    "[checked]\nbuild/there.tl view_written 1\nbuild/there.tl field_fixed 1\n\nbuild/there.tl map_field 1\nbuild/there.tl no_value 1\n"))
   local crowded = tree_checks.scoped(root)
   assert(#crowded == 1, table.concat(crowded, "\n"))
   local only = crowded[1] or ""
   assert(only:find("reading the ceilings: 2 of them have a neighbour", 1, true), only)
-  assert(only:find("build/ceilings.txt:2: `build/there.tl shadows 1`", 1, true), only)
+  assert(only:find("build/ceilings.txt:2: `build/there.tl view_written 1`", 1, true), only)
   assert(Fs.write(root .. "/build/ceilings.txt",
-    "[scoped]\nbuild/there.tl shadows 1\n\nbuild/there.tl unknown_type 1\n\nbuild/there.tl unknown_variable 1\n\nbuild/there.tl not_a_type 1\n"))
+    "[checked]\nbuild/there.tl view_written 1\n\nbuild/there.tl field_fixed 1\n\nbuild/there.tl map_field 1\n\nbuild/there.tl no_value 1\n"))
   for _, line in ipairs(tree_checks.scoped(root)) do
     assert(line:find("have a neighbour", 1, true) == nil, line)
   end
-  assert(Fs.write(root .. "/build/ceilings.txt", "[scoped]\nbuild/there.tl shadows 1\nbuild/there.tl unknown_type 1\n"))
+  assert(Fs.write(root .. "/build/ceilings.txt", "[checked]\nbuild/there.tl view_written 1\nbuild/there.tl field_fixed 1\n"))
   for _, line in ipairs(tree_checks.scoped(root, {})) do
     assert(line:find("have a neighbour", 1, true) == nil, line)
   end

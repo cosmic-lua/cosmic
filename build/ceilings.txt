@@ -1,3 +1,11 @@
+# The ceilings of the tree's checker: how many errors of each code each file may still have, per stage.
+# A ceiling only falls. The compiler refuses a file over its ceiling (a missing row is a ceiling of 0), and
+# [`build.ceilings_base`] refuses this file when it raises a count or adds a row, against the file at the merge
+# base with main: CI runs it on every branch push and in the merge queue, and `bin/cosmic fix --check .` runs it
+# wherever a base can be found. A code with no row left in any stage is closed ([`Ceilings.closed`]): this file
+# cannot name it again, and a change that takes a code's last row adds it to that list. To lower a pin, remove the
+# places it counts and lower the number, or delete the row at 0; never edit a number up.
+
 [scoped]
 # The errors of the new checker's scope builder ([`lang.scopes`]) that files of the
 # tree have, which [`scoped`] holds the tree to: `<file> <code>` to how many errors
@@ -10,9 +18,9 @@
 # The errors of the new checker's lowering of declarations ([`lang.declarations`]) that files of the
 # tree have, which [`declared`] holds the tree to: `<file> <code>` to how many errors of that code the
 # file has. Each is a rule the tree still breaks or a form it writes that the checker has no type for;
-# a rewrite removes it and a pin falls with it. A change that adds or sharpens a rule of the lowering may raise some, or
-# add some for a new code, and says why in its message. A file whose translation did not parse, and now does, is
-# pinned at what it has.
+# a rewrite removes it and a pin falls with it. A change that adds or sharpens a rule of the lowering fixes the places
+# it newly refuses in the same change: it raises no pin and adds no row, for a new code or a file whose translation
+# now parses.
 # a class whose metatable keeps its `__close` as a field, since the metatable also holds a `__gc` that a class has
 # no form for: the process handle becomes a C userdata whose finalizer C owns (doc/plans/strict-teal.md,
 # "compiler-written classes, in the new checker")
@@ -362,10 +370,9 @@ build/migrate.tl 1
 # The ceilings of [`build.tree_checks`]'s `checked`: how many errors of each code of [`lang.check`] each file of the
 # tree has in its bodies, which the new checker's expressions and flow report and no rewrite or later piece has removed yet.
 # A key is `<file> <code>`. A file with more errors of a code than pinned is refused, and one with fewer is told to
-# lower its pin. A rewrite or a later piece only lowers pins. A change that adds or sharpens a rule of the checker may
-# raise some, or add some for a new code, and says why in its message: the places the rule newly refuses, and the lines
-# it adds to the files it edits. A file whose translation did not parse, and now does, is pinned at what it has: the
-# errors the checker finds in a file it could not see are not a rule newly broken. A source the build writes from another
+# lower its pin. A rewrite or a later piece only lowers pins. A change that adds or sharpens a rule of the checker fixes
+# the places the rule newly refuses in the same change, and says in its message what it fixed: it raises no pin and adds no
+# row, for a new code or for a file whose translation did not parse and now does. A source the build writes from another
 # file (a doc guide, a template) is held under the name of that file. The program is the one the pipeline reads
 # ([`build.tree_program`]), so that the pins and the compile agree: a call of [`Shape.record_of`] is resolved
 # ([`build.syntax_shape_specs`]), which removes the `cannot_infer` it was and shows the errors it hid. The pins below are grouped by code, with the rule or the later

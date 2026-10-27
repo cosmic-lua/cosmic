@@ -69,6 +69,26 @@ conflict with the parent's squash.
 - a documentation-only edit needs no test run, but still
   `bin/cosmic fix` on the doc. comments follow [`doc/writing.md`].
 
+## ceilings only fall
+
+[`build/ceilings.txt`] pins, per file and code, the errors the checker
+still finds in the tree, and a compile refuses a file over its pin. a
+pin is never raised and a row is never added, whatever the change
+adds: fix the places the checker refuses, in the change. to lower a pin,
+remove the places it counts and lower the number, or delete the row at 0.
+a code with no row left in any stage is closed: take its last row out
+and add it to `Ceilings.closed` in [`build/ceilings.tl`], and
+`Ceilings.parse` refuses a line for it from then on.
+
+the tree check `ceilings` ([`build/ceilings_base.tl`]) holds the file to
+the file at the merge base with main and names each line that raised a
+count or added a row. CI runs it on every branch push and in the merge
+queue, where it fails when no base can be found, and
+`bin/cosmic fix --check .` runs it locally against
+`git merge-base HEAD origin/main`, saying so when there is no
+`origin/main` (`git fetch origin main`) or no git checkout. a file
+renamed with pins loses them: the key is the path.
+
 ## teal layout
 
 `bin/cosmic fix <paths>` lays out every Teal file it is given
@@ -249,6 +269,9 @@ the tool named can be older than the tree's generator.
 [`bin/zig`]: ../bin/zig
 [`build.boot`]: ../build/boot.tl
 [`build.fix.format`]: ../build/fix/format.tl
+[`build/ceilings.tl`]: ../build/ceilings.tl
+[`build/ceilings.txt`]: ../build/ceilings.txt
+[`build/ceilings_base.tl`]: ../build/ceilings_base.tl
 [`build/paths.tl`]: ../build/paths.tl
 [`build/seed.tl`]: ../build/seed.tl
 [`build/seed.txt`]: ../build/seed.txt
