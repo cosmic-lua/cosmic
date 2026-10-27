@@ -65,13 +65,19 @@ local record Cli
   --- with a record's `main` field standing for a returned function.
   --- COSMIC_STANDALONE=1 makes `cosmic <file.tl>` run so
   standalone: string
-  --- `cosmic -e '<chunk>' [args...]`: runs the chunk as Lua, the way
-  --- `lua -e` does, against this binary's own standard library, with no
-  --- tree around it -- nothing staged or built, no build directory
-  --- written, and no staleness check. The words after the chunk are its
-  --- `...`; it prints only what it prints. What it returns is the exit
-  --- code, as a built program's is: nothing is 0, a whole number from 0
-  --- to 255, or text naming one, is itself, and anything else is
+  --- `cosmic -e '<chunk>' [args...]`: runs the chunk as the body of a Teal
+  --- file, against this binary's own standard library, with no tree
+  --- around it -- nothing staged or built, no build directory written,
+  --- and no staleness check. The chunk is checked as strictly as a file
+  --- run `--standalone` is (a warning is refused with an error), and one
+  --- the checker refuses does not run: its messages are printed and it
+  --- exits 1. It reaches the library as a file does,
+  --- `require("cosmic.json")`, by a literal name, and the tool's own
+  --- modules the same way; no module is bound for it, and it is Teal, not
+  --- Lua (`cosmic -e 'print(1 + "x")'` is refused). The words after the chunk are its `...`, each a
+  --- `string?`; it prints only what it prints. What it returns is the
+  --- exit code, as a built program's is: nothing is 0, a whole number
+  --- from 0 to 255, or text naming one, is itself, and anything else is
   --- complained about and exits 2
   eval: string
   --- `cosmic --version`: prints `cosmic <hex>`, the SHA-256 of the file

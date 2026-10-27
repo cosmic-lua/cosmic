@@ -544,10 +544,13 @@ local function version(argv: {string}): integer
   return 0
 end
 
---- `cosmic -e <chunk> [args...]`: runs `chunk` as Lua, the way `lua -e`
---- does, against this binary's own standard library, with no tree around
---- it. The words after it are its `...`; what it returns is the exit
---- code as a file run's is -- see build/exit_status.tl.
+--- `cosmic -e <chunk> [args...]`: runs `chunk` as the body of a Teal file, against this binary's own standard
+--- library, with no tree around it. The chunk is parsed, checked as strictly as a tree build checks (a warning
+--- is refused with an error) and compiled by [`build.standalone`]; a chunk the checker refuses does not run, and
+--- exits 1 with the checker's own messages. It reaches the standard library as a file does, by
+--- `require("cosmic.json")` with a literal name, and may require the tool's own modules too, which are the
+--- tool's one-liner's to use; nothing is bound for it. The words after it are its `...` (each a `string?`); what it
+--- returns is the exit code as a file run's is -- see build/exit_status.tl.
 --- @param argv the whole command line, `-e` at slot 1
 local function evaluate(argv: {string}): integer
   local chunk = argv[2]
@@ -555,10 +558,11 @@ local function evaluate(argv: {string}): integer
     log:complain("usage: cosmic -e '<chunk>' [args...]")
     return 2
   end
-  local Globals = require("cosmic.internal.globals")
-  local loaded, trouble = load(chunk, "=-e", "t", Globals.table())
+  local loaded, trouble = require("build.standalone").compile("-e", chunk, nil, true)
   if loaded == nil then
-    log:complain(tostring(trouble))
+    local Fs = require("cosmic.fs")
+    local _, _ = Fs.put(Fs.stderr, trouble .. "\n")
+    log:complain("-e runs its chunk as Teal, checked as a file is: see `cosmic help -e`")
     return 1
   end
   local arguments: mut {string} = {}

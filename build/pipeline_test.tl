@@ -292,6 +292,17 @@ local function test_a_lone_file_is_checked_with_no_ceiling_and_written_as_lua_th
   assert(entry:find("return function", 1, true) ~= nil, entry)
 end
 
+local function test_a_lone_file_may_return_at_more_than_one_place()
+  local made = assert(Pipeline.lone("exits.tl",
+    "local n = 0\nif n == 0 then\n  return 3\nend\nreturn 4\n", options("")))
+  assert(value_of(made) == 3, made)
+  -- the allowance is for the returns alone: the mistake beside them is told
+  local refused, told = Pipeline.lone("exits.tl", "local n: string = 1\nif n == \"\" then\n  return 3\nend\nreturn 4\n",
+    options(""))
+  assert(refused == nil and told:find("(not_assignable)", 1, true) ~= nil and
+      told:find("(export_not_declared)", 1, true) == nil, tostring(told))
+end
+
 local function test_a_lone_file_is_refused_for_an_error_a_warning_and_a_syntax_error_in_the_checkers_words()
   local code, why = Pipeline.lone("bad.tl", "local n: string = 1\nreturn n\n", options(""))
   assert(code == nil and why:find("^bad.tl:1:") ~= nil and why:find("(not_assignable)", 1, true) ~= nil, tostring(why))

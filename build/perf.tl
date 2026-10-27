@@ -487,18 +487,39 @@ end
   setup[#setup + 1] = command({ binary, "test" }, f)
   -- Produce a native tool from its own trusted core, preserving its database.
   -- This is setup, not part of a startup timing.
-  local source = "local A=require('build.artifact'); local F=require('cosmic.fs'); " ..
-    "local p=assert(A.split(assert(F.read(" .. Json.quote(binary) .. ")))); " ..
-    "assert(F.write(" .. Json.quote(f.host_tool) ..
-    ",assert(A.host_program(assert(A.trusted_core()),p.database)),493))"
+  local source = 'local A = require("build.artifact") local F = require("cosmic.fs") ' ..
+    "local bytes = assert(F.read(" .. Json.quote(binary) .. ")) " ..
+    "local parts = assert(A.split(bytes)) local core = assert(A.trusted_core()) " ..
+    "local program = assert(A.host_program(core, parts.database)) " ..
+    "assert(F.write(" .. Json.quote(f.host_tool) .. ", program, 493))"
   setup[#setup + 1] = command({ binary, "-e", source }, f)
   save(f.logs .. "/setup.json", setup)
-  local facts = [[local A=require('build.artifact'); local J=require('cosmic.json');
-local H=require('cosmic.hash'); local S=require('cosmic.store');
-local c=assert(A.trusted_core()); print(assert(J.encode({
-  sqlite=require('cosmic.sqlite').version, core_sha256=H.hex_sha256(c.bytes),
-  target=c.target_id, configuration=c.configuration_id,
-  runtime_basis=S.meta('runtime_basis'), boot_hash=S.meta('boot_hash')})))]]
+  local facts = [[
+local A = require("build.artifact")
+local J = require("cosmic.json")
+local H = require("cosmic.hash")
+local S = require("cosmic.store")
+local Sqlite = require("cosmic.sqlite")
+local c = assert(A.trusted_core())
+local fields: mut {string} = {}
+local function quoted(text: string): string
+  local encoded = assert(J.encode(text))
+  return encoded
+end
+local function add(name: string, value: string?)
+  if value ~= nil then fields[#fields + 1] = quoted(name) .. ":" .. quoted(value) end
+end
+local function add_number(name: string, value: integer)
+  fields[#fields + 1] = quoted(name) .. ":" .. tostring(value)
+end
+add("sqlite", Sqlite.version)
+add("core_sha256", H.hex_sha256(c.bytes))
+add_number("target", c.target_id)
+add_number("configuration", c.configuration_id)
+add("runtime_basis", S.meta("runtime_basis"))
+add("boot_hash", S.meta("boot_hash"))
+print("{" .. table.concat(fields, ",") .. "}")
+]]
   local information = command({ binary, "-e", facts }, f)
   assert(Fs.write(f.logs .. "/runtime.json", information.stdout or ""))
   local compiler = command({ binary, "sql", "--store",
@@ -517,8 +538,8 @@ local function workloads(): {Workload}
     { name = "tool_startup", args = { "-e", "" }, batch = 5 },
     { name = "native_tool_startup", args = { "-e", "" }, batch = 5, executable = "host_tool" },
     { name = "first_require", args = { "-e", "assert(require('cosmic.sqlite'))" }, batch = 5 },
-    { name = "require_closure", args = { "-e", "assert(require('cosmic.sqlite')); " ..
-        "assert(require('cosmic.json')); assert(require('cosmic.child'))" }, batch = 5 },
+    { name = "require_closure", args = { "-e", "assert(require('cosmic.sqlite')) " ..
+        "assert(require('cosmic.json')) assert(require('cosmic.child'))" }, batch = 5 },
     { name = "exact_docs", builds = true, args = { "docs", "Fs.read" }, batch = 1 },
     { name = "uses", builds = true, args = { "uses", "Fs.read" }, batch = 1 },
     { name = "reverse_imports", args = { "sql", "--store",
