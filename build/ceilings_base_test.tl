@@ -45,9 +45,10 @@ local function holding(text: string): Answers
     status = {
       ["cat-file -e " .. BASE .. "^{commit}"] = 0,
       ["merge-base --is-ancestor " .. BASE .. " HEAD"] = 0,
+      ["rev-parse --is-shallow-repository"] = 0,
       [BLOB] = 0,
     },
-    printed = { [BLOB] = text },
+    printed = { [BLOB] = text, ["rev-parse --is-shallow-repository"] = "true\n" },
   }
 end
 
@@ -79,10 +80,10 @@ local function test_a_raised_count_in_ci_is_refused_naming_the_line(tmp: string)
 end
 
 local function test_a_new_key_in_the_merge_queue_is_refused(tmp: string)
-  local root = tree_with(tmp, BASE_TEXT .. "\nbuild/c.tl arity 1\n")
+  local root = tree_with(tmp, BASE_TEXT .. "\nbuild/c.tl any_use 1\n")
   local env = ci({ COSMIC_CI_EVENT = "merge_group", COSMIC_CI_BASE_SHA = BASE })
   local verdict = CeilingsBase.check(root, env, git_of(holding(BASE_TEXT), { calls = {} }))
-  assert(#verdict.lines == 1 and has(verdict.lines[1], "build/c.tl arity is a row the merge base lacks"),
+  assert(#verdict.lines == 1 and has(verdict.lines[1], "build/c.tl any_use is a row the merge base lacks"),
     table.concat(verdict.lines, "\n"))
 end
 
@@ -116,9 +117,34 @@ end
 local function test_a_base_that_is_not_an_ancestor_of_head_is_refused(tmp: string)
   local root = tree_with(tmp, BASE_TEXT)
   local answers = holding(BASE_TEXT)
-  answers.status["merge-base --is-ancestor " .. BASE .. " HEAD"] = 1
-  local verdict = CeilingsBase.check(root, ci({ COSMIC_CEILINGS_BASE = BASE }), git_of(answers, { calls = {} }))
-  assert(#verdict.lines == 1 and has(verdict.lines[1], "is not an ancestor of HEAD"), table.concat(verdict.lines, "\n"))
+  answers.printed["rev-parse --is-shallow-repository"] = "false\n"
+  for _, status in ipairs({ 1, 128, -1 }) do
+    answers.status["merge-base --is-ancestor " .. BASE .. " HEAD"] = status
+    local verdict = CeilingsBase.check(root, ci({ COSMIC_CEILINGS_BASE = BASE }), git_of(answers, { calls = {} }))
+    assert(#verdict.lines == 1 and has(verdict.lines[1], "is not an ancestor of HEAD"), table.concat(verdict.lines, "\n"))
+  end
+  -- a shallow checkout cannot tell, as a branch push's cannot, and is not refused for it
+  answers.printed["rev-parse --is-shallow-repository"] = "true\n"
+  local shallow = CeilingsBase.check(root, ci({ COSMIC_CEILINGS_BASE = BASE }), git_of(answers, { calls = {} }))
+  assert(#shallow.lines == 0, table.concat(shallow.lines, "\n"))
+end
+
+local function test_a_base_that_is_not_a_full_hash_or_a_ceilings_file_that_does_not_parse_fails(tmp: string)
+  local root = tree_with(tmp, BASE_TEXT)
+  local short = CeilingsBase.check(root, ci({ COSMIC_CEILINGS_BASE = "0" }), git_of(holding(BASE_TEXT), { calls = {} }))
+  assert(#short.lines == 1 and has(short.lines[1], "no full commit hash"), table.concat(short.lines, "\n"))
+  local closed = tree_with(tmp .. "/closed", "[checked]\nbuild/a.tl arity 1\n")
+  local verdict = CeilingsBase.check(closed, ci({ COSMIC_CEILINGS_BASE = BASE }),
+    git_of(holding("[checked]\nbuild/a.tl arity 1\n"), { calls = {} }))
+  assert(#verdict.lines == 1 and has(verdict.lines[1], "arity is closed"), table.concat(verdict.lines, "\n"))
+end
+
+local function test_the_base_a_workflow_names_for_the_ceilings_wins_over_the_queues(tmp: string)
+  local root = tree_with(tmp, BASE_TEXT)
+  local other = "1111111111111111111111111111111111111111"
+  local verdict = CeilingsBase.check(root, ci({ COSMIC_CEILINGS_BASE = BASE, COSMIC_CI_BASE_SHA = other }),
+    git_of(holding(BASE_TEXT), { calls = {} }))
+  assert(#verdict.lines == 0 and has(verdict.note, "0123456789ab"), table.concat(verdict.lines, "\n") .. verdict.note)
 end
 
 local function test_a_run_of_ci_that_holds_a_change_and_names_no_base_fails(tmp: string)
@@ -127,6 +153,7 @@ local function test_a_run_of_ci_that_holds_a_change_and_names_no_base_fails(tmp:
       ci({}),
       ci({ COSMIC_CI_EVENT = "merge_group" }),
       ci({ COSMIC_CI_BASE_SHA = "unknown" }),
+      ci({ COSMIC_CI_EVENT = "workflow_dispatch" }),
   }) do
     local verdict = CeilingsBase.check(root, env, git_of(nothing(), { calls = {} }))
     assert(#verdict.lines == 1 and has(verdict.lines[1], "so they are refused"), table.concat(verdict.lines, "\n"))
@@ -137,7 +164,7 @@ local function test_the_runs_of_main_itself_are_skipped_saying_so(tmp: string)
   local root = tree_with(tmp, BASE_TEXT)
   for _, env in ipairs({
       ci({ COSMIC_CI_EVENT = "schedule" }),
-      ci({ COSMIC_CI_EVENT = "workflow_dispatch" }),
+      ci({ COSMIC_CI_EVENT = "workflow_dispatch", GITHUB_REF = "refs/heads/main" }),
       ci({ GITHUB_REF = "refs/heads/main" }),
   }) do
     local verdict = CeilingsBase.check(root, env, git_of(nothing(), { calls = {} }))

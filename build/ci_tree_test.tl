@@ -77,9 +77,9 @@ local sets_what_it_reads: {string:{string:boolean}} = {
     RUNNER_TEMP = true },
   -- The check that the ceilings only fall reads the run's own variables, in the tool's `fix --check` and not in a suite's
   -- worker; its test gives them to the check as a table.
-  ["build/ceilings_base.tl"] = { COSMIC_CI_BASE_SHA = true, COSMIC_CI_EVENT = true, GITHUB_EVENT_NAME = true,
+  ["build/ceilings_base.tl"] = { COSMIC_CEILINGS_BASE = true, COSMIC_CI_BASE_SHA = true, COSMIC_CI_EVENT = true, GITHUB_EVENT_NAME = true,
     GITHUB_REF = true, GITHUB_ACTIONS = true },
-  ["build/ceilings_base_test.tl"] = { COSMIC_CI_BASE_SHA = true, COSMIC_CI_EVENT = true, GITHUB_EVENT_NAME = true,
+  ["build/ceilings_base_test.tl"] = { COSMIC_CEILINGS_BASE = true, COSMIC_CI_BASE_SHA = true, COSMIC_CI_EVENT = true, GITHUB_EVENT_NAME = true,
     GITHUB_REF = true, GITHUB_ACTIONS = true },
   -- Names GITHUB_OUTPUT as the file it gives the script it runs, as a step's environment does.
   ["build/branch_scope_test.tl"] = { GITHUB_OUTPUT = true },

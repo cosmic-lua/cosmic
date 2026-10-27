@@ -83,7 +83,8 @@ and add it to `Ceilings.closed` in [`build/ceilings.tl`], and
 the tree check `ceilings` ([`build/ceilings_base.tl`]) holds the file to
 the file at the merge base with main and names each line that raised a
 count or added a row. CI runs it on every branch push and in the merge
-queue, where it fails when no base can be found, and
+queue, where it fails when no base can be found (GitHub could not name
+it: run the job again), and
 `bin/cosmic fix --check .` runs it locally against
 `git merge-base HEAD origin/main`, saying so when there is no
 `origin/main` (`git fetch origin main`) or no git checkout. a file

@@ -10,13 +10,15 @@
 ---
 --- Where no base can be named the check does not hold the file, and says why in its note, but only where none can
 --- exist: a tree that is no git checkout, a checkout with no `origin/main` to grow from, and, in CI, the runs of main itself
---- (the scheduled run, a manual run and a push to main), whose changes the merge queue held to their base before they
---- landed. In every other CI run (a branch push, the merge queue) a missing base fails the check: a skip there would let a
+--- (the scheduled run, a manual run of main and a push to main), whose changes the merge queue held to their base before
+--- they landed. In every other CI run (a branch push, the merge queue, a manual run of a branch) a missing base fails the check: a skip there would let a
 --- raise through whenever the base could not be found, and a CI run is repeated at no cost. Where a base is named, its
 --- commit is fetched (`--depth=1` from origin) if the checkout lacks it, and a base that cannot be read fails.
 ---
 --- The base is what CI says it is; the check cannot tell a base the workflow was edited to name from the real one
---- (the workflow's edits are in the diff a reviewer reads). It does refuse a base that is not an ancestor of HEAD.
+--- (the workflow's edits are in the diff a reviewer reads). It does refuse a name that is not a full commit hash, and,
+--- where the checkout holds enough history to tell (a shallow one, as CI's branch pushes are, cannot), a base that is not an
+--- ancestor of HEAD.
 local Ceilings = require("build.ceilings")
 local Child = require("cosmic.child")
 local Env = require("cosmic.env")
@@ -83,11 +85,19 @@ local function named(env: {string:string}, names: {string}): string
   return ""
 end
 
---- Whether a run of CI is the run of main itself, which has no base to hold: the scheduled run and a manual one, and a push
---- to main, whose change the merge queue held to its base.
+--- Whether a run of CI is the run of main itself, which has no base to hold: the scheduled run, and a push to main or a
+--- manual run of it, whose change the merge queue held to its base. A manual run of a branch holds a change and is not.
 local function mains_own(env: {string:string}): boolean
   local event = named(env, { "COSMIC_CI_EVENT", "GITHUB_EVENT_NAME" })
-  return event == "schedule" or event == "workflow_dispatch" or (event == "push" and env["GITHUB_REF"] == "refs/heads/main")
+  if event == "schedule" then
+    return true
+  end
+  return (event == "push" or event == "workflow_dispatch") and env["GITHUB_REF"] == "refs/heads/main"
+end
+
+--- Whether `name` is a full commit hash (SHA-1 or SHA-256), which git resolves to the one commit and not to an abbreviation.
+local function full_hash(name: string): boolean
+  return name:match("^%x+$") ~= nil and (#name == 40 or #name == 64)
 end
 
 local function skipped(why: string): CeilingsBase.Verdict
@@ -101,10 +111,10 @@ end
 function CeilingsBase.check(root: string, env: {string:string}, git: CeilingsBase.Git): CeilingsBase.Verdict
   local in_ci = env["GITHUB_ACTIONS"] == "true"
   local base = named(env, { "COSMIC_CEILINGS_BASE", "COSMIC_CI_BASE_SHA" })
-  if base ~= "" and base:match("^%x+$") == nil then
+  if base ~= "" and not full_hash(base) then
     if in_ci then
-      return failed("the base CI names is `" .. base .. "`, no commit (COSMIC_CEILINGS_BASE or COSMIC_CI_BASE_SHA); " ..
-          "run the check again, or fix where the workflow finds the base")
+      return failed("the base CI names is `" .. base .. "`, no full commit hash (COSMIC_CEILINGS_BASE or " ..
+          "COSMIC_CI_BASE_SHA; `unknown` is a base GitHub could not name); run the job again, or fix where the workflow finds the base")
     end
     base = ""
   end
@@ -136,9 +146,14 @@ function CeilingsBase.check(root: string, env: {string:string}, git: CeilingsBas
       return failed("the base " .. base .. " is not in this checkout and `git fetch origin " .. base .. "` did not bring it")
     end
   end
-  local ancestor, _ = git(root, { "merge-base", "--is-ancestor", base, "HEAD" })
-  if ancestor == 1 then
-    return failed("the base " .. base .. " is not an ancestor of HEAD, so it is not where this change grew from")
+  -- A shallow checkout (a branch push's holds HEAD and the fetched base alone) cannot say whether one commit is another's
+  -- ancestor, so the question is asked only where the answer is known.
+  local _, shallow = git(root, { "rev-parse", "--is-shallow-repository" })
+  if shallow:match("^false") ~= nil then
+    local ancestor, _ = git(root, { "merge-base", "--is-ancestor", base, "HEAD" })
+    if ancestor ~= 0 then
+      return failed("the base " .. base .. " is not an ancestor of HEAD, so it is not where this change grew from")
+    end
   end
   -- A base without the file holds no row, so every row of the tree's is one it lacks.
   local shown, was = git(root, { "cat-file", "-p", base .. ":" .. Ceilings.path })
@@ -148,6 +163,11 @@ function CeilingsBase.check(root: string, env: {string:string}, git: CeilingsBas
   local text, why = Fs.read(root .. "/" .. Ceilings.path)
   if text == nil then
     return failed("cannot read " .. Ceilings.path .. ": " .. why)
+  end
+  -- The comparison reads rows leniently; the file it judges is read as the compile reads it first.
+  local parsed, parse_why = Ceilings.parse(text)
+  if parsed == nil then
+    return failed(parse_why)
   end
   return { lines = Ceilings.rises(was, text), note = "held to the ceilings of " .. base:sub(1, 12) }
 end
