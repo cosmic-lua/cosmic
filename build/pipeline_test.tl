@@ -160,7 +160,7 @@ local function test_the_lua_the_pipeline_writes_answers_what_the_program_answers
 end
 
 local function test_an_if_expression_over_a_value_that_is_never_false_is_not_written_as_a_call()
-  -- the middle is a cast to a string: no literal, so only what `Truthy.never_false` knows of it keeps the `and` and `or`
+  -- the middle is a cast to a string: no literal, so only what [`Truthy.never_false`] knows of it keeps the `and` and `or`
   local made = assert(generated("local n = 3\nlocal y: any = \"v\"\nlocal s: string = n > 2 and (y as string) or \"z\"\nreturn s\n",
     "[checked]\nm.tl cast_refused 1\nm.tl any_use 1\n", "example"))
   assert(made.lua:find("function", 1, true) == nil, made.lua)
