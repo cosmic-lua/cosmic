@@ -102,10 +102,10 @@ end
 
 local record Result
   --- The child's exit status, or nil when a signal ended it.
-  mut code: integer?
+  mut code?: integer
   --- The number of the signal that ended the child, or nil when it
   --- exited by itself.
-  mut signal: integer?
+  mut signal?: integer
   --- Whether the child exited with status 0 and was not ended for
   --- running past its timeout.
   ok: boolean
@@ -113,9 +113,9 @@ local record Result
   --- [`Options.timeout_ns`], or [`Handle.wait`]'s -- and was ended for it.
   timed_out: boolean
   --- Captured stdout, when stdout was "capture".
-  mut stdout: string?
+  mut stdout?: string
   --- Captured stderr, when stderr was "capture".
-  mut stderr: string?
+  mut stderr?: string
   --- Every captured stream by the child's descriptor number, stdout and
   --- stderr included.
   captured: mut {integer:string}
@@ -608,9 +608,9 @@ local record DrainOptions
   --- Required positive total byte budget across both outputs.
   max_bytes: integer
   --- Required exactly when stdout was started as "stream"; never closed here.
-  stdout: Stream.Writer?
+  stdout?: Stream.Writer
   --- Required exactly when stderr was started as "stream"; never closed here.
-  stderr: Stream.Writer?
+  stderr?: Stream.Writer
 end
 
 --- Why a bounded output drain stopped.
@@ -789,7 +789,7 @@ local reaped: mut {integer:raw_process.ChildStatus} = {}
 local record Reaping
   --- Whether this process adopts orphaned descendants: nil until the
   --- first grouped start asks.
-  mut adopting: boolean?
+  mut adopting?: boolean
 end
 
 local reaping: Reaping = {}
@@ -855,11 +855,11 @@ end
 --- gone. A process that does not adopt reaps only by pid, handle by
 --- handle, and never touches a child it does not own.
 local function collect()
-  if not reaping.adopting then return end
+  if reaping.adopting ~= true then return end
   while true do
     local status, _ = raw.waitpid(-1, true)
     if status == nil or status.pid == 0 then return end
-    if owned[status.pid] then reaped[status.pid] = status end
+    if owned[status.pid] == true then reaped[status.pid] = status end
   end
 end
 
@@ -896,7 +896,7 @@ local function exited(self: Handle, block?: boolean): raw_process.ChildStatus?, 
   if self._relay ~= nil then relay_lost(self) end
   collect()
   if reaped[self.pid] then return claim(self, reaped[self.pid]), "" end
-  local status, trouble = raw.waitpid(self.pid, not block)
+  local status, trouble = raw.waitpid(self.pid, block ~= true)
   if not status then
     -- A pid that cannot be waited for (ECHILD: reaped past this module)
     -- has a watch readable for good, which would end every wait at once.
@@ -1103,14 +1103,14 @@ end
 --- What a shielded [`Poll.delay`] answered, which a shield hands back to
 --- [`pump`] in a table.
 local record Delayed
-  mut paused: boolean?
-  mut cancelled: string?
+  mut paused?: boolean
+  mut cancelled?: string
 end
 
 --- What a shielded [`Poll.ready`] answered, as [`Delayed`] does.
 local record Readied
-  mut answers: {integer}?
-  mut why: string?
+  mut answers?: {integer}
+  mut why?: string
 end
 
 --- Services `entries` once: waits up to `timeout_ns` (-1 for no limit)
@@ -1144,7 +1144,7 @@ local function pump(entries: mut {Entry}, timeout_ns: integer,
   -- Drained only by a wait of the run's, or with no task about: a wait
   -- holding the thread in a task, draining it, would take the wake from
   -- a task waiting on it (`g:wait`) before the run could tell it.
-  if signalled and Innermost.active() ~= nil and (in_run or not Poll.in_task()) then
+  if signalled == true and Innermost.active() ~= nil and (in_run or not Poll.in_task()) then
     entries[#entries + 1] = { fd = raw.child_signal_fd(), events = sys.POLLIN, kind = "wake" }
   end
   local fds: mut {integer} = {}
@@ -1158,8 +1158,8 @@ local function pump(entries: mut {Entry}, timeout_ns: integer,
       local function pause()
         waited.paused, waited.cancelled = Poll.delay(timeout_ns)
       end
-      if cancellable then pause() else Poll.shielded(pause) end
-      if waited.paused then return false, "" end
+      if cancellable == true then pause() else Poll.shielded(pause) end
+      if waited.paused == true then return false, "" end
       return false, waited.cancelled or ""
     end
     if timeout_ns > 0 then local _, _ = sys.nanosleep(timeout_ns) end
@@ -1172,7 +1172,7 @@ local function pump(entries: mut {Entry}, timeout_ns: integer,
     local function look()
       looked.answers, looked.why = Poll.ready(fds, events, timeout_ns >= 0 and timeout_ns or nil)
     end
-    if cancellable then look() else Poll.shielded(look) end
+    if cancellable == true then look() else Poll.shielded(look) end
     -- A wait that ran out of time found nothing: no stream moved.
     if looked.answers == nil and looked.why == Poll.TIMEOUT then return false, "" end
     local answers = looked.answers
@@ -1570,7 +1570,7 @@ local class FeedWriter is Stream.Writer
 end
 
 local function feed_writer(self: Handle, fd: integer): Stream.Writer
-  local w: FeedWriter = { child = self, fd = fd, closed = false }
+  local w: FeedWriter = { child = self, fd = fd, closed = false, into = nil }
   -- A closure, for [`Stream.FdOptions.wait`] is called with no Writer.
   local function room(_fd: integer, _events: integer, _left: integer?): boolean, string
     local why = interrupted(self)
@@ -1921,7 +1921,7 @@ end
 local function descriptor(value: (integer | string)?, name: string, words: {string:boolean}):
     integer | string
   if value == nil then return "inherit" end
-  if value is string and words[value] then return value end
+  if value is string and words[value] == true then return value end
   if value is integer and value >= 0 and value <= INT_MAX then return value end
   if name == "stdin" and value == "pipe" then
     error("child: stdin = \"pipe\" was removed: use \"stream\" and write through the handle's " ..
@@ -1960,7 +1960,7 @@ local function validate(argv: {string}, opts: Options)
   local env = opts.env
   if env ~= nil then
     for name, value in pairs(env) do
-      if type(name) ~= "string" or name == "" or name:find("=", 1, true) then
+      if type(name) ~= "string" or name == "" or name:find("=", 1, true) ~= nil then
         error("child: environment name is empty, non-string, or contains '='", 3)
       end
       if type(value) ~= "string" then error("child: environment value must be a string", 3) end
@@ -2064,8 +2064,8 @@ local record Wiring
   child_ends: mut {integer}
   ours: mut {integer}
   streams: mut {Pipe}
-  mut input_fd: integer?
-  mut feed_fd: integer?
+  mut input_fd?: integer
+  mut feed_fd?: integer
 end
 
 local function unwire(wiring: Wiring, keep_ours: boolean)
@@ -2119,7 +2119,7 @@ end
 local function wire(opts: Options, wiring: Wiring, pty?: Pty): {integer:integer}?, string
   local slots: mut {integer:integer} = {}
   local stdin = descriptor(opts.stdin, "stdin", STDIN_WORDS)
-  if pty ~= nil and pty.streams[0] then
+  if pty ~= nil and pty.streams[0] == true then
     slots[0] = pty.slave
   elseif opts.input ~= nil or stdin == "stream" then
     local ends, trouble = raw.pipe()
@@ -2146,14 +2146,14 @@ local function wire(opts: Options, wiring: Wiring, pty?: Pty): {integer:integer}
   elseif stdin is integer then
     slots[0] = stdin
   end
-  if pty ~= nil and pty.streams[1] then
+  if pty ~= nil and pty.streams[1] == true then
     slots[1] = pty.slave
   else
     local out, out_trouble = wire_output(wiring, 1, descriptor(opts.stdout, "stdout", STDOUT_WORDS))
     if out_trouble ~= "" then return nil, out_trouble end
     slots[1] = out
   end
-  if pty ~= nil and pty.streams[2] then
+  if pty ~= nil and pty.streams[2] == true then
     slots[2] = pty.slave
   else
     local stderr = descriptor(opts.stderr, "stderr", STDERR_WORDS)
@@ -2319,7 +2319,7 @@ local function ungranted(files: {string}, grants: {Rules.Grant}, cwd?: string): 
     for _, letter in ipairs({ "r", "x" }) do
       local given = false
       for _, held in ipairs(reals) do
-        if beneath(file, held[1]) and held[2]:find(letter, 1, true) then given = true end
+        if beneath(file, held[1]) and held[2]:find(letter, 1, true) ~= nil then given = true end
       end
       if not given then missing[#missing + 1] = letter end
     end
@@ -2356,7 +2356,7 @@ end
 --- A policy's fields not yet met, by what each would need.
 local function unmet(merged: Rules.Policy): string
   local file = isolates(merged, "file")
-  local held = #(merged.grants or {}) + (if merged.tmp and not file then 1 else 0 end)
+  local held = #(merged.grants or {}) + (if merged.tmp == true and not file then 1 else 0 end)
   local most = file and MAX_ISOLATED_GRANTS or MAX_GRANTS
   if held > most then
     return "grants: the policy holds " .. tostring(held) ..
@@ -2436,7 +2436,7 @@ local function root_of(merged: Rules.Policy, base: string, idmap: {boolean}, nes
       return nil, "grant \"/proc\" has from, but /proc is the sandbox's own: grant its " ..
         "contents at another name"
     end
-    if merged.tmp and (name == "/tmp" or name == "/") then
+    if merged.tmp == true and (name == "/tmp" or name == "/") then
       return nil, "grant \"" .. grant.path .. "\" is the name of the sandbox's own /tmp, " ..
         "which tmp makes: grant what is beneath it, or leave tmp out, or grant \"/tmp\" " ..
         "itself with no `from`, for its letters"
@@ -2449,7 +2449,7 @@ local function root_of(merged: Rules.Policy, base: string, idmap: {boolean}, nes
   end
   if proc then reads[1] = "/proc" end
   local tmp: integer?
-  if merged.tmp then tmp = TMP_BYTES end
+  if merged.tmp == true then tmp = TMP_BYTES end
   return { reads = reads, writes = {}, binds = binds, tmp = tmp, tmp_exec = tmp_exec or nil }, ""
 end
 
@@ -2654,7 +2654,7 @@ end
 --- grant. A grant that does not exist is left for the start's own report.
 local function reached_by(merged: Rules.Policy, base: string, file: boolean,
                           user: MappedUser): {boolean}?, string
-  if merged.tmp and not file then
+  if merged.tmp == true and not file then
     local given = sys.getenv("TMPDIR")
     local tmpdir = "/tmp"
     if given ~= nil and #given > 0 then tmpdir = given end
@@ -3041,7 +3041,7 @@ local function held_to(argv: {string}, opts: Options, policy: Rules.Policy): Hel
   -- or `rwxc`, a /tmp that may run what is made there. It is no bind of the
   -- host's /tmp, so it is no grant of the root's.
   local tmp_exec = false
-  if file and merged.tmp then
+  if file and merged.tmp == true then
     local others: mut {Rules.Grant} = {}
     for _, grant in ipairs(merged.grants or {}) do
       if grant.from == nil and named(grant.path, "/") == "/tmp" then
@@ -3256,7 +3256,7 @@ local function held_to(argv: {string}, opts: Options, policy: Rules.Policy): Hel
     group = user ~= nil and drop == nil and user.gid or nil }
   if root ~= nil then
     sandbox.unveil = root
-    if merged.tmp then
+    if merged.tmp == true then
       -- A normalized path beneath /tmp (no empty, `.` or `..` component)
       -- that `set_env` names stays TMPDIR: the program makes it, in the /tmp
       -- it has. Any other value is /tmp.
@@ -3279,7 +3279,7 @@ local function held_to(argv: {string}, opts: Options, policy: Rules.Policy): Hel
     local holds, held_why = database_holds(assert(merged.database), relaunch.argv[3])
     if not holds then return nil, "sandbox: " .. held_why end
   end
-  return { path = path, env = env, tmp = "", wants_tmp = merged.tmp and not file,
+  return { path = path, env = env, tmp = "", wants_tmp = merged.tmp == true and not file,
     sandbox = sandbox, cwd = file and base or nil, user = user, drop = drop, nests = nest,
     argv = run_argv, fds = relaunch ~= nil and relaunch.fds or nil,
     relay = relayed and merged.connect or nil }, ""
@@ -3463,7 +3463,7 @@ local function make_tmp(held: Held): string
     end
   end
   held.tmp = real
-  if held.seatbelt then
+  if held.seatbelt == true then
     -- The profile grants the directory through a parameter, left for this.
     assert(held.sandbox.seatbelt).parameters[assert(held.tmp_parameter)] = real
   else
@@ -3773,7 +3773,7 @@ local function start(argv: {string}, opts: Options, pty?: Pty, serves_relay?: in
     -- every binding refuses them by raising; any other raise is rethrown.
     for number = 0, 2 do
       local fd = slots[number] or number
-      if not (pty ~= nil and pty.streams[number]) and isatty(fd) then
+      if not (pty ~= nil and pty.streams[number] == true) and isatty(fd) then
         unwire(wiring, false)
         return refuse("start: sandbox: terminal stdio[" .. tostring(number) .. "] needs the verb's pty relay")
       end
@@ -3843,7 +3843,7 @@ local function start(argv: {string}, opts: Options, pty?: Pty, serves_relay?: in
     local held_cwd = held.cwd
     if held_cwd ~= nil then cwd = held_cwd end
     local held_relay = held.relay
-    if held_relay ~= nil and held.seatbelt then
+    if held_relay ~= nil and held.seatbelt == true then
       -- The relay starts first on the listening sockets the preparation
       -- bound, opens its database, which is then removed, and serves before
       -- the program exists, whose profile and environment name its port.
@@ -3940,7 +3940,7 @@ local function start(argv: {string}, opts: Options, pty?: Pty, serves_relay?: in
   local run_argv = held ~= nil and held.argv or argv
   -- The pty's path is the terminal where stdin is on it.
   local terminal: boolean | string = false
-  if pty ~= nil and pty.streams[0] then terminal = pty.name or true end
+  if pty ~= nil and pty.streams[0] == true then terminal = pty.name or true end
   local called, pid, trouble, errno = pcall(raw.spawn, path, run_argv, env, cwd,
     slots[0], slots[1], slots[2], grouped, extra, sandbox, credentials, terminal)
   if not called then
@@ -3962,10 +3962,10 @@ local function start(argv: {string}, opts: Options, pty?: Pty, serves_relay?: in
     if held ~= nil and held.tmp ~= "" then
       local _, _ = Fs.remove_tree(held.tmp)
     end
-    if held ~= nil and held.seatbelt and errno == sys.ENOSYS then
+    if held ~= nil and held.seatbelt == true and errno == sys.ENOSYS then
       trouble = trouble .. ": this system has no sandbox_init_with_parameters, which holds a " ..
         "policy's child by Seatbelt"
-    elseif held ~= nil and held.seatbelt and errno == sys.EPERM and
+    elseif held ~= nil and held.seatbelt == true and errno == sys.EPERM and
         trouble:find("execve", 1, true) then
       -- The profile held the start itself: what it runs is the one thing it
       -- must grant.
@@ -3989,7 +3989,7 @@ local function start(argv: {string}, opts: Options, pty?: Pty, serves_relay?: in
   if timeout ~= nil then deadline = now() + timeout end
   local h = make_handle(pid, grouped, opts.capture_limit or DEFAULT_CAPTURE_LIMIT, deadline)
   if held ~= nil and held.tmp ~= "" then h._tmp = held.tmp end
-  if held ~= nil and held.seatbelt then h._seatbelt = held.sandbox.seatbelt end
+  if held ~= nil and held.seatbelt == true then h._seatbelt = held.sandbox.seatbelt end
   if #wiring.streams > 0 then h._streams = wiring.streams end
   local input_fd = wiring.input_fd
   if input_fd ~= nil then
@@ -4141,14 +4141,14 @@ function Child.start_on_pty(argv: {string}, opts: Options, pty: PtyOptions): Pty
   validate(argv, opts)
   local streams: mut {integer:boolean} = {}
   for _, number in ipairs(pty.streams) do
-    if not (number is integer) or number < 0 or number > 2 or streams[number] then
+    if not (number is integer) or number < 0 or number > 2 or streams[number] == true then
       error("child: pty streams are each of 0, 1 and 2 once", 2)
     end
     streams[number] = true
   end
   if next(streams) == nil then error("child: a pty needs at least one stream", 2) end
-  if (streams[0] and (opts.stdin ~= nil or opts.input ~= nil)) or
-      (streams[1] and opts.stdout ~= nil) or (streams[2] and opts.stderr ~= nil) then
+  if (streams[0] == true and (opts.stdin ~= nil or opts.input ~= nil)) or
+      (streams[1] == true and opts.stdout ~= nil) or (streams[2] == true and opts.stderr ~= nil) then
     error("child: a stream on the pty takes no stdin, input, stdout or stderr of its own", 2)
   end
   if (pty.rows == nil) ~= (pty.columns == nil) then
@@ -4176,7 +4176,7 @@ function Child.start_on_pty(argv: {string}, opts: Options, pty: PtyOptions): Pty
   -- Darwin's start opens the slave by name to make it the controlling
   -- terminal, and its profile grants that path; Linux has no use for it.
   local slave_path: string?
-  if streams[0] and holds_by_seatbelt() then
+  if streams[0] == true and holds_by_seatbelt() then
     local found, name_why = sys.ttyname(made.slave)
     if found == nil then return refuse("pty: " .. name_why) end
     slave_path = found
@@ -4246,7 +4246,7 @@ local function strays(): {integer}?
   for _, pid in ipairs(raw.sandbox_inits()) do inits[pid] = true end
   local found: mut {integer} = {}
   for _, pid in ipairs(children) do
-    if not owned[pid] and not inits[pid] then found[#found + 1] = pid end
+    if owned[pid] ~= true and inits[pid] ~= true then found[#found + 1] = pid end
   end
   return found
 end
@@ -4261,7 +4261,7 @@ end
 --- how many were ended. Only a Linux process that adopts orphans can
 --- find them; elsewhere this returns 0 and they are init's.
 function Child.end_strays(spared?: {integer}): integer
-  if not reaping.adopting then return 0 end
+  if reaping.adopting ~= true then return 0 end
   local groups: mut {integer:boolean} = {}
   for _, group in ipairs(spared or {}) do groups[group] = true end
   local ended = 0
@@ -4275,7 +4275,7 @@ function Child.end_strays(spared?: {integer}): integer
       for _, pid in ipairs(found) do
         -- Not answered: ended as before.
         local group, _ = sys.getpgid(pid)
-        if group == nil or not groups[group] then ending[#ending + 1] = pid end
+        if group == nil or groups[group] ~= true then ending[#ending + 1] = pid end
       end
       found = ending
     end
@@ -4283,7 +4283,7 @@ function Child.end_strays(spared?: {integer}): integer
     for _, pid in ipairs(found) do
       local _, _ = sys.kill(-pid, sys.SIGKILL)
       local _, _ = sys.kill(pid, sys.SIGKILL)
-      if not seen[pid] then
+      if seen[pid] ~= true then
         seen[pid] = true
         ended = ended + 1
       end

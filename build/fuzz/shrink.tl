@@ -93,7 +93,7 @@ function Shrink.shrink(draws: {Shrink.Draw}, fails: Shrink.Fails,
     local name = key(values)
     -- Best only becomes simpler: a candidate already accepted or
     -- rejected cannot improve it later. Keep keys, not replay trees.
-    if seen[name] then
+    if seen[name] == true then
       search.cached = search.cached + 1
       return false
     end
@@ -198,7 +198,7 @@ function Shrink.shrink(draws: {Shrink.Draw}, fails: Shrink.Fails,
     if not improved then
       for length = #search.best, 1, -1 do
         if search.proposals >= max_tries then break end
-        if not sizes[length] and cut(length, max_tries) then
+        if sizes[length] ~= true and cut(length, max_tries) then
           improved = true
           break
         end

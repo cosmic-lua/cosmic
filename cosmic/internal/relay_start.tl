@@ -153,7 +153,7 @@ local function normalized(rows: {Config.Endpoint}): {Config.Endpoint}
   local seen: mut {string: boolean} = {}
   for _, row in ipairs(rows) do
     local key = row.host .. " " .. tostring(row.port)
-    if not seen[key] and (row.port == 0 or not any[row.host]) then
+    if seen[key] ~= true and (row.port == 0 or any[row.host] ~= true) then
       seen[key] = true
       kept[#kept + 1] = row
     end
@@ -495,7 +495,7 @@ function relay.handover(connect: {string}, own: {string}): Config.Handover?, str
   local processes: mut {Connector.Process} = {}
   local closing = { closed = false }
   local function close()
-    if closing.closed then return end
+    if closing.closed == true then return end
     closing.closed = true
     for _, process in ipairs(processes) do local _ = process:close() end
   end
@@ -592,7 +592,7 @@ function relay.hold_loopback(handover: Config.Handover): integer?, string
   for i, socket in ipairs(sockets) do handover.fds[2 + i] = socket:fd() end
   local closing = { closed = false }
   handover.close = function()
-    if closing.closed then return end
+    if closing.closed == true then return end
     closing.closed = true
     for _, socket in ipairs(sockets) do local _, _ = socket:close() end
   end

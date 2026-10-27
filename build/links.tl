@@ -209,14 +209,14 @@ function links.check(reader: links.Reader, resolver: link_resolve.Resolver, file
     end
     local wrong = link.form == "definition" and misdefined(resolver, absolute, link, declared) or nil
     if wrong ~= nil then
-      out[#out + 1] = file .. ":" .. link.line .. ": link: " .. wrong
+      out[#out + 1] = file .. ":" .. tostring(link.line) .. ": link: " .. wrong
     -- A reference's target is checked where its definition is.
     elseif link.form ~= "reference" then
       local target, problem = link_resolve.resolve(resolver, absolute, link.target, declared,
         link.form ~= "shortcut")
       -- No problem named: a symbol not checked ([`Context.unbuilt`]).
       if target == nil and problem ~= "" then
-        out[#out + 1] = file .. ":" .. link.line .. ": link: " .. link.target ..
+        out[#out + 1] = file .. ":" .. tostring(link.line) .. ": link: " .. link.target ..
           " does not resolve (" .. problem .. ")"
       end
     end

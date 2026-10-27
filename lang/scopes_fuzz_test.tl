@@ -63,7 +63,7 @@ local ref_exp: function(r: Reference, e: Ast.Node, env: Decl?, fn: integer)
 local ref_block: function(r: Reference, stats: {Ast.Stat}, env: Decl?, fn: integer): Decl?
 
 local function expect(r: Reference, code: string, token: integer)
-  r.errors[#r.errors + 1] = code .. " " .. r.tokens.y[token] .. ":" .. Lexer.x(r.tokens, token)
+  r.errors[#r.errors + 1] = code .. " " .. r.tokens.y[token] .. ":" .. tostring(Lexer.x(r.tokens, token))
 end
 
 --- The environment after declaring `binding`, and the error a shadow is.
@@ -232,7 +232,7 @@ local function naive_after(chunk: Ast.Chunk, scoped: Scopes.Scoped, r: Reference
         end
       end
       if after ~= c.after then
-        return "the capture of `" .. v.name .. "` by the function at token " .. c.fn .. " is " .. (if c.after then "" else "not " end) ..
+        return "the capture of `" .. v.name .. "` by the function at token " .. tostring(c.fn) .. " is " .. (if c.after then "" else "not " end) ..
           "followed by an assignment, the rule on tokens says " .. (if after then "it is" else "it is not" end)
       end
     end
@@ -260,7 +260,7 @@ end
 local function listed(scoped: Scopes.Scoped): {string}
   local out: mut {string} = {}
   for _, e in ipairs(scoped.errors) do
-    out[#out + 1] = e.code .. " " .. e.y .. ":" .. e.x
+    out[#out + 1] = e.code .. " " .. tostring(e.y) .. ":" .. tostring(e.x)
   end
   table.sort(out)
   return out
@@ -275,7 +275,7 @@ local function test_every_name_of_a_program_resolves_as_the_reference_says(tmp: 
       local parsed = parse(input)
       local e = parsed.errors[1]
       if e ~= nil then
-        return false, e.code .. " at " .. e.y .. ":" .. e.x .. ": " .. e.msg
+        return false, e.code .. " at " .. tostring(e.y) .. ":" .. tostring(e.x) .. ": " .. e.msg
       end
       local scoped = Scopes.build(parsed.chunk, "f.tl", GLOBALS)
       local ok, why = Cover.check(parsed.chunk, scoped, GLOBALS)
@@ -286,7 +286,7 @@ local function test_every_name_of_a_program_resolves_as_the_reference_says(tmp: 
       for id, decl in pairs(expected.bound) do
         local got = scoped.resolved[id]
         if (got or 0) ~= decl then
-          return false, "the name with id " .. id .. " is bound to " .. tostring(got) .. ", the reference says " .. decl
+          return false, "the name with id " .. tostring(id) .. " is bound to " .. tostring(got) .. ", the reference says " .. tostring(decl)
         end
       end
       local got, want = table.concat(listed(scoped), "; "), table.concat(expected.errors, "; ")

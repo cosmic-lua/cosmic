@@ -67,7 +67,7 @@ local function test_fix_in_a_subdirectory_resolves_links_at_the_root(tmp: string
   local made, made_trouble = Fs.exists(build_paths.required(root .. "/greet"))
   assert(made ~= nil, made_trouble)
   assert(not made, "a fix in a subdirectory built it as a project of its own")
-  assert(not Fs.exists(root .. "/greet/o") and not Fs.exists(root .. "/o"), "a build wrote o/")
+  assert(Fs.exists(root .. "/greet/o") ~= true and Fs.exists(root .. "/o") ~= true, "a build wrote o/")
 
   assert(Fs.write(root .. "/greet/broken.md", "See [gone](../gone.tl).\n"))
   local broken = cosmic(root .. "/greet", { "fix", "--check", "broken.md" })

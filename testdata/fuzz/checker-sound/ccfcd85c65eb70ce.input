@@ -1,0 +1,17 @@
+local function maybe(): integer?
+  return nil
+end
+local function one(): integer?
+  return 1
+end
+local record R
+  mut a: integer?
+end
+local r: R = { a = 1 }
+local sink: integer = 0
+if r.a then
+  local function g(): integer return r.a + 1 end
+  r.a = nil
+  sink = sink + g()
+end
+return sink

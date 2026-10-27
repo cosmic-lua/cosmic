@@ -454,6 +454,37 @@ local function test_a_module_reading_package_outside_the_list_is_refused(dir: st
       "build/path.tl build/preload.tl build/searchers.tl build/searchpath.tl", table.concat(found, "\n"))
 end
 
+--- A file that builds a function from text is refused unless the list names it: the call, an alias and an argument are
+--- found; a field of that name, a function defined by it, a string and a test are not.
+local function test_a_module_building_a_chunk_from_text_outside_the_list_is_refused(dir: string)
+  local function put(file: string, text: string)
+    assert(Fs.mkdirs(dir .. "/build"))
+    assert(Fs.write(dir .. "/" .. file, text))
+  end
+  put("build/allowed.tl", "local f = load(\"return 1\")\nreturn f\n")
+  put("build/called.tl", "local f = load(\"return 1\", \"=x\", \"t\", {})\nreturn f\n")
+  put("build/aliased.tl", "local l = load\nreturn l\n")
+  put("build/passed.tl", "local ok = pcall(load, \"return 1\")\nreturn ok\n")
+  put("build/file.tl", "local f = loadfile(\"x.lua\")\nreturn f\n")
+  put("build/dofiled.tl", "dofile(\"x.lua\")\n")
+  put("build/globals_field.tl", "local f = _G.load(\"return 1\")\nreturn f\n")
+  put("build/globals_index.tl", "local f = _G[\"load\"]\nreturn f\n")
+  put("build/globals_rawget.tl", "local f = rawget(_G, \"loadfile\")\nreturn f\n")
+  put("build/fine.tl", "local t = { load = 1 }\nlocal s = \"load(x)\"\n-- load(x)\n" ..
+      "local record R\n  load: function(): integer\nend\nfunction R.load(): integer return 1 end\n" ..
+      "return t.load, s, R.load()\n")
+  put("build/probe_test.tl", "local f = load(\"return 1\")\nreturn f\n")
+  local found = tree_checks.text_loaders(dir, { ["build/allowed.tl"] = "builds a chunk" })
+  local files: mut {string} = {}
+  for _, line in ipairs(found) do
+    files[#files + 1] = line:match("^([^:]+):%d+: uses ") or line
+  end
+  table.sort(files)
+  assert(table.concat(files, " ") == "build/aliased.tl build/called.tl build/dofiled.tl build/file.tl build/globals_field.tl " ..
+      "build/globals_index.tl build/globals_rawget.tl build/passed.tl",
+    table.concat(found, "\n"))
+end
+
 --- A declaration that requires only declarations passes; one that requires a module is refused.
 local function test_a_declaration_that_requires_a_module_is_refused(dir: string)
   local db = fixture.database(dir, {
@@ -632,7 +663,7 @@ local function test_a_requirement_no_leg_promises_is_refused()
   assert(#tree_checks.promises({ ["a_test"] = { "nest" } }, legs) == 0)
   assert(#tree_checks.promises({}, legs) == 0)
   local refused = tree_checks.promises({}, { linux = { "nope" } })
-  assert(#refused == 1 and refused[1]:find("leg linux promises \"nope\", which is refused", 1, true), refused[1])
+  assert(#refused == 1 and refused[1]:find("leg linux promises \"nope\", which is refused", 1, true) ~= nil, refused[1])
 end
 
 --- The legs are read out of ci/cosmic_ci/capabilities.json, and a file
@@ -677,8 +708,8 @@ local function test_the_unsealed_modules_are_those_declaring_a_launcher_reader()
   assert(db:exec("INSERT INTO test_inputs VALUES ('h1', 1, 'tool', 'true'), ('h2', 1, 'store', 'true'), " ..
       "('h3', 1, 'requires', 'portable'), ('h4', 1, 'requires', 'proc'), ('h5', 1, 'nests', 'true')"))
   local found = assert(tree_checks.unsealed(db))
-  assert(found["m.a_test"] and found["m.b_test"] and found["m.c_test"])
-  assert(not found["m.d_test"] and not found["m.e_test"])
+  assert(found["m.a_test"] == true and found["m.b_test"] == true and found["m.c_test"] == true)
+  assert(found["m.d_test"] ~= true and found["m.e_test"] ~= true)
   local _, _ = db:close()
 end
 

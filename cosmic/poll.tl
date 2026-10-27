@@ -211,7 +211,7 @@ local record Wake
 end
 
 local record Ongoing
-  mut loop: Loop?
+  mut loop?: Loop
 end
 
 local ongoing: Ongoing = {}
@@ -257,7 +257,7 @@ local function compact_timers()
   local heap, kept = running().timers, 0
   for i = 1, #heap do
     local w = heap[i]
-    if w.done then
+    if w.done == true then
       w.in_heap = false
     else
       kept = kept + 1
@@ -357,7 +357,7 @@ local function finish(w: Wait)
     for _, watch in ipairs(watches) do leave(watch) end
     w.watches = nil
   end
-  if w.in_heap then
+  if w.in_heap == true then
     running().stale = running().stale + 1
     if running().stale > STALE_FLOOR and running().stale * 2 > #running().timers then
       compact_timers()
@@ -367,7 +367,7 @@ end
 
 --- Answers `w`, once: the run resumes its task with `ok` and `why`.
 local function wake(w: Wait, ok: boolean, why: string, notice?: NotifierState)
-  if w.done then return end
+  if w.done == true then return end
   finish(w)
   w.task.parked = nil
   running().ready[#running().ready + 1] = { task = w.task, ok = ok, why = why, notice = notice }
@@ -379,7 +379,7 @@ end
 local function current(what: string, level: integer): State
   local loop = ongoing.loop
   if loop == nil then error("poll: " .. what .. " outside Poll.run", level + 1) end
-  if loop.closing then
+  if loop.closing == true then
     error("poll: " .. what .. " while Poll.run closes its tasks", level + 1)
   end
   local task = loop.tasks[coroutine.running()]
@@ -416,7 +416,7 @@ local function park(task: State, w: Wait, timeout_ns: integer?): boolean, string
   task.waiting = true
   local ok, why = coroutine.yield(w)
   task.waiting = false
-  if not w.done then error("poll: a task was resumed other than by Poll.run", 2) end
+  if w.done ~= true then error("poll: a task was resumed other than by Poll.run", 2) end
   if ok == true then return true, "" end
   if ok == false and why is string then return false, why end
   error("poll: a task was resumed other than by Poll.run", 2)
@@ -522,13 +522,13 @@ local class NotifierState is Poll.Notifier
   end
 
   function notify_one(self)
-    if self.loop ~= ongoing.loop or running().closing then return end
+    if self.loop ~= ongoing.loop or running().closing == true then return end
     local first = table.remove(self.waiters, 1)
     if first ~= nil then notice(first, self) end
   end
 
   function notify_all(self)
-    if self.loop ~= ongoing.loop or running().closing then return end
+    if self.loop ~= ongoing.loop or running().closing == true then return end
     local woken = self.waiters
     self.waiters = {}
     for _, w in ipairs(woken) do notice(w) end
@@ -578,7 +578,7 @@ local function pop_timer(): Wait
     sift_down(heap, 1)
   end
   top.in_heap = false
-  if top.done then running().stale = running().stale - 1 end
+  if top.done == true then running().stale = running().stale - 1 end
   return top
 end
 
@@ -617,7 +617,7 @@ local function waiting_task(what: string, level: integer): State?
   if active == nil then return nil end
   local task = active.tasks[coroutine.running()]
   if task == nil then return nil end
-  if active.closing then
+  if active.closing == true then
     error("poll: " .. what .. " while Poll.run closes its tasks", level + 1)
   end
   if task.killed then error("poll: " .. what .. " while its task is killed", level + 1) end
@@ -761,7 +761,7 @@ end
 local function start(fn: function()): Poll.Task
   local state: State = {
     co = coroutine.create(fn), loop = ongoing.loop, started = false, waiting = false,
-    ended = false, killed = false, cancelled = false, shields = 0, joiners = {} }
+    ended = false, killed = false, cancelled = false, shields = 0, parked = nil, joiners = {} }
   running().tasks[state.co] = state
   running().live = running().live + 1
   running().ready[#running().ready + 1] = { task = state, ok = true, why = "" }
@@ -856,7 +856,7 @@ end
 --- while a task is ready, until the nearest time wait, or -1 for no limit.
 local function next_timeout(): integer
   if #running().ready > 0 then return 0 end
-  while #running().timers > 0 and running().timers[1].done do pop_timer() end
+  while #running().timers > 0 and running().timers[1].done == true do pop_timer() end
   if #running().timers == 0 then return -1 end
   local left = assert(running().timers[1].at) - Clock.monotonic_ns()
   if left <= 0 then return 0 end
@@ -889,7 +889,7 @@ local function poll_once(timeout: integer)
         if answer ~= 0 then
           local w = watch.wait
           if watch.place > 0 then assert(w.answers)[watch.place] = answer end
-          if not w.hit then
+          if w.hit ~= true then
             w.hit = true
             hits[#hits + 1] = w
           end
@@ -903,10 +903,10 @@ end
 --- Answers every time wait whose time has come.
 local function expire()
   local t = Clock.monotonic_ns()
-  while #running().timers > 0 and (running().timers[1].done or assert(running().timers[1].at) <= t) do
+  while #running().timers > 0 and (running().timers[1].done == true or assert(running().timers[1].at) <= t) do
     local w = pop_timer()
-    if not w.done then
-      if w.expiry_ok then wake(w, true, "") else wake(w, false, Poll.TIMEOUT) end
+    if w.done ~= true then
+      if w.expiry_ok == true then wake(w, true, "") else wake(w, false, Poll.TIMEOUT) end
     end
   end
 end
@@ -944,7 +944,7 @@ local function answer_waits(fd: integer, answer: integer?)
   for _, watch in ipairs(entry.watches) do
     local w = watch.wait
     if watch.place > 0 then assert(w.answers)[watch.place] = answer or watch.mask end
-    if not w.hit then
+    if w.hit ~= true then
       w.hit = true
       hits[#hits + 1] = w
     end
@@ -977,7 +977,7 @@ end
 --- raise: a wait there fails at once rather than hold the thread.
 function Poll.in_task(): boolean
   local loop = ongoing.loop
-  return loop ~= nil and not loop.closing and loop.tasks[coroutine.running()] ~= nil
+  return loop ~= nil and loop.closing ~= true and loop.tasks[coroutine.running()] ~= nil
 end
 
 --- Starts `main` as the first task and runs the loop until every task

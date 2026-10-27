@@ -931,7 +931,7 @@ end
 local function checked_spec(spec: any)
   if not spec is {any: any} then error("net: serve takes a spec table", 3) end
   for key in pairs(spec) do
-    if not (key is string and SPEC_FIELDS[key]) then
+    if not (key is string and SPEC_FIELDS[key] == true) then
       local gone = key is string and REMOVED_FIELDS[key] or nil
       error("net: spec has no field " .. tostring(key) ..
           (if gone ~= nil then ": " .. gone else "" end), 3)

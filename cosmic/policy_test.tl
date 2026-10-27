@@ -150,8 +150,8 @@ local function test_encode_decode_encode_is_the_identity()
   for i, p in ipairs(policies) do
     local text = PolicyJson.encode(merged(p))
     local back = assert(PolicyJson.decode(text))
-    assert(PolicyJson.encode(merged(back)) == text, "policy " .. i .. ": " .. text)
-    assert(PolicyJson.encode(back) == text, "policy " .. i .. " decoded: " .. text)
+    assert(PolicyJson.encode(merged(back)) == text, "policy " .. tostring(i) .. ": " .. text)
+    assert(PolicyJson.encode(back) == text, "policy " .. tostring(i) .. " decoded: " .. text)
   end
 end
 

@@ -1122,7 +1122,7 @@ local function checked_suite(c: Context, target: string, work: string,
   -- which builds and writes nothing.
   local context = work .. "/checked-context.txt"
   s = capture_small(c, "checked runtime context", { cosmic, "-e",
-    "local Store = require('cosmic.store'); print(Store.meta('runtime_context'), " ..
+    "local Store = require('cosmic.store') print(Store.meta('runtime_context'), " ..
       "Store.meta('host'), Store.meta('host_image'))" }, context, Clock.seconds(30))
   if s ~= 0 then return s end
   assert(read(context) == "portable-v1\t" .. target .. "\t" .. digest .. "\n",

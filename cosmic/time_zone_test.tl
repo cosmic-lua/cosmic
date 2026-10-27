@@ -328,7 +328,7 @@ local function test_tzif_reads_a_real_fat_or_slim_file()
   for label, data in pairs({ slim = slim, fat = fat }) do
     -- The version 1 block's transition count: none in a slim file.
     local transitions = string.unpack(">I4", data, 33)
-    assert((transitions > 0) == (label == "fat"), label .. ": " .. transitions .. " transitions")
+    assert((transitions > 0) == (label == "fat"), label .. ": " .. tostring(transitions) .. " transitions")
   end
   local carried = assert(Time.zone_from_tzif(slim, "America/New_York"))
   local read = assert(Time.zone_from_tzif(fat, "America/New_York"))

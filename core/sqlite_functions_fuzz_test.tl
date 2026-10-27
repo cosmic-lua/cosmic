@@ -23,7 +23,7 @@ local handle = assert(Sqlite.memory())
 local function value(sql: string, values: {Sqlite.Value}): string?, string
   local rows, trouble = Sqlite.text_rows(handle, sql, values)
   if rows == nil then return nil, trouble end
-  assert(#rows == 1, sql .. ": " .. #rows .. " rows")
+  assert(#rows == 1, sql .. ": " .. tostring(#rows) .. " rows")
   return rows[1]:text(1), ""
 end
 
@@ -405,7 +405,7 @@ local function test_uint_orders_consistently(tmp: string)
           { { text = x }, { text = y } }))
         local less, equal, more = rows[1]:text(1) == "1", rows[1]:text(2) == "1", rows[1]:text(3) == "1"
         local held = (if less then 1 else 0 end) + (if equal then 1 else 0 end) + (if more then 1 else 0 end)
-        assert(held == 1, "exactly one of <, = and > holds, not " .. held)
+        assert(held == 1, "exactly one of <, = and > holds, not " .. tostring(held))
         return if less then -1 elseif equal then 0 else 1 end
       end
       if cmp(a, padded) ~= 0 then return false, "zeros before digits changed the order" end
@@ -558,7 +558,7 @@ local function test_rtree_survives_damaged_trees(tmp: string)
       reopened:close()
       local spent = (Clock.monotonic_ns() - start) // 1000000
       if spent > 5000 then
-        return false, damage .. " damage took " .. spent .. " ms to read and check"
+        return false, damage .. " damage took " .. tostring(spent) .. " ms to read and check"
       end
       if reported then Fuzz.label("rtreecheck reported the damage") end
       if refused then Fuzz.label("a statement refused the damage") end
@@ -644,7 +644,7 @@ local function test_carray_reads_back_a_bound_list(tmp: string)
         Fuzz.label("bound in C")
       end
       if #rows ~= #fields - 1 then
-        return false, "carray read " .. #rows .. " of " .. (#fields - 1) .. " " .. kind
+        return false, "carray read " .. tostring(#rows) .. " of " .. tostring((#fields - 1)) .. " " .. kind
       end
       for i, row in ipairs(rows) do
         local held = row:kind(1)
@@ -660,7 +660,7 @@ local function test_carray_reads_back_a_bound_list(tmp: string)
           same = held == "blob" and row:blob(1) == strings[i]
         end
         if not same then
-          return false, "carray read element " .. i .. " of " .. kind .. " back changed"
+          return false, "carray read element " .. tostring(i) .. " of " .. kind .. " back changed"
         end
       end
       Fuzz.label(kind)

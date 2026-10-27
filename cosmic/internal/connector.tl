@@ -55,7 +55,7 @@ local CONNECTOR_FLIGHT <const> = raw.CONNECTOR_FLIGHT
 local function end_connector(connector: Process, collecting: boolean)
   if not connector.open then return end
   connector.open = false
-  if connector.borrowed then return end
+  if connector.borrowed == true then return end
   -- A task parked on the stream is woken, and the descriptor number is
   -- not read again once another file may hold it. A collector must not
   -- touch the run's state.
@@ -412,7 +412,7 @@ local asking_mt: metatable<Asking> = {
     local socket = pending.socket
     if not pending.done then
       pending.given_up = true
-    elseif socket ~= nil and not pending.taken then
+    elseif socket ~= nil and pending.taken ~= true then
       local _, _ = socket:close()
     end
   end,
@@ -563,7 +563,7 @@ end
 local function channel_of_served(self: Served): Channel?, string
   local channel = self.channel
   if channel ~= nil and channel.lost == nil then return channel, "" end
-  if self.inherited then return nil, "net: the connector has ended" end
+  if self.inherited == true then return nil, "net: the connector has ended" end
   local started, why = start(self.endpoints, self.timeout_ms, self.public)
   if started == nil then return nil, why end
   self.channel = channel_of(started)
@@ -763,7 +763,8 @@ Leaf.start = start
 function Leaf.connector(endpoints: {raw_process.ConnectorEndpoint}, timeout_ms: integer,
                         public?: raw_process.ConnectorPublic): Connection.Connector?, string
   local connector: Served = {
-    timeout_ms = timeout_ms, open = true, public = public, accepts_public = public ~= nil, endpoints = endpoints,
+    timeout_ms = timeout_ms, open = true, public = public, inherited = nil, accepts_public = public ~= nil,
+    endpoints = endpoints, channel = nil,
   }
   local started, why = start(endpoints, timeout_ms, public)
   if started == nil then return nil, why end
@@ -801,7 +802,7 @@ function Leaf.adopted(fd: integer, held?: {raw_process.ConnectorEndpoint}, publi
   if not ok then return nil, "child: " .. nonblocking end
   local adopted: Process = setmetatable({ fd = fd, open = true }, process_mt)
   local connector: Served = {
-    timeout_ms = timeout_ms, open = true, endpoints = kept,
+    timeout_ms = timeout_ms, open = true, public = nil, endpoints = kept,
     channel = channel_of(adopted), inherited = true, accepts_public = public == true,
   }
   made[connector] = connector

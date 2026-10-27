@@ -186,7 +186,7 @@ end
 --- records; a doctest is an example.
 function Grader.evidence(path: string): Grader.Evidence?, string
   local present, trouble = Fs.exists(path)
-  if not present then
+  if present ~= true then
     return nil, present == nil and trouble or path .. ": no build database"
   end
   local db, otrouble = Sqlite.open(path)
@@ -931,7 +931,7 @@ local function pack(g: Grade)
   check(g, err:find("../evil.txt", 1, true) ~= nil, "extract evil.tar names the entry ../evil.txt",
     first_line(err))
   local escaped, _ = Fs.exists(g.empty .. "/evil.txt")
-  if escaped then
+  if escaped == true then
     fail(g, "extract evil.tar wrote evil.txt outside its destination")
   else
     ok("extract evil.tar wrote nothing outside its destination")
@@ -2186,7 +2186,8 @@ local TASKS <const>: {string: Task} = {
 function Grader.build_directory(cosmic: string, project: string, env?: {string:string}): string
   local asked, _ = Child.run({ cosmic, "-e", [[
 local Store = require("cosmic.store")
-if Store.source("build.paths") ~= nil then print(require("build.paths").required(...)) end
+local root = ...
+if root ~= nil and Store.source("build.paths") ~= nil then print(require("build.paths").required(root)) end
 ]], project }, { env = env, stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(30) })
   local answer = asked ~= nil and asked.ok and (asked.stdout or ""):match("^(/[^\n]+)\n$") or nil
   return answer or project .. "/o"
@@ -2307,7 +2308,7 @@ function Grader.grade(name: string, dir: string, testdata: string,
   local project = dir .. "/project"
   local cosmic = dir .. "/bin/cosmic"
   local is_project, project_trouble = Fs.is_dir(project)
-  if not is_project then
+  if is_project ~= true then
     say("FAIL no project at " .. project ..
         (if project_trouble ~= "" then ": " .. project_trouble else "" end))
     say("FAIL")

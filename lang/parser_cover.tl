@@ -79,7 +79,7 @@ local function walk(node: Ast.Node, parent: Ast.Node, state: Walk)
     end
     -- The terminator is the block's own, unless the construct around the block did not consume it.
     if state.problem == "" and (expected ~= node.close or (node.last ~= node.close and node.last ~= node.close - 1) or
-        not TERMINATORS[Lexer.text(tokens, node.close)]) then
+        TERMINATORS[Lexer.text(tokens, node.close)] ~= true) then
       state.problem = at .. " does not end at its terminator: its statements end at token " .. tostring(expected - 1) .. ", it closes at " .. tostring(node.close)
     end
   end
@@ -98,7 +98,7 @@ function Cover.check(source: string, parsed: Parser.Parsed): boolean, string
     return false, state.problem
   end
   for _, r in ipairs(chunk.requires) do
-    if not state.ids[r.node] then
+    if state.ids[r.node] ~= true then
       return false, "the require of " .. r.module .. " names node " .. tostring(r.node) .. ", which does not exist"
     end
   end

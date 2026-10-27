@@ -231,7 +231,7 @@ local function test_a_directory_or_the_root_has_no_listing_and_is_a_404()
   for _, path in ipairs({ "/static", "/static/", "/static/css", "/static/css/", "/static/docs",
       "/static/docs/" }) do
     local res = client:get(path)
-    assert(res.status == 404 or res.status == 308, path .. " " .. res.status)
+    assert(res.status == 404 or res.status == 308, path .. " " .. tostring(res.status))
     assert(not res.body:find("app.css", 1, true) and not res.body:find("<p>", 1, true), path)
   end
   assert(client:get("/static/data.bin/").status == 404)
@@ -291,7 +291,7 @@ local function test_no_spelling_of_a_path_reaches_a_file_outside_the_root(tmp: s
   assert(client:get("/static/ok.txt").body == "fine")
   for _, path in ipairs(ESCAPES) do
     local res = client:get(path, { follow_redirects = true })
-    assert(res.status == 400 or res.status == 404, path .. " answered " .. res.status)
+    assert(res.status == 400 or res.status == 404, path .. " answered " .. tostring(res.status))
     assert(not res.body:find("TOPSECRET", 1, true), path)
     local head = client:head(path, { follow_redirects = true })
     assert(head.status == 400 or head.status == 404, path)
@@ -319,7 +319,7 @@ local function test_a_dotfile_a_link_out_and_a_directory_are_not_served(tmp: str
       "/static/sub/.htpasswd", "/static/leak.txt", "/static/up/secret.txt", "/static/sub", "/static/sub/",
       "/static/%2eenv", "/static/%2Eenv", "/static/.%65nv" }) do
     local res = client:get(path)
-    assert(res.status == 404, path .. " answered " .. res.status)
+    assert(res.status == 404, path .. " answered " .. tostring(res.status))
     assert(not res.body:find("TOPSECRET", 1, true), path)
   end
   assert(client:get("/static/ok.txt").status == 200)
@@ -378,7 +378,7 @@ local function test_blanks_in_accept_encoding_cost_time_linear_in_their_run()
   local res = client:get("/static/css/app.css", { headers = { ["Accept-Encoding"] = "gzip;q=0.5" .. (" "):rep(60000) .. "y" } })
   local took = Clock.monotonic_ns() - start
   assert(res.status == 200)
-  assert(took < Clock.seconds(1), "took " .. took // 1000000 .. " ms")
+  assert(took < Clock.seconds(1), "took " .. tostring(took // 1000000) .. " ms")
   local spaced = client:get("/static/css/app.css", { headers = { ["Accept-Encoding"] = "br , gzip ; q=0.5 " } })
   assert(spaced.headers["content-encoding"] == "gzip")
 end

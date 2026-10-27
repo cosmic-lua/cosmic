@@ -180,11 +180,11 @@ local function test_every_request_is_answered_once_with_its_own_tag(tmp: string)
         local tag, errno = string.unpack(">I4I4", read_whole(pair[1], 8))
         local allowed = waiting[tag]
         if allowed == nil then
-          return false, "a reply for tag " .. tag .. ", which no request waits for"
+          return false, "a reply for tag " .. tostring(tag) .. ", which no request waits for"
         end
         waiting[tag] = nil
         if not allowed[errno] then
-          return false, "tag " .. tag .. " was answered errno " .. errno
+          return false, "tag " .. tostring(tag) .. " was answered errno " .. tostring(errno)
         end
         if errno == 0 and passes[tag] then
           local received = assert(socket.recvfds(pair[1], 1))

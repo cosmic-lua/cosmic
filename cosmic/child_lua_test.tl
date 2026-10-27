@@ -87,7 +87,7 @@ end
 
 local function test_argv_environment_directory_and_file_output(tmp: string)
   local fd, path = output(tmp, "answer")
-  local r = assert(Child.run(lua('local a, b = ... ' .. SYS .. FS ..
+  local r = assert(Child.run(lua('local a, b = ... if a == nil or b == nil then return 2 end ' .. SYS .. FS ..
       'assert(Fs.put(1, a .. "|" .. b .. "|" .. (sys.getenv("WORD") or "") .. ' ..
       'assert(sys.getcwd()) .. "\\n"))', { "a b", "" },
     { cwd = tmp, env = { WORD = "value" }, stdout = fd })))
@@ -107,7 +107,8 @@ end
 local function test_redirect_source_descriptor_does_not_leak(tmp: string)
   local fd = assert(Fs.open_write(tmp .. "/out"))
   local r = assert(Child.run(lua(SYS ..
-      'return sys.fstat(math.tointeger(tonumber(sys.getenv("SOURCE")))) == nil and 0 or 1',
+      'local source = assert(math.tointeger(tonumber(sys.getenv("SOURCE")))) ' ..
+      'if sys.fstat(source) == nil then return 0 end return 1',
     nil, { env = { SOURCE = tostring(fd) }, stdout = fd })))
   assert(Fs.close(fd))
   assert(r.ok)
@@ -169,7 +170,8 @@ end
 local function test_non_group_timeout_returns_graceful_term_status(tmp: string)
   local ready = tmp .. "/ready"
   local h = assert(Child.start(lua('local g = assert(require("cosmic.signal").guard()) ' ..
-      FS .. 'assert(Fs.write((...), "ready")) while g:cancelled() == 0 do ' .. sleep(10) ..
+      FS .. 'local ready = ... if ready == nil then return 2 end assert(Fs.write(ready, "ready")) ' ..
+      'while g:cancelled() == 0 do ' .. sleep(10) ..
       'end return 19', { ready }, { process_group = false })))
   local deadline = Clock.monotonic_ns() + Clock.seconds(10)
   while not path_exists(ready) and Clock.monotonic_ns() < deadline do
@@ -292,7 +294,7 @@ local function test_more_descriptors_by_number(tmp: string)
   local fd, path = output(tmp, "five")
   -- Descriptors 19 and 20: a sealed child's SQLite holds its database open at a low number.
   local r = assert(Child.run(lua(FS .. SYS .. 'Fs.put(3, "report") Fs.put(20, "five") ' ..
-      'return sys.fstat(19) == nil and 0 or 1', nil,
+      'if sys.fstat(19) == nil then return 0 end return 1', nil,
     { fds = { [3] = "capture", [20] = fd }, stdout = "capture" })))
   assert(Fs.close(fd))
   assert(r.ok, "code " .. tostring(r.code))
@@ -412,7 +414,7 @@ end
 local function test_an_escaped_writer_does_not_hold_up_a_read()
   local started = Clock.monotonic_ns()
   local h = assert(Child.start(lua(AGAIN .. "local escaped = again('" .. sleep(ESCAPED_MS) ..
-      "') " .. FS .. 'Fs.put(1, "done " .. escaped.pid) require("cosmic.sys").exit(0)', nil,
+      "') " .. FS .. 'Fs.put(1, "done " .. tostring(escaped.pid)) require("cosmic.sys").exit(0)', nil,
     { stdout = "stream" })))
   local said = read_all(assert(h.stdout_stream))
   -- A zombie answers `kill(pid, 0)` too, where this process adopted
@@ -564,7 +566,7 @@ end
 --- times out.
 local function test_an_escaped_writer_does_not_hold_up_the_wait()
   local r = assert(Child.run(lua(AGAIN .. "local escaped = again('" .. sleep(ESCAPED_MS) ..
-      "') " .. FS .. 'Fs.put(1, "done " .. escaped.pid) require("cosmic.sys").exit(0)', nil,
+      "') " .. FS .. 'Fs.put(1, "done " .. tostring(escaped.pid)) require("cosmic.sys").exit(0)', nil,
     { stdout = "capture", timeout_ns = Clock.seconds(5) })))
   local alive = ended_escaped(assert(r.stdout))
   assert(r.ok and not r.timed_out, "the wait was held open: " .. tostring(r.stdout))

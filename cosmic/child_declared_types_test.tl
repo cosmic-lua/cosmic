@@ -28,5 +28,5 @@ local function test_an_ended_stream_and_a_passed_deadline_are_as_declared()
     local late = run("while true do end", { stdout = "capture", timeout_ns = Clock.ms(200) })
     assert(not late.ok)
   end)
-  assert(#found == 0, #found .. " violations:\n" .. table.concat(found, "\n"))
+  assert(#found == 0, tostring(#found) .. " violations:\n" .. table.concat(found, "\n"))
 end

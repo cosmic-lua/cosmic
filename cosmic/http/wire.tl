@@ -554,7 +554,7 @@ local function next_chunk(self: BodyReader): boolean, string
   if text == nil then return false, why end
   local hex, rest = text:match("^(%x+)(.*)$")
   if hex == nil then return stopped(self, "bad", "http: a chunk's size is not hex") end
-  if rest ~= "" and (not rest:find("^[ \t]*;") or rest:find(VALUE_CONTROL)) then
+  if rest ~= "" and (not rest:find("^[ \t]*;") or rest:find(VALUE_CONTROL) ~= nil) then
     return stopped(self, "bad", "http: a chunk's extension is malformed")
   end
   -- Zeros before a size are counted too: a size line of nothing else
@@ -715,7 +715,9 @@ local function headers_trouble(headers: {string: string | {string}}): string
         end
       end
     end
-    if OWNED[name:lower()] then return ("header %s: the server writes it itself"):format(name) end
+    if OWNED[name:lower()] == true then
+      return ("header %s: the server writes it itself"):format(name)
+    end
   end
   return ""
 end

@@ -48,7 +48,7 @@ local function test_a_file_is_read_and_a_bad_text_exits_2(tmp: string)
   assert(bad.err:find("cosmic: codec: standard input: byte 0x7a at offset 2", 1, true), bad.err)
   assert(not bad.err:find("FAIL", 1, true), bad.err)
   local usage = cosmic(tmp, { "codec", "base32" }, "x")
-  assert(usage.code == 2 and usage.out == "" and usage.err:find("no such encoding", 1, true), usage.err)
+  assert(usage.code == 2 and usage.out == "" and usage.err:find("no such encoding", 1, true) ~= nil, usage.err)
 end
 
 local function test_a_failed_standard_output_write_exits_2(tmp: string)

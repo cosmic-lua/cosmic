@@ -423,17 +423,17 @@ function relay_wire.connect_reader(): relay_wire.ConnectReader
   --- first byte of the line being read, and what the head has said so
   --- far.
   local record Reading
-    final: relay_wire.Connect?
+    final?: relay_wire.Connect
     seen: integer
     line_start: integer
     pieces: {string}
     after_cr: boolean
     first: boolean
     count: integer
-    authorization: string?
-    host: string?
-    kind: relay_wire.Kind?
-    port: integer?
+    authorization?: string
+    host?: string
+    kind?: relay_wire.Kind
+    port?: integer
   end
   local st: Reading = { seen = 0, line_start = 1, pieces = {}, after_cr = false, first = true, count = 0 }
 
@@ -784,7 +784,7 @@ end
 --- and nothing once it has answered.
 local record Held<T>
   mut held: string
-  mut final: T?
+  mut final?: T
 end
 
 local function small_reader<T>(read: function(string): T, decided: function(T): boolean): function(string): T
@@ -1118,11 +1118,11 @@ local function hello_name(body: string): ServerName?, string
     if at + 3 + length > size then
       return nil, "ClientHello extension past its end"
     end
-    if seen[kind] then
+    if seen[kind] == true then
       return nil, "ClientHello repeats an extension"
     end
     seen[kind] = true
-    if ENCRYPTED[kind] then
+    if ENCRYPTED[kind] == true then
       encrypted = true
     end
     if kind == 0 then
@@ -1230,7 +1230,7 @@ function relay_wire.hello_reader(): relay_wire.HelloReader
   --- complete records, by piece, and the size of the message once its
   --- four-byte header is in (`total`).
   local record Reading
-    final: relay_wire.Hello?
+    final?: relay_wire.Hello
     pending: {string}
     pending_len: integer
     need: integer
@@ -1238,7 +1238,7 @@ function relay_wire.hello_reader(): relay_wire.HelloReader
     records: integer
     parts: {string}
     gathered: integer
-    total: integer?
+    total?: integer
   end
   local st: Reading = { pending = {}, pending_len = 0, need = 5, base = 0, records = 0, parts = {},
     gathered = 0 }

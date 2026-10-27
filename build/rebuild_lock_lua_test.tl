@@ -72,7 +72,7 @@ assert(Fs.write(dir .. "/let-go", ""))
 local probe = [[
 local sys = require("cosmic.sys")
 local fd = assert(sys.open(require("build.paths").required(%q) .. "/rebuild.lock", sys.O_RDWR, 0))
-print(sys.flock(fd, "exclusive") and "taken" or "refused")
+if sys.flock(fd, "exclusive") then print("taken") else print("refused") end
 ]]
 
 --- A process of this program running `script` against the tree at
@@ -224,5 +224,5 @@ local function test_a_handed_lock_lets_a_write_on_but_not_a_test_run(tmp: string
   assert(write_text == "false \n", write_text)
   assert(ok, tostring(failure) .. "\n" .. test_text)
   assert(running ~= nil and not running.finished, "a handed test run went on:\n" .. test_text)
-  assert(ran.ok and test_text:find("\ntrue \n$"), test_text)
+  assert(ran.ok and test_text:find("\ntrue \n$") ~= nil, test_text)
 end

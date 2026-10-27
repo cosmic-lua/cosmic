@@ -239,7 +239,7 @@ end
 local function checked_spec(spec: any)
   if not spec is {any: any} then error("http: serve takes a spec table", 3) end
   for key in pairs(spec) do
-    if not (key is string and SPEC_FIELDS[key]) then
+    if not (key is string and SPEC_FIELDS[key] == true) then
       error("http: spec has no field " .. tostring(key), 3)
     end
   end
@@ -254,7 +254,7 @@ local function checked_spec(spec: any)
       spec_error("limits", "a table")
     else
       for key, value in pairs(limits) do
-        if not (key is string and LIMIT_FIELDS[key]) then
+        if not (key is string and LIMIT_FIELDS[key] == true) then
           error("http: spec.limits has no field " .. tostring(key), 3)
         end
         if not (value is integer and value >= 1) then
@@ -364,7 +364,7 @@ local function reply_trouble(reply: any): string
     return "the handler answered " .. type(reply) .. ", not a Server.Reply"
   end
   for key in pairs(reply) do
-    if not (key is string and REPLY_FIELDS[key]) then
+    if not (key is string and REPLY_FIELDS[key] == true) then
       return "the reply has no field " .. tostring(key)
     end
   end
@@ -461,7 +461,7 @@ local function exchange(s: Serving, conn: Net.Conn, input: wire.Input, head: wir
   -- interim reply after it would be read as the final reply's body.
   local interim = { continued = false, replied = false }
   local function go_on()
-    if head.continue and not interim.continued and not interim.replied then
+    if head.continue and interim.continued ~= true and interim.replied ~= true then
       interim.continued = true
       conn:set_timeout(s.timeout_ns)
       local _, _ = conn:write("HTTP/1.1 100 Continue\r\n\r\n")
@@ -518,7 +518,7 @@ local function exchange(s: Serving, conn: Net.Conn, input: wire.Input, head: wir
   -- told to, or not at all. A Reader reply may read the request's body
   -- as it goes, so the client is told now; after another, what follows
   -- on the connection is unknown, and it closes.
-  if head.continue and not interim.continued and body.state == "open" then
+  if head.continue and interim.continued ~= true and body.state == "open" then
     local given = reply.body
     local sends_body = head.method ~= "HEAD" and reply.status ~= 204 and reply.status ~= 304
     if given ~= nil and not given is string and sends_body and not close then
@@ -579,7 +579,7 @@ end
 --- Serves `conn`, one request after another, until it closes, fails,
 --- or idles past `idle_ns`.
 local function serve_conn(s: Serving, conn: Net.Conn)
-  local timed: Timed = { conn = conn, each = s.timeout_ns }
+  local timed: Timed = { conn = conn, each = s.timeout_ns, deadline = nil }
   local input = wire.input(timed)
   -- Nil where the connection has none (a unix one); the request then has no peer.
   local peer, _ = conn:peer()

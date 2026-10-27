@@ -28,7 +28,7 @@ local signals: {string:integer} = {
 --- the commands of the chain running have said of their failures, said
 --- once the chain ends the script, and not where a `||` takes one up.
 local record Probe
-  mut guard: Signal.Guard?
+  mut guard?: Signal.Guard
   mut trapped: integer
   mut ignoring: boolean
   mut troubles: mut {string}
@@ -288,7 +288,7 @@ local verbs: {string:function(string, string): integer} = {
       started[#started + 1] = handle
       count = count + 1
     end
-    return put_all(1, "started " .. count .. (if refusal ~= "" then (" then " .. refusal) else "" end) .. "\n")
+    return put_all(1, "started " .. tostring(count) .. (if refusal ~= "" then (" then " .. refusal) else "" end) .. "\n")
   end,
   ["fd-closed"] = function(word: string): integer
     local fd = number(word)
@@ -307,7 +307,7 @@ local verbs: {string:function(string, string): integer} = {
       local ok, stat = pcall(sys.fstat, fd)
       if ok and stat ~= nil and stat.mode & 0xF000 == 0xC000 then count = count + 1 end
     end
-    return put_all(1, "sockets " .. count .. "\n")
+    return put_all(1, "sockets " .. tostring(count) .. "\n")
   end,
   ["write-fd"] = function(word: string, text: string): integer
     local fd = number(word)
@@ -323,7 +323,7 @@ local verbs: {string:function(string, string): integer} = {
     if resource == nil then return failed("rlimit", "no resource " .. name) end
     local limits, trouble = sys.getrlimit(resource)
     if limits == nil then return failed("rlimit", trouble) end
-    return put_all(1, name .. " " .. limits.soft .. " " .. limits.hard .. "\n")
+    return put_all(1, name .. " " .. tostring(limits.soft) .. " " .. tostring(limits.hard) .. "\n")
   end,
   setrlimit = function(name: string, word: string): integer
     local resources: {string:integer} = {
@@ -344,7 +344,7 @@ local verbs: {string:function(string, string): integer} = {
     if pid == nil or pid < 0 then return failed("getpgid", "no pid " .. word) end
     local group, trouble = sys.getpgid(pid)
     if group == nil then return failed("getpgid", trouble) end
-    return put_all(1, "pgid " .. group .. "\n")
+    return put_all(1, "pgid " .. tostring(group) .. "\n")
   end,
   ["env-of"] = function(name: string): integer
     local value = sys.getenv(name)

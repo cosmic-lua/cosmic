@@ -379,7 +379,7 @@ local function declaration(p: Parser, item: types.Item): string?, string
     return nil, refuse(p, item.line, item.col, "write {{type Name from import.path}}")
   end
   local name = tokens[2]
-  if name.kind ~= "word" or not name.value:find("^[%a_][%w_]*$") or types.keywords[name.value] then
+  if name.kind ~= "word" or not name.value:find("^[%a_][%w_]*$") or types.keywords[name.value] == true then
     return nil, refuse(p, name.line, name.col, "'" .. name.value .. "' is not a type name")
   end
   local path = tokens[4]
@@ -455,7 +455,7 @@ function Parse.parse(src: string, name: string, registry: {string: types.Def}): 
         table.sort(names)
         return nil, refuse(p, value.line, value.col, "unknown dialect '" .. value.value .. "' (known: " ..
             table.concat(names, ", ") .. ")")
-      elseif uses[value.value] then
+      elseif uses[value.value] == true then
         return nil, refuse(p, decl.line, decl.col, "{{use " .. value.value .. "}} is given once")
       end
       uses[value.value] = true

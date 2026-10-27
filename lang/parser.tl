@@ -631,7 +631,7 @@ local function binding(what: string): Ast.Binding
     return { kind = "Binding", id = 0, first = first, last = first, name = name }
   end
   local word = S.text
-  if S.kind == "keyword" and RESERVED_NAME[word] then
+  if S.kind == "keyword" and RESERVED_NAME[word] == true then
     local suggestion = RENAME[word] or (word .. "_")
     report("reserved_word", first, "`" .. word .. "` is a reserved word and cannot name " .. what,
       "rename " .. what .. ", for example `" .. suggestion .. "`; `" .. word .. "` stays legal as a field name: `t." .. word .. "`, `s:" .. word .. "(x)`")
@@ -681,7 +681,7 @@ end
 
 --- Skips to the next token that ends a block.
 local function skip_to_terminator(first: integer): Ast.Error
-  while not TERMINATOR[S.text] do
+  while TERMINATOR[S.text] ~= true do
     advance()
   end
   return error_node(first)
@@ -694,8 +694,8 @@ local function skip_junk(first: integer, force: boolean): Ast.Error
   if force and S.kind ~= "$EOF$" then
     advance()
   end
-  while S.kind ~= "$EOF$" and not SYNC[S.text] do
-    if (S.kind == "identifier" or S.text == "(" or (S.kind == "keyword" and RESERVED_NAME[S.text])) and
+  while S.kind ~= "$EOF$" and SYNC[S.text] ~= true do
+    if (S.kind == "identifier" or S.text == "(" or (S.kind == "keyword" and RESERVED_NAME[S.text] == true)) and
         begins_line(S.pos) then
       break
     end
@@ -1287,7 +1287,7 @@ local function parse_primary(): Ast.Exp
     return parse_if_expression()
   elseif k == "$ERR$" then
     advance()
-  elseif k == "keyword" and RESERVED_NAME[t] then
+  elseif k == "keyword" and RESERVED_NAME[t] == true then
     report("reserved_word", first, "`" .. t .. "` is a reserved word and cannot name a variable or a function",
       "rename what is called `" .. t .. "`, for example `" .. (RENAME[t] or t .. "_") ..
         "`; `" .. t .. "` stays legal as a field name: `t." .. t .. "`, `s:" .. t .. "(x)`")
@@ -1398,7 +1398,7 @@ parse_prefix = function(): Ast.Exp
       -- The next item of a table, whose `,` is missing, and no argument.
       break
     end
-    if not prefix and (SUFFIX[t] or S.kind == "string") and (t ~= "(" or same_line(S.pos)) then
+    if not prefix and (SUFFIX[t] == true or S.kind == "string") and (t ~= "(" or same_line(S.pos)) then
       local shown_text = quoted_text(first, S.pos - 1)
       report("suffix_needs_parens", S.pos, "`" .. shown_text .. "` takes no `" .. t .. "` suffix: only a name or a parenthesized expression does",
         "write `(" .. shown_text .. ")` and then the suffix")
@@ -1784,7 +1784,7 @@ local function parse_member(owner: string, seen: {string: boolean}): Ast.Member
           "declare the method as a field: `name: function(self: I, ...): T`" end)
     end
     return parse_method(first, seen)
-  elseif S.kind == "identifier" and DECL_WORD[t] and nxt_kind == "identifier" then
+  elseif S.kind == "identifier" and DECL_WORD[t] == true and nxt_kind == "identifier" then
     if owner == "interface" then
       report("nested_in_interface", first, "an interface holds fields only and cannot declare a `" .. t .. "` inside it",
         "declare the `" .. t .. "` before the interface, and name it in the type of a field")
@@ -1908,7 +1908,7 @@ parse_typedecl = function(first: integer, scope: Ast.Scope?): Decl
     typeparams = parse_typeparams()
   end
   expect("=", "after the name of the type `" .. name.name .. "`", "write `type " .. name.name .. " = T`")
-  if S.kind == "identifier" and OLD_BODY[S.text] and not CONTINUES_TYPE[peek_text(1)] then
+  if S.kind == "identifier" and OLD_BODY[S.text] == true and CONTINUES_TYPE[peek_text(1)] ~= true then
     local body_word = S.text
     report("old_type_declaration", S.pos, "`type " .. name.name .. " = " .. body_word .. "` is not in the grammar: " ..
         (if body_word == "enum" then "an " else "a " end) .. body_word .. " is declared with its own word",
@@ -1996,7 +1996,7 @@ local function parse_local(): Ast.Stat
     end
     local fn = parse_fn(ffirst, "function `" .. name.name .. "`")
     return { kind = "LocalFunction", id = 0, first = first, last = S.pos - 1, name = name, typeparams = typeparams, fn = fn }
-  elseif S.kind == "identifier" and DECL_WORD[S.text] and peek_kind(1) == "identifier" then
+  elseif S.kind == "identifier" and DECL_WORD[S.text] == true and peek_kind(1) == "identifier" then
     local decl = parse_typedecl(first, scope)
     -- A class, a record and an import are values in the Lua written for them.
     if (decl.kind == "Class") or (decl.kind == "Record") or (decl.kind == "Import") then
@@ -2156,7 +2156,7 @@ local function find_read(tree: Ast.Node, names: {string: boolean}): Ast.Name
     local mask = table.remove(masks)
     if (node.kind == "Name") then
       local best = found[1]
-      if names[node.text] and not mask[node.text] and (best == nil or node.first < best.first) then
+      if names[node.text] == true and mask[node.text] ~= true and (best == nil or node.first < best.first) then
         found[1] = node
       end
     else
@@ -2326,7 +2326,7 @@ local function parse_match(): Ast.Stat
         bools = bools + 1
       elseif (pat.kind == "PatBind") then
         local bound_name = pat.name.name
-        if bound[bound_name] and bound_name:sub(1, 1) ~= "_" then
+        if bound[bound_name] == true and bound_name:sub(1, 1) ~= "_" then
           report("duplicate_binding", pat.first, "`" .. bound_name .. "` is bound twice in this arm",
             "give each value of the pattern a name of its own, or `_` for one the arm does not use")
         end
@@ -2359,7 +2359,7 @@ local function parse_return(): Ast.Stat
   local first = S.pos
   advance()
   local values: {Ast.Exp} = {}
-  if not TERMINATOR[S.text] and S.text ~= "|" then
+  if TERMINATOR[S.text] ~= true and S.text ~= "|" then
     values = parse_explist()
   end
   return { kind = "Return", id = 0, first = first, last = S.pos - 1, values = values }
@@ -2469,7 +2469,7 @@ end
 --- require("m")`, the `global` declarations, `do` blocks of those and one
 --- `return Name`.
 local function declaration_problem(stat: Ast.Stat, top: boolean): string
-  if DECLARATIONS[stat.kind] then
+  if DECLARATIONS[stat.kind] == true then
     return ""
   elseif (stat.kind == "Local") then
     if stat.scope == "global" or is_require_local(stat) then
@@ -2530,16 +2530,16 @@ parse_statement = function(): Ast.Stat
   local first = S.pos
   if handler ~= nil and S.kind == "keyword" and not named_as_a_variable() then
     stat = handler()
-  elseif S.kind == "identifier" and DECL_WORD[S.text] and peek_kind(1) == "identifier" then
+  elseif S.kind == "identifier" and DECL_WORD[S.text] == true and peek_kind(1) == "identifier" then
     report("bare_declaration", first, "`" .. S.text .. " " .. peek_text(1) .. "` declares a type that nothing scopes",
       "write `local " .. S.text .. " " .. peek_text(1) .. "`; a declaration file writes `global`")
     stat = parse_typedecl(first, nil)
-  elseif S.kind == "identifier" or S.text == "(" or (S.kind == "keyword" and RESERVED_NAME[S.text]) then
+  elseif S.kind == "identifier" or S.text == "(" or (S.kind == "keyword" and RESERVED_NAME[S.text] == true) then
     stat = parse_expression_statement()
   elseif S.kind == "$ERR$" then
     advance()
     return error_node(first)
-  elseif (LITERAL_KIND[S.kind] or LITERAL_TEXT[S.text]) and SUFFIX[peek_text(1)] then
+  elseif (LITERAL_KIND[S.kind] == true or LITERAL_TEXT[S.text] == true) and SUFFIX[peek_text(1)] == true then
     stat = parse_expression_statement()
   else
     report("unexpected_token", first, "unexpected " .. shown(S.pos) .. " where a statement begins", unexpected_fix(S.text))
@@ -2566,7 +2566,7 @@ parse_block = function(mode: integer): Ast.Block
     report("too_deep", first, "more than " .. tostring(MAX_NESTING) .. " levels of nesting",
       "split the code: name an inner expression with a `local`, or move an inner block into a function")
     S.muted = true
-    if not TERMINATOR[S.text] then
+    if TERMINATOR[S.text] ~= true then
       stats[1] = skip_to_terminator(first)
     end
     return { kind = "Block", id = 0, first = first, last = S.pos, stats = stats, close = S.pos }
@@ -2580,7 +2580,7 @@ parse_block = function(mode: integer): Ast.Block
       -- statements after it are reported again.
       S.muted = false
       local at = S.pos
-      while S.kind ~= "$EOF$" and (not SYNC[S.text] or CLOSES[S.text]) do
+      while S.kind ~= "$EOF$" and (SYNC[S.text] ~= true or CLOSES[S.text] == true) do
         if (S.kind == "identifier" or S.text == "(") and begins_line(S.pos) then
           break
         end
@@ -2593,7 +2593,7 @@ parse_block = function(mode: integer): Ast.Block
     local t = S.text
     if mode == 2 then
       if S.kind == "$EOF$" then break end
-    elseif TERMINATOR[t] or (S.arms > 0 and arm_bar(true)) then
+    elseif TERMINATOR[t] == true or (S.arms > 0 and arm_bar(true)) then
       break
     end
     local before = S.pos
@@ -2676,7 +2676,7 @@ function Parser.parse(lexed: Lexer.Lexed, name: string, dialect: Ast.Dialect): P
   end
   local kept: mut {Parser.Error} = {}
   for _, e in ipairs(errors) do
-    if not (e.code == "statement_after_return" and unclosed[e.offset]) then
+    if not (e.code == "statement_after_return" and unclosed[e.offset] == true) then
       kept[#kept + 1] = e
     end
   end

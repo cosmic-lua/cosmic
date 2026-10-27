@@ -134,7 +134,7 @@ end
 --- none is handed. Nil and why where one cannot be adopted.
 local function adopted(config: Config.Config): Relay.Handed?, Net.Connector?, string
   local handed: Relay.Handed = {}
-  if config.table ~= nil or config.public then
+  if config.table ~= nil or config.public == true then
     local config_table = config.table
     local made, why = Connector.adopted(Config.connector_fd, config_table ~= nil and table_of(config_table) or nil, config.public,
       Config.connect_ns)
@@ -156,15 +156,15 @@ end
 --- is serving, why it was lost if it was, and whether standard input ended.
 local record Run
   mut status: integer
-  mut serving: Relay.Serving?
-  mut lost: string?
+  mut serving?: Relay.Serving
+  mut lost?: string
   mut ended: boolean
 end
 
 --- Serves the relay `config` describes until standard input ends.
 local function serve(config: Config.Config): integer
   -- A listener on the host's loopback is one every user of the host reaches.
-  if config.direct and (config.token == nil or config.listeners == nil) then
+  if config.direct == true and (config.token == nil or config.listeners == nil) then
     return failed("a relay on the host's loopback needs its token and its listeners")
   end
   local adopting, dns, adopted_why = adopted(config)
@@ -191,7 +191,7 @@ local function serve(config: Config.Config): integer
   Poll.run(function()
     local http, socks: Net.Listener?, Net.Listener?
     local mixed: mut {Net.Listener}?
-    if config.direct then
+    if config.direct == true then
       mixed = {}
       for i = 1, config.listeners or 0 do
         local listener, adopt_why = Net.listener_from(CHANNEL_FD + i - 1)
@@ -222,7 +222,7 @@ local function serve(config: Config.Config): integer
     local connect: Relay.Connector = function(address: string, port: integer, _: integer): Net.Conn?, string
       return nil, "relay: no connector was handed for " .. address .. ":" .. tostring(port)
     end
-    if config.direct then
+    if config.direct == true then
       -- The address is one the relay has checked; the profile lets it
       -- connect anywhere.
       connect = function(address: string, port: integer, timeout_ns: integer): Net.Conn?, string

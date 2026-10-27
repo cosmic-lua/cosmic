@@ -1,0 +1,8 @@
+local sink: integer = 0
+local x1 = { value = 0 as integer? }
+local rows = { { value = nil as integer? } }
+if x1.value == nil then return sink end
+for _, x1 in ipairs(rows) do
+  sink = sink + x1.value + 1
+end
+return sink

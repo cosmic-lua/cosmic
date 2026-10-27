@@ -466,7 +466,7 @@ local function closure_of(j: Relation.Judge, n: Named): Relation.Closure
         end
         if listed == nil then
           closure.complete = false
-        elseif (listed.tag == "named") and not closure.set[listed.id] then
+        elseif (listed.tag == "named") and closure.set[listed.id] ~= true then
           if #closure.list >= MAX_LISTED then
             closure.complete = false
           else
@@ -488,7 +488,7 @@ end
 --- Whether the interface `target` is in `closure`, or a use of its declaration whose arguments
 --- are its own but for `invalid`, which stands for a mistake already reported.
 local function lists(closure: Relation.Closure, target: Named): boolean
-  if closure.set[target.id] then
+  if closure.set[target.id] == true then
     return true
   end
   for _, listed in ipairs(closure.by_decl[target.decl] or {}) do
@@ -652,7 +652,7 @@ local function into_union(j: Relation.Judge, a: Type, b: Union, why: boolean): R
     end
     return leaf(j, why, "nil", a, b)
   end
-  if member_set(j, b)[a.id] then
+  if member_set(j, b)[a.id] == true then
     return nil
   end
   for _, m in ipairs(b.members) do
@@ -702,7 +702,7 @@ local function from_alias(j: Relation.Judge, a: Type, b: Type, why: boolean): Re
   if ua == a and ub == b then
     error("relation: " .. Types.display(a_alias and a or b) .. " is not defined", 0)
   end
-  if a_alias and (b.tag == "union") and member_set(j, b)[a.id] then
+  if a_alias and (b.tag == "union") and member_set(j, b)[a.id] == true then
     return nil
   end
   local r = rel(j, ua, ub, why)

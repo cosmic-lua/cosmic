@@ -248,7 +248,7 @@ local function gen_address(src: Fuzz.Source): string
 end
 
 local function target(address: string, port: integer): string
-  return (if address:find(":", 1, true) then "[" .. address .. "]" else address end) .. ":" .. port
+  return (if address:find(":", 1, true) then "[" .. address .. "]" else address end) .. ":" .. tostring(port)
 end
 
 local function test_a_grant_opens_its_address_and_selection_keeps_every_allowed_in_order(tmp: string)
@@ -309,7 +309,9 @@ local function test_a_grant_opens_its_address_and_selection_keeps_every_allowed_
           return false, "did not keep the allowed answers"
         end
         for k, i in ipairs(want) do
-          if picked[k] ~= answers[i] then return false, "kept answer " .. k .. " out of order" end
+          if picked[k] ~= answers[i] then
+            return false, "kept answer " .. tostring(k) .. " out of order"
+          end
         end
         Fuzz.label("picked")
         if #want > 1 then Fuzz.label("several") end

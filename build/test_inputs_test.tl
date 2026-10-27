@@ -255,12 +255,10 @@ local function test_a_lua_closure_holds_what_e_loads_and_no_more()
   assert(not without:find("build.dispatch", 1, true), without)
 end
 
---- A module that declares `lua` alone holds none of what `cosmic
---- --standalone` loads beyond `-e` (`standalone_loads`): an edit to the
---- checker runs its tests no more, and its children may not load it.
---- One that requires build.standalone holds each of them too, through
---- what that requires.
-local function test_only_a_standalone_closure_holds_what_standalone_loads()
+--- A module that declares `lua` holds what the checker `-e` runs loads (`standalone_loads`), as one that requires
+--- build.standalone does, through what that requires: an edit to the checker runs its tests, and its children may
+--- load it. One that does not declare `lua` and does not require build.standalone holds none of them.
+local function test_a_lua_closure_holds_what_the_checker_loads()
   local function names_of(declared: PolicyRules.Declared, standalone: boolean): {string:boolean}, test_inputs.Effective
     local m, by_path = tree(declared)
     for _, list in ipairs({ test_inputs.lua_loads, test_inputs.standalone_loads }) do
@@ -282,14 +280,18 @@ local function test_only_a_standalone_closure_holds_what_standalone_loads()
   local both, both_effective = names_of(declaring({ lua = true }), true)
   for _, name in ipairs(test_inputs.lua_loads) do assert(chunk[name] and both[name], name) end
   for _, name in ipairs(test_inputs.standalone_loads) do
-    assert(not chunk[name], name .. " is held by a module that declares lua alone")
-    assert(both[name], name)
+    assert(chunk[name] and both[name], name)
   end
-  assert(not chunk_effective.files["build/standalone.tl"] and both_effective.files["build/standalone.tl"])
+  assert(chunk_effective.files["build/standalone.tl"] == true and both_effective.files["build/standalone.tl"] == true)
+  local plain, plain_effective = names_of(declaring({}), false)
+  for _, name in ipairs(test_inputs.standalone_loads) do
+    assert(plain[name] == nil, name .. " is held by a module that declares no lua")
+  end
+  assert(plain_effective.files["build/standalone.tl"] == nil)
   -- No module is on both ways' lists: each is held by the narrowest.
   local on_e: mut {string:boolean} = {}
   for _, name in ipairs(test_inputs.lua_loads) do on_e[name] = true end
-  for _, name in ipairs(test_inputs.standalone_loads) do assert(not on_e[name], name) end
+  for _, name in ipairs(test_inputs.standalone_loads) do assert(on_e[name] == nil, name) end
 end
 
 --- What `lua` adds to a closure is no reader of the compiler's identity

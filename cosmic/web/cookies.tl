@@ -193,7 +193,7 @@ function Cookies.format(name: string, value: string, attrs?: Cookies.Attributes)
   if same_site == "None" and not secure then
     return nil, "cookies: SameSite=None needs Secure; browsers drop the cookie otherwise"
   end
-  if a.partitioned and not secure then
+  if a.partitioned == true and not secure then
     return nil, "cookies: Partitioned needs Secure"
   end
   local prefix = name:lower()
@@ -218,7 +218,7 @@ function Cookies.format(name: string, value: string, attrs?: Cookies.Attributes)
   if secure then parts[#parts + 1] = "Secure" end
   if a.http_only ~= false then parts[#parts + 1] = "HttpOnly" end
   parts[#parts + 1] = "SameSite=" .. same_site
-  if a.partitioned then parts[#parts + 1] = "Partitioned" end
+  if a.partitioned == true then parts[#parts + 1] = "Partitioned" end
   local line = table.concat(parts, "; ")
   if #line > MAX_LINE then
     return nil, ("cookies: %s would be %s; browsers keep at most %s"):format(name, String.counted(#line, "byte"),

@@ -202,7 +202,7 @@ local function test_split_refuses_a_trailer_that_does_not_fit()
   end
   local not_sqlite = assert(artifact.split(program))
   local joined, trouble = artifact.rejoin(not_sqlite, "not sqlite")
-  assert(joined == nil and trouble:find("SQLite", 1, true), trouble)
+  assert(joined == nil and trouble:find("SQLite", 1, true) ~= nil, trouble)
 end
 
 --- A head is keyed whole where no core carries DWARF, as every release

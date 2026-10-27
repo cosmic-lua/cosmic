@@ -188,7 +188,7 @@ function Request.new(app: Types.App, raw: Server.Request, parts: Request.Parts):
   if peer ~= nil and peer.kind == "tcp" then
     client = { host = peer.host, port = peer.port }
   end
-  if app.spec.trusted_proxy then
+  if app.spec.trusted_proxy == true then
     local proto = last_entry(headers["x-forwarded-proto"])
     if proto ~= nil and proto:lower() == "https" then scheme = "https" end
     host = last_entry(headers["x-forwarded-host"]) or host

@@ -32,5 +32,5 @@ local function test_a_connection_with_no_timeout_is_as_declared()
     end)
     assert(ahead:close())
   end)
-  assert(#found == 0, #found .. " violations:\n" .. table.concat(found, "\n"))
+  assert(#found == 0, tostring(#found) .. " violations:\n" .. table.concat(found, "\n"))
 end

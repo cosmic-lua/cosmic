@@ -11,8 +11,8 @@ local record Fake is Stream.Transform
   pending: function(Fake): boolean
   update: function(Fake, string): string?, string
   finish: function(Fake): string?, string
-  done: function(Fake): boolean
-  rest: function(Fake): string
+  done?: function(Fake): boolean
+  rest?: function(Fake): string
 end
 
 local function drain(reader: Stream.Reader, max_bytes?: integer): string
@@ -166,7 +166,7 @@ local function test_a_closed_writer_and_a_closed_reader_say_which_they_are(tmp: 
   for i, w in ipairs(writers) do
     assert(w:close())
     local ok, why = w:write("x")
-    assert(not ok and why:find("stream: the writer is closed", 1, true) == 1, i .. ": " .. why)
+    assert(not ok and why:find("stream: the writer is closed", 1, true) == 1, tostring(i) .. ": " .. why)
   end
   assert(Fs.close(fd))
   local reader = Stream.from_string("abc")
@@ -483,7 +483,7 @@ local function test_hashing_with_a_key_answers_the_hmac_and_none_means_plain()
       local h = assert(Stream.hashing(algorithm, key))
       assert(h:write("hello "))
       assert(h:write("world"))
-      assert(assert(h:digest()) == Hash.hmac(algorithm, key, "hello world"), algorithm .. " " .. #key)
+      assert(assert(h:digest()) == Hash.hmac(algorithm, key, "hello world"), algorithm .. " " .. tostring(#key))
       assert(assert(h:digest()) == Hash.hmac(algorithm, key, "hello world")) -- again
       assert(not h:write("more"))
     end

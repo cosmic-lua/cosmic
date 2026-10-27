@@ -81,7 +81,7 @@ local record flow
     order?: {string}
     --- The widest line a container is kept on one line within, its
     --- indentation included (100 by default).
-    width: integer
+    width?: integer
   end
 end
 
@@ -449,7 +449,9 @@ local function parse_container(r: Reader): flow.Node
   local open = r.text:sub(r.at, r.at)
   local close = if open == "{" then "}" else "]" end
   r.depth = r.depth + 1
-  if r.depth > MAX_DEPTH then fail(r.line, "containers nested deeper than " .. MAX_DEPTH) end
+  if r.depth > MAX_DEPTH then
+    fail(r.line, "containers nested deeper than " .. tostring(MAX_DEPTH))
+  end
   local items: mut {flow.Item} = {}
   local node: flow.Node = { kind = if open == "{" then "object" else "array" end, items = items, tail = {} }
   local open_line = r.line
@@ -726,7 +728,7 @@ local function build(value: any, opts: flow.Options, depth: integer): flow.Node
     return flow.scalar(value)
   end
   if depth >= MAX_DEPTH then
-    error("flow.from: containers nested deeper than " .. MAX_DEPTH .. ", or a table that holds itself", 0)
+    error("flow.from: containers nested deeper than " .. tostring(MAX_DEPTH) .. ", or a table that holds itself", 0)
   end
   local items: mut {flow.Item} = {}
   local node: flow.Node = { kind = "object", items = items, tail = {}, width = opts.width or 100 }
@@ -822,9 +824,9 @@ end
 --- A value's encoding, to tell members apart by; a member whose text
 --- reads as no value gets one no value can have.
 local function encoded(value: any, trouble: string, index: integer): string
-  if trouble ~= nil and trouble ~= "" then return "\0" .. index end
+  if trouble ~= nil and trouble ~= "" then return "\0" .. tostring(index) end
   local text, _ = Json.encode_any(value)
-  return text or "\0" .. index
+  return text or "\0" .. tostring(index)
 end
 
 --- What names a member across a change to it: an object's `id`, `name`
@@ -929,7 +931,7 @@ local function update(node: flow.Node, value: any, o: flow.Options, depth: integ
     return new
   end
   if depth >= MAX_DEPTH then
-    error("flow.update: containers nested deeper than " .. MAX_DEPTH .. ", or a table that holds itself", 0)
+    error("flow.update: containers nested deeper than " .. tostring(MAX_DEPTH) .. ", or a table that holds itself", 0)
   end
   local array = is_array(value) or (node.kind == "array" and next(value) == nil)
   if (array and node.kind ~= "array") or (not array and node.kind ~= "object") then

@@ -297,7 +297,7 @@ function Sandbox.loaders(path: string, cwd?: string): {string}?, string
     if whole == nil then return refuse(why) end
     local real, trouble = sys.realpath(whole)
     if real == nil then return refuse(whole .. ": " .. trouble) end
-    if seen[real] then break end
+    if seen[real] == true then break end
     seen[real] = true
     files[#files + 1] = real
     local next_file = interpreter_of(real)
@@ -393,7 +393,7 @@ local function not_in_process(merged: Sandbox.Policy): string
   for name, _ in pairs(merged.set_env_digests or {}) do
     return "set_env_digests \"" .. name .. "\" holds a digest, not a value to set"
   end
-  if merged.tmp then
+  if merged.tmp == true then
     return "tmp is a directory made for a child, which a running process makes for itself"
   end
   if (merged.limits or {}).processes ~= nil then

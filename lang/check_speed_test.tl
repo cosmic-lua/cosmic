@@ -53,9 +53,9 @@ local FORMS <const>: {string: function(n: integer): string} = {
     local given: mut {string} = {}
     local reads: mut {string} = {}
     for i = 1, n * 30 do
-      out[#out + 1] = "  f" .. i .. ": integer\n"
-      given[i] = "f" .. i .. " = " .. i
-      reads[i] = "local v" .. i .. ": integer = r.f" .. i .. "\n"
+      out[#out + 1] = "  f" .. tostring(i) .. ": integer\n"
+      given[i] = "f" .. tostring(i) .. " = " .. tostring(i)
+      reads[i] = "local v" .. tostring(i) .. ": integer = r.f" .. tostring(i) .. "\n"
     end
     out[#out + 1] = "end\nlocal r: R = { " .. table.concat(given, ", ") .. " }\n" .. table.concat(reads)
     return table.concat(out)
@@ -71,13 +71,13 @@ local FORMS <const>: {string: function(n: integer): string} = {
     local out: mut {string} = {}
     local members: mut {string} = {}
     for i = 1, n * 8 do
-      out[#out + 1] = "local enum K" .. i .. " \"k" .. i .. "\" end\nlocal record R" .. i .. "\n  kind: K" .. i ..
+      out[#out + 1] = "local enum K" .. tostring(i) .. " \"k" .. tostring(i) .. "\" end\nlocal record R" .. tostring(i) .. "\n  kind: K" .. tostring(i) ..
         "\n  value: integer\nend\n"
-      members[i] = "R" .. i
+      members[i] = "R" .. tostring(i)
     end
     out[#out + 1] = "local type Any = " .. table.concat(members, " | ") .. "\nlocal function f(a: Any): integer\n"
     for i = 1, n * 8 do
-      out[#out + 1] = "  local v" .. i .. ": integer = a.value\n"
+      out[#out + 1] = "  local v" .. tostring(i) .. ": integer = a.value\n"
     end
     out[#out + 1] = "  return a.value\nend\n"
     return table.concat(out)
@@ -144,7 +144,7 @@ local FORMS <const>: {string: function(n: integer): string} = {
   ["an if expression of many arms"] = function(n: integer): string
     local arms: mut {string} = {}
     for i = 1, n * 50 do
-      arms[i] = (if i == 1 then "if" else "elseif" end) .. " b then " .. i
+      arms[i] = (if i == 1 then "if" else "elseif" end) .. " b then " .. tostring(i)
     end
     return "local b: boolean = true\nlocal x: integer = " .. table.concat(arms, " ") .. " else 0 end\n"
   end,
@@ -152,7 +152,7 @@ local FORMS <const>: {string: function(n: integer): string} = {
     local params: mut {string} = {}
     local args: mut {string} = {}
     for i = 1, n * 30 do
-      params[i] = "p" .. i .. ": integer"
+      params[i] = "p" .. tostring(i) .. ": integer"
       args[i] = tostring(i)
     end
     return "local function f(" .. table.concat(params, ", ") .. "): integer\n  return p1\nend\nlocal x: integer = f(" ..

@@ -288,7 +288,7 @@ function Store.closure(roots: {string}, opts?: Store.ClosureOptions): {string}
     local required = required_by[#stack]
     required_by[#stack] = nil
     local name = table.remove(stack)
-    if not seen[name] then
+    if seen[name] ~= true then
       seen[name] = true
       names[#names + 1] = name
       for _, next_name in ipairs(requires_of(located(name, required), name, types)) do
@@ -430,7 +430,7 @@ local function write_database(names: {string}, file: string, main: string?,
           return false, "imports: " .. edge_trouble
         end
         for _, edge in ipairs(edges) do
-          if present[edge:text(1)] then
+          if present[edge:text(1)] == true then
             local inserted, insert_trouble = Sqlite.run(db,
               "INSERT OR IGNORE INTO imports (path, requires) VALUES (?1, ?2)",
               { text(name), text(edge:text(1)) })
@@ -454,7 +454,7 @@ local function write_database(names: {string}, file: string, main: string?,
           return false, script.name .. ": " .. why
         end
         for _, edge in ipairs(script.requires or {}) do
-          if present[edge] then
+          if present[edge] == true then
             local inserted, insert_trouble = Sqlite.run(db,
               "INSERT OR IGNORE INTO imports (path, requires) VALUES (?1, ?2)",
               { text(script.name), text(edge) })
@@ -579,7 +579,7 @@ function Store.seal(names: {string}, path?: string,
   local sorted: mut {string} = {}
   local present: mut {string:boolean} = {}
   for _, name in ipairs(names) do
-    if not present[name] then
+    if present[name] ~= true then
       present[name] = true
       sorted[#sorted + 1] = name
     end
@@ -594,7 +594,7 @@ function Store.seal(names: {string}, path?: string,
         type(script.source) ~= "string" then
       error("store: seal: extra holds a name, bytecode and source, all text", 2)
     end
-    if present[script.name] then
+    if present[script.name] == true then
       error("store: seal: extra " .. script.name .. " is also one of the names sealed", 2)
     end
     -- A name a program's own `require` would find in the store (or in the
@@ -605,7 +605,7 @@ function Store.seal(names: {string}, path?: string,
           "core's namespace, which a main must not shadow", 2)
     end
     main = script.name
-  elseif main ~= nil and not present[main] then
+  elseif main ~= nil and present[main] ~= true then
     error("store: seal: main " .. main .. " is not among the modules sealed", 2)
   end
   for _, name in ipairs(sorted) do

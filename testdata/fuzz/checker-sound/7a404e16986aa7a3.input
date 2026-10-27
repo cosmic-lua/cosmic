@@ -1,0 +1,11 @@
+local function maybe(): integer?
+  return nil
+end
+local function one(): integer?
+  return 1
+end
+local x: integer? = maybe()
+local y: integer? = maybe()
+assert(x == nil or y)
+local sink: integer = x + 1
+return sink

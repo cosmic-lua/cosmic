@@ -147,7 +147,7 @@ function Round.parse(argv: {string}): Round.Options?, string
         local known = false
         for _, each in ipairs(Round.all_tasks) do known = known or each == name end
         if not known then return nil, "no task " .. name end
-        if not seen[name] then
+        if seen[name] ~= true then
           seen[name] = true
           tasks[#tasks + 1] = name
         end

@@ -139,7 +139,7 @@ local function parse(records: string, cores: {string:string}): {Target}?, string
     if target_id == nil or configuration_id == nil then
       return nil, "generated target id is outside the v1 range"
     end
-    local identity = target_id .. ":" .. configuration_id
+    local identity = tostring(target_id) .. ":" .. tostring(configuration_id)
     if identities[identity] then
       return nil, "duplicate generated target/configuration record"
     end

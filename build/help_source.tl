@@ -11,7 +11,7 @@ end
 
 --- What makes the texts `cosmic help` prints, set by [`provide`].
 local record Provided
-  mut source: function(): {string: string}?
+  mut source?: function(): {string: string}
 end
 
 local provided: Provided = {}
