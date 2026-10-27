@@ -77,7 +77,7 @@ function Seed.program(root: string, declared: {string: string}): Seed.Program
   -- away, `_G` added) once build/withheld.tl, which it reads, is in the seed list (build/seed.txt): the build here declares every name of
   -- the standard library's declarations, so a use of a withheld one is not reported. The Lua is the same either way.
   local build = Driver.new({
-    globals = { declaration(root, PRELUDE), declaration(root, STDLIB) }, adjust = nil, external = {}, types = false,
+    globals = { declaration(root, PRELUDE), declaration(root, STDLIB) }, adjust = nil, external = {}, types = true,
   })
   --- The source of each module asked for, and the names the tree has none of, so that a file is read once.
   local sources: mut {string: Driver.Source} = {}

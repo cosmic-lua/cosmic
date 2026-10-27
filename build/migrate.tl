@@ -50,6 +50,7 @@ local Lexer = require("lang.lexer")
 local Pipeline = require("build.pipeline")
 local Translate = require("lang.translate")
 local TreeProgram = require("build.tree_program")
+local Truthy = require("lang.truthy")
 local Types = require("lang.types")
 local bare = require("build.bare")
 local plural = require("build.plural")
@@ -255,26 +256,6 @@ local function rewrite_of(code: string, edits: {Edit}): Rewrite
     keys[#keys + 1] = e.lo .. ":" .. e.hi .. ":" .. e.text
   end
   return { code = code, edits = edits, key = table.concat(keys, "\0") }
-end
-
---- Whether a value of type `t` can be false or nil.
-local function may_be_false(t: Types.Type): boolean
-  local tag = t.tag
-  if tag == "boolean" or tag == "true" or tag == "false" or tag == "nil" or tag == "any" or tag == "invalid" or
-      tag == "never" or tag == "var" then
-    return true
-  end
-  if (t.tag == "union") then
-    if t.nilable then
-      return true
-    end
-    for _, member in ipairs(t.members) do
-      if may_be_false(member) then
-        return true
-      end
-    end
-  end
-  return false
 end
 
 --- Whether `t` is a collection that is not `mut`.
@@ -495,7 +476,7 @@ local function and_ternary(ctx: Ctx, p: Driver.Problem): Made
       local conjunction = n.left
       if (conjunction.kind == "Binary") and conjunction.op == "and" then
         local middle = type_of(ctx, conjunction.right)
-        if middle == nil or may_be_false(middle) then
+        if middle == nil or Truthy.may_be_false(middle) then
           return nothing("the value after `and` can be false or nil, where `if` answers it and `or` answers what follows")
         end
         local first, last = base_of(n).first, base_of(n).last

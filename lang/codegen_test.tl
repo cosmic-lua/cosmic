@@ -1143,6 +1143,73 @@ local function test_an_if_expression_whose_values_are_never_false_is_and_or_and_
   assert(generated("f(if y then false else 2 end)\n").text:find("function", 1, true))
 end
 
+-- The generator is told which values are never false; the `else` of an `if` expression needs no such word.
+
+--- What a test takes as never false: the names `x`, `y` and `z`, and what the syntax shows.
+local function named_xyz(e: Ast.Exp): boolean
+  return Truthy.never_false(e) or (e.kind == "Name" and (e.text == "x" or e.text == "y" or e.text == "z"))
+end
+
+local function test_an_if_expression_with_a_nil_or_false_else_is_and_or_where_the_other_values_are_never_false()
+  local cases: {string: string} = {
+    ["f(if c then x else nil end)\n"] = "f(c and x or nil)\n",
+    ["f(if c then x else false end)\n"] = "f(c and x or false)\n",
+    ["f(if c then x elseif d then y else nil end)\n"] = "f(c and x or d and y or nil)\n",
+    ["f(if c then x else g() end)\n"] = "f(c and x or g())\n",
+    ["f(if c then x elseif d then y else ... end)\n"] = "f(c and x or d and y or ...)\n",
+    ["f(if c then x else (g()) end)\n"] = "f(c and x or (g()))\n",
+  }
+  for source, expected in pairs(cases) do
+    local text = generated("local function h(...: any)\n" .. source .. "end\n", named_xyz).text
+    assert(text:find(expected:sub(1, -2), 1, true) ~= nil and text:find("(function(", 1, true) == nil,
+      "for " .. source .. " the generator wrote\n" .. text)
+  end
+end
+
+local function test_an_if_expression_whose_value_before_the_last_may_be_false_is_not_and_or()
+  local sources: {string} = {
+    "f(if c then a else nil end)\n",
+    "f(if c then x elseif d then a else nil end)\n",
+    "f(if c then a elseif d then x else nil end)\n",
+    "f(if c then x elseif d then false else y end)\n",
+    "f(if c then x elseif d then nil else y end)\n",
+  }
+  for _, source in ipairs(sources) do
+    local text = generated(source, named_xyz).text
+    assert(text:find("(function(", 1, true) ~= nil and text:find(" and ", 1, true) == nil, text)
+  end
+end
+
+local function test_an_if_expression_with_a_final_arm_that_is_not_never_false_runs_as_the_function_does()
+  local source = program(
+    "local function two(): integer, integer return 1, 2 end",
+    "local function count(...: any): integer return select(\"#\", ...) end",
+    "local function first(...: any): any",
+    "  return (...)",
+    "end",
+    "local function a(c: any, d: any, x: any, y: any): any",
+    "  return first(if c then x elseif d then y else nil end)",
+    "end",
+    "local function b(c: any): integer",
+    "  return count(if c then 5 else two() end)",
+    "end",
+    "local function e(c: any, d: any): any",
+    "  return (if c then 1 elseif d then 2 else nil end)",
+    "end",
+    "local function s(v: any): string",
+    "  if v == nil then return \"nil\" end",
+    "  return \"\" .. v",
+    "end",
+    "return s(a(true, false, 1, 2)) .. s(a(false, true, 1, 2)) .. s(a(false, false, 1, 2)) .. s(b(true)) .. s(b(false)) .. s(e(true, false)) ..",
+    "  s(e(false, true)) .. s(e(false, false))")
+  local always: function(e: Ast.Exp): boolean = function(e: Ast.Exp): boolean
+    return e.kind == "Integer" or e.kind == "Name" and (e.text == "x" or e.text == "y")
+  end
+  local got = run(source, always)
+  assert(got == "12nil1112nil", tostring(got))
+  assert(generated(source, always).text:find("(function(", 1, true) == nil)
+end
+
 -- if expressions written as if statements ---------------------------------------------------------------------------
 
 --- Whether `text` has a function made and called on the spot.

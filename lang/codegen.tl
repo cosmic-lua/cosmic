@@ -68,11 +68,6 @@
 -- TODO: reach the table of a class of another module, for a class literal or an `is` of it there, once the checker
 -- has a use for one ([`lang.check`]'s `class_scope` refuses both): the table is the module's own local.
 --
--- TODO: take truthiness from the new checker's types, in place of the translator's syntactic rule
--- ([`lang.truthy`]), once expressions land (doc/plans/new-checker-types.md, "expressions
--- without flow"): a name or a call whose type is neither boolean nor optional is then truthy, and its `if`
--- expression is `c and a or b` and not a function called on the spot.
---
 -- TODO: write `local _ = require("m")` as nothing where `m` returns a type, and an `is` of an imported enum as a
 -- test for a string and of an imported userdata record as one for userdata, once the new checker's type report
 -- reaches the generator: the fork knows what a required module returns, and this generator is given a single file.
@@ -110,7 +105,8 @@ local record Codegen
   --- ([`lang.scopes`]'s `build`), as Lua. `truthy` says of an expression whether it can be neither false nor nil;
   --- an `if` expression whose values all are is `c and a or b`, and any other is a function called on the spot, which
   --- is right for a value that is false or nil. By default only what the syntax shows is truthy (a literal other
-  --- than `false` and `nil`, a table, a function, an arithmetic or a concatenation). `classes` names the class of each
+  --- than `false` and `nil`, a table, a function, an arithmetic or a concatenation); [`build.compile_grammar`]'s `emit` also
+  --- gives the values the checker typed as neither false nor nil. `classes` names the class of each
   --- table literal that makes a value of one, by the id of its node: [`lang.check`]'s [`Checked.literals`] with the
   --- name of each class. `enums` gives the values of the enum a type node stands for, by the id of the node, and `v is E`
   --- is then a test of membership, `({["a"] = true, ...})[v] == true`, where the fork's is for the kind (`type(v) ==

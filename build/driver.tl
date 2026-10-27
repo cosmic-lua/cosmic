@@ -105,8 +105,9 @@ local record Driver
     text: string
     --- Whether an expression can be neither false nor nil, from its syntax alone ([`lang.truthy`]),
     --- for the code generator's `if` expressions: set for every source. A file writes an `if` expression only for a value
-    --- that cannot be false; the generator is told what the rule knows, or it writes a function called on the spot where a
-    --- file writes `and`/`or`.
+    --- that cannot be false; the generator is told what the rule knows, and where the build keeps the types of the nodes
+    --- ([`Driver.Options.types`]) what the checker's type of a value says too ([`build.compile_grammar`]'s `emit`), or it
+    --- writes a function called on the spot where a file writes `and`/`or`.
     never_false: Truthy?
     chunk: Ast.Chunk
     scoped: Scopes.Scoped

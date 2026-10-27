@@ -42,6 +42,7 @@ local BoundaryChecks = require("lang.boundary_checks")
 local FactWraps = require("lang.fact_wraps")
 local Lexer = require("lang.lexer")
 local Parser = require("lang.parser")
+local Truthy = require("lang.truthy")
 local Types = require("lang.types")
 
 local record compile_grammar
@@ -188,6 +189,23 @@ local function type_facts(program: Declarations.Program, result: Driver.Outcome,
   return kinds, refused
 end
 
+--- Whether the checker proves the value of `e` neither false nor nil, for the code generator's `if` expressions: what the
+--- syntax shows ([`lang.truthy`]), or a type of `e` that is of a kind of value that is neither ([`Truthy.may_be_false`]).
+--- A cast is a promise and not a value, so only the syntax of what it casts is trusted through one. A build that keeps no
+--- type of a node ([`Driver.Options.types`]) leaves only the syntax, so the Lua of a file depends on the option: the seed, the
+--- tree's pipeline and `cosmic compile` all keep types, and the check that compares counts alone writes no Lua it keeps.
+local function proven_truthy(syntax: function(e: Ast.Exp): boolean, types: {integer: Types.Type}, e: Ast.Exp): boolean
+  if syntax(e) then
+    return true
+  elseif e.kind == "Paren" then
+    return proven_truthy(syntax, types, e.inner)
+  elseif e.kind == "Cast" then
+    return false
+  end
+  local t = types[e.id]
+  return t ~= nil and not Truthy.may_be_false(t)
+end
+
 function compile_grammar.emit(build: Driver.Build, result: Driver.Outcome, facts?: boolean, counted?: boolean, served?: boolean):
     compile_grammar.Emitted
   local checked = result.checked
@@ -206,7 +224,12 @@ function compile_grammar.emit(build: Driver.Build, result: Driver.Outcome, facts
     wraps = FactWraps.of(checked.narrowed, result.text, result.source.filename, result.chunk)
     boundary_checks = BoundaryChecks.of(checked.boundaries, result.text, result.source.filename)
   end
-  local generated = Codegen.generate(result.chunk, result.scoped, result.never_false, classes, Check.enums(lowered), wraps, kinds,
+  local syntax = result.never_false or Truthy.never_false
+  local types = result.types
+  local function truthy(e: Ast.Exp): boolean
+    return proven_truthy(syntax, types, e)
+  end
+  local generated = Codegen.generate(result.chunk, result.scoped, truthy, classes, Check.enums(lowered), wraps, kinds,
     served == true, boundary_checks)
   local lines: mut {string} = {}
   for _, e in ipairs(generated.errors) do
@@ -277,7 +300,7 @@ function compile_grammar.compile(sources: {compile_grammar.Source}, facts?: bool
     names[index] = module
     by_module[module] = made
   end
-  local build = Driver.new({ globals = globals, adjust = nil, external = bindings_of(sources, provided), types = false })
+  local build = Driver.new({ globals = globals, adjust = nil, external = bindings_of(sources, provided), types = true })
   build:provide(function(module: string): Driver.Source?
     return by_module[module]
   end)

@@ -421,7 +421,7 @@ end
 
 --- A build over `text`, the module `m`.
 local function built(text: string): Driver.Build
-  local build = Driver.new({ globals = {}, adjust = nil, external = {}, types = false })
+  local build = Driver.new({ globals = {}, adjust = nil, external = {}, types = true })
   build:provide(Driver.files(Driver.index({ { "m.tl", text }, { "d.d.tl", "local record D\n  n: integer\nend\nreturn D\n" } },
     function(_file: string): boolean
       return false
@@ -451,4 +451,115 @@ local function test_emit_tells_the_generator_what_is_never_false_of_an_if_expres
   local written = assert(Grammar.emit(plain, assert(plain:result("m", true))).code)
   assert(written:find("function", 1, true) == nil, written)
   assert(value_of(written) == "v")
+end
+
+--- A module of `if` expressions in call arguments, a place a statement cannot take, run through [`Grammar.emit`]: the
+--- checker's types say which middle values are never false. It returns the text of `calls`, the calls of its functions.
+local function arguments_module(calls: {string}): string
+  return table.concat({
+    "local function id(v: string?): string?",
+    "  return v",
+    "end",
+    "local function two(): string, string",
+    "  return \"a\", \"b\"",
+    "end",
+    "local function count(...: any): integer",
+    "  return select(\"#\", ...)",
+    "end",
+    "local function nil_else(c: boolean, s: string): string?",
+    "  return id(if c then s else nil end)",
+    "end",
+    "local function chain(c: boolean, d: boolean, s: string): string?",
+    "  return id(if c then s elseif d then s .. \"!\" else nil end)",
+    "end",
+    "local function many(c: boolean, s: string): integer",
+    "  return count(if c then s else two() end)",
+    "end",
+    "local function falsy_middle(c: boolean, b: boolean): boolean | string",
+    "  return id(if c then b else \"z\" end) or false",
+    "end",
+    "local function optional_middle(c: boolean, o: string?): string?",
+    "  return id(if c then o else \"z\" end)",
+    "end",
+    "local function falsy_second(c: boolean, d: boolean, b: boolean, s: string): string?",
+    "  return id(if c then s elseif d then b else \"z\" end)",
+    "end",
+    "local function keep(v: any): any",
+    "  return v",
+    "end",
+    "local type V = boolean | {V}",
+    "local function alias_middle(c: boolean, v: V): any",
+    "  return keep(if c then v else \"z\" end)",
+    "end",
+    "local function generic_middle<T>(c: boolean, v: T): any",
+    "  return keep(if c then v else \"z\" end)",
+    "end",
+    "local function nothing() end",
+    "local function void_middle(c: boolean): any",
+    "  return keep(if c then nothing() else \"z\" end)",
+    "end",
+    "local function show(...: any): string",
+    "  local out: {string} = {}",
+    "  for i = 1, select(\"#\", ...) do",
+    "    out[i] = tostring((select(i, ...)))",
+    "  end",
+    "  return table.concat(out, \",\")",
+    "end",
+    "return show(" .. table.concat(calls, ", ") .. ")",
+    "",
+  }, "\n")
+end
+
+--- The Lua of [`arguments_module`] with `calls`, and what it returns.
+local function emitted(calls: {string}): string, any
+  local build = built(arguments_module(calls))
+  local code = assert(Grammar.emit(build, assert(build:result("m", true))).code)
+  return code, value_of(code)
+end
+
+-- A name or a call the checker types as neither boolean nor optional is never false, so an `if` expression of it is
+-- `c and a or b` (the `else` may be anything) and not a function made on every evaluation.
+local function test_emit_writes_and_or_for_a_middle_value_the_checker_types_as_never_false()
+  local code, got = emitted({
+    "nil_else(true, \"v\")", "nil_else(false, \"v\")", "chain(true, false, \"v\")", "chain(false, true, \"v\")",
+    "chain(false, false, \"v\")", "many(true, \"v\")", "many(false, \"v\")",
+  })
+  assert(code:find("id(c and s or nil)", 1, true), code)
+  assert(code:find("id(c and s or d and s .. \"!\" or nil)", 1, true), code)
+  assert(code:find("count(c and s or two())", 1, true), code)
+  -- the last arm is cut to one value, as the function called on the spot cuts it
+  assert(got == "v,nil,v,v!,nil,1,1", tostring(got))
+end
+
+-- A value that may be false or nil is not an `and`: `c and b or "z"` is "z" for a `b` that is false, where the `if` is false.
+local function test_emit_keeps_a_function_for_a_middle_value_the_checker_types_as_possibly_false()
+  local code, got = emitted({
+    "falsy_middle(true, false)", "falsy_middle(true, true)", "falsy_middle(false, false)", "optional_middle(true, nil)",
+    "optional_middle(true, \"o\")", "optional_middle(false, nil)", "falsy_second(false, true, false, \"s\")",
+    "falsy_second(true, true, false, \"s\")", "falsy_second(false, false, false, \"s\")", "alias_middle(true, false)",
+    "alias_middle(false, false)", "generic_middle(true, false)", "generic_middle(true, nil)", "void_middle(true)",
+    "void_middle(false)",
+  })
+  assert(code:find("c and b or", 1, true) == nil and code:find("c and o or", 1, true) == nil, code)
+  assert(code:find("d and b or", 1, true) == nil, code)
+  assert(code:find("c and v or", 1, true) == nil, code)
+  -- a falsy value in the second arm: the first arm, though truthy, does not make the second one safe
+  assert(got == "false,true,z,nil,o,z,false,s,z,false,z,false,nil,nil,z", tostring(got))
+end
+
+-- A cast is a promise about the type, not a value: `x as string` is nil when `x` is.
+local function test_emit_does_not_take_a_cast_for_a_value_that_is_never_false()
+  local build = built(table.concat({
+    "local function id(v: any): any",
+    "  return v",
+    "end",
+    "local function pick(c: boolean, x: any): any",
+    "  return id(if c then x as string else \"z\" end)",
+    "end",
+    "return tostring(pick(true, nil)) .. tostring(pick(true, \"s\")) .. tostring(pick(false, nil))",
+    "",
+  }, "\n"))
+  local code = assert(Grammar.emit(build, assert(build:result("m", true))).code)
+  assert(code:find("c and x or", 1, true) == nil, code)
+  assert(value_of(code) == "nilsz", code)
 end
