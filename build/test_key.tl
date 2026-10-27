@@ -893,7 +893,7 @@ local program_of = test_key.program_of
 -- hold from build.test_worker (C, and a boot):
 -- today a test that leans on a file of the tree's times sees what its
 -- checkout gave it, and stands on a sibling's verdict where they differ.
-local function declared_of(rec: Recording, m: Module, id: string): string?
+local function declared_of(rec: Recording, m: Module, id: string, host?: string): string?
   local effective = rec.effective[m.path]
   local runs_tool = tool_use(rec, m) == "allowed"
   local store, store_trouble = store_digest(rec, m)
@@ -904,7 +904,7 @@ local function declared_of(rec: Recording, m: Module, id: string): string?
   local key, why = declared_key.compute(digests_of(rec), {
     id = id, group = m.path, module_key = m.graph_key, runtime = rec.runtime,
     compiler = reads_compiler(rec, m) and rec.compiler or "",
-    host = rec.host,
+    host = host or rec.host,
     system = rec.system,
     epoch = rec.epoch, timeout_ns = rec.timeout_ns,
     -- Held only where the key holds the program ([`declared_key.compute`]).
@@ -952,7 +952,7 @@ local launch_only: {string:boolean} = { COSMIC_REBOOTED = true, OLDPWD = true, S
 ---   pause one startup of a fixture runtime for a handshake and belong to
 ---   this process's own launch, not to every worker it starts;
 --- - what `launch_only` names; and
---- - COSMIC_TEST_NO_SHARED and COSMIC_TEST_BAIL;
+--- - COSMIC_TEST_NO_SHARED, COSMIC_TEST_FOREIGN_FEATURES and COSMIC_TEST_BAIL;
 --- - COSMIC_TEST_CHECK_TYPES and COSMIC_TEST_TYPES, which ask for a checked
 ---   run and tell its workers to report one;
 ---
@@ -977,6 +977,7 @@ function test_key.worker_environment(environment: {string:string}): {string:stri
   -- Nor does it take this run's choice not to stand on them: a test
   -- that runs `cosmic test` says for itself what that run does.
   out.COSMIC_TEST_NO_SHARED = nil
+  out["COSMIC_TEST_FOREIGN_FEATURES"] = nil
   out.COSMIC_TEST_BAIL = nil
   -- Nor whether this run compiles its tree with run-time checks, and its
   -- workers report them: a `cosmic test` a test starts compiles its tree
@@ -1867,7 +1868,8 @@ function test_key.gather(rec: Recording, from: Gather): string?
     compiled_with = importer.checked_tool(compiled_with, from.grammar == "new")
   end
   rec.compiler = compiled_with .. " " .. from.compiled_by
-  rec.host = declared_key.host_identity(digests_of(rec))
+  local split = declared_key.host_split(digests_of(rec))
+  rec.host, rec.host_rest = split.identity, split.rest
   -- What the system's paths hold is walked only for a run that holds
   -- a module given them, whose key alone holds it: half a second of
   -- /usr's entries otherwise spent for nothing.
@@ -1983,6 +1985,24 @@ function test_key.begin(rec: Recording, from: Begin)
   end
 end
 
+--- The identities of the other hosts, of this host's rest but for its
+--- features (`rec.host_rest`), whose verdicts the shared cache holds
+--- ([`shared_verdicts.hosts_like`]), looked up once a run. A cache that
+--- cannot say names none.
+local function foreign_hosts(rec: Recording): {string}
+  local hosts = rec.foreign_hosts
+  if hosts == nil then
+    hosts = {}
+    local shared = rec.shared
+    if shared ~= nil then
+      local found, trouble = shared_verdicts.hosts_like(shared, assert(rec.host_rest), assert(rec.host))
+      if found == nil then drop_shared(rec, trouble) else hosts = found end
+    end
+    rec.foreign_hosts = hosts
+  end
+  return hosts
+end
+
 --- Keys the test `id` of `m` and looks its verdict up. A test is keyed by
 --- what it is given, and runs unless a verdict under that key passed, here
 --- (`verdicts`, by key) or in another checkout -- or it is `forced`, by
@@ -1991,6 +2011,20 @@ end
 --- worker, and a worker is what reports. None is assumed. The shared
 --- verdicts are asked only where the run `consult`s them and nothing here
 --- answers.
+---
+--- Where the run `accept_foreign`s, a test no verdict answers for under
+--- this host's key is looked up under the key it would have had on each
+--- other host the cache names of this host's rest but for its features,
+--- the identity that host stamped its rows with: the same key in every
+--- other input, as this host works each out, so the row is the test's
+--- verdict of this tree, closure, epoch and runtime, reached on a host
+--- of other features. The key found is then the lookup's, and the row
+--- stays under it: no row is made under this host's key, so a run that
+--- does not accept them finds none. The hosts are tried in sorted
+--- order and the first row found answers: a pass on any like host
+--- stands even if another like host failed the same key, as a failing
+--- row is deleted, not kept as a mark. That failure is its own run's,
+--- which fails CI there.
 function test_key.lookup(rec: Recording, m: Module, id: string,
                          verdicts: {string:Verdict}, forced: boolean?,
                          consult: boolean?): Lookup
@@ -2005,6 +2039,22 @@ function test_key.lookup(rec: Recording, m: Module, id: string,
     if answer == nil and trouble ~= "" then drop_shared(rec, trouble) end
     elsewhere = answer
     asked = true
+    if answer == nil and rec.accept_foreign then
+      -- Under another host's key, every other input as this host keys it.
+      for _, other in ipairs(foreign_hosts(rec)) do
+        local foreign = declared_of(rec, m, id, other)
+        local seen: shared_verdicts.Found? = nil
+        local seen_trouble = ""
+        if foreign ~= nil and rec.shared ~= nil then
+          seen, seen_trouble = shared_verdicts.declared(rec.shared, foreign)
+          if seen == nil and seen_trouble ~= "" then drop_shared(rec, seen_trouble) end
+        end
+        if seen ~= nil then
+          key, elsewhere = foreign, seen
+          break
+        end
+      end
+    end
   end
   local outcome: Outcome = "share"
   if key == nil or force or (own ~= nil and not own.passed) or
