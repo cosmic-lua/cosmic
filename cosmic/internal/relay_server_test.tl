@@ -124,7 +124,7 @@ local record Options
   timeouts?: Relay.Timeouts
   limits?: Relay.Limits
   tls_ports?: {integer}
-  connector: Relay.Connector
+  connector?: Relay.Connector
   resolve?: Net.ResolveOptions
   --- Address of a name's answer, to the port of the server it stands for.
   redirect?: {string: integer}
@@ -1423,7 +1423,6 @@ local function test_a_spec_that_is_no_spec_raises(tmp: string)
     end
     local cases: {Case} = {
       { spec = { grants = {}, connector = connector }, says = "an http, a socks or a mixed listener" },
-      { spec = { http = listener, grants = {} }, says = "spec.connector" },
       { spec = { http = listener, connector = connector } as Relay.Spec, says = "spec.grants" },
       { spec = { http = listener, grants = { 1 as any as string }, connector = connector }, says = "spec.grants must hold strings" },
       { spec = { http = listener, grants = {}, connector = connector, timeouts = { idle = 0 } }, says = "timeouts.idle must be an integer from 1" },
@@ -1449,6 +1448,10 @@ local function test_a_spec_that_is_no_spec_raises(tmp: string)
       local started, why = pcall(Relay.start, case.spec)
       assert(not started and tostring(why):find(case.says, 1, true), tostring(why))
     end
+    -- A spec with no connector is no [`Relay.Spec`], so it goes to `pcall` as an argument of `any`.
+    local started, why = pcall(Relay.start, { http = listener, grants = {} })
+    assert(not started, "a spec with no connector started")
+    assert(tostring(why):find("spec.connector", 1, true) ~= nil, tostring(why))
     local _, _ = listener:close()
     assert(tmp ~= nil)
   end)

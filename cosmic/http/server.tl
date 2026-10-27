@@ -579,7 +579,7 @@ end
 --- Serves `conn`, one request after another, until it closes, fails,
 --- or idles past `idle_ns`.
 local function serve_conn(s: Serving, conn: Net.Conn)
-  local timed: Timed = { conn = conn, each = s.timeout_ns }
+  local timed: Timed = { conn = conn, each = s.timeout_ns, deadline = nil }
   local input = wire.input(timed)
   -- Nil where the connection has none (a unix one); the request then has no peer.
   local peer, _ = conn:peer()

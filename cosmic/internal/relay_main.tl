@@ -156,8 +156,8 @@ end
 --- is serving, why it was lost if it was, and whether standard input ended.
 local record Run
   mut status: integer
-  mut serving: Relay.Serving?
-  mut lost: string?
+  mut serving?: Relay.Serving
+  mut lost?: string
   mut ended: boolean
 end
 

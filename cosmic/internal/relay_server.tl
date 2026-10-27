@@ -183,7 +183,7 @@ local record Relay
     --- nothing it reaches can be reached again, as no connector is started
     --- anew. The relay's process ends then ([`cosmic.internal.relay_main`]). Nil to
     --- fail each such request alone.
-    lost: function(why: string)
+    lost?: function(why: string)
   end
 
   --- What a relay serves, and how.
@@ -750,8 +750,8 @@ end
 --- What a lookup in a task of its own answered, which it hands back in a
 --- table.
 local record Looked
-  mut found: {Net.Resolved}?
-  mut why: string?
+  mut found?: {Net.Resolved}
+  mut why?: string
 end
 
 --- Resolves `name` once, and every address the checks allow, in order.
