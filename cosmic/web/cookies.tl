@@ -111,7 +111,7 @@ function Cookies.parse(header: string?): {string:string}
     -- Cut at a separator, so a cookie is never read half.
     text = text:sub(1, MAX_HEADER)
     local last = text:find("[;,][^;,]*$")
-    text = last ~= nil and text:sub(1, last - 1) or ""
+    text = if last ~= nil then text:sub(1, last - 1) else "" end
   end
   local count = 0
   for piece in (text .. ";"):gmatch("([^;,]*)[;,]") do

@@ -259,7 +259,7 @@ function symbols.named(databases: {Sqlite.Handle}, public: {boolean},
       { { text = query } })
     if rows ~= nil then
       for _, row in ipairs(rows) do
-        local name = row:text(2) ~= "" and row:text(2) or row:text(1)
+        local name = if row:text(2) ~= "" then row:text(2) else row:text(1) end
         if not seen[name] then
           seen[name] = true
           out[#out + 1] = name

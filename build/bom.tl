@@ -185,7 +185,7 @@ local function notice_text(directory: string, notice: bom.Notice): string?, stri
   end
   local kept: mut {string} = {}
   local number = 0
-  local ended = data:sub(-1) == "\n" and data or data .. "\n"
+  local ended = if data:sub(-1) == "\n" then data else data .. "\n" end
   for line in ended:gmatch("([^\n]*)\n") do
     number = number + 1
     if number >= first and number <= last then

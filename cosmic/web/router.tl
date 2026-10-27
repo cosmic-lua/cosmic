@@ -85,7 +85,7 @@ function Router.canonical(path: string): Router.Canon?, string
   local rest = path:sub(2)
   local _, slashes = rest:gsub("/", "/")
   local last_empty = rest == "" or rest:sub(-1) == "/"
-  local kept = last_empty and slashes or slashes + 1
+  local kept = if last_empty then slashes else slashes + 1 end
   local trailing = last_empty and #segments > 0
   return { path = path_of(segments, trailing), segments = segments, trailing = trailing,
     changed = kept ~= #segments }, ""
@@ -166,8 +166,8 @@ end
 local function pattern_text(segments: {Types.Segment}, slash: boolean): string
   local out: mut {string} = {}
   for i, segment in ipairs(segments) do
-    out[i] = segment.kind == "literal" and segment.text or
-      (if segment.kind == "param" then ":" else "*" end) .. segment.text
+    out[i] = if segment.kind == "literal" then segment.text else
+      (if segment.kind == "param" then ":" else "*" end) .. segment.text end
   end
   return "/" .. table.concat(out, "/") .. (if slash and #out > 0 then "/" else "" end)
 end
@@ -527,7 +527,7 @@ local function reverse(self: Types.Router, name: string, params?: {string: strin
   if entry == nil then return nil, ('url_for: no route named "%s"'):format(name) end
   local strings: mut {string:string} = {}
   for key, value in pairs(params or {}) do
-    strings[key] = value is string and value or ("%d"):format(value)
+    strings[key] = if value is string then value else ("%d"):format(value) end
   end
   local path: string
   if entry.mount then

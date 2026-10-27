@@ -532,7 +532,7 @@ function maintenance.run(options: maintenance.Options): maintenance.Result
   local signal, release_why = held:release()
   if signal == nil or signal ~= 0 then
     report.digest, report.fresh = nil, nil
-    report.warnings[#report.warnings + 1] = signal == nil and release_why or "cache maintenance interrupted"
+    report.warnings[#report.warnings + 1] = if signal == nil then release_why else "cache maintenance interrupted" end
     complete = false
   end
   if not complete then report.digest, report.fresh = nil, nil end

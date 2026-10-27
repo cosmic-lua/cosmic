@@ -47,7 +47,7 @@ local function gen_compressed(src: Fuzz.Source): string
   if shape == 1 then return Fuzz.pack({ "round trip", plain, packed }) end
   if shape == 2 then return Fuzz.pack({ "read", Fuzz.mutate(src, packed, 4) }) end
   -- A length the stream does not hold, up to the five bytes' most.
-  local claims = src:int(0, 1) == 0 and src:int(0, 1 << 20) or (1 << 35) - 1 - src:int(0, 255)
+  local claims = if src:int(0, 1) == 0 then src:int(0, 1 << 20) else (1 << 35) - 1 - src:int(0, 255) end
   return Fuzz.pack({ "read", length_prefix(claims) .. packed:sub(src:int(1, #packed + 1)) })
 end
 
@@ -163,8 +163,8 @@ local function uuid_text(src: Fuzz.Source): string
     digits[i] = hex:sub(at, at)
   end
   local plain = table.concat(digits)
-  local text = src:int(0, 1) == 0 and plain or (plain:sub(1, 8) .. "-" .. plain:sub(9, 12) .. "-" ..
-    plain:sub(13, 16) .. "-" .. plain:sub(17, 20) .. "-" .. plain:sub(21))
+  local text = if src:int(0, 1) == 0 then plain else (plain:sub(1, 8) .. "-" .. plain:sub(9, 12) .. "-" ..
+    plain:sub(13, 16) .. "-" .. plain:sub(17, 20) .. "-" .. plain:sub(21)) end
   if src:int(0, 2) == 0 then text = "{" .. text .. "}" end
   return text
 end
@@ -226,8 +226,8 @@ local function test_ieee754_is_total_and_round_trips(tmp: string)
       local eight: mut {string} = {}
       for i = 1, 8 do eight[i] = string.char(src:int(0, 255)) end
       local edges = { 0, 1, -1, 52, 53, 1023, 1024, 1074, 1075, 2000, -1074, -1075, -2000, 10001 }
-      local e = src:int(0, 1) == 0 and Fuzz.pick(src, edges) or src:int(-3000, 3000)
-      local m = src:int(0, 2) == 0 and src:int(-8, 8) or src:int(0, 7) == 0 and math.mininteger or
+      local e = if src:int(0, 1) == 0 then Fuzz.pick(src, edges) else src:int(-3000, 3000) end
+      local m = if src:int(0, 2) == 0 then src:int(-8, 8) else src:int(0, 7) == 0 and math.mininteger end or
         src:int(math.mininteger, math.maxinteger)
       return Fuzz.pack({ table.concat(eight), tostring(m), tostring(e) })
     end,
@@ -303,7 +303,7 @@ local function gen_number(src: Fuzz.Source): string
     local past = { "-9223372036854775809", "9223372036854775808", "-9223372036854776832",
       "18446744073709551617", "-0", "+007", "-00" }
     if src:int(0, 3) == 0 then return Fuzz.pack({ "integer", Fuzz.pick(src, past) }) end
-    local n = src:int(0, 1) == 0 and Fuzz.pick(src, edges) or src:int(math.mininteger, math.maxinteger)
+    local n = if src:int(0, 1) == 0 then Fuzz.pick(src, edges) else src:int(math.mininteger, math.maxinteger) end
     return Fuzz.pack({ "integer", tostring(n) })
   end
   if shape <= 2 then
@@ -315,7 +315,7 @@ local function gen_number(src: Fuzz.Source): string
     "308", "309", "324", "400", "-308", "-324", "-400" }
   local parts: mut {string} = {}
   while Fuzz.more(src, #parts, 6) do
-    parts[#parts + 1] = src:int(0, 1) == 0 and run(30) or Fuzz.pick(src, pieces)
+    parts[#parts + 1] = if src:int(0, 1) == 0 then run(30) else Fuzz.pick(src, pieces) end
   end
   return Fuzz.pack({ "any", table.concat(parts) })
 end
@@ -490,7 +490,7 @@ local function test_rtree_survives_damaged_trees(tmp: string)
       elseif damage == "length" then
         local cut = pick % (2 * n)
         sql, values = "UPDATE b_node SET data = ?1 WHERE nodeno = ?2",
-          { { blob = cut < n and blob:sub(1, cut) or blob .. string.rep("\0", cut - n) },
+          { { blob = if cut < n then blob:sub(1, cut) else blob .. string.rep("\0", cut - n) end },
             { integer = nodeno } }
       elseif damage == "parent" then
         sql, values = if pick % 2 == 0 then "DELETE FROM b_parent WHERE nodeno = ?2" else
@@ -584,7 +584,7 @@ local function gen_list(src: Fuzz.Source): string
       -- Any 8 bytes but a NaN's, which SQLite reads as NULL.
       local bits = string.pack("<i8", src:int(math.mininteger, math.maxinteger))
       local n = string.unpack("<d", bits)
-      fields[#fields + 1] = n ~= n and string.pack("<d", math.huge) or bits
+      fields[#fields + 1] = if n ~= n then string.pack("<d", math.huge) else bits end
     elseif kind == "texts" then
       fields[#fields + 1] = (Fuzz.bytes(src, 12):gsub("%z", "\1"))
     else

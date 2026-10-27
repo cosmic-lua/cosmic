@@ -633,7 +633,7 @@ local function tokenize(input: string, initial: string, last_tag: string): Run
       end
       i = i + 1
       states[i] = m.state
-      attr_at[i] = (m.state == "value_dq" or m.state == "value_sq") and m.attr_name or ""
+      attr_at[i] = if (m.state == "value_dq" or m.state == "value_sq") then m.attr_name else "" end
       tails[i] = tail()
     end
   end

@@ -91,7 +91,7 @@ local function body_span(chunk: Ast.Chunk, body: Ast.Block, rets: Ast.Rets?, lit
       Lexer.x(tokens, closer) - Lexer.x(tokens, opener) <= #NEVER_BODY then
     return nil
   end
-  return { first = opener, last = closer - 1, instead = never and NEVER_BODY or nil }
+  return { first = opener, last = closer - 1, instead = if never then NEVER_BODY else nil end }
 end
 
 --- The bodies of `stat` left out, in source order. What a body left out holds is not walked.

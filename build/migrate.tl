@@ -1196,7 +1196,7 @@ local function target_of(path: string): string
     if link == nil then
       return at
     end
-    at = link:sub(1, 1) == "/" and link or Fs.dirname(at) .. "/" .. link
+    at = if link:sub(1, 1) == "/" then link else Fs.dirname(at) .. "/" .. link end
   end
   return at
 end
@@ -1361,7 +1361,7 @@ function Migrate.main(argv: {string}, streams?: Migrate.Io): integer
   if not sent then
     return bare.refused
   end
-  return #open == 0 and bare.ok or bare.failed
+  return if #open == 0 then bare.ok else bare.failed end
 end
 
 --- The `migrate` verb as [`build/verb_list.tl`] lists it. Reads the files it is given, never the tree: never

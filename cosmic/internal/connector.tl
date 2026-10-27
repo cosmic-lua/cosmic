@@ -124,7 +124,7 @@ local function waited(fd: integer, writable: boolean, timeout_ns: integer?): boo
   -- then Stream.from_fd and Stream.to_fd (see the TODO at SocketConn:read
   -- in cosmic/net.tl).
   if Poll.in_task() then
-    return Poll.wait(fd, writable and sys.POLLOUT or sys.POLLIN, timeout_ns)
+    return Poll.wait(fd, if writable then sys.POLLOUT else sys.POLLIN end, timeout_ns)
   end
   local ok, trouble, errno = raw.wait(fd, writable, Poll.milliseconds(timeout_ns))
   if ok then return true, "" end
@@ -288,8 +288,8 @@ local function take_socket(channel: Channel, tag: integer): boolean
   if peer_host == nil or peer_port == nil or peer_port ~= pending.port or
       not same_host(peer_host, pending.host) then
     local _, _ = socket:close()
-    local connected = peer_host ~= nil and peer_port ~= nil and named(peer_host, peer_port) or
-      "an address that is no host and port"
+    local connected = if peer_host ~= nil and peer_port ~= nil then named(peer_host, peer_port) else
+      "an address that is no host and port" end
     lose(channel, "net: the connector passed a socket connected to " .. connected .. ", not " .. wanted)
     return false
   end
@@ -385,7 +385,7 @@ local function await(channel: Channel, deadline: integer?, late: boolean,
     if ready() then return true, "" end
     local lost = channel.lost
     if lost ~= nil then return false, lost end
-    local left = deadline ~= nil and math.max(0, deadline - Clock.monotonic_ns()) or nil
+    local left = if deadline ~= nil then math.max(0, deadline - Clock.monotonic_ns()) else nil end
     local woke, why = waited(channel.process.fd, false, left)
     if not woke then
       if late then

@@ -336,7 +336,7 @@ local function parse_header(block: string, long_name: string?, long_link: string
     -- A ustar prefix is only there when byte 346 is not NUL.
     if block:byte(346) ~= 0 then name = text_at(block, 346, 155) .. "/" .. name end
   end
-  local linkname = long_link or (block:byte(158) ~= 0 and text_at(block, 158, 100) or "")
+  local linkname = long_link or (if block:byte(158) ~= 0 then text_at(block, 158, 100) else "" end)
   local size = numeric_at(block, 125, 12)
   if size == nil then return nil, out_of_range("size") end
   local mtime = numeric_at(block, 137, 12)
@@ -422,7 +422,7 @@ end
 --- Keeps `trouble` as the reader's failure, or "tar: read failed" when
 --- it is "", and answers it.
 local function fail(self: EntryReader, trouble: string): nil, string
-  self.failed = trouble ~= "" and trouble or "tar: read failed"
+  self.failed = if trouble ~= "" then trouble else "tar: read failed" end
   return nil, self.failed
 end
 
@@ -552,7 +552,7 @@ local class BodyReader is Stream.Reader
     if want > left then want = left end
     local chunk, rtrouble = state.src:read(want)
     if chunk == nil then
-      self.failed = rtrouble ~= "" and rtrouble or "tar: truncated archive"
+      self.failed = if rtrouble ~= "" then rtrouble else "tar: truncated archive" end
       return nil, self.failed
     end
     self.left = left - #chunk
@@ -712,8 +712,8 @@ local function put_entry(self: EntryWriter, path: string, typeflag: string, size
     if not ok then return false, trouble end
     if not fits then prefix, name = "", path:sub(-100) end
   end
-  local header_size = size_fits and size or 0
-  local header_mtime = mtime_fits and mtime or (if mtime < 0 then 0 else OCTAL_11_LIMIT - 1 end)
+  local header_size = if size_fits then size else 0 end
+  local header_mtime = if mtime_fits then mtime else (if mtime < 0 then 0 else OCTAL_11_LIMIT - 1 end) end
   local header = build_header(name, prefix, typeflag, header_size, mode & 0xFFF,
     header_mtime, linkname:sub(1, 100))
   return sink:put(header)
@@ -767,7 +767,7 @@ local class EntryWriter is Tar.Writer
     fopts = fopts or {}
     local mode = fopts.mode or 0x1ed
     local mtime = fopts.mtime or 0
-    local dirpath = path:sub(-1) == "/" and path or (path .. "/")
+    local dirpath = if path:sub(-1) == "/" then path else (path .. "/") end
     return put_entry(self, dirpath, "5", 0, mode, mtime, "")
   end
 

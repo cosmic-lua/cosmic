@@ -459,7 +459,7 @@ function artifact.rejoin(parts: artifact.Split, database: string): string?, stri
     return nil, "the new database has no SQLite header"
   end
   local manifest_offset = #parts.head - manifest_length
-  local trailer = (parts.host and host_trailer_magic or trailer_magic) ..
+  local trailer = (if parts.host then host_trailer_magic else trailer_magic end) ..
     string.pack(">I4I4I8I8I8I8", version, trailer_length, manifest_offset,
       manifest_length, #parts.head, #database)
   return parts.head .. database .. trailer, ""

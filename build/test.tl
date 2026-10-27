@@ -1715,8 +1715,8 @@ local function select_tests(ctx: Run): integer?
   -- suite answers for is checked on such a run alone.
   ctx.whole = #selectors == 0 and shard == nil
   -- Said after the sandbox, last on the summary line, whichever verdict.
-  ctx.share_summary = shard ~= nil and
-    string.format("; shard %d of %d", shard.index, shard.count) or ""
+  ctx.share_summary = if shard ~= nil then
+    string.format("; shard %d of %d", shard.index, shard.count) else "" end
   return nil
 end
 
@@ -2192,8 +2192,8 @@ local function say_violations(rec: Recording)
       "verdict is as the tests gave it)%s; all of them: cosmic sql --build 'SELECT * FROM " ..
       "type_violations'",
     plural.count(total, "violation"), distinct, plural.count(places, "place"),
-    rec.violations_dropped > 0 and string.format("; %s more went unrecorded",
-      plural.count(rec.violations_dropped, "kind")) or ""))
+    if rec.violations_dropped > 0 then string.format("; %s more went unrecorded",
+      plural.count(rec.violations_dropped, "kind")) else "" end))
   local order: mut {string} = {}
   for i, key in ipairs(rec.violation_order) do order[i] = key end
   table.sort(order, function(a: string, b: string): boolean
@@ -2251,7 +2251,7 @@ local function settle(ctx: Run)
     local names, uname_trouble = sys.uname()
     if names == nil then errors[#errors + 1] = "uname: " .. uname_trouble end
     local entered = c_functions.tally(functions, hits, c_functions.sources(assert(ctx.root), functions),
-      names ~= nil and names.sysname or nil, ctx.c_unavailable)
+      if names ~= nil then names.sysname else nil end, ctx.c_unavailable)
     for _, key in ipairs(entered.unentered) do
       failures[#failures + 1] = key .. ": a C function no test enters"
     end

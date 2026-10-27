@@ -417,9 +417,9 @@ local function rows_of(db: Sqlite.Handle, head: string): {Row}?, string
             line = row:integer(2),
             last = row:integer(3),
             text = row:text(4),
-            commit = blamed and row:text(6) or "",
-            author_time = blamed and row:integer(7) or 0,
-            summary = blamed and row:text(8) or "",
+            commit = if blamed then row:text(6) else "" end,
+            author_time = if blamed then row:integer(7) else 0 end,
+            summary = if blamed then row:text(8) else "" end,
             boundary = blamed and row:integer(9) ~= 0,
           },
           sha256 = row:text(5),
@@ -528,9 +528,9 @@ local function blame_rows(db: Sqlite.Handle, root: string, head: string,
       local line = said[row.todo.line]
       local known = line ~= nil and not uncommitted(line.commit)
       local todo = row.todo
-      todo.commit = known and line.commit or ""
-      todo.author_time = known and line.author_time or 0
-      todo.summary = known and line.summary or ""
+      todo.commit = if known then line.commit else "" end
+      todo.author_time = if known then line.author_time else 0 end
+      todo.summary = if known then line.summary else "" end
       todo.boundary = known and line.boundary or false
       local ok, trouble = Sqlite.run(db,
         "INSERT OR REPLACE INTO blames (path, line, sha256, head, commit_id, " ..
@@ -664,7 +664,7 @@ function todos.arguments(root: string, argv: {string}): todos.Arguments
   for _, word in ipairs(argv) do
     -- A path when it names one, and words to search for when not, as
     -- `cosmic docs` takes a symbol first and words after.
-    local full = word:sub(1, 1) == "/" and word or root .. "/" .. word
+    local full = if word:sub(1, 1) == "/" then word else root .. "/" .. word end
     local absolute, _ = Fs.absolute(full)
     if word ~= "" and absolute ~= nil then
       named[#named + 1] = full

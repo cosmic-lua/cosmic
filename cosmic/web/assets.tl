@@ -221,7 +221,7 @@ function Assets.directory(root: string): Assets.Source
     local full = root .. "/" .. path
     local real, real_why = Fs.absolute(full)
     if real == nil then return miss(path, real_why) end
-    local prefix = base:sub(-1) == "/" and base or base .. "/"
+    local prefix = if base:sub(-1) == "/" then base else base .. "/" end
     if real:sub(1, #prefix) ~= prefix then return miss(path, "outside the root") end
     local st, st_why = Fs.stat(real)
     if st == nil then return miss(path, st_why) end

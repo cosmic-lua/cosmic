@@ -55,7 +55,7 @@ end
 local function loading_from(store: Types.Store): Types.Loader
   return function(module: string, name: string): string?
     local decl = store:find(module, name)
-    return decl ~= nil and Types.encode_declaration(decl) or nil
+    return if decl ~= nil then Types.encode_declaration(decl) else nil end
   end
 end
 

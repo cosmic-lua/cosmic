@@ -17,7 +17,7 @@ local OFFERS <const>: {string} = { "text/html", "application/json", "application
 --- "404 Not Found".
 local function title_of(status: integer): string
   local reason = Server.reason(status)
-  return reason ~= "" and ("%d %s"):format(status, reason) or tostring(status)
+  return if reason ~= "" then ("%d %s"):format(status, reason) else tostring(status) end
 end
 
 --- A small page for `status`, holding `detail` and `trace` escaped.

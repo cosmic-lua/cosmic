@@ -247,7 +247,7 @@ local function without_metatable_calls(text: string, classes: {string: boolean},
     end
     local comma = argument_end(text, e + 1)
     local stop = comma ~= nil and metatable_call_end(text, comma, classes, metatables) or nil
-    local previous = s > 1 and text:sub(s - 1, s - 1) or ""
+    local previous = if s > 1 then text:sub(s - 1, s - 1) else "" end
     if comma ~= nil and stop ~= nil and not previous:find("[%w_.:]") then
       out[#out + 1] = text:sub(at, s - 1)
       out[#out + 1] = without_metatable_calls(text:sub(e + 1, comma - 1), classes, metatables)
@@ -747,7 +747,7 @@ local function list(y: integer, items: {Output}): Output
       put(out, ",")
       space = " "
     end
-    add_child(out, child, space, child.y ~= y and G.indent or nil)
+    add_child(out, child, space, if child.y ~= y then G.indent else nil end)
   end
   return out
 end
@@ -770,7 +770,7 @@ local function params_of(open: integer, params: {Ast.Param}): Output
   local outs: mut {Output} = {}
   for i, p in ipairs(params) do
     local name = p.name
-    outs[i] = text(line_of(p.first), name ~= nil and name.name or "...")
+    outs[i] = text(line_of(p.first), if name ~= nil then name.name else "..." end)
   end
   return list(line_of(open), outs)
 end
@@ -818,7 +818,7 @@ local function table_literal(node: Ast.Table): Output
     children[i] = item(it)
   end
   for i, child in ipairs(children) do
-    add_child(out, child, " ", child.y ~= y and G.indent or nil)
+    add_child(out, child, " ", if child.y ~= y then G.indent else nil end)
     if i < #children or yend ~= y then
       put(out, ",")
     end
@@ -962,7 +962,7 @@ local function is_test(node: Ast.IsTest, value: Output): Output
     else
       operand = exp(node.value)
     end
-    add_child(out, type_test(member, operand, y, not held and node.value or nil), "", G.indent)
+    add_child(out, type_test(member, operand, y, if not held then node.value else nil end), "", G.indent)
   end
   if held then
     put(out, " end)(")
@@ -1500,7 +1500,7 @@ local function if_statement(s: Ast.If): Output
     pieces[#pieces + 1] = piece
   end
   for i, piece in ipairs(pieces) do
-    add_child(out, piece, if i > 1 then " " else nil end, piece.y ~= y and G.indent or nil)
+    add_child(out, piece, if i > 1 then " " else nil end, if piece.y ~= y then G.indent else nil end)
   end
   add_child(out, text(line_of(s.last), "end"), " ", G.indent)
   return out
@@ -1628,7 +1628,7 @@ local function match_statement(s: Ast.Match): Output
     pieces[k] = piece
   end
   for _, piece in ipairs(pieces) do
-    add_child(out, piece, " ", piece.y ~= y and G.indent or nil)
+    add_child(out, piece, " ", if piece.y ~= y then G.indent else nil end)
   end
   add_child(out, text(line_of(s.last), "end end"), " ", G.indent)
   return out

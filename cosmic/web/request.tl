@@ -168,7 +168,7 @@ local function last_entry(value: string?): string?
   if value == nil then return nil end
   -- Found from the end: `([^,]*)$` retries at every byte of a long entry.
   local comma = value:reverse():find(",", 1, true)
-  local entry = String.trim(comma == nil and value or value:sub(#value - comma + 2))
+  local entry = String.trim(if comma == nil then value else value:sub(#value - comma + 2) end)
   if entry == "" then return nil end
   return entry
 end

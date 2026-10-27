@@ -106,14 +106,14 @@ local function gen(src: Fuzz.Source): string
   elseif shape < 2 then
     local parts: mut {string} = {}
     while Fuzz.more(src, #parts, 30) do
-      parts[#parts + 1] = src:int(0, 1) == 0 and Fuzz.pick(src, EXTENDED_TOKENS) or Fuzz.pick(src, TOKENS)
+      parts[#parts + 1] = if src:int(0, 1) == 0 then Fuzz.pick(src, EXTENDED_TOKENS) else Fuzz.pick(src, TOKENS) end
     end
     text = table.concat(parts)
   elseif shape < 9 then
     if flags == 2 then
       text = Fuzz.pick(src, HASHED)
     else
-      text = Fuzz.pick(src, src:int(0, 4) < 2 and BROKEN or EXTENDED)
+      text = Fuzz.pick(src, if src:int(0, 4) < 2 then BROKEN else EXTENDED end)
     end
     local edits = src:int(0, 5)
     if edits > 3 then text = Fuzz.mutate(src, text, if edits == 4 then 1 else 6 end) end

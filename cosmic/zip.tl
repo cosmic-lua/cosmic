@@ -244,7 +244,7 @@ local type Pread = function(integer, integer): string?, string
 --- a forged record is not mistaken for the real one -- or, failing
 --- that, the last signature found.
 local function find_eocd(size: integer, pread: Pread): integer?, string
-  local window = size < 65557 and size or 65557
+  local window = if size < 65557 then size else 65557 end
   local start = size - window
   local chunk, trouble = pread(start, window)
   if chunk == nil then return nil, trouble end
@@ -837,7 +837,7 @@ local PATH_LIMIT <const> = 0xFFFF
 --- The external attributes of an entry of Unix type `type_bits`
 --- (`S_IFREG`, `S_IFDIR` or `S_IFLNK`) and permission bits `mode`.
 local function attributes(type_bits: integer, mode: integer): integer
-  return ((type_bits | (mode & 0xFFF)) << 16) | (type_bits == S_IFDIR and DOS_DIR_ATTR or 0)
+  return ((type_bits | (mode & 0xFFF)) << 16) | (if type_bits == S_IFDIR then DOS_DIR_ATTR else 0 end)
 end
 
 --- Writes the body's compressed bytes `data`, counting them.
@@ -1019,7 +1019,7 @@ local class EntryWriter is Zip.Writer
 
   function add_dir(self, path: string, fopts?: Zip.EntryOptions): boolean, string
     fopts = fopts or {}
-    local dirpath = path:sub(-1) == "/" and path or (path .. "/")
+    local dirpath = if path:sub(-1) == "/" then path else (path .. "/") end
     return put_entry(self, dirpath, "", "store", S_IFDIR, fopts.mode or 0x1ed, fopts.mtime or 0)
   end
 
@@ -1053,8 +1053,8 @@ local class EntryWriter is Zip.Writer
       trailer[#trailer + 1] = Z64_LOC_SIG .. string.pack("<I4I8I4", 0, zip64_eocd_offset, 1)
     end
     local eocd_count = if needs_zip64 then 0xFFFF else count end
-    local eocd_cd_size = needs_zip64 and U32_MAX or cd_size
-    local eocd_cd_offset = needs_zip64 and U32_MAX or cd_offset
+    local eocd_cd_size = if needs_zip64 then U32_MAX else cd_size end
+    local eocd_cd_offset = if needs_zip64 then U32_MAX else cd_offset end
     trailer[#trailer + 1] = EOCD_SIG .. string.pack("<I2I2I2I2I4I4I2", 0, 0, eocd_count,
       eocd_count, eocd_cd_size, eocd_cd_offset, 0)
     self.cd_parts = {}

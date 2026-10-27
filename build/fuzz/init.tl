@@ -240,7 +240,7 @@ local function attempt(check: function(string): boolean, string, input: string,
     return false, "raised: " .. raised
   end
   if held ~= true then
-    return false, why ~= nil and why ~= "" and tostring(why) or "check returned false"
+    return false, if why ~= nil and why ~= "" then tostring(why) else "check returned false" end
   end
   return true, ""
 end
@@ -388,8 +388,8 @@ local function run(p: Fuzz.Property): integer
     local draws: mut {Draw} = {}
     local mine: {string: boolean} = {}
     local case = case_seed or seeds:int(math.mininteger, math.maxinteger)
-    local where = case_name ~= nil and ("FUZZ_CASE=%s:%d"):format(case_name, case) or
-      ("seed=%d iteration=%d"):format(seed, i)
+    local where = if case_name ~= nil then ("FUZZ_CASE=%s:%d"):format(case_name, case) else
+      ("seed=%d iteration=%d"):format(seed, i) end
     local reproduce = ("FUZZ_CASE=%s:%d (this input alone)"):format(slug(p.name), case)
     if case_name == nil then
       reproduce = reproduce .. (", or FUZZ_SEED=%d FUZZ_ITERS=%d"):format(seed, i)
@@ -449,8 +449,8 @@ local function run(p: Fuzz.Property): integer
             plural.count(#input, "byte"), plural.count(#smallest, "draw"), plural.count(#small, "byte"), shown(small), flaky,
             if kept ~= nil then ("kept at " .. kept) else "not kept: the property names no dir" end,
             reproduce,
-            kept ~= nil and ("mkdir -p %s && cp %s %s"):format(corpus_of(p), kept, keep) or
-              ("write the input above to " .. keep)), 0)
+            if kept ~= nil then ("mkdir -p %s && cp %s %s"):format(corpus_of(p), kept, keep) else
+              ("write the input above to " .. keep) end), 0)
       return false
     end
     assert(held or failure())

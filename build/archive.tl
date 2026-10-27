@@ -148,7 +148,7 @@ local function spool(source: Stream.Reader): string?, string
   end
   if copied == nil or not closed then
     local _, _ = Fs.remove_tree(dir)
-    return nil, why ~= "" and why or close_why
+    return nil, if why ~= "" then why else close_why end
   end
   return dir, ""
 end
@@ -358,10 +358,10 @@ end
 --- holding the destination still would need a lock no reader honours.
 local function plan_move(tree: string, dest: string, force: boolean, rel: string,
                          steps: mut {Step}, why_of: function(string): string): Outcome?
-  local names, list_why = names_in(rel == "" and tree or (tree .. "/" .. rel))
+  local names, list_why = names_in(if rel == "" then tree else (tree .. "/" .. rel) end)
   if names == nil then return fail(bare.refused, list_why) end
   for _, name in ipairs(names) do
-    local child = rel == "" and name or (rel .. "/" .. name)
+    local child = if rel == "" then name else (rel .. "/" .. name) end
     local staged, staged_why = sys.lstat(tree .. "/" .. child)
     if staged == nil then return fail(bare.refused, tree .. "/" .. child .. ": " .. staged_why) end
     local target = dest .. "/" .. child
@@ -490,7 +490,7 @@ local function extract_streamed(file: string, source: Stream.Reader, dest: strin
   local is_dir, _ = Fs.is_dir(dest)
   if is_dir == true then dest_exists = true end
   local made: {string} = {}
-  local parent = dest_exists and dest or Fs.dirname(dest)
+  local parent = if dest_exists then dest else Fs.dirname(dest) end
   if not dest_exists then made = missing_above(parent) end
   local function undo_made()
     for _, dir in ipairs(made) do local _, _ = sys.rmdir(dir) end
@@ -564,7 +564,7 @@ local function extract_streamed(file: string, source: Stream.Reader, dest: strin
   local written, extract_why = Archive.extract_reader(watched, tree, {
     links = "create",
     filter = selected,
-    resolve_in = dest_exists and dest or nil,
+    resolve_in = if dest_exists then dest else nil end,
   })
   -- The rest of the stream, as [`Archive.list`] would have read it whole
   -- before anything was written: its trouble comes first.
@@ -589,7 +589,7 @@ local function extract_streamed(file: string, source: Stream.Reader, dest: strin
       -- `dest` is a file or a directory that appeared since: say what
       -- a direct extraction would have.
       local made_dest, made_why = Fs.mkdirs(dest)
-      return give_up(fail(bare.refused, trouble_of(file, file, made_dest and move_why or made_why)))
+      return give_up(fail(bare.refused, trouble_of(file, file, if made_dest then move_why else made_why end)))
     end
     local _, _ = Fs.remove_tree(stage)
     return print_written(written, to)
@@ -757,7 +757,7 @@ local function gather(paths: {string}, skip_file: string?): {Item}?, Outcome
         seen[#seen + 1] = { relative = relative, kind = "file" }
       end
       for _, pair in ipairs(seen) do
-        local sub = add(root and pair.relative or (name .. "/" .. pair.relative), given .. "/" .. pair.relative)
+        local sub = add(if root then pair.relative else (name .. "/" .. pair.relative) end, given .. "/" .. pair.relative)
         if sub ~= nil then return nil, sub end
       end
     end

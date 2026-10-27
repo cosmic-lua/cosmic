@@ -1108,8 +1108,8 @@ local function known_in(db: Sqlite.Handle,
     end
     out[statement:bytes(0)] = {
       size = statement:integer(1),
-      mtime_ns = statement:integer(5) == 0 and statement:integer(2) or nil,
-      ctime_ns = statement:integer(7) == 0 and statement:integer(6) or nil,
+      mtime_ns = if statement:integer(5) == 0 then statement:integer(2) else nil end,
+      ctime_ns = if statement:integer(7) == 0 then statement:integer(6) else nil end,
       ino = statement:integer(3),
       dev = statement:integer(4),
     }
@@ -1353,7 +1353,7 @@ function work.stage(handle: work.Handle, own_tree: boolean): work.Staged?, strin
     if st == nil then return nil, trouble end
     discovery[""] = st
   end
-  local skip_path = own_tree and identity.skip_in_own_tree or identity.skip_input
+  local skip_path = if own_tree then identity.skip_in_own_tree else identity.skip_input end
   -- Each entry only the walk for links reaches.
   local links_only: mut {string:boolean} = {}
   local link_skip = link_files.skipper(root)

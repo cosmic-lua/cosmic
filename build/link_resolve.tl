@@ -92,7 +92,7 @@ local function kind_at(resolver: link_resolve.Resolver, path: string): string?
     cached = resolver.context.kind(path) or ""
     resolver.kinds[path] = cached
   end
-  return cached ~= "" and cached or nil
+  return if cached ~= "" then cached else nil end
 end
 
 --- Whether the code point `code` is a pictograph or a mark that
@@ -160,7 +160,7 @@ function link_resolve.anchors(text: string): {string: boolean}
       heading(String.trim(previous))
       previous = nil
     else
-      previous = line:match("%S") ~= nil and line or nil
+      previous = if line:match("%S") ~= nil then line else nil end
     end
     for _, attribute in ipairs({ "id", "name" }) do
       for name in line:gmatch("<a%s[^>]-" .. attribute .. "%s*=%s*[\"']([^\"']+)[\"']") do
@@ -184,7 +184,7 @@ local function anchor_problem(resolver: link_resolve.Resolver, path: string, anc
   local found = resolver.headings[path]
   if found == nil then
     local text = resolver.context.read(path)
-    found = text ~= nil and link_resolve.anchors(text) or {}
+    found = if text ~= nil then link_resolve.anchors(text) else {} end
     resolver.headings[path] = found
   end
   if found[anchor:lower()] or found[anchor] then
@@ -229,7 +229,7 @@ local function located(resolver: link_resolve.Resolver, from: string, target: st
   for _, base in ipairs(bases) do
     local path = normalized(base .. "/" .. target)
     local reason: string? = nil
-    local relative = path ~= nil and path:sub(#root + 2) or ""
+    local relative = if path ~= nil then path:sub(#root + 2) else "" end
     if path == nil or not within(path, root) then
       reason = "it lies outside the project's root"
     elseif relative == "o" or relative:sub(1, 2) == "o/" then

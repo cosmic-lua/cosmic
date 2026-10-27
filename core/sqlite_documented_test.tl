@@ -37,7 +37,7 @@ local function documented(): {string:boolean}
   assert(from > 0, GUIDE .. " has no collations heading")
   for where, name in text:gmatch("\n%- `()([^`(]+)") do
     local in_collations = (where as integer) > from and (where as integer) < to
-    names[in_collations and collation(name:lower()) or name:lower()] = true
+    names[if in_collations then collation(name:lower()) else name:lower() end] = true
   end
   return names
 end

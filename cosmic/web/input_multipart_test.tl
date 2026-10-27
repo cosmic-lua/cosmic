@@ -579,7 +579,7 @@ local function test_a_long_filename_is_cut_to_its_last_component_in_linear_time(
     local read = Input.multipart(req, { dir = tmp, max_parts = 200, max_files = 200 })
     local invalid = read.invalid
     local value = read.value
-    assert(value ~= nil, invalid ~= nil and invalid.message or "no value")
+    assert(value ~= nil, if invalid ~= nil then invalid.message else "no value" end)
     for _, up in ipairs(value.files["f"]) do names[#names + 1] = up.filename end
     return Web.empty()
   end)

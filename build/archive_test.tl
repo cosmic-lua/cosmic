@@ -864,7 +864,7 @@ local function both_ways(tmp: string, name: string, bytes: string, words: {strin
     prepare(dest)
     local argv: mut {string} = { "extract", if from == "file" then (tmp .. "/" .. name) else "-" end, "-C", dest }
     for _, word in ipairs(words) do argv[#argv + 1] = word end
-    results[slot] = run(argv, from == "stdin" and bytes or nil)
+    results[slot] = run(argv, if from == "stdin" then bytes else nil end)
     trees[slot] = tree_of(tmp .. "/" .. from)
   end
   return results[1], results[2], trees[1], trees[2]

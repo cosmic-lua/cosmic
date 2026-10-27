@@ -46,15 +46,15 @@ local function test_a_bundle_parses_back_or_is_refused(tmp: string)
       local ders: mut {string} = {}
       local blocks: mut {string} = { "## Bundle", "" }
       while Fuzz.more(src, #ders, 6) do
-        local der = src:int(0, 2) == 0 and real or
-          sequence(Fuzz.bytes(src, 300) .. ("c"):rep(src:int(0, 1) * 200))
+        local der = if src:int(0, 2) == 0 then real else
+          sequence(Fuzz.bytes(src, 300) .. ("c"):rep(src:int(0, 1) * 200)) end
         ders[#ders + 1] = der
         blocks[#blocks + 1] = block(der, "Root " .. #ders)
         blocks[#blocks + 1] = ""
       end
       local text = table.concat(blocks, "\n")
       local mutated = Fuzz.mutate(src, text, 3)
-      return Fuzz.pack({ mutated, mutated == text and table.concat(ders, "\0\0") or "" })
+      return Fuzz.pack({ mutated, if mutated == text then table.concat(ders, "\0\0") else "" end })
     end,
     check = function(input: string): boolean, string
       local fields = Fuzz.unpack(input)

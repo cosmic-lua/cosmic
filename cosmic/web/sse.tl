@@ -376,7 +376,7 @@ function Body.read(self: Body, max_bytes?: integer): string?, string
     self.prologue = ""
   end
   while self.pending == "" do
-    local timeout = self.heartbeat_ns > 0 and self.heartbeat_ns or nil
+    local timeout = if self.heartbeat_ns > 0 then self.heartbeat_ns else nil end
     local self_deadline = self.deadline
     if self_deadline ~= nil then
       local left = self_deadline - Clock.monotonic_ns()
@@ -640,7 +640,7 @@ function State.publish(self: State, name: string, ev: Sse.Event): integer
   -- from before a restart can match an unrelated event. That stays: the
   -- rings are lost with the process anyway, and an app whose clients must
   -- resume across restarts publishes ids of its own.
-  local kept: Sse.Event = { id = (ev_id ~= nil and ev_id ~= "") and ev_id or tostring(self.seq), event = ev.event, data = ev.data,
+  local kept: Sse.Event = { id = if (ev_id ~= nil and ev_id ~= "") then ev_id else tostring(self.seq) end, event = ev.event, data = ev.data,
     retry = ev.retry, comment = ev.comment }
   local topic = topic_of(self, name)
   if self.replay > 0 then

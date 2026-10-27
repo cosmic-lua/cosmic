@@ -65,7 +65,7 @@ local function binds(source: string): string
     local bound = n.binding
     local v = if bound ~= nil then case.scoped.vars[bound] else nil end
     if n.binding ~= nil or case.scoped.globals[n.text] ~= nil then
-      out[#out + 1] = n.text .. " " .. at(case, n.first) .. " -> " .. (v ~= nil and at(case, v.declared) or "global")
+      out[#out + 1] = n.text .. " " .. at(case, n.first) .. " -> " .. (if v ~= nil then at(case, v.declared) else "global" end)
     end
   end
   return table.concat(out, "; ")

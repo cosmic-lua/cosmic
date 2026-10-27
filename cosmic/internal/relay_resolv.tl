@@ -114,7 +114,7 @@ function resolv.nameservers(resolv_conf?: string): {resolv.Endpoint}?, string
     end
   end
   if #servers == 0 then
-    return nil, skipped ~= "" and skipped or "net: the resolver lists no name server"
+    return nil, if skipped ~= "" then skipped else "net: the resolver lists no name server" end
   end
   return servers, ""
 end
@@ -152,14 +152,14 @@ local function run(name: string, request: resolv.Request): {raw_socket.Resolved}
         connection.release()
       else
         if trouble == Poll.CANCELLED then return nil, trouble end
-        local _, _ = lookup:supply(want.id, nil, trouble == Poll.TIMEOUT and raw.ETIMEDOUT or 0)
+        local _, _ = lookup:supply(want.id, nil, if trouble == Poll.TIMEOUT then raw.ETIMEDOUT else 0 end)
       end
     end
     if #wants == 0 then
       local left = if deadline ~= nil then deadline - Clock.monotonic_ns() else nil end
       if left ~= nil and left <= 0 then return nil, Poll.TIMEOUT end
       local wait_ns = left
-      local timer_ns = timer_ms >= 0 and Clock.ms(timer_ms) or Clock.ms(100)
+      local timer_ns = if timer_ms >= 0 then Clock.ms(timer_ms) else Clock.ms(100) end
       if wait_ns == nil or timer_ns < wait_ns then wait_ns = timer_ns end
       if in_task then
         if #fds == 0 then

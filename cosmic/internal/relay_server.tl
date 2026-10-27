@@ -562,7 +562,7 @@ end
 --- The first wait of a connection, from its first read: with a token, the
 --- head or greeting and its credential are one wait, the auth timeout's.
 local function first_wait(run: Running): integer
-  return run.token_digest ~= nil and run.timeouts.auth or run.timeouts.head
+  return if run.token_digest ~= nil then run.timeouts.auth else run.timeouts.head end
 end
 
 --- The request of a CONNECT connection, or a refusal to answer it with.
@@ -860,7 +860,7 @@ local function connect_any(run: Running, addresses: {string}, port: integer, dea
   local failures: mut {string} = {}
   local last: Refusal?
   for i, address in ipairs(addresses) do
-    local left = i == 1 and run.timeouts.connect or deadline - Clock.monotonic_ns()
+    local left = if i == 1 then run.timeouts.connect else deadline - Clock.monotonic_ns() end
     if left <= 0 then
       failures[#failures + 1] = ("%s: %s"):format(target(address, port), "no time left")
       last = connect_failure(label .. target(address, port), Poll.TIMEOUT)
@@ -1118,9 +1118,9 @@ local function serve_connection(run: Running, protocol: string, client: Net.Conn
     local data, why = read_before(client, reading_until, 1)
     if data == nil or data == "" then
       run.refused = run.refused + 1
-      run.log(("#%d mixed: refused: %s"):format(id, why == Poll.TIMEOUT and
-          ("nothing received within %s"):format(span(first_wait(run))) or
-          "the program closed before its request was whole"))
+      run.log(("#%d mixed: refused: %s"):format(id, if why == Poll.TIMEOUT then
+        ("nothing received within %s"):format(span(first_wait(run))) else
+        "the program closed before its request was whole" end))
       close_refused(client)
       return
     end
@@ -1138,7 +1138,7 @@ local function serve_connection(run: Running, protocol: string, client: Net.Conn
     if run.token_digest ~= nil then
       local password, why = basic_password(head.authorization)
       if password == nil or not is_token(run, password) then
-        reject(refusal("not authenticated: " .. (why ~= "" and why or "the password is not the sandbox's token"),
+        reject(refusal("not authenticated: " .. (if why ~= "" then why else "the password is not the sandbox's token" end),
           407, "failure"), true)
         return
       end
@@ -1237,7 +1237,7 @@ local function serve_connection(run: Running, protocol: string, client: Net.Conn
     local _, _ = far:close()
     return
   end
-  local ok = send(client, protocol == "connect" and Wire.connect_ok() or Wire.socks_reply("succeeded"), run.timeouts.head)
+  local ok = send(client, if protocol == "connect" then Wire.connect_ok() else Wire.socks_reply("succeeded") end, run.timeouts.head)
   if not ok then
     run.log(("#%d %s %s: the program went away before the reply"):format(id, protocol, shown))
     local _, _ = far:close()
@@ -1425,7 +1425,7 @@ function Relay.start(spec: Relay.Spec): Relay.Serving
   local spec_token = spec.token
   local run: Running = {
     spec = spec, names = names, own = Address.own_addresses(spec.own_addresses or {}), timeouts = timeouts,
-    limits = limits, tls_ports = tls, token_digest = spec_token ~= nil and Hash.sha256(spec_token) or nil,
+    limits = limits, tls_ports = tls, token_digest = if spec_token ~= nil then Hash.sha256(spec_token) else nil end,
     log = function(line: string)
       -- A line carries what the program chose (a refused version, a resolver's
       -- words), so it is cut to a length and its control bytes shown as "?".

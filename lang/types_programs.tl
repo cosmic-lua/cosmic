@@ -309,7 +309,7 @@ build = function(c: Cursor, depth: integer): Types.Type
   elseif n == 19 then
     local a = build(c, depth + 1)
     -- Often the same type twice, which a type that shares its parts is made of.
-    local b = pick(c, 3) == 0 and a or build(c, depth + 1)
+    local b = if pick(c, 3) == 0 then a else build(c, depth + 1) end
     return store:named(c.fixture.decls["Pair"], { a, b })
   end
   return a_function(c, depth)

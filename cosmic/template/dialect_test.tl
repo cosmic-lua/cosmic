@@ -34,7 +34,7 @@ end
 
 local function class_of(table_: dialect.Table, attr: string): string
   local rule = table_:classify(attr)
-  return rule ~= nil and rule.class or "plain"
+  return if rule ~= nil then rule.class else "plain" end
 end
 
 local function test_the_htmx_table_is_what_is_pinned_here()

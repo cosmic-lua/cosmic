@@ -377,7 +377,7 @@ local function test_a_connect_waits_at_most_the_ceiling()
       -- A call asking for 5 seconds, and one asking for nothing.
       for _, asked in ipairs({ "5 s", "no timeout" }) do
         local started = Clock.monotonic_ns()
-        local conn, why = dial(connector, "127.0.0.1", port, asked == "5 s" and Clock.seconds(5) or nil)
+        local conn, why = dial(connector, "127.0.0.1", port, if asked == "5 s" then Clock.seconds(5) else nil end)
         local elapsed = Clock.monotonic_ns() - started
         assert(conn == nil and why == Poll.TIMEOUT, name .. ": " .. tostring(why))
         assert(elapsed < Clock.seconds(2), name .. " asked for " .. asked .. " and waited " .. elapsed // Clock.ms(1) .. " ms")

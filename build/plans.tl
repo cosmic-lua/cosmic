@@ -699,8 +699,8 @@ function plans.collect(db: Sqlite.Handle): {Module}?, string
       source = source,
       source_hash = source_hash,
       requires = requires[source_hash] or {},
-      tests = kind == "test" and (tests[source_hash] or {}) or
-        kind == "example" and (examples[source_hash] or {}) or
+      tests = if kind == "test" then (tests[source_hash] or {}) else
+        kind == "example" and (examples[source_hash] or {}) end or
         {},
       inputs = inputs,
       has_top_level_return = has_return == "1",

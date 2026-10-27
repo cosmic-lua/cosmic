@@ -463,8 +463,8 @@ local function read_digits(cur: Cursor, most: integer, what: string, least?: int
     at = at + 1
   end
   if at - first < (least or most) then
-    fail(cur, ("%s: expected %s at byte %d"):format(what, least == nil and
-        String.counted(most, "digit") or "a number", first))
+    fail(cur, ("%s: expected %s at byte %d"):format(what, if least == nil then
+      String.counted(most, "digit") else "a number" end, first))
     return 0
   end
   cur.at = at
@@ -951,7 +951,7 @@ local function parse_tzif(data: string): Rules?, string
 
   local transitions: mut {integer} = {}
   for i = 1, times do
-    local t = size == 8 and i64(data, at) or i32(data, at)
+    local t = if size == 8 then i64(data, at) else i32(data, at) end
     if i > 1 and t <= transitions[i - 1] then
       return nil, ("transition %d at byte %d is not after the one before it"):format(i, at)
     end
@@ -1365,7 +1365,7 @@ end
 --- a moment in range. Raises for a `zone` no function here made.
 function Time.civil(ns: integer, zone?: Time.Zone): Time.Civil
   local s, n = ns // NS, ns % NS
-  local kind = zone ~= nil and kind_at(rules_for(zone), s) or UTC_KIND
+  local kind = if zone ~= nil then kind_at(rules_for(zone), s) else UTC_KIND end
   local c = civil_at(s + kind.offset, n)
   c.offset, c.abbreviation, c.dst = kind.offset, kind.abbreviation, kind.dst
   return c
@@ -1709,7 +1709,7 @@ local function parse(text: string): Time.Zoned?, string
   date_into(cur, c)
   expect(cur, "T", "between the date and the time")
   clock_into(cur, c)
-  c.ns = accept(cur, ".") and read_fraction(cur) or 0
+  c.ns = if accept(cur, ".") then read_fraction(cur) else 0 end
   local why = cur.why
   if why ~= nil then return nil, why end
   local offset = 0
@@ -1778,7 +1778,7 @@ local function parse(text: string): Time.Zoned?, string
   finish(cur)
   local cur_why = cur.why
   if cur_why ~= nil then return nil, cur_why end
-  if named == nil then named = unknown and Time.UTC or fixed_zone(offset) end
+  if named == nil then named = if unknown then Time.UTC else fixed_zone(offset) end end
   return { ns = ns, zone = named }, ""
 end
 
@@ -1906,7 +1906,7 @@ function Time.parse_http(text: string): integer?, string
     expect(cur, " ", "after the day name")
     c.month = name_of(cur, MONTHS, "a month name")
     expect(cur, " ", "after the month")
-    c.day = accept(cur, " ") and read_digits(cur, 1, "day") or read_digits(cur, 2, "day")
+    c.day = if accept(cur, " ") then read_digits(cur, 1, "day") else read_digits(cur, 2, "day") end
     expect(cur, " ", "after the day")
     clock_into(cur, c)
     expect(cur, " ", "after the time")

@@ -72,7 +72,7 @@ end
 local function random_bytes(src: Fuzz.Source, count: integer): {integer}
   local out: mut {integer} = {}
   for i = 1, count do
-    out[i] = src:int(0, 3) == 0 and src:int(0, 255) or Fuzz.pick(src, { 0, 1, 127, 128, 254, 255, src:int(0, 255) })
+    out[i] = if src:int(0, 3) == 0 then src:int(0, 255) else Fuzz.pick(src, { 0, 1, 127, 128, 254, 255, src:int(0, 255) }) end
   end
   return out
 end
@@ -90,7 +90,7 @@ local function gen_address(src: Fuzz.Source): string
   end
   local first, last = span(Fuzz.pick(src, DENIED))
   if kind == 3 or kind == 4 then
-    return packed(moved(src:int(0, 1) == 0 and first or last, src:int(-2, 2)))
+    return packed(moved(if src:int(0, 1) == 0 then first else last end, src:int(-2, 2)))
   end
   if kind == 5 then
     local inside: mut {integer} = {}

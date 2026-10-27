@@ -61,9 +61,9 @@ local function run(code: {Insn}, architecture: integer, number: integer, args: {
     elseif insn.code == 0x05 then
       pc = pc + insn.k
     elseif insn.code == 0x15 then
-      pc = pc + (a == insn.k and insn.jt or insn.jf)
+      pc = pc + (if a == insn.k then insn.jt else insn.jf end)
     elseif insn.code == 0x35 then
-      pc = pc + (a >= insn.k and insn.jt or insn.jf)
+      pc = pc + (if a >= insn.k then insn.jt else insn.jf end)
     elseif insn.code == 0x06 then
       return insn.k
     else

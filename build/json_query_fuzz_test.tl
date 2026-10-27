@@ -50,7 +50,7 @@ local function test_every_flattened_path_reads_back_and_is_selectable(tmp: strin
     check = function(packed: string): boolean, string
       local fields = Fuzz.unpack(packed)
       -- Without `null_value`, a null in an array is a hole.
-      local doc = Json.decode(fields[1], { null_value = fields[2] == "nulls" and Json.null or nil })
+      local doc = Json.decode(fields[1], { null_value = if fields[2] == "nulls" then Json.null else nil end })
       local ok, leaves, err = pcall(json_query.flatten, doc)
       if not ok then return false, "raised: " .. tostring(leaves) end
       if leaves == nil then return false, "failed: " .. err end

@@ -47,7 +47,7 @@ end
 
 local function exempting(which: string, keys: {string}): Rules.Exemptions
   local out: Rules.Exemptions = { exempt = {}, parsing = {}, casts = {}, modes = {} }
-  local named: mut {string: string} = which == "exempt" and out.exempt or which == "parsing" and out.parsing or
+  local named: mut {string: string} = if which == "exempt" then out.exempt else which == "parsing" and out.parsing end or
     which == "modes" and out.modes or out.casts
   for _, key in ipairs(keys) do
     named[key] = "a test's own exemption"

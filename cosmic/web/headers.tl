@@ -146,7 +146,7 @@ function Headers.middleware(opts?: Headers.Options): Types.Middleware
   local fixed: mut {{string}} = {}
   if opts.nosniff ~= false then fixed[#fixed + 1] = { "X-Content-Type-Options", "nosniff" } end
   local function add(name: string, value: string?, default: string)
-    local text = plain(value == nil and default or value, name)
+    local text = plain(if value == nil then default else value end, name)
     if text ~= "" then fixed[#fixed + 1] = { name, text } end
   end
   add("Referrer-Policy", opts.referrer_policy, "strict-origin-when-cross-origin")
@@ -215,7 +215,7 @@ function Headers.middleware(opts?: Headers.Options): Types.Middleware
         adds[#adds + 1] = { "Strict-Transport-Security", hsts }
       end
       if policy ~= nil and Response.header(res, csp_name) == nil then
-        adds[#adds + 1] = { csp_name, fixed_csp or Csp.format(policy, nonce ~= "" and nonce or nil) }
+        adds[#adds + 1] = { csp_name, fixed_csp or Csp.format(policy, if nonce ~= "" then nonce else nil end) }
       end
       if draw then
         local cache = Response.header(res, "Cache-Control")

@@ -373,7 +373,7 @@ function verb.run(argv: {string}, io?: verb.Io): integer
       end
     elseif command == "token" then
       local bytes = secret(request.bytes)
-      local text = request.encoding == "hex" and Codec.hex(bytes) or Codec.base64url(bytes)
+      local text = if request.encoding == "hex" then Codec.hex(bytes) else Codec.base64url(bytes) end
       if not emit(text) then
         return 2
       end

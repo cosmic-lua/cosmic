@@ -17,7 +17,7 @@ end
 function plural.noun(count: integer, singular: string, several?: string): string
   -- TODO: once cosmic.string has a helper for the noun without its count,
   -- delegate to it as `count` does, so the plural rule is written once.
-  return count == 1 and singular or several or singular .. "s"
+  return if count == 1 then singular else several end or singular .. "s"
 end
 
 return plural

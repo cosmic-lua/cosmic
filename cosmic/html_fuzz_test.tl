@@ -25,7 +25,7 @@ local TOKENS <const> = { "<", ">", "&", '"', "'", " ", "=", "`", "/", "\0", "\n"
 local function gen_text(src: Fuzz.Source): string
   local parts: mut {string} = {}
   while Fuzz.more(src, #parts, 16) do
-    parts[#parts + 1] = src:int(0, 3) == 0 and Fuzz.bytes(src, 3) or Fuzz.pick(src, TOKENS)
+    parts[#parts + 1] = if src:int(0, 3) == 0 then Fuzz.bytes(src, 3) else Fuzz.pick(src, TOKENS) end
   end
   return table.concat(parts)
 end
@@ -149,7 +149,7 @@ local function gen_url(src: Fuzz.Source): string
     parts[1] = Fuzz.pick(src, SCHEMES) .. ":"
   end
   while Fuzz.more(src, #parts, 12) do
-    parts[#parts + 1] = src:int(0, 5) == 0 and Fuzz.bytes(src, 2) or Fuzz.pick(src, URL_TOKENS)
+    parts[#parts + 1] = if src:int(0, 5) == 0 then Fuzz.bytes(src, 2) else Fuzz.pick(src, URL_TOKENS) end
   end
   return table.concat(parts)
 end
@@ -160,7 +160,7 @@ local ALLOWED_SCHEMES <const>: {string: boolean} = { http = true, https = true, 
 --- start: a letter, then letters, digits, `+`, `-` or `.`, then `:`.
 local function scheme_of(text: string): string?
   local name = text:match("^(%a[%w+.%-]*):")
-  return name ~= nil and name:lower() or nil
+  return if name ~= nil then name:lower() else nil end
 end
 
 --- Whether `text` is a safe URL by the browser's rules: it
@@ -220,7 +220,7 @@ local function gen_part(src: Fuzz.Source): string
   if src:int(0, 7) == 0 then return Fuzz.pick(src, { ".", ".." }) end
   local parts: mut {string} = {}
   while Fuzz.more(src, #parts, 6) do
-    parts[#parts + 1] = src:int(0, 3) == 0 and Fuzz.bytes(src, 3) or Fuzz.pick(src, PART_TOKENS)
+    parts[#parts + 1] = if src:int(0, 3) == 0 then Fuzz.bytes(src, 3) else Fuzz.pick(src, PART_TOKENS) end
   end
   return table.concat(parts)
 end

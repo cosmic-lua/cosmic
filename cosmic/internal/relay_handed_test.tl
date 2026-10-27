@@ -236,7 +236,7 @@ local function answer(query: string): string
   if qtype ~= TYPE_A then
     return string.pack(">I2I2I2I2I2I2", id, 0x8180, 1, 0, 0, 0) .. head
   end
-  local data = name == "proxy.test" and string.char(127, 0, 0, 1) or string.char(192, 0, 2, 7)
+  local data = if name == "proxy.test" then string.char(127, 0, 0, 1) else string.char(192, 0, 2, 7) end
   return string.pack(">I2I2I2I2I2I2", id, 0x8180, 1, 1, 0, 0) .. head ..
     string.pack(">I2I2I2I4s2", 0xC00C, qtype, 1, 60, data)
 end

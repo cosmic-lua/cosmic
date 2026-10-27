@@ -346,7 +346,7 @@ function shared_verdicts.census_line(held: {shared_verdicts.Held}): string
   for _, group in ipairs(held) do
     groups[#groups + 1] = string.format("%d %s under %s", group.rows,
       plural.noun(group.rows, "row"),
-      group.parts ~= "" and group.parts or "no parts named")
+      if group.parts ~= "" then group.parts else "no parts named" end)
   end
   return "test: census: " .. table.concat(groups, "; ")
 end

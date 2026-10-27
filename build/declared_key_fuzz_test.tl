@@ -133,7 +133,7 @@ local function draw_spec(src: Fuzz.Source): Drawn
   end
   for _, name in ipairs(LISTS) do
     local list: mut {string} = {}
-    local alphabet = is_map(name) and ALPHABET or PATH_ALPHABET
+    local alphabet = if is_map(name) then ALPHABET else PATH_ALPHABET end
     while Fuzz.more(src, #list, 6) do list[#list + 1] = draw_string(src, alphabet, 1) end
     -- The environment is names and values in turn.
     if is_map(name) and #list % 2 == 1 then list[#list + 1] = "" end
@@ -198,7 +198,7 @@ local function edit(src: Fuzz.Source, d: Drawn): Drawn
     else
       -- One added.
       for _ = 1, step do
-        list[#list + 1] = draw_string(src, is_map(name) and ALPHABET or PATH_ALPHABET, 1)
+        list[#list + 1] = draw_string(src, if is_map(name) then ALPHABET else PATH_ALPHABET end, 1)
       end
     end
     if is_map(name) and #list % 2 == 1 then list[#list + 1] = "" end
@@ -258,7 +258,7 @@ local function test_distinct_specs_spell_distinct_preimages(tmp: string)
     gen = function(src: Fuzz.Source): string
       local one = draw_spec(src)
       local shifted = src:int(0, 1) == 0
-      local other = shifted and shift(src, one) or edit(src, one)
+      local other = if shifted then shift(src, one) else edit(src, one) end
       return Fuzz.pack({ if shifted then "shift" else "edit" end, pack(one), pack(other) })
     end,
     check = function(input: string): boolean, string

@@ -18,7 +18,7 @@ local SIZES <const>: {integer} = { 16, 20, 28, 32, 48, 64 }
 local function gen_entries(src: Fuzz.Source): string
   local fields: mut {string} = { tostring(Fuzz.pick(src, SIZES)) }
   while Fuzz.more(src, #fields - 1, 6) do
-    fields[#fields + 1] = src:int(0, 2) == 0 and Fuzz.bytes(src, 6) or Fuzz.pick(src, NAMES)
+    fields[#fields + 1] = if src:int(0, 2) == 0 then Fuzz.bytes(src, 6) else Fuzz.pick(src, NAMES) end
   end
   return Fuzz.pack(fields)
 end
@@ -82,7 +82,7 @@ local function gen_text(src: Fuzz.Source): string
   if src:int(0, 3) == 0 then
     local parts: mut {string} = {}
     while Fuzz.more(src, #parts, 20) do
-      parts[#parts + 1] = src:int(0, 3) == 0 and Fuzz.bytes(src, 3) or Fuzz.pick(src, TOKENS)
+      parts[#parts + 1] = if src:int(0, 3) == 0 then Fuzz.bytes(src, 3) else Fuzz.pick(src, TOKENS) end
     end
     return table.concat(parts)
   end

@@ -168,7 +168,7 @@ function invoke.run(args: {string}, opts: invoke.Options): invoke.Result
         -- uncaught error -- its source position and the catalog's
         -- guidance (core/main.c's `failed`) -- once a binding hands them
         -- to Lua.
-        local message = (answer is string or answer is number) and tostring(answer) or "failed"
+        local message = if (answer is string or answer is number) then tostring(answer) else "failed" end
         logger.log:complain(message)
         return
       end

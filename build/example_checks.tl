@@ -55,8 +55,8 @@ local function chunk(name: string, source: string): string
   if at ~= nil and source:sub(at, at) == "\n" then
     at = at + 1
   end
-  local head = at ~= nil and source:sub(1, at - 1) or ""
-  local rest = at ~= nil and source:sub(at) or source
+  local head = if at ~= nil then source:sub(1, at - 1) else "" end
+  local rest = if at ~= nil then source:sub(at) else source end
   return head .. "local record Example end " .. rest .. "\nExample." .. name .. "()\n"
 end
 

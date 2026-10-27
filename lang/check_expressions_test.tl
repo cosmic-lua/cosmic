@@ -23,7 +23,7 @@ local function refused(source: string, codes: string, msg?: string, fix?: string
   local r = Programs.run(source)
   assert(#r.before == 0, table.concat(r.before, " ") .. " in\n" .. source)
   assert(Programs.codes(r) == codes, "wanted " .. codes .. ", got " .. Programs.codes(r) .. " in\n" .. source .. "\n" ..
-      (r.errors[1] ~= nil and r.errors[1].msg or ""))
+      (if r.errors[1] ~= nil then r.errors[1].msg else "" end))
   if msg ~= nil then
     assert(has(r.errors[1].msg, msg), r.errors[1].msg .. "\nwanted " .. msg)
   end
@@ -63,7 +63,7 @@ local function total(s: Circle | Square): number
   return a + b
 end
 ]])
-  assert(#r.before == 0 and #r.errors == 0, Programs.codes(r) .. (r.errors[1] ~= nil and r.errors[1].msg or ""))
+  assert(#r.before == 0 and #r.errors == 0, Programs.codes(r) .. (if r.errors[1] ~= nil then r.errors[1].msg else "" end))
   assert(Types.display(Programs.var(r, "b")) == "number")
 end
 

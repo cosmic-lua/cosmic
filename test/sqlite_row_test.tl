@@ -182,7 +182,7 @@ local function test_map_builds_a_record_per_row()
       "INSERT INTO t VALUES ('a', 1, NULL), ('b', 2, 'two'), ('c', 3, 'three')"))
   local found = assert(Sqlite.map(db, "SELECT name, n, note FROM t WHERE n > ?1 ORDER BY n",
     { { integer = 1 } }, function(r: Sqlite.Row): Entry
-      return { name = r:text(1), n = r:integer(2), note = not r:is_null(3) and r:text(3) or nil }
+      return { name = r:text(1), n = r:integer(2), note = if not r:is_null(3) then r:text(3) else nil end }
     end))
   assert(#found == 2)
   assert(found[1].name == "b" and found[1].n == 2 and found[1].note == "two")

@@ -448,7 +448,7 @@ local function sensitive(root: string, cwd: string, file: string, variant: c.Var
     if found or next(stack) == nil then memo[path] = found end
     return found
   end
-  return visit(file:sub(1, 1) == "/" and file or cwd .. "/" .. file, {})
+  return visit(if file:sub(1, 1) == "/" then file else cwd .. "/" .. file end, {})
 end
 
 --- Checks every one of `files`, paths relative to `cwd` (by default
@@ -703,7 +703,7 @@ function c.check(root: string, files: {string}, cwd?: string, limit?: integer, s
     -- A file that could not be read refers to what is not known: its
     -- own trouble is the finding, rather than guesses about the rest.
     local known = #every == #files
-    for _, f in ipairs(known and rules.single_file(every) or {}) do
+    for _, f in ipairs(if known then rules.single_file(every) else {} end) do
       for _, u in ipairs(every) do
         local o = by_file[u.file]
         if u.defines[f.within] ~= nil then

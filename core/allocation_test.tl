@@ -889,7 +889,7 @@ local function test_sqlite_existing_only_open_releases_every_refused_allocation(
   local statements = testing.open_statements()
   local bytes, blocks = testing.c_heap()
   for _, present in ipairs({ true, false }) do
-    local target = present and path or tmp .. "/missing.db"
+    local target = if present then path else tmp .. "/missing.db" end
     local ended = under_every_failure(function()
       local db, why = Sqlite.open(target, { writable = true, create = false })
       if present then
@@ -923,7 +923,7 @@ local function test_full_fsync_preserves_its_descriptor_under_allocation_failure
   assert(sys.close(fd))
   under_every_failure(function()
     local ok, why, errno = sys.full_fsync(fd)
-    assert(ok == false and why ~= "" and errno == (darwin and sys.EBADF or sys.ENOSYS))
+    assert(ok == false and why ~= "" and errno == (if darwin then sys.EBADF else sys.ENOSYS end))
   end)
 end
 

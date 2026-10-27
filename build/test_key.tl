@@ -642,8 +642,8 @@ local function view_of(rec: Recording, m: Module): {string:string}
   local view = rec.views[m.path]
   if view == nil then
     local effective = rec.effective[m.path]
-    view = rec.sandbox and test_sandbox.environment(worker_view(), effective) or
-      test_sandbox.unenforced_view(worker_view(), effective)
+    view = if rec.sandbox then test_sandbox.environment(worker_view(), effective) else
+      test_sandbox.unenforced_view(worker_view(), effective) end
     rec.views[m.path] = view
   end
   return view
@@ -677,7 +677,7 @@ local function caches_of(rec: Recording, m: Module): {string}
   local found = rec.caches[m.path]
   if found == nil then
     local declared = m.inputs
-    found = declared ~= nil and host_caches.all(declared.caches or {}, rec.root, worker_view()) or {}
+    found = if declared ~= nil then host_caches.all(declared.caches or {}, rec.root, worker_view()) else {} end
     rec.caches[m.path] = found
   end
   return found
@@ -908,14 +908,14 @@ local function declared_of(rec: Recording, m: Module, id: string): string?
     system = rec.system,
     epoch = rec.epoch, timeout_ns = rec.timeout_ns,
     -- Held only where the key holds the program ([`declared_key.compute`]).
-    program = (effective.tool or runs_tool) and program_of(rec) or nil,
+    program = if (effective.tool or runs_tool) then program_of(rec) else nil end,
     launcher = if seals(rec, m) then (assert(rec.core) .. "\0" .. extras_digest(rec)) else rec.launcher end,
     declaration = test_inputs.canonical(m.inputs), effective = effective,
     requires = rec.answered[m.path],
     environment = view_of(rec, m), runs_tool = runs_tool,
     closure_store = store,
     -- Unsandboxed, its worker sees the tree where it is (`launch`).
-    tree = not rec.sandbox and rec.root or nil,
+    tree = if not rec.sandbox then rec.root else nil end,
   })
   if key == nil then rec.unkeyed[m.path] = why end
   return key
@@ -1156,7 +1156,7 @@ local function store_at(rec: Recording, address: string, names: {string},
       rec.writing_ns = rec.writing_ns + (Clock.monotonic_ns() - started)
       local wrote, _ = sys.stat(path)
       rec.written = rec.written + 1
-      rec.written_bytes = rec.written_bytes + (wrote ~= nil and wrote.size or 0)
+      rec.written_bytes = rec.written_bytes + (if wrote ~= nil then wrote.size else 0 end)
     end
   end
   rec.built[address] = path
@@ -1570,8 +1570,8 @@ local function address_digest(rec: Recording, address: string, names: {string},
   local started = Clock.monotonic_ns()
   rec.store_names[address] = names
   rec.store_bases[address] = base
-  local path = stores_directory(rec.root) .. "/" .. (base and base_name(address) or
-    (address .. ".db"))
+  local path = stores_directory(rec.root) .. "/" .. (if base then base_name(address) else
+    (address .. ".db") end)
   local digest: string? = nil
   local there, _ = sys.stat(path)
   if rec.built[address] == nil and there == nil then
@@ -1637,7 +1637,7 @@ local function verify_sample(rec: Recording)
       ", written again to check it: " .. trouble
   else
     local data, read_trouble = Fs.read(path)
-    local digest = data ~= nil and hex_sha256(data) or ("unreadable: " .. read_trouble)
+    local digest = if data ~= nil then hex_sha256(data) else ("unreadable: " .. read_trouble) end
     local kept = rec.store_digests[address]
     if digest ~= kept and not rec.store_mismatched[address] then
       rec.store_mismatched[address] = true
@@ -2167,7 +2167,7 @@ function test_key.persist_digests(records: Sqlite.Handle, rec: Recording,
   if digests ~= nil and digests.read > 0 then
     local kept, keep_trouble = true, ""
     if whole then kept, keep_trouble = records:exec("DELETE FROM digests") end
-    for _, row in ipairs(kept and declared_key.kept(digests) or {}) do
+    for _, row in ipairs(if kept then declared_key.kept(digests) else {} end) do
       if kept then
         kept, keep_trouble = Sqlite.run(records,
           "INSERT OR REPLACE INTO digests (path, signature, sha256) VALUES (?1, ?2, ?3)",

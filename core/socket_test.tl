@@ -279,7 +279,7 @@ local function test_a_full_unix_backlog_refuses_a_connection_at_once(tmp: string
     if client == nil then break end
     held[#held + 1] = client
   end
-  local want = assert(sys.uname()).sysname == "Darwin" and raw.ECONNREFUSED or raw.EAGAIN
+  local want = if assert(sys.uname()).sysname == "Darwin" then raw.ECONNREFUSED else raw.EAGAIN end
   local began = Clock.monotonic_ns()
   local client, why, errno = raw.connect(unix(path), 20000)
   assert(Clock.monotonic_ns() - began < Clock.seconds(10), "the connection waited for room")

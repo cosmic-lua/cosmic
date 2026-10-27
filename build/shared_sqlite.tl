@@ -47,7 +47,7 @@ local function to_wal(db: Sqlite.Handle, wait_ns: integer): boolean, string
     local result = text_rows_result(db, "PRAGMA journal_mode = WAL")
     local rows = result.rows
     if rows ~= nil then
-      local mode = rows[1] ~= nil and rows[1]:text(1) or ""
+      local mode = if rows[1] ~= nil then rows[1]:text(1) else "" end
       if mode ~= "wal" then return false, "journal mode is " .. mode .. ", not wal" end
       return true, ""
     end

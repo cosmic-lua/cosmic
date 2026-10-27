@@ -300,7 +300,7 @@ local function workflow_sources(dir: string, root: string): {string}?, string
   if not within and inside ~= "." then
     return {}
   end
-  local base = within and dir or dir .. "/.github"
+  local base = if within then dir else dir .. "/.github" end
   local prefix = if within then "" else ".github/" end
   local st, _ = Fs.stat(base)
   if st == nil or st.kind ~= "dir" then

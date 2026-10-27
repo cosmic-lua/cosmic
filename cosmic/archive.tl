@@ -658,7 +658,7 @@ local function extract_from(from: string | Archive.Reader, dest: string,
       rel = stripped
       parent = stripped:match("^(.*)/")
     else
-      parts = stripped ~= nil and components(stripped) or {}
+      parts = if stripped ~= nil then components(stripped) else {} end
       rel = join(parts, #parts)
       if #parts > 1 then parent = join(parts, #parts - 1) end
     end

@@ -227,7 +227,7 @@ function TermFilter.new(): Filter
   ground = function(b: integer)
     if st.needed > 0 then
       local first = #st.held == 1
-      if b >= (first and st.low or 0x80) and b <= (first and st.high or 0xbf) then
+      if b >= (if first then st.low else 0x80 end) and b <= (if first then st.high else 0xbf end) then
         st.held = st.held .. char(b)
         st.needed = st.needed - 1
         if st.needed == 0 then

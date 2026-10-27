@@ -67,15 +67,15 @@ local function map_fn(
     local narrows = alt.narrows
     rets[i] = {
       items = items,
-      tail = tail ~= nil and on_item(tail) or nil,
+      tail = if tail ~= nil then on_item(tail) else nil end,
       -- `v is T` is invariant in T; `asserts v is T` is covariant.
       narrows = if narrows ~= nil then {
-        param = narrows.param, to = narrows.asserts and on_item(narrows.to) or narrows.to, asserts = narrows.asserts,
+        param = narrows.param, to = if narrows.asserts then on_item(narrows.to) else narrows.to end, asserts = narrows.asserts,
       } else nil end,
     }
   end
   return w.store:fn({
-    params = params, rest = rest ~= nil and on_param(rest) or nil, rets = rets,
+    params = params, rest = if rest ~= nil then on_param(rest) else nil end, rets = rets,
   })
 end
 
@@ -96,7 +96,7 @@ weaken = function(w: World, t: Type, salt: integer): Type
     elseif tag == "nil" then
       result = s:optional(s.string)
     elseif tag == "never" then
-      result = salt % 2 == 0 and s.string or s:array(s.integer)
+      result = if salt % 2 == 0 then s.string else s:array(s.integer) end
     end
   elseif (t.tag == "named") then
     local name = t.decl.name
@@ -286,7 +286,7 @@ local function relation_type(c: Cursor, depth: integer): Type
     end
     return s.string
   elseif n == 12 then
-    return c.mistakes and s.invalid or s.integer
+    return if c.mistakes then s.invalid else s.integer end
   elseif n == 13 then
     return use(c.w, LISTED[pick(c, #LISTED) + 1], { relation_type(c, depth + 1) })
   elseif n == 14 then
@@ -806,7 +806,7 @@ end
 local function crowded(origin: Types.Store): Types.Store
   local store = Types.new(function(module: string, name: string): string?
     local decl = origin:find(module, name)
-    return decl ~= nil and Types.encode_declaration(decl) or nil
+    return if decl ~= nil then Types.encode_declaration(decl) else nil end
   end)
   local _ = store:array(store:optional(store.number))
   local _ = store:map(store.string, store:array(store.integer, true))

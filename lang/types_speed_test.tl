@@ -89,7 +89,7 @@ local FORMS <const>: {string: function(n: integer)} = {
     local store = Types.new()
     local t = store.integer
     for i = 1, n * 3 do
-      t = i % 2 == 0 and store:array(t) or store:optional(store:map(store.string, t))
+      t = if i % 2 == 0 then store:array(t) else store:optional(store:map(store.string, t)) end
     end
     local _ = Types.display(t)
     local _ = Types.digest(t)

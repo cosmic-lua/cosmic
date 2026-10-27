@@ -103,8 +103,8 @@ local function find_name(text: string, name: string, init: integer): integer?, i
     if a == nil or b == nil then
       return nil, nil
     end
-    local before = a > 1 and text:sub(a - 1, a - 1) or ""
-    local after = b < #text and text:sub(b + 1, b + 1) or ""
+    local before = if a > 1 then text:sub(a - 1, a - 1) else "" end
+    local after = if b < #text then text:sub(b + 1, b + 1) else "" end
     if not before:match("[%w_]") and not after:match("[%w_]") then
       return a, b
     end

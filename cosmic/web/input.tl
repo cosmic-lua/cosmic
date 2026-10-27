@@ -743,7 +743,7 @@ function Input.json(req: Types.Request, opts?: Types.InputOptions): Types.Parsed
   end
   local value, why = Json.decode(text, { null_value = Json.null, max_depth = 32 })
   if value == nil then
-    return { invalid = stop(400, "body", "", "json", why ~= "" and why or "the body is not JSON") }
+    return { invalid = stop(400, "body", "", "json", if why ~= "" then why else "the body is not JSON" end) }
   end
   req:set(Input.JSON, value)
   return { value = value }
@@ -939,7 +939,7 @@ bind_record = function(w: Walk, prefix: string, spec: Shape.Spec, depth: integer
   end
   local out: mut {string:any} = {}
   for _, name in ipairs(names) do
-    local field = prefix == "" and name or (prefix .. "." .. name)
+    local field = if prefix == "" then name else (prefix .. "." .. name) end
     out[name] = bind_node(w, field, fields[name], depth)
   end
   return out
@@ -968,7 +968,7 @@ local function check_node(spec: Shape.Spec, field: string, source: string, depth
     end
     local fields = assert(spec.fields)
     for _, name in ipairs(assert(spec.names)) do
-      local trouble = check_node(fields[name], field == "" and name or (field .. "." .. name), source, depth + 1)
+      local trouble = check_node(fields[name], if field == "" then name else (field .. "." .. name) end, source, depth + 1)
       if trouble ~= "" then return trouble end
     end
   elseif kind == "list" then
@@ -1220,7 +1220,7 @@ end
 function Input.fail(req: Types.Request, field: string, message: string, opts?: Types.InputOptions): Types.Invalid
   local q = req:get(Input.FORM)
   local errors: {Types.FieldError} = { { source = "form", field = field, code = "invalid", message = message } }
-  return invalid(422, errors, q ~= nil and without(q, opts and opts.secret) or nil)
+  return invalid(422, errors, if q ~= nil then without(q, opts and opts.secret) else nil end)
 end
 
 --- The messages of `bad` by field, several joined with "; ", for a

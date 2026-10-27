@@ -380,7 +380,7 @@ local function boot(root: string, argv: {string}): integer
   end
 
   local output_directory = slot(9)
-  local output = output_directory ~= nil and build_paths.under(output_directory) or working
+  local output = if output_directory ~= nil then build_paths.under(output_directory) else working end
   local selected_configuration = 1
   local manifest_records = records
   local checked_path = slot(7)

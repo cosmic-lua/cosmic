@@ -608,7 +608,7 @@ local function query_words(query: string): {string}
   if #words > 0 then
     return words
   end
-  return #short > 0 and short or stop
+  return if #short > 0 then short else stop end
 end
 
 --- The first word of `query` a search keeps (see [`query_words`]).
@@ -2120,7 +2120,7 @@ local function listed(item: docs.Entry): string
       shown = "function " .. item.source_symbol .. rest
     end
   end
-  local note = is_call(item) and clipped(first_sentence(item.text), NOTE_LIMIT) or ""
+  local note = if is_call(item) then clipped(first_sentence(item.text), NOTE_LIMIT) else "" end
   return shown .. (if note ~= "" then " -- " .. note else "" end) ..
     (if #marks > 0 then "  (" .. table.concat(marks, ", ") .. ")" else "" end)
 end
@@ -2245,7 +2245,7 @@ end
 --- stands for nothing.
 local function inherited_lines(view: docs.View, entry: docs.Entry): {string}?, string
   local lines: mut {string} = {}
-  local references = entry.symbol ~= "" and alias_members.references(entry) or {}
+  local references = if entry.symbol ~= "" then alias_members.references(entry) else {} end
   if #references == 0 then
     return lines
   end
@@ -2281,7 +2281,7 @@ local function inherited_lines(view: docs.View, entry: docs.Entry): {string}?, s
             values[#values + 1] = "    " .. member_line(member)
           elseif tail ~= nil then
             methods[#methods + 1] = "    " .. name .. "(" ..
-              (tail:sub(1, 2) == ", " and tail:sub(3) or tail) ..
+              (if tail:sub(1, 2) == ", " then tail:sub(3) else tail end) ..
               (if note ~= "" then " -- " .. note else "" end)
           else
             fields[#fields + 1] = "    " .. member_line(member)
@@ -2378,8 +2378,8 @@ function docs.render(view: docs.View, entry: docs.Entry): {string}?, string
   if entry.symbol ~= "" then
     -- `local` says only how the module spelled a declaration it hands
     -- out; a caller reads it as a record like any other.
-    lines[#lines + 1] = "  " .. (entry.exported and entry.signature:gsub("^local ", "") or
-      entry.signature)
+    lines[#lines + 1] = "  " .. (if entry.exported then entry.signature:gsub("^local ", "") else
+      entry.signature end)
   end
   if #entry.related > 0 then
     lines[#lines + 1] = "  related search examples:"
@@ -2444,7 +2444,7 @@ function docs.render(view: docs.View, entry: docs.Entry): {string}?, string
         end
       end
     end
-    pointed = best ~= nil and best.source_symbol or nil
+    pointed = if best ~= nil then best.source_symbol else nil end
   end
   -- The listing goes after the first paragraph, or, when that ends in
   -- a colon, after the run of indented or fenced blocks it introduces
@@ -2635,7 +2635,7 @@ local function page(view: docs.View, found: docs.Lookup,
     lines[#lines + 1] = (#found - whole) .. " more; narrow the search, or look one up by name:"
     for index = whole + 1, #found do
       local entry = found[index]
-      local said = entry.kind == "example" and entry.related[1].text or entry.text
+      local said = if entry.kind == "example" then entry.related[1].text else entry.text end
       local note = clipped(first_sentence(said), LISTED_NOTE)
       lines[#lines + 1] = "  " .. heading(entry) .. (if note ~= "" then " -- " .. note else "" end)
     end
@@ -2655,7 +2655,7 @@ local function index_lines(index: {docs.Summary}, limit?: integer): mut {string}
     local line = summary.module
     if summary.text ~= "" then
       line = line .. string.rep(" ", width - #line + 2) ..
-        (limit ~= nil and clipped(summary.text, limit) or summary.text)
+        (if limit ~= nil then clipped(summary.text, limit) else summary.text end)
     end
     lines[#lines + 1] = line
   end
@@ -2714,7 +2714,7 @@ function docs.answer(view: docs.View, words: {string}): docs.Answer?, string
       hint = "`cosmic docs <module>` shows one (cosmic.fs, or fs), with what it " ..
         "offers; `cosmic docs Fs.read` a symbol; `cosmic docs <words>` searches."
     end
-    local lines = index_lines(index, query ~= "" and NOTE_LIMIT or nil)
+    local lines = index_lines(index, if query ~= "" then NOTE_LIMIT else nil end)
     lines[#lines + 1] = ""
     lines[#lines + 1] = hint
     return { lines = lines, found = true, said = plural.count(#index, "module") }, ""

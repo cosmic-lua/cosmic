@@ -249,7 +249,7 @@ function derivation.packed_parses(db: Sqlite.Handle,
     local by_hash: mut {string:mut {string}} = {}
     local counts: mut {string:integer} = {}
     for _, row in ipairs(rows) do
-      local hash = row:kind(1) == "text" and row:text(1) or ""
+      local hash = if row:kind(1) == "text" then row:text(1) else "" end
       local out = by_hash[hash] or {}
       by_hash[hash] = out
       counts[hash] = (counts[hash] or 0) + 1

@@ -162,7 +162,7 @@ function verb.parse_sums(text: string, digest_size: integer): verb.Sums
       -- blank or a comment
     else
       local escaped = line:sub(1, 1) == "\\"
-      local body = escaped and line:sub(2) or line
+      local body = if escaped then line:sub(2) else line end
       local digest = body:sub(1, width)
       if #digest ~= width or not digest:match("^%x+$") then
         refuse("improperly formatted: no " .. width .. "-digit hex digest")
@@ -424,7 +424,7 @@ function verb.run(argv: {string}, io?: verb.Io): integer
     complain(unread .. " listed " .. (if unread == 1 then "file" else "files" end) .. " could not be read")
   end
   if #sums.bad > 0 then return 2 end
-  return (failed > 0 or unread > 0) and bare.failed or bare.ok
+  return if (failed > 0 or unread > 0) then bare.failed else bare.ok end
 end
 
 --- The `hash` verb as [`build/verb_list.tl`] lists it. Reads the files it

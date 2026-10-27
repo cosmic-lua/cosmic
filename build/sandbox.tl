@@ -637,7 +637,7 @@ local function execute(argv: {string}, io: verb.Io?, held: mut {string}): intege
     local sealing_path = sealing.path
     if sealing_path == nil then
       complain(if sealing.refused then sealing.why .. "; see `cosmic help sandbox`" else sealing.why end)
-      return sealing.refused and bare.refused or START_FAILED
+      return if sealing.refused then bare.refused else START_FAILED end
     end
     database = sealing_path
   end

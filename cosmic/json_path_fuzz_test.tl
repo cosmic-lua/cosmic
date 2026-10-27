@@ -319,7 +319,7 @@ local function selection_holds(input: string): boolean, string
   local fields = Fuzz.unpack(input)
   local text, holes, query = fields[1], fields[2] == "holes", fields[3]
   -- A document of `null` alone decodes to nil: test the message.
-  local doc, derr = Json.decode(text, { null_value = (not holes) and Json.null or nil })
+  local doc, derr = Json.decode(text, { null_value = if (not holes) then Json.null else nil end })
   if derr ~= "" then return false, "a drawn document does not decode: " .. derr end
   local parsed, qerr = Json.query(query)
   if parsed == nil then return false, "a drawn query does not read: " .. qerr end

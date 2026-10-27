@@ -335,8 +335,8 @@ local function answer(s: Serving, conn: Net.Conn, head: wire.Head?, status: inte
   conn:set_timeout(s.timeout_ns)
   local _ = wire.send(conn, {
     status = status, headers = { ["Content-Type"] = "text/plain; charset=utf-8" },
-    body = text .. "\n", close = true, method = head ~= nil and head.method or "GET",
-    version = head ~= nil and head.version or "HTTP/1.1", date = Time.format_http(Clock.now_ns()),
+    body = text .. "\n", close = true, method = if head ~= nil then head.method else "GET" end,
+    version = if head ~= nil then head.version else "HTTP/1.1" end, date = Time.format_http(Clock.now_ns()),
   })
 end
 

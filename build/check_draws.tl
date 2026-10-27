@@ -243,7 +243,7 @@ local function int_expr(g: Gen, v: Vis): string
   end
   if k == 9 and #v.funs > 0 then return Fuzz.pick(g.src, v.funs) .. "(" .. place(g, v) .. ")" end
   if k == 10 and #v.recs > 0 and (#v.rfocus > 0 or (not g.calm and g.src:int(0, 2) == 0)) then
-    local pool = #v.rfocus > 0 and g.src:int(0, 2) > 0 and v.rfocus or v.recs
+    local pool = if #v.rfocus > 0 and g.src:int(0, 2) > 0 then v.rfocus else v.recs end
     return Fuzz.pick(g.src, pool) .. ".n"
   end
   if k == 11 then return "-" .. operand(g, v) end
@@ -371,7 +371,7 @@ local function loop_body(g: Gen, v: Vis, depth: integer, label: string?, facts?:
   g.depth = g.depth + 1
   if g.want_goto or g.src:int(0, 1) == 0 then
     local c = cond(g, inner, 1)
-    add(g, "if " .. c.text .. " then " .. (label ~= nil and (g.want_goto or g.src:int(0, 1) == 0) and jump(g, label) or "break") .. " end")
+    add(g, "if " .. c.text .. " then " .. (if label ~= nil and (g.want_goto or g.src:int(0, 1) == 0) then jump(g, label) else "break" end) .. " end")
   end
   local n = 0
   while g.fuel > 0 and Fuzz.more(g.src, n, 4) do
@@ -729,7 +729,7 @@ end
 --- A test of one place, then something that may clear it, then its uses:
 --- the shape a narrowing must survive or be refused for.
 local function guarded_use(g: Gen, v: Vis, depth: integer)
-  local pool = (g.src:int(0, 1) == 0 or #v.ints == 0) and shared(v) or v.ints
+  local pool = if (g.src:int(0, 1) == 0 or #v.ints == 0) then shared(v) else v.ints end
   local p = Fuzz.pick(g.src, pool)
   local form = g.src:int(0, 6)
   -- A function that clears the place, declared before the test: one declared
@@ -904,7 +904,7 @@ local function str_nest(g: Gen)
     if left > 1 then
       level(left - 1)
     else
-      add(g, var .. " = " .. (wipes and Fuzz.pick(g.src, { "nil", "mstr()" }) or Fuzz.pick(g.src, { "\"z\"", "\"z\"", b })))
+      add(g, var .. " = " .. (if wipes then Fuzz.pick(g.src, { "nil", "mstr()" }) else Fuzz.pick(g.src, { "\"z\"", "\"z\"", b }) end))
     end
     g.depth = g.depth - 1
     add(g, "end")
@@ -991,7 +991,7 @@ local function loop_drop(g: Gen, v: Vis)
   local p = Fuzz.pick(g.src, pool)
   -- Mostly the place read, now and then another (which the checker may
   -- take, when no write to it reaches the place read).
-  local plan = drop_plan(g, v, g.src:int(0, 3) == 0 and Fuzz.pick(g.src, pool) or p, true)
+  local plan = drop_plan(g, v, if g.src:int(0, 3) == 0 then Fuzz.pick(g.src, pool) else p end, true)
   for _, line in ipairs(plan.pre) do
     add(g, line)
   end
@@ -1307,7 +1307,7 @@ local function gen_program(src: Fuzz.Source): string
     add(g, "end")
   end
   g.lines[#g.lines + 1] = "return st.sink"
-  return text .. table.concat(g.lines, "\n") .. "\n" .. (g.captures and CAPTURES_MARK or "")
+  return text .. table.concat(g.lines, "\n") .. "\n" .. (if g.captures then CAPTURES_MARK else "" end)
 end
 
 --- A program, one in three edited at random bytes.

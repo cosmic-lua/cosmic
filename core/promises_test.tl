@@ -234,13 +234,13 @@ local function run(insns: {Insn}, arch: integer, number: integer, args: {integer
     elseif code == 0x05 then
       pc = pc + k
     elseif code == 0x15 then
-      pc = pc + (a == k and insn.jt or insn.jf)
+      pc = pc + (if a == k then insn.jt else insn.jf end)
     elseif code == 0x25 then
-      pc = pc + (a > k and insn.jt or insn.jf)
+      pc = pc + (if a > k then insn.jt else insn.jf end)
     elseif code == 0x35 then
-      pc = pc + (a >= k and insn.jt or insn.jf)
+      pc = pc + (if a >= k then insn.jt else insn.jf end)
     elseif code == 0x45 then
-      pc = pc + ((a & k) ~= 0 and insn.jt or insn.jf)
+      pc = pc + (if (a & k) ~= 0 then insn.jt else insn.jf end)
     elseif code == 0x06 then
       return k
     else

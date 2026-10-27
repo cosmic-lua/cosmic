@@ -53,7 +53,7 @@ local function gen_request(src: Fuzz.Source): string
     family = Fuzz.pick(src, { 0, 0, 0, 0, 0, 4, word(src) })
     address = Fuzz.pick(src, { zeros, zeros, zeros, string.rep("\0", 15) .. "\1" })
   else
-    index = shape == 1 and PUBLIC or word(src)
+    index = if shape == 1 then PUBLIC else word(src) end
     family = Fuzz.pick(src, { 4, 4, 4, 6, 5, 0, word(src) })
     address = Fuzz.pick(src, {
       zeros,

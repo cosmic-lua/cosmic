@@ -529,11 +529,11 @@ local function apply(db: Sqlite.Handle, dataset: refresh.Dataset, source: refres
   end
   local version, url = was[1], was[2]
   if sha256 ~= was[3] then
-    version = source.version ~= "" and source.version or release.version
+    version = if source.version ~= "" then source.version else release.version end
     if version == "" then
       version = "sha256:" .. sha256:sub(1, 12)
     end
-    url = source.url ~= "" and source.url or "file:" .. Fs.basename(source.path)
+    url = if source.url ~= "" then source.url else "file:" .. Fs.basename(source.path) end
   end
   local made, made_trouble = Sqlite.transact(db, function(): boolean, string
     local written, write_trouble = release.write(db)

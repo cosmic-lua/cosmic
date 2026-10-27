@@ -355,7 +355,7 @@ local function check_case(file: string, case: Case, reach: Reach)
   for _, line in ipairs(tree) do
     local name, value = body_of(line):match('^([^%s="<]+ ?[^%s="<]*)="(.*)"$')
     if name ~= nil then
-      named[value] = (named[value] == nil or named[value] == name) and name or false
+      named[value] = if (named[value] == nil or named[value] == name) then name else false end
     end
   end
   local closer = { value = nil as string? }
@@ -398,7 +398,7 @@ local function check_case(file: string, case: Case, reach: Reach)
           else
             local trouble = text_trouble(kind, up)
             if trouble ~= nil then
-              fail(reach, file, kind, cut, input, ("%s (inside %s)"):format(trouble, parent ~= nil and parent.name or "nothing"))
+              fail(reach, file, kind, cut, input, ("%s (inside %s)"):format(trouble, if parent ~= nil then parent.name else "nothing" end))
             end
           end
         end)

@@ -247,9 +247,9 @@ local function window(fd: integer): integer, integer
 end
 
 function TermRelay.run(argv: {string}, opts: Child.Options, terminal?: Terminal): Child.Result?, string
-  local input = terminal ~= nil and terminal.input or 0
-  local output = terminal ~= nil and terminal.output or 1
-  local errors = terminal ~= nil and terminal.error or 2
+  local input = if terminal ~= nil then terminal.input else 0 end
+  local output = if terminal ~= nil then terminal.output else 1 end
+  local errors = if terminal ~= nil then terminal.error else 2 end
   local notes = terminal ~= nil and terminal.notes or nil
   local streams: mut {integer} = {}
   for number, fd in ipairs({ input, output, errors }) do
@@ -478,16 +478,16 @@ function TermRelay.run(argv: {string}, opts: Child.Options, terminal?: Terminal)
       result = status.result
       break
     end
-    local keys_fd = keys_open and #relay.pending < MOST_PENDING and input or -1
+    local keys_fd = if keys_open and #relay.pending < MOST_PENDING then input else -1 end
     -- Nothing is read for a terminal that has a full queue of output
     -- waiting: the program waits on its pty instead. After a signal the
     -- program's output is read and dropped (`relay_output`).
     local room = relay.queued < MOST_QUEUED
     local reading_output = room or signals > 0
-    local master_events = (relay.master_open and reading_output and sys.POLLIN or 0) | (#relay.pending > 0 and sys.POLLOUT or 0)
-    local master_fd = master_events ~= 0 and master or -1
+    local master_events = (if relay.master_open and reading_output then sys.POLLIN else 0 end) | (if #relay.pending > 0 then sys.POLLOUT else 0 end)
+    local master_fd = if master_events ~= 0 then master else -1 end
     local notes_fd = relay.notes_open and room and notes or -1
-    local out_fd = relay.queue[1] ~= nil and relay.queue[1].fd or -1
+    local out_fd = if relay.queue[1] ~= nil then relay.queue[1].fd else -1 end
     local ready, poll_why = sys.poll({ keys_fd, master_fd, notes_fd, out_fd },
       { sys.POLLIN, master_events, sys.POLLIN, sys.POLLOUT }, TICK_MS)
     if ready == nil then
@@ -525,10 +525,10 @@ function TermRelay.run(argv: {string}, opts: Child.Options, terminal?: Terminal)
   -- wrote last and the notes after it are read first. A terminal that
   -- takes nothing for `STALL_MS`, or a signal, drops what is left.
   local function settle(drain: boolean)
-    local out_budget = drain and result ~= nil and relay.master_open and MOST_AFTER_EXIT or 0
+    local out_budget = if drain and result ~= nil and relay.master_open then MOST_AFTER_EXIT else 0 end
     -- The program is settled, and its relay ended with it: what it wrote
     -- last is in the notes pipe, which the caller's end of keeps open.
-    local notes_budget = drain and result ~= nil and relay.notes_open and MOST_AFTER_EXIT or 0
+    local notes_budget = if drain and result ~= nil and relay.notes_open then MOST_AFTER_EXIT else 0 end
     local stalled = 0
     while true do
       if guard:take() ~= 0 then break end

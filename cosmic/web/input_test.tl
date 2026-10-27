@@ -329,7 +329,7 @@ local function with_request(method: string, opts: Web.TestOptions, fn: function(
     return Web.text("ok")
   end) } }
   local client = Web.test_client(app)
-  local reply = method == "GET" and client:get("/x", opts) or client:post("/x", opts)
+  local reply = if method == "GET" then client:get("/x", opts) else client:post("/x", opts) end
   assert(reply.status == 200, reply.status)
 end
 

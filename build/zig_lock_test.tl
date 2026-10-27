@@ -171,7 +171,7 @@ local function test_a_snapshot_exception_releases_mains_lock(tmp: string)
   assert(Fs.write(fake, "", 0x1ed))
   local get, snapshot = Env.get, Zig.snapshot
   Env.get = function(name: string): string?
-    return name == "COSMIC_ZIG" and fake or get(name)
+    return if name == "COSMIC_ZIG" then fake else get(name) end
   end
   Zig.snapshot = function(): {string:string}?, string
     error("snapshot failed", 0)

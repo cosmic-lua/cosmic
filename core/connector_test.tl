@@ -250,7 +250,7 @@ local function test_a_public_connector_refuses_what_its_lists_hold_without_conne
     -- A neighbour of an address is refused only by a prefix that holds it,
     -- and the stream is in step.
     local wide = public.deny[1] == "126.0.0.0/7" or public.deny[1] == "127.0.0.0/8"
-    assert(public_ask(pair[1], "127.0.0.2", 0) == (wide and DENIED or 0))
+    assert(public_ask(pair[1], "127.0.0.2", 0) == (if wide then DENIED else 0 end))
     finish(pair, child)
   end
 end

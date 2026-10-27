@@ -35,7 +35,7 @@ local function gen_rows(src: Fuzz.Source): string
     while Fuzz.more(src, count, 4) do
       count = count + 1
       fields[#fields + 1] = "p"
-      fields[#fields + 1] = src:int(0, 11) == 0 and Fuzz.bytes(src, 4) or Fuzz.pick(src, KEYS)
+      fields[#fields + 1] = if src:int(0, 11) == 0 then Fuzz.bytes(src, 4) else Fuzz.pick(src, KEYS) end
       fields[#fields + 1] = tostring(src:int(1, 14))
     end
   end
@@ -129,7 +129,7 @@ local function gen_text(src: Fuzz.Source): string
   if src:int(0, 3) == 0 then
     local parts: mut {string} = {}
     while Fuzz.more(src, #parts, 20) do
-      parts[#parts + 1] = src:int(0, 3) == 0 and Fuzz.bytes(src, 3) or Fuzz.pick(src, TOKENS)
+      parts[#parts + 1] = if src:int(0, 3) == 0 then Fuzz.bytes(src, 3) else Fuzz.pick(src, TOKENS) end
     end
     text = table.concat(parts)
   else

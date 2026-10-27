@@ -224,7 +224,7 @@ end
 function Proc.exec(argv: {string}, opts?: Proc.ExecOptions): boolean, string
   local path = argv[1]
   if path == nil then error("proc: argv is empty", 2) end
-  local environment = opts ~= nil and opts.env or nil
+  local environment = if opts ~= nil then opts.env else nil end
   local _, trouble = sys.execve(path, argv, environment or sys.environ())
   return false, path .. ": " .. trouble
 end

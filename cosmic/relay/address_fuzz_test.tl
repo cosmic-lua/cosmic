@@ -226,7 +226,7 @@ local function test_an_address_carrying_ipv4_is_refused_whatever_it_carries(tmp:
       local form, own_mode = fields[1]:byte(1), fields[1]:byte(2)
       local v4 = { fields[1]:byte(3, 6) }
       local text = spelled(carrying(form, v4, fields[2]), fields[3])
-      local own = own_mode == 0 and relay_address.own_addresses({ dotted(v4) }) or NO_OWN
+      local own = if own_mode == 0 then relay_address.own_addresses({ dotted(v4) }) else NO_OWN end
       if own_mode == 0 then Fuzz.label("own") end
       local got, why = relay_address.check(text, 443, NONE, own)
       if got then return false, text .. " is allowed though it carries " .. dotted(v4) end

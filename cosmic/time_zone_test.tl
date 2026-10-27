@@ -385,8 +385,8 @@ local function test_tzif_with_long_abbreviations_is_read_in_linear_time()
   -- A file of `count` types; with `near`, its abbreviations hold a NUL
   -- near their start, and every type reads its own, found once.
   local function file(count: integer, near: boolean): string
-    local types = near and string.pack(">i4BB", 3600, 0, 4):rep(count) or
-      string.pack(">i4BB", 0, 0, 0):rep(count)
+    local types = if near then string.pack(">i4BB", 3600, 0, 4):rep(count) else
+      string.pack(">i4BB", 0, 0, 0):rep(count) end
     local abbreviations = if near then "UTC\0CET\0" .. ("A"):rep(count * 6 - 9) .. "\0" else
       ("A"):rep(count * 6 - 1) .. "\0" end
     return table.concat({ "TZif", "\0", ("\0"):rep(15),

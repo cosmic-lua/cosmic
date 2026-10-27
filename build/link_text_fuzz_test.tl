@@ -32,7 +32,7 @@ local function gen_text(src: Fuzz.Source): string
   local blocks = src:int(0, 3) == 0
   while Fuzz.more(src, count, 24) do
     count = count + 1
-    parts[#parts + 1] = Fuzz.pick(src, blocks and src:int(0, 2) == 0 and BLOCK_PIECES or PIECES)
+    parts[#parts + 1] = Fuzz.pick(src, if blocks and src:int(0, 2) == 0 then BLOCK_PIECES else PIECES end)
   end
   local text = table.concat(parts)
   if src:int(0, 3) == 0 then return Fuzz.mutate(src, text, 3) end

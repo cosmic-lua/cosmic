@@ -123,7 +123,7 @@ local function opens_entries(before: Token?, before2: Token?, cast: Token?): boo
   if before == nil then return false end
   local t = before.text
   if t == ")" then
-    local c = cast ~= nil and cast.text or ""
+    local c = if cast ~= nil then cast.text else "" end
     return c == "=" or c == "return" or c == "," or c == "("
   end
   if t == "=" or t == "," or t == "{" or t == "enum" or t == "(" then return true end

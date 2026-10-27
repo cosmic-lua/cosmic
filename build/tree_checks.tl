@@ -1697,12 +1697,12 @@ function tree_checks.public_docs(db: Sqlite.Handle, excused?: {string: string}):
         local word = text:sub(start, stop)
         local before, after = text:sub(from - 1, from - 1), text:sub(to + 1, to + 1)
         if rule.breaks(before, hit, after, modules) then
-          local key = row:text(1) .. " " .. (row:text(2) ~= "" and row:text(2) or "(module)") .. " " .. rule.name
+          local key = row:text(1) .. " " .. (if row:text(2) ~= "" then row:text(2) else "(module)" end) .. " " .. rule.name
           found[key] = true
           if excused[key] == nil and not seen[word] then
             seen[word] = true
             out[#out + 1] = row:text(4) .. ":" .. row:text(5) .. ": " .. row:text(1) .. " " ..
-              (row:text(2) ~= "" and row:text(2) or "(module)") .. ": its doc text has `" .. word ..
+              (if row:text(2) ~= "" then row:text(2) else "(module)" end) .. ": its doc text has `" .. word ..
               "` (" .. rule.name .. " rule) -- " .. rule.fix
           end
         end

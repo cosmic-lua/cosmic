@@ -14,7 +14,7 @@ local function refused(source: string, codes: string, msg?: string, modules?: {s
   local r = Programs.run(source, modules)
   assert(#r.before == 0, table.concat(r.before, " ") .. " in\n" .. source)
   assert(Programs.codes(r) == codes, "wanted " .. codes .. ", got " .. Programs.codes(r) .. " in\n" .. source .. "\n" ..
-      (r.errors[1] ~= nil and r.errors[1].msg or ""))
+      (if r.errors[1] ~= nil then r.errors[1].msg else "" end))
   if msg ~= nil then
     assert(r.errors[1].msg:find(msg, 1, true) ~= nil, r.errors[1].msg .. "\nwanted " .. msg)
   end
@@ -23,7 +23,7 @@ end
 --- Checks that `source` has no error.
 local function accepted(source: string, modules?: {string: string})
   local r = Programs.run(source, modules)
-  assert(#r.before == 0 and #r.errors == 0, table.concat(r.before, " ") .. (r.errors[1] ~= nil and r.errors[1].msg or "") ..
+  assert(#r.before == 0 and #r.errors == 0, table.concat(r.before, " ") .. (if r.errors[1] ~= nil then r.errors[1].msg else "" end) ..
       " in\n" .. source)
 end
 

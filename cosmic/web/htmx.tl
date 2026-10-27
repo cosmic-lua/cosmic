@@ -436,7 +436,7 @@ local VARY <const>: {string} = { "HX-Request", "HX-History-Restore-Request", "HX
 --- @return Types.Response The response
 function Htmx.page(req: Types.Request, content: Html.SafeHtml,
                    wrap: function(Html.SafeHtml): Html.SafeHtml): Types.Response
-  local res = Response.html(Htmx.partial(req) and content or wrap(content))
+  local res = Response.html(if Htmx.partial(req) then content else wrap(content) end)
   for _, token in ipairs(VARY) do Response.add_header(res, "Vary", token) end
   if Response.header(res, "Cache-Control") == nil then
     Response.set_header(res, "Cache-Control", "no-cache")

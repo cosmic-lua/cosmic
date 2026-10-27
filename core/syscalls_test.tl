@@ -1685,7 +1685,7 @@ local function test_full_fsync_has_native_or_unsupported_effect_shape(tmp: strin
   assert(sys.close(fd))
   local closed, why, number = sys.full_fsync(fd)
   assert(closed == false, "a closed descriptor must not be flushed")
-  failed_with(names.sysname == "Darwin" and sys.EBADF or sys.ENOSYS, closed, why, number)
+  failed_with(if names.sysname == "Darwin" then sys.EBADF else sys.ENOSYS end, closed, why, number)
 end
 
 --- Descriptor validation precedes platform dispatch, including on hosts

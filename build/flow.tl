@@ -194,7 +194,7 @@ local function scan(text: string, comments: mut {string}): {string}
     elseif c == " " then
       i = i + 1
     elseif c == "#" then
-      local before = i > 1 and text:sub(i - 1, i - 1) or "\n"
+      local before = if i > 1 then text:sub(i - 1, i - 1) else "\n" end
       if before ~= " " and before ~= "\n" then
         say("a # right after a token: put a space before it")
       end
@@ -269,7 +269,7 @@ local function scan(text: string, comments: mut {string}): {string}
       end
     else
       say(("the character %s outside a string, which the two read differently"):format(
-        c:byte() < 0x80 and ("%q"):format(c) or ("\\x%02X"):format(c:byte())))
+        if c:byte() < 0x80 then ("%q"):format(c) else ("\\x%02X"):format(c:byte()) end))
       i = i + 1
     end
   end

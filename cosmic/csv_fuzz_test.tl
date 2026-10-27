@@ -157,7 +157,7 @@ local function gen_text(src: Fuzz.Source): string
   if src:int(0, 3) == 0 then
     local parts: mut {string} = {}
     while Fuzz.more(src, #parts, 24) do
-      parts[#parts + 1] = src:int(0, 3) == 0 and Fuzz.bytes(src, 3) or Fuzz.pick(src, TOKENS)
+      parts[#parts + 1] = if src:int(0, 3) == 0 then Fuzz.bytes(src, 3) else Fuzz.pick(src, TOKENS) end
     end
     text = table.concat(parts)
   else
@@ -370,7 +370,7 @@ local function test_blank_lines_count_by_the_headers_width(tmp: string)
       local text = "h\n" .. table.concat(lines, "\n") .. (if #lines > 0 then "\n" else "" end)
       local rows = rows_of(text)
       if rows == nil or #rows ~= last then
-        return false, "one column: " .. (rows ~= nil and tostring(#rows) or "refused") .. " rows, not " .. last
+        return false, "one column: " .. (if rows ~= nil then tostring(#rows) else "refused" end) .. " rows, not " .. last
       end
       if last > 0 and blanks - (#lines - last) > 0 then Fuzz.label("interior") end
       if #lines > last then Fuzz.label("trailing") end
@@ -418,7 +418,7 @@ local function test_each_row_is_at_the_line_its_record_was_written_on(tmp: strin
     check = function(input: string): boolean, string
       local parts = Fuzz.unpack(input)
       local delimiter = parts[1] or ","
-      local out: mut {string} = { parts[2] == "b" and BOM or "" }
+      local out: mut {string} = { if parts[2] == "b" then BOM else "" end }
       local width = 0
       local written: mut {string} = {}
       local expected: mut {integer} = {}

@@ -2478,7 +2478,7 @@ local function test_a_lookup_answers_alike_with_the_indexes_or_without(dir: stri
     local looked = assert(docs.view({ db }, { public }))
     for _, query in ipairs(queries) do
       local found, trouble = docs.lookup(looked, query)
-      out[#out + 1] = query .. ": " .. (found ~= nil and listed(found) or "nil " .. trouble)
+      out[#out + 1] = query .. ": " .. (if found ~= nil then listed(found) else "nil " .. trouble end)
     end
     return out
   end
