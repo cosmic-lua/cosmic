@@ -15,17 +15,17 @@ local record Vis
   recs: mut {string}
   procs: mut {string}
   funs: mut {string}
-  focus: mut {string}
-  rfocus: mut {string}
+  mut focus: mut {string}
+  mut rfocus: mut {string}
   --- The locals of `ints` declared outside the function being drawn, which
   --- it may read and not assign.
-  outer: {string}
+  mut outer: {string}
   --- The globals declared of type `integer | nil` (`G`, in a program
   --- that draws shapes), which any function may assign.
   mut globals: {string}
-  in_loop: boolean
-  cont: string?
-  ret: string
+  mut in_loop: boolean
+  mut cont: string?
+  mut ret: string
 end
 
 local record Gen

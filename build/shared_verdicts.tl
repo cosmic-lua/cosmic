@@ -62,8 +62,8 @@ local record shared_verdicts
   --- How many rows the cache holds, and how many of them are of the
   --- tests a run looked up (`census`).
   record Census
-    rows: integer
-    of_tests: integer
+    mut rows: integer
+    mut of_tests: integer
   end
 
   --- How many rows the cache holds under one set of key parts, as
@@ -79,7 +79,7 @@ local record shared_verdicts
     --- holds, and the system, compiler and program that only some do.
     --- Each row it keeps, or stands on unnamed, is stamped with them;
     --- nil for none.
-    parts?: string
+    mut parts?: string
     kept: mut {Kept}
     --- Keys the run relied on, which stay the longer for it.
     used: mut {string}

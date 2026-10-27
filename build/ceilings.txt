@@ -397,13 +397,9 @@ build/pipeline.tl condition_type 1
 
 build/pipeline.tl view_as_mut 1
 
-build/pipeline_check.tl field_fixed 2
-
 build/pipeline_test.tl arms_differ 7
 
 build/pipeline_test.tl concat_type 1
-
-build/pipeline_test.tl field_fixed 1
 
 build/rebuild_lock.tl setmetatable_call 2
 
@@ -2318,7 +2314,7 @@ build/fix/init.tl view_written 6
 
 build/fix/near.tl view_written 2
 
-build/flow.tl view_written 8
+build/flow.tl view_written 7
 
 build/flow_test.tl view_written 2
 
@@ -2370,7 +2366,7 @@ build/shared_compiles.tl view_written 1
 
 build/sql.tl view_written 1
 
-build/symbol_index.tl view_written 3
+build/symbol_index.tl view_written 1
 
 build/syntax_analyzer.tl view_written 1
 
@@ -2502,7 +2498,7 @@ lang/check_programs.tl view_written 5
 
 lang/check_test.tl view_written 1
 
-lang/check_verdicts.tl view_written 3
+lang/check_verdicts.tl view_written 1
 
 lang/check_verdicts_test.tl view_written 2
 
@@ -2512,11 +2508,9 @@ lang/declarations.tl view_written 15
 
 lang/flow.tl view_written 12
 
-lang/generics.tl view_written 15
-
 lang/lexer.tl view_written 2
 
-lang/load_order.tl view_written 10
+lang/load_order.tl view_written 8
 
 lang/parser.tl view_written 4
 
@@ -2534,7 +2528,7 @@ lang/relation_test.tl view_written 2
 
 lang/scopes.tl view_written 13
 
-lang/scopes_cover.tl view_written 3
+lang/scopes_cover.tl view_written 1
 
 lang/scopes_test.tl view_written 1
 
@@ -2640,8 +2634,6 @@ build/archive.tl field_fixed 2
 
 build/archive_test.tl field_fixed 10
 
-build/artifact.tl field_fixed 2
-
 build/assertions.tl field_fixed 3
 
 build/bare.tl field_fixed 4
@@ -2654,17 +2646,9 @@ build/c/init.tl field_fixed 7
 
 build/c/rules.tl field_fixed 5
 
-build/c/tree.tl field_fixed 9
-
-build/c_functions.tl field_fixed 2
-
 build/cache.tl field_fixed 1
 
 build/cache_formats.tl field_fixed 10
-
-build/cache_lifetime.tl field_fixed 1
-
-build/cache_maintenance.tl field_fixed 21
 
 build/cache_names.tl field_fixed 1
 
@@ -2672,7 +2656,7 @@ build/cache_test.tl field_fixed 14
 
 build/ceilings.tl field_fixed 1
 
-build/check_draws.tl field_fixed 19
+build/check_draws.tl field_fixed 5
 
 build/child_lua_fixture.tl field_fixed 2
 
@@ -2694,21 +2678,13 @@ build/confine_tool_test.tl field_fixed 2
 
 build/databases.tl field_fixed 1
 
-build/dataset.tl field_fixed 3
-
-build/dataset_test.tl field_fixed 1
-
 build/declared_key.tl field_fixed 10
 
 build/declared_key_test.tl field_fixed 66
 
-build/docs.tl field_fixed 9
+build/docs.tl field_fixed 2
 
 build/docs_checks_test.tl field_fixed 4
-
-build/doctest/generate.tl field_fixed 1
-
-build/doctest/generate_test.tl field_fixed 1
 
 build/driver.tl field_fixed 26
 
@@ -2726,15 +2702,9 @@ build/fetch_test.tl field_fixed 2
 
 build/fix/init.tl field_fixed 1
 
-build/flow.tl field_fixed 13
-
-build/flow_fuzz_test.tl field_fixed 1
-
-build/flow_test.tl field_fixed 9
-
 build/fuzz/init.tl field_fixed 2
 
-build/gen_syscalls.tl field_fixed 2
+build/gen_syscalls.tl field_fixed 1
 
 build/harness_epoch.tl field_fixed 4
 
@@ -2746,7 +2716,7 @@ build/host_features_test.tl field_fixed 1
 
 build/host_names.tl field_fixed 1
 
-build/importer.tl field_fixed 10
+build/importer.tl field_fixed 6
 
 build/importer_boot_test.tl field_fixed 2
 
@@ -2764,29 +2734,15 @@ build/link_index.tl field_fixed 1
 
 build/link_index_test.tl field_fixed 2
 
-build/link_resolve.tl field_fixed 6
-
 build/link_text.tl field_fixed 1
 
-build/links_test.tl field_fixed 1
-
 build/logger.tl field_fixed 1
-
-build/lsp/check.tl field_fixed 1
-
-build/lsp/graph.tl field_fixed 2
-
-build/lsp/held.tl field_fixed 1
 
 build/lsp/init.tl field_fixed 1
 
 build/lsp/protocol.tl field_fixed 6
 
-build/lsp/session.tl field_fixed 10
-
 build/lsp/session_fixture.tl field_fixed 2
-
-build/lsp/source.tl field_fixed 28
 
 build/memprobe.tl field_fixed 2
 
@@ -2794,21 +2750,13 @@ build/memprobe_test.tl field_fixed 8
 
 build/patch_test.tl field_fixed 5
 
-build/perf_test.tl field_fixed 3
-
-build/perf_validation.tl field_fixed 3
-
-build/pipeline.tl field_fixed 9
+build/pipeline.tl field_fixed 6
 
 build/policy_rules.tl field_fixed 9
 
 build/rand.tl field_fixed 3
 
 build/rand_test.tl field_fixed 1
-
-build/reboot_test.tl field_fixed 2
-
-build/rebuild_lock.tl field_fixed 3
 
 build/refresh.tl field_fixed 4
 
@@ -2818,17 +2766,11 @@ build/sandbox.tl field_fixed 2
 
 build/sandbox_connect_test.tl field_fixed 2
 
-build/sandbox_probe_test.tl field_fixed 3
-
 build/schema.tl field_fixed 1
 
 build/shared_parses_test.tl field_fixed 2
 
-build/shared_verdicts.tl field_fixed 2
-
 build/sql.tl field_fixed 8
-
-build/sqlite_wait_lua_test.tl field_fixed 2
 
 build/stub_tree_test.tl field_fixed 2
 
@@ -2840,7 +2782,7 @@ build/syntax_typed_fixture.tl field_fixed 2
 
 build/term_relay.tl field_fixed 3
 
-build/test.tl field_fixed 23
+build/test.tl field_fixed 22
 
 build/test_inputs.tl field_fixed 12
 
@@ -2848,7 +2790,7 @@ build/test_key.tl field_fixed 46
 
 build/test_policy.tl field_fixed 3
 
-build/test_policy_plan_tool_test.tl field_fixed 20
+build/test_policy_plan_tool_test.tl field_fixed 19
 
 build/test_policy_test.tl field_fixed 5
 
@@ -2868,7 +2810,7 @@ build/this_program.tl field_fixed 1
 
 build/this_program_test.tl field_fixed 2
 
-build/time.tl field_fixed 3
+build/time.tl field_fixed 1
 
 build/todos.tl field_fixed 8
 
@@ -2890,8 +2832,6 @@ build/work_test.tl field_fixed 14
 
 build/work_tool_test.tl field_fixed 2
 
-build/workflows_test.tl field_fixed 1
-
 build/writer_test.tl field_fixed 2
 
 build/zig_fetch_test.tl field_fixed 3
@@ -2912,11 +2852,11 @@ cosmic/archive.tl field_fixed 1
 
 cosmic/archive_fuzz_test.tl field_fixed 4
 
-cosmic/archive_test.tl field_fixed 6
+cosmic/archive_test.tl field_fixed 4
 
 cosmic/channel.tl field_fixed 2
 
-cosmic/child.tl field_fixed 32
+cosmic/child.tl field_fixed 29
 
 cosmic/child_drain_test.tl field_fixed 15
 
@@ -2944,8 +2884,6 @@ cosmic/child_task_tool_test.tl field_fixed 2
 
 cosmic/compress_test.tl field_fixed 1
 
-cosmic/csv_fuzz_test.tl field_fixed 2
-
 cosmic/fs.tl field_fixed 4
 
 cosmic/fs_append_test.tl field_fixed 18
@@ -2956,21 +2894,13 @@ cosmic/http/multipart_test.tl field_fixed 1
 
 cosmic/http/server_test.tl field_fixed 2
 
-cosmic/http/wire.tl field_fixed 14
-
-cosmic/http/wire_fuzz_test.tl field_fixed 6
-
-cosmic/http/wire_test.tl field_fixed 2
-
 cosmic/http_test.tl field_fixed 13
 
-cosmic/internal/connector.tl field_fixed 4
+cosmic/internal/connector.tl field_fixed 3
 
 cosmic/internal/relay_config.tl field_fixed 16
 
 cosmic/internal/relay_main.tl field_fixed 2
-
-cosmic/internal/relay_server.tl field_fixed 3
 
 cosmic/internal/relay_server_test.tl field_fixed 1
 
@@ -2978,13 +2908,7 @@ cosmic/internal/relay_start.tl field_fixed 9
 
 cosmic/internal/relay_wire.tl field_fixed 26
 
-cosmic/json.tl field_fixed 15
-
-cosmic/json_fuzz_test.tl field_fixed 3
-
-cosmic/net_connector_test.tl field_fixed 1
-
-cosmic/net_serve_test.tl field_fixed 1
+cosmic/json.tl field_fixed 3
 
 cosmic/poll.tl field_fixed 19
 
@@ -2996,8 +2920,6 @@ cosmic/sandbox_test.tl field_fixed 8
 
 cosmic/shape.tl field_fixed 5
 
-cosmic/shape_fuzz_test.tl field_fixed 1
-
 cosmic/signal.tl field_fixed 5
 
 cosmic/sqlite.tl field_fixed 13
@@ -3006,15 +2928,7 @@ cosmic/stream_test.tl field_fixed 21
 
 cosmic/tar_test.tl field_fixed 7
 
-cosmic/template/codegen.tl field_fixed 1
-
-cosmic/template/context.tl field_fixed 2
-
 cosmic/template/dialect/init.tl field_fixed 1
-
-cosmic/template/lex.tl field_fixed 1
-
-cosmic/template/parse.tl field_fixed 5
 
 cosmic/template_html5lib_tree_test.tl field_fixed 1
 
@@ -3022,21 +2936,13 @@ cosmic/test.tl field_fixed 35
 
 cosmic/test_policy_test.tl field_fixed 2
 
-cosmic/time.tl field_fixed 36
-
-cosmic/time_test.tl field_fixed 3
-
-cosmic/time_zone_test.tl field_fixed 2
-
-cosmic/url.tl field_fixed 5
+cosmic/time.tl field_fixed 9
 
 cosmic/web/app.tl field_fixed 10
 
 cosmic/web/assets_test.tl field_fixed 2
 
 cosmic/web/builtin.tl field_fixed 1
-
-cosmic/web/cookies.tl field_fixed 10
 
 cosmic/web/csrf.tl field_fixed 4
 
@@ -3048,7 +2954,7 @@ cosmic/web/dev_test.tl field_fixed 2
 
 cosmic/web/headers.tl field_fixed 1
 
-cosmic/web/headers_test.tl field_fixed 6
+cosmic/web/headers_test.tl field_fixed 3
 
 cosmic/web/htmx.tl field_fixed 2
 
@@ -3064,11 +2970,11 @@ cosmic/web/response.tl field_fixed 7
 
 cosmic/web/router.tl field_fixed 7
 
-cosmic/web/serve_test.tl field_fixed 5
+cosmic/web/serve_test.tl field_fixed 3
 
-cosmic/web/session/init.tl field_fixed 11
+cosmic/web/session/init.tl field_fixed 9
 
-cosmic/web/session/session_test.tl field_fixed 13
+cosmic/web/session/session_test.tl field_fixed 9
 
 cosmic/web/session/sqlite.tl field_fixed 1
 
@@ -3082,15 +2988,11 @@ cosmic/web/sse_test.tl field_fixed 2
 
 cosmic/web/static.tl field_fixed 2
 
-cosmic/web/static_test.tl field_fixed 1
-
-cosmic/web/testing.tl field_fixed 11
-
-cosmic/web/testing_test.tl field_fixed 1
+cosmic/web/testing.tl field_fixed 2
 
 cosmic/web/typed.tl field_fixed 3
 
-cosmic/zip.tl field_fixed 3
+cosmic/zip.tl field_fixed 2
 
 cosmic/zip_test.tl field_fixed 13
 
@@ -3102,7 +3004,7 @@ eval/round.tl field_fixed 1
 
 lang/ast.tl field_fixed 2
 
-lang/check.tl field_fixed 9
+lang/check.tl field_fixed 7
 
 lang/check_codes.tl field_fixed 2
 
@@ -3115,8 +3017,6 @@ lang/declarations.tl field_fixed 11
 lang/declarations_programs.tl field_fixed 2
 
 lang/declarations_test.tl field_fixed 2
-
-lang/generics.tl field_fixed 4
 
 lang/lexer.tl field_fixed 4
 

@@ -27,7 +27,7 @@ local record Example
   --- `test_<n>` when `has_output`, `example_<n>` otherwise; assigned
   --- once every block has been read, so numbering never depends on
   --- which examples turn out runnable.
-  name: string
+  mut name: string
   --- The doc line of the block that opens it.
   line: integer
 end

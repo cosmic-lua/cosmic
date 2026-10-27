@@ -38,7 +38,7 @@ end
 
 local function survey(chunk: Ast.Chunk): Found
   local found: Found = { names = {}, types = {}, bindings = {}, members = {}, colons = {}, functions = { [chunk.id] = true } }
-  local parents: {integer: Ast.Node} = {}
+  local parents: mut {integer: Ast.Node} = {}
   local stack: mut {Ast.Node} = { chunk }
   while #stack > 0 do
     local node = stack[#stack]
@@ -66,7 +66,7 @@ local function survey(chunk: Ast.Chunk): Found
     elseif node.kind == "Fn" or node.kind == "Method" then
       found.functions[base_of(node).id] = true
     end
-    local children: {Ast.Node} = {}
+    local children: mut {Ast.Node} = {}
     Ast.children(node, function(child: Ast.Node)
       children[#children + 1] = child
       parents[base_of(child).id] = node

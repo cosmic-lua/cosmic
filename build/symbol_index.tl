@@ -18,9 +18,9 @@ local record symbol_index
   --- One row of `docs` ([`build.schema`]), from the database `database`
   --- (an index into the caller's) at its row `id`.
   record Row is alias_members.Declared
-    module: string
-    symbol: string
-    source_symbol: string
+    mut module: string
+    mut symbol: string
+    mut source_symbol: string
     kind: string
     signature: string
     exported: boolean
@@ -45,7 +45,7 @@ local record symbol_index
   --- it is declared under (`under`); and the module each module binds
   --- each name to, by module and name (`bound`, [`symbol_index.add_bound`]).
   record Index
-    modules: {string: boolean}
+    modules: mut {string: boolean}
     exact: {string: {Row}}
     named: {string: {Row}}
     members: {string: {Row}}

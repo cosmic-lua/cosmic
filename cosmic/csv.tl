@@ -85,9 +85,9 @@ local record Csv
   --- Where [`Csv.load`] reads CSV from: `path` or `text`, one of them.
   record Source
     --- A file to read, by SQLite's CSV table as it copies the rows.
-    path?: string
+    mut path?: string
     --- The CSV itself. It may not hold a NUL byte.
-    text?: string
+    mut text?: string
     --- Keep every cell as the text it is, the empty one `''`.
     raw?: boolean
     --- The one byte between fields, as [`Csv.Options`] says (default `,`);

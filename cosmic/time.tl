@@ -41,73 +41,73 @@ local record Time
   --- caller writes without the rest ([`Wall`]). [`Civil`] has them all.
   interface CivilFields
     --- 1677 through 2262.
-    year: integer
+    mut year: integer
     --- 1 (January) through 12.
-    month: integer
+    mut month: integer
     --- 1 through the month's last day.
-    day: integer
+    mut day: integer
     --- 0 through 23.
-    hour: integer
+    mut hour: integer
     --- 0 through 59.
-    minute: integer
+    mut minute: integer
     --- 0 through 59: there are no leap seconds.
-    second: integer
+    mut second: integer
     --- Nanoseconds after the second, 0 through 999999999.
-    ns: integer
+    mut ns: integer
     --- Seconds east of UTC the local time is, read only to choose between
     --- the two moments a zone gives one local time when its clocks go back.
-    offset?: integer
+    mut offset?: integer
   end
 
   --- A moment as a person writes it, with the fields [`from_civil`] reads
   --- and no others: a table literal of this makes one.
   record Wall is CivilFields
     --- As [`Time.CivilFields.year`].
-    year: integer
+    mut year: integer
     --- As [`Time.CivilFields.month`].
-    month: integer
+    mut month: integer
     --- As [`Time.CivilFields.day`].
-    day: integer
+    mut day: integer
     --- As [`Time.CivilFields.hour`].
-    hour: integer
+    mut hour: integer
     --- As [`Time.CivilFields.minute`].
-    minute: integer
+    mut minute: integer
     --- As [`Time.CivilFields.second`].
-    second: integer
+    mut second: integer
     --- As [`Time.CivilFields.ns`].
-    ns: integer
+    mut ns: integer
     --- As [`Time.CivilFields.offset`].
-    offset?: integer
+    mut offset?: integer
   end
 
   --- A moment as a calendar names it: UTC's, or a zone's local time, as
   --- [`civil`] answers it, with the fields [`from_civil`] ignores.
   record Civil is CivilFields
     --- As [`Time.CivilFields.year`].
-    year: integer
+    mut year: integer
     --- As [`Time.CivilFields.month`].
-    month: integer
+    mut month: integer
     --- As [`Time.CivilFields.day`].
-    day: integer
+    mut day: integer
     --- As [`Time.CivilFields.hour`].
-    hour: integer
+    mut hour: integer
     --- As [`Time.CivilFields.minute`].
-    minute: integer
+    mut minute: integer
     --- As [`Time.CivilFields.second`].
-    second: integer
+    mut second: integer
     --- As [`Time.CivilFields.ns`].
-    ns: integer
+    mut ns: integer
     --- Seconds east of UTC the local time is: 0 on the UTC calendar.
-    offset: integer
+    mut offset: integer
     --- ISO 8601's: 1 (Monday) through 7 (Sunday).
     weekday: integer
     --- The day of the year, 1 through 366.
     yday: integer
     --- What the zone calls its time then, as "EDT"; "UTC" on the UTC
     --- calendar.
-    abbreviation: string
+    mut abbreviation: string
     --- Whether the zone counts it daylight saving time.
-    dst: boolean
+    mut dst: boolean
   end
 
   --- A time zone: the offset from UTC, abbreviation and daylight saving
@@ -117,7 +117,7 @@ local record Time
     --- IANA's name for it, as "America/New_York" -- the one
     --- [`format_rfc3339`]'s `zone_name` writes -- or else the POSIX TZ
     --- string it was read from, or the name [`zone_from_tzif`] was given.
-    name?: string
+    mut name?: string
   end
 
   --- Which moment a zone's local time names when its clocks skipped it
@@ -588,7 +588,7 @@ local record Rules
   --- and `zone_name` write, whatever a caller does to the record.
   mut name?: string
   --- Whether the name is one RFC 9557 can write, which `zone_name` can.
-  named?: boolean
+  mut named?: boolean
 end
 
 --- Each zone's rules, kept apart from the record a caller holds.

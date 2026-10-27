@@ -98,7 +98,7 @@ local record dataset
   --- has one (a CSV's header): `load` puts the columns in it.
   record Rows is {dataset.Row}
     --- The column names, in the order the format gives them.
-    columns?: {string}
+    mut columns?: {string}
   end
 
   --- What a reader may be told.

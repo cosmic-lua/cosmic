@@ -97,7 +97,7 @@ local HELPER_ORDER <const>: {types.Slot} = { "plain", "text", "rtext", "ftext", 
 --- it has read it.
 local record Dot
   name: string
-  used: boolean
+  mut used: boolean
 end
 
 --- The modules the generated source requires, in the order first needed,

@@ -34,7 +34,7 @@ local record StaticFiles
   --- What [`StaticFiles.handler`] and [`StaticFiles.mount`] take.
   record Options
     --- Where the files come from; nil for [`Assets.default`].
-    source?: Assets.Source
+    mut source?: Assets.Source
     --- Cache-Control of a file requested by its plain name (default
     --- "public, no-cache": cached, but revalidated by ETag every time).
     cache_control?: string

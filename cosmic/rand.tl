@@ -25,13 +25,13 @@ local record Rand
   record Source
     --- An integer drawn uniformly from `min` through `max`, both
     --- included. Raises when `min` is greater than `max`.
-    int: function(self: Source, min: integer, max: integer): integer
+    mut int: function(self: Source, min: integer, max: integer): integer
 
     --- A float drawn uniformly from [0, 1), a multiple of 2^-53.
-    float: function(self: Source): number
+    mut float: function(self: Source): number
 
     --- `count` bytes drawn uniformly. Raises when `count` is negative.
-    bytes: function(self: Source, count: integer): string
+    mut bytes: function(self: Source, count: integer): string
   end
 end
 

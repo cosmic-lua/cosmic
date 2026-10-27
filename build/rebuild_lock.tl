@@ -85,8 +85,8 @@ local record rebuild_lock
   --- The lock's descriptor and SQLite handle, each nil once let go or
   --- never taken.
   record Claim
-    fd: integer?
-    db: Sqlite.Handle?
+    mut fd: integer?
+    mut db: Sqlite.Handle?
     __close: function(Claim)
   end
 end

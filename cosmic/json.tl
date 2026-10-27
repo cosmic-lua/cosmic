@@ -137,13 +137,13 @@ local record Json
     --- How many arrays and objects may nest, 1 to [`Json.depth_limit`]
     --- (1000; default [`Json.default_depth`], 64). A table that contains
     --- itself fails here.
-    max_depth?: integer
+    mut max_depth?: integer
     --- Write every character past U+007F as a `\uXXXX` escape, a pair
     --- of them above U+FFFF, so that the text is ASCII throughout and
     --- can travel in an HTTP header (default false). Decoding it gives
     --- the same value. A string that is not UTF-8 is refused as it is
     --- without this.
-    ascii?: boolean
+    mut ascii?: boolean
   end
 
   --- What [`Json.format`] may be told. Every field is optional, and those
@@ -182,7 +182,7 @@ local record Json
   record DecodeOptions
     --- What to put where the text says `null`, so a Lua table can hold
     --- it. [`Json.null`] is the usual choice: it encodes back as `null`.
-    null_value?: Json.Value
+    mut null_value?: Json.Value
     --- How many arrays and objects may nest, 1 to [`Json.depth_limit`]
     --- (1000; default [`Json.default_depth`], 64).
     max_depth?: integer
@@ -209,7 +209,7 @@ local record Json
     lone_surrogates?: boolean
     --- Read an object that holds a key twice, the last of its members
     --- standing, rather than refusing it (default false).
-    duplicate_keys?: boolean
+    mut duplicate_keys?: boolean
   end
 
   --- How a Lua table encodes: see [`Json.layout`].
@@ -352,12 +352,12 @@ local record Json
     --- Whether it is a descendant segment.
     descendant: boolean
     --- What it selects.
-    kind?: Json.SelectorKind
+    mut kind?: Json.SelectorKind
     --- The member's name, for a "name" selector.
-    name?: string
+    mut name?: string
     --- The element's index, for an "index" selector: counted from 0,
     --- or from the end when negative, as JSONPath writes it.
-    index?: integer
+    mut index?: integer
   end
 
   --- A JSONPath query (RFC 9535), as [`Json.query`] reads one.
@@ -1307,11 +1307,11 @@ local record Frame
   --- What it takes next: "first" just after it opened (a value, or a
   --- key, or its close), "key" after an object's `,`, "colon" after a
   --- key, "value" where a value must come, "after" once one has.
-  state: string
+  mut state: string
   --- An array's elements, or an object's members, begun so far.
-  count: integer
+  mut count: integer
   --- An object's last key.
-  key?: string
+  mut key?: string
   --- An object's keys, unless duplicate keys are read.
   seen: mut {string: boolean}
 end

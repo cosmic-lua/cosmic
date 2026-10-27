@@ -13,7 +13,7 @@ local bind = require("build.bind")
 
 local record derivation
   record Parses
-    parsed: integer
+    mut parsed: integer
     shared: integer
   end
   record Source

@@ -25,7 +25,7 @@ local record Testing
     secure: boolean
     --- When it lapses in ns since the epoch (`Max-Age` first, else
     --- `Expires`); nil for a session cookie, kept as long as the client.
-    expires_ns?: integer
+    mut expires_ns?: integer
   end
 
   --- An app driven in-process: see [`Testing.test_client`].
@@ -43,11 +43,11 @@ local record Testing
     --- on an https page. A `Secure` cookie is sent only when it is "https",
     --- which also adds `X-Forwarded-Proto: https` for an app with
     --- `trusted_proxy`.
-    scheme: string
+    mut scheme: string
     --- Whether the app's lifespan has run.
-    started: boolean
+    mut started: boolean
     --- The cleanup the lifespan returned, nil once run or when it returned none.
-    shutdown?: Types.Shutdown
+    mut shutdown?: Types.Shutdown
 
     --- One request, answered by the app's handler. `path` may hold a query.
     --- A reply the server would refuse raises, with the server's reason.
@@ -74,14 +74,14 @@ local record Testing
   --- A client of an app served on the loopback: see [`Testing.with_server`].
   record Loopback
     --- The connection, kept alive between requests.
-    conn: Net.Conn
+    mut conn: Net.Conn
     --- Bytes read from it and not yet taken.
-    buf: string
+    mut buf: string
     --- The `Host` the requests name.
     host: string
     --- How long a read or a write of the connection waits, as [`set_timeout`]
     --- last set it (nil: no limit).
-    timeout_ns?: integer
+    mut timeout_ns?: integer
 
     --- Sets how long a read or a write of the connection waits (nil: no
     --- limit). A request sending a large body sets the connection's own

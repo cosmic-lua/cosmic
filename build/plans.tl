@@ -26,7 +26,7 @@ local record plans
   end
   --- A module's key and the graph digest less its own file and compiler.
   record Keys
-    key: string
+    mut key: string
     graph: string
   end
 

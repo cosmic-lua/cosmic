@@ -21,7 +21,7 @@ local record Log
 
     --- `line` on stderr, after the logger's name and ": ", answering as
     --- `say` does.
-    complain: function(self: Logger, line: string): boolean, string
+    mut complain: function(self: Logger, line: string): boolean, string
   end
 end
 

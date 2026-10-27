@@ -237,8 +237,8 @@ end
 
 --- What the stages said of a program: the first stage with an error that is not an `unchecked_*` is the stage.
 local function verdict_of(run: Programs.Run): Verdicts.Verdict
-  local codes: {string} = {}
-  local seen: {string: boolean} = {}
+  local codes: mut {string} = {}
+  local seen: mut {string: boolean} = {}
   local stage = ""
   local function note(code: string, from: string): string
     if seen[code] ~= true then

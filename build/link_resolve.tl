@@ -27,7 +27,7 @@ local record link_resolve
     --- The project's root, absolute.
     root: string
     --- "file" or "dir" for what is at the absolute `path`, or nil.
-    kind: function(path: string): string?
+    mut kind: function(path: string): string?
     --- The text of the file at the absolute `path`, or nil.
     read: function(path: string): string?
     --- Each symbol `query` names (step 2). Nil and why when the
@@ -50,12 +50,12 @@ local record link_resolve
     headings: mut {string: {string: boolean}}
     symbols: mut {string: {Symbol}}
     members: mut {string: {Symbol}}
-    trouble: string?
+    mut trouble: string?
     --- The root with its links followed, once asked.
-    real_root: string?
+    mut real_root: string?
     --- How many links named no symbol while `context.unbuilt` said
     --- the symbols were incomplete, and so were not reported.
-    unchecked: integer
+    mut unchecked: integer
   end
 
   --- What one target resolved to, by `kind`:

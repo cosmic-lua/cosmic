@@ -31,7 +31,7 @@ local record Call
   parameters: mut {Parameter}
   results: mut {Result}
   --- The header line of the macro that names it.
-  line: integer
+  mut line: integer
 end
 
 local record Field
