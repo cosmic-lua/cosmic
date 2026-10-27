@@ -396,55 +396,36 @@ test: 3 tests passed
 tally (tally.tl)
 ```
 
-## migrating a project to the new grammar
+## moving a project to the new grammar
 
-A project written for the fork's checker (`T | nil`, `goto continue`, `function R:m()`, `c and a or b`) is rewritten into
-the new checker's grammar, in place, by `cosmic migrate`.
+The tool reads one grammar, the new checker's. A project written for the fork's checker (`T | nil`, `goto continue`,
+`function R:m()`, `c and a or b`) is refused by the compiler, which names the file, the line and the fix for each form it
+finds, and `COSMIC_GRAMMAR=teal` and `cosmic compile --grammar teal` are refused too.
 
-```text
-cosmic migrate --check .   list what would change, and write nothing
-cosmic migrate .           translate, rewrite and write the files
-```
+`cosmic migrate`, the verb that rewrote such a project in place, was removed. It still exists as a word that says so and
+exits 2, so that a script that runs it is told what happened. A project in the old grammar is rewritten to the new one by
+hand. Commit it first, then run `cosmic fix` and `cosmic test` and work through what they report; each finding says what
+to write instead. What changed, and what the finding for it asks of the file:
 
-Commit the project first, since the files are rewritten where they stand. Run the verb at the project's root: a module is
-named by its path below the working directory. A path is a `.tl` file or a directory, whose `.tl` and `.d.tl` files are
-read apart from hidden directories and `vendor`.
+- `T | nil` is `T?` (and `(A | B)?` for a union with nil; a function type in a union is parenthesized). `T...` as a
+  parameter's type is `...: T`, and `? T` is a named optional parameter, `name?: T`.
+- `goto continue` and its label `::continue::` are the statement `continue`.
+- A record with `function R:m()` statements outside it, and the field that declared each, is a `class` that holds them as
+  `function m(self, ...)`. The `metatable<R>` local that set its metatable goes, and a table literal of the class takes its
+  type from where it is written.
+- `local type X = record` is `local record X`; `metamethod __close: T` is the field `__close: T`; `readonly f: T` is `f: T`.
+- `c and a or b` is `if c then a else b end`; `and_ternary` names the sites. The two answer differently where `a` is false or
+  nil, which is why the checker asks for the `if` expression and does not rewrite it for you.
+- `-a ^ b` was read as `(-a) ^ b` and is read as Lua reads it, `-(a ^ b)`: write the parentheses the program meant.
+- A trailing `;`, a `--[[ ]]` comment, a digit separator (`1_000`) and a hexadecimal float are not in the grammar.
+- A collection that is written is declared `mut` (`names: mut {string}`), as a local, a parameter or a field of a record;
+  a field that is assigned after its record is made is declared `mut`. `view_written` and `field_fixed` name the places.
+- `local seen = {}` needs a type that says what it holds (`local seen: mut {string: boolean} = {}`), and `m.NAME` on a map is
+  written `m["NAME"]`.
+- A type and an interface it lists agree on which fields are `mut` (`interface_disagrees`).
 
-The translation respells what the new grammar cuts. The new checker then holds the translated project to every rule, and
-six of its findings have one mechanical fix, which `migrate` makes where the finding says:
-
-- `view_written`: a collection that is written is declared `mut`, as a local, a parameter or a field of a record the
-  project holds (`names: mut {string}`).
-- `field_fixed`: a field that is assigned after its record is made is declared `mut`, in the record and in the interfaces
-  it lists and the records that list them.
-- `interface_disagrees`: where a type and an interface it lists declare a field `mut` and fixed, the field is `mut` in the
-  interface, the type and every other type that lists the interface, in whichever file they are. A class that declares the
-  field as a method cannot be `mut`, so that finding is left.
-- `literal_needs_type`: `local seen = {}` gets the type of its first write (`local seen: mut {string: boolean} = {}`).
-- `map_field`: `m.NAME` on a map is written `m["NAME"]`.
-- `and_ternary`: `a and b or c` is written `if a then b else c end`, when `b` can be neither false nor nil.
-
-It checks the project again after each round of rewrites, because one declares what the next needs, and stops when
-nothing changes (at most 12 rounds). Comments and layout outside the rewritten tokens stay, and a file that is already in
-the new grammar is given only the rewrites it still needs, so a second run changes nothing.
-
-Every other finding is listed with its file, line and column, and left to a person: the verb writes no cast and no `any`
-to make a finding go. It lists the first 200 and counts all of them by code in the summary. A finding that has a rewrite and
-was left says why, as in "`env` is declared with no type": a collection a call answers is a view, and a copy of it is a
-decision. A `view_as_mut` after a parameter became `mut` is listed with the same advice: declare the argument `mut` where it
-is made. `m.NAME` on a map becomes `m["NAME"]`, which reads `string?`; a record is usually the better fix, and the rewrite is
-the one the checker names first.
-
-A field made `mut` in an interface is made `mut` in every type that lists it. A type in a file the run was not given cannot be
-changed, so the run names the files below the working directory that mention the interface: name them too. Run it on the whole
-project. A symbolic link named on the command line is written through, so it stays a link and its target keeps its mode;
-a link inside a directory is skipped.
-
-The last line of the output says why the exit status is 1: with `--check` or without, it is 0 only when nothing would change
-and nothing is left (a finding, a form the translator does not handle, a `.tl` that is not checked because a `.d.tl` of the same
-module is, a file outside the run, rewrites still going after 12 rounds), 1 otherwise, and 2 for a command line it refused.
-
-`cosmic migrate` is meant to go in the release after the one that makes the new checker the tool's own.
+The checker holds a project outside the tree to every rule with no ceiling, so each finding must be fixed, not counted. No
+cast and no `any` is a fix.
 
 [`cosmic.child`]: ../../cosmic/child.tl
 [`cosmic.flags`]: ../../cosmic/flags.tl

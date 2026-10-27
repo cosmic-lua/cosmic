@@ -124,7 +124,7 @@ local function test_a_checked_run_allows_the_checks_their_instructions()
   local ok, hooked_held, hooked_why = pcall(Fuzz.replay, property(), "input")
   globals.__cosmic_tc = saved
   assert(unhooked_ok and unhooked_held == false and
-      tostring(unhooked_why):find("spent its budget of 100000 VM instructions", 1, true), tostring(unhooked_why))
+      tostring(unhooked_why):find("spent its budget of 100000 VM instructions", 1, true) ~= nil, tostring(unhooked_why))
   assert(ok and hooked_held == true, tostring(hooked_why))
 end
 
@@ -267,7 +267,7 @@ local function test_a_required_label_no_input_reached_fails_the_run(tmp: string)
     requires = { "checked", "long" } })
   assert(err == 'fuzz never long: seed=1: no input of 64 reached "long", which the ' ..
       "property requires: its inputs do not exercise what it is meant to", err)
-  assert(not Fs.exists(tmp .. "/never-long.input"))
+  assert(Fs.exists(tmp .. "/never-long.input") ~= true)
 end
 
 -- A label the property requires a share of fails a run in which fewer
@@ -284,7 +284,7 @@ local function test_a_label_under_its_required_share_fails_the_run(tmp: string)
     shares = { ["a quarter"] = 0.6 } })
   assert(err:find('^fuzz too rare: seed=1: %d+ inputs of 64 reached "a quarter", under the share of 0.6 ' ..
       "the property requires: its inputs exercise it too rarely$"), err)
-  assert(not Fs.exists(tmp .. "/too-rare.input"))
+  assert(Fs.exists(tmp .. "/too-rare.input") ~= true)
 end
 
 -- A share outside (0, 1], NaN among them, is refused before anything is
@@ -383,7 +383,7 @@ local function test_a_case_that_is_not_one_raises()
     local ok, err = pcall(Fuzz.run, { name = "p", gen = any_bytes, case = case,
       check = function(_input: string): boolean, string return true, "" end })
     assert(not ok and tostring(err):find(("FUZZ_CASE=%q is not <property>:<case seed>"):format(case),
-      1, true), case .. ": " .. tostring(err))
+      1, true) ~= nil, case .. ": " .. tostring(err))
   end
 end
 
@@ -393,7 +393,7 @@ local function test_a_check_that_fails_once_is_reported_flaky()
   local failed = { value = false }
   local err = report({ name = "once", iters = 5, gen = any_bytes,
     check = function(_input: string): boolean, string
-      if failed.value then return true, "" end
+      if failed.value == true then return true, "" end
       failed.value = true
       return false, "the first time"
     end })
@@ -410,7 +410,7 @@ local function test_a_shrunk_input_that_then_holds_is_named_flaky()
   local err = report({ name = "shrunk once", iters = 200, gen = any_bytes,
     check = function(input: string): boolean, string
       if input == "\200" then
-        if seen_alone.value then return true, "" end
+        if seen_alone.value == true then return true, "" end
         seen_alone.value = true
         return false, "a high byte"
       end

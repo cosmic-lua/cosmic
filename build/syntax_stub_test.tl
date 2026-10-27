@@ -307,9 +307,9 @@ local function test_a_declaration_one_has_and_the_other_lacks_is_told()
   local extra = MODULE:gsub("  enum Mode", "  record Extra\n    n: integer\n  end\n  extra: Extra\n  enum Mode")
   local found = difference_of(MODULE, extra)
   -- the record that lists it differs first
-  assert(found ~= nil and found:find("^M: "), tostring(found))
+  assert(found ~= nil and found:find("^M: ") ~= nil, tostring(found))
   local reverse = difference_of(extra, MODULE)
-  assert(reverse ~= nil and reverse:find("^M: "), tostring(reverse))
+  assert(reverse ~= nil and reverse:find("^M: ") ~= nil, tostring(reverse))
   -- a declaration only one reaches, with the same answer otherwise
   local nested = MODULE:gsub("  enum Mode", "  record Extra\n    n: integer\n  end\n  enum Mode")
   assert(difference_of(MODULE, nested) == nil)
@@ -365,7 +365,7 @@ local function test_a_stub_that_changes_or_drops_a_function_written_as_a_static_
     local changed = STATICS:gsub(plant[1]:gsub("[%(%)%?%.%-%+%*%[%]%^%$%%]", "%%%0"), (plant[2]:gsub("%%", "%%%%")), 1)
     assert(changed ~= STATICS, "plant " .. tostring(i) .. " changes nothing")
     local found = difference_of(STATICS, changed)
-    assert(found ~= nil and found:find("^M%.%a+: "), "plant " .. tostring(i) .. ": " .. tostring(found))
+    assert(found ~= nil and found:find("^M%.%a+: ") ~= nil, "plant " .. tostring(i) .. ": " .. tostring(found))
   end
   local absent = STATICS:gsub("function M.pair%(%): integer, string\n  return 1, ''\nend\n", "")
   assert(difference_of(STATICS, absent) == "M.pair: a function of the source and not of the stub")

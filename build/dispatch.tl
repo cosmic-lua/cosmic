@@ -344,8 +344,12 @@ local function module_of(root: string, file: string): string?, string
     return nil, file .. " is not inside " .. root
   end
   local relative = resolved:sub(#root + 2)
+  if String.ends_with(relative, ".lua") then
+    return nil, file .. " is Lua, and cosmic runs Teal, checked: rename it to " ..
+      (relative:gsub("%.lua$", ".tl")) .. " and run `cosmic fix` on it to see what the checker asks of it"
+  end
   if not String.ends_with(relative, ".tl") then
-    return nil, file .. " is not a Teal source"
+    return nil, file .. " is not a Teal source: cosmic runs files that end in .tl"
   end
   local name = relative:gsub("/init%.tl$", ""):gsub("%.tl$", "")
   return (name:gsub("/", "."))

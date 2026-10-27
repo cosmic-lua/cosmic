@@ -164,7 +164,7 @@ local function test_a_run_under_a_policy_passes_what_is_declared_and_fails_what_
   -- it above.
   env.COSMIC_TEST_SANDBOX = "0"
   local plain, plain_ok = run(root, tmp .. "/plain", env, { "--all", "suite/held_test.tl" })
-  assert(not plain_ok and plain:find("; unsandboxed (COSMIC_TEST_SANDBOX=0)", 1, true), plain)
+  assert(not plain_ok and plain:find("; unsandboxed (COSMIC_TEST_SANDBOX=0)", 1, true) ~= nil, plain)
   assert(plain:find("test_a_declared_read_is_held_as_a_policy_holds_it", 1, true) and
       plain:find("no filter holds this worker", 1, true), plain)
   assert(plain:find("rerun: COSMIC_TEST_SANDBOX=0 cosmic test suite/held_test.tl:", 1, true), plain)
@@ -251,7 +251,7 @@ end
   -- Run unsandboxed, the host keeps it.
   env.COSMIC_TEST_SANDBOX = "0"
   local old, old_ok = run(root, tmp .. "/old", env, { "--all", "suite/own_test.tl" })
-  assert(not old_ok and old:find("its directory is kept: ", 1, true), old)
+  assert(not old_ok and old:find("its directory is kept: ", 1, true) ~= nil, old)
 end
 
 --- A module that declares `nests` starts and passes under the policy: its
@@ -289,7 +289,7 @@ local function test_the_verdicts_of_a_sandboxed_and_an_unsandboxed_run_stand_apa
     step.value = step.value + 1
     env.COSMIC_TEST_SANDBOX = if not sandboxed then "0" else nil end
     local text, ok = run(root, tmp .. "/run" .. step.value, env, { "suite/plain_test.tl" })
-    assert(ok and text:find(wanted, 1, true), step.value .. ": " .. text)
+    assert(ok and text:find(wanted, 1, true) ~= nil, step.value .. ": " .. text)
     return text
   end
   local first = said(true, "1 ran, 0 stood")
@@ -325,7 +325,7 @@ end
   local env = environment()
   local text, ok = run(root, tmp .. "/exec", env, { "--all" })
   if unsandboxed(text) then return end
-  assert(not ok and text:find("1 of 2 tests failed", 1, true), text)
+  assert(not ok and text:find("1 of 2 tests failed", 1, true) ~= nil, text)
   assert(text:find("FAIL  suite.plain_exec_test test_runs_the_core", 1, true), text)
   assert(text:find("Permission denied", 1, true), text)
   assert(not text:find("FAIL  suite.tool_exec_test", 1, true), text)

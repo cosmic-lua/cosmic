@@ -41,7 +41,7 @@ local function prepare(root: string, cache: string, patch: boolean)
     assert(Patch.prepare(root, "lib", cache))
   else
     local result, trouble = ZigFetch.install(cache, cache .. "/install", "v", "host", nil)
-    assert(result == nil and trouble:find("sha256", 1, true), trouble)
+    assert(result == nil and trouble:find("sha256", 1, true) ~= nil, trouble)
   end
 end
 

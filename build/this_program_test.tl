@@ -97,7 +97,7 @@ local function test_program_adds_the_relaunch_to_a_copy_of_the_options()
     -- A descriptor the relaunch hands the core its artifact as, named
     -- by the caller too, raises rather than being dropped.
     local ok, trouble = pcall(this_program.program, {}, { fds = { [254] = "capture" } })
-    assert(not ok and tostring(trouble):find("descriptor 254", 1, true), tostring(trouble))
+    assert(not ok and tostring(trouble):find("descriptor 254", 1, true) ~= nil, tostring(trouble))
     -- No environment given: this process's whole, which a child given
     -- none would have inherited, with the relaunch's added. A worker's
     -- is the variables it declares and the pinned ones; TMPDIR is
@@ -130,7 +130,7 @@ if cmdline ~= nil then print(cmdline:match("^[^%z]*")) else print("") end
   local r = assert(Child.run(started.argv, started.options))
   assert(r.ok, tostring(r.stdout) .. tostring(r.stderr))
   local relaunch = Proc.relaunch()
-  if relaunch == nil or not Fs.exists("/proc/self/cmdline") then return end
+  if relaunch == nil or Fs.exists("/proc/self/cmdline") ~= true then return end
   assert(r.stdout == relaunch.argv[1] .. "\n", tostring(r.stdout) .. " is no relaunch of " ..
       relaunch.argv[1])
 end
@@ -158,7 +158,7 @@ local function test_program_under_a_policy_leaves_the_relaunch_to_the_start()
         "capture")
     -- Child.start refuses an env beside a policy; so does this, rather than drop it.
     local ok, why = pcall(this_program.program, {}, { policy = policy, env = { A = "1" } })
-    assert(not ok and tostring(why):find("env beside a policy", 1, true), tostring(why))
+    assert(not ok and tostring(why):find("env beside a policy", 1, true) ~= nil, tostring(why))
   end)
   -- Without a policy the relaunch is still there.
   relaunching(relaunch, function()

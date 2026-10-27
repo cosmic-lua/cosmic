@@ -38,13 +38,13 @@ local function test_module_names_are_indexed_apart_from_their_payloads()
   end
   local plan = assert(Sqlite.text_rows(db,
     "EXPLAIN QUERY PLAN SELECT path FROM modules WHERE path = 'middle'"))
-  assert(#plan == 1 and plan[1]:text(4):find("COVERING INDEX", 1, true),
+  assert(#plan == 1 and plan[1]:text(4):find("COVERING INDEX", 1, true) ~= nil,
     "finding a module name reaches the table's payload: " .. table.concat(plan[1]:texts(), " "))
   local lookup = "SELECT bytecode, kind FROM main.modules WHERE path = ?1"
   local search = assert(Sqlite.text_rows(db, "EXPLAIN QUERY PLAN " .. lookup,
     { { text = "middle" } }))
-  assert(#search == 1 and search[1]:text(4):find("SEARCH", 1, true) and
-      search[1]:text(4):find("USING INDEX", 1, true), table.concat(search[1]:texts(), " "))
+  assert(#search == 1 and search[1]:text(4):find("SEARCH", 1, true) ~= nil and
+      search[1]:text(4):find("USING INDEX", 1, true) ~= nil, table.concat(search[1]:texts(), " "))
   local found = assert(Sqlite.rows(db, lookup, { { text = "middle" } }))
   assert(#found == 1 and found[1]:blob(1) == payload and found[1]:text(2) == "module")
   local rows = assert(Sqlite.text_rows(db,

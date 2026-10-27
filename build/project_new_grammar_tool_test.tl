@@ -80,7 +80,7 @@ local function test_a_project_in_the_new_grammar_is_tested_and_its_coverage_coun
   -- the fork's grammar is gone: the mode that names it is refused, naming the verb that rewrites a project to the new one
   local forked, forked_text = tested(copy_of(tmp, "forked"), tmp, "teal")
   assert(not forked.ok and forked_text:find("COSMIC_GRAMMAR=teal: the fork's grammar is gone; " ..
-      "`cosmic migrate` rewrites a project to the new one", 1, true) ~= nil, forked_text)
+      "rewrite a project to the new grammar by hand, as doc/guides/project.md says", 1, true) ~= nil, forked_text)
 end
 
 --- `cosmic fix --check` reads and checks the project and writes none of it, and passes on a project that is laid out; the
@@ -93,7 +93,7 @@ local function test_a_project_in_the_new_grammar_is_checked_by_fix_and_the_fork_
   assert(text:find("not laid out", 1, true) == nil, text)
   local forked, forked_text = checked(copy_of(tmp, "fix_forked"), tmp, "teal")
   assert(not forked.ok and forked_text:find("COSMIC_GRAMMAR=teal: the fork's grammar is gone; " ..
-      "`cosmic migrate` rewrites a project to the new one", 1, true) ~= nil, forked_text)
+      "rewrite a project to the new grammar by hand, as doc/guides/project.md says", 1, true) ~= nil, forked_text)
 end
 
 local function test_a_method_called_on_a_record_is_refused_with_the_class_and_function_field_fix(tmp: string)

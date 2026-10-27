@@ -17,7 +17,7 @@
 --- tree's other rules: it is the checker and the generator and nothing else.
 ---
 --- THE GRAMMAR is the new checker's ([`doc/plans/new-checker-grammar.md`]), which `--grammar new` names and the verb takes by
---- default; `--grammar teal` is refused, naming `cosmic migrate`, which rewrites a project to it. The files named are the
+--- default; `--grammar teal` is refused, pointing to the project guide. The files named are the
 --- whole program, a `.d.tl` among them declares the globals every file may use (the standard library's), and a `cosmic.*`
 --- module no file named is the module of is typed `invalid` and reported, since the checker cannot declare the binary's own
 --- modules. A syntax error refuses and writes nothing, any other error is reported and the Lua written anyway.
@@ -81,7 +81,7 @@ local function arguments(argv: {string}): Request?, string
     grammar = parsed.values["--grammar"] or "new",
   }
   if request.grammar == "teal" then
-    return nil, "--grammar teal: the fork's grammar is gone; `cosmic migrate` rewrites a project to the new one"
+    return nil, "--grammar teal: the fork's grammar is gone; rewrite a project to the new grammar by hand, as doc/guides/project.md says"
   elseif request.grammar ~= "new" then
     return nil, "--grammar names new, not " .. request.grammar
   end

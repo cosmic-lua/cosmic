@@ -75,7 +75,7 @@ local function test_a_placed_copy_runs_its_script_with_its_words(tmp: string)
   -- One placed without a script runs its first argument, as the probe
   -- itself does.
   assert(stand_in.place(probe, tmp .. "/bin/bare"))
-  assert(not Fs.exists(tmp .. "/bin/bare.do"))
+  assert(Fs.exists(tmp .. "/bin/bare.do") ~= true)
   local bare = run({ tmp .. "/bin/bare", "print $@; exit 4", "x", "y" })
   assert(bare.code == 4 and bare.stdout == "x y\n", tostring(bare.stdout))
   local empty = run({ probe })
@@ -285,7 +285,7 @@ local function test_commands_chain_as_a_shell_s_do(tmp: string)
   -- Only the failure that ended it is said.
   local said = assert(r.stderr)
   local _, count = said:gsub("probe: ", "")
-  assert(count == 1 and said:find(missing, 1, true), said)
+  assert(count == 1 and said:find(missing, 1, true) ~= nil, said)
 end
 
 --- The verbs that ask of a path: whether it is there, whether it opens
@@ -314,10 +314,10 @@ local function test_the_verbs_that_ask_of_a_path(tmp: string)
   assert(r.ok, tostring(r.stderr))
   assert(r.stdout == "there\nabsent\nopens\na-directory-does-not\nnor-a-missing-file\n750\n" ..
       d .. "/sub/deeper/f\n", r.stdout)
-  assert(not Fs.exists(d .. "/missing"), "writable made the file")
+  assert(Fs.exists(d .. "/missing") ~= true, "writable made the file")
   assert(Fs.read(d .. "/sub/deeper/f") == "x", "writable wrote to the file")
   local absent = run({ probe, "present " .. d .. "/missing" })
-  assert(absent.code == 1 and assert(absent.stderr):find(d .. "/missing", 1, true),
+  assert(absent.code == 1 and assert(absent.stderr):find(d .. "/missing", 1, true) ~= nil,
     tostring(absent.stderr))
 end
 
@@ -336,7 +336,7 @@ local function test_what_start_and_run_leave_running_runs_on(tmp: string)
     local r = assert(Child.run({ probe, how .. "; print gone on" },
       { env = {}, process_group = false, stdout = "capture", timeout_ns = Clock.seconds(30) }))
     assert(r.ok and r.stdout == "gone on\n", tostring(r.stdout))
-    assert(not Fs.exists(tmp .. "/bin/done-" .. word), "it did not wait")
+    assert(Fs.exists(tmp .. "/bin/done-" .. word) ~= true, "it did not wait")
     assert(Fs.write(tmp .. "/bin/go-" .. word, ""))
     await(tmp .. "/bin/done-" .. word)
   end
@@ -376,17 +376,17 @@ local function test_it_writes_to_a_descriptor_and_names_a_variable(tmp: string)
   local refused = run({ probe, "connect-tcp 127.0.0.1 1" }, {})
   assert(refused.ok and refused.stdout == "127.0.0.1:1: Connection refused\n", refused.stdout)
   local portless = run({ probe, "connect-tcp 127.0.0.1 70000" })
-  assert(portless.code == 1 and assert(portless.stderr):find("no port 70000", 1, true),
+  assert(portless.code == 1 and assert(portless.stderr):find("no port 70000", 1, true) ~= nil,
     tostring(portless.stderr))
   -- `bind-tcp` listens and says `bound`, and refuses a port that is none.
   local bound = run({ probe, "bind-tcp 127.0.0.1 0" }, {})
   assert(bound.ok and bound.stdout == "bound\n", tostring(bound.stdout))
   local unbound = run({ probe, "bind-tcp 127.0.0.1 70000" })
-  assert(unbound.code == 1 and assert(unbound.stderr):find("no port 70000", 1, true),
+  assert(unbound.code == 1 and assert(unbound.stderr):find("no port 70000", 1, true) ~= nil,
     tostring(unbound.stderr))
   assert(sys.close(fd))
   local unnamed = run({ probe, "write-fd x y" })
-  assert(unnamed.code == 1 and assert(unnamed.stderr):find("no descriptor x", 1, true),
+  assert(unnamed.code == 1 and assert(unnamed.stderr):find("no descriptor x", 1, true) ~= nil,
     tostring(unnamed.stderr))
 end
 

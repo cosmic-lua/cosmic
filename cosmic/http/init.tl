@@ -663,7 +663,7 @@ local escape_unsafe: mut {string:string} = {}
 do
   for byte = 0, 255 do
     local ch = string.char(byte)
-    if byte <= 32 or byte >= 127 or ('"<>\\^`{|}'):find(ch, 1, true) then
+    if byte <= 32 or byte >= 127 or ('"<>\\^`{|}'):find(ch, 1, true) ~= nil then
       escape_unsafe[ch] = ("%%%02X"):format(byte)
     end
   end

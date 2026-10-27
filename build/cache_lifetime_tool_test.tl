@@ -47,7 +47,7 @@ local function test_a_test_run_prunes_a_stale_build_directory(tmp: string)
   local text = assert(Fs.read(output))
   assert(result.ok, text)
   assert(text:find("test: removed 1 build directory unused for thirty days", 1, true), text)
-  assert(not Fs.exists(stale), "the stale build directory stayed")
+  assert(Fs.exists(stale) ~= true, "the stale build directory stayed")
   assert(Fs.exists(recent .. "/build.db"), "a recent build directory went")
   assert(Fs.exists(own), "the run's own build directory went")
 end

@@ -43,7 +43,7 @@ end
 --- digits ("N-xxxxxxxx"), or nil where it has another.
 local function epoch_parts(epoch: string): integer?, string?
   local count, token = epoch:match("^(%d+)%-(%x%x%x%x%x%x%x%x)$")
-  if count == nil or token:find("%u") then return nil, nil end
+  if count == nil or token:find("%u") ~= nil then return nil, nil end
   return math.tointeger(tonumber(count)), token
 end
 
@@ -99,7 +99,7 @@ end
 local function epoch_trouble(epoch: string, retired: {string}): string?
   local seen: mut {string:boolean} = {}
   for _, token in ipairs(retired) do
-    if seen[token] then return string.format("`retired` holds %q twice", token) end
+    if seen[token] == true then return string.format("`retired` holds %q twice", token) end
     seen[token] = true
   end
   local count, token = epoch_parts(epoch)
@@ -107,7 +107,7 @@ local function epoch_trouble(epoch: string, retired: {string}): string?
     return string.format("`epoch` is %q, not a count, a dash and 8 lower-case hex digits",
       epoch)
   end
-  if seen[token] then
+  if seen[token] == true then
     return string.format("`epoch`'s token %s is retired: a bump draws a new one", token)
   end
   if count ~= #retired + 1 then
@@ -317,7 +317,7 @@ local function test_the_guard_holds_the_epoch_to_its_retired_tokens()
   for _, malformed in ipairs({ "8", "", "8-", "-072f7458", "8-072f745", "8-072f74581",
       "8-072F7458", "8-072g7458", "x-072f7458", "8_072f7458", " 8-072f7458" }) do
     local trouble = epoch_trouble(malformed, retired)
-    assert(trouble ~= nil and trouble:find("not a count, a dash", 1, true),
+    assert(trouble ~= nil and trouble:find("not a count, a dash", 1, true) ~= nil,
       string.format("%q was taken as an epoch: %s", malformed, tostring(trouble)))
   end
   local skipped = assert(epoch_trouble("9-072f7458", retired))
@@ -404,7 +404,7 @@ local function test_the_harness_holds_what_it_runs_requires()
   for _, name in ipairs(found.runs) do
     assert(tree[name], name .. " is no module of the tree")
     for _, wanted in ipairs(by_value[name] or {}) do
-      if tree[wanted] and not named[wanted] and not (unfollowed[name] or {})[wanted] then
+      if tree[wanted] == true and named[wanted] ~= true and (unfollowed[name] or {})[wanted] ~= true then
         missing[#missing + 1] = name .. " requires " .. wanted
       end
     end
@@ -447,7 +447,7 @@ local function test_what_is_split_off_a_module_of_the_harness_is_held()
     if name:match("^cosmic%.") then
       for _, wanted in ipairs(by_value[name] or {}) do
         local prefix = wanted:sub(1, #name + 1)
-        if (prefix == name .. "." or prefix == name .. "_") and not named[wanted] and
+        if (prefix == name .. "." or prefix == name .. "_") and named[wanted] ~= true and
             unheld_split[wanted] == nil then
           unheld[#unheld + 1] = name .. " requires " .. wanted
         end
@@ -465,7 +465,7 @@ local function test_what_is_split_off_a_module_of_the_harness_is_held()
   end
   local stale: mut {string} = {}
   for wanted in pairs(unheld_split) do
-    if named[wanted] or not required[wanted] then stale[#stale + 1] = wanted end
+    if named[wanted] == true or required[wanted] ~= true then stale[#stale + 1] = wanted end
   end
   table.sort(stale)
   assert(#stale == 0, "`unheld_split` names " .. table.concat(stale, ", ") ..
@@ -493,7 +493,7 @@ local function test_the_harness_names_its_library()
   local unheld: mut {string} = {}
   for name, reason in pairs(harness_epoch.library) do
     assert(reason ~= "", name .. " is in `library` with no reason")
-    if not held[name] then unheld[#unheld + 1] = name end
+    if held[name] ~= true then unheld[#unheld + 1] = name end
   end
   table.sort(unnamed)
   table.sort(unheld)
@@ -532,8 +532,8 @@ local function test_value_imports_follows_every_spelling_of_a_require()
   db:close()
   local kept: mut {string:boolean} = {}
   for _, name in ipairs(by_value["build.x"] or {}) do kept[name] = true end
-  assert(kept["cosmic.fs"] and kept["cosmic.env"], "a require's spelling dropped its edge")
-  assert(not kept["cosmic.child"], "an edge the bytecode does not name was followed")
+  assert(kept["cosmic.fs"] == true and kept["cosmic.env"] == true, "a require's spelling dropped its edge")
+  assert(kept["cosmic.child"] ~= true, "an edge the bytecode does not name was followed")
   assert((by_value["build.y"] or {})[1] == "cosmic.time")
 end
 
@@ -555,8 +555,8 @@ local function test_type_only_imports_is_what_value_imports_drops()
   end
   local erased = assert(test_key.type_only_imports(db))
   db:close()
-  assert(erased["build.x"] ~= nil and erased["build.x"]["cosmic.child"], "a type-only edge was kept")
-  assert(not erased["build.x"]["cosmic.fs"], "a value edge was dropped")
+  assert(erased["build.x"] ~= nil and erased["build.x"]["cosmic.child"] == true, "a type-only edge was kept")
+  assert(erased["build.x"]["cosmic.fs"] ~= true, "a value edge was dropped")
   assert(erased["build.y"] == nil, "an importer with no bytecode lost an edge")
   assert(erased["build.t_test"] == nil, "a test's own edge was dropped")
 end

@@ -350,7 +350,7 @@ local function walk(root: Ast.Node, enter: function(Ast.Node), leave: function(A
     nodes[top] = nil
     leaving[top] = nil
     top = top - 1
-    if exiting then
+    if exiting == true then
       leave(node)
     else
       enter(node)
@@ -414,7 +414,7 @@ local function number_rewrite(tokens: Lexer.Tokens, i: integer): Rewrite?
     return { row = "digit_separator", edits = { replace_token(tokens, i, (text:gsub("_", ""))) } }
   end
   local value = tokens.number[i]
-  if value ~= nil and find(text, "^0[xX]") and find(text, "[%.pP]") then
+  if value ~= nil and find(text, "^0[xX]") ~= nil and find(text, "[%.pP]") ~= nil then
     local written = decimal_of(value)
     if written ~= nil then
       return { row = "hex_float", edits = { replace_token(tokens, i, written) } }
@@ -432,7 +432,7 @@ local function line_comments(source: string, offset: integer, text: string): str
   local level = #(text:match("^%-%-%[(=*)%[") or "")
   local after = offset + #text
   local rest = sub(source, after, (find(source, "[\r\n]", after) or #source + 1) - 1)
-  if find(rest, "%S") and (not find(rest, "^%s*%-%-") or find(rest, "^%s*%-%-%[=*%[")) then
+  if find(rest, "%S") and (not find(rest, "^%s*%-%-") or find(rest, "^%s*%-%-%[=*%[") ~= nil) then
     return nil
   end
   local from = line_start(source, offset)
@@ -536,7 +536,7 @@ local function parameter_rewrites(source: string, tokens: Lexer.Tokens, ty: Ast.
         end
       end
       local name = "arg" .. index
-      while taken[name] do
+      while taken[name] == true do
         name = name .. "_"
       end
       out[#out + 1] = {
@@ -678,7 +678,7 @@ local function direct_label(tokens: Lexer.Tokens, body: Ast.Block): integer?
   for _, stat in ipairs(body.stats) do
     if (stat.kind == "Error") then
       local first, stop = bounds(stat)
-      if first == stop and tokens.kind[first] == "$ERR$" and find(Lexer.text(tokens, first), "^::[ \t]*continue[ \t]*::$") then
+      if first == stop and tokens.kind[first] == "$ERR$" and find(Lexer.text(tokens, first), "^::[ \t]*continue[ \t]*::$") ~= nil then
         return first
       end
     end
@@ -1311,7 +1311,7 @@ local function class_rewrite(source: string, tokens: Lexer.Tokens, declared: {st
     for i = first, last do
       local written_name = tokens.text[i]
       local prev = tokens.kind[i - 1]
-      if tokens.kind[i] == "identifier" and declared[written_name] ~= nil and not own[written_name] and not reported[written_name] and
+      if tokens.kind[i] == "identifier" and declared[written_name] ~= nil and own[written_name] ~= true and reported[written_name] ~= true and
           moved[written_name] ~= true and taken[written_name] ~= true and not (prev == "." or prev == ":") then
         local between, before = declared_between(declared, written_name, rec_last, first)
         if between then
@@ -1362,7 +1362,7 @@ local function class_rewrite(source: string, tokens: Lexer.Tokens, declared: {st
       for i = fl, ll do
         local written_name = tokens.text[i]
         local prev = tokens.kind[i - 1]
-        if tokens.kind[i] == "identifier" and declared[written_name] ~= nil and not own[written_name] and not reported[written_name] and
+        if tokens.kind[i] == "identifier" and declared[written_name] ~= nil and own[written_name] ~= true and reported[written_name] ~= true and
             moved[written_name] ~= true and taken[written_name] ~= true and not (prev == "." or prev == ":") then
           local between, before = declared_between(declared, written_name, rec_last, fl)
           if between then
@@ -1517,7 +1517,7 @@ local function index_class(literal: Ast.Table, classes: {string: boolean}): stri
   local item = items[1]
   if #items == 1 and (item.kind == "Named") and item.name == "__index" then
     local value = item.value
-    if (value.kind == "Name") and classes[value.text] then
+    if (value.kind == "Name") and classes[value.text] == true then
       return value.text
     end
   end
@@ -1964,12 +1964,12 @@ local function mut_tracker(tokens: Lexer.Tokens, hazards: mut {Translate.Hazard}
       end
     elseif (node.kind == "Call") then
       local callee = node.callee
-      if (callee.kind == "Name") and GLOBAL_WRITES[callee.text] and binder(callee.text) == nil then
+      if (callee.kind == "Name") and GLOBAL_WRITES[callee.text] == true and binder(callee.text) == nil then
         local target = node.args[1]
         if target ~= nil then
           collection_changed(target)
         end
-      elseif (callee.kind == "Field") and TABLE_WRITES[callee.name] then
+      elseif (callee.kind == "Field") and TABLE_WRITES[callee.name] == true then
         local object = callee.object
         if (object.kind == "Name") and object.text == "table" and binder("table") == nil then
           -- `insert`, `remove` and `sort` change their first argument;
@@ -2058,7 +2058,7 @@ local function mut_tracker(tokens: Lexer.Tokens, hazards: mut {Translate.Hazard}
             local parent = resolved(super)
             if parent == nil then
               outside[#outside + 1] = super
-            elseif not visited[parent] then
+            elseif visited[parent] ~= true then
               visited[parent] = true
               up[#up + 1] = parent
             end
@@ -2077,7 +2077,7 @@ local function mut_tracker(tokens: Lexer.Tokens, hazards: mut {Translate.Hazard}
               marked[decl] = name
             end
             for _, user in ipairs(implementers[name] or {}) do
-              if not reached[user] then
+              if reached[user] ~= true then
                 reached[user] = true
                 down[#down + 1] = user
               end
@@ -2197,7 +2197,7 @@ local function collect(source: string, parsed: Parser.Parsed, hazards: {Translat
         local first, last = bounds(node)
         if head ~= nil and (head.kind == "TypeUnion") and (#list > 1 or node.variadic) and tokens.kind[first] ~= "(" then
           local made = union_rewrite(source, tokens, head)
-          if made ~= nil and made.opens then
+          if made ~= nil and made.opens == true then
             table.insert(made.edits, insert_before(tokens, first, "("))
             table.insert(made.edits, insert_after(tokens, last, ")"))
             covered[head] = true
@@ -2360,7 +2360,7 @@ local function collect(source: string, parsed: Parser.Parsed, hazards: {Translat
   local commas: mut {integer: boolean} = {}
   for _, s in ipairs(semicolons) do
     local open = stopped[s]
-    if open ~= nil and not commas[s] then
+    if open ~= nil and commas[s] ~= true then
       commas[s] = true
       local close = brace_end(tokens, open)
       local openers: mut {string} = {}
@@ -2371,7 +2371,7 @@ local function collect(source: string, parsed: Parser.Parsed, hazards: {Translat
           openers[#openers + 1] = kind
         elseif kind == "}" or kind == ")" or kind == "]" then
           openers[#openers] = nil
-        elseif kind == "keyword" and BLOCK_WORDS[Lexer.text(tokens, i)] then
+        elseif kind == "keyword" and BLOCK_WORDS[Lexer.text(tokens, i)] == true then
           break
         elseif kind == "$ERR$" and tokens.text[i] == ";" and (openers[#openers] or "{") == "{" then
           commas[i] = true
@@ -2391,7 +2391,7 @@ local function collect(source: string, parsed: Parser.Parsed, hazards: {Translat
         pending = true
       end
     end
-    if commas[s] then
+    if commas[s] == true then
       out[#out + 1] = { row = "semicolon", edits = { replace_token(tokens, s, ",") } }
     elseif not pending then
       out[#out + 1] = { row = "semicolon", edits = { delete_with_blanks_before(source, tokens, s) } }
@@ -2440,7 +2440,7 @@ local function apply(source: string, rewrites: {Rewrite}, counts: mut {string: i
     local clash = false
     local reach = 0
     for _, p in ipairs(placed) do
-      if not dropped[p.group] then
+      if dropped[p.group] ~= true then
         if p.lo < reach then
           dropped[p.group] = true
           clash = true
@@ -2456,7 +2456,7 @@ local function apply(source: string, rewrites: {Rewrite}, counts: mut {string: i
   local out: mut {string} = {}
   local at = 1
   for _, p in ipairs(placed) do
-    if not dropped[p.group] then
+    if dropped[p.group] ~= true then
       out[#out + 1] = sub(source, at, p.lo - 1)
       out[#out + 1] = p.text
       at = p.hi
@@ -2465,7 +2465,7 @@ local function apply(source: string, rewrites: {Rewrite}, counts: mut {string: i
   out[#out + 1] = sub(source, at)
   local made = 0
   for g, r in ipairs(rewrites) do
-    if not dropped[g] then
+    if dropped[g] ~= true then
       made = made + 1
       counts[r.row] = (counts[r.row] or 0) + 1
       local gone = r.removed
@@ -2551,7 +2551,7 @@ function Translate.translate(source: string, name: string): Translate.Result
   local seen_hazards: mut {string: boolean} = {}
   for _, h in ipairs(hazards) do
     local key = h.kind .. "\0" .. h.class .. "\0" .. h.method .. "\0" .. h.name
-    if not seen_hazards[key] then
+    if seen_hazards[key] ~= true then
       seen_hazards[key] = true
       unique[#unique + 1] = h
     end
