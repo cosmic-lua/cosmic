@@ -589,7 +589,10 @@ function host_requires.answer(host: host_requires.Host, names: {string}): {host_
       else
         local entry = table_of[spec.base]
         local has = entry.platform_has
-        if spec.class == "platform" and has ~= nil and not has(host) then
+        if spec.class == "platform" and has == nil then
+          error("host_requires: " .. spec.base .. " is a platform requirement with no platform_has", 0)
+        end
+        if has ~= nil and spec.class == "platform" and not has(host) then
           cached = { name = name, class = spec.class, kind = "na", key = "", why = spec.base .. ": this platform has none" }
         else
           local found = entry.probe(spec.argument, host)
