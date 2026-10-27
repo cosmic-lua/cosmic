@@ -110,7 +110,7 @@ local record verb
     script?: {string}
     --- What `-o` asks between chunks, for a test: true ends the download
     --- as an interrupt does. The verb's own is its [`Signal.guard`]'s.
-    cancelled: function(): boolean
+    cancelled?: function(): boolean
   end
   --- The schemes a redirect of `url` may lead to, for
   --- `Http.Options.redirect_protocols`: https only when `url` is https

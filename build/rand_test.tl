@@ -16,9 +16,9 @@ end
 
 local record Stand
   stdin?: string
-  entropy: function(count: integer): string?, string
-  now_ns: function(): integer
-  out: function(text: string): boolean, string
+  entropy?: function(count: integer): string?, string
+  now_ns?: function(): integer
+  out?: function(text: string): boolean, string
 end
 
 local function run(words: {string}, stand?: Stand): Ran

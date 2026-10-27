@@ -131,7 +131,7 @@ local record fix
     close: function()
     --- Why the build made to resolve a link failed, once one has: the
     --- links then resolved against the last build, and the run fails.
-    mut unbuilt: string?
+    mut unbuilt?: string
   end
 
   record Chosen
@@ -155,13 +155,13 @@ local record fix
     --- For a run of `--changed`, everything a run over the whole tree
     --- covers, which the checks spanning files still cover: the asserts
     --- the build refuses and the links; nil for any other run.
-    every: Chosen?
+    every?: Chosen
     --- For a run of `--changed`, the Teal files whose notes it reads
     --- ([`fix.notes`]), where these are not `files`.
-    noted: {string}?
+    noted?: {string}
     --- For a run of `--changed` that lays out the whole tree after all,
     --- why: a path named that is part of what checks each file alone.
-    widened: string?
+    widened?: string
   end
 end
 
@@ -932,17 +932,17 @@ local record Fix
   -- The Teal ([`lay_out_teal`]).
   mut facts?: {string: links.Facts}
   mut ready?: {string: {near.Candidate}}
-  mut plurals: {string: tree_checks.Plurals}?
+  mut plurals?: {string: tree_checks.Plurals}
 
   -- The build's refusal ([`find_unbuilt`]).
-  mut unbuilt: string?
+  mut unbuilt?: string
 
   -- The tree checks ([`run_tree_checks`]).
   mut findings?: {string}
 
   -- The links ([`check_links`]).
   mut linked_out?: fix.Linked
-  mut links_unbuilt: string?
+  mut links_unbuilt?: string
 end
 
 --- Reads the command line and the working directory into `ctx`.

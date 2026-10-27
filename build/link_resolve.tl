@@ -18,7 +18,7 @@ local record link_resolve
     symbol: string
     --- The file that declares it, from the root; nil or `""` when the
     --- context does not say.
-    file: string?
+    file?: string
   end
 
   --- What resolution reads beyond the file, so a test can hand it a
@@ -50,9 +50,9 @@ local record link_resolve
     headings: mut {string: {string: boolean}}
     symbols: mut {string: {Symbol}}
     members: mut {string: {Symbol}}
-    trouble: string?
+    trouble?: string
     --- The root with its links followed, once asked.
-    real_root: string?
+    real_root?: string
     --- How many links named no symbol while `context.unbuilt` said
     --- the symbols were incomplete, and so were not reported.
     unchecked: integer

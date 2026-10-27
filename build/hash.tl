@@ -210,7 +210,7 @@ local record Request
   quiet: boolean
   json: boolean
   --- The HMAC key; nil for a plain digest.
-  mut key: string?
+  mut key?: string
   --- A complaint to make before running, or "".
   mut warning: string
 end

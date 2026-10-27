@@ -226,7 +226,7 @@ end
 local record BlameRun
   file: string
   deadline: integer
-  handle: Child.Handle?
+  handle?: Child.Handle
   said: function(): string?
   drop: function()
 end

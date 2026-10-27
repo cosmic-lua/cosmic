@@ -58,7 +58,7 @@ local record verb
     --- Whether the query names one value at most: no `*` and no `..`.
     singular: boolean
     --- The file to read; nil for standard input.
-    file: string?
+    file?: string
     --- Whether the file is a lone word that reads like a path of
     --- another language than JSONPath (`.users`, `[0]`), for a hint
     --- when there is no such file.
