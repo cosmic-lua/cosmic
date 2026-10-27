@@ -131,7 +131,7 @@ end
 
 link_index.none = {
   identity = "",
-  databases = function(): {Sqlite.Handle}?, string return {} end,
+  databases = function(): {Sqlite.Handle}?, string return {}, "" end,
 }
 
 --- The standard library of the binary running this build: its own
@@ -153,7 +153,7 @@ function link_index.running(): link_index.Library
       if not ok then
         return nil, "the standard library a project's links name: " .. tostring(all)
       end
-      return { all[#all] }
+      return { all[#all] }, ""
     end,
   }
 end
@@ -472,7 +472,7 @@ function link_index.pending(db: Sqlite.Handle, root: string,
     end
   end
   return { root = root, rows = rows, memo = memo, library = asking.asked and library or nil,
-    digest = digest, remembered = recalled_memo ~= nil, fingerprint = fingerprint }
+    digest = digest, remembered = recalled_memo ~= nil, fingerprint = fingerprint }, ""
 end
 
 --- The `docs` of the projection under `qualifier`, held in memory, with

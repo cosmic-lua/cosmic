@@ -695,7 +695,7 @@ local function library(dir: string, identity: string, with_write: boolean): link
       "--- Opens.", "function raw.open(): integer", "  return 0", "end", "", "return raw"),
   })
   return { identity = identity,
-    databases = function(): {Sqlite.Handle}?, string return { db } end }
+    databases = function(): {Sqlite.Handle}?, string return { db }, "" end }
 end
 
 --- A project whose module and README link to the standard library.
@@ -780,7 +780,7 @@ local function test_a_projects_links_through_required_modules_are_rows(tmp: stri
       "return Archive"),
   })
   local streams: link_index.Library = { identity = "docs streams",
-    databases = function(): {Sqlite.Handle}?, string return { stdlib } end }
+    databases = function(): {Sqlite.Handle}?, string return { stdlib }, "" end }
   local root = assert(Fs.absolute(tmp)) .. "/project"
   assert(Fs.mkdirs(root))
   assert(Fs.write(root .. "/greet.tl", source(

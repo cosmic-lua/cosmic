@@ -395,7 +395,7 @@ function embed.database(project: string, main: string, roots?: string): string?,
   if bytes == nil then
     return nil, read_trouble
   end
-  return bytes
+  return bytes, ""
 end
 
 --- Builds the tree at `root` and writes `bin/<name>` in its build
@@ -479,7 +479,7 @@ function embed.tree(root: string, host?: boolean, under?: {string}, grammar?: Gr
     end
   end
   if #mains == 0 then
-    return {}
+    return {}, ""
   end
 
   local prefix, core: string?, raw_store.Core?
@@ -525,7 +525,7 @@ function embed.tree(root: string, host?: boolean, under?: {string}, grammar?: Gr
     end
     names[#names + 1] = name
   end
-  return names
+  return names, ""
 end
 
 --- `cosmic build [--host] [--roots minimal|mozilla] [path...]`: the tree in the working directory,

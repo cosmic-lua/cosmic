@@ -539,7 +539,7 @@ function flow.parse(text: string): flow.Doc?, string
     end
     error(raised, 0)
   end
-  return doc[1]
+  return doc[1], ""
 end
 
 --- A container's members. A scalar has none, and is not asked.
@@ -674,7 +674,7 @@ function flow.format(text: string): string?, string
   if again == nil or flow.render(again) ~= out then
     return nil, "laid out, a second pass would change it again"
   end
-  return out
+  return out, ""
 end
 
 --- Whether `text` is in flow style: its first line that is neither

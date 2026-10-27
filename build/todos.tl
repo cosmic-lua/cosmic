@@ -500,7 +500,7 @@ local function blame_rows(db: Sqlite.Handle, root: string, head: string,
     return nil, prune_trouble
   end
   if head == "" then
-    return 0
+    return 0, ""
   end
   local order: mut {string} = {}
   local pending: mut {string:{Row}} = {}
@@ -543,7 +543,7 @@ local function blame_rows(db: Sqlite.Handle, root: string, head: string,
       end
     end
   end
-  return #order
+  return #order, ""
 end
 
 --- `rows` as a listing, `blamed` files having been blamed for it.
@@ -637,7 +637,7 @@ function todos.search(db: Sqlite.Handle, query: string): {integer:integer}?, str
   else
     local words = quoted_words(query)
     if words == "" then
-      return {}
+      return {}, ""
     end
     local retried, trouble = Sqlite.text_rows(db, sql, { { text = words } })
     if retried == nil then
@@ -650,7 +650,7 @@ function todos.search(db: Sqlite.Handle, query: string): {integer:integer}?, str
     local id = math.tointeger(tonumber(row:text(1)))
     if id ~= nil then out[id] = index end
   end
-  return out
+  return out, ""
 end
 
 --- The command line's words split into paths and words to search the

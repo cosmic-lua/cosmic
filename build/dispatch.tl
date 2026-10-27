@@ -325,7 +325,7 @@ local function root_of(file: string): string?, string
   end
   local here, _ = Fs.absolute(".")
   if here ~= nil and Fs.within(resolved, here) then
-    return here
+    return here, ""
   end
   return directory_of(file)
 end
@@ -348,7 +348,7 @@ local function module_of(root: string, file: string): string?, string
     return nil, file .. " is not a Teal source"
   end
   local name = relative:gsub("/init%.tl$", ""):gsub("%.tl$", "")
-  return (name:gsub("/", "."))
+  return (name:gsub("/", ".")), ""
 end
 
 --- Runs a file. The file is a module: it is required once its tree is

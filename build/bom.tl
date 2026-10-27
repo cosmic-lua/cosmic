@@ -107,13 +107,13 @@ local function notice_of(value: string): bom.Notice?, string
     if value:find(":", 1, true) ~= nil then
       return nil, "notice " .. value .. ": a range is written file:first-last"
     end
-    return { file = value }
+    return { file = value }, ""
   end
   local from, to = math.tointeger(tonumber(first)), math.tointeger(tonumber(last))
   if from == nil or to == nil or from < 1 or to < from then
     return nil, "notice " .. value .. ": the range is empty"
   end
-  return { file = file, first = from, last = to }
+  return { file = file, first = from, last = to }, ""
 end
 
 --- A record's text as a component named `name`: `version`, `url` and
@@ -165,7 +165,7 @@ function bom.parse(name: string, source: string): bom.Component?, string
   if missing ~= nil then
     return nil, name .. ": its record names no " .. missing
   end
-  return component
+  return component, ""
 end
 
 --- A notice's text, read from under `directory`.
@@ -179,9 +179,9 @@ local function notice_text(directory: string, notice: bom.Notice): string?, stri
   local first, last = notice.first, notice.last
   if first == nil or last == nil then
     if data:sub(-1) ~= "\n" then
-      return data .. "\n"
+      return data .. "\n", ""
     end
-    return data
+    return data, ""
   end
   local kept: mut {string} = {}
   local number = 0
@@ -195,7 +195,7 @@ local function notice_text(directory: string, notice: bom.Notice): string?, stri
   if number < last then
     return nil, path .. ": has " .. plural.count(number, "line") .. ", not " .. last
   end
-  return table.concat(kept, "\n") .. "\n"
+  return table.concat(kept, "\n") .. "\n", ""
 end
 
 --- The files of the tree that descend whole from a vendored tree, by its
@@ -250,7 +250,7 @@ local function entries(directory: string): {string}?, string
     return nil, trouble
   end
   if not exists then
-    return {}
+    return {}, ""
   end
   return Fs.list(directory)
 end
@@ -291,7 +291,7 @@ local function records(root: string): {{string}}?, string
       return nil, "two records name " .. found[index][1]
     end
   end
-  return found
+  return found, ""
 end
 
 --- Writes the tree at `root`'s components and their notices into the
@@ -360,7 +360,7 @@ function bom.rows(db: Sqlite.Handle): {bom.Row}?, string
     out[#out + 1] = { name = row:text(1), kind = row:text(2), version = row:text(3),
       license = row:text(4), url = row:text(5), sha256 = row:text(6), sha3_256 = row:text(7), patches = row:text(8) }
   end
-  return out
+  return out, ""
 end
 
 --- One line per component: name, version, license, and whether cosmic
@@ -416,7 +416,7 @@ function bom.notices(db: Sqlite.Handle): string?, string
       parts[#parts + 1] = head .. ": " .. row:text(6) .. "\n\n" .. row:text(7)
     end
   end
-  return table.concat(parts, "\n")
+  return table.concat(parts, "\n"), ""
 end
 
 --- `value` with every byte a URL query value may not hold as itself

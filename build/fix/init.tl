@@ -208,7 +208,7 @@ local function sources(root: string): {string}?, string
       out[#out + 1] = file
     end
   end
-  return out
+  return out, ""
 end
 
 --- Every template under `root`, as paths relative to it, but those under
@@ -226,7 +226,7 @@ local function template_sources(root: string): {string}?, string
       out[#out + 1] = file
     end
   end
-  return out
+  return out, ""
 end
 
 --- Whether `path` is a file whose links are checked and nothing more.
@@ -250,7 +250,7 @@ local function checked_sources(root: string): {string}?, string
       (String.ends_with(file, ".tl") or String.ends_with(file, ".lua"))
     if check_only(file) or core_teal then out[#out + 1] = file end
   end
-  return out
+  return out, ""
 end
 
 --- Whether `files`, however each was named, hold every Teal source
@@ -294,17 +294,17 @@ local function workflow_sources(dir: string, root: string): {string}?, string
     end
   end
   if inside == nil then
-    return {}
+    return {}, ""
   end
   local within = inside == ".github" or inside:sub(1, 8) == ".github/"
   if not within and inside ~= "." then
-    return {}
+    return {}, ""
   end
   local base = within and dir or dir .. "/.github"
   local prefix = if within then "" else ".github/" end
   local st, _ = Fs.stat(base)
   if st == nil or st.kind ~= "dir" then
-    return {}
+    return {}, ""
   end
   local files, trouble = Fs.walk(base, function(entry: string): boolean
     return Fs.basename(entry):sub(1, 1) == "."
@@ -325,7 +325,7 @@ local function workflow_sources(dir: string, root: string): {string}?, string
     end
   end
   table.sort(out)
-  return out
+  return out, ""
 end
 
 --- The files one invocation covers: whatever paths were named, or the
@@ -378,7 +378,7 @@ function fix.chosen(root: string, paths: {string}): fix.Chosen?, string
       flow_files = workflows
     end
     return { files = all, c_files = c_files, flow_files = flow_files, checked = checked,
-      templates = templates, refused = {}, whole = own }
+      templates = templates, refused = {}, whole = own }, ""
   end
   local out: mut {string} = {}
   local c_out: mut {string} = {}
@@ -457,7 +457,7 @@ function fix.chosen(root: string, paths: {string}): fix.Chosen?, string
     end
   end
   return { files = out, c_files = c_out, flow_files = flow_out, checked = checked_out,
-    templates = templates_out, refused = refused, whole = own and covers(root, out) }
+    templates = templates_out, refused = refused, whole = own and covers(root, out) }, ""
 end
 
 --- The modules whose code checks each file alone, with every module each requires: the reading of Teal
@@ -541,7 +541,7 @@ local function file_check_sources(databases: {Sqlite.Handle}): {string: boolean}
       return nil, module .. " is not among the program's modules"
     end
   end
-  return out
+  return out, ""
 end
 
 --- The files a run of `--changed` lays out: of `every`, the whole

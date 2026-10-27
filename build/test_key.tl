@@ -254,7 +254,7 @@ function test_key.known_verdicts(handle: Sqlite.Handle): {string:Verdict}?, stri
       elapsed_ns = math.tointeger(tonumber(row:text(4)) or 0) or 0,
     }
   end
-  return out
+  return out, ""
 end
 
 --- Records one verdict under its key, as relied on by this run.
