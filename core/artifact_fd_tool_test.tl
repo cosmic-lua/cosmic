@@ -15,6 +15,7 @@ local Stream = require("cosmic.stream")
 local Test = require("cosmic.test")
 local Clock = require("cosmic.clock")
 local _net = require("cosmic.net")
+local test_child = require("build.test_child")
 local unix_socket = require("build.unix_socket")
 local type raw_socket = require("cosmic.internal.socket")
 
@@ -34,6 +35,14 @@ local function socket_table(): raw_socket
 end
 
 local socket = socket_table()
+
+--- The child of the test below, run in a copy of the artifact: it sends the file in `args[2]` over the channel in `args[1]`.
+test_child.register("send_file", function(args: {string}): integer
+  local channel, file = math.tointeger(args[1]), math.tointeger(args[2])
+  assert(channel ~= nil and file ~= nil, "the slots are integers")
+  assert(socket.sendfds(channel, { file }))
+  return 0
+end)
 
 --- The program's own path names a file, which a `tool` test, given the
 --- program at its own name, can stat.
@@ -382,15 +391,11 @@ local function test_descriptor_receive_refuses_and_closes_an_artifact_alias(tmp:
   fds[file_slot], fds[channel_slot] = file, sender:fd()
   -- A start on a copied artifact retains a different inode. It can
   -- send this ordinary file; the original receiver must judge it again.
-  local chunk = string.format([==[
-local raw
-for _, searcher in ipairs(package.searchers) do
-  local loader, extra = searcher("cosmic.net")
-  if type(loader) == "function" and type(extra) == "table" then raw = extra break end
-end
-assert(raw.sendfds(%d, { %d }))
-]==], channel_slot, file_slot)
-  local child = assert(Child.start({ relaunch.argv[1], "--artifact", copy, "-e", chunk },
+  local words = test_child.words(tmp, "core.artifact_fd_tool_test", "send_file",
+    { tostring(channel_slot), tostring(file_slot) })
+  local argv: mut {string} = { relaunch.argv[1], "--artifact", copy }
+  for _, word in ipairs(words) do argv[#argv + 1] = word end
+  local child = assert(Child.start(argv,
     { env = env, fds = fds, stdout = "capture", stderr = "capture" }))
   assert(sys.close(file))
   assert(sys.close(copy_fd))
