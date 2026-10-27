@@ -221,9 +221,9 @@ end
 local function describe(staged: Staged): string
   return plural.count(staged.files, "file") .. " staged, " ..
     plural.count(staged.parsed, "source") .. " parsed, " ..
-    staged.parses_shared .. " taken from another checkout, " ..
+    tostring(staged.parses_shared) .. " taken from another checkout, " ..
     plural.count(staged.compiled, "module") .. " compiled, " ..
-    staged.modules_shared .. " taken from another checkout"
+    tostring(staged.modules_shared) .. " taken from another checkout"
 end
 
 --- Writes the tool: the artifact prefix over every raw core in `images`,
@@ -472,7 +472,7 @@ local function boot(root: string, argv: {string}): integer
   local _, _ = Fs.put(Fs.stderr, "boot: " .. plural.count(#targets, "target") ..
       (if host_only then " (the host's core only)" else "" end) .. ", " ..
       describe(staged) .. ", " ..
-      plural.count(database_length, "database byte") .. ", " .. total_ms .. " ms\n")
+      plural.count(database_length, "database byte") .. ", " .. tostring(total_ms) .. " ms\n")
   return 0
 end
 

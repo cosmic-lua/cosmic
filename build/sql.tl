@@ -265,7 +265,7 @@ end
 local function real(x: number): string
   local text = string.format("%.17g", x)
   for digits = 15, 16 do
-    local shorter = string.format("%." .. digits .. "g", x)
+    local shorter = string.format("%." .. tostring(digits) .. "g", x)
     if tonumber(shorter) == x then
       text = shorter
       break
@@ -372,7 +372,7 @@ local function unique(names: {string}): {string}
     local candidate, number = name, 1
     while taken[candidate] do
       number = number + 1
-      candidate = name .. "_" .. number
+      candidate = name .. "_" .. tostring(number)
     end
     taken[candidate] = true
     out[index] = candidate
@@ -395,7 +395,7 @@ local function ndjson_writer(): Writer
       for index, name in ipairs(unique(names)) do
         local encoded, _ = Json.encode(name)
         if encoded == nil then
-          names_seen.unnamable = "column " .. index .. "'s name is not UTF-8, which a JSON key must be"
+          names_seen.unnamable = "column " .. tostring(index) .. "'s name is not UTF-8, which a JSON key must be"
         end
         keys[index] = encoded or ""
       end
@@ -424,12 +424,12 @@ local function ndjson_writer(): Writer
         elseif kind == "text" then
           value = statement:bytes(index)
         elseif kind == "blob" then
-          return nil, "column " .. (index + 1) .. " is a blob, which JSON has no value for; " ..
+          return nil, "column " .. tostring((index + 1)) .. " is a blob, which JSON has no value for; " ..
             "select its hex() or base64()"
         end
         local encoded, trouble = Json.encode_any(value)
         if encoded == nil then
-          return nil, "column " .. (index + 1) .. ": " .. trouble
+          return nil, "column " .. tostring((index + 1)) .. ": " .. trouble
         end
         members[index + 1] = keys[index + 1] .. ":" .. encoded
       end
@@ -465,7 +465,7 @@ local function stream(db: Sqlite.Handle, statement: string,
   local wanted = prepared:parameters()
   if wanted > 0 then
     prepared:finalize()
-    return nil, "the statement takes " .. wanted ..
+    return nil, "the statement takes " .. tostring(wanted) ..
       (if wanted == 1 then " parameter" else " parameters" end) .. "; cosmic sql binds none"
   end
   local width = prepared:columns()
@@ -497,7 +497,7 @@ local function stream(db: Sqlite.Handle, statement: string,
     local line, refused = write.row(prepared, width)
     if line == nil then
       prepared:finalize()
-      return nil, "row " .. rows .. ": " .. refused
+      return nil, "row " .. tostring(rows) .. ": " .. refused
     end
     local written, write_trouble = emit(line)
     if not written then
@@ -716,7 +716,7 @@ end
 local function describe(db: Sqlite.Handle, tables: {dataset.Table}): {string}?, string
   local lines: mut {string} = {}
   for _, each in ipairs(tables) do
-    lines[#lines + 1] = each.name .. ": " .. each.count .. (if each.count == 1 then " row" else " rows" end)
+    lines[#lines + 1] = each.name .. ": " .. tostring(each.count) .. (if each.count == 1 then " row" else " rows" end)
     local width = 0
     for _, column in ipairs(each.columns) do
       width = math.max(width, #plain(column))
@@ -844,13 +844,13 @@ local function run_from(parsed: Flags.Parsed, to: sql.Output,
         return fail(source .. ": " .. write_trouble)
       end
     end
-    counted = #tables .. (if #tables == 1 then " table" else " tables" end)
+    counted = tostring(#tables) .. (if #tables == 1 then " table" else " tables" end)
   else
     local rows, statement_trouble = stream(db, parsed.words[1], to.out, writer)
     if rows == nil then
       return fail(source .. ": " .. hinted(statement_trouble, tables))
     end
-    counted = rows .. (if rows == 1 then " row" else " rows" end)
+    counted = tostring(rows) .. (if rows == 1 then " row" else " rows" end)
   end
   local _, _ = db:close()
   summarize(counted .. " from " .. source)
@@ -970,7 +970,7 @@ function sql.run(argv: {string}, root?: string, output?: sql.Output,
     complain(source.name .. ": " .. trouble)
     return 1
   end
-  summarize(rows .. (if rows == 1 then " row" else " rows" end) .. " from " .. source.name)
+  summarize(tostring(rows) .. (if rows == 1 then " row" else " rows" end) .. " from " .. source.name)
   return 0
 end
 

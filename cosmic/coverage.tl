@@ -49,7 +49,7 @@ local function refuse(why: string): nil, string
 end
 
 local record Window
-  mut session: Coverage.Session?
+  mut session?: Coverage.Session
 end
 
 --- The window `start` opened and `stop` has not closed.

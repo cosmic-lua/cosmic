@@ -52,7 +52,7 @@ end
 local function asked(fd: integer, request: string): integer
   assert(sys.write(fd, request) == #request)
   local tag, errno = string.unpack(">I4I4", read_whole(fd, 8))
-  assert(tag == string.unpack(">I4", request), "the reply carries another tag: " .. tag)
+  assert(tag == string.unpack(">I4", request), "the reply carries another tag: " .. tostring(tag))
   return errno
 end
 local function test_live_filter_refuses_mutation_other_destinations_and_ipc_replacement()
@@ -125,7 +125,7 @@ local function wildcards(host: (function(integer): string), count: integer): {ra
 end
 local function test_wildcard_tables_are_bounded_by_their_bytes_not_by_a_count_of_four()
   local pair = assert(process.connector_pair())
-  local function v4(i: integer): string return "127.0.1." .. i end
+  local function v4(i: integer): string return "127.0.1." .. tostring(i) end
   local function v6(i: integer): string return "2001:db8::" .. string.format("%x", i) end
   -- 65535 slots of 16 bytes (IPv4) or 32 (IPv6): 32 and 16 fill 32 MiB.
   local ok, why = pcall(process.connector_start, wildcards(v4, 33), pair[2], 500, nil)
@@ -294,9 +294,9 @@ end
 local function test_public_lists_that_are_no_prefixes_cannot_start_a_connector()
   local pair = assert(process.connector_pair())
   local many: mut {string} = {}
-  for i = 1, 129 do many[i] = "10.0." .. (i - 1) .. ".0/24" end
+  for i = 1, 129 do many[i] = "10.0." .. tostring((i - 1)) .. ".0/24" end
   local owns: mut {string} = {}
-  for i = 1, 257 do owns[i] = "10.1." .. (i // 256) .. "." .. (i % 256) end
+  for i = 1, 257 do owns[i] = "10.1." .. tostring((i // 256)) .. "." .. tostring((i % 256)) end
   local lists: {raw_process.ConnectorPublic} = { { deny = { "10.0.0.0" } }, { deny = { "10.0.0.0/33" } }, { deny = { "::/129" } },
     { deny = { "10.0.0.0/" } }, { deny = { "10.0.0.0/8x" } }, { deny = { "10.0.0.0/0008" } },
     { deny = { "localhost/8" } }, { deny = { "010.0.0.0/8" } }, { deny = { "10.0.0.0/8\0" } },
@@ -382,7 +382,7 @@ local function test_a_hung_connect_holds_up_no_other_and_replies_come_as_connect
   local order: mut {integer} = {}
   for _ = 2, 4 do
     local tag, errno = reply(pair[1])
-    assert(errno == 0, "tag " .. tag .. ": errno " .. errno)
+    assert(errno == 0, "tag " .. tostring(tag) .. ": errno " .. tostring(errno))
     order[#order + 1] = tag
   end
   assert(Clock.monotonic_ns() - began < Clock.ms(300), "the others waited for the hung connect")
@@ -390,9 +390,9 @@ local function test_a_hung_connect_holds_up_no_other_and_replies_come_as_connect
   assert(table.concat(order, ",") == "2,3,4", table.concat(order, ","))
   local tag, errno = reply(pair[1])
   local took = Clock.monotonic_ns() - began
-  assert(tag == 1 and errno == socket.ETIMEDOUT, tag .. " " .. errno)
+  assert(tag == 1 and errno == socket.ETIMEDOUT, tostring(tag) .. " " .. tostring(errno))
   -- The connector counts whole milliseconds, so it may end a little short.
-  assert(took >= Clock.ms(390) and took < Clock.seconds(5), "the hung connect ended after " .. took // Clock.ms(1) .. " ms")
+  assert(took >= Clock.ms(390) and took < Clock.seconds(5), "the hung connect ended after " .. tostring(took // Clock.ms(1)) .. " ms")
   finish(pair, child)
   for _, each in ipairs(held) do assert(each:close()) end
 end
@@ -414,10 +414,10 @@ local function test_a_request_in_pieces_holds_up_no_connect()
   local second = waiting_request(2, 1, open, 0)
   assert(sys.write(pair[1], second:sub(1, 13)) == 13)
   local tag, errno = reply(pair[1])
-  assert(tag == 1 and errno == socket.ETIMEDOUT, tag .. " " .. errno)
+  assert(tag == 1 and errno == socket.ETIMEDOUT, tostring(tag) .. " " .. tostring(errno))
   assert(sys.write(pair[1], second:sub(14)) == 23)
   tag, errno = reply(pair[1])
-  assert(tag == 2 and errno == 0, tag .. " " .. errno)
+  assert(tag == 2 and errno == 0, tostring(tag) .. " " .. tostring(errno))
   finish(pair, child)
   for _, each in ipairs(held) do assert(each:close()) end
 end
@@ -448,7 +448,7 @@ local function test_a_connect_past_the_flight_is_answered_busy()
   assert(Clock.monotonic_ns() - began < Clock.ms(500), "the refusal waited")
   for _ = 1, flight do
     local tag, errno = reply(pair[1])
-    assert(tag >= 1 and tag <= flight and errno == socket.ETIMEDOUT, tag .. " " .. errno)
+    assert(tag >= 1 and tag <= flight and errno == socket.ETIMEDOUT, tostring(tag) .. " " .. tostring(errno))
   end
   assert(asked(pair[1], past) == 0)
   assert(read_whole(pair[1], 1) == "\0")

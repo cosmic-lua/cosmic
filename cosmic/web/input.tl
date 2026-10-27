@@ -311,7 +311,7 @@ end
 --- request, and put back for a later reader; nil and why when the body is
 --- the wrong kind, too long or unreadable.
 local function body_text(req: Types.Request, kind: string, opts: Types.InputOptions?
-): string?, Types.Invalid
+): string?, Types.Invalid?
   local limit = opts and opts.max_bytes or DEFAULT_MAX
   if has_body(req) then
     local wrong = wrong_type(req, kind)
@@ -351,7 +351,7 @@ local function body_text(req: Types.Request, kind: string, opts: Types.InputOpti
   if not utf8.len(data) then
     return nil, stop(400, "body", "", "utf8", "the body is not valid UTF-8")
   end
-  return data
+  return data, nil
 end
 
 --- Bytes read from the body, and from a part, at a time.
@@ -465,18 +465,18 @@ local function read_multipart(req: Types.Request, limit: integer, opts: Types.In
   local spooled: Spooled = { kept = {} }
   local fields: Url.Query = { pairs = {}, by_name = {} }
   local files: mut {string:{Input.Upload}} = {}
-  local m: Input.Multipart = { fields = fields, files = files, size = 0 }
-  m.discard = function(_self: Input.Multipart)
-    for _, upload in ipairs(spooled.kept) do
-      local _, _ = Fs.remove(upload.path)
-    end
-    spooled.kept = {}
-    local made = spooled.made
-    if made ~= nil then
-      local _, _ = Fs.remove_tree(made)
-      spooled.made = nil
-    end
-  end
+  local m: Input.Multipart = { fields = fields, files = files, size = 0,
+    discard = function(_self: Input.Multipart)
+      for _, upload in ipairs(spooled.kept) do
+        local _, _ = Fs.remove(upload.path)
+      end
+      spooled.kept = {}
+      local made = spooled.made
+      if made ~= nil then
+        local _, _ = Fs.remove_tree(made)
+        spooled.made = nil
+      end
+    end }
   -- A task killed while it waits for the body (a client that went away)
   -- runs no code after the wait, only its pending closes: they remove what
   -- is spooled so far.

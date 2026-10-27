@@ -152,13 +152,13 @@ local function test_big_strings_keep_their_bytes_through_reused_blocks()
       pieces[#pieces + 1] = string.rep(byte, size % 1000)
       local joined = table.concat(pieces)
       local repeated = string.rep(byte, size)
-      assert(#joined == size and joined == repeated, "size " .. size)
+      assert(#joined == size and joined == repeated, "size " .. tostring(size))
       made[index] = joined:sub(2) .. "!"
     end
     collectgarbage("collect")
     for index, size in ipairs(sizes) do
       local byte = string.char(65 + (index + round) % 26)
-      assert(made[index] == string.rep(byte, size - 1) .. "!", "size " .. size)
+      assert(made[index] == string.rep(byte, size - 1) .. "!", "size " .. tostring(size))
     end
   end
 end
@@ -211,6 +211,6 @@ local function test_where_names_a_frame_by_source_and_line()
   local viewed = { value = nil as string? }
   local ok, line = pcall(function() viewed.value = errors.where(2) end), number(errors.where() as string)
   local viewed_value = viewed.value
-  assert(ok and viewed_value ~= nil and number(viewed_value) == line, tostring(viewed_value) .. " against " .. line)
+  assert(ok and viewed_value ~= nil and number(viewed_value) == line, tostring(viewed_value) .. " against " .. tostring(line))
   assert(errors.where(1000) == nil)
 end

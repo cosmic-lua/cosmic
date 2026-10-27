@@ -60,7 +60,7 @@ end
 local type Held = innermost_guard.Held
 
 local record Open
-  mut innermost: Held?
+  mut innermost?: Held
 end
 
 local open: Open = {}

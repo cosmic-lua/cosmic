@@ -451,7 +451,7 @@ local function raw_modules_in(source: string): {string: {string}}?, string
       "entry: " .. rest
   end
   if read < 10 then
-    return nil, "read only " .. read .. " raw_modules entries of core/store.c"
+    return nil, "read only " .. tostring(read) .. " raw_modules entries of core/store.c"
   end
   return out, ""
 end

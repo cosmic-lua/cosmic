@@ -70,6 +70,8 @@ local tree = require("build.tree")
 local example_checks = require("build.example_checks")
 local Memprobe = require("build.memprobe")
 local tree_checks = require("build.tree_checks")
+local CeilingsBase = require("build.ceilings_base")
+local Env = require("cosmic.env")
 local Sqlite = require("cosmic.sqlite")
 
 local logger = require("build.logger")
@@ -1106,7 +1108,7 @@ local function lay_out_c(ctx: Fix)
         -- its file was checked under.
         local seen = if variants ~= nil and #variants < #assert(outcome.variants) then
           " [" .. table.concat(variants, ", ") .. "]" else "" end
-        failures[#failures + 1] = f.file .. ":" .. f.line .. ": " .. f.rule ..
+        failures[#failures + 1] = f.file .. ":" .. tostring(f.line) .. ": " .. f.rule ..
           " in " .. f.within .. seen .. ": " .. f.message
       end
     end
@@ -1364,6 +1366,14 @@ local function run_tree_checks(ctx: Fix)
       for _, line in ipairs(tree_checks.package_readers(root)) do
         findings[#findings + 1] = "package: " .. line
       end
+      -- The ceilings only fall: the file is held to its merge base with main.
+      local held = CeilingsBase.check(root, Env.all(), CeilingsBase.live_git())
+      for _, line in ipairs(held.lines) do
+        findings[#findings + 1] = "ceilings: " .. line
+      end
+      if held.note ~= "" then
+        tree_say("ceilings: " .. held.note)
+      end
       -- What the scope builder, the lowering and the checker found in a file that has not changed is kept in the build
       -- directory; without the memo the checks run in full.
       local memo, _ = Sqlite.open(build_paths.resolve(root).translate_check, { writable = true })
@@ -1511,7 +1521,7 @@ local function say_notes(ctx: Fix)
     end
   end
   if picked.whole then
-    log:say("fix: tree checks: ran over the whole tree, " .. #findings .. " found")
+    log:say("fix: tree checks: ran over the whole tree, " .. tostring(#findings) .. " found")
   end
 end
 
@@ -1532,7 +1542,7 @@ local function kind_list(picked: fix.Chosen): string
   local parts: mut {string} = {}
   for i, count in ipairs(counts) do
     if count > 0 then
-      parts[#parts + 1] = count .. " " .. names[i]
+      parts[#parts + 1] = tostring(count) .. " " .. names[i]
     end
   end
   return table.concat(parts, " + ")
@@ -1616,14 +1626,14 @@ local function report(ctx: Fix): integer
       unbuilt ~= nil or links_unbuilt ~= nil then
     local said: mut {string} = {}
     if #failures > 0 then
-      said[#said + 1] = #failures .. " of " .. plural.count(counted, "file") .. " refused"
+      said[#said + 1] = tostring(#failures) .. " of " .. plural.count(counted, "file") .. " refused"
     end
     if #unlaid > 0 then
       said[#said + 1] = plural.count(#unlaid, "Teal file") .. (if #unlaid == 1 then " is" else " are" end) ..
         " not laid out (`cosmic fix <paths>` lays them out)"
     end
     if #findings > 0 then
-      said[#said + 1] = #findings .. " found by the tree checks"
+      said[#said + 1] = tostring(#findings) .. " found by the tree checks"
     end
     if #broken > 0 then
       said[#said + 1] = plural.count(#broken, "link") .. " not resolving"
@@ -1646,11 +1656,11 @@ local function report(ctx: Fix): integer
     return 1
   end
   if checking and #changed > 0 then
-    local _, _ = logger.summary("fix", #changed .. " of " .. plural.count(counted, "file") .. " to fix, " ..
+    local _, _ = logger.summary("fix", tostring(#changed) .. " of " .. plural.count(counted, "file") .. " to fix, " ..
         clock.took(ctx.started) .. "; `cosmic fix` rewrites them in place")
     return 1
   end
-  local _, _ = logger.summary("fix", files_said(ctx) .. ", " .. #changed ..
+  local _, _ = logger.summary("fix", files_said(ctx) .. ", " .. tostring(#changed) ..
       (if checking then " to fix, " else " fixed, " end) .. clock.took(ctx.started))
   return 0
 end

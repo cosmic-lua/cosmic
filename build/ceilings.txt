@@ -1,3 +1,11 @@
+# The ceilings of the tree's checker: how many errors of each code each file may still have, per stage.
+# A ceiling only falls. The compiler refuses a file over its ceiling (a missing row is a ceiling of 0), and
+# [`build.ceilings_base`] refuses this file when it raises a count or adds a row, against the file at the merge
+# base with main: CI runs it on every branch push and in the merge queue, and `bin/cosmic fix --check .` runs it
+# wherever a base can be found. A code with no row left in any stage is closed ([`Ceilings.closed`]): this file
+# cannot name it again, and a change that takes a code's last row adds it to that list. To lower a pin, remove the
+# places it counts and lower the number, or delete the row at 0; never edit a number up.
+
 [scoped]
 # The errors of the new checker's scope builder ([`lang.scopes`]) that files of the
 # tree have, which [`scoped`] holds the tree to: `<file> <code>` to how many errors
@@ -10,9 +18,9 @@
 # The errors of the new checker's lowering of declarations ([`lang.declarations`]) that files of the
 # tree have, which [`declared`] holds the tree to: `<file> <code>` to how many errors of that code the
 # file has. Each is a rule the tree still breaks or a form it writes that the checker has no type for;
-# a rewrite removes it and a pin falls with it. A change that adds or sharpens a rule of the lowering may raise some, or
-# add some for a new code, and says why in its message. A file whose translation did not parse, and now does, is
-# pinned at what it has.
+# a rewrite removes it and a pin falls with it. A change that adds or sharpens a rule of the lowering fixes the places
+# it newly refuses in the same change: it raises no pin and adds no row, for a new code or a file whose translation
+# now parses.
 # a class whose metatable keeps its `__close` as a field, since the metatable also holds a `__gc` that a class has
 # no form for: the process handle becomes a C userdata whose finalizer C owns (doc/plans/strict-teal.md,
 # "compiler-written classes, in the new checker")
@@ -362,10 +370,9 @@ build/migrate.tl 1
 # The ceilings of [`build.tree_checks`]'s `checked`: how many errors of each code of [`lang.check`] each file of the
 # tree has in its bodies, which the new checker's expressions and flow report and no rewrite or later piece has removed yet.
 # A key is `<file> <code>`. A file with more errors of a code than pinned is refused, and one with fewer is told to
-# lower its pin. A rewrite or a later piece only lowers pins. A change that adds or sharpens a rule of the checker may
-# raise some, or add some for a new code, and says why in its message: the places the rule newly refuses, and the lines
-# it adds to the files it edits. A file whose translation did not parse, and now does, is pinned at what it has: the
-# errors the checker finds in a file it could not see are not a rule newly broken. A source the build writes from another
+# lower its pin. A rewrite or a later piece only lowers pins. A change that adds or sharpens a rule of the checker fixes
+# the places the rule newly refuses in the same change, and says in its message what it fixed: it raises no pin and adds no
+# row, for a new code or for a file whose translation did not parse and now does. A source the build writes from another
 # file (a doc guide, a template) is held under the name of that file. The program is the one the pipeline reads
 # ([`build.tree_program`]), so that the pins and the compile agree: a call of [`Shape.record_of`] is resolved
 # ([`build.syntax_shape_specs`]), which removes the `cannot_infer` it was and shows the errors it hid. The pins below are grouped by code, with the rule or the later
@@ -1401,8 +1408,6 @@ cosmic/web/request_test.tl nil_not_allowed 43
 
 cosmic/web/response.tl nil_not_allowed 5
 
-cosmic/web/route.tl nil_not_allowed 2
-
 cosmic/web/router.tl nil_not_allowed 8
 
 cosmic/web/router_fuzz_test.tl nil_not_allowed 7
@@ -1561,7 +1566,7 @@ lang/translate_test.tl nil_not_allowed 26
 
 lang/truthy_test.tl nil_not_allowed 1
 
-lang/types.tl nil_not_allowed 37
+lang/types.tl nil_not_allowed 29
 
 lang/types_programs.tl nil_not_allowed 6
 
@@ -2947,7 +2952,7 @@ cosmic/fs_test.tl field_fixed 24
 
 cosmic/http/multipart_test.tl field_fixed 1
 
-cosmic/http/server_test.tl field_fixed 4
+cosmic/http/server_test.tl field_fixed 2
 
 cosmic/http/wire.tl field_fixed 14
 
@@ -2982,8 +2987,6 @@ cosmic/net_serve_test.tl field_fixed 1
 cosmic/poll.tl field_fixed 19
 
 cosmic/proc_user_test.tl field_fixed 1
-
-cosmic/rand.tl field_fixed 3
 
 cosmic/sandbox/policy.tl field_fixed 4
 
@@ -3027,8 +3030,6 @@ cosmic/url.tl field_fixed 5
 
 cosmic/web/app.tl field_fixed 10
 
-cosmic/web/assets.tl field_fixed 10
-
 cosmic/web/assets_test.tl field_fixed 2
 
 cosmic/web/builtin.tl field_fixed 1
@@ -3051,7 +3052,7 @@ cosmic/web/htmx.tl field_fixed 2
 
 cosmic/web/init.tl field_fixed 41
 
-cosmic/web/input.tl field_fixed 15
+cosmic/web/input.tl field_fixed 14
 
 cosmic/web/request.tl field_fixed 3
 
@@ -3062,8 +3063,6 @@ cosmic/web/response.tl field_fixed 7
 cosmic/web/router.tl field_fixed 7
 
 cosmic/web/serve_test.tl field_fixed 5
-
-cosmic/web/session/cookie.tl field_fixed 3
 
 cosmic/web/session/init.tl field_fixed 11
 
@@ -3156,8 +3155,6 @@ cosmic/net.tl field_unknown 1
 cosmic/poll.tl field_unknown 4
 
 cosmic/poll_test.tl field_unknown 1
-
-cosmic/stream.tl field_unknown 2
 
 lang/check_programs.tl field_unknown 2
 
@@ -4058,36 +4055,6 @@ build/writer.tl return_arity 4
 build/writer_test.tl return_arity 1
 
 build/zig_test.tl return_arity 1
-
-cosmic/archive_test.tl return_arity 1
-
-cosmic/child_drain_test.tl return_arity 1
-
-cosmic/child_stream_failure_test.tl return_arity 1
-
-cosmic/child_task_tool_test.tl return_arity 1
-
-cosmic/fs_test.tl return_arity 4
-
-cosmic/hash_test.tl return_arity 1
-
-cosmic/internal/relay_wire.tl return_arity 7
-
-cosmic/sandbox/init.tl return_arity 3
-
-cosmic/store.tl return_arity 1
-
-cosmic/web/htmx.tl return_arity 8
-
-cosmic/web/input.tl return_arity 1
-
-lang/check.tl return_arity 22
-
-lang/scopes.tl return_arity 1
-
-lang/types.tl return_arity 1
-
-test/sqlite_json_test.tl return_arity 1
 
 # untrusted data read, operated on or stored: the rewrite validates it with a [`cosmic.shape`] validator
 
@@ -5546,7 +5513,7 @@ cosmic/internal/relay_main.tl condition_type 3
 
 cosmic/internal/relay_server.tl condition_type 2
 
-cosmic/internal/relay_server_test.tl condition_type 2
+cosmic/internal/relay_server_test.tl condition_type 1
 
 cosmic/internal/relay_start.tl condition_type 2
 
@@ -6855,170 +6822,6 @@ test/sqlite_row_test.tl and_ternary 1
 
 # a number or a boolean concatenated: the rewrite writes `tostring`
 
-build/archive.tl concat_type 2
-
-build/artifact.tl concat_type 2
-
-build/bom.tl concat_type 1
-
-build/boot.tl concat_type 3
-
-build/c/init.tl concat_type 2
-
-build/c/layout.tl concat_type 1
-
-build/c/rules.tl concat_type 4
-
-build/cache.tl concat_type 3
-
-build/cache_maintenance.tl concat_type 5
-
-build/check_draws.tl concat_type 2
-
-build/clock.tl concat_type 1
-
-build/plans.tl concat_type 1
-
-build/dataset.tl concat_type 5
-
-build/derivation.tl concat_type 3
-
-build/dispatch.tl concat_type 1
-
-build/docs.tl concat_type 16
-
-build/doctest/generate.tl concat_type 9
-
-build/doctest/markdown.tl concat_type 4
-
-build/embed.tl concat_type 1
-
-build/example_checks.tl concat_type 1
-
-build/fetch.tl concat_type 2
-
-build/fix/init.tl concat_type 7
-
-build/fix/near.tl concat_type 1
-
-build/flow.tl concat_type 5
-
-build/gen_syscalls.tl concat_type 7
-
-build/hash.tl concat_type 6
-
-build/host_requires.tl concat_type 5
-
-build/identity.tl concat_type 1
-
-build/json.tl concat_type 1
-
-build/json_query.tl concat_type 5
-
-build/link_resolve.tl concat_type 3
-
-build/links.tl concat_type 2
-
-build/parses_fixture.tl concat_type 1
-
-build/perf_validation.tl concat_type 3
-
-build/policy_rules.tl concat_type 1
-
-build/rand.tl concat_type 3
-
-build/refresh.tl concat_type 2
-
-build/roots.tl concat_type 3
-
-build/sandbox.tl concat_type 1
-
-build/sandbox_connect.tl concat_type 3
-
-build/shared_compiles.tl concat_type 4
-
-build/shared_sqlite.tl concat_type 1
-
-build/shared_verdicts.tl concat_type 1
-
-build/sql.tl concat_type 11
-
-build/stand_in_probe.tl concat_type 5
-
-build/term_filter.tl concat_type 1
-
-build/test.tl concat_type 3
-
-build/test_report.tl concat_type 13
-
-build/time.tl concat_type 2
-
-build/todos.tl concat_type 3
-
-build/tree_checks.tl concat_type 5
-
-core/allocation_children_test.tl concat_type 3
-
-core/allocation_store_test.tl concat_type 3
-
-core/allocation_test.tl concat_type 18
-
-core/allocation_tool_test.tl concat_type 1
-
-core/artifact_fd_system_test.tl concat_type 1
-
-core/artifact_fd_test.tl concat_type 12
-
-core/artifact_fd_tool_test.tl concat_type 1
-
-core/class_form_test.tl concat_type 1
-
-core/connector_filter_test.tl concat_type 2
-
-core/connector_public_fuzz_test.tl concat_type 2
-
-core/connector_public_test.tl concat_type 6
-
-core/connector_request_fuzz_test.tl concat_type 3
-
-core/connector_test.tl concat_type 16
-
-core/database_start_test.tl concat_type 1
-
-core/declarations_test.tl concat_type 1
-
-core/fault_test.tl concat_type 2
-
-core/grants_child_test.tl concat_type 8
-
-core/promises_child_test.tl concat_type 9
-
-core/promises_system_test.tl concat_type 2
-
-core/promises_test.tl concat_type 6
-
-core/socket_test.tl concat_type 2
-
-core/sqlite_functions_fuzz_test.tl concat_type 6
-
-core/sqlite_functions_test.tl concat_type 13
-
-core/surface_test.tl concat_type 3
-
-core/syscalls_checked_test.tl concat_type 2
-
-core/syscalls_proc_children_test.tl concat_type 2
-
-core/syscalls_relay_test.tl concat_type 2
-
-core/syscalls_restrict_refusal_test.tl concat_type 1
-
-core/syscalls_test.tl concat_type 29
-
-core/syscalls_tool_test.tl concat_type 1
-
-core/syscalls_tool_unsandboxed_test.tl concat_type 2
-
 cosmic/archive_fuzz_test.tl concat_type 8
 
 cosmic/archive_test.tl concat_type 7
@@ -7462,7 +7265,7 @@ core/surface_test.tl compare_disjoint 4
 
 core/syscalls_test.tl compare_disjoint 4
 
-cosmic/archive.tl compare_disjoint 2
+cosmic/archive.tl compare_disjoint 1
 
 cosmic/child.tl compare_disjoint 9
 
@@ -7502,7 +7305,7 @@ cosmic/internal/relay_config.tl compare_disjoint 1
 
 cosmic/internal/relay_resolv.tl compare_disjoint 4
 
-cosmic/internal/relay_server.tl compare_disjoint 4
+cosmic/internal/relay_server.tl compare_disjoint 2
 
 cosmic/internal/relay_server_test.tl compare_disjoint 1
 
@@ -7555,8 +7358,6 @@ cosmic/web/app.tl compare_disjoint 1
 cosmic/web/request.tl compare_disjoint 1
 
 cosmic/web/request_test.tl compare_disjoint 1
-
-cosmic/web/router.tl compare_disjoint 3
 
 cosmic/web/session/init.tl compare_disjoint 3
 
@@ -7625,7 +7426,7 @@ build/embed.tl literal_missing 1
 
 build/fetch.tl literal_missing 3
 
-build/fetch_test.tl literal_missing 3
+build/fetch_test.tl literal_missing 2
 
 build/fix/fix_test.tl literal_missing 2
 
@@ -7675,7 +7476,7 @@ build/release.tl literal_missing 1
 
 build/sandbox.tl literal_missing 12
 
-build/sandbox_test.tl literal_missing 2
+build/sandbox_test.tl literal_missing 1
 
 build/sql.tl literal_missing 7
 
@@ -7687,7 +7488,7 @@ build/term_relay.tl literal_missing 3
 
 build/test.tl literal_missing 3
 
-build/test_key.tl literal_missing 4
+build/test_key.tl literal_missing 3
 
 build/test_policy_test.tl literal_missing 1
 
@@ -7697,7 +7498,7 @@ build/test_sandbox_probe.tl literal_missing 1
 
 build/test_worker.tl literal_missing 1
 
-build/test_worker_test.tl literal_missing 7
+build/test_worker_test.tl literal_missing 4
 
 build/time.tl literal_missing 1
 
@@ -7719,139 +7520,63 @@ build/version_test.tl literal_missing 1
 
 build/version_tool_test.tl literal_missing 1
 
-build/zig_fetch_test.tl literal_missing 5
-
-build/zig_test.tl literal_missing 1
-
 core/socket_test.tl literal_missing 1
 
 core/syscalls_test.tl literal_missing 1
 
-cosmic/archive.tl literal_missing 1
-
-cosmic/archive_fuzz_test.tl literal_missing 3
-
-cosmic/archive_test.tl literal_missing 55
-
 cosmic/channel_test.tl literal_missing 1
 
-cosmic/child.tl literal_missing 9
-
-cosmic/child_drain_test.tl literal_missing 2
-
-cosmic/child_lua_test.tl literal_missing 1
-
-cosmic/child_policy_database_sandboxed_test.tl literal_missing 6
-
-cosmic/child_relay_seatbelt_test.tl literal_missing 6
-
-cosmic/child_relay_test.tl literal_missing 2
-
-cosmic/child_seatbelt_database_test.tl literal_missing 2
-
-cosmic/child_seatbelt_test.tl literal_missing 1
-
-cosmic/coverage.tl literal_missing 1
-
-cosmic/declared_types_test.tl literal_missing 4
+cosmic/child.tl literal_missing 3
 
 cosmic/fs.tl literal_missing 6
 
-cosmic/http/init.tl literal_missing 10
+cosmic/http/init.tl literal_missing 1
 
-cosmic/http/server.tl literal_missing 1
-
-cosmic/http/server_test.tl literal_missing 12
+cosmic/http/server_test.tl literal_missing 2
 
 cosmic/http/wire_test.tl literal_missing 1
 
 cosmic/http_test.tl literal_missing 1
 
-cosmic/internal/connector.tl literal_missing 4
+cosmic/internal/connector.tl literal_missing 2
 
-cosmic/internal/innermost_guard.tl literal_missing 1
+cosmic/internal/relay_server_test.tl literal_missing 1
 
-cosmic/internal/relay_handed_lost_test.tl literal_missing 2
-
-cosmic/internal/relay_handed_test.tl literal_missing 3
-
-cosmic/internal/relay_main.tl literal_missing 2
-
-cosmic/internal/relay_server.tl literal_missing 1
-
-cosmic/internal/relay_server_test.tl literal_missing 52
-
-cosmic/internal/relay_start.tl literal_missing 1
-
-cosmic/internal/relay_wire.tl literal_missing 3
-
-cosmic/json.tl literal_missing 1
-
-cosmic/json_reader_test.tl literal_missing 12
-
-cosmic/net.tl literal_missing 5
+cosmic/net.tl literal_missing 4
 
 cosmic/net_serve_test.tl literal_missing 4
 
 cosmic/net_test.tl literal_missing 2
 
-cosmic/policy_test.tl literal_missing 2
-
-cosmic/poll.tl literal_missing 4
+cosmic/poll.tl literal_missing 2
 
 cosmic/poll_example.tl literal_missing 1
 
 cosmic/poll_test.tl literal_missing 8
 
-cosmic/proc.tl literal_missing 2
-
-cosmic/rand.tl literal_missing 1
-
-cosmic/removed.tl literal_missing 1
-
-cosmic/sandbox/seatbelt_test.tl literal_missing 2
-
-cosmic/sandbox_test.tl literal_missing 14
-
 cosmic/signal.tl literal_missing 1
 
 cosmic/sqlite.tl literal_missing 2
 
-cosmic/stream.tl literal_missing 6
+cosmic/stream.tl literal_missing 1
 
-cosmic/stream_test.tl literal_missing 3
+cosmic/tar.tl literal_missing 1
 
-cosmic/tar.tl literal_missing 4
-
-cosmic/test.tl literal_missing 1
-
-cosmic/time.tl literal_missing 4
+cosmic/time.tl literal_missing 3
 
 cosmic/web/app.tl literal_missing 3
 
-cosmic/web/assets.tl literal_missing 4
-
-cosmic/web/htmx_test.tl literal_missing 7
-
-cosmic/web/input.tl literal_missing 2
+cosmic/web/input.tl literal_missing 1
 
 cosmic/web/request.tl literal_missing 2
 
-cosmic/web/route.tl literal_missing 2
+cosmic/web/router.tl literal_missing 3
 
-cosmic/web/router.tl literal_missing 5
-
-cosmic/web/session/cookie.tl literal_missing 1
-
-cosmic/web/sse.tl literal_missing 3
+cosmic/web/sse.tl literal_missing 2
 
 cosmic/web/testing.tl literal_missing 4
 
-cosmic/zip.tl literal_missing 5
-
-eval/check/grade.tl literal_missing 1
-
-eval/solve_test.tl literal_missing 3
+cosmic/zip.tl literal_missing 1
 
 lang/check.tl literal_missing 8
 
@@ -8951,8 +8676,6 @@ cosmic/web/input_fuzz_test.tl cannot_infer 1
 cosmic/declared_types_test.tl no_value 1
 
 build/migrate.tl and_ternary 2
-
-build/migrate.tl concat_type 10
 
 build/migrate.tl condition_type 8
 

@@ -416,7 +416,7 @@ local function open_entry(pread: Pread, e: Zip.Entry): Stream.Reader?, string
     if held == "" then held = nil end
   end
   local raw: SpanReader = {
-    pread = pread, pos = e.offset + skip, left = csize, held = held,
+    pread = pread, pos = e.offset + skip, left = csize, held = held, failed = nil,
   }
   local body: Stream.Reader
   local method = e.method
@@ -430,7 +430,7 @@ local function open_entry(pread: Pread, e: Zip.Entry): Stream.Reader?, string
     return refuse("unsupported compression method " .. tostring(method))
   end
   local checked: CheckedReader = {
-    inner = body, crc = e.crc32, size = e.size, seen = 0,
+    inner = body, crc = e.crc32, size = e.size, seen = 0, state = nil, failed = nil,
   }
   return checked, ""
 end
@@ -490,6 +490,9 @@ local CDFH_FIELDS <const> = "<I2I2I2I2I2I2I4I4I4I2I2I2I2I2I4I4"
 local CHECKED: Zip.Entry = {
   path = "", kind = "file", linkpath = "", mode = 0, size = 0, mtime = 0, compressed_size = 0,
   method = 0, crc32 = 0, offset = 0,
+  open = function(_entry: Zip.Entry): Stream.Reader?, string
+    return refuse("the entry was only checked, and has no body to open")
+  end,
 }
 
 --- The central directory's next entry, or nil and `""` at its end.
@@ -714,7 +717,7 @@ local function open_reader(size: integer, pread: Pread, closer: function(): bool
 
   local zr: EntryReader = {
     pread = pread, closer = closer, cd_offset = cd_offset, cd_size = cd_size, links = links,
-    walk = cursor(pread, cd_offset, cd_size), walked = 0, closed = false, entry_mt = entry_mt,
+    walk = cursor(pread, cd_offset, cd_size), walked = 0, listed = nil, closed = false, entry_mt = entry_mt,
   }
   return zr, ""
 end
