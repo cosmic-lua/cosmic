@@ -244,7 +244,7 @@ local type Pread = function(integer, integer): string?, string
 --- a forged record is not mistaken for the real one -- or, failing
 --- that, the last signature found.
 local function find_eocd(size: integer, pread: Pread): integer?, string
-  local window = if size < 65557 then size else 65557 end
+  local window = size < 65557 and size or 65557
   local start = size - window
   local chunk, trouble = pread(start, window)
   if chunk == nil then return nil, trouble end
@@ -416,7 +416,7 @@ local function open_entry(pread: Pread, e: Zip.Entry): Stream.Reader?, string
     if held == "" then held = nil end
   end
   local raw: SpanReader = {
-    pread = pread, pos = e.offset + skip, left = csize, held = held,
+    pread = pread, pos = e.offset + skip, left = csize, held = held, failed = nil,
   }
   local body: Stream.Reader
   local method = e.method
@@ -430,7 +430,7 @@ local function open_entry(pread: Pread, e: Zip.Entry): Stream.Reader?, string
     return refuse("unsupported compression method " .. tostring(method))
   end
   local checked: CheckedReader = {
-    inner = body, crc = e.crc32, size = e.size, seen = 0,
+    inner = body, crc = e.crc32, size = e.size, seen = 0, state = nil, failed = nil,
   }
   return checked, ""
 end
@@ -490,6 +490,9 @@ local CDFH_FIELDS <const> = "<I2I2I2I2I2I2I4I4I4I2I2I2I2I2I4I4"
 local CHECKED: Zip.Entry = {
   path = "", kind = "file", linkpath = "", mode = 0, size = 0, mtime = 0, compressed_size = 0,
   method = 0, crc32 = 0, offset = 0,
+  open = function(_entry: Zip.Entry): Stream.Reader?, string
+    return refuse("the entry was only checked, and has no body to open")
+  end,
 }
 
 --- The central directory's next entry, or nil and `""` at its end.
@@ -714,7 +717,7 @@ local function open_reader(size: integer, pread: Pread, closer: function(): bool
 
   local zr: EntryReader = {
     pread = pread, closer = closer, cd_offset = cd_offset, cd_size = cd_size, links = links,
-    walk = cursor(pread, cd_offset, cd_size), walked = 0, closed = false, entry_mt = entry_mt,
+    walk = cursor(pread, cd_offset, cd_size), walked = 0, listed = nil, closed = false, entry_mt = entry_mt,
   }
   return zr, ""
 end
@@ -837,7 +840,7 @@ local PATH_LIMIT <const> = 0xFFFF
 --- The external attributes of an entry of Unix type `type_bits`
 --- (`S_IFREG`, `S_IFDIR` or `S_IFLNK`) and permission bits `mode`.
 local function attributes(type_bits: integer, mode: integer): integer
-  return ((type_bits | (mode & 0xFFF)) << 16) | (if type_bits == S_IFDIR then DOS_DIR_ATTR else 0 end)
+  return ((type_bits | (mode & 0xFFF)) << 16) | (type_bits == S_IFDIR and DOS_DIR_ATTR or 0)
 end
 
 --- Writes the body's compressed bytes `data`, counting them.
@@ -1019,7 +1022,7 @@ local class EntryWriter is Zip.Writer
 
   function add_dir(self, path: string, fopts?: Zip.EntryOptions): boolean, string
     fopts = fopts or {}
-    local dirpath = if path:sub(-1) == "/" then path else (path .. "/") end
+    local dirpath = path:sub(-1) == "/" and path or (path .. "/")
     return put_entry(self, dirpath, "", "store", S_IFDIR, fopts.mode or 0x1ed, fopts.mtime or 0)
   end
 
@@ -1053,8 +1056,8 @@ local class EntryWriter is Zip.Writer
       trailer[#trailer + 1] = Z64_LOC_SIG .. string.pack("<I4I8I4", 0, zip64_eocd_offset, 1)
     end
     local eocd_count = if needs_zip64 then 0xFFFF else count end
-    local eocd_cd_size = if needs_zip64 then U32_MAX else cd_size end
-    local eocd_cd_offset = if needs_zip64 then U32_MAX else cd_offset end
+    local eocd_cd_size = needs_zip64 and U32_MAX or cd_size
+    local eocd_cd_offset = needs_zip64 and U32_MAX or cd_offset
     trailer[#trailer + 1] = EOCD_SIG .. string.pack("<I2I2I2I2I4I4I2", 0, 0, eocd_count,
       eocd_count, eocd_cd_size, eocd_cd_offset, 0)
     self.cd_parts = {}

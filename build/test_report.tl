@@ -9,8 +9,8 @@ local plural = require("build.plural")
 local record test_report
   record Failure
     message: string
-    rerun: string?
-    printed: string?
+    rerun?: string
+    printed?: string
   end
 
   record Build
@@ -133,13 +133,13 @@ end
 
 --- Compilation and staging counts, including reuse from another checkout.
 function test_report.build(counts: test_report.Build, elapsed: string): string
-  return "build: " .. plural.count(counts.modules, "module") .. " (" .. counts.compiled ..
-    " compiled, " .. counts.cached .. " cached" ..
-    (if counts.shared > 0 then ", " .. counts.shared .. " of them taken from another checkout" else "" end) ..
+  return "build: " .. plural.count(counts.modules, "module") .. " (" .. tostring(counts.compiled) ..
+    " compiled, " .. tostring(counts.cached) .. " cached" ..
+    (if counts.shared > 0 then ", " .. tostring(counts.shared) .. " of them taken from another checkout" else "" end) ..
     (if (counts.parsed > 0 or counts.shared_parses > 0) then "; " ..
         plural.count(counts.parsed, "source") .. " parsed" ..
-        (if counts.shared_parses > 0 then ", " .. counts.shared_parses .. " taken from another checkout" else "" end) else "" end) ..
-    "; " .. plural.count(counts.files, "file") .. " staged, " .. counts.read .. " read) in " ..
+        (if counts.shared_parses > 0 then ", " .. tostring(counts.shared_parses) .. " taken from another checkout" else "" end) else "" end) ..
+    "; " .. plural.count(counts.files, "file") .. " staged, " .. tostring(counts.read) .. " read) in " ..
     elapsed
 end
 
@@ -158,13 +158,13 @@ function test_report.passed(counts: test_report.Passed, elapsed: string): string
   local unchecked, na = counts.unchecked or 0, counts.na or 0
   return plural.count(counts.total, "test") .. " passed in " ..
     plural.count(counts.modules, "module") .. "; " ..
-    counts.ran .. " ran, " .. counts.cached .. " stood, " ..
-    (if counts.skipped > 0 then (counts.skipped .. " skipped (this host could not check " ..
+    tostring(counts.ran) .. " ran, " .. tostring(counts.cached) .. " stood, " ..
+    (if counts.skipped > 0 then (tostring(counts.skipped) .. " skipped (this host could not check " ..
       (if counts.skipped == 1 then "it" else "them" end) .. "), ") else "" end) ..
-    (if unchecked > 0 then (unchecked .. " made no call to assert, ") else "" end) ..
-    (if na > 0 then (na .. " n/a (this platform has none of what they check), ") else "" end) ..
-    (if counts.every > 0 then (counts.every .. " run every time (no key holds them), ") else "" end) ..
-    (if counts.shared > 0 then (counts.shared .. " of them on another checkout's verdict, ") else "" end) ..
+    (if unchecked > 0 then (tostring(unchecked) .. " made no call to assert, ") else "" end) ..
+    (if na > 0 then (tostring(na) .. " n/a (this platform has none of what they check), ") else "" end) ..
+    (if counts.every > 0 then (tostring(counts.every) .. " run every time (no key holds them), ") else "" end) ..
+    (if counts.shared > 0 then (tostring(counts.shared) .. " of them on another checkout's verdict, ") else "" end) ..
     elapsed
 end
 
@@ -176,7 +176,7 @@ end
 --- what a reader of the figures by their places expects.
 function test_report.failed(failures: integer, total: integer, errors: integer,
                             elapsed: string, not_run?: integer): string
-  return failures .. " of " .. plural.count(total, "test") .. " failed, " ..
+  return tostring(failures) .. " of " .. plural.count(total, "test") .. " failed, " ..
     plural.count(errors, "infrastructure error") .. ", " .. elapsed ..
     (if (not_run or 0) > 0 then ("; " .. not_run .. " not run after the first failure") else "" end)
 end

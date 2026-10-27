@@ -308,7 +308,7 @@ local function scan(roots: {string}, ignored: function(string, string): boolean,
       files = listed
     end
     for _, rel in ipairs(files) do
-      local path = if root == "." then rel else (root .. "/" .. rel) end
+      local path = root == "." and rel or (root .. "/" .. rel)
       local st, _ = Fs.stat(path)
       if st ~= nil then
         found[path] = ("%d:%d.%09d"):format(st.size, st.mtime, st.mtime_ns)
@@ -682,7 +682,7 @@ function Dev.supervise(opts?: Dev.SuperviseOptions): boolean, string
         local result, _ = running:wait()
         local _, _ = running:close()
         program.handle = nil
-        log("web dev: the program " .. (if result ~= nil then ended(result) else "is gone" end) ..
+        log("web dev: the program " .. (result ~= nil and ended(result) or "is gone") ..
             "; waiting for a change")
       end
     else
@@ -697,7 +697,7 @@ function Dev.supervise(opts?: Dev.SuperviseOptions): boolean, string
       elseif pending ~= nil then
         local moved = pending
         pending = nil
-        log(("web dev: %s changed; restarting"):format(moved[1] .. (if #moved > 1 then (" and %d more"):format(#moved - 1) else "" end)))
+        log(("web dev: %s changed; restarting"):format(moved[1] .. (#moved > 1 and (" and %d more"):format(#moved - 1) or "")))
         halt()
         launch()
       end

@@ -60,7 +60,7 @@ local function describe(path: string): integer?, string
     is_table[row:text(1)] = true
   end
   local st, _ = Fs.stat(path)
-  log:say(path .. "  " .. plural.count(if st ~= nil then st.size else 0 end, "byte"))
+  log:say(path .. "  " .. plural.count(st ~= nil and st.size or 0, "byte"))
   log:say("  " .. column("rows", 8) .. column("pages", 8) ..
       column("bytes", 10) .. column("payload", 10) .. "  name")
   for _, row in ipairs(sizes) do
@@ -360,7 +360,7 @@ local function run(argv: {string}): integer
     for _, entry in ipairs(listed or {}) do
       if entry:sub(1, 5) ~= "base-" then
         local st, _ = Fs.stat(stores .. "/" .. entry)
-        count, bytes = count + 1, bytes + (if st ~= nil then st.size else 0 end)
+        count, bytes = count + 1, bytes + (st ~= nil and st.size or 0)
       end
     end
     if count > 0 then

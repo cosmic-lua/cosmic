@@ -126,8 +126,8 @@ local function gen_name(src: Fuzz.Source, sound: boolean): string
   while Fuzz.more(src, #labels, 4) do
     labels[#labels + 1] = gen_label(src, sound)
   end
-  labels[#labels + 1] = if (not sound and src:int(0, 5) == 0) then gen_label(src, false) else
-    Fuzz.pick(src, { "com", "example", "org", "Net" }) end
+  labels[#labels + 1] = (not sound and src:int(0, 5) == 0) and gen_label(src, false) or
+    Fuzz.pick(src, { "com", "example", "org", "Net" })
   return table.concat(labels, ".") .. (if src:int(0, 6) == 0 then "." else "" end)
 end
 
@@ -136,7 +136,7 @@ local OCTETS <const> = { "0", "1", "127", "255", "256", "010", "08", "9", "300",
 local function gen_ipv4(src: Fuzz.Source, sound: boolean): string
   local parts: mut {string} = {}
   for i = 1, 4 do
-    parts[i] = if (not sound and src:int(0, 3) == 0) then Fuzz.pick(src, OCTETS) else tostring(src:int(0, 255)) end
+    parts[i] = (not sound and src:int(0, 3) == 0) and Fuzz.pick(src, OCTETS) or tostring(src:int(0, 255))
   end
   while not sound and Fuzz.more(src, #parts - 4, 2) do
     parts[#parts + 1] = tostring(src:int(0, 255))
@@ -154,8 +154,8 @@ local GROUPS <const> = { "0", "0", "0", "1", "ff", "FFFF", "abcd", "0000", "1234
 local function gen_ipv6(src: Fuzz.Source, sound: boolean): string
   local groups: mut {string} = {}
   for i = 1, 8 do
-    groups[i] = if (not sound and src:int(0, 4) == 0) then Fuzz.pick(src, GROUPS) else
-      ("%x"):format(if src:int(0, 3) == 0 then src:int(0, 65535) else 0 end) end
+    groups[i] = (not sound and src:int(0, 4) == 0) and Fuzz.pick(src, GROUPS) or
+      ("%x"):format(src:int(0, 3) == 0 and src:int(0, 65535) or 0)
   end
   while not sound and Fuzz.more(src, #groups - 8, 2) do
     groups[#groups + 1] = "1"
@@ -183,8 +183,8 @@ end
 local function gen_target(src: Fuzz.Source): string
   local kind = src:int(1, 8)
   local sound = src:int(0, 2) ~= 0
-  local port = if src:int(0, 5) == 0 then Fuzz.pick(src, { "0", "00", "080", "65535", "65536", "-1", "", "443x", "1" .. ("0"):rep(5) }) else
-    tostring(src:int(1, 65535)) end
+  local port = src:int(0, 5) == 0 and Fuzz.pick(src, { "0", "00", "080", "65535", "65536", "-1", "", "443x", "1" .. ("0"):rep(5) }) or
+    tostring(src:int(1, 65535))
   if kind <= 4 then
     return gen_name(src, sound) .. ":" .. port
   elseif kind <= 6 then
@@ -201,12 +201,12 @@ local HEADER_VALUES <const> = { "x", "", "Basic YTpi", "  spaced \t", "\xff\xfe"
 --- A CONNECT request: its parts drawn (mostly sound ones), then damaged,
 --- cut short or followed by what the tunnel carries.
 local function gen_connect(src: Fuzz.Source): string
-  local method = if src:int(0, 9) == 0 then Fuzz.pick(src, { "GET", "connect", "POST", "" }) else "CONNECT" end
-  local version = if src:int(0, 9) == 0 then Fuzz.pick(src, { "HTTP/2", "HTTP/1.0", "http/1.1", "" }) else "HTTP/1.1" end
+  local method = src:int(0, 9) == 0 and Fuzz.pick(src, { "GET", "connect", "POST", "" }) or "CONNECT"
+  local version = src:int(0, 9) == 0 and Fuzz.pick(src, { "HTTP/2", "HTTP/1.0", "http/1.1", "" }) or "HTTP/1.1"
   local lines: mut {string} = { method .. " " .. gen_target(src) .. " " .. version }
   while Fuzz.more(src, #lines - 1, 6) do
-    local name = if src:int(0, 5) == 0 then Fuzz.pick(src, HEADER_NAMES) else Fuzz.pick(src, { "Host", "Proxy-Authorization", "User-Agent" }) end
-    local value = if src:int(0, 6) == 0 then Fuzz.pick(src, HEADER_VALUES) else Fuzz.pick(src, { "x", "Basic YTpi", "v" }) end
+    local name = src:int(0, 5) == 0 and Fuzz.pick(src, HEADER_NAMES) or Fuzz.pick(src, { "Host", "Proxy-Authorization", "User-Agent" })
+    local value = src:int(0, 6) == 0 and Fuzz.pick(src, HEADER_VALUES) or Fuzz.pick(src, { "x", "Basic YTpi", "v" })
     lines[#lines + 1] = name .. ": " .. value
   end
   local text = table.concat(lines, "\r\n") .. "\r\n\r\n"
@@ -218,12 +218,12 @@ local function gen_connect(src: Fuzz.Source): string
 end
 
 local function gen_greeting(src: Fuzz.Source): string
-  local out: mut {string} = { if src:int(0, 9) == 0 then string.char(src:int(0, 255)) else "\5" end }
+  local out: mut {string} = { src:int(0, 9) == 0 and string.char(src:int(0, 255)) or "\5" }
   local methods: mut {string} = {}
   while Fuzz.more(src, #methods, 5) do
     methods[#methods + 1] = string.char(Fuzz.pick(src, { 0, 0, 1, 2, 2, 255, src:int(0, 255) }))
   end
-  out[#out + 1] = string.char(if src:int(0, 9) == 0 then src:int(0, 255) else #methods end)
+  out[#out + 1] = string.char(src:int(0, 9) == 0 and src:int(0, 255) or #methods)
   out[#out + 1] = table.concat(methods)
   local text = table.concat(out)
   if src:int(0, 4) == 0 then
@@ -243,19 +243,19 @@ local function gen_auth(src: Fuzz.Source): string
 end
 
 local function gen_socks_request(src: Fuzz.Source): string
-  local atyp = if src:int(0, 9) == 0 then src:int(0, 6) else Fuzz.pick(src, { 1, 3, 3, 4 }) end
+  local atyp = src:int(0, 9) == 0 and src:int(0, 6) or Fuzz.pick(src, { 1, 3, 3, 4 })
   local address: string
   if atyp == 1 then
     address = Fuzz.bytes(src, 4)
     address = address .. ("\0"):rep(4 - #address)
   elseif atyp == 4 then
-    address = if src:int(0, 3) == 0 then Fuzz.bytes(src, 16) else Fixture.ipv6_bytes(("%x::%x"):format(src:int(0, 65535), src:int(0, 65535))) end
+    address = src:int(0, 3) == 0 and Fuzz.bytes(src, 16) or Fixture.ipv6_bytes(("%x::%x"):format(src:int(0, 65535), src:int(0, 65535)))
   else
     local name = gen_name(src, src:int(0, 2) ~= 0)
     name = name:sub(1, 255)
     address = string.char(#name) .. name
   end
-  local command = if src:int(0, 6) == 0 then src:int(0, 4) else 1 end
+  local command = src:int(0, 6) == 0 and src:int(0, 4) or 1
   local port = if src:int(0, 9) == 0 then 0 else src:int(1, 65535) end
   local text = Fixture.socks_request(command, atyp, address, port)
   if src:int(0, 4) == 0 then
@@ -284,10 +284,10 @@ local function gen_hello(src: Fuzz.Source): string
   end
   local message = Fixture.hello({
     name = name,
-    session = if src:int(0, 9) == 0 then src:int(0, 40) else src:int(0, 32) end,
-    suites = if src:int(0, 9) == 0 then src:int(0, 3) else 2 end,
+    session = src:int(0, 9) == 0 and src:int(0, 40) or src:int(0, 32),
+    suites = src:int(0, 9) == 0 and src:int(0, 3) or 2,
     extra = gen_extras(src),
-    server_name = if src:int(0, 14) == 0 then Fuzz.bytes(src, 12) else nil end,
+    server_name = src:int(0, 14) == 0 and Fuzz.bytes(src, 12) or nil,
   })
   local sizes: mut {integer} = {}
   while Fuzz.more(src, #sizes, 4) do
@@ -521,7 +521,7 @@ local function test_a_refusal_reply_is_one_status_line_of_visible_text(tmp: stri
     name = "connect refusal reply",
     dir = tmp,
     gen = function(src: Fuzz.Source): string
-      return Fuzz.pack({ tostring(src:int(400, 599)), if src:int(0, 5) == 0 then ("x"):rep(src:int(190, 220)) else Fuzz.bytes(src, 30) end })
+      return Fuzz.pack({ tostring(src:int(400, 599)), src:int(0, 5) == 0 and ("x"):rep(src:int(190, 220)) or Fuzz.bytes(src, 30) })
     end,
     requires = { "controls", "visible" },
     shares = { controls = 0.1, visible = 0.1 },

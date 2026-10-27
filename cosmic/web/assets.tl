@@ -125,21 +125,20 @@ end
 local function make(path: string, data: string, known: Known): Assets.Asset
   local sha256 = known.sha256 or Hash.hex_sha256(data)
   local kept: mut {string:string} = {}
-  local asset: Assets.Asset = {
+  return {
     path = path, data = data, size = #data, sha256 = sha256,
     etag = '"' .. sha256:sub(1, 32) .. '"',
     type = known.type or Mime.of(path), gzip = known.gzip, mtime = known.mtime or 0,
+    integrity = function(_self: Assets.Asset, algorithm?: Assets.Algorithm): string
+      local which: Assets.Algorithm = algorithm or "sha384"
+      local value = kept[which]
+      if value == nil then
+        value = integrity_of(data, which)
+        kept[which] = value
+      end
+      return value
+    end,
   }
-  asset.integrity = function(_self: Assets.Asset, algorithm?: Assets.Algorithm): string
-    local which: Assets.Algorithm = algorithm or "sha384"
-    local value = kept[which]
-    if value == nil then
-      value = integrity_of(data, which)
-      kept[which] = value
-    end
-    return value
-  end
-  return asset
 end
 
 --- A miss: nil and a reason naming `path`.
@@ -165,21 +164,21 @@ function Assets.memory(files: {string:string}, opts?: {string:boolean}): Assets.
     names[#names + 1] = path
   end
   table.sort(names)
-  local source: Assets.Source = {}
-  source.get = function(_self: Assets.Source, path: string): Assets.Asset?, string
-    local why = path_refusal(path)
-    if why ~= nil then return miss(path, why) end
-    local asset = held[path]
-    if asset == nil then return miss(path, "not held") end
-    return asset, ""
-  end
-  source.paths = function(_self: Assets.Source): {string}
-    local copy: mut {string} = {}
-    for i, name in ipairs(names) do copy[i] = name end
-    return copy
-  end
-  source.dynamic = function(_self: Assets.Source): boolean return false end
-  return source
+  return {
+    get = function(_self: Assets.Source, path: string): Assets.Asset?, string
+      local why = path_refusal(path)
+      if why ~= nil then return miss(path, why) end
+      local asset = held[path]
+      if asset == nil then return miss(path, "not held") end
+      return asset, ""
+    end,
+    paths = function(_self: Assets.Source): {string}
+      local copy: mut {string} = {}
+      for i, name in ipairs(names) do copy[i] = name end
+      return copy
+    end,
+    dynamic = function(_self: Assets.Source): boolean return false end,
+  }
 end
 
 --- What a directory source remembers of a file it read.
@@ -211,41 +210,41 @@ function Assets.directory(root: string): Assets.Source
     error("web: assets: directory: root is not a path", 2)
   end
   local seen: mut {string:Seen} = {}
-  local source: Assets.Source = {}
-  source.get = function(_self: Assets.Source, path: string): Assets.Asset?, string
-    local why = path_refusal(path)
-    if why ~= nil then return miss(path, why) end
-    if ("/" .. path):find("/%.") then return miss(path, "a hidden file") end
-    local base, base_why = Fs.absolute(root)
-    if base == nil then return miss(path, base_why) end
-    local full = root .. "/" .. path
-    local real, real_why = Fs.absolute(full)
-    if real == nil then return miss(path, real_why) end
-    local prefix = if base:sub(-1) == "/" then base else base .. "/" end
-    if real:sub(1, #prefix) ~= prefix then return miss(path, "outside the root") end
-    local st, st_why = Fs.stat(real)
-    if st == nil then return miss(path, st_why) end
-    if st.kind ~= "file" then return miss(path, "not a file") end
-    if st.size > MAX_BYTES then return miss(path, "past the 16 MiB limit") end
-    local before = seen[path]
-    if before ~= nil and before.size == st.size and before.mtime == st.mtime and
-        before.mtime_ns == st.mtime_ns then
-      return before.asset, ""
-    end
-    local data, read_why = Fs.read(real)
-    if data == nil then return miss(path, read_why) end
-    local asset = make(path, data, { mtime = st.mtime })
-    seen[path] = { mtime = st.mtime, mtime_ns = st.mtime_ns, size = st.size, asset = asset }
-    return asset, ""
-  end
-  source.paths = function(_self: Assets.Source): {string}
-    local list, _ = Fs.walk(root, function(_rel: string, name: string): boolean
-      return name:sub(1, 1) == "."
-    end)
-    return list or {}
-  end
-  source.dynamic = function(_self: Assets.Source): boolean return true end
-  return source
+  return {
+    get = function(_self: Assets.Source, path: string): Assets.Asset?, string
+      local why = path_refusal(path)
+      if why ~= nil then return miss(path, why) end
+      if ("/" .. path):find("/%.") then return miss(path, "a hidden file") end
+      local base, base_why = Fs.absolute(root)
+      if base == nil then return miss(path, base_why) end
+      local full = root .. "/" .. path
+      local real, real_why = Fs.absolute(full)
+      if real == nil then return miss(path, real_why) end
+      local prefix = base:sub(-1) == "/" and base or base .. "/"
+      if real:sub(1, #prefix) ~= prefix then return miss(path, "outside the root") end
+      local st, st_why = Fs.stat(real)
+      if st == nil then return miss(path, st_why) end
+      if st.kind ~= "file" then return miss(path, "not a file") end
+      if st.size > MAX_BYTES then return miss(path, "past the 16 MiB limit") end
+      local before = seen[path]
+      if before ~= nil and before.size == st.size and before.mtime == st.mtime and
+          before.mtime_ns == st.mtime_ns then
+        return before.asset, ""
+      end
+      local data, read_why = Fs.read(real)
+      if data == nil then return miss(path, read_why) end
+      local asset = make(path, data, { mtime = st.mtime })
+      seen[path] = { mtime = st.mtime, mtime_ns = st.mtime_ns, size = st.size, asset = asset }
+      return asset, ""
+    end,
+    paths = function(_self: Assets.Source): {string}
+      local list, _ = Fs.walk(root, function(_rel: string, name: string): boolean
+        return name:sub(1, 1) == "."
+      end)
+      return list or {}
+    end,
+    dynamic = function(_self: Assets.Source): boolean return true end,
+  }
 end
 
 --- The first database of the store holding the payload table, queried.
@@ -266,31 +265,31 @@ end
 --- @return Assets.Source The source
 function Assets.embedded(): Assets.Source
   local held: mut {string:Assets.Asset} = {}
-  local source: Assets.Source = {}
-  source.get = function(_self: Assets.Source, path: string): Assets.Asset?, string
-    local why = path_refusal(path)
-    if why ~= nil then return miss(path, why) end
-    local asset = held[path]
-    if asset ~= nil then return asset, "" end
-    local rows = payload_query(
-      "SELECT data, sha256, type, gzip, gzip IS NOT NULL FROM payload WHERE path = ?",
-      { { text = path } })
-    if rows == nil then return miss(path, "not held") end
-    local row = rows[1]
-    local packed: string? = nil
-    if row:text(5) == "1" then packed = row:text(4) end
-    asset = make(path, row:text(1), { sha256 = row:text(2), type = row:text(3), gzip = packed })
-    held[path] = asset
-    return asset, ""
-  end
-  source.paths = function(_self: Assets.Source): {string}
-    local rows = payload_query("SELECT path FROM payload ORDER BY path", {})
-    local list: mut {string} = {}
-    for i, row in ipairs(rows or {}) do list[i] = row:text(1) end
-    return list
-  end
-  source.dynamic = function(_self: Assets.Source): boolean return false end
-  return source
+  return {
+    get = function(_self: Assets.Source, path: string): Assets.Asset?, string
+      local why = path_refusal(path)
+      if why ~= nil then return miss(path, why) end
+      local asset = held[path]
+      if asset ~= nil then return asset, "" end
+      local rows = payload_query(
+        "SELECT data, sha256, type, gzip, gzip IS NOT NULL FROM payload WHERE path = ?",
+        { { text = path } })
+      if rows == nil then return miss(path, "not held") end
+      local row = rows[1]
+      local packed: string? = nil
+      if row:text(5) == "1" then packed = row:text(4) end
+      asset = make(path, row:text(1), { sha256 = row:text(2), type = row:text(3), gzip = packed })
+      held[path] = asset
+      return asset, ""
+    end,
+    paths = function(_self: Assets.Source): {string}
+      local rows = payload_query("SELECT path FROM payload ORDER BY path", {})
+      local list: mut {string} = {}
+      for i, row in ipairs(rows or {}) do list[i] = row:text(1) end
+      return list
+    end,
+    dynamic = function(_self: Assets.Source): boolean return false end,
+  }
 end
 
 -- TODO: a test of a project that has a `cmd/` main reads that `main` in

@@ -121,29 +121,25 @@ function Rand.new(seed: integer): Rand.Source
   s3 = last
   local st: State = { s0 = s0, s1 = s1, s2 = s2, s3 = s3 }
 
-  local source: Rand.Source = {}
-
-  source.int = function(_self: Rand.Source, min: integer, max: integer): integer
-    return Rand.uniform(function(): integer return next64(st) end, min, max)
-  end
-
-  source.float = function(_self: Rand.Source): number
-    return (next64(st) >> 11) * (1.0 / 9007199254740992.0)
-  end
-
-  source.bytes = function(_self: Rand.Source, count: integer): string
-    if count < 0 then
-      error(("rand: bytes(%d): count is negative"):format(count), 2)
-    end
-    local parts: mut {string} = {}
-    local words = (count + 7) // 8
-    for i = 1, words do
-      parts[i] = string.pack("<i8", next64(st))
-    end
-    return table.concat(parts):sub(1, count)
-  end
-
-  return source
+  return {
+    int = function(_self: Rand.Source, min: integer, max: integer): integer
+      return Rand.uniform(function(): integer return next64(st) end, min, max)
+    end,
+    float = function(_self: Rand.Source): number
+      return (next64(st) >> 11) * (1.0 / 9007199254740992.0)
+    end,
+    bytes = function(_self: Rand.Source, count: integer): string
+      if count < 0 then
+        error(("rand: bytes(%d): count is negative"):format(count), 2)
+      end
+      local parts: mut {string} = {}
+      local words = (count + 7) // 8
+      for i = 1, words do
+        parts[i] = string.pack("<i8", next64(st))
+      end
+      return table.concat(parts):sub(1, count)
+    end,
+  }
 end
 
 --- `count` bytes from the operating system's entropy source

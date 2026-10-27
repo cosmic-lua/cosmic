@@ -45,8 +45,8 @@ local function gen_pairs(src: Fuzz.Source): string
   local which = src:int(1, #SPECS)
   local fields: mut {string} = { tostring(which) }
   while Fuzz.more(src, #fields // 2, 12) do
-    local name = if src:int(0, 9) == 0 then Fuzz.bytes(src, 6) else Fuzz.pick(src, NAMES[which]) end
-    local value = if src:int(0, 5) == 0 then Fuzz.bytes(src, 8) else Fuzz.pick(src, VALUES) end
+    local name = src:int(0, 9) == 0 and Fuzz.bytes(src, 6) or Fuzz.pick(src, NAMES[which])
+    local value = src:int(0, 5) == 0 and Fuzz.bytes(src, 8) or Fuzz.pick(src, VALUES)
     fields[#fields + 1] = name
     fields[#fields + 1] = value
   end

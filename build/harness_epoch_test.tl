@@ -69,7 +69,7 @@ local function bump(epoch: string, retired: {string}): string, string?
   local count = #retired + (if retire ~= nil then 1 else 0 end) + 1
   local line = string.format("harness_epoch.epoch = %q",
     string.format("%d-%s", count, Codec.hex((assert(Rand.entropy(4))))))
-  return line, if retire ~= nil then string.format("  %q,", retire) else nil end
+  return line, retire ~= nil and string.format("  %q,", retire) or nil
 end
 
 --- The words that tell how to bump `epoch`, with the two edits to paste.

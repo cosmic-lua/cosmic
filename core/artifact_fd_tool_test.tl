@@ -132,7 +132,7 @@ local function test_a_change_through_the_artifact_descriptor_changes_nothing(tmp
       "artifact's mode or times:\n" .. tostring(result.stdout))
   local out = tostring(result.stdout)
   for _, what in ipairs({ "write", "read-write", "create", "truncate", "chmod" }) do
-    assert(out:find(what .. " " .. sys.EACCES .. "\n", 1, true) ~= nil,
+    assert(out:find(what .. " " .. tostring(sys.EACCES) .. "\n", 1, true) ~= nil,
       what .. " was not refused:\n" .. out)
   end
 end
@@ -247,7 +247,7 @@ end
 local function filled(script: string, values: {string:string}): string
   return (script:gsub("%u+", function(name: string): string
     local value = values[name]
-    return if value ~= nil then string.format("%q", value) else name end
+    return value ~= nil and string.format("%q", value) or name
   end))
 end
 
@@ -287,10 +287,10 @@ local function swapped_link_changes_nothing(tmp: string, policy?: Sandbox.Policy
   if said ~= "flipping" then
     local ended, why = flipping:wait(Clock.seconds(2))
     error("the flipper did not start: " .. tostring(said) .. "\n" ..
-        (if ended ~= nil then tostring(ended.stderr) else why end))
+        (ended ~= nil and tostring(ended.stderr) or why))
   end
   local result = assert(Child.run({ relaunch.argv[1], "--artifact", copy, "-e",
-    filled(caller, values) }, { env = if policy == nil then env else nil end, fds = fds, stdout = "capture",
+    filled(caller, values) }, { env = policy == nil and env or nil, fds = fds, stdout = "capture",
       stderr = "capture", policy = policy, timeout_ns = Clock.seconds(7) }))
   if not Fs.exists(stop) then assert(Fs.write(stop, "")) end
   local flipped = assert(flipping:wait())

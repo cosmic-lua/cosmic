@@ -95,7 +95,7 @@ local function test_no_bytes_but_the_token_reach_the_upstream(tmp: string)
         })
         local first = input:sub(1, 1)
         Fuzz.label(if first == "H" then "http" else "socks" end)
-        local conn = assert(Net.connect(if first == "H" then http.address else socks.address end,
+        local conn = assert(Net.connect(first == "H" and http.address or socks.address,
           { timeout_ns = Clock.seconds(5) }))
         conn:set_timeout(Clock.seconds(5))
         local _, _ = conn:write(input:sub(2))

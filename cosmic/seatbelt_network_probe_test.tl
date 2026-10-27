@@ -290,7 +290,7 @@ local function test_a_port_rule_reaches_its_port_and_no_other(tmp: string)
         if any(a_nc, a_bash, "CONNECTED") then
           -- A rule that reaches its own port is tried on ::1 as well.
           if v6 ~= nil then
-            local rule_port = if v6_port == allowed_port then form.lines else forms(v6_port)[index].lines end
+            local rule_port = v6_port == allowed_port and form.lines or forms(v6_port)[index].lines
             local v6_text = profile(BASE, rule_port)
             local v_nc, v_bash = tcp_reach(tmp, v6_text, form.parameters, "::1", v6_port)
             report[#report + 1] = "  [::1]:" .. v6_port .. ": nc=" .. v_nc .. " bash=" .. v_bash

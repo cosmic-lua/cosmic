@@ -80,7 +80,7 @@ local record docs
     --- The module each module binds each name to, by module and name,
     --- as [`symbol_index.add_bound`] reads them: nil until a type's
     --- reference asks, then cached as `use_counts` is.
-    bound: {string: string}?
+    bound?: {string: string}
   end
 
   --- One worked example, matched to a symbol by content rather than by
@@ -481,7 +481,7 @@ local function named_all(db: Sqlite.Handle, public: boolean,
   local placeholders: mut {string} = {}
   local args: mut {Sqlite.Value} = {}
   for index, name in ipairs(names) do
-    placeholders[index] = "?" .. index
+    placeholders[index] = "?" .. tostring(index)
     args[index] = text(name)
   end
   local rows, trouble = Sqlite.text_rows(db,
@@ -608,7 +608,7 @@ local function query_words(query: string): {string}
   if #words > 0 then
     return words
   end
-  return if #short > 0 then short else stop end
+  return #short > 0 and short or stop
 end
 
 --- The first word of `query` a search keeps (see [`query_words`]).
@@ -787,7 +787,7 @@ local function searched_docs(db: Sqlite.Handle, public: boolean,
   for _, word in ipairs(words) do
     for _, form in ipairs({ word:lower(), plain(word) }) do
       binds[#binds + 1] = text(form)
-      hits[#hits + 1] = "?" .. #binds
+      hits[#hits + 1] = "?" .. tostring(#binds)
     end
   end
   -- Then a comment that says the words together, as typed, and then a
@@ -804,7 +804,7 @@ local function searched_docs(db: Sqlite.Handle, public: boolean,
     local typed: mut {string} = {}
     for word in query:gmatch("[%w_]+") do typed[#typed + 1] = word:lower() end
     binds[#binds + 1] = text(table.concat(typed, " "))
-    phrase = "instr(replace(lower(d.text), char(10), ' '), ?" .. #binds .. ") > 0 DESC, "
+    phrase = "instr(replace(lower(d.text), char(10), ' '), ?" .. tostring(#binds) .. ") > 0 DESC, "
   end
   local rows, trouble = Sqlite.text_rows(db,
     "SELECT " .. columns .. ", d.id FROM docs_fts JOIN docs d ON d.id = docs_fts.rowid " ..
@@ -812,7 +812,7 @@ local function searched_docs(db: Sqlite.Handle, public: boolean,
       " ORDER BY " .. stands_in .. "lower(d.symbol) IN (" .. table.concat(hits, ", ") ..
       ") DESC, (d.symbol = '' AND NOT (" .. table.concat(module_hit, " OR ") ..
       ")), " .. phrase .. "d.kind = 'field', bm25(docs_fts, " .. DOCS_WEIGHTS ..
-      "), d.module, d.id LIMIT " .. LIMIT,
+      "), d.module, d.id LIMIT " .. tostring(LIMIT),
     binds)
   if rows == nil then
     return nil, trouble
@@ -2035,7 +2035,7 @@ function docs.uses(view: docs.View, query: string): {docs.Use}?, string
   local seen: mut {string: boolean} = {}
   for _, use in ipairs(found) do
     local key = use.module .. "\n" .. use.symbol .. "\n" .. use.from_module ..
-      "\n" .. use.from_file .. "\n" .. use.line .. "\n" .. tostring(use.link) ..
+      "\n" .. use.from_file .. "\n" .. tostring(use.line) .. "\n" .. tostring(use.link) ..
       "\n" .. use.path .. "\n" .. use.anchor
     if not seen[key] then
       seen[key] = true
@@ -2120,7 +2120,7 @@ local function listed(item: docs.Entry): string
       shown = "function " .. item.source_symbol .. rest
     end
   end
-  local note = if is_call(item) then clipped(first_sentence(item.text), NOTE_LIMIT) else "" end
+  local note = is_call(item) and clipped(first_sentence(item.text), NOTE_LIMIT) or ""
   return shown .. (if note ~= "" then " -- " .. note else "" end) ..
     (if #marks > 0 then "  (" .. table.concat(marks, ", ") .. ")" else "" end)
 end
@@ -2245,7 +2245,7 @@ end
 --- stands for nothing.
 local function inherited_lines(view: docs.View, entry: docs.Entry): {string}?, string
   local lines: mut {string} = {}
-  local references = if entry.symbol ~= "" then alias_members.references(entry) else {} end
+  local references = entry.symbol ~= "" and alias_members.references(entry) or {}
   if #references == 0 then
     return lines
   end
@@ -2281,7 +2281,7 @@ local function inherited_lines(view: docs.View, entry: docs.Entry): {string}?, s
             values[#values + 1] = "    " .. member_line(member)
           elseif tail ~= nil then
             methods[#methods + 1] = "    " .. name .. "(" ..
-              (if tail:sub(1, 2) == ", " then tail:sub(3) else tail end) ..
+              (tail:sub(1, 2) == ", " and tail:sub(3) or tail) ..
               (if note ~= "" then " -- " .. note else "" end)
           else
             fields[#fields + 1] = "    " .. member_line(member)
@@ -2331,7 +2331,7 @@ end
 local function heading(entry: docs.Entry): string
   if entry.kind == "example" then
     local ex = entry.related[1]
-    return entry.module .. " example " .. ex.name .. " (" .. ex.file .. ":" .. ex.line .. ")"
+    return entry.module .. " example " .. ex.name .. " (" .. ex.file .. ":" .. tostring(ex.line) .. ")"
   end
   if entry.kind == "removed" then
     return entry.module .. " " .. entry.source_symbol .. " (removed)"
@@ -2342,7 +2342,7 @@ local function heading(entry: docs.Entry): string
   if entry.symbol == "" then
     return entry.module .. " (" .. entry.file .. ")"
   end
-  local at = if entry.line > 0 then ":" .. entry.line else "" end
+  local at = if entry.line > 0 then ":" .. tostring(entry.line) else "" end
   return entry.module .. " " .. entry.source_symbol .. " (" .. entry.file .. at .. ")"
 end
 
@@ -2378,14 +2378,14 @@ function docs.render(view: docs.View, entry: docs.Entry): {string}?, string
   if entry.symbol ~= "" then
     -- `local` says only how the module spelled a declaration it hands
     -- out; a caller reads it as a record like any other.
-    lines[#lines + 1] = "  " .. (if entry.exported then entry.signature:gsub("^local ", "") else
-      entry.signature end)
+    lines[#lines + 1] = "  " .. (entry.exported and entry.signature:gsub("^local ", "") or
+      entry.signature)
   end
   if #entry.related > 0 then
     lines[#lines + 1] = "  related search examples:"
     for _, ex in ipairs(entry.related) do
       lines[#lines + 1] = "  example " .. ex.name .. " (" .. ex.file .. ":" ..
-        ex.line .. "):"
+        tostring(ex.line) .. "):"
       for line in String.lines(ex.text) do
         lines[#lines + 1] = if #line > 0 then "  " .. line else "" end
       end
@@ -2444,7 +2444,7 @@ function docs.render(view: docs.View, entry: docs.Entry): {string}?, string
         end
       end
     end
-    pointed = if best ~= nil then best.source_symbol else nil end
+    pointed = best ~= nil and best.source_symbol or nil
   end
   -- The listing goes after the first paragraph, or, when that ends in
   -- a colon, after the run of indented or fenced blocks it introduces
@@ -2537,7 +2537,7 @@ function docs.render(view: docs.View, entry: docs.Entry): {string}?, string
         said[#said + 1] = "used in " .. plural.count(entry.uses, "place")
       end
       if entry.links > 0 then
-        said[#said + 1] = (if entry.uses > 0 then "linked from " .. entry.links else
+        said[#said + 1] = (if entry.uses > 0 then "linked from " .. tostring(entry.links) else
           "linked from " .. plural.count(entry.links, "place") end)
       end
       -- A member of the record the module's value is typed as is asked
@@ -2559,10 +2559,10 @@ function docs.render(view: docs.View, entry: docs.Entry): {string}?, string
     local more: mut {string} = {}
     for at, ex in ipairs(ranked_examples(examples, entry.source_symbol)) do
       if at > EXAMPLES_SHOWN then
-        more[#more + 1] = ex.name .. " (" .. ex.file .. ":" .. ex.line .. ")"
+        more[#more + 1] = ex.name .. " (" .. ex.file .. ":" .. tostring(ex.line) .. ")"
       else
         lines[#lines + 1] = "  example " .. ex.name .. " (" .. ex.file .. ":" ..
-          ex.line .. "):"
+          tostring(ex.line) .. "):"
         for line in String.lines(ex.text) do
           lines[#lines + 1] = if #line > 0 then "  " .. line else "" end
         end
@@ -2632,10 +2632,10 @@ local function page(view: docs.View, found: docs.Lookup,
   end
   if #found > whole then
     lines[#lines + 1] = ""
-    lines[#lines + 1] = (#found - whole) .. " more; narrow the search, or look one up by name:"
+    lines[#lines + 1] = tostring((#found - whole)) .. " more; narrow the search, or look one up by name:"
     for index = whole + 1, #found do
       local entry = found[index]
-      local said = if entry.kind == "example" then entry.related[1].text else entry.text end
+      local said = entry.kind == "example" and entry.related[1].text or entry.text
       local note = clipped(first_sentence(said), LISTED_NOTE)
       lines[#lines + 1] = "  " .. heading(entry) .. (if note ~= "" then " -- " .. note else "" end)
     end
@@ -2655,7 +2655,7 @@ local function index_lines(index: {docs.Summary}, limit?: integer): mut {string}
     local line = summary.module
     if summary.text ~= "" then
       line = line .. string.rep(" ", width - #line + 2) ..
-        (if limit ~= nil then clipped(summary.text, limit) else summary.text end)
+        (limit ~= nil and clipped(summary.text, limit) or summary.text)
     end
     lines[#lines + 1] = line
   end
@@ -2714,7 +2714,7 @@ function docs.answer(view: docs.View, words: {string}): docs.Answer?, string
       hint = "`cosmic docs <module>` shows one (cosmic.fs, or fs), with what it " ..
         "offers; `cosmic docs Fs.read` a symbol; `cosmic docs <words>` searches."
     end
-    local lines = index_lines(index, if query ~= "" then NOTE_LIMIT else nil end)
+    local lines = index_lines(index, query ~= "" and NOTE_LIMIT or nil)
     lines[#lines + 1] = ""
     lines[#lines + 1] = hint
     return { lines = lines, found = true, said = plural.count(#index, "module") }, ""
@@ -2757,9 +2757,9 @@ function docs.answer(view: docs.View, words: {string}): docs.Answer?, string
   if #missed > 0 then
     said[#said + 1] = "nothing named or documented as " .. table.concat(missed, ", ")
   end
-  if naming > 0 then said[#said + 1] = naming .. " named" end
-  if standing > 0 then said[#said + 1] = standing .. " standing in" end
-  if related > 0 then said[#said + 1] = related .. " found" end
+  if naming > 0 then said[#said + 1] = tostring(naming) .. " named" end
+  if standing > 0 then said[#said + 1] = tostring(standing) .. " standing in" end
+  if related > 0 then said[#said + 1] = tostring(related) .. " found" end
   return { lines = lines, found = #missed == 0, said = table.concat(said, ", ") }, ""
 end
 
@@ -2865,7 +2865,7 @@ local function run_uses(argv: {string}): integer
       if use.link and use.module == "" then
         target = use.path .. (if use.anchor ~= "" then "#" .. use.anchor else "" end)
       end
-      log:say(use.from_file .. ":" .. use.line .. ": " .. (if use.link then "link " else "" end) .. target)
+      log:say(use.from_file .. ":" .. tostring(use.line) .. ": " .. (if use.link then "link " else "" end) .. target)
       shown = shown + 1
     end
   end

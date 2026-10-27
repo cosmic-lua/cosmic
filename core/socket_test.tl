@@ -71,7 +71,7 @@ local function test_a_tcp_socket_dropped_unclosed_is_closed_by_the_collector(tmp
   end
   collectgarbage("collect")
   collectgarbage("collect")
-  assert(next_descriptor(tmp) == before, "a dropped socket left descriptor " .. before .. " open")
+  assert(next_descriptor(tmp) == before, "a dropped socket left descriptor " .. tostring(before) .. " open")
 end
 
 --- A listener, a connection to it and the one it accepted, dropped
@@ -91,7 +91,7 @@ local function test_a_socket_dropped_unclosed_is_closed_by_the_collector(tmp: st
   assert(Fs.stat(path) ~= nil, "no socket file")
   collectgarbage("collect")
   collectgarbage("collect")
-  assert(next_descriptor(tmp) == before, "a dropped socket left descriptor " .. before .. " open")
+  assert(next_descriptor(tmp) == before, "a dropped socket left descriptor " .. tostring(before) .. " open")
   assert(Fs.stat(path) == nil, "a dropped listener left its socket file")
 end
 
@@ -279,7 +279,7 @@ local function test_a_full_unix_backlog_refuses_a_connection_at_once(tmp: string
     if client == nil then break end
     held[#held + 1] = client
   end
-  local want = if assert(sys.uname()).sysname == "Darwin" then raw.ECONNREFUSED else raw.EAGAIN end
+  local want = assert(sys.uname()).sysname == "Darwin" and raw.ECONNREFUSED or raw.EAGAIN
   local began = Clock.monotonic_ns()
   local client, why, errno = raw.connect(unix(path), 20000)
   assert(Clock.monotonic_ns() - began < Clock.seconds(10), "the connection waited for room")

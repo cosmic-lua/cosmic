@@ -242,7 +242,7 @@ function StaticFiles.handler(opts?: StaticFiles.Options): Types.Handler
       return missing(req)
     end
 
-    local control = if by_digest then immutable_control else plain_control end
+    local control = by_digest and immutable_control or plain_control
     local has_range = req:header("range") ~= nil
     local encoded = use_gzip and asset.gzip ~= nil and not has_range and
       takes_gzip(req:header("accept-encoding"))

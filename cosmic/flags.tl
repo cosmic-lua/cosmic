@@ -212,7 +212,7 @@ function Flags.parse(argv: {string}, from: integer,
           return nil, "no such option: " .. name .. " in " .. word
         elseif takes_value(entry) then
           local rest = word:sub(at + 1)
-          local trouble = valued(name, if rest ~= "" then rest else nil end, "")
+          local trouble = valued(name, rest ~= "" and rest or nil, "")
           if trouble ~= "" then
             return nil, trouble
           end

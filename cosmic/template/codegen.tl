@@ -325,8 +325,8 @@ local function block(g: Gen, node: types.Node, dot: Dot)
     emit(g, arm.body, inner)
     g.vars[arm.index] = nil
     g.vars[arm.element] = nil
-    g.pieces[head] = g.pieces[head] .. opening .. "for " .. (if index.used then index.name else "_" end) .. ", " ..
-      (if inner.used then inner.name else "_" end) .. " in ipairs(" .. source .. ") do"
+    g.pieces[head] = g.pieces[head] .. opening .. "for " .. (index.used and index.name or "_") .. ", " ..
+      (inner.used and inner.name or "_") .. " in ipairs(" .. source .. ") do"
     if other ~= nil then
       to_line(g, other.line)
       put(g, "end else")
@@ -359,7 +359,7 @@ local function block(g: Gen, node: types.Node, dot: Dot)
         return nil
       end
       local written = value(g, pipeline, dot, true)
-      return if g.bound[written] == nil then written else nil end
+      return g.bound[written] == nil and written or nil
     end
     local any = false
     for _, arm in ipairs(node.branches) do
@@ -377,7 +377,7 @@ local function block(g: Gen, node: types.Node, dot: Dot)
       local written = pipeline ~= nil and bindable(pipeline) or nil
       local lead = if at == 1 and flat then "repeat " else "" end
       if pipeline == nil then
-        put(g, if flat then closing else "else" end)
+        put(g, flat and closing or "else")
         closing = if flat then "" else "end" end
       else
         local tested = value(g, pipeline, dot)

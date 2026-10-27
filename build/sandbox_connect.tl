@@ -73,7 +73,7 @@ local CONNECT_NS <const> = Clock.seconds(10)
 local ANSWER_NS <const> = Clock.seconds(30)
 
 --- The relay's listener as the sandbox sets `ALL_PROXY` to it.
-local PROXY <const> = "socks5h://127.0.0.1:" .. RelayConfig.socks_port
+local PROXY <const> = "socks5h://127.0.0.1:" .. tostring(RelayConfig.socks_port)
 
 --- The port of `text`, a whole number from 1 to 65535, or nil.
 local function port_of(text: string): integer?
@@ -195,7 +195,7 @@ local function proxy_of(io: sandbox_connect.Io): Proxy?, string
     return nil, "the userinfo of ALL_PROXY is not user:token (the token is the password, percent-encoded)"
   end
   user = percent_decoded(user)
-  return { port = port, user = if user ~= "" then user else "cosmic" end, password = percent_decoded(password) }, ""
+  return { port = port, user = user ~= "" and user or "cosmic", password = percent_decoded(password) }, ""
 end
 
 --- Passes standard input to `conn` and `conn` to standard output, `first`
@@ -213,7 +213,7 @@ local function carry(conn: Net.Conn, first: string, io: sandbox_connect.Io, trac
     while true do
       trace("up: waiting for standard input")
       local data, why = io.read()
-      trace("up: read " .. (if data ~= nil then plural.count(#data, "byte") else "failed: " .. tostring(why) end))
+      trace("up: read " .. (data ~= nil and plural.count(#data, "byte") or "failed: " .. tostring(why)))
       if data == nil then
         return fail("standard input: " .. why)
       end
@@ -243,7 +243,7 @@ local function carry(conn: Net.Conn, first: string, io: sandbox_connect.Io, trac
       end
       trace("down: waiting for the relay")
       local more, why = conn:read(CHUNK)
-      trace("down: read " .. (if more ~= nil then plural.count(#more, "byte") else "end or failure: " .. tostring(why) end))
+      trace("down: read " .. (more ~= nil and plural.count(#more, "byte") or "end or failure: " .. tostring(why)))
       if more == nil then
         if why ~= "" then return fail("reading from the relay: " .. why) end
         -- The far side has ended what it sends: ours hears it as the end of
@@ -314,7 +314,7 @@ local function run_in(args: {string}, io: sandbox_connect.Io): integer
     login = message
   end
   local relay_port = proxy.port
-  local relay = "socks5h://127.0.0.1:" .. relay_port
+  local relay = "socks5h://127.0.0.1:" .. tostring(relay_port)
   local made, connect_why = Net.connect(Net.tcp("127.0.0.1", relay_port), { timeout_ns = CONNECT_NS })
   if made == nil then
     complain("the relay at " .. relay .. ": " .. connect_why)
@@ -323,7 +323,7 @@ local function run_in(args: {string}, io: sandbox_connect.Io): integer
   local conn: Net.Conn = made
   conn:set_timeout(io.answer_ns or ANSWER_NS)
   trace("connected to " .. relay)
-  local where = bare.escape(host) .. ":" .. port
+  local where = bare.escape(host) .. ":" .. tostring(port)
   local function fail(why: string): integer
     local _, _ = conn:close()
     complain(where .. ": " .. why)

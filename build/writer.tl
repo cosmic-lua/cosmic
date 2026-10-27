@@ -496,7 +496,7 @@ local function fill_payload(db: Sqlite.Handle): boolean, string
     local ok, failure = Sqlite.run(db,
       "INSERT INTO out.payload (path, data, sha256, type, gzip) VALUES (?1, ?2, ?3, ?4, ?5)",
       { text(path), blob(data), text(sha256), text(Mime.of(path)),
-        if packed ~= nil then blob(packed) else {} end })
+        packed ~= nil and blob(packed) or {} })
     if not ok then
       return false, "static/" .. path .. ": " .. failure
     end

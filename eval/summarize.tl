@@ -113,7 +113,7 @@ local function read_word(src: string, from: integer): Word, integer
       literal = literal and not is_prose(piece)
       spaced = spaced or piece:find("%s") ~= nil
       quoted = true
-      buf[#buf + 1] = if ch == '"' then (piece:gsub("\\([\"\\$`])", "%1")) else piece end
+      buf[#buf + 1] = ch == '"' and (piece:gsub("\\([\"\\$`])", "%1")) or piece
       i = close + 1
     elseif ch == "\\" then
       if src:sub(i + 1, i + 1) ~= "\n" then
@@ -489,9 +489,9 @@ local function resolve(word: string, project: string): string
   local found = home_rest(word)
   if found ~= nil then
     local tail = normalize(found.rest)
-    return if tail == "/" then found.home else found.home .. tail end
+    return tail == "/" and found.home or found.home .. tail
   end
-  return normalize(if word:sub(1, 1) == "/" then word else project .. "/" .. word end)
+  return normalize(word:sub(1, 1) == "/" and word or project .. "/" .. word)
 end
 
 --- The paths a tool call names, in order, resolved: what its input says
@@ -503,7 +503,7 @@ function Summarize.paths(name: string, input: {string: any}, project: string): {
   local raw: mut {string} = {}
   local function field(key: string): string
     local value = input[key]
-    return if value is string then value else "" end
+    return value is string and value or ""
   end
   if name == "Bash" then
     shell_words(field("command"), raw, false)
@@ -646,7 +646,7 @@ function Summarize.report(transcript: string, arena: string, repo: string): stri
               id = id_key(part["id"]),
               name = as_text(part["name"]),
               given = given or "",
-              input = if input is {string: any} then input else {} end,
+              input = input is {string: any} and input or {},
             }
           end
         end
@@ -658,7 +658,7 @@ function Summarize.report(transcript: string, arena: string, repo: string): stri
             if body is {any} then
               local pieces: mut {string} = {}
               for _, piece in ipairs(body) do
-                pieces[#pieces + 1] = if piece is {string: any} then as_text(piece["text"]) else "" end
+                pieces[#pieces + 1] = piece is {string: any} and as_text(piece["text"]) or ""
               end
               text = table.concat(pieces, "\n")
             else
@@ -684,7 +684,7 @@ function Summarize.report(transcript: string, arena: string, repo: string): stri
   local tainted: mut {string: boolean} = {}
   for index, call in ipairs(calls) do
     local answer = results[call.id]
-    local text = if answer ~= nil then answer.text else "" end
+    local text = answer ~= nil and answer.text or ""
     if answer ~= nil and answer.error then
       failed = failed + 1
     end
@@ -729,7 +729,7 @@ function Summarize.report(transcript: string, arena: string, repo: string): stri
     local cost = result["total_cost_usd"]
     out[#out + 1] = string.format("turns=%s tools=%d minutes=%.1f cost=$%.2f",
       if turns == nil then "null" else as_text(turns) end, #calls,
-      (if ms is number then ms else 0 end) / 60000, if cost is number then cost else 0 end)
+      (ms is number and ms or 0) / 60000, cost is number and cost or 0)
   else
     out[#out + 1] = string.format(
       "turns=null tools=%d minutes=null cost=null (no result event: timed out?)", #calls)

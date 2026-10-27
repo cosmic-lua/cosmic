@@ -356,8 +356,8 @@ local function test_hasher_throws_after_digest()
   local hasher = assert(Hash.hasher("sha256"))
   hasher:update("abc")
   assert(hasher:digest())
-  local ok, trouble = pcall(function(): string, string
-    return hasher:update("more")
+  local ok, trouble = pcall(function()
+    hasher:update("more")
   end)
   assert(not ok and tostring(trouble):find("finished", 1, true) ~= nil)
   local ok2 = pcall(function(): string, string

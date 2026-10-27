@@ -311,7 +311,7 @@ end
 --- request, and put back for a later reader; nil and why when the body is
 --- the wrong kind, too long or unreadable.
 local function body_text(req: Types.Request, kind: string, opts: Types.InputOptions?
-): string?, Types.Invalid
+): string?, Types.Invalid?
   local limit = opts and opts.max_bytes or DEFAULT_MAX
   if has_body(req) then
     local wrong = wrong_type(req, kind)
@@ -351,7 +351,7 @@ local function body_text(req: Types.Request, kind: string, opts: Types.InputOpti
   if not utf8.len(data) then
     return nil, stop(400, "body", "", "utf8", "the body is not valid UTF-8")
   end
-  return data
+  return data, nil
 end
 
 --- Bytes read from the body, and from a part, at a time.
@@ -465,18 +465,18 @@ local function read_multipart(req: Types.Request, limit: integer, opts: Types.In
   local spooled: Spooled = { kept = {} }
   local fields: Url.Query = { pairs = {}, by_name = {} }
   local files: mut {string:{Input.Upload}} = {}
-  local m: Input.Multipart = { fields = fields, files = files, size = 0 }
-  m.discard = function(_self: Input.Multipart)
-    for _, upload in ipairs(spooled.kept) do
-      local _, _ = Fs.remove(upload.path)
-    end
-    spooled.kept = {}
-    local made = spooled.made
-    if made ~= nil then
-      local _, _ = Fs.remove_tree(made)
-      spooled.made = nil
-    end
-  end
+  local m: Input.Multipart = { fields = fields, files = files, size = 0,
+    discard = function(_self: Input.Multipart)
+      for _, upload in ipairs(spooled.kept) do
+        local _, _ = Fs.remove(upload.path)
+      end
+      spooled.kept = {}
+      local made = spooled.made
+      if made ~= nil then
+        local _, _ = Fs.remove_tree(made)
+        spooled.made = nil
+      end
+    end }
   -- A task killed while it waits for the body (a client that went away)
   -- runs no code after the wait, only its pending closes: they remove what
   -- is spooled so far.
@@ -743,7 +743,7 @@ function Input.json(req: Types.Request, opts?: Types.InputOptions): Types.Parsed
   end
   local value, why = Json.decode(text, { null_value = Json.null, max_depth = 32 })
   if value == nil then
-    return { invalid = stop(400, "body", "", "json", if why ~= "" then why else "the body is not JSON" end) }
+    return { invalid = stop(400, "body", "", "json", why ~= "" and why or "the body is not JSON") }
   end
   req:set(Input.JSON, value)
   return { value = value }
@@ -939,7 +939,7 @@ bind_record = function(w: Walk, prefix: string, spec: Shape.Spec, depth: integer
   end
   local out: mut {string:any} = {}
   for _, name in ipairs(names) do
-    local field = if prefix == "" then name else (prefix .. "." .. name) end
+    local field = prefix == "" and name or (prefix .. "." .. name)
     out[name] = bind_node(w, field, fields[name], depth)
   end
   return out
@@ -968,7 +968,7 @@ local function check_node(spec: Shape.Spec, field: string, source: string, depth
     end
     local fields = assert(spec.fields)
     for _, name in ipairs(assert(spec.names)) do
-      local trouble = check_node(fields[name], if field == "" then name else (field .. "." .. name) end, source, depth + 1)
+      local trouble = check_node(fields[name], field == "" and name or (field .. "." .. name), source, depth + 1)
       if trouble ~= "" then return trouble end
     end
   elseif kind == "list" then
@@ -1220,7 +1220,7 @@ end
 function Input.fail(req: Types.Request, field: string, message: string, opts?: Types.InputOptions): Types.Invalid
   local q = req:get(Input.FORM)
   local errors: {Types.FieldError} = { { source = "form", field = field, code = "invalid", message = message } }
-  return invalid(422, errors, if q ~= nil then without(q, opts and opts.secret) else nil end)
+  return invalid(422, errors, q ~= nil and without(q, opts and opts.secret) or nil)
 end
 
 --- The messages of `bad` by field, several joined with "; ", for a

@@ -31,7 +31,7 @@ local function gen_event(src: Fuzz.Source): string
   for i = 1, 4 do
     local has = src:int(0, 2) ~= 0
     present = present .. (if has then "1" else "0" end)
-    local text = if has then gen_text(src) else "" end
+    local text = has and gen_text(src) or ""
     -- The event and the id are mostly drawn to be valid, so most inputs reach the formatter.
     if (i == 2 or i == 3) and src:int(0, 4) ~= 0 then text = text:gsub("[%c]", "") end
     fields[i + 1] = text

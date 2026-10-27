@@ -107,7 +107,7 @@ local function connect_splits_agree(input: string)
   -- message is built only on a failure, for the same reason.
   local reader = Wire.connect_reader()
   for cut = 0, #input do
-    local part = if cut == 0 then connect_head("") else reader:feed(input:sub(cut, cut)) end
+    local part = cut == 0 and connect_head("") or reader:feed(input:sub(cut, cut))
     if not prefix_agrees(whole, wanted, cut, part) then
       assert(false, ("fed to %d of %q: %s"):format(cut, input, shown_connect(part)))
     end

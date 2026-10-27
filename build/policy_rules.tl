@@ -207,7 +207,7 @@ function policy_rules.declared(data: policy_rules.PolicyData, line: integer): po
     end
   end
   for i, grant in ipairs(data.grants or {}) do
-    local at = "grants[" .. i .. "]"
+    local at = "grants[" .. tostring(i) .. "]"
     local path, letters = grant.path, grant.letters
     if path == nil or path == "" then return nil, at .. ".path takes a path" end
     if letters == nil or letters == "" or letters:find("^r?w?x?c?u?$") == nil then

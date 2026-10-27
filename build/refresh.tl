@@ -241,7 +241,7 @@ local function fetch_text(url: string): string?, string
     return nil, url .. ": " .. trouble
   end
   if got.status < 200 or got.status > 299 then
-    return nil, url .. ": HTTP " .. got.status
+    return nil, url .. ": HTTP " .. tostring(got.status)
   end
   return got.body, ""
 end
@@ -529,11 +529,11 @@ local function apply(db: Sqlite.Handle, dataset: refresh.Dataset, source: refres
   end
   local version, url = was[1], was[2]
   if sha256 ~= was[3] then
-    version = if source.version ~= "" then source.version else release.version end
+    version = source.version ~= "" and source.version or release.version
     if version == "" then
       version = "sha256:" .. sha256:sub(1, 12)
     end
-    url = if source.url ~= "" then source.url else "file:" .. Fs.basename(source.path) end
+    url = source.url ~= "" and source.url or "file:" .. Fs.basename(source.path)
   end
   local made, made_trouble = Sqlite.transact(db, function(): boolean, string
     local written, write_trouble = release.write(db)
@@ -658,7 +658,7 @@ function refresh.binary(binary: string, out: string, chosen: {refresh.Dataset},
       return done(cookie_trouble)
     end
     local kept, keep_trouble = db:exec("PRAGMA schema_version = " ..
-        (math.tointeger(tonumber(cookie[1]:text(1))) - 1))
+        tostring((math.tointeger(tonumber(cookie[1]:text(1))) - 1)))
     if not kept then
       return done(keep_trouble)
     end

@@ -137,8 +137,8 @@ allow({
 
 allow({ "build.todos.run" }, "the verb's run, which a test calls with a tree and a `reboot.Seen` to run it " ..
     "as that tree's own tool would; the verb's spec calls it with the command line alone")
-allowed["build.ceilings.parse"] = "the text of a ceilings file, which `read` composes with the file it reads; a database filled " ..
-  "from the file hands its text here, and the tests read fixtures"
+allowed["build.ceilings.closed"] = "the codes `parse` refuses a ceiling for, which build/ceilings_test.tl reads to hold the list " ..
+  "complete: a code of a stage with no row left must be in it"
 
 allow({
   "build.pipeline.mode", "build.pipeline.tool", "build.pipeline.over",
@@ -1697,12 +1697,12 @@ function tree_checks.public_docs(db: Sqlite.Handle, excused?: {string: string}):
         local word = text:sub(start, stop)
         local before, after = text:sub(from - 1, from - 1), text:sub(to + 1, to + 1)
         if rule.breaks(before, hit, after, modules) then
-          local key = row:text(1) .. " " .. (if row:text(2) ~= "" then row:text(2) else "(module)" end) .. " " .. rule.name
+          local key = row:text(1) .. " " .. (row:text(2) ~= "" and row:text(2) or "(module)") .. " " .. rule.name
           found[key] = true
           if excused[key] == nil and not seen[word] then
             seen[word] = true
             out[#out + 1] = row:text(4) .. ":" .. row:text(5) .. ": " .. row:text(1) .. " " ..
-              (if row:text(2) ~= "" then row:text(2) else "(module)" end) .. ": its doc text has `" .. word ..
+              (row:text(2) ~= "" and row:text(2) or "(module)") .. ": its doc text has `" .. word ..
               "` (" .. rule.name .. " rule) -- " .. rule.fix
           end
         end
@@ -2097,10 +2097,10 @@ function tree_checks.scoped(root: string, pinned?: {string: integer}, memo?: Sql
         local limit = pinned[key] or 0
         if #errors > limit then
           for _, e in ipairs(errors) do
-            out[#out + 1] = file .. ":" .. e.y .. ":" .. e.x .. ": " .. e.msg .. " (" .. code .. "): " .. e.fix
+            out[#out + 1] = file .. ":" .. tostring(e.y) .. ":" .. tostring(e.x) .. ": " .. e.msg .. " (" .. code .. "): " .. e.fix
           end
           out[#out + 1] = file .. ": " .. String.counted(#errors, "error") .. " of " .. code .. " in its scopes, pinned " ..
-            limit .. "; follow the fix above rather than raise the pin"
+            tostring(limit) .. "; follow the fix above rather than raise the pin"
         end
       end
     end
@@ -2114,7 +2114,7 @@ function tree_checks.scoped(root: string, pinned?: {string: integer}, memo?: Sql
   for _, key in ipairs(keys) do
     local count = found[key] or 0
     if count < pinned[key] then
-      out[#out + 1] = key .. ": pinned " .. pinned[key] .. " but " .. count ..
+      out[#out + 1] = key .. ": pinned " .. pinned[key] .. " but " .. tostring(count) ..
         " found; lower the pin in " .. Ceilings.path .. "'s [scoped]"
     end
   end
@@ -2678,7 +2678,7 @@ function tree_checks.untyped(root: string, pinned?: {string: integer}, memo?: Sq
     local count, pin = found[row.file], ceilings[row.file] or 0
     if count ~= nil and count > pin then
       out[#out + 1] = row.file .. ": " .. String.counted(count, "call") .. " the checker gave no function, which " ..
-        "no rule of the discipline judged, pinned " .. pin .. "; type what it calls through rather than raise the pin"
+        "no rule of the discipline judged, pinned " .. tostring(pin) .. "; type what it calls through rather than raise the pin"
     end
   end
   for _, line in ipairs(Ceilings.fallen(found, ceilings, Ceilings.path .. "'s [untyped]")) do

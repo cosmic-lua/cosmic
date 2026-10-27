@@ -69,7 +69,7 @@ local record Tar
     --- Forces every entry's mtime to 0, so the same sequence of calls
     --- tars to the same bytes. (uid/gid are always written as 0 and
     --- uname/gname as empty, deterministic or not.)
-    deterministic: boolean
+    deterministic?: boolean
   end
 
   --- Once any call fails, the underlying Stream.Writer is aborted and every
@@ -336,7 +336,7 @@ local function parse_header(block: string, long_name: string?, long_link: string
     -- A ustar prefix is only there when byte 346 is not NUL.
     if block:byte(346) ~= 0 then name = text_at(block, 346, 155) .. "/" .. name end
   end
-  local linkname = long_link or (if block:byte(158) ~= 0 then text_at(block, 158, 100) else "" end)
+  local linkname = long_link or (block:byte(158) ~= 0 and text_at(block, 158, 100) or "")
   local size = numeric_at(block, 125, 12)
   if size == nil then return nil, out_of_range("size") end
   local mtime = numeric_at(block, 137, 12)
@@ -422,7 +422,7 @@ end
 --- Keeps `trouble` as the reader's failure, or "tar: read failed" when
 --- it is "", and answers it.
 local function fail(self: EntryReader, trouble: string): nil, string
-  self.failed = if trouble ~= "" then trouble else "tar: read failed" end
+  self.failed = trouble ~= "" and trouble or "tar: read failed"
   return nil, self.failed
 end
 
@@ -552,7 +552,7 @@ local class BodyReader is Stream.Reader
     if want > left then want = left end
     local chunk, rtrouble = state.src:read(want)
     if chunk == nil then
-      self.failed = if rtrouble ~= "" then rtrouble else "tar: truncated archive" end
+      self.failed = rtrouble ~= "" and rtrouble or "tar: truncated archive"
       return nil, self.failed
     end
     self.left = left - #chunk
@@ -570,7 +570,8 @@ end
 function Tar.reader(raw: Stream.Reader): Tar.Reader
   local r: EntryReader = {
     raw = raw, src = buffered(raw), pax_global = {}, ended = false, closed = false,
-    pending_skip = 0, generation = 0, opened = false, size = 0,
+    failed = nil, pending_skip = 0, generation = 0, current = nil, opened = false, size = 0,
+    entry_mt = nil,
   }
   -- Every entry this reader makes shares one `open`, through its
   -- metatable: only the current entry can be opened, and only once. It
@@ -586,7 +587,7 @@ function Tar.reader(raw: Stream.Reader): Tar.Reader
         if r.opened then return refuse("entry already opened once") end
         r.opened = true
         local body: BodyReader = {
-          state = r, generation = r.generation, left = r.size, closed = false,
+          state = r, generation = r.generation, left = r.size, failed = nil, closed = false,
         }
         return body, ""
       end,
@@ -712,8 +713,8 @@ local function put_entry(self: EntryWriter, path: string, typeflag: string, size
     if not ok then return false, trouble end
     if not fits then prefix, name = "", path:sub(-100) end
   end
-  local header_size = if size_fits then size else 0 end
-  local header_mtime = if mtime_fits then mtime else (if mtime < 0 then 0 else OCTAL_11_LIMIT - 1 end) end
+  local header_size = size_fits and size or 0
+  local header_mtime = mtime_fits and mtime or (if mtime < 0 then 0 else OCTAL_11_LIMIT - 1 end)
   local header = build_header(name, prefix, typeflag, header_size, mode & 0xFFF,
     header_mtime, linkname:sub(1, 100))
   return sink:put(header)
@@ -767,7 +768,7 @@ local class EntryWriter is Tar.Writer
     fopts = fopts or {}
     local mode = fopts.mode or 0x1ed
     local mtime = fopts.mtime or 0
-    local dirpath = if path:sub(-1) == "/" then path else (path .. "/") end
+    local dirpath = path:sub(-1) == "/" and path or (path .. "/")
     return put_entry(self, dirpath, "5", 0, mode, mtime, "")
   end
 
@@ -791,7 +792,7 @@ end
 function Tar.writer(w: Stream.Writer, opts?: Tar.WriterOptions): Tar.Writer
   opts = opts or {}
   local tw: EntryWriter = {
-    sink = Stream.sticky(w, "tar"), deterministic = opts.deterministic or false,
+    sink = Stream.sticky(w, "tar"), deterministic = opts.deterministic == true,
   }
   return tw
 end

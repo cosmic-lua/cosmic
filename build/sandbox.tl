@@ -92,11 +92,11 @@ local record verb
     err: function(line: string)
     --- Runs the program to its end, as [`Child.run`] does, which is what
     --- it is when nil.
-    run: function(argv: {string}, opts: Child.Options): Child.Result?, string
+    run?: function(argv: {string}, opts: Child.Options): Child.Result?, string
     --- Runs `cosmic sandbox connect`'s client on the words after `connect`
     --- and answers its exit status, as [`build.sandbox_connect`]'s `run`
     --- does, which is what it is when nil.
-    connect: function(args: {string}): integer
+    connect?: function(args: {string}): integer
   end
 end
 
@@ -167,19 +167,19 @@ local record Request
   --- The policy the flags give, as the table a policy's JSON holds.
   policy: {string:any}
   --- `--database`'s path as given, or nil.
-  mut database: string?
+  mut database?: string
   --- `--modules`' names, the first the main, or nil.
-  mut modules: {string}?
+  mut modules?: {string}
   --- Whether `--closure` was given: the program's first argument is the
   --- script to seal and run.
   closure: boolean
   --- The descriptors to hand the program.
   fds: mut {integer:integer}
   --- The wall-clock limit, in nanoseconds, or nil for none.
-  mut timeout_ns: integer?
+  mut timeout_ns?: integer
   --- The directory the program starts in, which a relative grant or
   --- program is taken from; nil for this process's own.
-  mut cwd: string?
+  mut cwd?: string
   --- The program and its arguments.
   argv: mut {string}
 end
@@ -340,7 +340,7 @@ local function request_of(argv: {string}): Request?, string
   if seconds[1] ~= nil then
     local number = whole(seconds[1], 1, MOST_SECONDS)
     if number == nil then
-      return nil, "--timeout takes a whole number of seconds, 1 to " .. MOST_SECONDS ..
+      return nil, "--timeout takes a whole number of seconds, 1 to " .. tostring(MOST_SECONDS) ..
         ", not " .. seconds[1]
     end
     request.timeout_ns = number * 1000000000
@@ -424,7 +424,7 @@ end
 --- What sealing a program came to: the database's path, or why there is
 --- none, and whether the command line is to blame.
 local record Sealing
-  path: string?
+  path?: string
   why: string
   refused: boolean
 end
@@ -637,7 +637,7 @@ local function execute(argv: {string}, io: verb.Io?, held: mut {string}): intege
     local sealing_path = sealing.path
     if sealing_path == nil then
       complain(if sealing.refused then sealing.why .. "; see `cosmic help sandbox`" else sealing.why end)
-      return if sealing.refused then bare.refused else START_FAILED end
+      return sealing.refused and bare.refused or START_FAILED
     end
     database = sealing_path
   end

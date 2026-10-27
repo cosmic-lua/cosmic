@@ -59,7 +59,7 @@ local record Htmx
     --- The event's name: not empty, no comma, quote or control byte.
     name: string
     --- Becomes `event.detail`; nil sends an empty one.
-    detail: Json.Value?
+    detail?: Json.Value
   end
 
   --- The object form of `HX-Location`: a client-side navigation with
@@ -78,9 +78,9 @@ local record Htmx
     --- An event to trigger on the source.
     event?: string
     --- Values to submit with the request.
-    values: any
+    values?: any
     --- Headers to send with the request.
-    headers: any
+    headers?: any
   end
 
   --- The effects of a response on the page, each optional; written by
@@ -232,13 +232,13 @@ local function url_of(what: string, url: string | Html.SafeUrl): string?, string
     if checked == "about:invalid" or checked == "" then
       return nil, "htmx: " .. what .. " is not a same-origin reference"
     end
-    return checked
+    return checked, ""
   end
   local raw = Html.raw_url(url)
   if raw == "" or not plain(raw) then
     return nil, "htmx: " .. what .. " is empty or holds a control byte"
   end
-  return raw
+  return raw, ""
 end
 
 --- A selector or other free text: not empty, no control byte.
@@ -246,7 +246,7 @@ local function text_of(what: string, value: any): string?, string
   if not (value is string) or value == "" or not plain(value) then
     return nil, "htmx: " .. what .. " is not a non-empty text without control bytes"
   end
-  return value
+  return value, ""
 end
 
 local SWAPS <const>: {string} = { "innerHTML", "outerHTML", "textContent", "beforebegin",
@@ -266,7 +266,7 @@ end
 local function header_json(what: string, value: any): string?, string
   local text, why = Json.encode_any(value, { ascii = true })
   if text == nil then return nil, "htmx: " .. what .. ": " .. why end
-  return text
+  return text, ""
 end
 
 --- The value of an event header: the names alone where no event has a
@@ -302,8 +302,8 @@ local function events_of(what: string, events: {Htmx.Event}): string?, string
       parts[i] = key .. ":" .. body
     end
   end
-  if not detailed then return table.concat(parts, ", ") end
-  return "{" .. table.concat(parts, ",") .. "}"
+  if not detailed then return table.concat(parts, ", "), "" end
+  return "{" .. table.concat(parts, ",") .. "}", ""
 end
 
 --- Writes `reply` to `res` as `HX-*` headers. Nothing is written where
@@ -399,7 +399,7 @@ function Htmx.apply(res: Types.Response, reply: Htmx.Reply): Types.Response?, st
     events_field("trigger_after_settle", "HX-Trigger-After-Settle", reply.trigger_after_settle)
   if trouble ~= nil then return nil, trouble end
   for _, line in ipairs(lines) do Response.set_header(res, line[1], line[2]) end
-  return res
+  return res, ""
 end
 
 --- A redirect to `url` that the client follows: for an htmx request that
@@ -418,9 +418,10 @@ function Htmx.redirect_to(req: Types.Request, url: string | Html.SafeUrl): Types
   if seen.active and not seen.boosted then
     return Htmx.apply(Response.empty(200), { redirect = Html.trust_url(target) })
   end
-  local ok, made = pcall(Response.redirect, target)
-  if not ok then return nil, "htmx: redirect is not a path or an http(s) URL" end
-  return made
+  match pcall(Response.redirect, target) do
+  | (true, made) then return made, ""
+  | (false, _) then return nil, "htmx: redirect is not a path or an http(s) URL"
+  end
 end
 
 local VARY <const>: {string} = { "HX-Request", "HX-History-Restore-Request", "HX-Boosted" }
@@ -436,7 +437,7 @@ local VARY <const>: {string} = { "HX-Request", "HX-History-Restore-Request", "HX
 --- @return Types.Response The response
 function Htmx.page(req: Types.Request, content: Html.SafeHtml,
                    wrap: function(Html.SafeHtml): Html.SafeHtml): Types.Response
-  local res = Response.html(if Htmx.partial(req) then content else wrap(content) end)
+  local res = Response.html(Htmx.partial(req) and content or wrap(content))
   for _, token in ipairs(VARY) do Response.add_header(res, "Vary", token) end
   if Response.header(res, "Cache-Control") == nil then
     Response.set_header(res, "Cache-Control", "no-cache")

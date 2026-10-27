@@ -136,7 +136,7 @@ local function adopted(config: Config.Config): Relay.Handed?, Net.Connector?, st
   local handed: Relay.Handed = {}
   if config.table ~= nil or config.public then
     local config_table = config.table
-    local made, why = Connector.adopted(Config.connector_fd, if config_table ~= nil then table_of(config_table) else nil end, config.public,
+    local made, why = Connector.adopted(Config.connector_fd, config_table ~= nil and table_of(config_table) or nil, config.public,
       Config.connect_ns)
     if made == nil then return nil, nil, "the connector: " .. why end
     handed.connector = made
@@ -156,8 +156,8 @@ end
 --- is serving, why it was lost if it was, and whether standard input ended.
 local record Run
   mut status: integer
-  mut serving: Relay.Serving?
-  mut lost: string?
+  mut serving?: Relay.Serving
+  mut lost?: string
   mut ended: boolean
 end
 

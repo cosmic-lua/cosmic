@@ -198,7 +198,7 @@ end
 --- What a row's digest is of: its Lua, bytecode and packed uses, each
 --- but the last led by its length, so no two rows' parts run together.
 local function digest_of(lua: string, bytecode: string, refs: string): string
-  return Hash.hex_sha256(#lua .. "\n" .. lua .. #bytecode .. "\n" .. bytecode .. refs)
+  return Hash.hex_sha256(tostring(#lua) .. "\n" .. lua .. tostring(#bytecode) .. "\n" .. bytecode .. refs)
 end
 
 --- The names a parse requires, a line each.
@@ -223,8 +223,8 @@ end
 --- its rows, each but the last led by its length.
 local function parse_digest(key: shared_compiles.ParseKey, requires: string,
                             rows: string): string
-  return Hash.hex_sha256(#key.analyzer .. "\n" .. key.analyzer .. key.source_hash .. "\n" ..
-      (if key.mapped then "mapped" else "own" end) .. "\n" .. #requires .. "\n" .. requires .. rows)
+  return Hash.hex_sha256(tostring(#key.analyzer) .. "\n" .. key.analyzer .. key.source_hash .. "\n" ..
+      (if key.mapped then "mapped" else "own" end) .. "\n" .. tostring(#requires) .. "\n" .. requires .. rows)
 end
 
 --- Whether `path` is `kind` (a "dir" or a "file"), this user's and
@@ -358,7 +358,7 @@ function shared_compiles.look(cache: shared_compiles.Cache,
     -- next build that looks, and the cache stays on.
     local _, _ = Sqlite.run(cache.db,
       "DELETE FROM " .. compiled .. " WHERE key = ?1 AND digest IS ?2",
-      { text(key), if stored ~= nil then text(stored) else {} end })
+      { text(key), stored ~= nil and text(stored) or {} })
     return nil, ""
   end
   return { lua = parts[1], bytecode = parts[2], references = references }, ""
@@ -428,7 +428,7 @@ function shared_compiles.look_parse(cache: shared_compiles.Cache,
   local stored = text_at(row, 3)
   if names == nil or inflated == nil or requires == nil or
       stored ~= parse_digest(key, requires, inflated) then
-    where[4] = if stored ~= nil then text(stored) else {} end
+    where[4] = stored ~= nil and text(stored) or {}
     local _, _ = Sqlite.run(cache.db, "DELETE FROM " .. parsed ..
         " WHERE analyzer = ?1 AND source_hash = ?2 AND mapped = ?3 AND digest IS ?4", where)
     return nil, ""

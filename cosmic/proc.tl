@@ -32,7 +32,7 @@ local record Proc
     kind: Kind
     --- The selected spelling when resolved, or the first regular file
     --- this process cannot execute. Nil when no candidate was found.
-    path: string?
+    path?: string
     --- Empty when resolved; the reason lookup refused otherwise.
     reason: string
   end
@@ -67,7 +67,7 @@ local ARTIFACT_FD <const> = 254
 local CORE_FD <const> = 255
 
 local record Cached
-  mut relaunch: Proc.Relaunch?
+  mut relaunch?: Proc.Relaunch
 end
 
 local cached: Cached = {}
@@ -224,7 +224,7 @@ end
 function Proc.exec(argv: {string}, opts?: Proc.ExecOptions): boolean, string
   local path = argv[1]
   if path == nil then error("proc: argv is empty", 2) end
-  local environment = if opts ~= nil then opts.env else nil end
+  local environment = opts ~= nil and opts.env or nil
   local _, trouble = sys.execve(path, argv, environment or sys.environ())
   return false, path .. ": " .. trouble
 end

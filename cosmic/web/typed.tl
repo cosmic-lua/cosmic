@@ -197,7 +197,7 @@ function Typed.route_typed<P,Q,B>(methods: string | {string}, pattern: string, i
       end
     end
   end
-  check_path(pattern, if has_path then input.path.spec else nil end)
+  check_path(pattern, has_path and input.path.spec or nil)
   if has_path then Input.check_spec(input.path.spec, "path") end
   if has_query then Input.check_spec(input.query.spec, "query") end
   if kind == "form" or kind == "multipart" then Input.check_spec(input.body.typed.spec, "form") end
@@ -251,10 +251,10 @@ function Typed.route_typed<P,Q,B>(methods: string | {string}, pattern: string, i
   end
   local route = Route.route(methods, pattern, handler, opts)
   route.input = {
-    path = if has_path then input.path.spec else nil end, query = if has_query then input.query.spec else nil end,
-    body_kind = kind, body = if kind ~= "none" then input.body.typed.spec else nil end,
+    path = has_path and input.path.spec or nil, query = has_query and input.query.spec or nil,
+    body_kind = kind, body = kind ~= "none" and input.body.typed.spec or nil,
     max_bytes = options and options.max_bytes or
-      (if kind == "multipart" then Input.DEFAULT_MULTIPART_MAX else Input.DEFAULT_MAX end),
+      (kind == "multipart" and Input.DEFAULT_MULTIPART_MAX or Input.DEFAULT_MAX),
   }
   return route
 end

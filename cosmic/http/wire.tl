@@ -361,7 +361,7 @@ local function target_parts(method: string, target: string): Target?, string
     if parts.userinfo ~= nil then return nil, "an absolute target holds userinfo" end
     local host = if parts.host:find(":", 1, true) then "[" .. parts.host .. "]" else parts.host end
     local port = parts.port
-    return { path = if parts.path ~= "" then parts.path else "/" end, query = parts.query or "",
+    return { path = parts.path ~= "" and parts.path or "/", query = parts.query or "",
       authority = if port ~= nil then host .. ":" .. port else host end }, ""
   end
   local mark = target:find("?", 1, true)
@@ -537,7 +537,7 @@ local function meta_line(self: BodyReader): string?, string
     if self.input.long then
       return fail(self, "over", "http: a chunked body's extensions and trailers pass limits.head_bytes")
     end
-    return fail(self, "failed", if why ~= "" then why else "http: the request body ended early" end)
+    return fail(self, "failed", why ~= "" and why or "http: the request body ended early")
   end
   if text:sub(-1) ~= "\r" then
     return fail(self, "bad", "http: a chunked body's line ends in a bare LF")
@@ -631,7 +631,7 @@ local class BodyReader is wire.Body
       end
       local piece, why = take(self.input, math.min(most, self.left))
       if piece == nil then
-        return fail(self, "failed", if why ~= "" then why else "http: the request body ended early" end)
+        return fail(self, "failed", why ~= "" and why or "http: the request body ended early")
       end
       self.left = self.left - #piece
       self.total = self.total + #piece
@@ -645,7 +645,7 @@ local class BodyReader is wire.Body
       elseif self.phase == "data" then
         local piece, why = take(self.input, math.min(most, self.left))
         if piece == nil then
-          return fail(self, "failed", if why ~= "" then why else "http: the request body ended early" end)
+          return fail(self, "failed", why ~= "" and why or "http: the request body ended early")
         end
         self.left = self.left - #piece
         self.total = self.total + #piece
@@ -849,7 +849,7 @@ local function copy_body(w: Stream.Writer, body: Stream.Reader, length: integer?
                          chunked: boolean): string, string
   local left = length
   while left == nil or left > 0 do
-    local piece, why = body:read(if left ~= nil then math.min(left, CHUNK) else CHUNK end)
+    local piece, why = body:read(left ~= nil and math.min(left, CHUNK) or CHUNK)
     if piece == nil then
       if why ~= "" then return "", why end
       if left ~= nil then

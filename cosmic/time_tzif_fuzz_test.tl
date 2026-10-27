@@ -101,14 +101,14 @@ local function draw(src: Fuzz.Source): Drawn
   local indices: mut {integer} = {}
   -- 32-bit times for a version 1 file, and any for later ones.
   local wide = version ~= "\0"
-  local t = if wide then src:int(-(1 << 40), 1 << 34) else src:int(-(1 << 31), 0) end
+  local t = wide and src:int(-(1 << 40), 1 << 34) or src:int(-(1 << 31), 0)
   while Fuzz.more(src, #times, 12) do
     t = t + src:int(1, if wide then 1 << 30 else 1 << 26 end)
     if not wide and t > (1 << 31) - 1 then break end
     times[#times + 1] = t
     indices[#indices + 1] = src:int(1, #types)
   end
-  local footer = if version ~= "\0" then Fuzz.pick(src, FOOTERS) else "" end
+  local footer = version ~= "\0" and Fuzz.pick(src, FOOTERS) or ""
   return { bytes = write(version, times, indices, types, footer), times = times, indices = indices,
     types = types }
 end

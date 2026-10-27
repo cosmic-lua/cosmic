@@ -18,7 +18,7 @@ local record link_resolve
     symbol: string
     --- The file that declares it, from the root; nil or `""` when the
     --- context does not say.
-    file: string?
+    file?: string
   end
 
   --- What resolution reads beyond the file, so a test can hand it a
@@ -50,9 +50,9 @@ local record link_resolve
     headings: mut {string: {string: boolean}}
     symbols: mut {string: {Symbol}}
     members: mut {string: {Symbol}}
-    trouble: string?
+    trouble?: string
     --- The root with its links followed, once asked.
-    real_root: string?
+    real_root?: string
     --- How many links named no symbol while `context.unbuilt` said
     --- the symbols were incomplete, and so were not reported.
     unchecked: integer
@@ -92,7 +92,7 @@ local function kind_at(resolver: link_resolve.Resolver, path: string): string?
     cached = resolver.context.kind(path) or ""
     resolver.kinds[path] = cached
   end
-  return if cached ~= "" then cached else nil end
+  return cached ~= "" and cached or nil
 end
 
 --- Whether the code point `code` is a pictograph or a mark that
@@ -146,7 +146,7 @@ function link_resolve.anchors(text: string): {string: boolean}
       out[slug] = true
     else
       count[slug] = seen + 1
-      out[slug .. "-" .. (seen + 1)] = true
+      out[slug .. "-" .. tostring((seen + 1))] = true
     end
   end
   local previous: string? = nil
@@ -160,7 +160,7 @@ function link_resolve.anchors(text: string): {string: boolean}
       heading(String.trim(previous))
       previous = nil
     else
-      previous = if line:match("%S") ~= nil then line else nil end
+      previous = line:match("%S") ~= nil and line or nil
     end
     for _, attribute in ipairs({ "id", "name" }) do
       for name in line:gmatch("<a%s[^>]-" .. attribute .. "%s*=%s*[\"']([^\"']+)[\"']") do
@@ -184,7 +184,7 @@ local function anchor_problem(resolver: link_resolve.Resolver, path: string, anc
   local found = resolver.headings[path]
   if found == nil then
     local text = resolver.context.read(path)
-    found = if text ~= nil then link_resolve.anchors(text) else {} end
+    found = text ~= nil and link_resolve.anchors(text) or {}
     resolver.headings[path] = found
   end
   if found[anchor:lower()] or found[anchor] then
@@ -229,7 +229,7 @@ local function located(resolver: link_resolve.Resolver, from: string, target: st
   for _, base in ipairs(bases) do
     local path = normalized(base .. "/" .. target)
     local reason: string? = nil
-    local relative = if path ~= nil then path:sub(#root + 2) else "" end
+    local relative = path ~= nil and path:sub(#root + 2) or ""
     if path == nil or not within(path, root) then
       reason = "it lies outside the project's root"
     elseif relative == "o" or relative:sub(1, 2) == "o/" then
@@ -316,7 +316,7 @@ local function one_of(found: mut {string}, none: string): string?
     return none
   end
   table.sort(found)
-  return "it names " .. #found .. ": " .. table.concat(found, ", ", 1, math.min(#found, 5)) ..
+  return "it names " .. tostring(#found) .. ": " .. table.concat(found, ", ", 1, math.min(#found, 5)) ..
     (if #found > 5 then ", ..." else "" end) .. "; link the one meant in full"
 end
 
@@ -469,7 +469,7 @@ function link_resolve.resolve(resolver: link_resolve.Resolver, from: string, tar
   end
   if #found > 1 and file ~= nil then
     table.sort(found)
-    return nil, "it names " .. #found .. ": " .. table.concat(found, ", ") ..
+    return nil, "it names " .. tostring(#found) .. ": " .. table.concat(found, ", ") ..
       "; write ./" .. shown(resolver, file) .. " for the file, or the symbol in full"
   end
   local problem = one_of(found, why)

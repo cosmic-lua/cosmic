@@ -162,7 +162,7 @@ local function prepare(method: string, path: string, opts: Options): Prepared
   local opts_query = opts.query
   if opts_query ~= nil then
     local extra = Url.encode_query(pairs_of(opts_query))
-    if extra ~= "" then query = if query == "" then extra else query .. "&" .. extra end end
+    if extra ~= "" then query = query == "" and extra or query .. "&" .. extra end
   end
   local headers: mut {string:string} = { host = "testserver" }
   for name, value in pairs(opts.headers or {}) do headers[name:lower()] = value end
@@ -513,9 +513,7 @@ local function next_line(lb: Testing.Loopback): string?, string
       return found, ""
     end
     local ok, why = fill(lb)
-    if not ok then
-      return nil, if why ~= "" then why else "the connection ended within a head" end
-    end
+    if not ok then return nil, why ~= "" and why or "the connection ended within a head" end
   end
 end
 
@@ -523,9 +521,7 @@ end
 local function take(lb: Testing.Loopback, n: integer): string?, string
   while #lb.buf < n do
     local ok, why = fill(lb)
-    if not ok then
-      return nil, if why ~= "" then why else "the connection ended within a body" end
-    end
+    if not ok then return nil, why ~= "" and why or "the connection ended within a body" end
   end
   local out = lb.buf:sub(1, n)
   lb.buf = lb.buf:sub(n + 1)
@@ -650,7 +646,7 @@ local function loopback_raw(self: Testing.Loopback, bytes: string, method?: stri
   -- long again for a reply would only double the failure's time.
   if write_why == Poll.TIMEOUT then return nil, write_why end
   local reply, why = read_reply(self, method or "GET")
-  if reply == nil then return nil, if write_why ~= "" then write_why else why end end
+  if reply == nil then return nil, write_why ~= "" and write_why or why end
   return reply, ""
 end
 

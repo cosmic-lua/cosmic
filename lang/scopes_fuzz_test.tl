@@ -78,7 +78,7 @@ end
 
 local function use(r: Reference, n: Ast.Name, env: Decl?, fn: integer, write: boolean)
   local found = find(env, n.text)
-  r.bound[n.id] = if found ~= nil then found.id else 0 end
+  r.bound[n.id] = found ~= nil and found.id or 0
   if found == nil then
     if GLOBALS[n.text] == nil then
       expect(r, "unknown_variable", n.first)

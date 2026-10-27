@@ -89,7 +89,7 @@ assert(require("build.patch").prepare(%q, "lib", %q))
 local cache = %q
 require("build.zig_fetch").install(cache, cache .. "/install", "v", "host", nil)
 ]] end
-    local body = if patch then script:format(root, cache) else script:format(cache) end
+    local body = patch and script:format(root, cache) or script:format(cache)
     body = 'print("started")\n' .. body .. '\nprint("finished")'
     local command = this_program.program({ "-e", body }, { stdout = "stream", stderr = "capture" })
     local child = assert(Child.start(command.argv, command.options))
@@ -142,8 +142,8 @@ local function test_creation_and_ownership_are_one_gated_operation(tmp: string)
     local root = tmp .. "/" .. tostring(patch)
     source(root)
     local cache = root .. "/cache"
-    local action = if patch then ('assert(require("build.patch").prepare(%q, "lib", %q))'):format(root, cache) else
-      ('require("build.zig_fetch").install(%q, %q, "v", "host", nil)'):format(cache, cache .. "/install") end
+    local action = patch and ('assert(require("build.patch").prepare(%q, "lib", %q))'):format(root, cache) or
+      ('require("build.zig_fetch").install(%q, %q, "v", "host", nil)'):format(cache, cache .. "/install")
     local pause = [[
 local Fs = require("cosmic.fs")
 local sys = require("cosmic.sys")

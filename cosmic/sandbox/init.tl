@@ -226,7 +226,7 @@ local function elf_interpreter(fd: integer, head: string): string?
   if (class ~= 1 and class ~= 2) or (data ~= 1 and data ~= 2) then return nil end
   local little = data == 1
   local wide = class == 2
-  local offset = if wide then unsigned(head, 33, 8, little) else unsigned(head, 29, 4, little) end
+  local offset = wide and unsigned(head, 33, 8, little) or unsigned(head, 29, 4, little)
   local size = unsigned(head, if wide then 55 else 43 end, 2, little)
   local count = unsigned(head, if wide then 57 else 45 end, 2, little)
   if size < 32 or count > 256 then return nil end
@@ -234,8 +234,8 @@ local function elf_interpreter(fd: integer, head: string): string?
     local entry, _ = sys.pread(fd, size, offset + i * size)
     if entry == nil or #entry < size then return nil end
     if unsigned(entry, 1, 4, little) == PT_INTERP then
-      local at = if wide then unsigned(entry, 9, 8, little) else unsigned(entry, 5, 4, little) end
-      local length = if wide then unsigned(entry, 33, 8, little) else unsigned(entry, 17, 4, little) end
+      local at = wide and unsigned(entry, 9, 8, little) or unsigned(entry, 5, 4, little)
+      local length = wide and unsigned(entry, 33, 8, little) or unsigned(entry, 17, 4, little)
       if length < 2 or length > 4096 then return nil end
       local name, _ = sys.pread(fd, length, at)
       if name == nil then return nil end
@@ -247,14 +247,14 @@ end
 
 --- `path` made absolute against `cwd` (the process's own when nil).
 local function absolute(path: string, cwd?: string): string?, string
-  if path:sub(1, 1) == "/" then return path end
+  if path:sub(1, 1) == "/" then return path, "" end
   local base = cwd
   if base == nil then
     local got, why = sys.getcwd()
     if got == nil then return nil, why end
     base = got
   end
-  return base .. "/" .. path
+  return base .. "/" .. path, ""
 end
 
 --- The file the kernel reads to start a program, past its own bytes: the
@@ -679,7 +679,7 @@ function Sandbox.user_id(uid_map: string, gid_map: string, serial: integer): int
         top .. ", from which a sandbox's own user is taken: a root caller's program never " ..
         "runs as root, so it needs a namespace that maps more ids, as a host's does")
   end
-  return first + serial % USER_POOL
+  return first + serial % USER_POOL, ""
 end
 
 --- Whether `id` is one of the pool [`Sandbox.user_id`] takes a root

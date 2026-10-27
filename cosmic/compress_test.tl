@@ -148,7 +148,7 @@ local EOB_ONLY <const> = "\5\224\129\8\0\0\0\0\32\248\91"
 
 local function test_a_block_with_no_codes_is_refused_rather_than_decoded_forever()
   for _, format in ipairs({ "gzip", "raw" } as {Compress.Format}) do
-    local bytes = if format == "gzip" then NO_CODES_GZIP else NO_CODES_GZIP:sub(11) end
+    local bytes = format == "gzip" and NO_CODES_GZIP or NO_CODES_GZIP:sub(11)
     local dec = assert(Compress.inflater(format))
     -- One update is enough: before, it answered a full megabyte of
     -- zeros, and every update after it another.

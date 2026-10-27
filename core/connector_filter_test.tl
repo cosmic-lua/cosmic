@@ -61,13 +61,13 @@ local function run(code: {Insn}, architecture: integer, number: integer, args: {
     elseif insn.code == 0x05 then
       pc = pc + insn.k
     elseif insn.code == 0x15 then
-      pc = pc + (if a == insn.k then insn.jt else insn.jf end)
+      pc = pc + (a == insn.k and insn.jt or insn.jf)
     elseif insn.code == 0x35 then
-      pc = pc + (if a >= insn.k then insn.jt else insn.jf end)
+      pc = pc + (a >= insn.k and insn.jt or insn.jf)
     elseif insn.code == 0x06 then
       return insn.k
     else
-      error("unknown filter instruction " .. insn.code)
+      error("unknown filter instruction " .. tostring(insn.code))
     end
   end
 end
@@ -162,7 +162,7 @@ local function test_every_call_outside_the_explicit_allowlist_is_refused()
     for number = 0, 1024 do
       if not allowed[number] then
         assert(run(code, audit[architecture], number, { CONTROL, BASE, 16 }) == REFUSE,
-          architecture .. " unexpectedly allowed syscall " .. number)
+          architecture .. " unexpectedly allowed syscall " .. tostring(number))
       end
     end
   end

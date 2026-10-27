@@ -105,7 +105,7 @@ local function test_a_granted_path_is_read_and_its_sibling_is_not(tmp: string)
   assert(Fs.write(tmp .. "/ro/a", "alpha\n") and Fs.write(tmp .. "/other/b", "beta\n"))
   local read = under(tmp, probe, { { path = tmp .. "/ro", access = "r" } },
     "cat " .. tmp .. "/ro/a; ls " .. tmp .. "/ro")
-  assert(read.code == 0 and read.said == "alpha\na\n", read.code .. ": " .. read.said)
+  assert(read.code == 0 and read.said == "alpha\na\n", tostring(read.code) .. ": " .. read.said)
   local sibling = under(tmp, probe, { { path = tmp .. "/ro", access = "r" } },
     "cat " .. tmp .. "/other/b")
   assert(sibling.code == 1 and sibling.said:find(DENIED, 1, true), "refused: " .. sibling.said)
@@ -193,9 +193,9 @@ local function test_x_runs_a_granted_program_and_no_other(tmp: string)
   local other = assert(stand_in.build(tmp .. "/bin/other"))
   local script = "run " .. other .. " print inner"
   local without = under(tmp, probe, { { path = other, access = "r" } }, script)
-  assert(without.code == 127 and without.said == "", "not run: " .. without.code .. " " .. without.said)
+  assert(without.code == 127 and without.said == "", "not run: " .. tostring(without.code) .. " " .. without.said)
   local with = under(tmp, probe, { { path = other, access = "rx" } }, script)
-  assert(with.code == 0 and with.said == "inner\n", "run: " .. with.code .. " " .. with.said)
+  assert(with.code == 0 and with.said == "inner\n", "run: " .. tostring(with.code) .. " " .. with.said)
 end
 
 local function test_a_grant_that_does_not_exist_fails_the_start_naming_it(tmp: string)
@@ -234,7 +234,7 @@ local function test_u_connects_to_a_granted_socket_where_the_kernel_can_hold_it(
     -- Below ABI 9 the start fails, naming the ABI that is needed and the one given.
     assert(refused ~= nil and with.errno == sys.EOPNOTSUPP, "EOPNOTSUPP: " .. tostring(refused))
     assert(refused:find("Landlock ABI 9 is needed", 1, true) and
-        refused:find("this kernel gives " .. abi, 1, true), refused)
+        refused:find("this kernel gives " .. tostring(abi), 1, true), refused)
     return
   end
   assert(with.refused == nil, "the start was refused: " .. tostring(with.refused))
@@ -307,10 +307,10 @@ local function test_a_forked_process_signals_itself_where_the_kernel_scopes_sign
   -- The grandchild's pid is not the one the filter was built for.
   local own = forking(tmp, probe, "run " .. probe .. " signal TERM")
   if abi >= 6 then
-    assert(own.code == 128 + sys.SIGTERM, "its own signal lands: " .. own.code .. " " .. own.said)
+    assert(own.code == 128 + sys.SIGTERM, "its own signal lands: " .. tostring(own.code) .. " " .. own.said)
   else
     assert(own.code == 1 and own.said:find("not permitted", 1, true),
-      "below ABI 6 the filter keeps it to the starting pid: " .. own.code .. " " .. own.said)
+      "below ABI 6 the filter keeps it to the starting pid: " .. tostring(own.code) .. " " .. own.said)
   end
 end
 
@@ -324,10 +324,10 @@ local function test_a_process_signals_what_it_forked_where_the_kernel_scopes_sig
       "; signal KILL @" .. pidfile)
   end_left_by(pidfile)
   if abi >= 6 then
-    assert(killed.code == 0, "its child is its to signal: " .. killed.code .. " " .. killed.said)
+    assert(killed.code == 0, "its child is its to signal: " .. tostring(killed.code) .. " " .. killed.said)
   else
     assert(killed.code == 1 and killed.said:find("not permitted", 1, true),
-      "below ABI 6 the filter refuses it: " .. killed.code .. " " .. killed.said)
+      "below ABI 6 the filter refuses it: " .. tostring(killed.code) .. " " .. killed.said)
   end
 end
 

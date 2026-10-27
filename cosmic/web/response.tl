@@ -157,7 +157,7 @@ function Response.add_header(res: Types.Response, name: string, value: string)
     end
     if #add == 0 then return end
     local line = table.concat(add, ", ")
-    put(res, key or name, if old == "" then line else (old .. ", " .. line) end)
+    put(res, key or name, old == "" and line or (old .. ", " .. line))
     return
   end
   if key == nil then

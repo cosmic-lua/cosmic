@@ -89,8 +89,8 @@ local record verb
     --- reads it when no file is named; `stdin` is the whole of it, in
     --- a test's stead, and is used only when `input` is not given.
     --- One of the two is required: `run` says so when neither is.
-    input: function(): Stream.Reader?, string
-    stdin: function(): string?, string
+    input?: function(): Stream.Reader?, string
+    stdin?: function(): string?, string
   end
 end
 
@@ -149,7 +149,7 @@ local class Base64Encoder is verb.Coder
     local whole = #data - #data % 3
     self.carry = data:sub(whole + 1)
     if whole == 0 then return "", "" end
-    return self.alphabet.encode(if whole == #data then data else data:sub(1, whole) end), ""
+    return self.alphabet.encode(whole == #data and data or data:sub(1, whole)), ""
   end
 
   function finish(self): string?, string
@@ -181,7 +181,7 @@ local class HexDecoder is verb.Coder
     local even = #data - #data % 2
     local tail = data:sub(even + 1)
     if not tail:find("[^0-9a-fA-F]") then
-      local out, _why = Codec.unhex(if even == #data then data else data:sub(1, even) end)
+      local out, _why = Codec.unhex(even == #data and data or data:sub(1, even))
       if out ~= nil then
         self.carry = tail
         return out, ""
@@ -243,7 +243,7 @@ local class Base64Decoder is verb.Coder
     if whole > 0 and data:byte(whole) ~= 61 then
       local tail = data:sub(whole + 1)
       if not tail:find(a.class) then
-        local out, _why = a.decode(if whole == #data then data else data:sub(1, whole) end)
+        local out, _why = a.decode(whole == #data and data or data:sub(1, whole))
         if out ~= nil then
           self.carry = tail
           return out, ""
@@ -302,14 +302,14 @@ end
 
 local function hex_decoder(): verb.Coder
   local c: HexDecoder = {
-    total = 0, carry = "", bad_byte = 0, done = false,
+    total = 0, carry = "", bad_byte = 0, bad_at = nil, done = false,
   }
   return c
 end
 
 local function base64_decoder(a: Alphabet): verb.Coder
   local c: Base64Decoder = {
-    alphabet = a, total = 0, carry = "", bad_byte = 0, run = 0, run_pad = false, done = false,
+    alphabet = a, total = 0, carry = "", bad_byte = 0, bad_at = nil, run = 0, run_pad = false, done = false,
   }
   return c
 end
@@ -557,7 +557,7 @@ end
 function verb.decoding(name: verb.Name, lenient: boolean): verb.Coder
   local c: Decoding = {
     inner = verb.decoder(name), name = name, wrong = refused[name], lenient = lenient,
-    fed = 0, seen = 0, pad_run = 0, pad_other = false,
+    fed = 0, seen = 0, last = nil, pad_at = nil, pad_run = 0, pad_other = false, failed = nil,
   }
   return c
 end
@@ -586,7 +586,7 @@ local record Request
   decode: boolean
   mut wrap: integer
   lenient: boolean
-  mut file: string?
+  mut file?: string
 end
 
 --- What `argv` asks for, or nil and why it is refused.
@@ -700,13 +700,13 @@ function verb.run(argv: {string}, io?: verb.Io): integer
   end
   local reader: Stream.Reader = opened
   local decode = request.decode
-  local coder = if decode then verb.decoding(request.name, request.lenient) else
-    encoding(request.name, request.wrap) end
+  local coder = decode and verb.decoding(request.name, request.lenient) or
+    encoding(request.name, request.wrap)
   local source = request.file or "standard input"
   -- A Writer over `to.out`, local because no Stream helper adapts a
   -- function to a Writer and no other verb needs one. `lost` is why a
   -- write failed, which tells it from a coder's refusal.
-  local standard_output: OutputWriter = { out = to.out }
+  local standard_output: OutputWriter = { out = to.out, lost = nil }
   -- A decoder's output is held one chunk back, so that an input of at
   -- most one chunk that is refused writes nothing: see the head of this
   -- file.
@@ -721,7 +721,7 @@ function verb.run(argv: {string}, io?: verb.Io): integer
   --- The complaint for what `sink` refused: a lost write or a coder's refusal.
   local function blame(why: string): string
     local lost = standard_output.lost
-    return if lost ~= nil then bare.lost(lost) else source .. ": " .. why end
+    return lost ~= nil and bare.lost(lost) or source .. ": " .. why
   end
   while true do
     -- A read may come up short; fill the chunk, so that what is held

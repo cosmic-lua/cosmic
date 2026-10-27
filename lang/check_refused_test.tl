@@ -13,7 +13,7 @@ local function refused(source: string, codes: string, msg?: string)
   local r = Programs.run(source)
   assert(#r.before == 0, table.concat(r.before, " ") .. " in\n" .. source)
   assert(Programs.codes(r) == codes, "wanted " .. codes .. ", got " .. Programs.codes(r) .. " in\n" .. source .. "\n" ..
-      (if r.errors[1] ~= nil then r.errors[1].msg else "" end))
+      (r.errors[1] ~= nil and r.errors[1].msg or ""))
   if msg ~= nil then
     assert(r.errors[1].msg:find(msg, 1, true) ~= nil, r.errors[1].msg .. "\nwanted " .. msg)
   end
@@ -22,7 +22,7 @@ end
 --- Checks that `source` has no error.
 local function accepted(source: string)
   local r = Programs.run(source)
-  assert(#r.before == 0 and #r.errors == 0, table.concat(r.before, " ") .. (if r.errors[1] ~= nil then r.errors[1].msg else "" end) ..
+  assert(#r.before == 0 and #r.errors == 0, table.concat(r.before, " ") .. (r.errors[1] ~= nil and r.errors[1].msg or "") ..
       " in\n" .. source)
 end
 

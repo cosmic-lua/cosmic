@@ -116,7 +116,7 @@ local record test_sandbox
     --- runner's own beneath /tree, /program/<its name> ([`program_name`]);
     --- nil where it keeps the runner's, as a worker whose module does
     --- not declare `tool` does.
-    program: string?
+    program?: string
     --- The host
     --- paths among `sandbox.unveil.reads` that are run, which the policy
     --- grants `x` as well: the program and its core, and what its module
@@ -288,7 +288,7 @@ end
 --- rest from its "/" on -- or nil for a path not beneath it.
 local function beneath(path: string, dir: string): string?
   if path == dir then return "" end
-  if dir == "/" then return if path:sub(1, 1) == "/" then path else nil end end
+  if dir == "/" then return path:sub(1, 1) == "/" and path or nil end
   if String.starts_with(path, dir .. "/") then return path:sub(#dir + 1) end
   return nil
 end
@@ -566,7 +566,7 @@ function test_sandbox.plan(root: string, scratch: string, effective: test_inputs
   -- Each file above the project, read-only at its relative path beneath
   -- [`parent_place`]. A file the host lacks is none, as the test
   -- finds ([`test_inputs.resolve`] fails its tests before it starts).
-  local above = if #(effective.parent or {}) > 0 then test_inputs.parent_directory(root) else "" end
+  local above = #(effective.parent or {}) > 0 and test_inputs.parent_directory(root) or ""
   for _, relative in ipairs(effective.parent or {}) do
     local source = above .. "/" .. relative
     -- One host path is bound at one place: a file the plan gives already
@@ -668,7 +668,7 @@ function test_sandbox.plan(root: string, scratch: string, effective: test_inputs
     sandbox = { unveil = { reads = reads, writes = writes, at = at }, offline = true },
     env = test_sandbox.environment(environment, effective),
     over = over,
-    trouble = if refused ~= "" then refused else made and "" end or "a cache it declares: " .. trouble,
+    trouble = refused ~= "" and refused or made and "" or "a cache it declares: " .. trouble,
     program = program,
     runs = runs,
     own_scratch = own_scratch,
@@ -693,13 +693,9 @@ function test_sandbox.rebind(plan: test_sandbox.Plan, from: string, scratch: str
   local reads: mut {string} = {}
   for i, path in ipairs(unveil.reads) do reads[i] = path end
   local writes: mut {string} = {}
-  for i, path in ipairs(unveil.writes or {}) do
-    writes[i] = if path == from then scratch else path end
-  end
+  for i, path in ipairs(unveil.writes or {}) do writes[i] = path == from and scratch or path end
   local at: mut {string:string} = {}
-  for path, inside in pairs(unveil.at or {}) do
-    at[if path == from then scratch else path end] = inside
-  end
+  for path, inside in pairs(unveil.at or {}) do at[path == from and scratch or path] = inside end
   local env: mut {string:string} = {}
   for name, value in pairs(plan.env) do env[name] = value end
   local runs: mut {string:boolean} = {}

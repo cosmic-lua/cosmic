@@ -96,10 +96,10 @@ end
 local record Request
   command: string
   mut version: integer
-  mut count: integer?
+  mut count?: integer
   mut bytes: integer
   mut encoding: string
-  mut seed: integer?
+  mut seed?: integer
   words: mut {string}
 end
 
@@ -174,7 +174,7 @@ local function arguments(argv: {string}): Request?, string
   if given ~= nil then
     local count = integer_of(given)
     if count == nil or count < 1 or count > verb.MAX_COUNT then
-      return nil, "-n needs a whole number from 1 to " .. verb.MAX_COUNT .. ", not " .. given
+      return nil, "-n needs a whole number from 1 to " .. tostring(verb.MAX_COUNT) .. ", not " .. given
     end
     request.count = count
   end
@@ -182,7 +182,7 @@ local function arguments(argv: {string}): Request?, string
   if given ~= nil then
     local bytes = integer_of(given)
     if bytes == nil or bytes < 1 or bytes > verb.MAX_BYTES then
-      return nil, "--bytes needs a whole number from 1 to " .. verb.MAX_BYTES .. ", not " .. given
+      return nil, "--bytes needs a whole number from 1 to " .. tostring(verb.MAX_BYTES) .. ", not " .. given
     end
     request.bytes = bytes
   end
@@ -205,7 +205,7 @@ local function arguments(argv: {string}): Request?, string
     end
     if words[1] == "" then return nil, bare.empty_file end
   elseif #words > 0 then
-    return nil, command .. " takes no words, not " .. #words
+    return nil, command .. " takes no words, not " .. tostring(#words)
   end
   return request, ""
 end
@@ -264,7 +264,7 @@ function verb.run(argv: {string}, io?: verb.Io): integer
   -- may be a secret is made from bytes this returns; a seeded
   -- generator ([`Rand.new`]) is reached only from `seeded` below.
   local record Drawn
-    mut broken: string?
+    mut broken?: string
     mut pool: string
     mut used: integer
   end
@@ -373,7 +373,7 @@ function verb.run(argv: {string}, io?: verb.Io): integer
       end
     elseif command == "token" then
       local bytes = secret(request.bytes)
-      local text = if request.encoding == "hex" then Codec.hex(bytes) else Codec.base64url(bytes) end
+      local text = request.encoding == "hex" and Codec.hex(bytes) or Codec.base64url(bytes)
       if not emit(text) then
         return 2
       end

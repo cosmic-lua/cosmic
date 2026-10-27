@@ -677,7 +677,7 @@ end
 --- a `program` where `programs` says to.
 local function entry(digests: declared_key.Digests, path: string, follow: boolean,
                      programs?: boolean): string, string
-  local st, _ = (if follow then sys.stat else sys.lstat end)(path)
+  local st, _ = (follow and sys.stat or sys.lstat)(path)
   if st == nil then return "missing", "missing" end
   if st.kind == "file" then
     local runnable = st.mode & 73 ~= 0 -- 0o111
@@ -731,8 +731,8 @@ local function leads_out(digests: declared_key.Digests, path: string,
   end
   local target, _ = sys.readlink(path)
   if target == nil then return nil end
-  local lexical = test_inputs.plain(if target:sub(1, 1) == "/" then target else
-    (directory .. "/" .. target) end)
+  local lexical = test_inputs.plain(target:sub(1, 1) == "/" and target or
+      (directory .. "/" .. target))
   if inside(lexical) then return nil end
   return path .. " leads out of " .. what .. ", to " .. target
 end
@@ -763,7 +763,7 @@ local function tree(digests: declared_key.Digests, path: string, programs?: bool
       table.sort(names)
       for _, name in ipairs(names) do
         local here = directory .. "/" .. name
-        local named = if prefix == "" then name else (prefix .. "/" .. name) end
+        local named = prefix == "" and name or (prefix .. "/" .. name)
         local what, said = entry(digests, here, false, programs)
         lines[#lines + 1] = named .. "\0" .. said
         if what == "link" and refused[1] == nil then
@@ -890,10 +890,10 @@ function declared_key.preimage(digests: declared_key.Digests,
   table.sort(files)
   for _, file in ipairs(files) do
     local plain, path = of_tree(digests, file)
-    local answer = if path ~= "" then once(digests, "f\0" .. path, function(): string
+    local answer = path ~= "" and once(digests, "f\0" .. path, function(): string
       local _, said = entry(digests, path, true)
       return said
-    end) else "outside" end
+    end) or "outside"
     lines[#lines + 1] = part("f", plain, answer)
   end
   local reads: mut {string} = {}
@@ -929,7 +929,7 @@ function declared_key.preimage(digests: declared_key.Digests,
     local plain, path = of_tree(digests, read)
     if not seen[plain] then
       seen[plain] = true
-      local answer = if path ~= "" then tree(digests, path) else "outside" end
+      local answer = path ~= "" and tree(digests, path) or "outside"
       if answer:sub(1, 8) == "refused " then return nil, answer:sub(9) end
       lines[#lines + 1] = part("r", plain, answer)
     end
@@ -1011,7 +1011,7 @@ local function features(listed?: {string}, machine?: string): {string}
   for _, flag in ipairs(listed or sys.cpu_features()) do seen[flag] = true end
   if machine == nil then
     local names, _ = sys.uname()
-    machine = if names ~= nil then names.machine else nil end
+    machine = names ~= nil and names.machine or nil
   end
   local kept = machine ~= nil and dispatched[machine] or nil
   local sorted: mut {string} = {}
@@ -1056,7 +1056,7 @@ local darwin_system: {string} = { "/System/Library/CoreServices/SystemVersion.pl
 --- `sysname`: `darwin_system` on "Darwin", and /etc/os-release and
 --- /proc's elsewhere.
 function declared_key.system_sources(sysname: string): {string}
-  local chosen = if sysname == "Darwin" then darwin_system else default_system end
+  local chosen = sysname == "Darwin" and darwin_system or default_system
   local out: mut {string} = {}
   for i, path in ipairs(chosen) do out[i] = path end
   return out
@@ -1070,7 +1070,7 @@ local function system_of(from: declared_key.HostSources): {string}
   local sysname = from.sysname
   if sysname == nil then
     local names, _ = sys.uname()
-    return declared_key.system_sources(if names ~= nil then names.sysname else "" end)
+    return declared_key.system_sources(names ~= nil and names.sysname or "")
   end
   return declared_key.system_sources(sysname)
 end
@@ -1453,8 +1453,8 @@ function declared_key.program_identity(digests: declared_key.Digests, paths: {st
   for _, path in ipairs(paths) do
     if path:match("/%.verified%-[^/]*$") == nil then
       local st, _ = sys.stat(path)
-      lines[#lines + 1] = if (st ~= nil and st.kind == "file") then program(digests, path, st) else
-        "missing" end
+      lines[#lines + 1] = (st ~= nil and st.kind == "file") and program(digests, path, st) or
+        "missing"
     end
   end
   return hex_sha256(table.concat(lines, "\n"))

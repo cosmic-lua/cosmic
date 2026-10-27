@@ -247,7 +247,7 @@ end
 --- NUL inside it, or pax records, sometimes cut short.
 local function special_body(src: Fuzz.Source, typeflag: string): string
   if typeflag == "L" or typeflag == "K" then
-    local name = if src:int(0, 1) == 0 then long_path(src) else gen_path(src) end
+    local name = src:int(0, 1) == 0 and long_path(src) or gen_path(src)
     if src:int(0, 7) == 0 then name = name .. "\0" .. gen_path(src) end
     return name .. string.rep("\0", src:int(0, 2))
   end
@@ -278,7 +278,7 @@ local function header(src: Fuzz.Source, typeflag: string, size: integer): string
     numeric_field(src, 8, src:int(0, 70000)),
     -- A size misread misplaces every header after it, so it is spelled
     -- plainly more often than the other fields.
-    if src:int(0, 3) ~= 0 then field(("%011o"):format(size) .. "\0", 12) else numeric_field(src, 12, size) end,
+    src:int(0, 3) ~= 0 and field(("%011o"):format(size) .. "\0", 12) or numeric_field(src, 12, size),
     numeric_field(src, 12, src:int(-1, 1 << 34)),
     "        ",
     typeflag,
@@ -308,7 +308,7 @@ local function gen_archive(src: Fuzz.Source): string
     if typeflag == "L" or typeflag == "K" or typeflag == "x" or typeflag == "g" then
       body = special_body(src, typeflag)
     else
-      local len = if src:int(0, 3) == 0 then src:int(0, 1100) else src:int(0, 24) end
+      local len = src:int(0, 3) == 0 and src:int(0, 1100) or src:int(0, 24)
       body = string.rep(string.char(src:int(0, 255)), len)
     end
     local size = #body

@@ -52,31 +52,31 @@ local function answer_fresh(): function(string): string, integer, string
 end
 
 local function gen_method(src: Fuzz.Source): string
-  local version = if src:int(0, 9) == 0 then src:int(0, 255) else 5 end
-  local method = if src:int(0, 3) == 0 then src:int(0, 255) else Fuzz.pick(src, { 0, 0, 255 }) end
+  local version = src:int(0, 9) == 0 and src:int(0, 255) or 5
+  local method = src:int(0, 3) == 0 and src:int(0, 255) or Fuzz.pick(src, { 0, 0, 255 })
   local text = string.char(version, method)
   if src:int(0, 4) == 0 then text = text .. Fuzz.bytes(src, 4) end
   return Fuzz.mutate(src, text, if src:int(0, 3) == 0 then 1 else 0 end)
 end
 
 local function gen_method_password(src: Fuzz.Source): string
-  local version = if src:int(0, 9) == 0 then src:int(0, 255) else 5 end
-  local method = if src:int(0, 3) == 0 then src:int(0, 255) else Fuzz.pick(src, { 2, 2, 0, 255 }) end
+  local version = src:int(0, 9) == 0 and src:int(0, 255) or 5
+  local method = src:int(0, 3) == 0 and src:int(0, 255) or Fuzz.pick(src, { 2, 2, 0, 255 })
   local text = string.char(version, method)
   if src:int(0, 4) == 0 then text = text .. Fuzz.bytes(src, 4) end
   return Fuzz.mutate(src, text, if src:int(0, 3) == 0 then 1 else 0 end)
 end
 
 local function gen_auth_status(src: Fuzz.Source): string
-  local version = if src:int(0, 2) == 0 then src:int(0, 255) else 1 end
-  local status = if src:int(0, 3) == 0 then src:int(0, 255) else Fuzz.pick(src, { 0, 0, 1 }) end
+  local version = src:int(0, 2) == 0 and src:int(0, 255) or 1
+  local status = src:int(0, 3) == 0 and src:int(0, 255) or Fuzz.pick(src, { 0, 0, 1 })
   local text = string.char(version, status)
   if src:int(0, 4) == 0 then text = text .. Fuzz.bytes(src, 4) end
   return Fuzz.mutate(src, text, if src:int(0, 3) == 0 then 1 else 0 end)
 end
 
 local function gen_answer(src: Fuzz.Source): string
-  local atyp = if src:int(0, 9) == 0 then src:int(0, 6) else Fuzz.pick(src, { 1, 1, 3, 4 }) end
+  local atyp = src:int(0, 9) == 0 and src:int(0, 6) or Fuzz.pick(src, { 1, 1, 3, 4 })
   local address: string
   if atyp == 1 then
     address = Fuzz.bytes(src, 4)
@@ -86,9 +86,9 @@ local function gen_answer(src: Fuzz.Source): string
     address = address .. ("\0"):rep(16 - #address)
   else
     local name = Fuzz.bytes(src, 20)
-    address = string.char(if src:int(0, 9) == 0 then src:int(0, 255) else #name end) .. name
+    address = string.char(src:int(0, 9) == 0 and src:int(0, 255) or #name) .. name
   end
-  local code = if src:int(0, 4) == 0 then src:int(0, 255) else src:int(0, 8) end
+  local code = src:int(0, 4) == 0 and src:int(0, 255) or src:int(0, 8)
   local text = "\5" .. string.char(code) .. (if src:int(0, 9) == 0 then "\1" else "\0" end) .. string.char(atyp) .. address ..
     Fuzz.bytes(src, 2)
   if src:int(0, 4) == 0 then text = text .. Fuzz.bytes(src, 6) end
@@ -189,9 +189,7 @@ local function test_a_request_the_client_writes_is_read_back_by_the_relay(tmp: s
         for i = 1, 4 do host[i] = tostring(src:int(0, 255)) end
         return Fuzz.pack({ table.concat(host, "."), tostring(src:int(0, 65536)) })
       elseif kind == 1 then
-        for i = 1, 8 do
-          host[i] = ("%x"):format(if src:int(0, 3) == 0 then src:int(0, 65535) else 0 end)
-        end
+        for i = 1, 8 do host[i] = ("%x"):format(src:int(0, 3) == 0 and src:int(0, 65535) or 0) end
         return Fuzz.pack({ table.concat(host, ":"), tostring(src:int(0, 65536)) })
       end
       if kind == 2 then

@@ -137,7 +137,7 @@ local function table_bytes(rows: {Config.Endpoint}): integer
   local bytes = 0
   for _, row in ipairs(rows) do
     local stride = if row.host:find(":", 1, true) then 32 else 16 end
-    bytes = (bytes + stride - 1) // stride * stride + (if row.port == 0 then WILDCARD_SLOTS else 1 end) * stride
+    bytes = (bytes + stride - 1) // stride * stride + (row.port == 0 and WILDCARD_SLOTS or 1) * stride
   end
   return bytes
 end
@@ -543,7 +543,7 @@ function relay.handover(connect: {string}, own: {string}): Config.Handover?, str
     -- One connector holds the table and, where public, the lists, asking
     -- the table first: a literal grant reaches what the public lists
     -- refuse, and a table-only relay reaches nothing else.
-    local process, why = relay_connector(rows, Config.connect_ns, if public then relay.public(own) else nil end)
+    local process, why = relay_connector(rows, Config.connect_ns, public and relay.public(own) or nil)
     if process == nil then return fail("the connector: " .. why) end
     processes[#processes + 1] = process
     config.public, fds[Config.connector_fd] = public, process.fd

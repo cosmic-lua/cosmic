@@ -498,7 +498,7 @@ local class FdReader is Stream.Reader
         return nil, ""
       end
       if not (opts.nonblocking and (errno == sys.EAGAIN or errno == sys.EINTR)) then
-        self.failed = if trouble ~= "" then trouble else "stream: read failed" end
+        self.failed = trouble ~= "" and trouble or "stream: read failed"
         return nil, self.failed
       end
       local ready, why = wait_for(fd, sys.POLLIN, opts, deadline)
@@ -554,7 +554,7 @@ end
 
 local function make_fd_reader(fd: integer, owned: boolean, opts: Stream.FdOptions): Stream.Reader
   local r: FdReader = { fd = fd, owned = owned, released = false, opts = opts,
-    ended = false, closed = false }
+    ended = false, closed = false, failed = nil, size = nil }
   local st, _ = sys.fstat(fd)
   if st ~= nil and st.kind == "file" then
     r.size = st.size
@@ -642,7 +642,7 @@ local class TransformReader is Stream.Reader
     while self.at > #self.batch and not self.finished do
       local out, trouble = step(self)
       if out == nil then
-        self.failed = if trouble ~= "" then trouble else "stream: codec failed" end
+        self.failed = trouble ~= "" and trouble or "stream: codec failed"
         self.batch, self.at = "", 1
         return nil, self.failed
       end
@@ -653,7 +653,7 @@ local class TransformReader is Stream.Reader
     local want = max_bytes or chunk_size
     local avail = #batch - at + 1
     if want >= avail then
-      local piece = if at == 1 then batch else batch:sub(at) end
+      local piece = at == 1 and batch or batch:sub(at)
       self.batch, self.at = "", 1
       return piece, ""
     end
@@ -675,7 +675,7 @@ end
 --- still holding. A codec or `reader` error ends it, stickily.
 function Stream.transform(reader: Stream.Reader, codec: Stream.Transform): Stream.Reader
   local r: TransformReader = { source = reader, codec = codec, batch = "", at = 1,
-    at_eof = false, finished = false, closed = false }
+    at_eof = false, finished = false, failed = nil, closed = false }
   return r
 end
 
@@ -830,7 +830,7 @@ local class StickyWriter is Stream.Sticky
 
   function fail(self, trouble: string): boolean, string
     if self.failed == nil then
-      self.failed = if trouble ~= "" then trouble else self.name .. ": write failed" end
+      self.failed = trouble ~= "" and trouble or self.name .. ": write failed"
       local _, _ = self.writer:abort()
     end
     return false, self.failed
@@ -876,7 +876,7 @@ end
 --- and every later write, `close` included, answers that failure;
 --- `name` prefixes the messages it makes itself.
 function Stream.sticky(w: Stream.Writer, name: string): Stream.Sticky
-  local s: StickyWriter = { writer = w, name = name, closed = false }
+  local s: StickyWriter = { writer = w, name = name, closed = false, failed = nil }
   return s
 end
 
@@ -951,7 +951,7 @@ local class LineReader is Stream.Lines
       if at <= #chunk then
         self.held = self.held + #chunk - at + 1
         if self.held > limit then return fail(self, too_long(self)) end
-        self.parts[#self.parts + 1] = if at == 1 then chunk else chunk:sub(at) end
+        self.parts[#self.parts + 1] = at == 1 and chunk or chunk:sub(at)
       end
       self.chunk, self.at = "", 1
       if self.ended then
@@ -1084,7 +1084,6 @@ local class ToFdWriter is Stream.FdWriter
   mut closed: boolean
   mut failed?: string
   mut went: integer
-  abort: function(ToFdWriter): boolean, string
 
   function write(self, data: string): boolean, string
     if self.closed then return false, closed_writer end
@@ -1142,9 +1141,12 @@ local class ToFdWriter is Stream.FdWriter
     self.closed = true
     return true, ""
   end
-end
 
-ToFdWriter.abort = ToFdWriter.close
+  -- Nothing is written beyond `write`, so there is nothing for an abort to take back.
+  function abort(self): boolean, string
+    return self:close()
+  end
+end
 
 --- A Writer over an already-open descriptor. The descriptor is not
 --- closed by this Writer's `close`; `abort` cannot take back what
@@ -1167,7 +1169,7 @@ ToFdWriter.abort = ToFdWriter.close
 ---     if not ok and why == Poll.TIMEOUT then print(w:written() .. " bytes went") end
 function Stream.to_fd(fd: integer, opts?: Stream.FdOptions): Stream.FdWriter
   local w: ToFdWriter = { fd = fd, options = fd_options(opts, 2),
-    closed = false, went = 0 }
+    closed = false, failed = nil, went = 0 }
   return w
 end
 
@@ -1250,7 +1252,6 @@ local class HashingWriter is Stream.Hashing
   mut closed: boolean
   mut result?: string
   mut failure: string
-  abort: function(HashingWriter): boolean, string
 
   function write(self, data: string): boolean, string
     if self.closed or self.result ~= nil then return false, closed_writer end
@@ -1277,9 +1278,11 @@ local class HashingWriter is Stream.Hashing
     if result == nil then return nil, self.failure end
     return result, ""
   end
-end
 
-HashingWriter.abort = HashingWriter.close
+  function abort(self): boolean, string
+    return self:close()
+  end
+end
 
 --- A Writer that digests what is written to it under `algorithm`,
 --- for checking a body against a published digest as it streams past
@@ -1298,7 +1301,7 @@ function Stream.hashing(algorithm: Hash.Algorithm, key?: string): Stream.Hashing
     hasher, trouble = Hash.hmac_hasher(algorithm, key)
   end
   if hasher == nil then return nil, trouble end
-  local h: HashingWriter = { hasher = hasher, closed = false, failure = "" }
+  local h: HashingWriter = { hasher = hasher, closed = false, result = nil, failure = "" }
   return h, ""
 end
 
@@ -1451,7 +1454,7 @@ function Stream.transform_writer(writer: Stream.Writer, codec: Stream.Transform,
     error("stream: hold must be an integer of at least 0", 2)
   end
   local w: TransformWriter = { writer = writer, codec = codec, hold = hold,
-    closed = false, held = {} }
+    closed = false, failed = nil, held = {} }
   return w
 end
 

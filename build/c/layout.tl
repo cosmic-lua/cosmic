@@ -59,7 +59,7 @@ function layout.same(a: string, b: string): boolean, string
   for i = 1, math.max(#x, #y) do
     local p, q = x[i], y[i]
     if p == nil or q == nil or p.kind ~= q.kind or meaning(p) ~= meaning(q) then
-      return false, "token " .. i .. ": " .. (p and p.text or "<end>") .. " became " ..
+      return false, "token " .. tostring(i) .. ": " .. (p and p.text or "<end>") .. " became " ..
         (q and q.text or "<end>")
     end
   end
@@ -123,7 +123,7 @@ local function opens_entries(before: Token?, before2: Token?, cast: Token?): boo
   if before == nil then return false end
   local t = before.text
   if t == ")" then
-    local c = if cast ~= nil then cast.text else "" end
+    local c = cast ~= nil and cast.text or ""
     return c == "=" or c == "return" or c == "," or c == "("
   end
   if t == "=" or t == "," or t == "{" or t == "enum" or t == "(" then return true end

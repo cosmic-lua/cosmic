@@ -56,7 +56,7 @@ local function same(...: string)
   assert(#made.errors == 0, if made.errors[1] ~= nil then made.errors[1].msg .. "\n" .. made.text else "" end)
   -- The translator writes an `if` expression only where the value is never false, which is what it tells the generator.
   local ours = generated(made.text, Truthy.never_false)
-  assert(#ours.errors == 0, if ours.errors[1] ~= nil then ours.errors[1].msg else "" end)
+  assert(#ours.errors == 0, ours.errors[1] ~= nil and ours.errors[1].msg or "")
   local theirs = fork_wrote(source)
   assert(Codegen.compared(ours.text) == Codegen.compared(theirs),
     "the generator wrote\n" .. ours.text .. "\nthe fork wrote\n" .. theirs)
@@ -65,7 +65,7 @@ end
 --- Runs the generator's text of `source` and answers the four values it returns.
 local function run(source: string, truthy?: function(e: Ast.Exp): boolean): any, any, any, any
   local result = generated(source, truthy)
-  assert(#result.errors == 0, if result.errors[1] ~= nil then result.errors[1].msg else "" end)
+  assert(#result.errors == 0, result.errors[1] ~= nil and result.errors[1].msg or "")
   local env: {string: any} = { print = print, pcall = pcall, error = error, select = select, table = table, math = math,
     type = type, ipairs = ipairs, pairs = pairs }
   local chunk = assert(load(result.text, "=t", "t", env))
@@ -75,7 +75,7 @@ end
 --- Runs the Teal `source`, after the translator.
 local function run_teal(source: string): any, any, any, any
   local made = Translate.translate(source, "t.tl")
-  assert(#made.errors == 0, if made.errors[1] ~= nil then made.errors[1].msg else "" end)
+  assert(#made.errors == 0, made.errors[1] ~= nil and made.errors[1].msg or "")
   return run(made.text, Truthy.never_false)
 end
 
@@ -754,7 +754,7 @@ end
 --- Runs the Lua of `classed(source)` and answers the five values it returns.
 local function run_classes(source: string): any, any, any, any, any
   local result = classed(source)
-  assert(#result.errors == 0, if result.errors[1] ~= nil then result.errors[1].msg else "" end)
+  assert(#result.errors == 0, result.errors[1] ~= nil and result.errors[1].msg or "")
   -- No `setmetatable` and no `getmetatable`: a class reaches the metatable through the reserved form alone.
   local env: {string: any} = { tostring = tostring, pcall = pcall, error = error, select = select, ipairs = ipairs }
   local chunk = assert(load(result.text, "=t", "t", env))
@@ -947,7 +947,7 @@ local function test_a_class_declared_inside_another_type_is_refused_where_it_is(
     "end",
     "return Outer"))
   assert(#result.errors == 1 and result.errors[1].code == "class_nested_refused" and result.errors[1].y == 2,
-    if #result.errors > 0 then result.errors[1].code else "none" end)
+    #result.errors > 0 and result.errors[1].code or "none")
   assert(result.errors[1].msg:find("Inner", 1, true) and result.errors[1].fix ~= "")
   local deeper = generated(program(
     "local class Outer",

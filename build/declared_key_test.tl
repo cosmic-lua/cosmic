@@ -354,7 +354,7 @@ end
 --- `from`, where given, first sets what the field is keyed only under
 --- (`closure_store` only where the module does not declare `store`).
 local record Change<T>
-  from: function(T)
+  from?: function(T)
   change: function(T)
 end
 
@@ -790,7 +790,7 @@ local function test_only_a_closure_that_reads_the_compiler_is_keyed_by_it(tmp: s
   local function run_under(compiler: string, closure: {string}): string
     local s = spec()
     s.closure_store = "the same store"
-    s.compiler = if declared_key.reads_compiler(closure) then compiler else "" end
+    s.compiler = declared_key.reads_compiler(closure) and compiler or ""
     return key_of(tmp, s)
   end
   local plain = { "suite.lib", "suite.t_test" }
@@ -872,7 +872,7 @@ local function test_a_macos_host_is_keyed_by_its_system_version(tmp: string)
   assert(declared_key.system_sources("Linux")[2] == "/proc/sys/kernel/osrelease")
   local fake = tmp .. "/SystemVersion.plist"
   local system: mut {string} = {}
-  for i, path in ipairs(darwin) do system[i] = if path == plist then fake else path end end
+  for i, path in ipairs(darwin) do system[i] = path == plist and fake or path end
   local sources: declared_key.HostSources = {
     packages = { tmp .. "/no-packages" }, system = system, status = tmp .. "/no-status",
     cpu_features = {}, machine = "arm64", own_proc = false,

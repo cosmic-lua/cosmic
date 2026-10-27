@@ -58,7 +58,7 @@ end
 
 --- What a problem says, or "".
 local function message(problem: Literals.Problem?): string
-  return if problem ~= nil then problem.msg else "" end
+  return problem ~= nil and problem.msg or ""
 end
 
 -- patterns -------------------------------------------------------------------------------------------------------------

@@ -25,7 +25,7 @@ function parses_fixture.rows(db: Sqlite.Handle): string
   local out: mut {string} = {}
   for _, name in ipairs(analysis_schema.tables) do
     local rows = assert(Sqlite.text_rows(db, "SELECT * FROM " .. name .. " ORDER BY 1, 2"))
-    out[#out + 1] = name .. " " .. #rows
+    out[#out + 1] = name .. " " .. tostring(#rows)
     for _, row in ipairs(rows) do out[#out + 1] = table.concat(row:texts(), "\t") end
   end
   return table.concat(out, "\n")

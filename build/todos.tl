@@ -207,7 +207,7 @@ local function blame_args(file: string, lines: {integer}, ignored: string?): {st
   end
   for _, line in ipairs(lines) do
     args[#args + 1] = "-L"
-    args[#args + 1] = line .. "," .. line
+    args[#args + 1] = tostring(line) .. "," .. tostring(line)
   end
   args[#args + 1] = "--"
   args[#args + 1] = file
@@ -226,7 +226,7 @@ end
 local record BlameRun
   file: string
   deadline: integer
-  handle: Child.Handle?
+  handle?: Child.Handle
   said: function(): string?
   drop: function()
 end
@@ -417,9 +417,9 @@ local function rows_of(db: Sqlite.Handle, head: string): {Row}?, string
             line = row:integer(2),
             last = row:integer(3),
             text = row:text(4),
-            commit = if blamed then row:text(6) else "" end,
-            author_time = if blamed then row:integer(7) else 0 end,
-            summary = if blamed then row:text(8) else "" end,
+            commit = blamed and row:text(6) or "",
+            author_time = blamed and row:integer(7) or 0,
+            summary = blamed and row:text(8) or "",
             boundary = blamed and row:integer(9) ~= 0,
           },
           sha256 = row:text(5),
@@ -528,9 +528,9 @@ local function blame_rows(db: Sqlite.Handle, root: string, head: string,
       local line = said[row.todo.line]
       local known = line ~= nil and not uncommitted(line.commit)
       local todo = row.todo
-      todo.commit = if known then line.commit else "" end
-      todo.author_time = if known then line.author_time else 0 end
-      todo.summary = if known then line.summary else "" end
+      todo.commit = known and line.commit or ""
+      todo.author_time = known and line.author_time or 0
+      todo.summary = known and line.summary or ""
       todo.boundary = known and line.boundary or false
       local ok, trouble = Sqlite.run(db,
         "INSERT OR REPLACE INTO blames (path, line, sha256, head, commit_id, " ..
@@ -609,7 +609,7 @@ function todos.render(todo: todos.Todo): string
     when = todos.date(todo.author_time)
     commit = (if todo.boundary then "^" else "" end) .. todo.commit:sub(1, 7)
   end
-  return todo.file .. ":" .. todo.line .. ": " .. when .. " " .. commit ..
+  return todo.file .. ":" .. tostring(todo.line) .. ": " .. when .. " " .. commit ..
     " " .. link_text.unlinked(todo.text)
 end
 
@@ -664,7 +664,7 @@ function todos.arguments(root: string, argv: {string}): todos.Arguments
   for _, word in ipairs(argv) do
     -- A path when it names one, and words to search for when not, as
     -- `cosmic docs` takes a symbol first and words after.
-    local full = if word:sub(1, 1) == "/" then word else root .. "/" .. word end
+    local full = word:sub(1, 1) == "/" and word or root .. "/" .. word
     local absolute, _ = Fs.absolute(full)
     if word ~= "" and absolute ~= nil then
       named[#named + 1] = full

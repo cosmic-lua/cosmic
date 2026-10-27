@@ -88,7 +88,7 @@ local function test_a_binding_of_c_is_typed_where_the_tree_declares_it_and_untyp
   end
   -- a provider that answers one is a declaration too
   local provided = TreeProgram.build(TreeProgram.index({}, {}), globals, false, nil, function(module: string): Driver.Source?
-    return if module == "cosmic.sys" then Driver.declarations(module, "cosmic/sys.d.tl", "local record S\nend\nreturn S\n", {}) else nil end
+    return module == "cosmic.sys" and Driver.declarations(module, "cosmic/sys.d.tl", "local record S\nend\nreturn S\n", {}) or nil
   end)
   assert(provided.program.external["cosmic.sys"] ~= true and provided.program.external["cosmic.internal.process"] == true)
   -- the declarations the headers give have no error of their own: no ceiling holds them

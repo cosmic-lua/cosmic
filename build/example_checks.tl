@@ -55,8 +55,8 @@ local function chunk(name: string, source: string): string
   if at ~= nil and source:sub(at, at) == "\n" then
     at = at + 1
   end
-  local head = if at ~= nil then source:sub(1, at - 1) else "" end
-  local rest = if at ~= nil then source:sub(at) else source end
+  local head = at ~= nil and source:sub(1, at - 1) or ""
+  local rest = at ~= nil and source:sub(at) or source
   return head .. "local record Example end " .. rest .. "\nExample." .. name .. "()\n"
 end
 
@@ -172,7 +172,7 @@ local function guide(text: string, file: string, options: Pipeline.Options): {st
     if entry.companions then
       source = 'local tmp: string = ""\nlocal _ = tmp\n' .. source
     end
-    local where = file .. ":" .. entry.line .. ": example"
+    local where = file .. ":" .. tostring(entry.line) .. ": example"
     for _, line in ipairs(problems(options, where, source .. "\n")) do
       out[#out + 1] = line
     end

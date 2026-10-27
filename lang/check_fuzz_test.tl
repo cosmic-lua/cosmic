@@ -92,7 +92,7 @@ end
 --- An expression of the optional type `t` that may be nil: an index read. A variable of the type is no source: its
 --- initializer narrows it to the type of the value, which a test of nil then refuses.
 local function maybe(g: Gen, t: string): string
-  return if t == "integer?" then Fuzz.pick(g.src, { "a0[1]", "m0[\"k\"]" }) else "sn0" end
+  return t == "integer?" and Fuzz.pick(g.src, { "a0[1]", "m0[\"k\"]" }) or "sn0"
 end
 
 --- An expression that is a literal or a variable.
@@ -184,7 +184,7 @@ gen_expr = function(g: Gen, t: string, depth: integer): string
     local tag = if g.src:int(1, 2) == 1 then ", tag = " .. gen_expr(g, "string", d) else "" end
     return "{ x = " .. numeric(g, d) .. ", y = " .. numeric(g, d) .. ", color = " .. gen_expr(g, "Color", d) .. tag .. " }"
   elseif t == "integer?" then
-    return if k == 2 then maybe(g, "integer?") else gen_expr(g, "integer", d) end
+    return k == 2 and maybe(g, "integer?") or gen_expr(g, "integer", d)
   elseif t == "string?" then
     return gen_expr(g, "string", d)
   elseif t == "{integer}" or t == "mut {integer}" then

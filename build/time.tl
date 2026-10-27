@@ -114,7 +114,7 @@ local function protect(argv: {string}): {string}, {string:string}
     local is_value = false
     if option is Flags.Option then is_value = option.value ~= nil end
     if not ended and slot > 2 and not is_value and word:match("^%-%d") ~= nil then
-      local name = "\1kept" .. slot
+      local name = "\1kept" .. tostring(slot)
       kept[name] = word
       word = name
     end
@@ -265,7 +265,7 @@ local function read_input(text: string, zone: Time.Zone?,
       -- The text parsed had ":00" at bytes 17 to 19: a byte past them is 3 earlier in the user's.
       why = why:gsub("byte (%d+)", function(n: string): string
         local at = math.tointeger(n) or 0
-        return "byte " .. (if at >= 17 then at - 3 else at end)
+        return "byte " .. tostring((if at >= 17 then at - 3 else at end))
       end)
     end
   else

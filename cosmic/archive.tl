@@ -71,7 +71,7 @@ local record Archive
     --- negative count raises.
     strip_components?: integer
     --- Asked with a path already stripped; false skips the entry.
-    filter: function(string): boolean
+    filter?: function(string): boolean
     --- "skip" (the default) or "create". Created symlinks are made
     --- last, after every other entry, and nothing is ever written
     --- through one, so no symlink -- this archive's or one already in
@@ -658,7 +658,7 @@ local function extract_from(from: string | Archive.Reader, dest: string,
       rel = stripped
       parent = stripped:match("^(.*)/")
     else
-      parts = if stripped ~= nil then components(stripped) else {} end
+      parts = stripped ~= nil and components(stripped) or {}
       rel = join(parts, #parts)
       if #parts > 1 then parent = join(parts, #parts - 1) end
     end

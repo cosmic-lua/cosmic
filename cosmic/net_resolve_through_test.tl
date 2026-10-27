@@ -92,8 +92,8 @@ end
 local function answer(query: string): string
   local _, qtype, question_end = question(query)
   local id = string.unpack(">I2", query)
-  local data = if qtype == TYPE_A then string.char(192, 0, 2, 7) else
-    string.pack(">I2I2I2I2I2I2I2I2", 0x2001, 0xdb8, 0, 0, 0, 0, 0, 7) end
+  local data = qtype == TYPE_A and string.char(192, 0, 2, 7) or
+    string.pack(">I2I2I2I2I2I2I2I2", 0x2001, 0xdb8, 0, 0, 0, 0, 0, 7)
   return string.pack(">I2I2I2I2I2I2", id, 0x8180, 1, 1, 0, 0) .. query:sub(13, question_end) ..
     string.pack(">I2I2I2I4s2", 0xC00C, qtype, 1, 60, data)
 end
@@ -214,7 +214,7 @@ local function served(tmp: string, name: string, wait_ms: integer | string, befo
       end
     end)
     local ports: mut {string} = {}
-    for _, other in ipairs(if before ~= nil then before() else {} end) do
+    for _, other in ipairs(before ~= nil and before() or {}) do
       ports[#ports + 1] = tostring(other)
     end
     ports[#ports + 1] = tostring(port)

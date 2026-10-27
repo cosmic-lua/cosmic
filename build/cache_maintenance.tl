@@ -355,9 +355,9 @@ local function feed_rows(hasher: Hash.Hasher, path: string, guard: Signal.Guard)
     local order: mut {string} = {}
     for i, field in ipairs(fields) do
       selected[i], order[i] = quoted(field:text(1)), tostring(i)
-      hasher:update("column\0" .. #field:text(1) .. ":" .. field:text(1))
+      hasher:update("column\0" .. tostring(#field:text(1)) .. ":" .. field:text(1))
     end
-    hasher:update("table\0" .. #name .. ":" .. name .. "\0" .. #fields .. "\0")
+    hasher:update("table\0" .. tostring(#name) .. ":" .. name .. "\0" .. tostring(#fields) .. "\0")
     if #selected > 0 then
       local query, query_why = Sqlite.query(db, "SELECT " .. table.concat(selected, ", ") ..
           " FROM " .. quoted(name) .. " ORDER BY " .. table.concat(order, ", "))
@@ -377,7 +377,7 @@ local function feed_rows(hasher: Hash.Hasher, path: string, guard: Signal.Guard)
           elseif kind == "number" then
             value = string.format("%.17g", cells:number(index))
           end
-          hasher:update(kind .. "\0" .. #value .. ":" .. value)
+          hasher:update(kind .. "\0" .. tostring(#value) .. ":" .. value)
         end
         hasher:update("\n")
       end
@@ -397,7 +397,7 @@ local function digest(paths: {string}, guard: Signal.Guard): string?, string
   local hasher = assert(Hash.hasher("sha256"))
   for _, path in ipairs(paths) do
     local name = Fs.basename(path)
-    hasher:update("file\0" .. #name .. ":" .. name .. "\0")
+    hasher:update("file\0" .. tostring(#name) .. ":" .. name .. "\0")
     local ok, why = feed_rows(hasher, path, guard)
     if not ok then return nil, path .. ": " .. why end
   end
@@ -532,7 +532,7 @@ function maintenance.run(options: maintenance.Options): maintenance.Result
   local signal, release_why = held:release()
   if signal == nil or signal ~= 0 then
     report.digest, report.fresh = nil, nil
-    report.warnings[#report.warnings + 1] = if signal == nil then release_why else "cache maintenance interrupted" end
+    report.warnings[#report.warnings + 1] = signal == nil and release_why or "cache maintenance interrupted"
     complete = false
   end
   if not complete then report.digest, report.fresh = nil, nil end

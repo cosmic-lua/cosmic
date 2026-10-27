@@ -648,7 +648,7 @@ function plans.policy_refusal(file: string, kind: string,
   if inputs == nil or kind == "test" or kind == "example" then
     return nil
   end
-  return file .. ":" .. inputs.line .. ": test.policy: only a test or example " ..
+  return file .. ":" .. tostring(inputs.line) .. ": test.policy: only a test or example " ..
     "module declares what its tests read; call it in each test module that " ..
     "requires this one"
 end
@@ -699,8 +699,8 @@ function plans.collect(db: Sqlite.Handle): {Module}?, string
       source = source,
       source_hash = source_hash,
       requires = requires[source_hash] or {},
-      tests = if kind == "test" then (tests[source_hash] or {}) else
-        kind == "example" and (examples[source_hash] or {}) end or
+      tests = kind == "test" and (tests[source_hash] or {}) or
+        kind == "example" and (examples[source_hash] or {}) or
         {},
       inputs = inputs,
       has_top_level_return = has_return == "1",

@@ -141,7 +141,7 @@ local function tables_of(db: Sqlite.Handle): {string: string}
       local cells: mut {string} = {}
       for index = 2, row:count() do
         local kind = row:kind(index)
-        cells[#cells + 1] = if kind == "integer" then tostring(row:integer(index)) else kind == "text" and row:text(index) end or
+        cells[#cells + 1] = kind == "integer" and tostring(row:integer(index)) or kind == "text" and row:text(index) or
           "null"
       end
       lines[#lines + 1] = table.concat(cells, "\1")

@@ -375,7 +375,7 @@ function test.prune_history(handle: Sqlite.Handle, run: integer): boolean, strin
   local pruned_snapshots, snapshots_trouble = handle:exec(
     "DELETE FROM coverage WHERE ran_at_ns < " ..
       "(SELECT min(ran_at_ns) FROM (SELECT ran_at_ns FROM test_runs ORDER BY ran_at_ns DESC LIMIT " ..
-      kept_snapshots .. "))")
+      tostring(kept_snapshots) .. "))")
   if not pruned_snapshots then
     return false, snapshots_trouble
   end
@@ -434,7 +434,7 @@ local function credit_hits(handle: Sqlite.Handle, credited: test.Credited,
     local placeholders: mut {string} = {}
     local args: mut {Sqlite.Value} = { { integer = run_at_ns } }
     for index, id in ipairs(tests) do
-      placeholders[index] = "?" .. (index + 1)
+      placeholders[index] = "?" .. tostring((index + 1))
       args[#args + 1] = text(id)
     end
     local rows, trouble = Sqlite.text_rows(handle,
@@ -1138,7 +1138,7 @@ local function limits_of(values: {string:string}): State.Limits?, string
     local seconds, trouble = positive(value, what)
     if seconds == nil then return nil, trouble end
     if seconds > most_seconds then
-      return nil, what .. " must be at most " .. most_seconds .. " seconds, not " .. value
+      return nil, what .. " must be at most " .. tostring(most_seconds) .. " seconds, not " .. value
     end
     return seconds, ""
   end
@@ -1715,8 +1715,8 @@ local function select_tests(ctx: Run): integer?
   -- suite answers for is checked on such a run alone.
   ctx.whole = #selectors == 0 and shard == nil
   -- Said after the sandbox, last on the summary line, whichever verdict.
-  ctx.share_summary = if shard ~= nil then
-    string.format("; shard %d of %d", shard.index, shard.count) else "" end
+  ctx.share_summary = shard ~= nil and
+    string.format("; shard %d of %d", shard.index, shard.count) or ""
   return nil
 end
 
@@ -2192,8 +2192,8 @@ local function say_violations(rec: Recording)
       "verdict is as the tests gave it)%s; all of them: cosmic sql --build 'SELECT * FROM " ..
       "type_violations'",
     plural.count(total, "violation"), distinct, plural.count(places, "place"),
-    if rec.violations_dropped > 0 then string.format("; %s more went unrecorded",
-      plural.count(rec.violations_dropped, "kind")) else "" end))
+    rec.violations_dropped > 0 and string.format("; %s more went unrecorded",
+      plural.count(rec.violations_dropped, "kind")) or ""))
   local order: mut {string} = {}
   for i, key in ipairs(rec.violation_order) do order[i] = key end
   table.sort(order, function(a: string, b: string): boolean
@@ -2251,7 +2251,7 @@ local function settle(ctx: Run)
     local names, uname_trouble = sys.uname()
     if names == nil then errors[#errors + 1] = "uname: " .. uname_trouble end
     local entered = c_functions.tally(functions, hits, c_functions.sources(assert(ctx.root), functions),
-      if names ~= nil then names.sysname else nil end, ctx.c_unavailable)
+      names ~= nil and names.sysname or nil, ctx.c_unavailable)
     for _, key in ipairs(entered.unentered) do
       failures[#failures + 1] = key .. ": a C function no test enters"
     end

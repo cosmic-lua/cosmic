@@ -211,7 +211,7 @@ local record Wake
 end
 
 local record Ongoing
-  mut loop: Loop?
+  mut loop?: Loop
 end
 
 local ongoing: Ongoing = {}
@@ -664,7 +664,7 @@ local function wait_on(fd: integer, events: integer, timeout_ns: integer?,
   end
   local deadline = if timeout_ns ~= nil then Clock.monotonic_ns() + timeout_ns else nil end
   while true do
-    local left = if deadline ~= nil then math.max(deadline - Clock.monotonic_ns(), 0) else nil end
+    local left = deadline ~= nil and math.max(deadline - Clock.monotonic_ns(), 0) or nil
     local revents, trouble = sys.poll({ fd }, { events }, Poll.milliseconds(left))
     if revents == nil then return false, trouble end
     if revents[1] ~= 0 then return true, "" end
@@ -761,7 +761,7 @@ end
 local function start(fn: function()): Poll.Task
   local state: State = {
     co = coroutine.create(fn), loop = ongoing.loop, started = false, waiting = false,
-    ended = false, killed = false, cancelled = false, shields = 0, joiners = {} }
+    ended = false, killed = false, cancelled = false, shields = 0, parked = nil, joiners = {} }
   running().tasks[state.co] = state
   running().live = running().live + 1
   running().ready[#running().ready + 1] = { task = state, ok = true, why = "" }

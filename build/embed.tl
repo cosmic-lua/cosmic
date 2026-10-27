@@ -78,7 +78,7 @@ local function copy_rows(from: Sqlite.Handle, into: Sqlite.Handle,
   end
   local slots: mut {string} = {}
   for index = 1, #columns do
-    slots[index] = "?" .. index
+    slots[index] = "?" .. tostring(index)
   end
   local insert = "INSERT OR IGNORE INTO " .. table_name .. " (" ..
     table.concat(columns, ", ") .. ") VALUES (" .. table.concat(slots, ", ") .. ")"
@@ -562,8 +562,8 @@ local function run(argv: {string}): integer
     log:say(bin .. "/" .. name)
     outputs[#outputs + 1] = bin .. "/" .. name .. (if host then " (host)" else "" end)
   end
-  local wrote = if #outputs > 0 then table.concat(outputs, ", ") else
-    "no executable: no cmd/<name>/main.tl in the tree" end
+  local wrote = #outputs > 0 and table.concat(outputs, ", ") or
+    "no executable: no cmd/<name>/main.tl in the tree"
   local _, _ = logger.summary("build", wrote .. ", " .. clock.took(started))
   return 0
 end

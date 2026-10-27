@@ -45,7 +45,7 @@ local record invoke
     --- it.
     cwd: string
     --- The environment it reads, name to value; this process's when nil.
-    env: {string:string}?
+    env?: {string:string}
   end
 
   --- What a run ended with, as a started binary's would be.
@@ -168,7 +168,7 @@ function invoke.run(args: {string}, opts: invoke.Options): invoke.Result
         -- uncaught error -- its source position and the catalog's
         -- guidance (core/main.c's `failed`) -- once a binding hands them
         -- to Lua.
-        local message = if (answer is string or answer is number) then tostring(answer) else "failed" end
+        local message = (answer is string or answer is number) and tostring(answer) or "failed"
         logger.log:complain(message)
         return
       end

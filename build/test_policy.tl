@@ -147,13 +147,13 @@ function test_policy.worker(plan: test_sandbox.Plan, effective: test_inputs.Effe
   local grants: mut {Sandbox.Grant} = {}
   for _, path in ipairs(unveil.reads) do
     local inside = at[path] or path
-    grants[#grants + 1] = { path = inside, from = if at[path] ~= nil then path else nil end,
+    grants[#grants + 1] = { path = inside, from = at[path] ~= nil and path or nil,
       letters = letters_of(path, inside, plan.runs) }
   end
   local scratch: string? = nil
   for _, path in ipairs(unveil.writes or {}) do
     local inside = at[path] or path
-    grants[#grants + 1] = { path = inside, from = if at[path] ~= nil then path else nil end, letters = "rwxc" }
+    grants[#grants + 1] = { path = inside, from = at[path] ~= nil and path or nil, letters = "rwxc" }
     scratch = scratch or path
   end
   -- The private noexec scratch: a writable grant without `x`, which the

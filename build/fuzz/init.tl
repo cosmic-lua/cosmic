@@ -166,29 +166,29 @@ local type Draw = shrink.Draw
 --- integers replays to some input.
 local function replaying(values: {integer}, draws: mut {Draw}): Fuzz.Source
   local replay = { at = 0 }
-  local src: Fuzz.Source = {}
-  src.int = function(_self: Fuzz.Source, min: integer, max: integer): integer
-    if min > max then
-      error(("fuzz: int(%d, %d): min is greater than max"):format(min, max), 2)
-    end
-    replay.at = replay.at + 1
-    local v = values[replay.at]
-    if v == nil or v < min or v > max then v = min end
-    draws[#draws + 1] = { min = min, max = max, value = v }
-    return v
-  end
-  return src
+  return {
+    int = function(_self: Fuzz.Source, min: integer, max: integer): integer
+      if min > max then
+        error(("fuzz: int(%d, %d): min is greater than max"):format(min, max), 2)
+      end
+      replay.at = replay.at + 1
+      local v = values[replay.at]
+      if v == nil or v < min or v > max then v = min end
+      draws[#draws + 1] = { min = min, max = max, value = v }
+      return v
+    end,
+  }
 end
 
 --- A source drawing from `rng` that records what it hands out.
 local function recording(rng: Rand.Source, draws: mut {Draw}): Fuzz.Source
-  local src: Fuzz.Source = {}
-  src.int = function(_self: Fuzz.Source, min: integer, max: integer): integer
-    local v = rng:int(min, max)
-    draws[#draws + 1] = { min = min, max = max, value = v }
-    return v
-  end
-  return src
+  return {
+    int = function(_self: Fuzz.Source, min: integer, max: integer): integer
+      local v = rng:int(min, max)
+      draws[#draws + 1] = { min = min, max = max, value = v }
+      return v
+    end,
+  }
 end
 
 --- An integer from the environment, or `otherwise` when it is unset.
@@ -208,7 +208,7 @@ end
 --- `run` is counting them; nil otherwise, so shrinking and replay count
 --- nothing.
 local record Counting
-  mut reached: {string: boolean}?
+  mut reached?: {string: boolean}
 end
 
 local counting: Counting = {}
@@ -240,7 +240,7 @@ local function attempt(check: function(string): boolean, string, input: string,
     return false, "raised: " .. raised
   end
   if held ~= true then
-    return false, if why ~= nil and why ~= "" then tostring(why) else "check returned false" end
+    return false, why ~= nil and why ~= "" and tostring(why) or "check returned false"
   end
   return true, ""
 end
@@ -388,8 +388,8 @@ local function run(p: Fuzz.Property): integer
     local draws: mut {Draw} = {}
     local mine: {string: boolean} = {}
     local case = case_seed or seeds:int(math.mininteger, math.maxinteger)
-    local where = if case_name ~= nil then ("FUZZ_CASE=%s:%d"):format(case_name, case) else
-      ("seed=%d iteration=%d"):format(seed, i) end
+    local where = case_name ~= nil and ("FUZZ_CASE=%s:%d"):format(case_name, case) or
+      ("seed=%d iteration=%d"):format(seed, i)
     local reproduce = ("FUZZ_CASE=%s:%d (this input alone)"):format(slug(p.name), case)
     if case_name == nil then
       reproduce = reproduce .. (", or FUZZ_SEED=%d FUZZ_ITERS=%d"):format(seed, i)
@@ -449,8 +449,8 @@ local function run(p: Fuzz.Property): integer
             plural.count(#input, "byte"), plural.count(#smallest, "draw"), plural.count(#small, "byte"), shown(small), flaky,
             if kept ~= nil then ("kept at " .. kept) else "not kept: the property names no dir" end,
             reproduce,
-            if kept ~= nil then ("mkdir -p %s && cp %s %s"):format(corpus_of(p), kept, keep) else
-              ("write the input above to " .. keep) end), 0)
+            kept ~= nil and ("mkdir -p %s && cp %s %s"):format(corpus_of(p), kept, keep) or
+              ("write the input above to " .. keep)), 0)
       return false
     end
     assert(held or failure())

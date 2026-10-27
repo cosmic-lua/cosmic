@@ -448,7 +448,7 @@ local function sensitive(root: string, cwd: string, file: string, variant: c.Var
     if found or next(stack) == nil then memo[path] = found end
     return found
   end
-  return visit(if file:sub(1, 1) == "/" then file else cwd .. "/" .. file end, {})
+  return visit(file:sub(1, 1) == "/" and file or cwd .. "/" .. file, {})
 end
 
 --- Checks every one of `files`, paths relative to `cwd` (by default
@@ -677,7 +677,7 @@ function c.check(root: string, files: {string}, cwd?: string, limit?: integer, s
         first_unit[i] = units[job]
       end
       for _, f in ipairs(reported) do
-        local key = f.file .. ":" .. f.line .. ":" .. f.rule .. ":" .. f.within
+        local key = f.file .. ":" .. tostring(f.line) .. ":" .. f.rule .. ":" .. f.within
         local same = at[key]
         if same == nil then
           f.variants = { name }
@@ -703,7 +703,7 @@ function c.check(root: string, files: {string}, cwd?: string, limit?: integer, s
     -- A file that could not be read refers to what is not known: its
     -- own trouble is the finding, rather than guesses about the rest.
     local known = #every == #files
-    for _, f in ipairs(if known then rules.single_file(every) else {} end) do
+    for _, f in ipairs(known and rules.single_file(every) or {}) do
       for _, u in ipairs(every) do
         local o = by_file[u.file]
         if u.defines[f.within] ~= nil then
@@ -722,7 +722,7 @@ function c.check(root: string, files: {string}, cwd?: string, limit?: integer, s
     if o_findings ~= nil then
       local kept: mut {rules.Finding} = {}
       for _, f in ipairs(o_findings) do
-        local key = f.file .. ":" .. f.line .. ":" .. f.rule
+        local key = f.file .. ":" .. tostring(f.line) .. ":" .. f.rule
         if not seen[key] then
           seen[key] = true
           kept[#kept + 1] = f

@@ -415,8 +415,8 @@ local function test_every_declaration_is_what_the_core_registers()
   for _, name in ipairs(names) do
     local raw = raw_module(name)
     local maker = makers[name]
-    local made: Made = if maker ~= nil then maker(members(raw)) else
-      { instances = {}, release = nothing } end
+    local made: Made = maker ~= nil and maker(members(raw)) or
+      { instances = {}, release = nothing }
     local source = declaration_of(name)
     for _, problem in ipairs(disagreements(name, source, raw, made.instances)) do
       problems[#problems + 1] = problem
@@ -451,7 +451,7 @@ local function raw_modules_in(source: string): {string: {string}}?, string
       "entry: " .. rest
   end
   if read < 10 then
-    return nil, "read only " .. read .. " raw_modules entries of core/store.c"
+    return nil, "read only " .. tostring(read) .. " raw_modules entries of core/store.c"
   end
   return out, ""
 end

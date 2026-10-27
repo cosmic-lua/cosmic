@@ -124,7 +124,7 @@ local function waited(fd: integer, writable: boolean, timeout_ns: integer?): boo
   -- then Stream.from_fd and Stream.to_fd (see the TODO at SocketConn:read
   -- in cosmic/net.tl).
   if Poll.in_task() then
-    return Poll.wait(fd, if writable then sys.POLLOUT else sys.POLLIN end, timeout_ns)
+    return Poll.wait(fd, writable and sys.POLLOUT or sys.POLLIN, timeout_ns)
   end
   local ok, trouble, errno = raw.wait(fd, writable, Poll.milliseconds(timeout_ns))
   if ok then return true, "" end
@@ -288,8 +288,8 @@ local function take_socket(channel: Channel, tag: integer): boolean
   if peer_host == nil or peer_port == nil or peer_port ~= pending.port or
       not same_host(peer_host, pending.host) then
     local _, _ = socket:close()
-    local connected = if peer_host ~= nil and peer_port ~= nil then named(peer_host, peer_port) else
-      "an address that is no host and port" end
+    local connected = peer_host ~= nil and peer_port ~= nil and named(peer_host, peer_port) or
+      "an address that is no host and port"
     lose(channel, "net: the connector passed a socket connected to " .. connected .. ", not " .. wanted)
     return false
   end
@@ -385,7 +385,7 @@ local function await(channel: Channel, deadline: integer?, late: boolean,
     if ready() then return true, "" end
     local lost = channel.lost
     if lost ~= nil then return false, lost end
-    local left = if deadline ~= nil then math.max(0, deadline - Clock.monotonic_ns()) else nil end
+    local left = deadline ~= nil and math.max(0, deadline - Clock.monotonic_ns()) or nil
     local woke, why = waited(channel.process.fd, false, left)
     if not woke then
       if late then
@@ -764,7 +764,8 @@ Leaf.start = start
 function Leaf.connector(endpoints: {raw_process.ConnectorEndpoint}, timeout_ms: integer,
                         public?: raw_process.ConnectorPublic): Connection.Connector?, string
   local connector: Served = {
-    timeout_ms = timeout_ms, open = true, public = public, accepts_public = public ~= nil, endpoints = endpoints,
+    timeout_ms = timeout_ms, open = true, public = public, inherited = nil, accepts_public = public ~= nil,
+    endpoints = endpoints, channel = nil,
   }
   local started, why = start(endpoints, timeout_ms, public)
   if started == nil then return nil, why end
@@ -802,7 +803,7 @@ function Leaf.adopted(fd: integer, held?: {raw_process.ConnectorEndpoint}, publi
   if not ok then return nil, "child: " .. nonblocking end
   local adopted: Process = setmetatable({ fd = fd, open = true }, process_mt)
   local connector: Served = {
-    timeout_ms = timeout_ms, open = true, endpoints = kept,
+    timeout_ms = timeout_ms, open = true, public = nil, endpoints = kept,
     channel = channel_of(adopted), inherited = true, accepts_public = public == true,
   }
   made[connector] = connector

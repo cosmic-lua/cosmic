@@ -69,9 +69,10 @@
 -- has a use for one ([`lang.check`]'s `class_scope` refuses both): the table is the module's own local.
 --
 -- TODO: take truthiness from the new checker's types, in place of the translator's syntactic rule
--- ([`lang.truthy`]), once expressions land (doc/plans/new-checker-types.md, "expressions
--- without flow"): a name or a call whose type is neither boolean nor optional is then truthy, and its `if`
--- expression is `c and a or b` and not a function called on the spot.
+-- ([`lang.truthy`]), once the nil codes (`nil_not_allowed`, `index_may_be_nil`) are closed, so that a type cannot
+-- lie about nil (doc/plans/new-checker-types.md, "expressions without flow"): a name or a call whose type is
+-- neither boolean nor optional is then truthy, and its `if` expression is `c and a or b` and not a function called
+-- on the spot.
 --
 -- TODO: write `local _ = require("m")` as nothing where `m` returns a type, and an `is` of an imported enum as a
 -- test for a string and of an imported userdata record as one for userdata, once the new checker's type report
@@ -247,7 +248,7 @@ local function without_metatable_calls(text: string, classes: {string: boolean},
     end
     local comma = argument_end(text, e + 1)
     local stop = comma ~= nil and metatable_call_end(text, comma, classes, metatables) or nil
-    local previous = if s > 1 then text:sub(s - 1, s - 1) else "" end
+    local previous = s > 1 and text:sub(s - 1, s - 1) or ""
     if comma ~= nil and stop ~= nil and not previous:find("[%w_.:]") then
       out[#out + 1] = text:sub(at, s - 1)
       out[#out + 1] = without_metatable_calls(text:sub(e + 1, comma - 1), classes, metatables)
@@ -747,7 +748,7 @@ local function list(y: integer, items: {Output}): Output
       put(out, ",")
       space = " "
     end
-    add_child(out, child, space, if child.y ~= y then G.indent else nil end)
+    add_child(out, child, space, child.y ~= y and G.indent or nil)
   end
   return out
 end
@@ -770,7 +771,7 @@ local function params_of(open: integer, params: {Ast.Param}): Output
   local outs: mut {Output} = {}
   for i, p in ipairs(params) do
     local name = p.name
-    outs[i] = text(line_of(p.first), if name ~= nil then name.name else "..." end)
+    outs[i] = text(line_of(p.first), name ~= nil and name.name or "...")
   end
   return list(line_of(open), outs)
 end
@@ -818,7 +819,7 @@ local function table_literal(node: Ast.Table): Output
     children[i] = item(it)
   end
   for i, child in ipairs(children) do
-    add_child(out, child, " ", if child.y ~= y then G.indent else nil end)
+    add_child(out, child, " ", child.y ~= y and G.indent or nil)
     if i < #children or yend ~= y then
       put(out, ",")
     end
@@ -962,7 +963,7 @@ local function is_test(node: Ast.IsTest, value: Output): Output
     else
       operand = exp(node.value)
     end
-    add_child(out, type_test(member, operand, y, if not held then node.value else nil end), "", G.indent)
+    add_child(out, type_test(member, operand, y, not held and node.value or nil), "", G.indent)
   end
   if held then
     put(out, " end)(")
@@ -1500,7 +1501,7 @@ local function if_statement(s: Ast.If): Output
     pieces[#pieces + 1] = piece
   end
   for i, piece in ipairs(pieces) do
-    add_child(out, piece, if i > 1 then " " else nil end, if piece.y ~= y then G.indent else nil end)
+    add_child(out, piece, if i > 1 then " " else nil end, piece.y ~= y and G.indent or nil)
   end
   add_child(out, text(line_of(s.last), "end"), " ", G.indent)
   return out
@@ -1628,7 +1629,7 @@ local function match_statement(s: Ast.Match): Output
     pieces[k] = piece
   end
   for _, piece in ipairs(pieces) do
-    add_child(out, piece, " ", if piece.y ~= y then G.indent else nil end)
+    add_child(out, piece, " ", piece.y ~= y and G.indent or nil)
   end
   add_child(out, text(line_of(s.last), "end end"), " ", G.indent)
   return out

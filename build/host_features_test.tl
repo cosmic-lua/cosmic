@@ -133,7 +133,7 @@ local function test_a_macos_host_is_named_by_its_system_version(tmp: string)
   assert(darwin[3] == "", "a version beside the system's")
   local plist = tmp .. "/SystemVersion.plist"
   local system: mut {string} = {}
-  for i, path in ipairs(darwin) do system[i] = if path == darwin[2] then plist else path end end
+  for i, path in ipairs(darwin) do system[i] = path == darwin[2] and plist or path end
   local sources: declared_key.HostSources = {
     packages = {}, system = system, cpu_features = {}, machine = "arm64", sysname = "Darwin",
     status = tmp .. "/status", own_proc = false, host_id = "macos-15", uid = 501,

@@ -346,7 +346,7 @@ function shared_verdicts.census_line(held: {shared_verdicts.Held}): string
   for _, group in ipairs(held) do
     groups[#groups + 1] = string.format("%d %s under %s", group.rows,
       plural.noun(group.rows, "row"),
-      if group.parts ~= "" then group.parts else "no parts named" end)
+      group.parts ~= "" and group.parts or "no parts named")
   end
   return "test: census: " .. table.concat(groups, "; ")
 end
@@ -423,7 +423,7 @@ function shared_verdicts.settle(cache: shared_verdicts.Cache, origin: string,
       if not aged then return false, age_trouble end
       local bounded, bound_trouble = Sqlite.run(db, "DELETE FROM " .. name ..
           " WHERE " .. key .. " IN (SELECT " .. key .. " FROM " .. name .. " " ..
-          "ORDER BY used_ns DESC LIMIT -1 OFFSET " .. kept_rows .. ")")
+          "ORDER BY used_ns DESC LIMIT -1 OFFSET " .. tostring(kept_rows) .. ")")
       if not bounded then return false, bound_trouble end
     end
     return true, ""

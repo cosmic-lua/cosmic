@@ -224,7 +224,7 @@ local function run(insns: {Insn}, arch: integer, number: integer, args: {integer
   local pc = 1
   while true do
     local insn = insns[pc]
-    assert(insn ~= nil, "the program ran off its end at " .. pc)
+    assert(insn ~= nil, "the program ran off its end at " .. tostring(pc))
     local code, k = insn.code, insn.k
     pc = pc + 1
     if code == 0x20 then
@@ -234,13 +234,13 @@ local function run(insns: {Insn}, arch: integer, number: integer, args: {integer
     elseif code == 0x05 then
       pc = pc + k
     elseif code == 0x15 then
-      pc = pc + (if a == k then insn.jt else insn.jf end)
+      pc = pc + (a == k and insn.jt or insn.jf)
     elseif code == 0x25 then
-      pc = pc + (if a > k then insn.jt else insn.jf end)
+      pc = pc + (a > k and insn.jt or insn.jf)
     elseif code == 0x35 then
-      pc = pc + (if a >= k then insn.jt else insn.jf end)
+      pc = pc + (a >= k and insn.jt or insn.jf)
     elseif code == 0x45 then
-      pc = pc + (if (a & k) ~= 0 then insn.jt else insn.jf end)
+      pc = pc + ((a & k) ~= 0 and insn.jt or insn.jf)
     elseif code == 0x06 then
       return k
     else
@@ -258,7 +258,7 @@ local function verdict(value: integer): string
     if errno == 1 then return "EPERM" end
     if errno == 25 then return "ENOTTY" end
     if errno == 38 then return "ENOSYS" end
-    return "errno " .. errno
+    return "errno " .. tostring(errno)
   end
   return string.format("0x%x", value)
 end
@@ -893,7 +893,7 @@ local function test_every_call_gets_an_answer()
           for number = 0, process.PROMISE_CALLS_REVIEWED + 2 do
             local got = verdict(run(insns, AUDIT[arch], number, {}))
             assert(got == "allow" or got == "EPERM" or got == "ENOSYS" or got == "ENOTTY",
-              arch .. " " .. number .. " is " .. got)
+              arch .. " " .. tostring(number) .. " is " .. got)
           end
         end
       end
@@ -907,11 +907,11 @@ local function test_a_promise_only_adds()
   for _, arch in ipairs(ARCHES) do
     local base = decode(process.promise_filter({}, arch))
     local full = decode(process.promise_filter({ "fork", "jit", "fattr", "nest" }, arch))
-    assert(#full > #base and #full < 1500, #base .. " and " .. #full .. " instructions")
+    assert(#full > #base and #full < 1500, tostring(#base) .. " and " .. tostring(#full) .. " instructions")
     for number = 0, process.PROMISE_CALLS_REVIEWED - 1 do
       local before = verdict(run(base, AUDIT[arch], number, { 0, 0, 0, 0 }))
       local after = verdict(run(full, AUDIT[arch], number, { 0, 0, 0, 0 }))
-      assert(before ~= "allow" or after == "allow", arch .. " " .. number .. " lost to a promise")
+      assert(before ~= "allow" or after == "allow", arch .. " " .. tostring(number) .. " lost to a promise")
     end
   end
 end

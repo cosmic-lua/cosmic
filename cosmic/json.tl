@@ -282,7 +282,7 @@ local record Json
     --- Read `#` line comments, as `decode` does, with or without `json5`.
     hash_comments?: boolean
     --- What `value` puts where the text says `null`.
-    null_value: Json.Value?
+    null_value?: Json.Value
   end
 
   --- A reader of JSON text a token at a time, from [`Json.reader`]. A
@@ -2041,7 +2041,7 @@ local class TokenReader is Json.Reader
       local ended = token == "string" or self.buf:byte(self.at) == nil
       local closer: string?
       if f ~= nil then closer = if f.object then "}" else "]" end end
-      value, err = scalar(self, if ended then text else text .. " " end, column, closer)
+      value, err = scalar(self, ended and text or text .. " ", column, closer)
       if err ~= "" then return nil, err end
       if token == "string" and self.json5 then pass_lines(self, text, start) end
     end

@@ -61,8 +61,8 @@ local record bom
   --- the lines of it to keep; `first` is nil for the whole file.
   record Notice
     file: string
-    first: integer?
-    last: integer?
+    first?: integer
+    last?: integer
   end
 
   --- One record, as [`bom.parse`] reads it.
@@ -185,7 +185,7 @@ local function notice_text(directory: string, notice: bom.Notice): string?, stri
   end
   local kept: mut {string} = {}
   local number = 0
-  local ended = if data:sub(-1) == "\n" then data else data .. "\n" end
+  local ended = data:sub(-1) == "\n" and data or data .. "\n"
   for line in ended:gmatch("([^\n]*)\n") do
     number = number + 1
     if number >= first and number <= last then
@@ -193,7 +193,7 @@ local function notice_text(directory: string, notice: bom.Notice): string?, stri
     end
   end
   if number < last then
-    return nil, path .. ": has " .. plural.count(number, "line") .. ", not " .. last
+    return nil, path .. ": has " .. plural.count(number, "line") .. ", not " .. tostring(last)
   end
   return table.concat(kept, "\n") .. "\n"
 end

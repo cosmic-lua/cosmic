@@ -57,8 +57,8 @@ local function test_a_worker_that_ran_an_unkeyed_module_fails_its_test()
   local closure = { ["build.lib"] = true, ["build.lib_test"] = true }
   local function judged(modules: {string}, held?: boolean): worker.Judgement
     return worker.judge({ result = ended(passing(modules)), trouble = "", timeout_ns = Clock.seconds(1),
-      sandboxed = true, carried = if held ~= false then carried else nil end,
-      closure = if held ~= false then closure else nil end })
+      sandboxed = true, carried = held ~= false and carried or nil,
+      closure = held ~= false and closure or nil })
   end
   local kept = judged({ "build.lib", "build.lib_test", "build.test_worker",
     "cosmic.sys", "string" })
@@ -132,7 +132,7 @@ local function test_a_worker_is_started_as_its_command_line_says()
     local given = worker.invocation({
       start = { argv = { "/bin/cosmic" }, env = {}, fds = {} }, env = {}, root = "/tree",
       module_path = "suite.a_test", name = "test_x", scratch = "/tmp", needs = "",
-      hold = "none", store = if store ~= "" then store else nil end, closure = { "suite.a_test" },
+      hold = "none", store = store ~= "" and store or nil, closure = { "suite.a_test" },
       tree = {},
     })
     local said = table.concat(given.argv, " ", 10)

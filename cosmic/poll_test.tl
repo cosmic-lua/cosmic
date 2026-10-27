@@ -914,7 +914,7 @@ local function test_waits_sharing_descriptors_come_and_go(tmp: string)
       assert(table.concat(seen, ",") == table.concat(expected, ","), table.concat(seen, ","))
       for i = 1, count do
         local how = (i + round) % 3
-        local first = if how == 1 then sys.POLLNVAL else sys.POLLIN end
+        local first = how == 1 and sys.POLLNVAL or sys.POLLIN
         assert(answers[i][1] & first ~= 0 and answers[i][2] == 0,
           i .. ": " .. answers[i][1] .. " " .. answers[i][2])
         if how ~= 1 then assert(sys.read(readers[i], 16) == "x") end

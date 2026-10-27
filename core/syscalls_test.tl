@@ -70,7 +70,7 @@ end
 --- `failed`, and the errno is `errno` in particular.
 local function failed_with(errno: integer, value: any, message: any, number: any)
   failed(value, message, number)
-  assert(number == errno, "expected errno " .. errno .. ", got " .. tostring(number))
+  assert(number == errno, "expected errno " .. tostring(errno) .. ", got " .. tostring(number))
 end
 
 --- The file at `path`, or "" where it cannot be read.
@@ -253,7 +253,7 @@ local function test_utimensat_sets_either_time_to_the_nanosecond(tmp: string)
   assert(st.atime == 5 and st.atime_ns == 6 and st.mtime == 7 and st.mtime_ns == 8)
   assert(sys.utimensat(path, nil, nil, -1, 999999999))
   st = assert(sys.stat(path))
-  assert(st.mtime == -1 and st.mtime_ns == 999999999, st.mtime .. "." .. st.mtime_ns)
+  assert(st.mtime == -1 and st.mtime_ns == 999999999, tostring(st.mtime) .. "." .. tostring(st.mtime_ns))
   assert(st.atime == 5 and st.atime_ns == 6)
   assert(sys.utimensat(path, 9))
   st = assert(sys.stat(path))
@@ -270,7 +270,7 @@ local function test_utimensat_sets_either_time_to_the_nanosecond(tmp: string)
   assert(sys.utimensat(path, nil, nil, 7, 8))
   st = assert(sys.stat(path))
   assert(st.mtime == 7 and st.ctime >= before and st.ctime_ns >= 0 and
-      st.ctime_ns < 1000000000, st.ctime .. "." .. st.ctime_ns)
+      st.ctime_ns < 1000000000, tostring(st.ctime) .. "." .. tostring(st.ctime_ns))
 end
 
 local function test_mkdir_and_rmdir(tmp: string)
@@ -360,7 +360,7 @@ local function test_readdir_lists_entries_without_dot_and_dot_dot(tmp: string)
   local entries = assert(sys.readdir(tmp .. "/d"))
   local count = 0
   for _ in pairs(entries) do count = count + 1 end
-  assert(count == 3, "three entries, got " .. count)
+  assert(count == 3, "three entries, got " .. tostring(count))
   assert(entries[".hidden"] == "file" and entries["a"] == "file")
   assert(entries["sub"] == "dir", "each entry says what it is")
   assert(next((assert(sys.readdir(tmp .. "/d/sub")))) == nil)
@@ -568,13 +568,13 @@ local function test_a_child_s_descriptors_are_its_own(tmp: string)
   local held: mut {integer} = {}
   local target = 0
   for i = 1, 4 do
-    held[i] = create(tmp .. "/held" .. i)
+    held[i] = create(tmp .. "/held" .. tostring(i))
     if held[i] > target then target = held[i] end
   end
   -- Handed above all of them, so the child closes every one on its way.
   target = target + 2
   local report = create(tmp .. "/report")
-  local pid = assert(process.spawn(probe, { probe, "append /dev/fd/" .. target .. " mapped" },
+  local pid = assert(process.spawn(probe, { probe, "append /dev/fd/" .. tostring(target) .. " mapped" },
     nil, nil, nil, nil, nil, false, { [target] = report }))
   assert(assert(process.waitpid(pid, false)).code == 0)
   assert(assert(sys.pread(report, 64, 0)) == "mapped\n")
@@ -601,8 +601,8 @@ local function test_a_child_is_handed_only_the_descriptors_asked_for(tmp: string
     assert(sys.dup2(report, fd))
     assert(not closed_on_exec(fd))
   end
-  local pid = assert(process.spawn(probe, { probe, "fd-closed " .. below .. "; fd-closed " ..
-      above .. "; write-fd " .. handed .. " handed; write-fd " .. kept .. " kept" },
+  local pid = assert(process.spawn(probe, { probe, "fd-closed " .. tostring(below) .. "; fd-closed " ..
+      tostring(above) .. "; write-fd " .. tostring(handed) .. " handed; write-fd " .. tostring(kept) .. " kept" },
     nil, nil, nil, nil, nil, false, { [handed] = report, [kept] = kept }))
   local status = assert(process.waitpid(pid, false))
   assert(status.code == 0, tostring(status.code))
@@ -643,11 +643,11 @@ local function test_descriptors_handed_crosswise_are_each_where_asked(tmp: strin
   local files: mut {integer: integer} = {}
   for _, fd in ipairs({ first, second }) do
     failed_with(sys.EBADF, sys.fd_flags(fd))
-    files[fd] = create(tmp .. "/" .. fd)
+    files[fd] = create(tmp .. "/" .. tostring(fd))
     assert(sys.dup2(files[fd], fd))
   end
-  local pid = assert(process.spawn(probe, { probe, "write-fd " .. first .. " first; write-fd " ..
-      second .. " second" }, nil, nil, nil, nil, nil, false, { [first] = second, [second] = first }))
+  local pid = assert(process.spawn(probe, { probe, "write-fd " .. tostring(first) .. " first; write-fd " ..
+      tostring(second) .. " second" }, nil, nil, nil, nil, nil, false, { [first] = second, [second] = first }))
   assert(assert(process.waitpid(pid, false)).code == 0)
   assert(assert(sys.pread(files[first], 64, 0)) == "second\n")
   assert(assert(sys.pread(files[second], 64, 0)) == "first\n")
@@ -774,7 +774,7 @@ local function test_getifaddrs_lists_the_loopback_on_darwin_and_fails_enosys_els
   assert(listed ~= nil, why)
   local loopback = false
   for _, entry in ipairs(listed) do
-    local shown = entry.name .. " " .. entry.address .. "/" .. entry.prefix
+    local shown = entry.name .. " " .. entry.address .. "/" .. tostring(entry.prefix)
     assert(#entry.name > 0 and (entry.family == "ipv4" or entry.family == "ipv6"), shown)
     local bytes = Address.parse(entry.address)
     assert(bytes ~= nil and #bytes == (if entry.family == "ipv4" then 4 else 16 end), shown)
@@ -904,11 +904,11 @@ end
 --- refuse or to bound (macOS may do either), so it is only given back.
 local function test_setrlimit_holds_the_process_to_what_getrlimit_answers()
   local limits = assert(sys.getrlimit(sys.RLIMIT_NOFILE))
-  assert(limits.soft > 0 and limits.soft <= limits.hard, limits.soft .. " " .. limits.hard)
+  assert(limits.soft > 0 and limits.soft <= limits.hard, tostring(limits.soft) .. " " .. tostring(limits.hard))
   local lower = limits.soft - 1
   assert(sys.setrlimit(sys.RLIMIT_NOFILE, lower, limits.hard))
   local lowered = assert(sys.getrlimit(sys.RLIMIT_NOFILE))
-  assert(lowered.soft == lower and lowered.hard == limits.hard, lowered.soft .. " " .. lowered.hard)
+  assert(lowered.soft == lower and lowered.hard == limits.hard, tostring(lowered.soft) .. " " .. tostring(lowered.hard))
   assert(sys.setrlimit(sys.RLIMIT_NOFILE, limits.soft, limits.hard))
   assert(assert(sys.getrlimit(sys.RLIMIT_NOFILE)).soft == limits.soft)
   if limits.hard ~= math.maxinteger then
@@ -933,7 +933,7 @@ local function test_clocks_read_and_the_monotonic_one_advances()
   local slept, trouble = sys.nanosleep(2000000)
   assert(slept == true, trouble)
   local after = assert(sys.clock_gettime(sys.CLOCK_MONOTONIC))
-  assert(after - before >= 2000000, "slept " .. (after - before) .. "ns")
+  assert(after - before >= 2000000, "slept " .. tostring((after - before)) .. "ns")
 end
 
 local function test_clock_gettime_refuses_an_unknown_clock()
@@ -1053,10 +1053,10 @@ local function test_maps_id_answers_as_the_namespace_maps_list()
     if names.sysname ~= "Linux" then
       assert(not ok and errno == sys.ENOSYS, why)
     elseif listed_in_map(users, id) and listed_in_map(groups, id) then
-      assert(ok, id .. ": " .. tostring(why))
+      assert(ok, tostring(id) .. ": " .. tostring(why))
     else
       failed(ok, why, errno)
-      assert(errno == sys.EINVAL, id .. ": " .. tostring(why))
+      assert(errno == sys.EINVAL, tostring(id) .. ": " .. tostring(why))
     end
   end
   raises(process.maps_id, -1)
@@ -1255,16 +1255,16 @@ local function test_poll_watches_past_a_thousand_descriptors()
     held.fds[#held.fds + 1] = copy
     events[#events + 1] = sys.POLLIN
   end
-  assert(#fds == wanted, #fds .. " copies under a hard limit of " .. limits.hard ..
+  assert(#fds == wanted, tostring(#fds) .. " copies under a hard limit of " .. tostring(limits.hard) ..
       ": " .. tostring(trouble))
   fds[#fds + 1] = -1
   events[#events + 1] = sys.POLLIN
   assert(not pcall(sys.poll, { -2 }, { sys.POLLIN }, 0), "a descriptor below -1 raises")
   local revents, failure = sys.poll(fds, events, 0)
   assert(revents ~= nil, failure)
-  assert(#revents == wanted + 1, "one answer per descriptor, not " .. #revents)
+  assert(#revents == wanted + 1, "one answer per descriptor, not " .. tostring(#revents))
   for i = 1, wanted do
-    assert(revents[i] & sys.POLLIN ~= 0, "descriptor " .. i .. " answered " .. revents[i])
+    assert(revents[i] & sys.POLLIN ~= 0, "descriptor " .. tostring(i) .. " answered " .. revents[i])
   end
   assert(revents[wanted + 1] == 0, "an unwatched descriptor answered " .. revents[wanted + 1])
 end
@@ -1411,7 +1411,7 @@ local function test_readdir_leaves_no_descriptor_open(tmp: string)
   end
   local after = assert(sys.open(tmp .. "/probe", sys.O_RDWR))
   sys.close(after)
-  assert(after == before, "descriptor " .. after .. " opened where " .. before .. " was free")
+  assert(after == before, "descriptor " .. tostring(after) .. " opened where " .. tostring(before) .. " was free")
 end
 
 local function test_umask_withholds_bits_and_answers_the_last(tmp: string)
@@ -1685,7 +1685,7 @@ local function test_full_fsync_has_native_or_unsupported_effect_shape(tmp: strin
   assert(sys.close(fd))
   local closed, why, number = sys.full_fsync(fd)
   assert(closed == false, "a closed descriptor must not be flushed")
-  failed_with(if names.sysname == "Darwin" then sys.EBADF else sys.ENOSYS end, closed, why, number)
+  failed_with(names.sysname == "Darwin" and sys.EBADF or sys.ENOSYS, closed, why, number)
 end
 
 --- Descriptor validation precedes platform dispatch, including on hosts

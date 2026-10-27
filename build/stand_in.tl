@@ -263,7 +263,7 @@ local function database(path: string): string?, string
     for _, module in ipairs(modules) do
       local bytecode, bytecode_trouble = Store.bytecode(module.name)
       if bytecode == nil then return false, module.name .. ": " .. bytecode_trouble end
-      local name = if module.name == probe_module then main_module else module.name end
+      local name = module.name == probe_module and main_module or module.name
       -- A module's kind is all the runtime reads of a row but its
       -- bytecode: `cosmic.*` modules of kind "module" load trusted, as
       -- the binary's own, and the main, under no such name, does not.

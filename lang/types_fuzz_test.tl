@@ -35,7 +35,7 @@ end
 local function crowded(origin: Types.Store, draws: {integer}): Types.Store
   local store = Types.new(function(module: string, name: string): string?
     local decl = origin:find(module, name)
-    return if decl ~= nil then Types.encode_declaration(decl) else nil end
+    return decl ~= nil and Types.encode_declaration(decl) or nil
   end)
   local decoded = store:decode('(map string (marray (ref "m" "Pair" integer (ref "m" "Tree"))))')
   assert(decoded ~= nil)
@@ -560,7 +560,7 @@ local function test_text_with_a_few_bytes_changed_decodes_to_a_type_in_normal_fo
       local origin = world()
       local fresh = Types.new(function(module: string, name: string): string?
         local decl = origin.store:find(module, name)
-        return if decl ~= nil then Types.encode_declaration(decl) else nil end
+        return decl ~= nil and Types.encode_declaration(decl) or nil
       end)
       local size, declared = fresh:size(), #fresh:declarations()
       local t, why = fresh:decode(input)

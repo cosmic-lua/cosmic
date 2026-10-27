@@ -67,9 +67,9 @@ local function gen_extraction(src: Fuzz.Source): string
     local kind = Fuzz.pick(src, { "file", "dir", "symlink", "symlink" })
     if format == "zip" and kind == "symlink" then kind = "file" end
     fields[#fields + 1] = kind
-    fields[#fields + 1] = gen_path(src, if hostile then PARTS else SAFE_PARTS end)
-    fields[#fields + 1] = if kind == "symlink" then Fuzz.pick(src, if hostile then TARGETS else SAFE_TARGETS end) else
-      (if kind == "file" then Fuzz.bytes(src, 8) else "" end) end
+    fields[#fields + 1] = gen_path(src, hostile and PARTS or SAFE_PARTS)
+    fields[#fields + 1] = kind == "symlink" and Fuzz.pick(src, hostile and TARGETS or SAFE_TARGETS) or
+      (kind == "file" and Fuzz.bytes(src, 8) or "")
   until not Fuzz.more(src, (#fields - 3) // 3, 6)
   return Fuzz.pack(fields)
 end
@@ -473,14 +473,14 @@ local function gen_capped(src: Fuzz.Source): string
   local function cap(small: integer, large: integer): string
     local kind = src:int(0, 2)
     if kind == 0 then return "" end
-    return tostring(src:int(0, if kind == 1 then small else large end))
+    return tostring(src:int(0, kind == 1 and small or large))
   end
   fields[#fields + 1] = cap(400, 100000)
   fields[#fields + 1] = cap(1000, 200000)
   repeat
     -- A body past the 64 KiB a read takes at most, one in eight.
     local big = src:int(0, 7) == 7
-    fields[#fields + 1] = tostring(if big then src:int(65000, 140000) else src:int(0, 300) end)
+    fields[#fields + 1] = tostring(big and src:int(65000, 140000) or src:int(0, 300))
     fields[#fields + 1] = Fuzz.pick(src, { "z", "p" })
   until not Fuzz.more(src, (#fields - 3) // 2, 6)
   return Fuzz.pack(fields)

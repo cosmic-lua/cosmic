@@ -55,7 +55,7 @@ local function test_program_starts_the_relaunch_or_else_the_executable()
   -- And this very program's: its relaunch where it has one.
   local relaunch = Proc.relaunch()
   local argv = this_program.program({ "x" }).argv
-  local lead = if relaunch ~= nil then relaunch.argv else { assert(Proc.executable()) } end
+  local lead = relaunch ~= nil and relaunch.argv or { assert(Proc.executable()) }
   assert(#argv == #lead + 1 and argv[#argv] == "x", table.concat(argv, " "))
   for i, word in ipairs(lead) do assert(argv[i] == word, table.concat(argv, " ")) end
 end

@@ -781,7 +781,7 @@ local up = ("a"):upper()
 local count = m.count
 local pick = m.f(1)
 ]], { m = "local record M\n  count: integer\nend\nfunction M.f(a: integer): integer\n  return a\nend\nreturn M\n" })
-  assert(#r.before == 0 and #r.errors == 0, Programs.codes(r) .. (if r.errors[1] ~= nil then r.errors[1].msg else "" end))
+  assert(#r.before == 0 and #r.errors == 0, Programs.codes(r) .. (r.errors[1] ~= nil and r.errors[1].msg or ""))
   local got = shown(r, { "item", "rest", "first", "i", "j", "k", "x", "up", "count", "pick" })
   local want: {string: string} = {
     item = "Item", rest = "string?", first = "number?", i = "integer", j = "integer", k = "number", x = "number",
@@ -1356,7 +1356,7 @@ local function test_the_arguments_of_a_library_call_are_read_where_they_are_writ
   local function msg_of(source: string): string
     local r = Programs.run(source)
     local first = r.errors[1]
-    return if first ~= nil then first.msg else "" end
+    return first ~= nil and first.msg or ""
   end
   local said: {string} = {
     -- the plain argument of a method call is the third argument, and `false` is no plain text

@@ -189,7 +189,7 @@ function Lex.lex(src: string, name: string): types.Lexed?, string
     local last: types.Item? = nil
     if stop > cur.pos then
       local text = src:sub(cur.pos, stop - 1)
-      local skip = if trim_next then leading(text) else 0 end
+      local skip = trim_next and leading(text) or 0
       local line, col = after(src, cur, skip)
       text = text:sub(skip + 1)
       if text ~= "" then
