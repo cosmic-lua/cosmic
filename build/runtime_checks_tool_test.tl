@@ -1,5 +1,5 @@
---- `cosmic test --check-types` end to end, in a project of its own: it reports a fact the checker took from a test that is
---- false at run time, at its read, in the summary and in the working database, and changes no verdict; and neither it nor
+--- `cosmic test --check-types` end to end, in a project of its own: it reports a value of another kind than a parameter
+--- declares, at its caller, in the summary and in the working database, and changes no verdict; and neither it nor
 --- the variable that asks for it puts a check into what `cosmic build` writes.
 
 local Child = require("cosmic.child")
@@ -30,19 +30,35 @@ local greeting = table.concat({
   "",
 }, "\n")
 
---- The tests: a read with a name passes, and a read after an `assert` that does not raise (the global is replaced by one
---- that answers its arguments, as a program that shadows `assert` would) is found where it is false.
-local suite = table.concat({
-  "local Globals = require(\"cosmic.internal.globals\")",
-  "local greet = require(\"greet\")",
+--- The module that lies: `liar.d.tl` declares a string where `liar.tl` answers an integer, which a project's callers take
+--- on the declaration's word and a program of the checker's grammar cannot send by a cast.
+local liar_declaration = table.concat({
+  "local record Liar",
+  "  text: function(): string",
+  "end",
+  "return Liar",
   "",
-  "local function test_hello_with_nothing()",
-  "  local plant = assert(load(\"planted = assert; assert = function(...) return ... end\", \"=plant\", \"t\", Globals.table()))",
-  "  local restore = assert(load(\"assert = planted\", \"=restore\", \"t\", Globals.table()))",
-  "  plant()",
-  "  local ok, message = pcall(greet.hello, nil)",
-  "  restore()",
-  "  assert(ok or tostring(message):find(\"fact violated at greet.tl:\", 1, true) ~= nil, tostring(message))",
+}, "\n")
+
+local liar = table.concat({
+  "local record Honest",
+  "  text: function(): integer",
+  "end",
+  "local honest: Honest = {",
+  "  text = function(): integer return 42 end,",
+  "}",
+  "return honest",
+  "",
+}, "\n")
+
+--- The tests: a call with a name passes, and a call with the value `liar` sends (an integer for a string) is found
+--- where it is made, and passes all the same: the report changes no verdict.
+local suite = table.concat({
+  "local greet = require(\"greet\")",
+  "local liar = require(\"liar\")",
+  "",
+  "local function test_hello_with_a_value_of_another_kind()",
+  "  assert(tostring(greet.hello(liar.text())) == \"42\")",
   "end",
   "",
   "local function test_hello_with_a_name()",
@@ -51,7 +67,6 @@ local suite = table.concat({
   "",
 }, "\n")
 
--- (`ok` is true where no hook checks the fact: the read answers nil.)
 local main = table.concat({
   "local greet = require(\"greet\")",
   "",
@@ -67,6 +82,8 @@ local function project(tmp: string): string
   local root = tmp .. "/project"
   assert(Fs.mkdirs(root .. "/cmd/hello"))
   assert(Fs.write(root .. "/greet.tl", greeting))
+  assert(Fs.write(root .. "/liar.d.tl", liar_declaration))
+  assert(Fs.write(root .. "/liar.tl", liar))
   assert(Fs.write(root .. "/greet_test.tl", suite))
   assert(Fs.write(root .. "/cmd/hello/main.tl", main))
   return root
@@ -101,20 +118,9 @@ local function violations(root: string): Sqlite.Rows
   return rows
 end
 
---- The place in `greeting` of the read of `name` the fact is about: "line:column".
-local function read_site(): string
-  local line = 0
-  for each in (greeting .. "\n"):gmatch("([^\n]*)\n") do
-    line = line + 1
-    local at = each:find("return name", 1, true)
-    if at ~= nil then return tostring(line) .. ":" .. tostring(at + 7) end
-  end
-  error("no such line")
-end
-
---- A checked run reports the read of `name` that is false, at its place, and passes the tests it passes without it; a run
+--- A checked run reports the parameter that is false, at its caller, and passes the tests it passes without it; a run
 --- without the flag says nothing of types.
-local function test_a_checked_run_reports_a_false_fact_and_changes_no_verdict(tmp: string)
+local function test_a_checked_run_reports_a_false_value_and_changes_no_verdict(tmp: string)
   local root = project(tmp)
   local plain, plain_text = invoke(root, tmp, { "test", "--all" })
   assert(plain.ok and plain_text:find("test: 2 tests passed in ", 1, true) ~= nil, plain_text)
@@ -123,12 +129,13 @@ local function test_a_checked_run_reports_a_false_fact_and_changes_no_verdict(tm
   local checked, text = invoke(root, tmp, { "test", "--check-types" })
   assert(checked.ok and text:find("test: 2 tests passed in ", 1, true) ~= nil, text)
   assert(text:find("run-time types: 1 violation, 1 distinct, at 1 place", 1, true), text)
-  assert(text:find("greet.tl:" .. read_site() .. ": name declared not nil got nil (1 time)", 1, true), text)
+  assert(text:find("greet_test.tl:5: parameter name of function (greet.tl:6) declared string|nil got integer (1 time)", 1,
+    true), text)
   assert(text:find("2 ran, 0 stood", 1, true), "a standing verdict hid a test from the report: " .. text)
 
   local rows = violations(root)
   assert(#rows == 1, tostring(#rows) .. " rows")
-  assert(table.concat(rows[1]:texts(), " | ") == "fact | greet.tl:" .. read_site() .. " | name | not nil | nil | 1",
+  assert(table.concat(rows[1]:texts(), " | ") == "parameter | greet_test.tl:5 | parameter name of function (greet.tl:6) | string|nil | integer | 1",
     table.concat(rows[1]:texts(), " | "))
 
   -- The same variable asks for the same.

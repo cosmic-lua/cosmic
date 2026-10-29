@@ -95,7 +95,7 @@ harness_epoch.acknowledged = {
 
   ["build.caches"] = "18fc193d825a960a4716cb62fae40d37e1c0d35d61c9acb91025dc0b60b570ee",
 
-  ["build.confine"] = "8d6fbaa23bd0c728c4585a8b11c8d7c0f1261bb8a02c1c0ea22ea23f807877eb",
+  ["build.confine"] = "d666819e9af76a748d77889e67527426ee1cfb178be2d5375d52a561a0333267",
 
   ["build.core_image"] = "18daf88c3c58f62a222472eaa52b99218cd1e5b7ccafde6a0beded46c8f3382b",
 
@@ -103,7 +103,7 @@ harness_epoch.acknowledged = {
 
   ["build.digest"] = "63588bce17aabb935b044ae8a4af8cea78d1dca19822a36e72efe62d4a877355",
 
-  ["build.host_names"] = "b628b308b6c28c8c8c28ff4070bd7ac9b66256c174b32ba0f068450a49507523",
+  ["build.host_names"] = "843db6e5ef5e982ea6c2e53efb31da914982d8392846c86905afd418df6f1220",
 
   ["build.host_requires"] = "a61dcc8c2ec1977de86a371b1c9703f85e47ff759a62ad5cfe894681cd59a4dd",
 

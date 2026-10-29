@@ -44,16 +44,38 @@ local LIB <const> = table.concat({
   "",
 }, "\n")
 
---- The tests of the project: sound calls pass; a call that sends an integer for the string and a float for the integer is
---- one row each at the line of the call, and the functions run on. The values are planted the way a program the checker
---- takes can send them: a global that answers another kind than it is declared to (`tostring`, `math.floor`).
-local SUITE <const> = table.concat({
-  "local Globals = require(\"cosmic.internal.globals\")",
-  "local Lib = require(\"lib\")",
-  "",
-  "local function plant(text: string)",
-  "  assert(load(text, \"=plant\", \"t\", Globals.table()))()",
+--- The module that lies, as the declaration of the tool's own libraries cannot: `liar.d.tl` declares a string and an
+--- integer where `liar.tl` answers an integer and a float. A project's callers take their types from the declaration
+--- file, and nothing holds the module to it, so the values reach the boundary of a function in the project's own Teal.
+local LIAR_DECLARATION <const> = table.concat({
+  "local record Liar",
+  "  text: function(): string",
+  "  count: function(): integer",
   "end",
+  "return Liar",
+  "",
+}, "\n")
+
+--- The module that answers what `liar.d.tl` does not declare.
+local LIAR <const> = table.concat({
+  "local record Honest",
+  "  text: function(): integer",
+  "  count: function(): number",
+  "end",
+  "local honest: Honest = {",
+  "  text = function(): integer return 42 end,",
+  "  count = function(): number return 1.5 end,",
+  "}",
+  "return honest",
+  "",
+}, "\n")
+
+--- The tests of the project: sound calls pass; a call that sends an integer for the string and a float for the integer is
+--- one row each at the line of the call, and the functions run on. The values come from `liar`, as a library whose
+--- declaration is wrong would send them: a program of the checker's grammar has no cast to send them by.
+local SUITE <const> = table.concat({
+  "local Liar = require(\"liar\")",
+  "local Lib = require(\"lib\")",
   "",
   "local function test_a_sound_call_passes()",
   "  assert(Lib.take(\"a\") == \"anil\" and Lib.take(\"b\", 2) == \"b2\" and Lib.half(7) == 3)",
@@ -61,13 +83,9 @@ local SUITE <const> = table.concat({
   "end",
   "",
   "local function test_a_value_of_another_kind_is_found_at_the_caller_and_the_function_runs_on()",
-  "  plant(\"real_tostring = tostring tostring = function() return 42 end\")",
-  "  local taken = Lib.take(tostring(\"a\"))",
-  "  plant(\"tostring = real_tostring\")",
-  "  assert(taken == \"4242\", taken)",
-  "  plant(\"real_floor = math.floor math.floor = function() return 1.5 end\")",
-  "  local halved = Lib.half(math.floor(3.5))",
-  "  plant(\"math.floor = real_floor\")",
+  "  local taken = Lib.take(Liar.text())",
+  "  assert(taken == \"42nil\", taken)",
+  "  local halved = Lib.half(Liar.count())",
   "  assert(halved == 0, tostring(halved))",
   "end",
   "",
@@ -78,6 +96,8 @@ local function project(tmp: string): string
   local root = tmp .. "/project"
   assert(Fs.mkdirs(root))
   assert(Fs.write(root .. "/lib.tl", LIB))
+  assert(Fs.write(root .. "/liar.d.tl", LIAR_DECLARATION))
+  assert(Fs.write(root .. "/liar.tl", LIAR))
   assert(Fs.write(root .. "/boundary_test.tl", SUITE))
   return root
 end
@@ -122,8 +142,8 @@ local function test_a_checked_run_reports_the_parameter_that_is_false_at_the_cal
     seen[#seen + 1] = table.concat(row:texts(), " | ")
   end
   local want = {
-    "parameter | boundary_test.tl:15 | parameter name of take (lib.tl:1) | string | integer | 1",
-    "parameter | boundary_test.tl:19 | parameter n of half (lib.tl:5) | integer | float | 1",
+    "parameter | boundary_test.tl:10 | parameter name of take (lib.tl:1) | string | integer | 1",
+    "parameter | boundary_test.tl:12 | parameter n of half (lib.tl:5) | integer | float | 1",
   }
   assert(#seen == 2, table.concat(seen, "\n"))
   assert(seen[1] == want[1], seen[1])
