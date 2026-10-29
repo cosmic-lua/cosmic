@@ -719,31 +719,20 @@ local function test_a_test_is_given_the_store_of_its_closure_alone(tmp: string)
   assert(Fs.write(root .. "/suite/other.tl", "local record Lib\n  value: integer\nend\nlocal lib: Lib = { value = 1 }\nreturn lib\n"))
   assert(Fs.write(root .. "/suite/closed_test.tl", [[
 local Env = require("cosmic.env")
-local Globals = require("cosmic.internal.globals")
 local Store = require("cosmic.store")
 local Test = require("cosmic.test")
 local lib = require("suite.lib")
 
 Test.policy { env = { "ADDED" } }
 
--- A `require` of a name made at run time, from a chunk of Lua: the parser refuses it in a typed file.
-local function dynamic(name: string): any
-  local chunk = assert(load("return require('suite.' .. ...)", "=dynamic", "t", Globals.table()))
-  local value: any = chunk(name)
-  return value
-end
-
 local function test_closed()
   assert(lib.value == 1)
   assert(Store.bytecode("suite.lib") ~= nil, "the closure is not in the store")
   local bytes, _ = Store.bytecode("suite.other")
   assert(bytes == nil, "a module outside the closure is in the store")
-  local ok, why = pcall(dynamic, "other")
-  assert(not ok and tostring(why):find("outside the import closure", 1, true) ~= nil, tostring(why))
   if Env.get("ADDED") == "1" then
-    local added, added_why = pcall(dynamic, "added")
-    assert(not added and tostring(added_why):find("outside the import closure", 1, true) ~= nil,
-      tostring(added_why))
+    local added, _ = Store.bytecode("suite.added")
+    assert(added == nil, "a module added outside the closure is in the store")
   end
 end
 ]]))
@@ -763,7 +752,7 @@ end
   assert(outside:find("0 ran, 1 stood", 1, true), outside)
   assert(assert(Fs.read(build_dir(root) .. "/cosmic.db")) ~= projection, "the projection did not move")
   -- A module added: it stands, on the same store; told to look, it
-  -- finds a `require` of the new module refused.
+  -- finds the new module not in it.
   assert(Fs.write(root .. "/suite/added.tl", "local record Lib\n  value: integer\nend\nlocal lib: Lib = { value = 3 }\nreturn lib\n"))
   local added = run(root, tmp .. "/added.out", env)
   assert(added:find("0 ran, 1 stood", 1, true), added)

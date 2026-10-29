@@ -318,10 +318,9 @@ do
     mut searchers: { (function(string): (function(arg1?: string, arg2?: any): (any), any)) }
     searchpath: function(string, string, arg3?: string, arg4?: string): string?, string?
 
-    -- TODO: leave `searchers`, `loaded` and `preload` out of the `package` a program outside the tree sees, once a
-    -- declaration can differ between the tree and a project: a project program calls `package.searchers[n]("cosmic.net")`
-    -- and is handed the raw table of the C binding (`any`, but a table it can call), which unchecked calls then reach.
-    -- The tree check `package_readers` holds the tree to the files that read `package`.
+    -- A program outside the tree may not read `package` ([`build.project_refusals`]): it would be handed the raw table of a
+    -- C binding by `package.searchers[n]("cosmic.net")`, which unchecked calls then reach. The tree check `package_readers`
+    -- holds the tree to the files that read it.
   end
 
   global record string

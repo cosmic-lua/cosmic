@@ -1319,8 +1319,6 @@ cosmic/test_policy_test.tl nil_not_allowed 11
 
 cosmic/test_test.tl nil_not_allowed 1
 
-cosmic/test_tool_test.tl nil_not_allowed 4
-
 cosmic/time.tl nil_not_allowed 78
 
 cosmic/time_duration_fuzz_test.tl nil_not_allowed 1
@@ -2335,10 +2333,6 @@ build/lsp/source.tl view_written 1
 
 build/lsp/syntax_read.tl view_written 1
 
-build/must_confine_sandboxed_test.tl view_written 1
-
-build/must_confine_test.tl view_written 1
-
 build/pipeline.tl view_written 2
 
 build/pipeline_check.tl view_written 1
@@ -3194,10 +3188,6 @@ build/link_index.tl map_field 4
 
 build/link_resolve.tl map_field 6
 
-build/must_confine_fixture.tl map_field 4
-
-build/must_confine_test.tl map_field 2
-
 build/patch_test.tl map_field 18
 
 build/paths_test.tl map_field 3
@@ -3318,8 +3308,6 @@ build/test_test.tl map_field 1
 
 build/test_worker.tl map_field 10
 
-build/test_worker_exit_tool_test.tl map_field 6
-
 build/test_worker_test.tl map_field 7
 
 build/this_program_test.tl map_field 15
@@ -3384,7 +3372,17 @@ core/startup_test.tl map_field 2
 
 core/surface_test.tl map_field 2
 
+cosmic/archive_fuzz_test.tl map_field 8
+
+cosmic/archive_test.tl map_field 19
+
+cosmic/channel_test.tl map_field 14
+
 cosmic/child.tl map_field 12
+
+cosmic/child_drain_test.tl map_field 20
+
+cosmic/child_lua_test.tl map_field 3
 
 cosmic/child_policy_database_sandboxed_test.tl map_field 32
 
@@ -3402,11 +3400,15 @@ cosmic/child_task_tool_test.tl map_field 8
 
 cosmic/child_terminal_test.tl map_field 2
 
+cosmic/compress_test.tl map_field 2
+
 cosmic/csv_fuzz_test.tl map_field 1
 
 cosmic/csv_test.tl map_field 25
 
 cosmic/flags.tl map_field 1
+
+cosmic/fs_append_test.tl map_field 21
 
 cosmic/fs_append_tool_test.tl map_field 2
 
@@ -3476,7 +3478,7 @@ cosmic/sandbox/seatbelt.tl map_field 3
 
 cosmic/sandbox/seatbelt_test.tl map_field 29
 
-cosmic/sandbox_restrict_seatbelt_test.tl map_field 32
+cosmic/sandbox_restrict_seatbelt_test.tl map_field 29
 
 cosmic/sandbox_restrict_test.tl map_field 63
 
@@ -3488,7 +3490,13 @@ cosmic/shape_test.tl map_field 10
 
 cosmic/signal_ignored_test.tl map_field 2
 
-cosmic/store_seal_test.tl map_field 3
+cosmic/store_handles_test.tl map_field 7
+
+cosmic/store_seal_test.tl map_field 5
+
+cosmic/stream_fd_test.tl map_field 18
+
+cosmic/stream_test.tl map_field 46
 
 cosmic/tar_test.tl map_field 6
 

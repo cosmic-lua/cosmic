@@ -16,6 +16,7 @@ local Env = require("cosmic.env")
 local sys = require("cosmic.sys")
 local Test = require("cosmic.test")
 local stand_in = require("build.stand_in")
+local test_child = require("build.test_child")
 local test_inputs = require("build.test_inputs")
 local _ = require("build.standalone") -- the checker `-e` types its chunk with: loaded here, as a child's is
 local confine = require("build.confine")
@@ -48,13 +49,21 @@ local function sandboxed(): boolean
   return false
 end
 
+--- The child of the test below: the names of the modules loaded when `-e` runs a chunk. A chunk of a project cannot
+--- read `package`, so it is registered here, as part of the tree.
+test_child.register("loaded", function(_args: {string}): integer
+  local names: mut {string} = {}
+  for name in pairs(package.loaded) do names[#names + 1] = tostring(name) end
+  table.sort(names, function(a: string, b: string): boolean return a < b end)
+  print(table.concat(names, " "))
+  return 0
+end)
+
 --- A chunk runs, and loads nothing of the tree beyond `lua_loads`, `standalone_loads` and what the test module's
 --- closure holds, which holds the checker `-e` types the chunk with ([`build.test_inputs`]'s closure for a module that
 --- declares `lua`): every one of them a child's artifact carries. One added to that way fails here first.
-local function test_a_chunk_runs_on_what_e_loads()
-  local ok, out, err = run({ "-e", "local t: mut {string} = {} " ..
-      "for name in pairs(package.loaded) do t[#t + 1] = tostring(name) end " ..
-      "table.sort(t, function(a: string, b: string): boolean return a < b end) print(table.concat(t, ' '))" })
+local function test_a_chunk_runs_on_what_e_loads(tmp: string)
+  local ok, out, err = run(test_child.words(tmp, "build.lua_children_test", "loaded"))
   assert(ok, err)
   local allowed: mut {string:boolean} = { ["cosmic.sys"] = true }
   for _, list in ipairs({ test_inputs.lua_loads, test_inputs.standalone_loads }) do

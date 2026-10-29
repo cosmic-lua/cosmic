@@ -1001,9 +1001,9 @@ local requirers: {string: Restriction} = {
   },
   ["cosmic.internal.globals"] = {
     files = { "build.fuzz", "build.load_module",
-      "build.raw_tables_test", "build.sandbox", "build.sandboxed_verdicts_test", "build.sealed_worker_test", "build.standalone",
+      "build.raw_tables_test", "build.sandbox", "build.sealed_worker_test", "build.standalone",
       "build.test_closure_diagnostic_test", "build.test_closure_test", "build.type_watch", "core.load_env_test", "core.surface_test",
-      "cosmic.coverage_test", "cosmic.flags_test", "cosmic.test_tool_test", "test.coverage_cache_test" },
+      "cosmic.coverage_test", "cosmic.flags_test", "test.coverage_cache_test" },
     why = "only the modules that run a program or a hook as a chunk of Lua text take the globals whole, as its " ..
       "environment: it holds `require`, which a chunk loads modules the build does not see by; any other module " ..
       "passes the chunk the few names it needs",
@@ -2566,7 +2566,6 @@ local packagers: {string: string} = {
   ["build/test_worker.tl"] = "holds `require` to a test's closure through the searchers and `package.loaded`",
   ["build/udp_fixture.tl"] = "reads the core's raw table through the searchers",
   ["build/unix_socket.tl"] = "reads the core's raw table through the searchers",
-  ["cosmic/removed_example.tl"] = "shows that `package.loaded` holds a module once required",
   ["cosmic/store.tl"] = "reads the store's searcher",
 }
 
@@ -2615,8 +2614,6 @@ local loaders: {string: string} = {
   ["build/fuzz/init.tl"] = "the constant chunk `return __cosmic_tc`, the hook a checked run defines",
   ["build/load_module.tl"] = "the named loader: the constant chunk `return require((...))`",
   ["build/lua_tail.tl"] = "the Lua the compiler wrote, loaded in an environment of its own to dump its bytecode",
-  ["build/must_confine_fixture.tl"] = "constant chunks of the test support that probe the confinement of a worker, " ..
-    "which no typed file may do",
   ["build/sandbox.tl"] = "the script the checker compiled ([`build.standalone`]'s `code`), as the main of a sealed program",
   ["build/standalone.tl"] = "the Lua the checker compiled from a file or a `-e` chunk, or kept from such a compile",
   ["build/test_worker.tl"] = "the constant chunk that reads a value's metatable in the form the compiler writes",
