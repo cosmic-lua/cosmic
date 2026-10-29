@@ -66,6 +66,7 @@
 --- memory, up to `capture_limit` unread bytes of each, after which the
 --- child is left to wait until the caller reads. Nothing streamed is
 --- dropped, and nothing is kept for the Result.
+-- TODO: make this `local type Cell = require("cosmic.cell")` once the store keeps a module that only a `local type` require names; today that drops cosmic.cell from the binary and build/link_index_test fails.
 local Cell = require("cosmic.cell")
 local Fs = require("cosmic.fs")
 local Hash = require("cosmic.hash")

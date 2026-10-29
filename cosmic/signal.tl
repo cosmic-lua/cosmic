@@ -8,6 +8,7 @@
 --- stays ignored and is never caught: a non-interactive shell starts a
 --- background job (`cmd &`) with SIGINT ignored, so `kill -INT` of one
 --- does nothing; send SIGTERM, or start it with the signal restored.
+-- TODO: make this `local type Cell = require("cosmic.cell")` once the store keeps a module that only a `local type` require names; today that drops cosmic.cell from the binary and build/link_index_test fails.
 local Cell = require("cosmic.cell")
 local Clock = require("cosmic.clock")
 local Innermost = require("cosmic.internal.innermost_guard")

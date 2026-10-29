@@ -16,6 +16,7 @@
 --- call more than once, so a caller never has to ask which kind it
 --- holds. [`Stream.lines`] reads a Reader a line at a time.
 
+-- TODO: make this `local type Cell = require("cosmic.cell")` once the store keeps a module that only a `local type` require names; today that drops cosmic.cell from the binary and build/link_index_test fails.
 local Cell = require("cosmic.cell")
 local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
