@@ -364,9 +364,9 @@ end
 
 local function test_the_program_is_named_by_its_own_argument_not_read_from_argv()
   for _, name in ipairs({ "C:\\x\\prog.exe", "dir/", "p" }) do
-    -- A name planted in slot 0 is not the program's.
-    local line: {string} = table.move({ "planted", "--help" }, 1, 2, 0, {})
-    assert(line[0] == "planted" and line[1] == "--help")
+    -- A typed array has no slot 0 to plant a name in (`table.move` into 0 is refused), so the name here is the
+    -- parameter's alone.
+    local line: {string} = { "--help" }
     local done = assert(Flags.dispatch(line, 1, help_commands, name))
     assert(done.help:sub(1, 7 + #name) == "usage: " .. name, done.help)
     local one = assert(Flags.dispatch({ "build", "-h" }, 1, help_commands, name))

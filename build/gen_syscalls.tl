@@ -173,7 +173,13 @@ local function trimmed(lines: {string}): {string}
   while last >= first and lines[last] == "" do
     last = last - 1
   end
-  return table.move(lines, first, last, 1, {})
+  local kept: mut {string} = {}
+  for i, line in ipairs(lines) do
+    if i >= first and i <= last then
+      kept[#kept + 1] = line
+    end
+  end
+  return kept
 end
 
 local function parse_call(name: string, lines: {string}): Call?, string
