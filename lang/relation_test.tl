@@ -594,6 +594,43 @@ local function test_a_function_takes_as_many_arguments_as_are_passed()
     "union_none", "parameter 1 > member 1")
 end
 
+local function test_a_function_whose_parameters_are_known_may_drop_only_trailing_ones()
+  local w = world()
+  local s = w.store
+  local j = w.judge
+  local function with(...: Types.Type): Types.Type
+    local params: mut {Types.Param} = {}
+    for _, t in ipairs({ ... }) do
+      table.insert(params, { type = t })
+    end
+    return s:fn({ params = params })
+  end
+  -- the strict relation refuses a function that takes fewer parameters than are passed
+  refused(w, with(s.string), with(s.string, s.integer), "arity")
+  assert(Relation.subtype_known(j, with(s.string), with(s.string, s.integer)))
+  assert(Relation.subtype_known(j, with(), with(s.string, s.integer)))
+  assert(Relation.subtype_known(j, with(s.number), with(s.integer, s.string)))
+  assert(Relation.refuse_known(j, with(s.number), with(s.integer, s.string)) == nil)
+  -- a union with the function wanted takes it too
+  assert(Relation.subtype_known(j, with(s.string), s:optional(with(s.string, s.integer))))
+  -- the parameters kept are still taken contravariantly, and a middle one is not dropped
+  assert(not Relation.subtype_known(j, with(s.integer), with(s.number, s.string)))
+  assert(not Relation.subtype_known(j, with(s.string), with(s.integer, s.string)))
+  -- one that requires more than are passed, and the returns, stay as they are
+  assert(not Relation.subtype_known(j, with(s.string, s.integer), with(s.string)))
+  assert(not Relation.subtype_known(j, func(w, { s.string }, {}), func(w, { s.string, s.integer }, { s.integer })))
+  -- a rest parameter wanted is still met by a rest parameter
+  assert(not Relation.subtype_known(j, with(s.string), s:fn({ params = { { type = s.string } }, rest = s.integer })))
+  -- the refusal of the strict relation is the one given
+  local r = Relation.refuse_known(j, with(s.integer), with(s.number, s.string))
+  assert(r ~= nil and r.code == "number_for_integer")
+  -- only the top level drops: a callback parameter is held to the strict relation
+  local takes_short = s:fn({ params = { { type = with(s.string) } } })
+  local takes_long = s:fn({ params = { { type = with(s.string, s.integer) } } })
+  assert(not Relation.subtype_known(j, takes_long, takes_short))
+  assert(not Relation.subtype_known(j, takes_short, takes_long))
+end
+
 local function test_a_rest_parameter_meets_the_arguments_after_the_last_parameter()
   local w = world()
   local s = w.store

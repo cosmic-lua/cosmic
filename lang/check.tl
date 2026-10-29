@@ -290,6 +290,9 @@ local record Ctx
   bounds: mut {{Types.TParam}}
   --- How many generic-call arguments are being checked: a literal there has no type to be checked against.
   mut lenient: integer
+  --- Set while the arguments of a generic call are checked: a function there is held to the parameters of the type it is
+  --- instantiated to, which no declaration spells, so it never drops a trailing parameter.
+  mut no_drop: boolean
   members: {Decl: Members}
   --- The same for a declaration used as a value, which also has its statics.
   value_members: {Decl: Members}
@@ -982,9 +985,32 @@ local function refused(ctx: Ctx, node: Ast.Node, got: Type, want: Type, r: Relat
   end
 end
 
+--- Whether the checker sees the parameter list of the function `node` writes or names: a function literal, or a
+--- `local function` that nothing assigns. The type of a variable, field, parameter or return of function type is what
+--- was declared, which may leave out parameters the value takes ([`Relation.subtype_known`]).
+local function knows_parameters(ctx: Ctx, node: Ast.Node): boolean
+  if ctx.no_drop then
+    return false
+  end
+  local at = peel(node)
+  if at.kind == "FunctionLit" then
+    return true
+  end
+  if at.kind == "Name" then
+    local id = at.binding
+    if id == nil then
+      return false
+    end
+    local v = ctx.scoped.vars[id]
+    return v ~= nil and v.fn ~= nil and not v.assigned
+  end
+  return false
+end
+
 --- Whether the value of `node`, of type `got`, may stand where `want` is wanted, reporting it where not.
 local function expect(ctx: Ctx, node: Ast.Node, got: Type, want: Type, where: string, named?: string): boolean
-  if below(ctx, got, want) then
+  local known = knows_parameters(ctx, node)
+  if below(ctx, got, want) or (known and Relation.subtype_known(ctx.judge, got, want)) then
     return true
   end
   local r = ctx.judge:refuse(got, want)
@@ -4140,7 +4166,7 @@ local record Calls
   literal_arguments: function(ctx: Ctx, call: Literals.Call, node: Ast.Node, args: {Ast.Exp}, recv_node: Ast.Node?)
   gsub_key: function(ctx: Ctx, c: Fn, args: {Ast.Exp}, off: integer, key: string)
   method_dot: function(ctx: Ctx, n: Ast.Call, callee: Type, object: Type)
-  expect_argument: function(ctx: Ctx, node: Ast.Node, got: Type, want: Type, callee: string, position: integer, named?: string):
+  expect_argument: function(ctx: Ctx, node: Ast.Node, got: Type, want: Type, callee: string, position: integer, named?: string, generic?: boolean):
     boolean
   dispatch: function(ctx: Ctx, node: Ast.Node, callee_node: Ast.Node, callee: string, ft: Type, cands: {Type}?,
                      args: {Ast.Exp}, recv: Type?, recv_node: Ast.Node?, expected: Type?): {Alt}
@@ -4148,9 +4174,11 @@ end
 
 --- [`expect_argument`] for argument `position` of a call of `callee`: an error it reports says so ([`Codes.Argument`]).
 function Calls.expect_argument(ctx: Ctx, node: Ast.Node, got: Type, want: Type, callee: string, position: integer,
-                               named?: string): boolean
+                               named?: string, generic?: boolean): boolean
   ctx.argument = { callee = callee, module = ctx.callee_module, position = position }
+  ctx.no_drop = generic == true
   local ok = expect_argument(ctx, node, got, want, " as argument " .. tostring(position) .. " of " .. quoted(callee), named)
+  ctx.no_drop = false
   ctx.argument = nil
   return ok
 end
@@ -4238,6 +4266,10 @@ local function apply_function(ctx: Ctx, node: Ast.Node, callee: string, f: Fn, a
   local n = #vals.types
   local why = arity_problem(f, off, n, open)
   local reported = false
+  local generic = false
+  if declared ~= nil then
+    generic = #declared.tparams > 0
+  end
   for i, t in ipairs(vals.types) do
     local want = parameter_at(f, off, i)
     local at = args[math.min(i, #args)] or node
@@ -4252,7 +4284,7 @@ local function apply_function(ctx: Ctx, node: Ast.Node, callee: string, f: Fn, a
       if original ~= nil and declared ~= nil and names_invalid(want) then
         named = Calls.shown(ctx, declared, original)
       end
-      local _ = Calls.expect_argument(ctx, at, t, want, callee, i, named)
+      local _ = Calls.expect_argument(ctx, at, t, want, callee, i, named, generic)
     end
   end
   if why == "too few" or (why == "too many" and not reported) then
@@ -4651,7 +4683,7 @@ local function apply_overloads(ctx: Ctx, node: Ast.Node, callee: string, cands: 
             local want = parameter_at(c, off, i)
             local t = expr(ctx, a, want)
             if want ~= nil then
-              local _ = Calls.expect_argument(ctx, a, t, want, callee, i)
+              local _ = Calls.expect_argument(ctx, a, t, want, callee, i, nil, #declared.tparams > 0)
             end
           end
         end
@@ -6791,7 +6823,7 @@ function Check.check(program: Declarations.Program, input: Declarations.Input, l
   local ctx: Ctx = {
     program = program, store = store, judge = program.judge, input = input, lowered = lowered, scoped = input.scoped,
     tokens = input.chunk.tokens, filename = input.filename, errors = {}, vars = {}, frames = {}, binders = {},
-    bounds = {}, lenient = 0, members = {}, value_members = {}, pending = {}, within = 0, probes = {},
+    bounds = {}, lenient = 0, no_drop = false, members = {}, value_members = {}, pending = {}, within = 0, probes = {},
     load = LoadOrder.new(0, function(_decl: Decl, _name: string): boolean
       return false
     end, function(_node: Ast.Node, _spelled: string, _found: LoadOrder.Found) end),

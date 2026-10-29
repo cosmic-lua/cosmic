@@ -320,3 +320,40 @@ local function test_format_called_as_a_method_takes_the_arguments_its_format_ask
   assert(codes_of('local s: string = "x%s"\nlocal a = s:format("y")\nprint(a)\n') == "")
   assert(codes_of('local a = string.format("x%s", "y")\nprint(a)\n') == "")
 end
+
+-- a function that takes fewer trailing parameters -----------------------------------------------------------------
+
+local function test_a_function_literal_or_declared_function_may_take_fewer_trailing_parameters_than_are_passed()
+  assert(codes_of("local function f(a: integer)\nend\nlocal g: function(integer, string) = f\nprint(g)\n") == "")
+  assert(codes_of("local g: function(integer, string) = function(a: integer)\nend\nprint(g)\n") == "")
+  assert(codes_of("local g: function(integer, string) = function()\nend\nprint(g)\n") == "")
+  local run = "local function run(cb: function(integer, string))\nend\n"
+  assert(codes_of(run .. "run(function(a: integer)\nend)\n") == "")
+  assert(codes_of(run .. "local function h(a: integer)\nend\nrun(h)\n") == "")
+  assert(codes_of("local function run(cb?: function(integer, string))\nend\nrun(function(a: integer)\nend)\n") == "")
+  assert(codes_of("local function f(a: number)\nend\nlocal g: function(integer, string) = f\nprint(g)\n") == "")
+end
+
+local function test_the_parameters_kept_are_held_and_a_middle_one_is_not_dropped()
+  refused("local function f(a: string)\nend\nlocal g: function(integer, string) = f\nprint(g)\n", "not_assignable")
+  refused("local function f(a: integer)\nend\nlocal g: function(number, string) = f\nprint(g)\n", "not_assignable")
+  refused("local g: function(integer, string) = function(a: string)\nend\nprint(g)\n", "not_assignable")
+  -- more parameters than are passed, and fewer values returned, are as before
+  refused("local function f(a: integer, b: integer)\nend\nlocal g: function(integer) = f\nprint(g)\n", "not_assignable")
+  refused("local function f(a: integer)\nend\nlocal g: function(integer, string): integer = f\nprint(g)\n", "not_assignable")
+end
+
+local function test_a_function_that_came_through_a_declared_type_never_drops_a_parameter()
+  -- `function(x?: integer)` is below `function()`, and that must not be below `function(string)`: a string would reach `x`
+  local chain = "local f: function(x?: integer) = function(x?: integer)\nend\nlocal g: function() = f\n"
+  assert(codes_of(chain .. "print(g)\n") == "")
+  refused(chain .. "local h: function(string) = g\nprint(h)\n", "not_assignable")
+  refused("local function use(cb: function())\n  local h: function(string) = cb\n  print(h)\nend\nuse(function()\nend)\n", "not_assignable")
+  refused("local record R\n  f: function()\nend\nlocal function use(r: R)\n  local h: function(string) = r.f\n  print(h)\nend\nuse({ f = function()\nend })\n",
+    "not_assignable")
+  -- a declared function that is assigned again is no longer the one declared
+  refused("local function f(a: integer)\nend\nfor _ = 1, 2 do\n  f = function(a: integer, b?: string)\n  end\nend\nlocal g: function(integer, string) = f\nprint(g)\n",
+    "not_assignable")
+  -- the callbacks of a generic function are held to the strict relation
+  refused("local function f(n: integer): integer\n  return n\nend\nlocal okay, v = pcall(f, 1, 2)\n", "overload_none")
+end
