@@ -76,7 +76,8 @@ local record worker
 
   --- One value that crossed a typed boundary of a checked run
   --- ([`importer.compile`]'s `checks`) as a kind its declared type does
-  --- not admit, which the run reports and does not fail. `at` is the place
+  --- not admit, which the run reports, and fails where it is a parameter
+  --- declared under "cosmic/" ([`worker.install_checks`]). `at` is the place
   --- that sent it: the caller's file and line for a parameter, the `return`
   --- or the write for a return value and a field. The same boundary, place
   --- and kinds again count up `count`.
@@ -309,10 +310,14 @@ end
 --- hook answers the values (the first, for a field) and records a value of
 --- another kind: "absent" for a return value the `return` gave none of,
 --- which Lua reads as nil, apart from a nil it gave. A violation is
---- recorded and the value passes on: a checked run reports and fails
---- nothing.
+--- recorded, and the value passes on, except for a parameter declared in the
+--- standard library (a place under "cosmic/"): the call raises "parameter
+--- violated at <caller>: parameter <name> of <function> (<declaration>) is
+--- <kind>, declared <kinds>", so the first one fails the test that met it.
+--- A return value and a field written, which a checked compile does not
+--- check yet, and a parameter declared elsewhere are reported only.
 ---
---- One kind of check fails: "n", a read whose type a test narrowed (an
+--- Another kind of check fails: "n", a read whose type a test narrowed (an
 --- `if x then`, a `~= nil`, an `is`, `assert`, a type test; the checker's
 --- `Node.rt_fact`), with the place, its name and what the test says of the
 --- value: "~" and the kinds the test took out, joined by "|" (a value of
@@ -360,6 +365,15 @@ local record Fact
   declared: string
   mut integral: boolean
 end
+
+--- Where the standard library's sources are: a declaration there is held ([`hook`]).
+local LIBRARY <const> = "cosmic/"
+
+-- The violation `note` last met, which the hook reads after it, since `note` runs under a `pcall`.
+local record Latest
+  mut met?: worker.Violation
+end
+local latest: Latest = {}
 
 local checks: mut {string:Check} = {}
 local facts: mut {string:Fact} = {}
@@ -466,6 +480,7 @@ local function note(check: Check, index: integer, value: any, absent: boolean)
   local known = sites[at]
   if known ~= nil then
     again(known)
+    latest.met = known
     return
   end
   local target: string
@@ -479,6 +494,7 @@ local function note(check: Check, index: integer, value: any, absent: boolean)
   local met: worker.Violation = { kind = if check.kind == "p" then "parameter" elseif check.kind == "r" then "return" else "field" end,
     at = at, target = target, declared = check.declared[index], actual = actual, count = 1 }
   keep(sites, at, met)
+  latest.met = met
 end
 
 local function parse_fact(text: string)
@@ -561,7 +577,15 @@ local function hook(_: integer, text: string, ...: any): any...
       if not kinds[kind] or (kind == "number" and check.integral[index] and
           math_type(value) ~= "integer") then
         -- A check that fails to say so is no failure of the test.
-        local _ = lua_pcall(note, check, index, value, index > given)
+        latest.met = nil
+        local noted = lua_pcall(note, check, index, value, index > given)
+        local met = latest.met
+        -- A parameter of the standard library that meets a kind its declaration refuses ends the call, at the first one:
+        -- either the caller or the declaration is wrong, and both are fixed.
+        if noted and check.kind == "p" and lua_sub(check.at, 1, #LIBRARY) == LIBRARY and met ~= nil then
+          lua_error("parameter violated at " .. met.at .. ": " .. met.target .. " is " .. met.actual ..
+              ", declared " .. met.declared, 0)
+        end
       end
     end
   end

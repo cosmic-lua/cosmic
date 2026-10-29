@@ -2185,9 +2185,10 @@ local SAMPLE_VIOLATIONS <const> = 10
 
 --- A checked run's report of the values that crossed a typed boundary as a
 --- kind its declared type does not admit: how many, at how many distinct
---- places and boundaries, and the commonest. It changes no verdict: the
---- checks report, and nil exclusion has not landed, so before then they
---- flag code the types still allow.
+--- places and boundaries, and the commonest. A parameter declared under
+--- "cosmic/" fails the test that met it when the hook meets it
+--- ([`build.test_worker`]); this reports it, and every other row, and
+--- changes no verdict itself.
 local function say_violations(rec: Recording)
   if not rec.checks then return end
   local total, places = 0, 0
@@ -2201,8 +2202,8 @@ local function say_violations(rec: Recording)
     end
   end
   local distinct = #rec.violation_order
-  log:say(string.format("test: run-time types: %s, %d distinct, at %s (reporting only; every " ..
-      "verdict is as the tests gave it)%s; all of them: cosmic sql --build 'SELECT * FROM " ..
+  log:say(string.format("test: run-time types: %s, %d distinct, at %s (a parameter declared under cosmic/ fails the test that meets it; the " ..
+      "rest are reported only)%s; all of them: cosmic sql --build 'SELECT * FROM " ..
       "type_violations'",
     plural.count(total, "violation"), distinct, plural.count(places, "place"),
     rec.violations_dropped > 0 and string.format("; %s more went unrecorded",
