@@ -134,6 +134,7 @@ end
 
 local BOM <const> = "\xEF\xBB\xBF"
 
+local Cell = require("cosmic.cell")
 local Sqlite = require("cosmic.sqlite")
 
 --- What a failure of this module answers, nil and `why` under the
@@ -421,7 +422,7 @@ ELSE @ END]]):gsub("@", function(): string return column end))
 end
 
 --- A name no other load on the handle holds, for its CSV table in temp.
-local counts = { loads = 0 }
+local counts: Cell<integer> = { value = 0 }
 
 --- Copies CSV, from a file or text, into a new table `name` in the main
 --- schema of `handle`, through SQLite's CSV table, which reads it in C: a
@@ -471,8 +472,8 @@ function Csv.load(handle: Sqlite.Handle, name: string, source: Csv.Source): Csv.
   else
     error("csv: load reads a path or a text, one of them", 2)
   end
-  counts.loads = counts.loads + 1
-  local scratch = "temp." .. identifier("cosmic_csv_load_" .. counts.loads)
+  counts.value = counts.value + 1
+  local scratch = "temp." .. identifier("cosmic_csv_load_" .. tostring(counts.value))
   local ok, trouble = handle:exec("SAVEPOINT cosmic_csv_load")
   if not ok then
     return refuse(trouble)

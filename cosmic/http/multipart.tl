@@ -46,6 +46,7 @@
 --- and `%0A` standing for a quote and the line ends. `filename*` (RFC 8187)
 --- is read when there is no `filename`.
 
+local Cell = require("cosmic.cell")
 local Stream = require("cosmic.stream")
 local String = require("cosmic.string")
 
@@ -238,15 +239,15 @@ end
 local function ext_value(text: string): string?, string
   local charset, escaped = text:match("^([%w-]+)'[%w-]*'(.*)$")
   if charset == nil then return nil, "multipart: filename* is not charset'language'value" end
-  local read = { bad = false }
+  local read: Cell<boolean> = { value = false }
   local raw = escaped:gsub("%%(%x?%x?)", function(hex: string): string
     if #hex ~= 2 then
-      read.bad = true
+      read.value = true
       return ""
     end
     return string.char(tonumber(hex, 16))
   end)
-  if read.bad == true then return nil, "multipart: filename* has a bad escape" end
+  if read.value == true then return nil, "multipart: filename* has a bad escape" end
   local lower = charset:lower()
   if lower == "utf-8" then return raw, "" end
   if lower == "iso-8859-1" then

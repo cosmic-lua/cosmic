@@ -44,6 +44,7 @@
 ---     local plan = assert(relay.plan({ "api.github.com:443" }, {}))
 ---     print(plan.names) -- true
 
+local Cell = require("cosmic.cell")
 local Clock = require("cosmic.clock")
 local Connector = require("cosmic.internal.connector")
 local Config = require("cosmic.internal.relay_config")
@@ -493,10 +494,10 @@ function relay.handover(connect: {string}, own: {string}): Config.Handover?, str
   if planned == nil then return nil, plan_why end
   local plan: relay.Plan = planned
   local processes: mut {Connector.Process} = {}
-  local closing = { closed = false }
+  local closing: Cell<boolean> = { value = false }
   local function close()
-    if closing.closed == true then return end
-    closing.closed = true
+    if closing.value == true then return end
+    closing.value = true
     for _, process in ipairs(processes) do local _ = process:close() end
   end
   local function fail(why: string): nil, string
@@ -590,10 +591,10 @@ function relay.hold_loopback(handover: Config.Handover): integer?, string
   local sockets, port = loopback.sockets, loopback.port
   handover.config.listeners = #sockets
   for i, socket in ipairs(sockets) do handover.fds[2 + i] = socket:fd() end
-  local closing = { closed = false }
+  local closing: Cell<boolean> = { value = false }
   handover.close = function()
-    if closing.closed == true then return end
-    closing.closed = true
+    if closing.value == true then return end
+    closing.value = true
     for _, socket in ipairs(sockets) do local _, _ = socket:close() end
   end
   return port, ""

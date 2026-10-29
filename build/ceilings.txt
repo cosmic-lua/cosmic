@@ -3434,15 +3434,13 @@ core/startup_test.tl map_field 2
 
 core/surface_test.tl map_field 2
 
-cosmic/archive.tl map_field 5
-
 cosmic/archive_fuzz_test.tl map_field 8
 
 cosmic/archive_test.tl map_field 19
 
 cosmic/channel_test.tl map_field 14
 
-cosmic/child.tl map_field 15
+cosmic/child.tl map_field 12
 
 cosmic/child_drain_test.tl map_field 20
 
@@ -3470,13 +3468,11 @@ cosmic/child_terminal_test.tl map_field 2
 
 cosmic/compress_test.tl map_field 2
 
-cosmic/csv.tl map_field 3
-
 cosmic/csv_fuzz_test.tl map_field 1
 
 cosmic/csv_test.tl map_field 25
 
-cosmic/flags.tl map_field 8
+cosmic/flags.tl map_field 1
 
 cosmic/fs_append_test.tl map_field 21
 
@@ -3487,8 +3483,6 @@ cosmic/fs_test.tl map_field 16
 cosmic/hash_test.tl map_field 4
 
 cosmic/html_test.tl map_field 3
-
-cosmic/http/multipart.tl map_field 2
 
 cosmic/http/multipart_test.tl map_field 2
 
@@ -3519,8 +3513,6 @@ cosmic/internal/relay_server.tl map_field 2
 cosmic/internal/relay_server_native_test.tl map_field 3
 
 cosmic/internal/relay_server_test.tl map_field 6
-
-cosmic/internal/relay_start.tl map_field 4
 
 cosmic/internal/relay_token_fuzz_test.tl map_field 8
 
@@ -3580,15 +3572,11 @@ cosmic/seatbelt_network_probe_test.tl map_field 5
 
 cosmic/shape_test.tl map_field 10
 
-cosmic/signal.tl map_field 4
-
 cosmic/signal_ignored_test.tl map_field 2
 
 cosmic/store_handles_test.tl map_field 7
 
 cosmic/store_seal_test.tl map_field 5
-
-cosmic/stream.tl map_field 3
 
 cosmic/stream_fd_test.tl map_field 18
 
@@ -3636,8 +3624,6 @@ cosmic/web/htmx.tl map_field 2
 
 cosmic/web/htmx_test.tl map_field 21
 
-cosmic/web/input.tl map_field 5
-
 cosmic/web/input_fuzz_test.tl map_field 3
 
 cosmic/web/input_multipart_fuzz_test.tl map_field 5
@@ -3668,8 +3654,6 @@ cosmic/web/session/session_test.tl map_field 67
 
 cosmic/web/session/sqlite_test.tl map_field 16
 
-cosmic/web/sse.tl map_field 2
-
 cosmic/web/sse_fuzz_test.tl map_field 2
 
 cosmic/web/sse_test.tl map_field 15
@@ -3679,8 +3663,6 @@ cosmic/web/static.tl map_field 1
 cosmic/web/testing_test.tl map_field 32
 
 cosmic/web/typed_test.tl map_field 25
-
-cosmic/zip.tl map_field 5
 
 cosmic/zip_fuzz_test.tl map_field 9
 

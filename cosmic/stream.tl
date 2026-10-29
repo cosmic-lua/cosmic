@@ -16,6 +16,7 @@
 --- call more than once, so a caller never has to ask which kind it
 --- holds. [`Stream.lines`] reads a Reader a line at a time.
 
+local Cell = require("cosmic.cell")
 local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
 local Hash = require("cosmic.hash")
@@ -1473,12 +1474,12 @@ function Stream.run(t: Stream.Transform, data: string, max_bytes?: integer): str
     error("stream: max_bytes must be an integer of at least 0", 2)
   end
   local parts: mut {string} = {}
-  local kept = { bytes = 0 }
+  local kept: Cell<integer> = { value = 0 }
   --- Keeps `out`, or answers false when it takes the total past the bound.
   local function keep(out: string): boolean
-    kept.bytes = kept.bytes + #out
+    kept.value = kept.value + #out
     parts[#parts + 1] = out
-    return max_bytes == nil or kept.bytes <= max_bytes
+    return max_bytes == nil or kept.value <= max_bytes
   end
   local function too_much(): nil, string
     return refuse("output is larger than " .. String.counted(max_bytes, "byte"))

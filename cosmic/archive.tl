@@ -6,6 +6,7 @@
 --- and written, the format chosen by the file's name, through the one
 --- writer shape tar and zip share.
 
+local Cell = require("cosmic.cell")
 local Fs = require("cosmic.fs")
 local sys = require("cosmic.sys")
 local Compress = require("cosmic.compress")
@@ -475,7 +476,7 @@ local function extract_from(from: string | Archive.Reader, dest: string,
 
   local written: mut {string} = {}
   -- The bytes of the files written so far, against `total_limit`.
-  local tally = { bytes = 0 }
+  local tally: Cell<integer> = { value = 0 }
   -- Directories under `dest` known to be real directories (not
   -- symlinks), by dest-relative path: checked with lstat, or made here.
   local real_dirs: mut {string:boolean} = {}
@@ -541,7 +542,7 @@ local function extract_from(from: string | Archive.Reader, dest: string,
         String.counted(total_limit, "byte") .. ")"
     end
     if entry.size > entry_limit then return over_entry() end
-    if entry.size > total_limit - tally.bytes then return over_total() end
+    if entry.size > total_limit - tally.value then return over_total() end
     local body, otrouble = entry:open()
     if body == nil then return false, otrouble end
     local mode = safe_mode(entry.mode)
@@ -554,7 +555,7 @@ local function extract_from(from: string | Archive.Reader, dest: string,
       -- limit from one that goes on. `left + 1` cannot overflow: `left`
       -- is under `CHUNK` there.
       local want = CHUNK
-      local left = math.min(entry_limit - size, total_limit - tally.bytes - size)
+      local left = math.min(entry_limit - size, total_limit - tally.value - size)
       if left < want then want = left + 1 end
       local chunk, rtrouble = body:read(want)
       if chunk == nil then
@@ -563,7 +564,7 @@ local function extract_from(from: string | Archive.Reader, dest: string,
         return false, rtrouble
       end
       size = size + #chunk
-      if size > entry_limit or tally.bytes + size > total_limit then
+      if size > entry_limit or tally.value + size > total_limit then
         local _, _ = w:abort()
         if size > entry_limit then return over_entry() end
         return over_total()
@@ -576,7 +577,7 @@ local function extract_from(from: string | Archive.Reader, dest: string,
     end
     local ok, wtrouble = w:close()
     if not ok then return false, wtrouble end
-    tally.bytes = tally.bytes + size
+    tally.value = tally.value + size
     local _, _ = Fs.set_mtime(dest_path, entry.mtime)
     return true, ""
   end
