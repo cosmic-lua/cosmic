@@ -44,6 +44,9 @@ local record Flow
     unsets: integer
     --- The assignment that dropped the fact of each place that has none now.
     gone: {string: Scopes.Place}
+    --- Set by [`Flow.forget_lengths`] on a state it found to hold no fact of a length, so that the next call on the same state
+    --- does not walk its facts again. A state is never changed otherwise, so the flag never goes stale.
+    mut settled?: boolean
   end
 
   --- The state of a body's first statement: live, with nothing known.
@@ -330,7 +333,7 @@ function Flow.enter(f: Flow.State, unfixed: {integer: boolean}?): Flow.State
 end
 
 function Flow.forget_lengths(f: Flow.State): Flow.State
-  if f.paths == 0 then
+  if f.paths == 0 or f.settled == true then
     return f
   end
   local facts: mut {string: Flow.Fact} = {}
@@ -343,12 +346,12 @@ function Flow.forget_lengths(f: Flow.State): Flow.State
     end
   end
   if lost == 0 then
+    f.settled = true
     return f
   end
-  if next(facts) == nil then
-    return made(f.live, NONE, f.paths - lost, f.unset, f.unsets, f.gone)
-  end
-  return made(f.live, facts, f.paths - lost, f.unset, f.unsets, f.gone)
+  local out = made(f.live, if next(facts) == nil then NONE else facts end, f.paths - lost, f.unset, f.unsets, f.gone)
+  out.settled = true
+  return out
 end
 
 function Flow.forget(f: Flow.State): Flow.State
