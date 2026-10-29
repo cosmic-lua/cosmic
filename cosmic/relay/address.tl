@@ -235,7 +235,7 @@ end
 --- `address` as the host of a `connect` grant.
 local function target(address: string, port: integer): string
   local host = if address:find(":", 1, true) then "[" .. address .. "]" else address end
-  return host .. ":" .. port
+  return host .. ":" .. tostring(port)
 end
 
 --- Whether a `connect` target in `grants` names exactly `bytes` for

@@ -233,10 +233,10 @@ local function test_the_function_each_call_took_is_kept_by_the_id_of_the_call()
       calls[#calls + 1] = n
     end
   end)
-  assert(#calls == 7, "calls: " .. #calls)
+  assert(#calls == 7, "calls: " .. tostring(#calls))
   local function took(i: integer): Types.Fn
     local t = result.callees[Node.base(calls[i]).id]
-    assert(t ~= nil and (t.tag == "fn"), "call " .. i .. " took no function")
+    assert(t ~= nil and (t.tag == "fn"), "call " .. tostring(i) .. " took no function")
     return t
   end
   -- the method takes its record as the first parameter and answers two results

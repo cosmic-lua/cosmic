@@ -286,7 +286,7 @@ local function test_a_command_line_it_cannot_read_is_refused()
       { "convert", "@0", "--disambiguate", "sometimes" }, { "add", "@0", "1d", "--from", "UTC" },
   }) do
     local ran = run(words)
-    assert(ran.code == 2 and ran.out == "", table.concat(words, " ") .. ": " .. ran.code .. ran.out)
+    assert(ran.code == 2 and ran.out == "", table.concat(words, " ") .. ": " .. tostring(ran.code) .. ran.out)
     assert(ran.err:find("cosmic: time: ", 1, true) and ran.err:find("cosmic time now", 1, true), ran.err)
   end
 end

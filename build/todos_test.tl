@@ -31,7 +31,7 @@ local function test_a_todo_carries_on_through_its_paragraph()
     "  -- Not part of it.",
     "  return x",
   }))
-  assert(#found == 1, "found " .. #found)
+  assert(#found == 1, "found " .. tostring(#found))
   assert(found[1].line == 2 and found[1].last == 3)
   assert(found[1].text ==
       "drop the cast once the pin names a cosmic carrying the fix.",
@@ -48,7 +48,7 @@ local function test_a_paragraph_ends_at_code_a_new_marker_or_the_next_todo()
     "--- TODO: fourth",
     "-- another marker",
   }))
-  assert(#found == 4, "found " .. #found)
+  assert(#found == 4, "found " .. tostring(#found))
   for index, want in ipairs({ "first", "second", "third", "fourth" }) do
     assert(found[index].text == want, found[index].text)
     assert(found[index].last == found[index].line)
@@ -90,7 +90,7 @@ local function test_block_comments_and_other_markers()
     "// TODO: a line comment",
     ";; TODO: lisp */",
   }))
-  assert(#found == 3, "found " .. #found)
+  assert(#found == 3, "found " .. tostring(#found))
   assert(found[1].text == "a block comment that goes on", found[1].text)
   assert(found[1].last == 2)
   assert(found[2].text == "a line comment", found[2].text)
@@ -106,7 +106,7 @@ local function test_todo_outside_a_comment_of_its_own_is_not_one()
     "-- a TODO: not at the start",
     "-> TODO: not a marker",
   }))
-  assert(#found == 0, "found " .. #found)
+  assert(#found == 0, "found " .. tostring(#found))
 end
 
 local function test_crlf_and_a_missing_final_newline()
@@ -214,7 +214,7 @@ local function test_staging_indexes_what_it_reads_and_forgets_what_goes()
   local handle = assert(work.open(root))
   assert(work.stage(handle, false))
   local listed = assert(todos.list(handle.db, root)).todos
-  assert(#listed == 1, "found " .. #listed)
+  assert(#listed == 1, "found " .. tostring(#listed))
   assert(listed[1].file == "src/a.tl" and listed[1].line == 1)
   assert(listed[1].text == "first" and listed[1].commit == "")
 
@@ -247,7 +247,7 @@ local function test_a_file_the_build_does_not_consume_is_scanned_all_the_same()
   local handle = assert(work.open(root))
   assert(work.stage(handle, false))
   local listed = assert(todos.list(handle.db, root)).todos
-  assert(#listed == 1, "found " .. #listed)
+  assert(#listed == 1, "found " .. tostring(#listed))
   assert(listed[1].file == "scripts/release.sh" and listed[1].line == 2)
   assert(listed[1].text == "sign the archive", listed[1].text)
   -- Scanned, not staged: nothing the build compiles or runs sees it.
@@ -258,7 +258,7 @@ local function test_a_file_the_build_does_not_consume_is_scanned_all_the_same()
   assert(Fs.remove(root .. "/scripts/release.sh"))
   assert(work.stage(handle, false))
   listed = assert(todos.list(handle.db, root)).todos
-  assert(#listed == 0, "found " .. #listed)
+  assert(#listed == 0, "found " .. tostring(#listed))
   rows = assert(Sqlite.text_rows(handle.db, "SELECT count(*) FROM scanned"))
   assert(rows[1]:text(1) == "0", rows[1]:text(1))
   assert(work.close(handle))
@@ -285,7 +285,7 @@ local function test_own_tree_scans_github_for_todos()
   local listed = assert(todos.list(handle.db, root)).todos
   local seen: mut {string} = {}
   for _, todo in ipairs(listed) do
-    seen[#seen + 1] = todo.file .. ":" .. todo.line .. ": " .. todo.text
+    seen[#seen + 1] = todo.file .. ":" .. tostring(todo.line) .. ": " .. todo.text
   end
   assert(table.concat(seen, "|") == ".github/actions/driver/action.yml:2: lint these steps|" ..
       ".github/check.tl:1: not an input|.github/workflows/ci.yml:1: pin the runner", table.concat(seen, "|"))
@@ -299,7 +299,7 @@ local function test_own_tree_scans_github_for_todos()
   local other = assert(work.open(root))
   assert(work.stage(other, false))
   listed = assert(todos.list(other.db, root)).todos
-  assert(#listed == 0, "found " .. #listed)
+  assert(#listed == 0, "found " .. tostring(#listed))
   rows = assert(Sqlite.text_rows(other.db, "SELECT count(*) FROM scanned"))
   assert(rows[1]:text(1) == "0", rows[1]:text(1))
   assert(work.close(other))
@@ -324,10 +324,10 @@ local record_text = text({
 
 local function test_a_patch_record_s_todos_are_its_note_s_and_replace_block_s()
   local found = assert(todo_scan.scan_record(record_text))
-  assert(#found == 2, "found " .. #found)
+  assert(#found == 2, "found " .. tostring(#found))
   assert(found[1].line == 2 and found[1].last == 2, found[1].line)
   assert(found[1].text == "drop this once upstream takes it", found[1].text)
-  assert(found[2].line == 9 and found[2].last == 10, found[2].line .. "-" .. found[2].last)
+  assert(found[2].line == 9 and found[2].last == 10, tostring(found[2].line) .. "-" .. tostring(found[2].last))
   assert(found[2].text == "ours, once ci/cosmic-driver.pin names a release carrying it",
     found[2].text)
 
@@ -347,7 +347,7 @@ local function test_a_patch_record_s_todos_are_its_note_s_and_replace_block_s()
     found[1] and found[1].text)
   found = assert(todo_scan.scan_record(text({ "file: a", "note: a TODO: mid-sentence",
     "--- find", "x", "--- replace", "y", "--- end" })))
-  assert(#found == 0, "found " .. #found)
+  assert(#found == 0, "found " .. tostring(#found))
   -- Text that is no record is none, nor is a record Patch.parse refuses.
   assert(todo_scan.scan_record(text({ "-- TODO: not a record" })) == nil)
   assert(todo_scan.scan_record((record_text:gsub("\n", "\r\n"))) == nil)
@@ -378,7 +378,7 @@ local function test_a_record_s_note_spans_lines_and_upstream_lines_stay_upstream
   })))
   local seen: mut {string} = {}
   for _, each in ipairs(found) do
-    seen[#seen + 1] = each.line .. "-" .. each.last .. " " .. each.text
+    seen[#seen + 1] = tostring(each.line) .. "-" .. tostring(each.last) .. " " .. each.text
   end
   assert(table.concat(seen, "|") == "3-4 drop once upstream takes it|" ..
       "14-16 up stream and ours", table.concat(seen, "|"))
@@ -387,7 +387,7 @@ local function test_a_record_s_note_spans_lines_and_upstream_lines_stay_upstream
   -- replace block still, as Patch.parse reads it.
   found = assert(todo_scan.scan_record(text({ "file: a", "note: n",
     "--- find", "x", "--- replace", "--- end\r", "-- TODO: ours", "--- end" })))
-  assert(#found == 1 and found[1].line == 7, "found " .. #found)
+  assert(#found == 1 and found[1].line == 7, "found " .. tostring(#found))
 end
 
 --- In cosmic's own tree a patch record is listed with its own TODOs,
@@ -411,9 +411,9 @@ local function test_own_tree_lists_a_patch_record_s_own_todos()
   local seen: mut {string} = {}
   local id_of: mut {integer:string} = {}
   for _, todo in ipairs(listed) do
-    seen[#seen + 1] = todo.file .. ":" .. todo.line .. ": " .. todo.text
+    seen[#seen + 1] = todo.file .. ":" .. tostring(todo.line) .. ": " .. todo.text
     if todo.file:sub(1, 6) == "patch/" then
-      id_of[todo.id] = todo.file .. ":" .. todo.line
+      id_of[todo.id] = todo.file .. ":" .. tostring(todo.line)
     end
   end
   table.sort(seen)
@@ -444,7 +444,7 @@ local function test_search_takes_fts5_syntax_and_falls_back_to_words()
   local all = assert(todos.list(handle.db, root)).todos
   local line_of: mut {integer:string} = {}
   for _, todo in ipairs(all) do
-    line_of[todo.id] = todo.file .. ":" .. todo.line
+    line_of[todo.id] = todo.file .. ":" .. tostring(todo.line)
   end
   local function found(query: string): {string}
     local ranks = assert(todos.search(handle.db, query))

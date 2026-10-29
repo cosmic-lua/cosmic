@@ -808,7 +808,7 @@ local function attempt(ctx: Ctx, node: Ast.Node, build: function(): Type): Type
   end
   local text = tostring(why)
   if text:find("nested deeper than", 1, true) ~= nil then
-    report_at(ctx, "type_too_deep", node, "this type nests more than " .. MAX_DEPTH .. " types deep, through the aliases it names",
+    report_at(ctx, "type_too_deep", node, "this type nests more than " .. tostring(MAX_DEPTH) .. " types deep, through the aliases it names",
       "name a part of it with a record or an interface, which a type does not unfold")
   else
     report_at(ctx, "store_refused", node, "the type store refused this type: " .. text, "report the program")
@@ -848,7 +848,7 @@ end
 
 --- The count of type arguments of a use, said as the declaration takes them.
 local function argument_count(n: integer): string
-  return if n == 1 then "1 type argument" else n .. " type arguments" end
+  return if n == 1 then "1 type argument" else tostring(n) .. " type arguments" end
 end
 
 -- Names ---------------------------------------------------------------------------------
@@ -865,7 +865,7 @@ local function parameter_list(e: Entry, count: integer): string
   for i = 1, count do
     local held = body ~= nil and body.tparams[i] or nil
     local from_alias = alias ~= nil and alias.tparams[i] or nil
-    names[i] = held ~= nil and held.name or from_alias ~= nil and from_alias.name or (if count == 1 then "T" else "T" .. i end)
+    names[i] = held ~= nil and held.name or from_alias ~= nil and from_alias.name or (if count == 1 then "T" else "T" .. tostring(i) end)
   end
   return "<" .. table.concat(names, ", ") .. ">"
 end
@@ -1001,7 +1001,7 @@ local function lower_alias(ctx: Ctx, alias: AliasInfo)
   local body: Type
   if ctx.alias_depth > MAX_ALIAS_NESTING then
     report_at(ctx, "type_too_deep", node, "the alias " .. quoted(alias.name) .. " names a chain of more than " ..
-        MAX_ALIAS_NESTING .. " aliases", "name a part of the chain with a record, which a type does not unfold")
+        tostring(MAX_ALIAS_NESTING) .. " aliases", "name a part of the chain with a record, which a type does not unfold")
     body = ctx.store.invalid
   else
     body = lower_type(ctx, node.type)
@@ -1063,7 +1063,7 @@ local function wrong_count(ctx: Ctx, t: Ast.TypeName, e: Entry, expected: intege
     fix = "write " .. quoted(table.concat(t.path, ".") .. parameter_list(e, expected)) .. ", with a type for each parameter"
   end
   report_at(ctx, "type_arguments", t, name .. " takes " .. (if expected == 0 then "no type arguments" else argument_count(expected) end) ..
-      ", not " .. given, fix)
+      ", not " .. tostring(given), fix)
 end
 
 --- The type a name that resolved to `e` is, with the arguments of `t`.
@@ -1129,7 +1129,7 @@ local function use_entry(ctx: Ctx, t: Ast.TypeName, e: Entry): Type
   local made = Relation.instantiate(store, body, args)
   if made == nil then
     report_at(ctx, "type_too_deep", t, quoted(table.concat(t.path, ".")) .. " with these arguments nests more than " ..
-        MAX_DEPTH .. " types deep", "name a part of the arguments with a record, which a type does not unfold")
+        tostring(MAX_DEPTH) .. " types deep", "name a part of the arguments with a record, which a type does not unfold")
     return store.invalid
   end
   ctx.uses[#ctx.uses + 1] = { node = t, alias = alias, args = args, names = binder_names(ctx.frames) }
@@ -1147,7 +1147,7 @@ local function lower_name(ctx: Ctx, t: Ast.TypeName): Type
   local primitive = #path == 1 and PRIMITIVES[head] or nil
   if primitive ~= nil then
     if #t.args > 0 then
-      report_at(ctx, "type_arguments", t, quoted(head) .. " takes no type arguments, not " .. #t.args,
+      report_at(ctx, "type_arguments", t, quoted(head) .. " takes no type arguments, not " .. tostring(#t.args),
         "remove the type arguments: " .. quoted(head) .. " is a primitive type")
       return store.invalid
     end
@@ -1535,9 +1535,9 @@ local function declare_one(ctx: Ctx, node: Ast.Node, place: Place, seen: mut {st
   if #place.names == 0 then
     module = ctx.module
     if not place.top then
-      module = ctx.module .. "@" .. base_of(node).id
+      module = ctx.module .. "@" .. tostring(base_of(node).id)
     elseif seen[entry_key(module, names)] == true then
-      module = ctx.module .. "@" .. base_of(node).id
+      module = ctx.module .. "@" .. tostring(base_of(node).id)
       top = false
     end
   end
@@ -2301,7 +2301,7 @@ local function check_listing(ctx: Ctx, build: Build, names: {{string}}): boolean
   local last = binding ~= nil and base_of(binding).last or first
   if not listing.complete then
     report(ctx, "listing_too_large", first, last, quoted(decl.name) .. " lists more interfaces, through the ones it lists, " ..
-        "than the checker follows, or one that would nest more than " .. MAX_DEPTH .. " types deep",
+        "than the checker follows, or one that would nest more than " .. tostring(MAX_DEPTH) .. " types deep",
       "list fewer interfaces, or interfaces whose own listings are the same for every argument")
   end
   local is_class = decl.kind == "class"
@@ -2557,7 +2557,7 @@ local function check_union(ctx: Ctx, site: UnionSite): boolean
   local shown = Types.display(site.type, site.names)
   local reason = if failure ~= "" and shared then "; the closest, " .. quoted(blamed) .. ", fails because " .. failure else
     "; they share no field" end
-  report_at(ctx, "untagged_union", site.node, "the union " .. quoted(shown) .. " holds " .. #records ..
+  report_at(ctx, "untagged_union", site.node, "the union " .. quoted(shown) .. " holds " .. tostring(#records) ..
       " records that have no tag" .. reason,
     "give " .. table.concat(listed, ", ") .. " a fixed field of the same name whose type is one named enum, with values " ..
       "different in each, so that `x.kind == \"...\"` tells them apart",
@@ -2577,7 +2577,7 @@ local function scan_requires(roots: {Type}): Requires
     if t.open <= level then
       return
     end
-    local mark = tostring(t.id) .. ":" .. level
+    local mark = tostring(t.id) .. ":" .. tostring(level)
     if seen[mark] == true then
       return
     end
@@ -2681,7 +2681,7 @@ local function must(program: Program, req: Requires, index: integer, kind: strin
         marks = {}
         seen[flow.to] = marks
       end
-      local mark = flow.into .. kind
+      local mark = tostring(flow.into) .. kind
       if marks[mark] ~= true then
         marks[mark] = true
         local theirs = requires_of(program, flow.to)
@@ -2756,7 +2756,7 @@ local function check_use(ctx: Ctx, use: Use): boolean
           return false
         elseif not met then
           local shown = Types.display(argument, use.names)
-          report_at(ctx, "bound_not_met", use.node, quoted(name) .. " bounds its type parameter " .. i .. " by " ..
+          report_at(ctx, "bound_not_met", use.node, quoted(name) .. " bounds its type parameter " .. tostring(i) .. " by " ..
               quoted(Types.display(bound, use.names)) .. ", and " .. quoted(shown) .. " does not list it",
             "list the interface in the declaration of " .. quoted(shown) .. " (`is " .. Types.display(bound, use.names) ..
               "`), or pass a type that does", { shown })
@@ -2768,7 +2768,7 @@ local function check_use(ctx: Ctx, use: Use): boolean
       end
       if dense and nilable(argument) then
         local shown = Types.display(argument, use.names)
-        report_at(ctx, "array_of_optional", use.node, quoted(name) .. " holds its type parameter " .. i ..
+        report_at(ctx, "array_of_optional", use.node, quoted(name) .. " holds its type parameter " .. tostring(i) ..
             " in an array or as the value of a map, so " .. quoted(shown) .. " would make elements that may be nil",
           "pass " .. quoted(Types.display(ctx.store:non_nil(argument), use.names)) .. ", which is not optional; an array is dense, " ..
             "and a map's missing key already answers nil", { shown })
@@ -2791,7 +2791,7 @@ local function check_use(ctx: Ctx, use: Use): boolean
       if key and key_refusal(argument) ~= nil then
         local shown = Types.display(argument, use.names)
         local code = key_refusal(argument) or "key_type"
-        report_at(ctx, code, use.node, quoted(name) .. " keys a map by its type parameter " .. i .. ", so " ..
+        report_at(ctx, code, use.node, quoted(name) .. " keys a map by its type parameter " .. tostring(i) .. ", so " ..
             quoted(shown) .. " would make a map keyed by " .. (if code == "float_key" then "a float" else key_word(argument, use.names) end),
           if code == "float_key" then "pass `integer`, and convert a float with `math.tointeger(n)` or `math.floor(n)`" else
             "pass `integer`, `string`, `boolean`, an enum, or a record, class, interface or userdata" end, { shown })

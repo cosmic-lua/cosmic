@@ -763,7 +763,7 @@ end
 --- allows. Daylight saving time with no rules takes the United States'
 --- since 2007, `M3.2.0,M11.1.0`, as glibc and tzcode do.
 local function parse_posix(tz: string): Posix?, string
-  if #tz > 256 then return nil, "a TZ string is at most 256 bytes, not " .. #tz end
+  if #tz > 256 then return nil, "a TZ string is at most 256 bytes, not " .. tostring(#tz) end
   local cur = cursor(tz)
 
   local function abbreviation(what: string): string

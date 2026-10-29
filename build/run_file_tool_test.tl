@@ -43,7 +43,7 @@ local function test_a_paired_declaration_runs_its_implementation(tmp: string)
   assert(Fs.write(root .. "/foo.d.tl",
     "local record Foo\n  answer: integer\nend\nreturn Foo\n"))
   local function implementation(answer: integer): string
-    return "local record Foo\n  answer: integer\nend\nlocal foo: Foo = { answer = " .. answer .. " }\nreturn foo\n"
+    return "local record Foo\n  answer: integer\nend\nlocal foo: Foo = { answer = " .. tostring(answer) .. " }\nreturn foo\n"
   end
   assert(Fs.write(root .. "/foo.tl", implementation(42)))
   assert(Fs.write(root .. "/main.tl", 'local Foo = require("foo")\nprint(Foo.answer)\n'))

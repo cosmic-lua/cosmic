@@ -88,7 +88,7 @@ function Cover.check(chunk: Ast.Chunk, scoped: Scopes.Scoped, declared: {string:
     seen_vars = seen_vars + 1
   end
   if seen_vars ~= expected_vars or #scoped.list ~= expected_vars then
-    return false, "the tree has " .. expected_vars .. " bindings and the result " .. seen_vars .. " variables and " .. #scoped.list .. " in its list"
+    return false, "the tree has " .. tostring(expected_vars) .. " bindings and the result " .. tostring(seen_vars) .. " variables and " .. tostring(#scoped.list) .. " in its list"
   end
   for _, b in ipairs(found.bindings) do
     local v = vars[b.id]
@@ -105,7 +105,7 @@ function Cover.check(chunk: Ast.Chunk, scoped: Scopes.Scoped, declared: {string:
       return false, "the variable `" .. v.name .. "` has a range or an owner that does not exist"
     end
     if v.assigned ~= (#v.writes > 0) then
-      return false, "the variable `" .. v.name .. "` at token " .. v.declared .. " is assigned only if it has writes"
+      return false, "the variable `" .. v.name .. "` at token " .. tostring(v.declared) .. " is assigned only if it has writes"
     end
     local copies = v.copies
     if copies ~= nil and (vars[copies] == nil or vars[copies].name ~= v.name) then
@@ -123,14 +123,14 @@ function Cover.check(chunk: Ast.Chunk, scoped: Scopes.Scoped, declared: {string:
     for _, id in ipairs(v.reads) do
       listed = listed + 1
       if listed_under[id] ~= nil then
-        return false, "the use " .. id .. " is listed twice"
+        return false, "the use " .. tostring(id) .. " is listed twice"
       end
       listed_under[id], is_read[id] = v.id, true
     end
     for _, id in ipairs(v.writes) do
       listed = listed + 1
       if listed_under[id] ~= nil then
-        return false, "the use " .. id .. " is listed twice"
+        return false, "the use " .. tostring(id) .. " is listed twice"
       end
       listed_under[id] = v.id
     end
@@ -146,10 +146,10 @@ function Cover.check(chunk: Ast.Chunk, scoped: Scopes.Scoped, declared: {string:
         end
       end
       local id = scoped.resolved[n.id]
-      local place = "the name `" .. n.text .. "` at " .. tokens.y[at] .. ":" .. Lexer.x(tokens, at)
+      local place = "the name `" .. n.text .. "` at " .. tokens.y[at] .. ":" .. tostring(Lexer.x(tokens, at))
       if best ~= nil then
         if n.binding ~= best.id or id ~= best.id then
-          return false, place .. " is not bound to the variable declared at token " .. best.declared
+          return false, place .. " is not bound to the variable declared at token " .. tostring(best.declared)
         end
         if listed_under[n.id] ~= best.id then
           return false, place .. " is in neither the reads nor the writes of its variable"
@@ -168,7 +168,7 @@ function Cover.check(chunk: Ast.Chunk, scoped: Scopes.Scoped, declared: {string:
     local caught = 0
     for _, c in ipairs(v.captures) do
       if c.fn == v.owner or found.functions[c.fn] ~= true then
-        return false, "`" .. v.name .. "` is captured by " .. c.fn .. ", which is not a function inside its own"
+        return false, "`" .. v.name .. "` is captured by " .. tostring(c.fn) .. ", which is not a function inside its own"
       end
       for _, id in ipairs(c.uses) do
         caught = caught + 1
@@ -182,7 +182,7 @@ function Cover.check(chunk: Ast.Chunk, scoped: Scopes.Scoped, declared: {string:
     end
   end
   if listed ~= resolved_count then
-    return false, "the variables hold " .. listed .. " uses and " .. resolved_count .. " names resolved"
+    return false, "the variables hold " .. tostring(listed) .. " uses and " .. tostring(resolved_count) .. " names resolved"
   end
   for _, t in ipairs(found.types) do
     local head = t.path[1]
@@ -205,7 +205,7 @@ function Cover.check(chunk: Ast.Chunk, scoped: Scopes.Scoped, declared: {string:
   for _, e in ipairs(errors) do
     local t = by_offset[e.offset]
     if t == nil or e.msg == "" or e.fix == "" or tokens.y[t] ~= e.y or Lexer.x(tokens, t) ~= e.x or e.offset < at then
-      return false, e.code .. " error at " .. e.y .. ":" .. e.x .. " has no message or fix, or is out of place or order"
+      return false, e.code .. " error at " .. tostring(e.y) .. ":" .. tostring(e.x) .. " has no message or fix, or is out of place or order"
     end
     at = e.offset
   end

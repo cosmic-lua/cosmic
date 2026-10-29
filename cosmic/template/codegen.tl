@@ -157,7 +157,7 @@ local function alias_for(g: Gen, module_path: string): string
   local number = 1
   while RESERVED[alias] == true or types.keywords[alias] == true or imports.taken[alias] == true or alias:find("^d%d*$") ~= nil do
     number = number + 1
-    alias = base .. "_" .. number
+    alias = base .. "_" .. tostring(number)
   end
   imports.order[#imports.order + 1] = module_path
   imports.alias_of[module_path] = alias
@@ -284,7 +284,7 @@ end
 --- A fresh name for dot.
 local function new_dot(g: Gen): Dot
   g.dots = g.dots + 1
-  return { name = "d" .. g.dots, used = false }
+  return { name = "d" .. tostring(g.dots), used = false }
 end
 
 --- Writes an `if` or a `with`, or a `range`.

@@ -404,8 +404,8 @@ local function not_in_process(merged: Sandbox.Policy): string
   local group = merged.group
   if user ~= nil and (user ~= sys.getuid() or
       (group ~= nil and group ~= sys.getgid())) then
-    return "user " .. user .. " is who a child runs as; a running process stays the " ..
-      "user it is (" .. sys.getuid() .. ")"
+    return "user " .. tostring(user) .. " is who a child runs as; a running process stays the " ..
+      "user it is (" .. tostring(sys.getuid()) .. ")"
   end
   return ""
 end
@@ -486,8 +486,8 @@ local function held_by_seatbelt(policy: Sandbox.Policy, kept: {integer}): boolea
   local parameters = 0
   for _, _ in pairs(profile.parameters) do parameters = parameters + 1 end
   if parameters > raw.SEATBELT_PARAMETER_MAX then
-    return denied("grants: the paths the profile holds, " .. parameters .. ", are past the " ..
-        "most it takes, " .. raw.SEATBELT_PARAMETER_MAX .. "; grant a directory above them instead")
+    return denied("grants: the paths the profile holds, " .. tostring(parameters) .. ", are past the " ..
+        "most it takes, " .. tostring(raw.SEATBELT_PARAMETER_MAX) .. "; grant a directory above them instead")
   end
   local done, why, failure = raw.restrict_self({ grants = {}, promises = {},
     rlimits = profile.rlimits, seatbelt = { profile = profile.text, parameters = profile.parameters } },
@@ -675,8 +675,8 @@ function Sandbox.user_id(uid_map: string, gid_map: string, serial: integer): int
   if top == 65534 or top == 65535 then top = 65533 end
   local first = top - USER_POOL + 1
   if first < 1 or not mapped_run(uid_map, first, top) or not mapped_run(gid_map, first, top) then
-    return refuse("this user namespace maps no run of " .. USER_POOL .. " ids ending at " ..
-        top .. ", from which a sandbox's own user is taken: a root caller's program never " ..
+    return refuse("this user namespace maps no run of " .. tostring(USER_POOL) .. " ids ending at " ..
+        tostring(top) .. ", from which a sandbox's own user is taken: a root caller's program never " ..
         "runs as root, so it needs a namespace that maps more ids, as a host's does")
   end
   return first + serial % USER_POOL, ""
@@ -757,12 +757,12 @@ function Sandbox.reach(letters: string, st: sys.Stat, uid?: integer, gid?: integ
   end
   if uid ~= nil and st.uid == uid then
     if owner & need == need then return { by = "user", lacks = "" } end
-    return lacking(owner, "its owner, user " .. uid .. ",")
+    return lacking(owner, "its owner, user " .. tostring(uid) .. ",")
   end
   if gid ~= nil and st.gid == gid then
     if group & need == need then return { by = "user", lacks = "" } end
     if owner & need == need then return { by = "owner", lacks = "" } end
-    return lacking(group, "its group, " .. gid .. ",")
+    return lacking(group, "its group, " .. tostring(gid) .. ",")
   end
   if other & need == need then return { by = "other", lacks = "" } end
   if owner & need == need then return { by = "owner", lacks = "" } end

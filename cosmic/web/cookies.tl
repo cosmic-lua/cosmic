@@ -208,7 +208,7 @@ function Cookies.format(name: string, value: string, attrs?: Cookies.Attributes)
   local max_age = a.max_age
   if max_age ~= nil then
     if math.type(max_age) ~= "integer" then error("cookies: max_age must be an integer", 2) end
-    parts[#parts + 1] = "Max-Age=" .. max_age
+    parts[#parts + 1] = "Max-Age=" .. tostring(max_age)
   end
   local expires_ns = a.expires_ns
   if expires_ns ~= nil then

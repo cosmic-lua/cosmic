@@ -37,7 +37,7 @@ local function test_the_last_output_of_a_policy_child_reaches_the_terminal_whate
   macos_only()
   local caller = assert(sys.openpty())
   for run = 1, 5 do
-    local marker = "TAIL-MARKER-" .. run
+    local marker = "TAIL-MARKER-" .. tostring(run)
     local result, why = TermRelay.run({ "/bin/sh", "-c", "echo head; printf " .. marker },
       { policy = { profiles = { "system" } }, timeout_ns = Clock.seconds(20) },
       { input = caller.slave, output = caller.slave, error = caller.slave })

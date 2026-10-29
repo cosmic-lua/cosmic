@@ -214,13 +214,13 @@ local function serve(config: Config.Config): integer
       http, socks = listeners[1], listeners[2]
       if http.address.port ~= Config.http_port or socks.address.port ~= Config.socks_port then
         run.status = failed("the listeners are at ports " .. tostring(http.address.port) .. " and " ..
-            tostring(socks.address.port) .. ", not " .. Config.http_port .. " and " .. Config.socks_port)
+            tostring(socks.address.port) .. ", not " .. tostring(Config.http_port) .. " and " .. tostring(Config.socks_port))
         return
       end
     end
     -- With no connector handed, nothing a grant opens can be reached.
     local connect: Relay.Connector = function(address: string, port: integer, _: integer): Net.Conn?, string
-      return nil, "relay: no connector was handed for " .. address .. ":" .. port
+      return nil, "relay: no connector was handed for " .. address .. ":" .. tostring(port)
     end
     if config.direct == true then
       -- The address is one the relay has checked; the profile lets it

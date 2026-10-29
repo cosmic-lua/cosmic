@@ -21,7 +21,7 @@ local function test_it_counts_each_call_through_a_tail_call_a_helper_and_a_captu
   capture(true)
   tail(true)
   pcall(tail, false, "x")
-  assert(Assertions.count() == before + 4, "counted " .. Assertions.count())
+  assert(Assertions.count() == before + 4, "counted " .. tostring(Assertions.count()))
 end
 
 local function test_reset_starts_from_zero()
@@ -91,7 +91,7 @@ local function same(a: Packed, b: Packed, case: string)
   local an, bn = a.n, b.n
   assert(an == bn, case .. ": " .. tostring(an) .. " results against " .. tostring(bn))
   for i = 1, an do
-    assert(rawequal(a[i], b[i]), case .. ": result " .. i .. " is " .. tostring(a[i]) ..
+    assert(rawequal(a[i], b[i]), case .. ": result " .. tostring(i) .. " is " .. tostring(a[i]) ..
         " against Lua's " .. tostring(b[i]))
   end
 end

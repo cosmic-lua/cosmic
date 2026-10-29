@@ -73,6 +73,13 @@ local record shared_verdicts
     rows: integer
   end
 
+  --- The identity and rest of a host a row's `parts` name ([`host_of`]);
+  --- nil for each a row does not name.
+  record NamedHost
+    identity?: string
+    rest?: string
+  end
+
   --- What a run owes the cache when it ends.
   record Owed
     --- The key parts the run's keys hold (`named`): those every key
@@ -330,6 +337,47 @@ function shared_verdicts.held(cache: shared_verdicts.Cache): {shared_verdicts.He
   for _, row in ipairs(rows) do
     out[#out + 1] = { parts = row:text(1) or "", rows = math.tointeger(tonumber(row:text(2)) or 0) or 0 }
   end
+  return out, ""
+end
+
+--- The identity ([`declared_key.host_split`]) and rest of the host a row
+--- was reached on, as its `parts` name them ("host identity X, host
+--- rest Y"); nil for either a row that names none, as one a run before
+--- they were named kept.
+function shared_verdicts.host_of(parts: string): shared_verdicts.NamedHost
+  local identity, rest: string?, string? = nil, nil
+  for item in (parts .. ", "):gmatch("(.-), ") do
+    identity = identity or item:match("^host identity (%x+)$")
+    rest = rest or item:match("^host rest (%x+)$")
+  end
+  return { identity = identity, rest = rest }
+end
+
+--- The identities of the hosts, other than `own`, whose rows the cache
+--- holds and whose rest but for their features is `rest`: hosts that
+--- differ from the one of identity `own` in its kernel's release and
+--- version and its processor's features alone
+--- ([`declared_key.host_split`]), sorted. A gathering run looks a test up
+--- under each one's key (build/test_key.tl's `lookup`), in this order, and
+--- the first row found answers: a pass on any like host stands though
+--- another like host failed the same key, since a failing run deletes its
+--- row rather than leaving a mark (the failing share's own job fails CI).
+function shared_verdicts.hosts_like(cache: shared_verdicts.Cache, rest: string,
+                                    own: string): {string}?, string
+  local rows, trouble = Sqlite.text_rows(cache.db, "SELECT DISTINCT parts FROM " .. declared ..
+      " WHERE parts LIKE '%host identity %'")
+  if rows == nil then return nil, trouble end
+  local seen: mut {string:boolean} = {}
+  local out: mut {string} = {}
+  for _, row in ipairs(rows) do
+    local named = shared_verdicts.host_of(row:text(1))
+    local identity, there = named.identity, named.rest
+    if identity ~= nil and there == rest and identity ~= own and seen[identity] ~= true then
+      seen[identity] = true
+      out[#out + 1] = identity
+    end
+  end
+  table.sort(out)
   return out, ""
 end
 
