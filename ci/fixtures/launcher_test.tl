@@ -512,5 +512,47 @@ local function test_launcher_refuses_a_cpu_below_x86_64_v3(tmp: string)
   only_core(unknown_cache)
 end
 
+-- The aarch64 Linux core is built for Armv8.2-A with dot-product and
+-- half-precision floats: the same refusal as above, over the Features line
+-- of an Arm /proc/cpuinfo.
+local function test_launcher_refuses_a_cpu_below_armv8_2_on_aarch64_linux(tmp: string)
+  local ctx = setup(tmp)
+  if ctx.target ~= "aarch64-linux-musl" then
+    Test.skip("only the aarch64 Linux launcher checks the CPU")
+    return
+  end
+  local function cpuinfo(name: string, features: string): {string:string}
+    local path = ctx.work .. "/" .. name
+    Fixture.write(path, "processor\t: 0\nBogoMIPS\t: 50.00\nFeatures\t: " .. features ..
+        "\nCPU implementer\t: 0x41\n\nprocessor\t: 1\nFeatures\t: fp asimd\n")
+    return { COSMIC_PORTABLE_TEST_CPUINFO = path }
+  end
+  local v82 = "fp asimd evtstrm aes pmull sha1 sha2 crc32 atomics fphp asimdhp cpuid " ..
+    "asimdrdm lrcpc dcpop asimddp"
+
+  local old = ctx.work .. "/old-cache"
+  local refused = run(ctx, "cpu-old", old,
+    cpuinfo("old", "fp asimd evtstrm aes pmull sha1 sha2 crc32 cpuid"))
+  assert(not refused.result.ok and refused.result.code == 126,
+    "a CPU below Armv8.2-A was not refused with 126")
+  Fixture.contains(refused.err,
+    "cosmic portable: this CPU lacks asimddp asimdhp fphp atomics asimdrdm;")
+  assert(sys.lstat(old) == nil, "a refused launch made the cache")
+
+  -- Each feature counts, whole: "asimd" does not stand for "asimdhp".
+  local bit = run(ctx, "cpu-no-asimdhp", ctx.work .. "/bit-cache",
+    cpuinfo("bit", (v82:gsub(" asimdhp", ""))))
+  assert(not bit.result.ok, "a CPU without asimdhp was not refused")
+  Fixture.contains(bit.err, "this CPU lacks asimdhp;")
+
+  local v82_cache = ctx.work .. "/v82-cache"
+  outcome_ok(run(ctx, "cpu-v82", v82_cache, cpuinfo("v82", v82)), "a CPU with Armv8.2-A")
+  only_core(v82_cache)
+  local unknown_cache = ctx.work .. "/unknown-cache"
+  outcome_ok(run(ctx, "cpu-unknown", unknown_cache,
+    { COSMIC_PORTABLE_TEST_CPUINFO = ctx.work .. "/absent" }), "an unreadable cpuinfo")
+  only_core(unknown_cache)
+end
+
 -- The noexec case, which needs the host's own noexec mount, is
 -- launcher_noexec_test.tl's.

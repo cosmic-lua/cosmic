@@ -57,33 +57,42 @@ case "$portable_system" in
 @TARGETS@
   *) portable_die 'unsupported target' ;;
 esac
-# The x86_64 Linux core is built for x86-64-v3 and dies with SIGILL on an
-# older CPU, so refuse before anything is extracted. The kernel clears a
-# flag its OS support is missing from (avx when the OS does not enable YMM
-# state), so the flags answer for the OS too. The x86-64-v2 features (cx16,
-# lahf_lm, popcnt, sse4_1, sse4_2, ssse3) are not checked: every CPU with
-# AVX2 has them. A host that shows no flags line (no /proc) is not refused:
-# the check cannot tell, and the core may well run.
+# The x86_64 Linux core is built for x86-64-v3 and the aarch64 Linux core for
+# Armv8.2-A with dot-product and half-precision floats, and either dies with
+# SIGILL on an older CPU, so refuse before anything is extracted. The kernel
+# lists only the features it has enabled for user space (avx when the OS does
+# not enable YMM state), so the list answers for the OS too. The baseline
+# features that come with these (x86-64-v2, Armv8.0 NEON) are not checked:
+# every CPU with these has them. A host that shows no such line (no /proc) is
+# not refused: the check cannot tell, and the core may well run.
+# $1 is the /proc/cpuinfo key of the list, $2 what the core needs, and the
+# rest the words that must be in the list, as whole words.
 portable_cpuinfo=@CPUINFO@
-portable_require_x86_64_v3() {
+portable_require_cpu() {
+  portable_key=$1
+  portable_needs=$2
+  shift 2
   portable_flags=
   while IFS= read -r portable_line; do
     case $portable_line in
-      flags*) portable_flags=" ${portable_line#*:} "; break ;;
+      "$portable_key"*) portable_flags=" ${portable_line#*:} "; break ;;
     esac
   done 2>/dev/null < "$portable_cpuinfo"
   [ -n "$portable_flags" ] || return 0
   portable_missing=
-  for portable_flag in avx avx2 fma bmi1 bmi2 movbe f16c abm xsave; do
+  for portable_flag in "$@"; do
     case $portable_flags in
       *" $portable_flag "*) ;;
       *) portable_missing="$portable_missing $portable_flag" ;;
     esac
   done
   [ -z "$portable_missing" ] ||
-    portable_die "this CPU lacks${portable_missing}; the x86_64 core needs x86-64-v3 (AVX2 and the rest of x86-64-v3: Intel Haswell 2013 or AMD Excavator 2015 or newer)"
+    portable_die "this CPU lacks${portable_missing}; $portable_needs"
 }
-[ "$portable_system" != 'Linux x86_64' ] || portable_require_x86_64_v3
+case "$portable_system" in
+  'Linux x86_64') portable_require_cpu flags 'the x86_64 core needs x86-64-v3 (AVX2 and the rest of x86-64-v3: Intel Haswell 2013 or AMD Excavator 2015 or newer)' avx avx2 fma bmi1 bmi2 movbe f16c abm xsave ;;
+  'Linux aarch64') portable_require_cpu Features 'the aarch64 core needs Armv8.2-A with dot-product and half-precision floats (Cortex-A55 or A75, Neoverse N1, Graviton2, Raspberry Pi 5 or newer)' asimddp asimdhp fphp atomics asimdrdm crc32 ;;
+esac
 @SELECT_HOOK@
 
 # Keep this open across extraction and exec: startup adopts this descriptor,
