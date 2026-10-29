@@ -6,9 +6,9 @@ local alias_members = require("build.alias_members")
 Test.policy{}
 
 local record Row is alias_members.Declared
-  module: string
-  symbol: string
-  source_symbol: string
+  mut module: string
+  mut symbol: string
+  mut source_symbol: string
   kind: string
   signature: string
 end

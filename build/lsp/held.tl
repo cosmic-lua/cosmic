@@ -25,7 +25,7 @@ local record held
 
   --- Where the program finds the document being checked, which it reads in place of what serves the module.
   record Slot
-    focus: Focus?
+    mut focus: Focus?
   end
 
   --- One session's program.
