@@ -189,4 +189,16 @@ local function test_the_shell_header_fits_its_capacity_with_every_target_arm()
   assert(release ~= nil, "the release header: " .. release_trouble)
   local fixture, fixture_trouble = artifact.test_prefix(records, cores)
   assert(fixture ~= nil, "the fixture header: " .. fixture_trouble)
+  -- A line opening with an arm's quoted name is the arm the manifest
+  -- selects (ci/fixtures/runtime_test.tl reads it so), so the launcher's
+  -- own code must open no other line that way.
+  for _, header in ipairs({ release, fixture }) do
+    for _, host in ipairs({ "'Linux x86_64'", "'Linux aarch64'", "'Darwin arm64'" }) do
+      local count = 0
+      for line in header:sub(1, 16384):gmatch("[^\n]+") do
+        if line:sub(1, #host + 2) == "  " .. host then count = count + 1 end
+      end
+      assert(count == 1, host .. " opens " .. tostring(count) .. " header lines")
+    end
+  end
 end

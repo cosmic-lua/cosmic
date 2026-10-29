@@ -89,10 +89,13 @@ portable_require_cpu() {
   [ -z "$portable_missing" ] ||
     portable_die "this CPU lacks${portable_missing}; $portable_needs"
 }
-case "$portable_system" in
-  'Linux x86_64') portable_require_cpu flags 'the x86_64 core needs x86-64-v3 (AVX2 and the rest of x86-64-v3: Intel Haswell 2013 or AMD Excavator 2015 or newer)' avx avx2 fma bmi1 bmi2 movbe f16c abm xsave ;;
-  'Linux aarch64') portable_require_cpu Features 'the aarch64 core needs Armv8.2-A with dot-product and half-precision floats (Cortex-A55 or A75, Neoverse N1, Graviton2, Raspberry Pi 5 or newer)' asimddp asimdhp fphp atomics asimdrdm crc32 ;;
-esac
+# Not a case on $portable_system: a header line opening with an arm's
+# quoted name is the arm the manifest selects.
+if [ "$portable_system" = 'Linux x86_64' ]; then
+  portable_require_cpu flags 'the x86_64 core needs x86-64-v3 (AVX2 and the rest of x86-64-v3: Intel Haswell 2013 or AMD Excavator 2015 or newer)' avx avx2 fma bmi1 bmi2 movbe f16c abm xsave
+elif [ "$portable_system" = 'Linux aarch64' ]; then
+  portable_require_cpu Features 'the aarch64 core needs Armv8.2-A with dot-product and half-precision floats (Cortex-A55 or A75, Neoverse N1, Graviton2, Raspberry Pi 5 or newer)' asimddp asimdhp fphp atomics asimdrdm crc32
+fi
 @SELECT_HOOK@
 
 # Keep this open across extraction and exec: startup adopts this descriptor,
