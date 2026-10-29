@@ -858,18 +858,20 @@ local function arity(j: Relation.Judge, why: boolean, f: Fn, g: Fn, i: integer):
 end
 
 --- Whether `f` accepts every argument list that callers of `g` pass, parameter by parameter.
-local function parameters_below(j: Relation.Judge, f: Fn, g: Fn, why: boolean): Relation.Refusal?
+---
+--- With `drop`, `f` may take fewer parameters than `g` passes: Lua drops the arguments past the last parameter, and
+--- `f` never reads them. Only trailing parameters are dropped, the ones kept are compared here, and the rest
+--- parameter of `g` is held below. It is allowed only for a function whose own parameter list is known (see
+--- [`Relation.subtype_known`]).
+local function parameters_below(j: Relation.Judge, f: Fn, g: Fn, why: boolean, drop?: boolean): Relation.Refusal?
   local widest = math.max(#f.params, #g.params)
   for i = 1, widest do
     local gt, g_may_omit, g_is_rest = slot(g, i)
     local ft, f_may_omit = slot(f, i)
     if gt ~= nil then
-      -- Where `f` takes no parameter, it takes none after either: Lua drops the arguments a caller
-      -- passes past the last parameter and `f` never reads them. So only trailing parameters are
-      -- dropped, the ones kept are compared here, and the rest parameter of `g` is held below.
-      -- The relation is not transitive across this: a function of optional parameters is below one of
-      -- none, and that is below one of required parameters, which the first is not: a value seen through
-      -- the middle type is held to its steps alone (`drops_what_a_takes` in the fuzz of the relation).
+      if ft == nil and drop ~= true then
+        return arity(j, why, f, g, i)
+      end
       if ft ~= nil then
         if g_may_omit and not f_may_omit then
           return arity(j, why, f, g, i)
@@ -1173,6 +1175,46 @@ Relation.Judge.refuse = function(self: Relation.Judge, a: Type, b: Type): Relati
   self.explained = {}
   local r = rel(self, a, b, true)
   self.explained = {}
+  return r
+end
+
+--- Whether the function `a` is below the function `b` with trailing parameters dropped.
+local function known_below(j: Relation.Judge, a: Type, b: Type): boolean
+  if a.tag ~= "fn" or #a.tparams > 0 then
+    return false
+  end
+  local targets: {Type} = { b }
+  if b.tag == "union" then
+    targets = b.members
+  end
+  for _, m in ipairs(targets) do
+    if m.tag == "fn" and #m.tparams == 0 and parameters_below(j, a, m, false, true) == nil and
+        returns_below(j, a, m, false) == nil then
+      return true
+    end
+  end
+  return false
+end
+
+--- Whether `a` is below `b` for a function `a` whose own parameter list is known (a function literal or a declared function
+--- that is never assigned): it may take fewer trailing parameters than the function type `b`, or a member of the union `b`,
+--- passes, and only at this top level. A function-typed variable, field, parameter or return has the type it was declared,
+--- which may leave out parameters the value takes, so it never drops one: `function(x?: integer)` is below `function()`,
+--- and that below `function(x: string)` would otherwise put a string in `x`.
+function Relation.subtype_known(self: Relation.Judge, a: Type, b: Type): boolean
+  owned(self, a)
+  owned(self, b)
+  return rel(self, a, b, false) == nil or known_below(self, a, b)
+end
+
+--- Nil where [`Relation.subtype_known`] holds, else why not (the reason of the strict relation).
+function Relation.refuse_known(self: Relation.Judge, a: Type, b: Type): Relation.Refusal?
+  owned(self, a)
+  owned(self, b)
+  local r = self:refuse(a, b)
+  if r ~= nil and known_below(self, a, b) then
+    return nil
+  end
   return r
 end
 

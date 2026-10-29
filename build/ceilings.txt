@@ -3860,6 +3860,7 @@ cosmic/time_posix_fuzz_test.tl overload_none 2
 
 cosmic/time_tzif_fuzz_test.tl overload_none 3
 
+cosmic/web/input_multipart_test.tl overload_none 2
 
 cosmic/web/input_test.tl overload_none 2
 

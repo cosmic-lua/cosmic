@@ -518,7 +518,7 @@ local function test_a_function_that_never_returns_is_below_every_function_of_its
   assert(below(w, dies, nothing(w, {})))
   assert(below(w, dies, dies))
   assert(below(w, s:fn({ params = { { type = s.string } }, rets = {} }), func(w, { s.string }, { s.integer })))
-  assert(below(w, dies, func(w, { s.string }, { s.integer })))
+  refused(w, dies, func(w, { s.string }, { s.integer }), "arity")
   local may_return = refused(w, func(w, {}, { s.string }), dies, "may_return", "alternative 1")
   assert(may_return.sub == func(w, {}, { s.string }) and may_return.super == dies)
   refused(w, nothing(w, {}), dies, "may_return", "alternative 1")
@@ -573,20 +573,19 @@ local function test_a_function_takes_as_many_arguments_as_are_passed()
   local maybe = with({ { type = s.integer, omittable = true } })
   local two = with({ { type = s.integer }, { type = s.integer } })
   local none = with({})
-  -- one that requires more than are passed takes not all
-  local r = refused(w, one, none, "arity")
+  -- one that takes fewer than are passed, or more that are required, takes not all
+  local r = refused(w, none, one, "arity")
+  assert(r.index == 1)
+  r = refused(w, one, none, "arity")
   assert(r.index == 1)
   refused(w, two, one, "arity")
-  -- one that takes fewer than are passed drops the trailing arguments, which Lua discards
-  assert(below(w, none, one))
-  assert(below(w, one, two))
-  assert(below(w, none, two))
+  refused(w, one, two, "arity")
   -- one that passes an optional argument is met by one that takes it, or a rest parameter
   assert(below(w, maybe, none))
   assert(below(w, maybe, one))
   assert(below(w, maybe, maybe))
   refused(w, one, maybe, "arity")
-  assert(below(w, none, maybe))
+  refused(w, none, maybe, "arity")
   assert(below(w, with({ { type = s.integer }, { type = s.string, omittable = true } }), one))
   refused(w, with({ { type = s.integer }, { type = s.string } }), one, "arity")
   -- the omitted argument is `nil` or its type: an optional parameter takes the optional's type
@@ -595,9 +594,10 @@ local function test_a_function_takes_as_many_arguments_as_are_passed()
     "union_none", "parameter 1 > member 1")
 end
 
-local function test_a_function_may_drop_only_trailing_parameters_of_the_function_wanted()
+local function test_a_function_whose_parameters_are_known_may_drop_only_trailing_ones()
   local w = world()
   local s = w.store
+  local j = w.judge
   local function with(...: Types.Type): Types.Type
     local params: mut {Types.Param} = {}
     for _, t in ipairs({ ... }) do
@@ -605,19 +605,30 @@ local function test_a_function_may_drop_only_trailing_parameters_of_the_function
     end
     return s:fn({ params = params })
   end
-  assert(below(w, with(s.string), with(s.string, s.integer)))
-  assert(below(w, with(s.number), with(s.integer, s.string)))
-  -- the parameters kept are still taken contravariantly
-  refused(w, with(s.integer), with(s.number, s.string), "number_for_integer", "parameter 1")
-  -- a middle parameter is not dropped: the one kept stands at the position of the first
-  refused(w, with(s.string), with(s.integer, s.string), "mismatch", "parameter 1")
-  -- a parameter the function wanted never passes is not dropped
-  refused(w, with(s.string, s.integer), with(s.string), "arity")
-  -- the rest parameter of the function wanted is still met by a rest parameter
-  refused(w, with(s.string), s:fn({ params = { { type = s.string } }, rest = s.integer }), "arity")
-  -- returns are not touched
-  refused(w, func(w, { s.string }, {}), func(w, { s.string, s.integer }, { s.integer }), "return_length",
-    "alternative 1")
+  -- the strict relation refuses a function that takes fewer parameters than are passed
+  refused(w, with(s.string), with(s.string, s.integer), "arity")
+  assert(Relation.subtype_known(j, with(s.string), with(s.string, s.integer)))
+  assert(Relation.subtype_known(j, with(), with(s.string, s.integer)))
+  assert(Relation.subtype_known(j, with(s.number), with(s.integer, s.string)))
+  assert(Relation.refuse_known(j, with(s.number), with(s.integer, s.string)) == nil)
+  -- a union with the function wanted takes it too
+  assert(Relation.subtype_known(j, with(s.string), s:optional(with(s.string, s.integer))))
+  -- the parameters kept are still taken contravariantly, and a middle one is not dropped
+  assert(not Relation.subtype_known(j, with(s.integer), with(s.number, s.string)))
+  assert(not Relation.subtype_known(j, with(s.string), with(s.integer, s.string)))
+  -- one that requires more than are passed, and the returns, stay as they are
+  assert(not Relation.subtype_known(j, with(s.string, s.integer), with(s.string)))
+  assert(not Relation.subtype_known(j, func(w, { s.string }, {}), func(w, { s.string, s.integer }, { s.integer })))
+  -- a rest parameter wanted is still met by a rest parameter
+  assert(not Relation.subtype_known(j, with(s.string), s:fn({ params = { { type = s.string } }, rest = s.integer })))
+  -- the refusal of the strict relation is the one given
+  local r = Relation.refuse_known(j, with(s.integer), with(s.number, s.string))
+  assert(r ~= nil and r.code == "number_for_integer")
+  -- only the top level drops: a callback parameter is held to the strict relation
+  local takes_short = s:fn({ params = { { type = with(s.string) } } })
+  local takes_long = s:fn({ params = { { type = with(s.string, s.integer) } } })
+  assert(not Relation.subtype_known(j, takes_long, takes_short))
+  assert(not Relation.subtype_known(j, takes_short, takes_long))
 end
 
 local function test_a_rest_parameter_meets_the_arguments_after_the_last_parameter()

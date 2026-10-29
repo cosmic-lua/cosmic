@@ -168,8 +168,7 @@ end
 local function test_the_arguments_of_pcall_are_held_to_the_parameters_of_the_function()
   refused("local function f(n: integer): integer\n  return n\nend\nlocal okay, v = pcall(f, \"x\")\n", "overload_none")
   refused("local function f(n: integer): integer\n  return n\nend\nlocal okay, v = pcall(f)\n", "overload_none")
-  -- Arguments past the parameters are dropped by Lua, and the overload's `function(A1, A2)` has the function below it.
-  stands("local function f(n: integer): integer\n  return n\nend\nlocal okay, v = pcall(f, 1, 2)\nprint(okay, v)\n", "true\t1")
+  refused("local function f(n: integer): integer\n  return n\nend\nlocal okay, v = pcall(f, 1, 2)\n", "overload_none")
   refused("local okay, v = pcall(7)\n", "overload_none")
   stands("local function f(a: string, b: integer): string\n  return a .. tostring(b)\nend\nlocal okay, v = pcall(f, \"n\", 2)\nprint(okay, v)\n", "true\tn2")
 end
