@@ -604,7 +604,13 @@ local function doc_of(index: integer): {Lexer.Comment}
   if from > #comments then
     return nil
   end
-  return table.move(comments, from, #comments, 1, {})
+  local doc: mut {Lexer.Comment} = {}
+  for i, c in ipairs(comments) do
+    if i >= from then
+      doc[#doc + 1] = c
+    end
+  end
+  return doc
 end
 
 local function base_of(node: Ast.Node): Ast.Base

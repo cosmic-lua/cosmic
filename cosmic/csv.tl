@@ -501,7 +501,8 @@ function Csv.load(handle: Sqlite.Handle, name: string, source: Csv.Source): Csv.
   if #first == 0 then
     return undone("the CSV holds no header")
   end
-  local header = table.move(first[1]:texts(), 2, first[1]:count(), 1, {})
+  local columns = first[1]:texts()
+  local header = table.move(columns, 2, #columns, 1, {})
   local keys = Csv.column_names(header)
   local reserved = { "rowid", "oid", "_rowid_" }
   for _, each in ipairs(source.reserved or {}) do
