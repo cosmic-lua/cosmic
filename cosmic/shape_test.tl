@@ -257,7 +257,6 @@ end
 
 local function test_a_spec_not_built_here_raises()
   assert(not pcall(Shape.into, {}, {} as Shape.Spec))
-  assert(not pcall(Shape.list, "string" as Shape.Spec))
   assert(not pcall(Shape.record, { a = { kind = "strig" } as any as Shape.Spec }))
 end
 

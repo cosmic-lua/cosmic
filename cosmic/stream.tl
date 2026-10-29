@@ -1008,7 +1008,7 @@ end
 --- it; unlike [`String.lines`], text ending in "\n" has no empty last
 --- line, and "" has no lines at all. A line longer than
 --- `max_bytes` bytes (1 MiB by default) fails rather than grow without
---- bound; a `max_bytes` that is no integer of at least 1 raises.
+--- bound; a `max_bytes` under 1 raises.
 --- `reader` is not closed.
 ---
 --- The lines read `reader` ahead, a chunk at a time, and hold what they
@@ -1025,8 +1025,8 @@ end
 ---     assert(reader:close())
 function Stream.lines(reader: Stream.Reader, max_bytes?: integer): Stream.Lines
   local limit = max_bytes or default_line_limit
-  if math.type(limit) ~= "integer" or limit < 1 then
-    error("stream: max_bytes must be an integer of at least 1", 2)
+  if limit < 1 then
+    error("stream: max_bytes must be at least 1", 2)
   end
   local lines: LineReader = { source = reader, limit = limit,
     chunk = "", at = 1, parts = {}, held = 0, ended = false, failed = "",
@@ -1464,15 +1464,15 @@ end
 --- produces: `t:update(data)`, `update("")` while `t` holds output
 --- back, then `t:finish()`. Output that would pass `max_bytes`, when
 --- given, fails naming the bound, so a small input a decoder expands
---- greatly cannot fill memory; a `max_bytes` that is not an integer of
---- at least 0 raises. `t` is finished by it, or left unfinished by a
+--- greatly cannot fill memory; a `max_bytes` under 0
+--- raises. `t` is finished by it, or left unfinished by a
 --- failure, and is not reused.
 ---
 ---     local gz = assert(Compress.deflater("gzip"))
 ---     local packed = assert(Stream.run(gz, text))
 function Stream.run(t: Stream.Transform, data: string, max_bytes?: integer): string?, string
-  if max_bytes ~= nil and (math.type(max_bytes) ~= "integer" or max_bytes < 0) then
-    error("stream: max_bytes must be an integer of at least 0", 2)
+  if max_bytes ~= nil and max_bytes < 0 then
+    error("stream: max_bytes must be at least 0", 2)
   end
   local parts: mut {string} = {}
   local kept: Cell<integer> = { value = 0 }

@@ -88,12 +88,12 @@ end
 --- the timeout it had stays.
 local function test_a_timeout_out_of_range_is_refused()
   local p <close> = pair()
-  for _, bad in ipairs({ -5, Poll.MOST_NS + 1, 1.5 } as {number}) do
-    local ok, why: boolean, any = pcall(function() p.client:set_timeout(bad as integer) end)
+  for _, bad in ipairs({ -5, Poll.MOST_NS + 1 }) do
+    local ok, why: boolean, any = pcall(function() p.client:set_timeout(bad) end)
     assert(not ok and tostring(why):find("^cosmic%.net_test:%d+: net: timeout_ns must be nil or an integer from 0 to",
       1) ~= nil, tostring(why))
     local listener_ok, listener_why: boolean, any = pcall(function()
-      p.server:set_timeout(bad as integer)
+      p.server:set_timeout(bad)
     end)
     assert(not listener_ok and tostring(listener_why):find("^cosmic%.net_test:%d+: net: timeout_ns must be", 1) ~= nil,
       tostring(listener_why))

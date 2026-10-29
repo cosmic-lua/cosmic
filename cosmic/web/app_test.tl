@@ -402,12 +402,9 @@ local function test_url_for_resolves_names_on_the_app()
   assert(none == nil and why:find("no route named", 1, true), why)
 end
 
-local absent: {string:any} = {}
-
-local function test_on_stop_takes_a_function_and_stopping_starts_false()
+local function test_stopping_starts_false()
   local app = Web.app{ routes = {} }
   assert(app:stopping() == false)
-  assert(raised(function() app:on_stop(absent.fn as function()) end):find("takes a function", 1, true))
 end
 
 --- A middleware that aborts every request with 403 before its handler.

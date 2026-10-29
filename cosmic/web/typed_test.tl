@@ -278,13 +278,12 @@ local function test_registration_refuses_a_body_on_get_and_a_spec_text_cannot_ca
 end
 
 local function test_the_slots_refuse_what_is_not_a_spec()
+  local nothing: any = {}
   local why = raises(function()
-    local nothing: any = "x"
     Web.json_body(nothing as Shape.Typed<NewItem>)
   end)
   assert(why:find("takes the result of Shape.record_of", 1, true), why)
   why = raises(function()
-    local nothing: any = {}
     Web.input(PATH, Web.NONE, nothing as Web.Body<Web.None>)
   end)
   assert(why:find("Web.json_body", 1, true), why)

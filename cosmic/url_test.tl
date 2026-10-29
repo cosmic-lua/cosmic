@@ -272,11 +272,6 @@ local function test_decode_query_caps_pairs_and_bytes()
   assert(Url.decode_query("abcde", { max_bytes = 5 }) ~= nil)
 end
 
-local function test_decode_query_raises_on_a_text_that_is_no_string()
-  local ok = pcall(function() Url.decode_query(nil as string) end)
-  assert(not ok)
-end
-
 local function test_encode_query_writes_plus_for_space_and_round_trips()
   local pairs_: {Url.Pair} = { { name = "a b", value = "c&d=e" }, { name = "", value = "" },
     { name = "q", value = "+%\xff" }, { name = "q", value = "~" } }

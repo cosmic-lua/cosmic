@@ -99,7 +99,7 @@ end
 
 --- Looks up an explicitly named account, answering its uid and primary
 --- gid. A missing account is nil and an empty reason; a lookup failure
---- is nil and its reason. Empty names, NUL bytes and nonstrings raise.
+--- is nil and its reason. Empty names and NUL bytes raise.
 --- This consults the host's account service in the calling process, so
 --- resolve names before entering a sandbox or starting a child. The
 --- caller buffer grows up to 1 MiB; that limits neither libc's own

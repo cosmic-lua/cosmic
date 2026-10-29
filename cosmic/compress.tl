@@ -97,13 +97,13 @@ end
 --- Expands `data`, whole, from the `format` framing, such as `deflate`
 --- produced; raises on an unknown format. When `max_bytes` is given,
 --- more than `max_bytes` bytes of output is an error rather than an
---- answer, and a `max_bytes` that is not an integer of at least 0
+--- answer, and a `max_bytes` under 0
 --- raises. Bytes after the end of the compressed data are an error
 --- too.
 function Compress.inflate(format: Compress.Format, data: string, max_bytes?: integer):
     string?, string
-  if max_bytes ~= nil and (math.type(max_bytes) ~= "integer" or max_bytes < 0) then
-    error("compress: max_bytes must be an integer of at least 0", 2)
+  if max_bytes ~= nil and max_bytes < 0 then
+    error("compress: max_bytes must be at least 0", 2)
   end
   local dec, trouble = raw.inflater(format)
   if dec == nil then return nil, trouble end

@@ -1280,7 +1280,9 @@ end
 --------------------------------------------------------------------------
 
 --- Hostile calls, in plain Lua so that a typed caller need not build
---- their arguments. Each case says whether it raises.
+--- their arguments. Each case says whether it raises. A value of a kind
+--- no typed caller can pass goes to the C binding (`corpus.handle`),
+--- which refuses it: the wrappers' declared parameters do not admit it.
 local REFUSAL_CHUNK <const> = [[
   local Vector, dims, ops = ...
   local good = {}
@@ -1296,17 +1298,17 @@ local REFUSAL_CHUNK <const> = [[
     add_long = { true, function() corpus:add(1, good .. good:sub(1, 4)) end },
     add_nan = { true, function() corpus:add(1, nan .. good:sub(5)) end },
     add_inf = { true, function() corpus:add(1, inf .. good:sub(5)) end },
-    add_float_id = { true, function() corpus:add(1.5, good) end },
-    add_string_id = { true, function() corpus:add("x", good) end },
-    add_table = { true, function() corpus:add(1, {}) end },
-    add_nil = { true, function() corpus:add(1, nil) end },
+    add_float_id = { true, function() corpus.handle:add(1.5, good) end },
+    add_string_id = { true, function() corpus.handle:add("x", good) end },
+    add_table = { true, function() corpus.handle:add(1, {}) end },
+    add_nil = { true, function() corpus.handle:add(1, nil) end },
     add_ok = { false, function() corpus:add(-3, good) end },
     add_ok_again = { false, function() corpus:add(7, good) end },
     search_k0 = { true, function() corpus:search(good, 0) end },
     search_kneg = { true, function() corpus:search(good, -5) end },
-    search_kfloat = { true, function() corpus:search(good, 1.5) end },
-    search_kstring = { true, function() corpus:search(good, "x") end },
-    search_knil = { true, function() corpus:search(good, nil) end },
+    search_kfloat = { true, function() corpus.handle:search(good, 1.5, "inner_product") end },
+    search_kstring = { true, function() corpus.handle:search(good, "x", "inner_product") end },
+    search_knil = { true, function() corpus.handle:search(good, nil, "inner_product") end },
     search_metric = { true, function() corpus:search(good, 1, { metric = "L2" }) end },
     search_metric_number = { true, function() corpus:search(good, 1, { metric = 5 }) end },
     search_cand0 = { true, function() corpus:search(good, 1, { candidates = 0 }) end },
@@ -1318,7 +1320,7 @@ local REFUSAL_CHUNK <const> = [[
     search_allow_number = { true, function() corpus:search(good, 1, { allow = 5 }) end },
     search_short = { true, function() corpus:search(good:sub(5), 1) end },
     search_nan = { true, function() corpus:search(nan .. good:sub(5), 1) end },
-    search_number = { true, function() corpus:search(5, 1) end },
+    search_number = { true, function() corpus.handle:search(5, 1, "inner_product") end },
     search_ok = { false, function() corpus:search(good, 1) end },
     search_big_k = { false, function() corpus:search(good, math.maxinteger) end },
     search_everything = { false, function() corpus:search(good, 3, { metric = "cosine", candidates = 1, allow = { 7, -3 } }) end },
@@ -1329,8 +1331,6 @@ local REFUSAL_CHUNK <const> = [[
     corpus_dims0 = { true, function() Vector.corpus(0) end },
     corpus_dims_neg = { true, function() Vector.corpus(-1) end },
     corpus_dims_big = { true, function() Vector.corpus(16001) end },
-    corpus_dims_float = { true, function() Vector.corpus(1.5) end },
-    corpus_dims_nil = { true, function() Vector.corpus(nil) end },
     corpus_dims_max = { false, function() Vector.corpus(16000) end },
     kmeans_k0 = { true, function() Vector.kmeans(corpus, 0) end },
     kmeans_k_big = { true, function() Vector.kmeans(corpus, corpus:count() + 1) end },
@@ -1365,7 +1365,7 @@ local REFUSAL_OPS <const>: {string} = { "add_short", "add_long", "add_nan", "add
   "search_cand0", "search_candneg", "search_candfloat", "search_allow_word", "search_allow_float",
   "search_allow_table", "search_allow_number", "search_short", "search_nan", "search_number",
   "search_ok", "search_big_k", "search_everything", "search_allow_empty", "search_allow_whole_float",
-  "corpus_dims0", "corpus_dims_neg", "corpus_dims_big", "corpus_dims_float", "corpus_dims_nil",
+  "corpus_dims0", "corpus_dims_neg", "corpus_dims_big",
   "corpus_dims_max", "kmeans_k0", "kmeans_k_big", "kmeans_iterations0", "kmeans_ok",
   "method_on_nothing", "method_on_table" }
 

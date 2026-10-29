@@ -564,16 +564,6 @@ local function raised(opts: Http.Options): string
   return tostring(err)
 end
 
-local function test_an_integer_option_takes_no_numeric_string()
-  local err = raised({ timeout_ns = "5" as integer })
-  assert(err:find("http: opts.timeout_ns must be an integer", 1, true) ~= nil, err)
-end
-
-local function test_an_integer_option_takes_no_fraction()
-  local err = raised({ connect_timeout_ns = 1.5 as integer })
-  assert(err:find("http: opts.connect_timeout_ns must be an integer", 1, true) ~= nil, err)
-end
-
 local function test_a_negative_timeout_is_refused_not_ignored()
   -- curl refuses -5 and keeps its default, which is no timeout at all.
   local err = raised({ timeout_ns = -5 })
