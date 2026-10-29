@@ -134,9 +134,9 @@ end
 --- failing with nil: `boolean|nil` says it is both.
 local function test_a_fallible_call_is_an_effect_or_a_value()
   local _, trouble = gen_syscalls.read(fallible("boolean|nil"))
-  assert(trouble ~= nil and trouble:find("never boolean|nil", 1, true), trouble)
+  assert(trouble ~= nil and trouble:find("never boolean|nil", 1, true) ~= nil, trouble)
   local _, bare = gen_syscalls.read(fallible("string"))
-  assert(bare ~= nil and bare:find("fails with nil", 1, true), bare)
+  assert(bare ~= nil and bare:find("fails with nil", 1, true) ~= nil, bare)
   assert(gen_syscalls.read(fallible("boolean")) ~= nil)
   assert(gen_syscalls.read(fallible("string|nil")) ~= nil)
 end
@@ -203,10 +203,10 @@ local function test_constants_are_held_to_their_class()
   local stray = with({ "COSMIC_CONSTANT(A)", "COSMIC_CONSTANT(B)" }):gsub(
     "COSMIC_SYSCALL%(close, 1%);", "COSMIC_SYSCALL(close, 1);\nCOSMIC_CONSTANT(C)")
   local refused, refusal = gen_syscalls.read(stray)
-  assert(refused == nil and refusal:find("one stands outside", 1, true), refusal)
+  assert(refused == nil and refusal:find("one stands outside", 1, true) ~= nil, refusal)
   for _, case in ipairs(cases) do
     local read, trouble = gen_syscalls.read(with(case.entries))
-    assert(read == nil and trouble:find(case.refusal, 1, true), trouble)
+    assert(read == nil and trouble:find(case.refusal, 1, true) ~= nil, trouble)
   end
 end
 
@@ -247,7 +247,7 @@ local function test_a_userdata_class_declares_methods_and_metamethods()
   assert(found ~= nil, "analyze failed: " .. tostring(err))
   for _, class in ipairs({ "Owner: table", "Owner userdata" }) do
     local refused, why = gen_syscalls.read(with(class))
-    assert(refused == nil and why:find("a parent other than userdata", 1, true), class .. ": " .. why)
+    assert(refused == nil and why:find("a parent other than userdata", 1, true) ~= nil, class .. ": " .. why)
   end
 end
 
@@ -299,9 +299,9 @@ local function test_a_malformed_alias_is_refused()
   local clash = with({ " What it is.", "@alias Stat", '| "file" # a file' }) ..
     lines({ "/*", " * --- A class.", " * ---@class Stat", " * ---@field a integer a", " */" })
   local refused, why = gen_syscalls.read(clash)
-  assert(refused == nil and why:find("Stat: names both a class and an alias", 1, true), tostring(why))
+  assert(refused == nil and why:find("Stat: names both a class and an alias", 1, true) ~= nil, tostring(why))
   for _, case in ipairs(cases) do
     local read, trouble = gen_syscalls.read(with(case.body))
-    assert(read == nil and trouble:find(case.refusal, 1, true), tostring(trouble))
+    assert(read == nil and trouble:find(case.refusal, 1, true) ~= nil, tostring(trouble))
   end
 end

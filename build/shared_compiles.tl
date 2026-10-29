@@ -305,7 +305,7 @@ function shared_compiles.open(path: string): shared_compiles.Cache?, string
   if not file_held then return nil, file_trouble end
   local db, trouble = shared_sqlite.open(path, prepare)
   if db == nil then return nil, trouble end
-  return { db = db, path = path }
+  return { db = db, path = path }, ""
 end
 
 function shared_compiles.close(cache: shared_compiles.Cache)

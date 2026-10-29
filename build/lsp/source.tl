@@ -98,21 +98,21 @@ local record source
   --- what a test reads to tell each path was taken.
   record Tally
     --- Served as the stub the stage derived (its `stubs` row).
-    database_stubs: integer
+    mut database_stubs: integer
     --- Served as a stub made in this process, of an open document or of
     --- a source whose `stubs` rows are not the running analyzer's.
-    made_stubs: integer
+    mut made_stubs: integer
     --- Served as its source: a declaration, or one that has no stub.
-    sources: integer
+    mut sources: integer
     --- Served as a template's Teal.
-    templates: integer
+    mut templates: integer
     --- Documents whose [`Shape.record_of`] calls were found in the whole
     --- text.
-    whole_splices: integer
+    mut whole_splices: integer
     --- Stages made, and times the database was found made again and
     --- opened anew.
-    stages: integer
-    reopened: integer
+    mut stages: integer
+    mut reopened: integer
   end
 
   --- An open document's text, and its SHA-256.
@@ -130,31 +130,31 @@ local record source
     root: string
     --- A read handle on `build.db`, nil until there is one to read, and
     --- the device and inode of the file it reads.
-    db: Sqlite.Handle?
-    identity: string
+    mut db: Sqlite.Handle?
+    mut identity: string
     --- The database's path, once a stage has found the build directory.
-    working: string?
+    mut working: string?
     --- What the last stage found of the root, nil before the first.
-    where: rebuild.Where?
+    mut where: rebuild.Where?
     --- Each module by its import path, and by its file.
-    modules: {string:Module}
-    files: {string:Module}
+    mut modules: {string:Module}
+    mut files: {string:Module}
     --- What each source requires, by its `source_hash` (the `requires`
     --- rows), in order.
-    requires: {string:{string}}
+    mut requires: {string:{string}}
     --- Whether the `stubs` rows are the running analyzer's, and the
     --- analyzer this session's last stage recorded, nil before one.
-    stubs: boolean
-    analyzer: string?
+    mut stubs: boolean
+    mut analyzer: string?
     --- Whether the tree is yet to be staged: before the first check, or
     --- since a stage that found the database busy.
-    pending: boolean
+    mut pending: boolean
     --- Whether the session has said the database is busy, since it last
     --- staged.
-    told_busy: boolean
+    mut told_busy: boolean
     --- The stub made here of each text, by its SHA-256: "" for a text
     --- with none.
-    made: mut {string:string}
+    mut made: mut {string:string}
     tally: Tally
     --- Where complaints go, without their newline.
     err: function(line: string)

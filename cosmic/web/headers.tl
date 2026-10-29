@@ -175,7 +175,7 @@ function Headers.middleware(opts?: Headers.Options): Types.Middleware
     if h.preload == true and not (h.include_subdomains == true and h.max_age >= 31536000) then
       error("headers: hsts.preload needs include_subdomains and a max_age of a year (31536000) or more", 2)
     end
-    hsts = "max-age=" .. h.max_age .. (if h.include_subdomains == true then "; includeSubDomains" else "" end) ..
+    hsts = "max-age=" .. tostring(h.max_age) .. (if h.include_subdomains == true then "; includeSubDomains" else "" end) ..
       (if h.preload == true then "; preload" else "" end)
   end
 

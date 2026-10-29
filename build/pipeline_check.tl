@@ -26,7 +26,7 @@ local record PipelineCheck
     dialect: string
     --- What the pipeline's answer for the file is kept under in the memo: the file's source and everything it requires. The
     --- ceilings that hold it are added to it ([`PipelineCheck.keyed`]).
-    key: string
+    mut key: string
     --- Whether the file is a source of the tree as it is written, and not one the build writes from another file: its ceilings
     --- are then the ones kept under its own name.
     plain: boolean

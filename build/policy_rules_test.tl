@@ -113,7 +113,7 @@ local function test_the_analyzer_applies_the_rules_to_each_policy()
   end
   assert(#wrong == 0, table.concat(wrong, "\n"))
   -- Neither side is compared empty with empty.
-  assert(accepted >= 12 and refused >= 40, accepted .. " accepted, " .. refused .. " refused")
+  assert(accepted >= 12 and refused >= 40, tostring(accepted) .. " accepted, " .. tostring(refused) .. " refused")
 end
 
 local function test_a_policy_is_read_into_the_declaration_it_stands_for()

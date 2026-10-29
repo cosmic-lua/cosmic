@@ -32,7 +32,7 @@ local function check(name: string, input: string, passed: string, answered?: str
   for cut = 0, #input do
     local split_out, split_replies = pieces(input, { cut })
     assert(split_out == passed and split_replies == answered,
-      name .. ": cut at " .. cut .. " passed " .. string.format("%q", split_out))
+      name .. ": cut at " .. tostring(cut) .. " passed " .. string.format("%q", split_out))
   end
   local every: mut {integer} = {}
   for cut = 1, #input do every[cut] = cut end
@@ -44,10 +44,10 @@ end
 --- whole, and in halves.
 local function check_long(name: string, input: string, passed: string)
   local out = whole(input)
-  assert(out == passed, name .. ": passed " .. #out .. " bytes")
+  assert(out == passed, name .. ": passed " .. tostring(#out) .. " bytes")
   for _, cut in ipairs({ 1, #input // 2, #input - 1 }) do
     out = pieces(input, { cut })
-    assert(out == passed, name .. ": cut at " .. cut)
+    assert(out == passed, name .. ": cut at " .. tostring(cut))
   end
 end
 

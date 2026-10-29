@@ -107,7 +107,7 @@ local record Target
   target: string
   uname_os: string
   uname_arch: string
-  offset: integer
+  mut offset: integer
   length: integer
   digest: string
 end

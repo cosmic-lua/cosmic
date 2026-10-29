@@ -1115,7 +1115,7 @@ local function known_in(db: Sqlite.Handle,
     }
   end
   statement:finalize()
-  return out
+  return out, ""
 end
 
 --- `files` keeps the bytes; `tool` and `scanned` keep only what a stat
@@ -1613,7 +1613,7 @@ function work.stage(handle: work.Handle, own_tree: boolean): work.Staged?, strin
   if not recorded then
     return nil, record_trouble
   end
-  return staged
+  return staged, ""
 end
 
 --- The code the working database `db` records staging it (`meta`'s
@@ -1688,7 +1688,7 @@ local function links_finder(db: Sqlite.Handle): string?, string
     if not ok then
       return nil, record_trouble
     end
-    return fingerprint
+    return fingerprint, ""
   end
   local last, last_trouble = Sqlite.text_rows(db,
     "SELECT key, value FROM meta WHERE key IN ('links_boot', 'links_by')")
@@ -1698,7 +1698,7 @@ local function links_finder(db: Sqlite.Handle): string?, string
   local recorded: mut {string:string} = {}
   for _, row in ipairs(last) do recorded[row:text(1)] = row:text(2) end
   if recorded["links_boot"] == boot_hash and recorded["links_by"] ~= nil then
-    return recorded["links_by"]
+    return recorded["links_by"], ""
   end
   local reached: mut {string:boolean} = {}
   local stack: mut {string} = { "build.link_files" }
@@ -1727,7 +1727,7 @@ local function links_finder(db: Sqlite.Handle): string?, string
   if not ok then
     return nil, trouble
   end
-  return finder
+  return finder, ""
 end
 
 --- Reads the links of each file of `linked` whose text no row of

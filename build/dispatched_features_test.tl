@@ -230,9 +230,9 @@ local function test_asking_keeps_what_a_line_at_a_time_would()
   -- one line; a find in any case; and the last line, with and without
   -- a newline after it.
   local lines: mut {string} = { "#define MBEDTLS_AESNI_X", "0x1", "a", "cpuid" }
-  for i = 1, AFTER - 1 do lines[#lines + 1] = "filler " .. i end
+  for i = 1, AFTER - 1 do lines[#lines + 1] = "filler " .. tostring(i) end
   lines[#lines + 1] = "xgetbv on the window's last line"
-  for i = 1, AFTER + 4 do lines[#lines + 1] = "more " .. i end
+  for i = 1, AFTER + 4 do lines[#lines + 1] = "more " .. tostring(i) end
   lines[#lines + 1] = "cpuid and cpuid, HwCaP too"
   lines[#lines + 1] = ""
   lines[#lines + 1] = "getauxval last"
@@ -240,10 +240,10 @@ local function test_asking_keeps_what_a_line_at_a_time_would()
   for _, each in ipairs({ text, text .. "\n", "", "\n\n", "cpuid" }) do
     local want, got = by_line(each), asking(each)
     assert(table.concat(got, "\n") == table.concat(want, "\n") and #got == #want,
-      "asking found " .. #got .. " lines where a line at a time finds " .. #want)
+      "asking found " .. tostring(#got) .. " lines where a line at a time finds " .. tostring(#want))
   end
   local found = asking(text)
-  assert(#found > AFTER * 2 and #found < #lines, "the case keeps " .. #found .. " lines")
+  assert(#found > AFTER * 2 and #found < #lines, "the case keeps " .. tostring(#found) .. " lines")
   assert(found[1] == "cpuid", "the case begins with " .. tostring(found[1]))
 end
 
@@ -257,7 +257,7 @@ local function test_every_library_build_zig_compiles_is_walked()
     assert(walked[library] or NOT_C[library], "build.zig compiles vendor/" .. library ..
         ", which this test does not walk: add it to LIBRARIES and to Test.policy")
   end
-  assert(count >= #LIBRARIES, "build.zig names " .. count .. " patched trees")
+  assert(count >= #LIBRARIES, "build.zig names " .. tostring(count) .. " patched trees")
 end
 
 local function test_every_site_that_asks_the_processor_is_named()

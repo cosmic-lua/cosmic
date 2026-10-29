@@ -25,7 +25,7 @@ local record held
 
   --- Where the program finds the document being checked, which it reads in place of what serves the module.
   record Slot
-    focus: Focus?
+    mut focus: Focus?
   end
 
   --- One session's program.
@@ -131,7 +131,7 @@ function held.built(self: Program, file: string, text: string, module: string, t
     return { tests = tests }
   end)
   return { build = self.build, ceilings = self.options.ceilings, index = index, globals = self.options.globals,
-    standard = self.standard, types = true, given = {}, stubs = nil, stubbed = nil }
+    standard = self.standard, types = true, given = {}, stubs = nil, stubbed = nil, project = self.options.project }
 end
 
 return held

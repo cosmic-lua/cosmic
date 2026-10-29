@@ -191,7 +191,7 @@ function Template.compile(src: string, name: string, options?: Template.Options)
   end
   local attributes, conflict = dialect.resolve(template.dialects, registry)
   if attributes == nil then
-    return nil, name .. ":" .. template.line .. ":1: " .. conflict
+    return nil, name .. ":" .. tostring(template.line) .. ":1: " .. conflict
   end
   local _, newlines = src:gsub("\n", "")
   local end_col = #src - (src:match(".*()\n") or 0) + 1

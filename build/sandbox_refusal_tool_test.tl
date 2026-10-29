@@ -24,17 +24,17 @@ end
 
 local function test_a_program_that_is_not_there_exits_127(tmp: string)
   local ran = cosmic(tmp, { "sandbox", "--system", "--", "zzqqx-no-such-program" })
-  assert(ran.code == 127 and ran.out == "", ran.code .. ran.err)
+  assert(ran.code == 127 and ran.out == "", tostring(ran.code) .. ran.err)
   assert(ran.err:find("^cosmic: sandbox: ") and ran.err:find("zzqqx-no-such-program", 1, true), ran.err)
   local path = cosmic(tmp, { "sandbox", "--system", "--", tmp .. "/absent" })
-  assert(path.code == 127, path.code .. path.err)
+  assert(path.code == 127, tostring(path.code) .. path.err)
 end
 
 local function test_a_command_line_it_refuses_exits_2(tmp: string)
   for _, words in ipairs({ { "sandbox" }, { "sandbox", "--system" }, { "sandbox", "--nope", "true" },
       { "sandbox", "--path", "xr:.", "true" } }) do
     local ran = cosmic(tmp, words)
-    assert(ran.code == 2 and ran.out == "", table.concat(words, " ") .. ": " .. ran.code .. ran.err)
+    assert(ran.code == 2 and ran.out == "", table.concat(words, " ") .. ": " .. tostring(ran.code) .. ran.err)
     assert(ran.err:find("^cosmic: sandbox: "), ran.err)
     assert(not ran.err:find("FAIL", 1, true), ran.err)
   end
@@ -43,12 +43,12 @@ end
 local function test_a_program_not_granted_exits_125_not_127(tmp: string)
   -- It is found on the PATH; the policy lacks the grants to run it.
   local ran = cosmic(tmp, { "sandbox", "--", "true" })
-  assert(ran.code == 125 and ran.out == "", ran.code .. ran.err)
+  assert(ran.code == 125 and ran.out == "", tostring(ran.code) .. ran.err)
   assert(ran.err:find("not granted", 1, true) and ran.err:find("system", 1, true), ran.err)
   assert(not ran.err:find("no PATH search", 1, true), ran.err)
   -- A missing grant is the start's, not the program's, whatever the program.
   local grant = cosmic(tmp, { "sandbox", "--system", "--read", tmp .. "/absent", "--", "ls" })
-  assert(grant.code == 125 and not grant.err:find("no PATH search", 1, true), grant.code .. grant.err)
+  assert(grant.code == 125 and not grant.err:find("no PATH search", 1, true), tostring(grant.code) .. grant.err)
 end
 
 local function test_a_program_that_cannot_be_run_exits_126(tmp: string)
@@ -56,5 +56,5 @@ local function test_a_program_that_cannot_be_run_exits_126(tmp: string)
   assert(sys.chmod(tmp .. "/plain", 420))
   searchable.open(tmp)
   local ran = cosmic(tmp, { "sandbox", "--system", "--run", tmp .. "/plain", "--", tmp .. "/plain" })
-  assert(ran.code == 126 and ran.out == "", ran.code .. ran.err)
+  assert(ran.code == 126 and ran.out == "", tostring(ran.code) .. ran.err)
 end

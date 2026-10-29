@@ -342,7 +342,7 @@ local function previous_runs(handle: Sqlite.Handle): {string:boolean}?, string
   end
   local out: mut {string:boolean} = {}
   for _, row in ipairs(rows) do out[row:text(1) .. " " .. row:text(2)] = true end
-  return out
+  return out, ""
 end
 
 --- How many runs a verdict stays after the last one that relied on it.
@@ -1232,6 +1232,9 @@ local record Run
   mut refusals?: {string}
   mut forced?: boolean
   mut consult?: boolean
+  --- Whether a verdict is also looked up under the key of another host of
+  --- the same rest (COSMIC_TEST_FOREIGN_FEATURES=1).
+  mut accept_foreign?: boolean
   mut census?: boolean
   --- Whether the run compiles the tree with run-time checks and reports
   --- what they find (`--check-types`).
@@ -1372,6 +1375,9 @@ local function read_command(ctx: Run): integer?
   -- checkout's own evidence, or a run.
   ctx.consult = not (parsed.set["--no-shared"] == true or
     Env.get("COSMIC_TEST_NO_SHARED") == "1")
+  -- Only the CI gathering run asks this (ci/cosmic_ci/orchestration.tl's
+  -- `checked_suite`); it reads verdicts the shares of the same run kept.
+  ctx.accept_foreign = Env.get("COSMIC_TEST_FOREIGN_FEATURES") == "1"
   ctx.census = parsed.set["--census"] == true
   -- TODO: run a checked run's three tests that compare the bytecode of a
   -- module with the binary's (build/harness_epoch_test.tl,
@@ -1805,6 +1811,7 @@ local function make_recording(ctx: Run)
     hits = hits, by_test = by_test, unowned = unowned, tally = tally, not_run = 0,
     owed = { kept = {}, used = {}, failed = {}, stores = {} }, shared_keys = {},
     consult_shared = ctx.consult,
+    accept_foreign = ctx.accept_foreign == true and ctx.consult == true and ctx.sandboxed == true,
     origin = checkout_id(records, assert(ctx_root), ctx.run_at_ns),
     views = {}, caches = {}, unkeyed = {},
     forbiddable = {},
@@ -2007,6 +2014,12 @@ local function look_up_verdicts(ctx: Run)
     if runs_tool then
       parts[#parts + 1] = { "program", test_key.program_of(rec):sub(1, 12) }
     end
+    -- Last, so the parts above keep their places: the identity itself,
+    -- which a gathering run keys other hosts' verdicts by
+    -- ([`shared_verdicts.hosts_like`]), and the rest of it that is no
+    -- feature.
+    parts[#parts + 1] = { "host identity", assert(rec.host) }
+    parts[#parts + 1] = { "host rest", assert(rec.host_rest) }
     rec.owed.parts = shared_verdicts.named(parts)
   end
   -- In a fresh checkout (as CI's is), where every keyed test was looked

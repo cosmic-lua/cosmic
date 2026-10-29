@@ -189,7 +189,7 @@ local function test_a_tzdata_sdist_replaces_the_zones(tmp: string)
   local after = carried(out)
   local query = "SELECT rowid, name, hex(sha256(data)) FROM zoneinfo ORDER BY rowid"
   local was, now = rows(before, query), rows(after, query)
-  assert(#now == #was, #now .. " zones, not " .. #was)
+  assert(#now == #was, tostring(#now) .. " zones, not " .. tostring(#was))
   for i, row in ipairs(was) do
     assert(now[i]:text(1) == row:text(1) and now[i]:text(2) == row:text(2) and now[i]:text(3) == row:text(3), row:text(2))
   end
@@ -207,15 +207,15 @@ local function test_a_bad_release_writes_nothing(tmp: string)
   sdist(archive, "2099.1", { ["zoneinfo/Bad/Zone"] = "TZif not really" })
   local out = tmp .. "/refreshed"
   local lines, trouble = refresh.binary(path, out, { datasets.tzdata }, { tzdata = archive })
-  assert(lines == nil and trouble:find("zone Bad/Zone", 1, true), trouble)
+  assert(lines == nil and trouble:find("zone Bad/Zone", 1, true) ~= nil, trouble)
 
   -- A DER sequence, `30 03 'abc'`, that is no certificate: a binary
   -- carrying only it would trust nothing.
   local pem = tmp .. "/bad.pem"
   assert(Fs.write(pem, "Bad\n===\n-----BEGIN CERTIFICATE-----\nMANhYmM=\n-----END CERTIFICATE-----\n"))
   lines, trouble = refresh.binary(path, out, { datasets.cacert }, { cacert = pem })
-  assert(lines == nil and trouble:find("certificate 1 (Bad)", 1, true), trouble)
-  assert(not Fs.exists(out))
+  assert(lines == nil and trouble:find("certificate 1 (Bad)", 1, true) ~= nil, trouble)
+  assert(Fs.exists(out) ~= true)
 
   -- Among roots it can read, it is left out, as the binary would drop
   -- it, and named.
@@ -228,11 +228,11 @@ local function test_a_bad_release_writes_nothing(tmp: string)
   local want = carried(path)
   local query = "SELECT hex(sha256), label FROM ca_roots ORDER BY rowid"
   local now, was = rows(after, query), rows(want, query)
-  assert(#now == #was, #now .. " roots, not " .. #was)
+  assert(#now == #was, tostring(#now) .. " roots, not " .. tostring(#was))
   assert(after:close())
   assert(want:close())
   assert(Fs.remove(out))
-  assert(not Fs.exists(out))
+  assert(Fs.exists(out) ~= true)
 end
 
 --- The command line: -o is required, and a dataset it does not know is
@@ -246,11 +246,11 @@ local function test_the_command_line_is_refused_by_name(tmp: string)
   }
   for _, words in ipairs(cases) do
     local result = invoke.run(words, { cwd = tmp })
-    assert(result.code == 2, table.concat(words, " ") .. ": exit " .. result.code)
+    assert(result.code == 2, table.concat(words, " ") .. ": exit " .. tostring(result.code))
   end
   -- Not a usage error, but never done: the binary it reads is not written.
   local itself = invoke.run({ "refresh", "-o", path, "--binary", path, "--cacert", pem }, { cwd = tmp })
-  assert(itself.code == 1 and itself.stderr:find("never written", 1, true), itself.stderr)
+  assert(itself.code == 1 and itself.stderr:find("never written", 1, true) ~= nil, itself.stderr)
   assert(not itself.stderr:find("\nrefresh: ", 1, true), "a failure was summarized: " .. itself.stderr)
   local result = invoke.run({ "refresh", "-o", tmp .. "/out", "--binary", path, "--cacert", pem },
     { cwd = tmp })

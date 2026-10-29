@@ -449,7 +449,7 @@ local function test_a_staged_project_is_built_from_its_inputs_and_compiles_to_wh
       end
     end
   end
-  assert(seen["m"] and seen["m_test"] and seen["doc.guides.g"], "the guide is a module of the project")
+  assert(seen["m"] == true and seen["m_test"] == true and seen["doc.guides.g"] == true, "the guide is a module of the project")
   -- the guide is the test module its stage derived, named for its file
   local guide = assert(pipeline.build:parsed("doc.guides.g"))
   assert(guide.source.filename == "doc/guides/g.md" and guide.source.tests)
@@ -719,7 +719,7 @@ local function test_the_record_field_uses_of_a_module_are_found_through_the_type
   local made = assert(Pipeline.generate(m, pipeline))
   local use = assert(made.references[1], "no use found")
   assert(#made.references == 1 and use.module == "cosmic.shape_of" and use.member == "Point.x" and use.line == 3,
-    #made.references .. " uses")
+    tostring(#made.references) .. " uses")
 end
 
 local function test_a_record_test_is_written_as_the_fork_writes_it_for_the_tree_and_refused_for_a_program_without_a_ceiling()

@@ -25,12 +25,12 @@ local function test_what_only_a_process_can_do_raises(tmp: string)
   local here = assert(sys.getcwd())
   local ran, trouble = pcall(invoke.run, { "-e", "require('cosmic.proc').exit(0)" },
     { cwd = tmp })
-  assert(not ran and tostring(trouble):find("called sys.exit", 1, true), tostring(trouble))
+  assert(not ran and tostring(trouble):find("called sys.exit", 1, true) ~= nil, tostring(trouble))
   local swallowed, why = pcall(invoke.run, { "-e", "pcall(require('cosmic.proc').exit, 0)" },
     { cwd = tmp })
-  assert(not swallowed and tostring(why):find("called sys.exit", 1, true), tostring(why))
+  assert(not swallowed and tostring(why):find("called sys.exit", 1, true) ~= nil, tostring(why))
   local file, file_trouble = pcall(invoke.run, { "main.tl" }, { cwd = tmp })
-  assert(not file and tostring(file_trouble):find("runs a file", 1, true),
+  assert(not file and tostring(file_trouble):find("runs a file", 1, true) ~= nil,
     tostring(file_trouble))
   assert(sys.exit == exit and sys.execve == execve and Store.attach == attach)
   assert(sys.getcwd() == here)

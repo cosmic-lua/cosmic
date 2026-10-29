@@ -75,7 +75,7 @@ local function test_what_it_cannot_lay_out_is_refused()
       "",
   }) do
     local out, why = flow.format(text)
-    assert(out == nil and why:match("^line %d+: "), ("%q: %s"):format(text, tostring(out)))
+    assert(out == nil and why:match("^line %d+: ") ~= nil, ("%q: %s"):format(text, tostring(out)))
   end
 end
 
@@ -138,7 +138,7 @@ local function test_problems_names_what_the_readers_read_apart()
   }
   for text, want in pairs(cases) do
     local got = flow.problems(text)
-    assert(#got >= 1 and got[1]:find(want, 1, true), text .. ": " .. table.concat(got, "; "))
+    assert(#got >= 1 and got[1]:find(want, 1, true) ~= nil, text .. ": " .. table.concat(got, "; "))
   end
   local fine = '# lead \u{2014} \u{2192} \u{2026}\r\n{\n  "on": {push: {}}, # after\n  a: [true, false, null, 0, -12, 123456789012345,],\n' ..
     '  b: "it\'s # not a comment: //, \\"quoted\\" \\u00e9\\n",\n  "c-d": {a: "x:y"},\n  e: [{a: 1}, {a: 2}],\n}\n'
@@ -164,13 +164,13 @@ end
 --- nesting past what `cosmic.json` reads.
 local function test_what_would_be_lost_is_refused()
   local out, why = flow.format("{\n  a:\n\n  # kept?\n  1,\n}\n")
-  assert(out == nil and why:find("between a key and its value", 1, true), tostring(why))
+  assert(out == nil and why:find("between a key and its value", 1, true) ~= nil, tostring(why))
   out, why = flow.format("{a:1}\n")
-  assert(out == nil and why:find("no space after", 1, true), tostring(why))
+  assert(out == nil and why:find("no space after", 1, true) ~= nil, tostring(why))
   out, why = flow.format("{a: foo}\n")
-  assert(out == nil and why:find("the bare value foo", 1, true), tostring(why))
+  assert(out == nil and why:find("the bare value foo", 1, true) ~= nil, tostring(why))
   out, why = flow.format(string.rep("[", 100) .. string.rep("]", 100) .. "\n")
-  assert(out == nil and why:find("nested deeper", 1, true), tostring(why))
+  assert(out == nil and why:find("nested deeper", 1, true) ~= nil, tostring(why))
   local ok = pcall(flow.format, string.rep("[", 300000))
   assert(ok, "deep nesting is refused, not raised")
 end
@@ -308,12 +308,12 @@ end
 
 local function test_values_the_subset_cannot_hold_are_refused()
   local out, why = flow.format('{"<<": {a: 1}}\n')
-  assert(out == nil and why:find("merge", 1, true), tostring(why))
+  assert(out == nil and why:find("merge", 1, true) ~= nil, tostring(why))
   assert(not pcall(flow.from, { ["<<"] = 1 }))
   out, why = flow.format('{a: "x\ty"}\n')
-  assert(out == nil and why:find("a tab in a string", 1, true), tostring(why))
+  assert(out == nil and why:find("a tab in a string", 1, true) ~= nil, tostring(why))
   out, why = flow.format("{\n  a: 1 # c1\n  , # c2\n  b: 2,\n}\n")
-  assert(out == nil and why:find("on a line of its own", 1, true), tostring(why))
+  assert(out == nil and why:find("on a line of its own", 1, true) ~= nil, tostring(why))
   local deep: {any} = {}
   local at = deep
   for _ = 1, 70 do
@@ -325,7 +325,7 @@ local function test_values_the_subset_cannot_hold_are_refused()
   local cycle: {string: any} = {}
   cycle.self = cycle
   local ok, err = pcall(flow.from, cycle)
-  assert(not ok and tostring(err):find("holds itself", 1, true), tostring(err))
+  assert(not ok and tostring(err):find("holds itself", 1, true) ~= nil, tostring(err))
   local value, trouble = flow.value(assert(flow.parse("{a: x}")).root)
   assert(value == nil and trouble ~= "", "a node that reads as nothing says why")
   assert(#flow.comments("# a\n{b: \"# no\"} # c\n") == 2)
@@ -336,7 +336,7 @@ end
 local function test_update_over_itself_keeps_a_long_line()
   local Json = require("cosmic.json")
   local items: mut {string} = {}
-  for i = 1, 20 do items[i] = "\"item" .. i .. "\"" end
+  for i = 1, 20 do items[i] = "\"item" .. tostring(i) .. "\"" end
   local text = "{\n  a: [" .. table.concat(items, ", ") .. "],\n}\n"
   assert(formatted(text) == text)
   local doc = assert(flow.parse(text))

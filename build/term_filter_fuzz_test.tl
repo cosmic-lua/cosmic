@@ -162,7 +162,7 @@ local function split_holds(input: string): boolean, string
   for _, size in ipairs({ 1, 2, 3, 7 }) do
     local cut_out, cut_replies = sized(input, size)
     if cut_out ~= out or cut_replies ~= replies then
-      return false, "fed " .. size .. " bytes at a time it differs"
+      return false, "fed " .. tostring(size) .. " bytes at a time it differs"
     end
   end
   local cut_out, cut_replies = cut_by_content(input)

@@ -58,7 +58,7 @@ end
 
 --- The spec of `suite/t_test.tl`'s `test_t` in a tree at `root`, as a
 --- run would hand it: its closure, its declared data, and `env`.
-local function spec(env?: {string:string}): declared_key.Spec
+local function spec(env?: {string:string}, host?: string): declared_key.Spec
   local effective: test_inputs.Effective = {
     files = { ["suite/t_test.tl"] = true, ["suite/lib.tl"] = true },
     reads = { "suite/data/" }, host = {}, env = { DECLARED = true }, network = {},
@@ -66,7 +66,7 @@ local function spec(env?: {string:string}): declared_key.Spec
   }
   return {
     id = "suite.t_test test_t", group = "suite.t_test", module_key = "module",
-    runtime = "runtime sandboxed", compiler = "compiler", host = "host",
+    runtime = "runtime sandboxed", compiler = "compiler", host = host or "host",
     epoch = "1-00000000", timeout_ns = Clock.seconds(30),
     declaration = 'reads "suite/data/"\nenv "DECLARED"', effective = effective,
     environment = env or { DECLARED = "d", TMPDIR = "/tmp" },
@@ -660,16 +660,16 @@ local function test_a_link_out_of_the_tree_has_no_key(tmp: string)
   assert(Fs.write(tmp .. "/outside.txt", "o\n"))
   assert(Fs.symlink("../../../../outside.txt", root .. "/suite/data/deeper/out"))
   local key, why = declared_key.compute(declared_key.digests(root), spec())
-  assert(key == nil and why:find("leads out of the tree", 1, true), why)
+  assert(key == nil and why:find("leads out of the tree", 1, true) ~= nil, why)
   assert(Fs.remove(root .. "/suite/data/deeper/out"))
   assert(Fs.symlink("/etc/passwd", root .. "/suite/data/abs"))
   key, why = declared_key.compute(declared_key.digests(root), spec())
-  assert(key == nil and why:find("/etc/passwd", 1, true), why)
+  assert(key == nil and why:find("/etc/passwd", 1, true) ~= nil, why)
   -- Dangling, and absolute: out of the tree by what it says.
   assert(Fs.remove(root .. "/suite/data/abs"))
   assert(Fs.symlink("/nowhere/at/all", root .. "/suite/data/abs"))
   key, why = declared_key.compute(declared_key.digests(root), spec())
-  assert(key == nil and why:find("/nowhere/at/all", 1, true), why)
+  assert(key == nil and why:find("/nowhere/at/all", 1, true) ~= nil, why)
   assert(Fs.remove(root .. "/suite/data/abs"))
   assert(Fs.symlink("../../lib.tl", root .. "/suite/data/deeper/in"))
   assert(key_of(root) ~= nil)
@@ -745,6 +745,22 @@ local function test_a_frozen_run_looks_once_and_a_thawed_one_again(tmp: string)
   assert(declared_key.compute(digests, spec()) == before)
   declared_key.thaw(digests)
   assert(declared_key.compute(digests, spec()) ~= before)
+end
+
+--- Under one snapshot, the keys of one test under two hosts differ: the
+--- module's inputs a run remembers hold the host, so a lookup under
+--- another host's key (build/test_key.tl's `lookup`) must not be answered
+--- with the first host's.
+local function test_a_frozen_run_keys_each_host_apart(tmp: string)
+  tree(tmp)
+  local digests = declared_key.digests(tmp)
+  declared_key.freeze(digests)
+  local other = spec(nil, "another host")
+  local first = declared_key.compute(digests, spec())
+  local second = declared_key.compute(digests, other)
+  assert(first ~= nil and second ~= nil and first ~= second, "two hosts, one key")
+  assert(declared_key.compute(digests, spec()) == first, "the first host's key moved")
+  assert(declared_key.compute(digests, other) == second, "the second host's key moved")
 end
 
 --- A digest of named modules ([`declared_key.harness`]: the harness's,
@@ -1007,7 +1023,7 @@ local function test_a_walk_is_remembered_while_no_directory_moves(tmp: string)
   }
   local digests = declared_key.digests(tmp)
   local first = declared_key.system_identity(digests, sources, true)
-  assert(digests.read == 1, "the first walk read " .. digests.read)
+  assert(digests.read == 1, "the first walk read " .. tostring(digests.read))
   assert(declared_key.system_identity(digests, sources, true) == first)
   assert(digests.read == 1, "a walk no directory moved since was walked again")
   local next_run = declared_key.digests(tmp, declared_key.kept(digests))
@@ -1296,4 +1312,50 @@ local function test_a_file_rewritten_since_an_earlier_run_is_read_once(tmp: stri
     assert(declared_key.store_digest(digests, path) == Hash.hex_sha256("rows"))
   end
   assert(digests.read == 1, "read " .. tostring(digests.read) .. " times")
+end
+
+--- The rest of the host's identity (`host_split`) moves with everything
+--- of it but its features: the kernel's release and version and the
+--- processor's features move the identity and not the rest, while the
+--- user, the sandbox's /proc and what the host says of itself move both.
+--- A gathering run takes the verdicts of a host of another features by
+--- this (build/shared_verdicts.tl's `hosts_like`).
+local function test_the_rest_of_a_hosts_identity_leaves_out_its_features(tmp: string)
+  local function write(name: string, text: string): string
+    assert(Fs.write(tmp .. "/" .. name, text))
+    return tmp .. "/" .. name
+  end
+  local release = write("release", "r1")
+  local version = write("version", "v1")
+  local status = write("status", "Name: x\nCapEff: 0\nUid: 1 1 1 1\n")
+  local packages = write("packages", "p1")
+  local os_release = write("os", "o1")
+  local function split(cpu: {string}, host_id: string, own_proc: boolean, uid: integer): declared_key.Split
+    return declared_key.host_split(declared_key.digests(tmp), {
+      packages = { packages }, system = { os_release, release, version },
+      cpu_features = cpu, machine = "x86_64", status = status,
+      own_proc = own_proc, host_id = host_id, uid = uid,
+    })
+  end
+  local function start(): declared_key.Split return split({ "aes", "pclmulqdq" }, "h1", true, 1) end
+  local first = start()
+  assert(first.identity == declared_key.host_identity(declared_key.digests(tmp), {
+    packages = { packages }, system = { os_release, release, version },
+    cpu_features = { "aes", "pclmulqdq" }, machine = "x86_64", status = status,
+    own_proc = true, host_id = "h1", uid = 1,
+  }), "host_identity is the split's identity")
+  assert(first.rest ~= first.identity)
+  assert(Fs.write(release, "r2"))
+  local kernel = start()
+  assert(kernel.identity ~= first.identity and kernel.rest == first.rest, "a kernel's release")
+  assert(Fs.write(version, "v2"))
+  assert(start().rest == first.rest, "a kernel's version")
+  local features = split({ "aes", "ssse3" }, "h1", true, 1)
+  assert(features.identity ~= kernel.identity and features.rest == first.rest, "a feature")
+  assert(Fs.write(release, "r1"))
+  assert(Fs.write(version, "v1"))
+  assert(start().identity == first.identity, "put back")
+  assert(split({ "aes", "pclmulqdq" }, "h2", true, 1).rest ~= first.rest, "what the host says of itself")
+  assert(split({ "aes", "pclmulqdq" }, "h1", false, 1).rest ~= first.rest, "a /proc of the sandbox's own")
+  assert(split({ "aes", "pclmulqdq" }, "h1", true, 2).rest ~= first.rest, "the user")
 end

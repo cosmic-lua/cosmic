@@ -52,14 +52,16 @@ end
 --- Asserts `found` is exactly one finding of `rule`, on `line`.
 local function one(found: {rules.Finding}, rule: string, line: integer)
   local said: mut {string} = {}
-  for _, f in ipairs(found) do said[#said + 1] = f.line .. " " .. f.rule end
+  for _, f in ipairs(found) do said[#said + 1] = tostring(f.line) .. " " .. f.rule end
   assert(#found == 1 and found[1].rule == rule and found[1].line == line,
-    "expected " .. line .. " " .. rule .. ", found: " .. table.concat(said, ", "))
+    "expected " .. tostring(line) .. " " .. rule .. ", found: " .. table.concat(said, ", "))
 end
 
 local function none(found: {rules.Finding})
   local said: mut {string} = {}
-  for _, f in ipairs(found) do said[#said + 1] = f.line .. " " .. f.rule .. ": " .. f.message end
+  for _, f in ipairs(found) do
+    said[#said + 1] = tostring(f.line) .. " " .. f.rule .. ": " .. f.message
+  end
   assert(#found == 0, "expected nothing, found: " .. table.concat(said, "; "))
 end
 
@@ -296,7 +298,7 @@ COSMIC_SYSCALL(open, 3) {
 ]])
   assert(#found == 2 and found[1].rule == "returned-shape" and found[1].line == 11 and
       found[2].rule == "returned-shape" and found[2].line == 18,
-    "expected two returned-shape findings, found " .. #found)
+    "expected two returned-shape findings, found " .. tostring(#found))
 end
 
 --- The findings of `rule` alone among `found`.
@@ -324,7 +326,7 @@ COSMIC_SYSCALL(entropy, 1) {
 }
 ]])
   local said: mut {string} = {}
-  for _, f in ipairs(found) do said[#said + 1] = f.line .. " " .. f.rule end
+  for _, f in ipairs(found) do said[#said + 1] = tostring(f.line) .. " " .. f.rule end
   assert(#found == 3 and found[1].rule == "failure-shape" and found[1].line == 9 and
       found[2].line == 13 and found[3].line == 14,
     "expected three failure-shape findings, found: " .. table.concat(said, ", "))
@@ -357,7 +359,7 @@ COSMIC_SYSCALL(execve, 3) {
 }
 ]])
   local said: mut {string} = {}
-  for _, f in ipairs(found) do said[#said + 1] = f.line .. " " .. f.rule end
+  for _, f in ipairs(found) do said[#said + 1] = tostring(f.line) .. " " .. f.rule end
   assert(#found == 2 and found[1].rule == "failure-shape" and found[1].line == 12 and
       found[2].line == 13, "found: " .. table.concat(said, ", "))
 end
@@ -411,7 +413,7 @@ static int helper (lua_State *L) {
 }
 ]]), "descriptor-argument")
   local said: mut {string} = {}
-  for _, f in ipairs(found) do said[#said + 1] = f.line .. " " .. f.within end
+  for _, f in ipairs(found) do said[#said + 1] = tostring(f.line) .. " " .. f.within end
   assert(#found == 5 and found[1].line == 9 and found[1].within == "cosmic_sys_read" and
       found[2].line == 10 and found[3].line == 15 and found[3].within == "cosmic_sys_dup2" and
       found[4].line == 22 and found[4].within == "helper" and
@@ -477,7 +479,7 @@ int held (int x) {
 }
 ]]), "pass-fail-int")
   local said: mut {string} = {}
-  for _, f in ipairs(found) do said[#said + 1] = f.line .. " " .. f.within end
+  for _, f in ipairs(found) do said[#said + 1] = tostring(f.line) .. " " .. f.within end
   assert(#found == 3 and found[1].line == 7 and found[2].line == 14 and
       found[3].line == 19, "found: " .. table.concat(said, ", "))
 end
@@ -697,7 +699,7 @@ local function test_a_violation_under_each_target_is_found(tmp: string)
     local outcome_findings = outcome.findings
     assert(outcome_findings ~= nil, outcome.trouble)
     local found = only(outcome_findings, "narrowed-integer")
-    assert(#found == 1, condition .. ": " .. #found .. " findings")
+    assert(#found == 1, condition .. ": " .. tostring(#found) .. " findings")
     local named = table.concat(assert(found[1].variants), ",")
     assert(named:find(variant, 1, true), condition .. " was found under " .. named)
   end

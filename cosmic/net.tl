@@ -117,7 +117,7 @@ local record Net
   --- `port`, 0 for any nonzero port at that host.
   record Endpoint
     --- The numeric address, no name.
-    host: string
+    mut host: string
     --- The port. A DNS server's is 1 to 65535; only a connector's table
     --- takes 0, any nonzero port.
     port: integer
@@ -161,9 +161,9 @@ local record Net
     timeout_ns?: integer
     --- Name servers to ask in place of the system's: one or more
     --- numeric [`Net.Endpoint`]s, such as [`Net.nameservers`] lists.
-    servers?: {Endpoint}
+    mut servers?: {Endpoint}
     --- A hosts file to read in place of the system's.
-    hosts_file?: string
+    mut hosts_file?: string
     --- Resolves over TCP alone, every socket of the lookup made by this
     --- connector, one [`Net.connector`] made with
     --- a table, and no datagram sent: the servers asked are `servers`, or
@@ -174,7 +174,7 @@ local record Net
     --- one connection at a time, sharing the connector's stream with
     --- any other request, each in its place by tag. Linux only, as the
     --- connector is.
-    connector?: Connector
+    mut connector?: Connector
   end
 
   --- What [`Net.serve`] serves, and how. A field of the wrong shape, or
@@ -228,7 +228,7 @@ local record Net
     --- [`Net.serve`] waits for too. What it raises goes to
     --- [`Net.ServeSpec.on_error`], with its stack, and the server stops all
     --- the same.
-    on_stop?: function(server: Server)
+    mut on_stop?: function(server: Server)
     --- Given what the protocol raised for a connection, with its stack,
     --- or why a listener failed to accept; nil to write each to stderr.
     --- What it raises, [`Net.serve`] raises, having closed every listener
@@ -272,7 +272,7 @@ local function said(trouble: string, errno: integer, address?: Net.Address): str
   if errno == raw.EINTR then return "interrupted" end
   if errno == raw.ENAMETOOLONG then
     return trouble .. " (a socket file's own name may be at most " ..
-      raw.SOCKET_NAME_MAX .. " bytes here)"
+      tostring(raw.SOCKET_NAME_MAX) .. " bytes here)"
   end
   if errno == raw.EAGAIN and address ~= nil and address.kind == "unix" then
     return trouble .. " (the listener is busy: its backlog is full)"
@@ -590,8 +590,8 @@ function Net.resolve(name: string, opts?: Net.ResolveOptions): {Net.Resolved}?, 
       -- reach it, so one server cannot name another; the resolver
       -- refuses what is not an address.
       if host:find("[^%x:.]") then return nil, "Invalid argument" end
-      parts[#parts + 1] = if host:find(":", 1, true) then ("[" .. host .. "]:" .. port) else
-        (host .. ":" .. port) end
+      parts[#parts + 1] = if host:find(":", 1, true) then ("[" .. host .. "]:" .. tostring(port)) else
+        (host .. ":" .. tostring(port)) end
     end
     servers = table.concat(parts, ",")
   end
@@ -716,12 +716,12 @@ function Net.listener_from(fd: integer, opts?: Net.ListenOptions): Net.Listener?
   if socket == nil then
     local reason = why
     if errno == raw.EINVAL then reason = "it is not listening" end
-    return nil, "net: descriptor " .. fd .. " is no listening TCP socket: " .. reason
+    return nil, "net: descriptor " .. tostring(fd) .. " is no listening TCP socket: " .. reason
   end
   local bound, trouble = raw.bound(socket:fd())
   if bound == nil then
     local _, _ = socket:close()
-    return nil, "net: descriptor " .. fd .. ": " .. trouble
+    return nil, "net: descriptor " .. tostring(fd) .. ": " .. trouble
   end
   return new_listener(socket, Net.tcp(assert(bound.host), assert(bound.port)),
     opts ~= nil and opts.timeout_ns or nil).listener, ""
@@ -751,7 +751,7 @@ function Net.receive_listeners(channel: integer, opts?: Net.ListenOptions): {Net
   end
   Poll.checked_ns(opts ~= nil and opts.timeout_ns or nil, "net", "timeout_ns", 2)
   local received, why = raw.recvfds(channel, 2)
-  if received == nil then return nil, "net: descriptor " .. channel .. ": " .. why end
+  if received == nil then return nil, "net: descriptor " .. tostring(channel) .. ": " .. why end
   local listeners: mut {Net.Listener} = {}
   local failure = ""
   for _, owned in ipairs(received) do
@@ -811,8 +811,8 @@ resolved_through = function(name: string, opts: Net.ResolveOptions): {Net.Resolv
     for i, server in ipairs(system) do listed[i] = { host = server.host, port = server.port } end
   end
   if #listed > Leaf.MAX_ENDPOINTS then
-    return nil, "net: a lookup through a connector asks at most " .. Leaf.MAX_ENDPOINTS ..
-      " name servers, not " .. #listed
+    return nil, string.format("net: a lookup through a connector takes name servers, at most %d, not %d",
+      Leaf.MAX_ENDPOINTS, #listed)
   end
   local servers: mut {raw_socket.ThroughServer} = {}
   for _, server in ipairs(listed) do
@@ -943,7 +943,7 @@ local function checked_spec(spec: any)
   end
   for i, address in ipairs(listeners) do
     local trouble = address_trouble(address)
-    if trouble ~= "" then spec_error("listeners[" .. i .. "]", trouble) end
+    if trouble ~= "" then spec_error("listeners[" .. tostring(i) .. "]", trouble) end
   end
   if type(spec.serve) ~= "function" then spec_error("serve", "a function of a connection") end
   local limits = spec.limits

@@ -292,7 +292,7 @@ local function test_a_closure_leaves_out_the_names_only_a_declaration_requires()
     reached[name] = true
   end
   for _, row in ipairs(only) do
-    assert(not reached[row:text(1)], row:text(1) .. " is in a closure of modules it is no import of")
+    assert(reached[row:text(1)] ~= true, row:text(1) .. " is in a closure of modules it is no import of")
   end
 end
 

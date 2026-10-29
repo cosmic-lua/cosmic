@@ -33,7 +33,7 @@ local function test_a_path_that_is_not_there_is_missing_before_it_is_judged(tmp:
       tostring(trouble))
   assert(#picked.files == 1 and picked.files[1] == tmp .. "/real.tl",
     "the real source should still be listed")
-  assert(#picked.refused == 3, "expected three refusals, got " .. #picked.refused)
+  assert(#picked.refused == 3, "expected three refusals, got " .. tostring(#picked.refused))
   for i, what in ipairs({ "nope", "nosuchdir/" }) do
     assert(picked.refused[i]:find("No such file", 1, true) ~= nil,
       what .. " should be reported as missing, not judged on its suffix: " ..
@@ -215,7 +215,7 @@ local function test_yaml_in_flow_style_is_taken(tmp: string)
   -- `.github/` named, or a directory under it, covers what it holds.
   for _, dir in ipairs({ tmp .. "/own/.github", tmp .. "/own/.github/actions", tmp .. "/own/.github/actions/" }) do
     picked = assert(fix.chosen(tmp .. "/own", { dir }))
-    assert(#picked.flow_files == 1 and picked.flow_files[1]:match("/%.github/actions/x/action%.yml$"),
+    assert(#picked.flow_files == 1 and picked.flow_files[1]:match("/%.github/actions/x/action%.yml$") ~= nil,
       dir .. ": " .. table.concat(picked.flow_files, " "))
     assert(not picked.flow_files[1]:find("//", 1, true), picked.flow_files[1])
   end
@@ -234,7 +234,7 @@ local function test_yaml_in_flow_style_is_taken(tmp: string)
   for _, named in ipairs({ {}, { nested } }) do
     picked = assert(fix.chosen(nested, named))
     local got = table.concat(picked.flow_files, " ")
-    assert(#picked.flow_files == 1 and got:match("%.github/workflows/w%.yml$"), got)
+    assert(#picked.flow_files == 1 and got:match("%.github/workflows/w%.yml$") ~= nil, got)
   end
   for _, dir in ipairs({ nested .. "/vendor/lua", nested .. "/docs" }) do
     picked = assert(fix.chosen(nested, { dir }))
@@ -254,7 +254,7 @@ local function test_yaml_is_laid_out_in_place(tmp: string)
   changed = {}
   fix.lay_out({ path, tmp .. "/b.yml" }, false, changed, failures)
   assert(#changed == 1 and (Fs.read(path)) == "{a: 1, b: [1, 2]}\n", (Fs.read(path)))
-  assert(#failures == 1 and failures[1]:find("not in flow style", 1, true), failures[1])
+  assert(#failures == 1 and failures[1]:find("not in flow style", 1, true) ~= nil, failures[1])
   assert(Fs.read(tmp .. "/b.yml") == "a: 1\n")
   changed = {}
   fix.lay_out({ path }, true, changed, {})
@@ -415,8 +415,8 @@ local function test_links_to_symbols_wait_for_a_build(tmp: string)
     function(): docs.Sources return { handles = {}, public = {}, opened = {} } end)
   local found = fix.links(source.context, { root .. "/a.md", root .. "/b.tl" })
   source.close()
-  assert(#found.broken == 1 and found.broken[1]:find("gone.md", 1, true), table.concat(found.broken, "\n"))
-  assert(#found.notes == 1 and found.notes[1]:find("3 links to a symbol not checked", 1, true),
+  assert(#found.broken == 1 and found.broken[1]:find("gone.md", 1, true) ~= nil, table.concat(found.broken, "\n"))
+  assert(#found.notes == 1 and found.notes[1]:find("3 links to a symbol not checked", 1, true) ~= nil,
     table.concat(found.notes, "\n"))
 end
 
@@ -436,7 +436,7 @@ local function test_an_unbuilt_project_still_checks_a_known_modules_members(tmp:
     function(): string? return "not built" end)
   local found = fix.links(context, { root .. "/a.tl" })
   assert(#found.broken == 1 and found.broken[1]:find("Fs.nosuch does not resolve (cosmic.fs has no nosuch)",
-    1, true), table.concat(found.broken, "\n"))
+    1, true) ~= nil, table.concat(found.broken, "\n"))
   assert(#found.notes == 0, table.concat(found.notes, "\n"))
 end
 
@@ -496,7 +496,7 @@ local function test_nothing_under_static_is_chosen(tmp: string)
   for _, path in ipairs({ tmp .. "/static", tmp .. "/static/a.tl", tmp .. "/static/docs/readme.md" }) do
     local named = assert(fix.chosen(tmp, { path }))
     assert(#named.files == 0 and #named.templates == 0 and #named.checked == 0, path)
-    assert(#named.refused == 1 and named.refused[1]:find("carried verbatim", 1, true), path)
+    assert(#named.refused == 1 and named.refused[1]:find("carried verbatim", 1, true) ~= nil, path)
   end
 end
 

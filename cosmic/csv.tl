@@ -85,9 +85,9 @@ local record Csv
   --- Where [`Csv.load`] reads CSV from: `path` or `text`, one of them.
   record Source
     --- A file to read, by SQLite's CSV table as it copies the rows.
-    path?: string
+    mut path?: string
     --- The CSV itself. It may not hold a NUL byte.
-    text?: string
+    mut text?: string
     --- Keep every cell as the text it is, the empty one `''`.
     raw?: boolean
     --- The one byte between fields, as [`Csv.Options`] says (default `,`);
@@ -134,6 +134,8 @@ end
 
 local BOM <const> = "\xEF\xBB\xBF"
 
+-- TODO: make this `local type Cell = require("cosmic.cell")` once the store keeps a module that only a `local type` require names; today that drops cosmic.cell from the binary and build/link_index_test fails.
+local Cell = require("cosmic.cell")
 local Sqlite = require("cosmic.sqlite")
 
 --- What a failure of this module answers, nil and `why` under the
@@ -149,7 +151,7 @@ local function delimiter_of(opts: Csv.Options?): string
   local delimiter: any = opts ~= nil and opts.delimiter or ","
   if not (delimiter is string) or #delimiter ~= 1 then
     error("csv: the delimiter is one byte, not " ..
-        (if delimiter is string then "a string of length " .. #delimiter else "a " .. type(delimiter) end), 3)
+        (if delimiter is string then "a string of length " .. tostring(#delimiter) else "a " .. type(delimiter) end), 3)
   end
   if delimiter == '"' or delimiter == "\r" or delimiter == "\n" then
     error("csv: the delimiter cannot be a quote or a line break", 3)
@@ -159,7 +161,7 @@ end
 
 --- Where: "line N, column M".
 local function at(line: integer, column: integer): string
-  return "line " .. line .. ", column " .. column
+  return "line " .. tostring(line) .. ", column " .. tostring(column)
 end
 
 --- The records of `text` and the line each began on, or nil and why.
@@ -333,7 +335,7 @@ function Csv.column_names(header: {string}, reserved?: {string}): {string}
     local number = 1
     while taken[candidate:lower()] == true do
       number = number + 1
-      candidate = name .. "_" .. number
+      candidate = name .. "_" .. tostring(number)
     end
     taken[candidate:lower()] = true
     names[index] = candidate
@@ -381,7 +383,7 @@ function Csv.table(text: string, opts?: Csv.Options): Csv.Table?, string
       end
     elseif #record ~= #names then
       return refuse(at(lines[number], 1) .. ": the record has " .. #record ..
-          (if #record == 1 then " field" else " fields" end) .. ", the header " .. #names)
+          (if #record == 1 then " field" else " fields" end) .. ", the header " .. tostring(#names))
     end
     if #record > 0 then
       local row: mut {string:string} = {}
@@ -421,7 +423,7 @@ ELSE @ END]]):gsub("@", function(): string return column end))
 end
 
 --- A name no other load on the handle holds, for its CSV table in temp.
-local counts = { loads = 0 }
+local counts: Cell<integer> = { value = 0 }
 
 --- Copies CSV, from a file or text, into a new table `name` in the main
 --- schema of `handle`, through SQLite's CSV table, which reads it in C: a
@@ -460,7 +462,7 @@ function Csv.load(handle: Sqlite.Handle, name: string, source: Csv.Source): Csv.
   if text ~= nil then
     local nul = text:find("\0", 1, true)
     if nul ~= nil then
-      return refuse("the CSV text holds a NUL byte at byte " .. nul)
+      return refuse("the CSV text holds a NUL byte at byte " .. tostring(nul))
     end
     parameter = "data=" .. literal(text)
   elseif path ~= nil then
@@ -471,8 +473,8 @@ function Csv.load(handle: Sqlite.Handle, name: string, source: Csv.Source): Csv.
   else
     error("csv: load reads a path or a text, one of them", 2)
   end
-  counts.loads = counts.loads + 1
-  local scratch = "temp." .. identifier("cosmic_csv_load_" .. counts.loads)
+  counts.value = counts.value + 1
+  local scratch = "temp." .. identifier("cosmic_csv_load_" .. tostring(counts.value))
   local ok, trouble = handle:exec("SAVEPOINT cosmic_csv_load")
   if not ok then
     return refuse(trouble)
@@ -501,7 +503,8 @@ function Csv.load(handle: Sqlite.Handle, name: string, source: Csv.Source): Csv.
   if #first == 0 then
     return undone("the CSV holds no header")
   end
-  local header = table.move(first[1]:texts(), 2, first[1]:count(), 1, {})
+  local columns = first[1]:texts()
+  local header = table.move(columns, 2, #columns, 1, {})
   local keys = Csv.column_names(header)
   local reserved = { "rowid", "oid", "_rowid_" }
   for _, each in ipairs(source.reserved or {}) do
@@ -511,14 +514,14 @@ function Csv.load(handle: Sqlite.Handle, name: string, source: Csv.Source): Csv.
   if json ~= nil then
     reserved[#reserved + 1] = json
     if #keys > 500 then
-      return undone("a JSON column takes at most 500 fields, and the header has " .. #keys)
+      return undone("a JSON column takes at most 500 fields, and the header has " .. tostring(#keys))
     end
   end
   local names = Csv.column_names(keys, reserved)
   local declared, cells: mut {string}, mut {string} = {}, {}
   for index, column in ipairs(names) do
     declared[index] = identifier(column)
-    local cell = identifier("c" .. (index - 1))
+    local cell = identifier("c" .. tostring((index - 1)))
     -- A one-column file writes an empty cell as a blank line.
     if #names == 1 then
       cell = "coalesce(" .. cell .. ", '')"
@@ -536,12 +539,12 @@ function Csv.load(handle: Sqlite.Handle, name: string, source: Csv.Source): Csv.
   else
     kept = kept .. " AND c0 IS NOT NULL"
     local short, failed = Sqlite.text_rows(handle, "SELECT rowid FROM " .. scratch .. " WHERE " .. kept ..
-        " AND " .. identifier("c" .. (#names - 1)) .. " IS NULL LIMIT 1")
+        " AND " .. identifier("c" .. tostring((#names - 1))) .. " IS NULL LIMIT 1")
     if short == nil then
       return undone(failed)
     end
     if #short > 0 then
-      return undone("record " .. short[1]:text(1) .. " has fewer fields than the header's " .. #names)
+      return undone("record " .. short[1]:text(1) .. " has fewer fields than the header's " .. tostring(#names))
     end
   end
   ok, trouble = handle:exec("CREATE TABLE main." .. identifier(name) .. " (" .. table.concat(declared, ", ") .. ")")
