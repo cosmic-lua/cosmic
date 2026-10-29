@@ -1250,7 +1250,7 @@ local function first_value(ctx: Ctx, node: Ast.Node, alts: {Alt}): Type
   if #alts == 0 then
     return ctx.store.never
   elseif #alts > 1 then
-    report(ctx, "alternatives_as_value", node, subject(ctx, node) .. " answers one of " .. #alts ..
+    report(ctx, "alternatives_as_value", node, subject(ctx, node) .. " answers one of " .. tostring(#alts) ..
         " lists of values, which is no value",
       "match the call: `match " .. text_of(ctx, node) .. " do | (true, v) then ... end`")
     return ctx.invalid
@@ -3875,7 +3875,7 @@ local function is_literal(e: Ast.Exp): boolean
 end
 
 local function plural(n: integer, word: string): string
-  return n .. " " .. word .. (if n == 1 then "" else "s" end)
+  return tostring(n) .. " " .. word .. (if n == 1 then "" else "s" end)
 end
 
 --- Whether a function literal takes the arguments a call of `g` passes: every count from the required parameters of
@@ -4052,15 +4052,15 @@ local function arity_error(ctx: Ctx, node: Ast.Node, callee: string, f: Fn, off:
     end
   end
   if why == "too many" then
-    report(ctx, "arity", node, callee .. " takes " .. plural(np, "argument") .. ", but " .. n .. " " ..
+    report(ctx, "arity", node, callee .. " takes " .. plural(np, "argument") .. ", but " .. tostring(n) .. " " ..
         (if n == 1 then "is" else "are" end) .. " given",
       "remove the extra " .. (if n - np == 1 then "argument" else "arguments" end) .. ", or declare the parameter in the function " ..
         "type", { Types.display(f, ctx.binders) })
   else
     local missing = f.params[n + off + 1]
-    report(ctx, "arity", node, callee .. " takes " .. (if required < np then required .. " to " .. plural(np, "argument") else
-      plural(required, "argument") end) .. ", but " .. n .. " " .. (if n == 1 then "is" else "are" end) .. " given",
-      "pass the missing argument " .. (n + 1) .. (if missing ~= nil then ", " .. tq(ctx, missing.type) else "" end) ..
+    report(ctx, "arity", node, callee .. " takes " .. (if required < np then tostring(required) .. " to " .. plural(np, "argument") else
+      plural(required, "argument") end) .. ", but " .. tostring(n) .. " " .. (if n == 1 then "is" else "are" end) .. " given",
+      "pass the missing argument " .. tostring((n + 1)) .. (if missing ~= nil then ", " .. tq(ctx, missing.type) else "" end) ..
         ", or declare the parameter `name?: T`", { Types.display(f, ctx.binders) })
   end
 end
@@ -4150,7 +4150,7 @@ end
 function Calls.expect_argument(ctx: Ctx, node: Ast.Node, got: Type, want: Type, callee: string, position: integer,
                                named?: string): boolean
   ctx.argument = { callee = callee, module = ctx.callee_module, position = position }
-  local ok = expect_argument(ctx, node, got, want, " as argument " .. position .. " of " .. quoted(callee), named)
+  local ok = expect_argument(ctx, node, got, want, " as argument " .. tostring(position) .. " of " .. quoted(callee), named)
   ctx.argument = nil
   return ok
 end
@@ -4270,11 +4270,11 @@ local function apply_function(ctx: Ctx, node: Ast.Node, callee: string, f: Fn, a
             "`#t`) and index each value, since " .. quoted(callee) .. " raises on a conversion that has no value, nil or not"
         end
         report(ctx, "nil_not_allowed", last, subject(ctx, last) .. " ends in " .. quoted(show(ctx, tail) .. "...") ..
-            ", so argument " .. pos .. " of " .. quoted(callee) .. " may be missing, where " .. tq(ctx, want) .. " is wanted",
+            ", so argument " .. tostring(pos) .. " of " .. quoted(callee) .. " may be missing, where " .. tq(ctx, want) .. " is wanted",
           fix, { show(ctx, ctx.store:optional(tail)), show(ctx, want) })
       else
         ctx.argument = { callee = callee, module = ctx.callee_module, position = pos }
-        local _ = expect(ctx, last, tail, want, " as argument " .. pos .. " of " .. quoted(callee))
+        local _ = expect(ctx, last, tail, want, " as argument " .. tostring(pos) .. " of " .. quoted(callee))
         ctx.argument = nil
       end
     end
@@ -4326,7 +4326,7 @@ function Calls.source(at: integer): string
   if at == 0 then
     return "the receiver"
   end
-  return "argument " .. at
+  return "argument " .. tostring(at)
 end
 
 --- Whether a function literal gives every parameter a type, so that its type does not depend on the position it stands in.
@@ -4393,7 +4393,7 @@ function Calls.solve(ctx: Ctx, node: Ast.Node, callee: string, c: Fn, args: {Ast
         prep.known[i] = t
         Generics.match(solver, want, t, "into", i)
       elseif failure == "" then
-        failure = "argument " .. i .. " is a literal whose type depends on a type parameter nothing else gives"
+        failure = "argument " .. tostring(i) .. " is a literal whose type depends on a type parameter nothing else gives"
       end
     end
   end
@@ -4483,7 +4483,7 @@ function Calls.solve(ctx: Ctx, node: Ast.Node, callee: string, c: Fn, args: {Ast
   end
   if made == nil then
     if loud then
-      report(ctx, "not_assignable", node, name .. " with these type arguments nests more than " .. Types.max_depth ..
+      report(ctx, "not_assignable", node, name .. " with these type arguments nests more than " .. tostring(Types.max_depth) ..
           " types deep", "name a part of the arguments with a record, which a type does not unfold")
     end
     return { why = "its instance nests too deep" }
@@ -4629,11 +4629,11 @@ local function apply_overloads(ctx: Ctx, node: Ast.Node, callee: string, cands: 
             wanted = quoted(Calls.shown(ctx, declared, original ~= nil and original or want))
           end
           if t ~= nil and (want == nil or not accepts(ctx, t, want)) then
-            failure = "argument " .. i .. " is " .. tq(ctx, t) .. (if want ~= nil then ", where " .. wanted ..
+            failure = "argument " .. tostring(i) .. " is " .. tq(ctx, t) .. (if want ~= nil then ", where " .. wanted ..
                 " is wanted" else ", which it does not take" end)
             break
           elseif pending[i] == true and (want == nil or not literal_fits(ctx, args[i], want)) then
-            failure = "argument " .. i .. " is a literal that is not " .. (if want ~= nil then "a " .. wanted else "taken" end)
+            failure = "argument " .. tostring(i) .. " is a literal that is not " .. (if want ~= nil then "a " .. wanted else "taken" end)
             break
           end
         end
@@ -4641,7 +4641,7 @@ local function apply_overloads(ctx: Ctx, node: Ast.Node, callee: string, cands: 
       if failure == "" and tail ~= nil then
         local pos, want, missing = tail_problem(ctx, c, off, count, tail)
         if pos ~= nil and want ~= nil then
-          failure = "argument " .. pos .. " is filled by " .. quoted(show(ctx, tail) .. "...") .. (if missing then
+          failure = "argument " .. tostring(pos) .. " is filled by " .. quoted(show(ctx, tail) .. "...") .. (if missing then
             ", which may leave it missing, where " else ", where " end) .. tq(ctx, want) .. " is wanted"
         end
       end
@@ -6108,7 +6108,7 @@ local function check_return(ctx: Ctx, s: Ast.Return)
       local want = alt.items[i] or alt.tail
       local at = s.values[math.min(i, n)]
       if want ~= nil then
-        local _ = expect(ctx, at, t, want, " as return value " .. i)
+        local _ = expect(ctx, at, t, want, " as return value " .. tostring(i))
       end
     end
     local tail = vals.tail
@@ -6118,21 +6118,21 @@ local function check_return(ctx: Ctx, s: Ast.Return)
       local fix = "varargs end in nil: test the first value (`local v = ... if v == nil then ... end`) and return it"
       for i = count + 1, #alt.items do
         if not below(ctx, tail, alt.items[i]) then
-          local _ = expect(ctx, last, tail, alt.items[i], " as return value " .. i)
+          local _ = expect(ctx, last, tail, alt.items[i], " as return value " .. tostring(i))
           return
         elseif not below(ctx, maybe, alt.items[i]) then
           report(ctx, "nil_not_allowed", last, subject(ctx, last) .. " ends in `" .. show(ctx, tail) .. "...`, so return value " ..
-              i .. " may be missing, where " .. tq(ctx, alt.items[i]) .. " is wanted",
+              tostring(i) .. " may be missing, where " .. tq(ctx, alt.items[i]) .. " is wanted",
             fix, { show(ctx, maybe), show(ctx, alt.items[i]) })
           return
         end
       end
       local at = alt.tail
       if at ~= nil then
-        local _ = expect(ctx, last, tail, at, " as the values after return value " .. #alt.items)
+        local _ = expect(ctx, last, tail, at, " as the values after return value " .. tostring(#alt.items))
       elseif count + 1 > #alt.items then
         report(ctx, "return_arity", last, subject(ctx, last) .. " ends in `" .. show(ctx, tail) ..
-            "...`, so this may return more values than the function answers (" .. #alt.items .. ")",
+            "...`, so this may return more values than the function answers (" .. tostring(#alt.items) .. ")",
           "return the values the function answers, one by one")
       end
     end
@@ -6588,7 +6588,7 @@ end
 local function arm_for(alt: Alt): string
   local pats: mut {string} = {}
   for i, item in ipairs(alt.items) do
-    local pat = "v" .. i
+    local pat = "v" .. tostring(i)
     if item.tag == "true" or item.tag == "false" then
       pat = item.tag
     end
@@ -6633,7 +6633,7 @@ local function match_statement(ctx: Ctx, s: Ast.Match)
           taken[k] = true
           local pat = assert(arm.pats[at])
           local item = alt.items[at]
-          report(ctx, "match_pattern", pat, "this pattern tests position " .. at .. " with `" ..
+          report(ctx, "match_pattern", pat, "this pattern tests position " .. tostring(at) .. " with `" ..
               (if (pat.kind == "PatBool") and pat.value then "true" else "" end) .. "`, and the list " .. quoted(lists_text(ctx, { alt })) .. " has " ..
               (item ~= nil and tq(ctx, item) or "no value") .. " there, which `true` and `false` do not tell",
             "test only the positions that are `true` or `false` in the lists the call answers, and name the others",

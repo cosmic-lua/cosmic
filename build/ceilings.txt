@@ -336,7 +336,7 @@ cosmic/web/sse.tl 1
 
 cosmic/web/static.tl 1
 
-cosmic/web/testing.tl 5
+cosmic/web/testing.tl 4
 
 cosmic/zip.tl 1
 
@@ -488,7 +488,7 @@ cosmic/web/session/sqlite.tl setmetatable_call 1
 
 cosmic/web/sse.tl setmetatable_call 1
 
-cosmic/web/testing.tl setmetatable_call 3
+cosmic/web/testing.tl setmetatable_call 2
 
 cosmic/zip.tl setmetatable_call 1
 
@@ -6631,99 +6631,52 @@ test/sqlite_row_test.tl and_ternary 1
 
 
 
-cosmic/child.tl concat_type 29
 
-cosmic/csv.tl concat_type 10
 
-cosmic/http/wire.tl concat_type 2
 
-cosmic/internal/connector.tl concat_type 6
 
-cosmic/internal/relay_config.tl concat_type 6
 
-cosmic/internal/relay_main.tl concat_type 3
 
-cosmic/internal/relay_server.tl concat_type 1
 
-cosmic/internal/relay_start.tl concat_type 1
 
-cosmic/internal/relay_wire.tl concat_type 1
 
-cosmic/net.tl concat_type 9
 
-cosmic/poll.tl concat_type 4
 
-cosmic/relay/address.tl concat_type 1
 
-cosmic/sandbox/init.tl concat_type 8
 
-cosmic/sandbox/policy.tl concat_type 7
 
-cosmic/sandbox/seatbelt.tl concat_type 7
 
-cosmic/sqlite.tl concat_type 15
 
-cosmic/store.tl concat_type 1
 
-cosmic/string.tl concat_type 1
 
-cosmic/template/codegen.tl concat_type 2
 
-cosmic/template/context.tl concat_type 2
 
-cosmic/template/init.tl concat_type 1
 
-cosmic/template/lex.tl concat_type 2
 
-cosmic/template/parse.tl concat_type 4
 
-cosmic/test.tl concat_type 2
 
-cosmic/time.tl concat_type 1
 
-cosmic/web/cookies.tl concat_type 1
 
-cosmic/web/headers.tl concat_type 1
 
-cosmic/web/input.tl concat_type 1
 
-cosmic/web/request.tl concat_type 1
 
-cosmic/web/session/session_example.tl concat_type 1
 
-cosmic/web/testing.tl concat_type 1
 
-eval/check/grade.tl concat_type 55
 
-eval/round.tl concat_type 2
 
-eval/summarize.tl concat_type 1
 
-lang/check.tl concat_type 22
 
-lang/codegen.tl concat_type 2
 
-lang/declarations.tl concat_type 16
 
-lang/lexer_cover.tl concat_type 25
 
-lang/parser.tl concat_type 2
 
-lang/parser_cover.tl concat_type 12
 
-lang/relation.tl concat_type 2
 
-lang/relation_programs.tl concat_type 1
 
-lang/scopes.tl concat_type 4
 
-lang/scopes_cover.tl concat_type 13
 
-lang/speed.tl concat_type 3
 
-lang/translate.tl concat_type 1
 
-lang/types.tl concat_type 26
 
 # an operand an operator does not take: a string in arithmetic, a map under `#`
 # an `==` of two types that share no value: mostly a comparison with nil of a value its declaration says is never nil
@@ -6985,7 +6938,7 @@ cosmic/web/router.tl literal_missing 3
 
 cosmic/web/sse.tl literal_missing 2
 
-cosmic/web/testing.tl literal_missing 4
+cosmic/web/testing.tl literal_missing 3
 
 cosmic/zip.tl literal_missing 1
 
@@ -7572,7 +7525,7 @@ cosmic/web/session/cookie_test.tl arms_differ 2
 
 cosmic/web/session/session_test.tl arms_differ 1
 
-cosmic/web/testing.tl arms_differ 3
+cosmic/web/testing.tl arms_differ 2
 
 cosmic/zip.tl arms_differ 1
 

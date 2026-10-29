@@ -105,13 +105,13 @@ function Cover.check(source: string, lexed: Lexer.Lexed): boolean, string
     if comments then
       for _, comment in ipairs(comments) do
         if comment.offset < cursor or not blank(source, cursor, comment.offset - 1) then
-          return false, "comment at " .. comment.y .. ":" .. comment.x .. " leaves bytes uncovered or overlaps"
+          return false, "comment at " .. tostring(comment.y) .. ":" .. tostring(comment.x) .. " leaves bytes uncovered or overlaps"
         end
         if comment.length ~= #comment.text or find(source, comment.text, comment.offset, true) ~= comment.offset then
-          return false, "comment at " .. comment.y .. ":" .. comment.x .. " is not the bytes it names"
+          return false, "comment at " .. tostring(comment.y) .. ":" .. tostring(comment.x) .. " is not the bytes it names"
         end
         if placed(lines, comment.y, comment.x, false) ~= comment.offset then
-          return false, "comment at offset " .. comment.offset .. " is placed at " .. comment.y .. ":" .. comment.x
+          return false, "comment at offset " .. tostring(comment.offset) .. " is placed at " .. tostring(comment.y) .. ":" .. tostring(comment.x)
         end
         cursor = comment.offset + comment.length
       end
@@ -119,20 +119,20 @@ function Cover.check(source: string, lexed: Lexer.Lexed): boolean, string
     local offset, text, y, x = Lexer.offset(tokens, i), Lexer.text(tokens, i), Lexer.y(tokens, i), Lexer.x(tokens, i)
     local length = #text
     if offset < cursor or not blank(source, cursor, offset - 1) then
-      return false, "token at " .. y .. ":" .. x .. " leaves bytes uncovered or overlaps"
+      return false, "token at " .. tostring(y) .. ":" .. tostring(x) .. " leaves bytes uncovered or overlaps"
     end
     if length > 0 and find(source, text, offset, true) ~= offset then
-      return false, "token at " .. y .. ":" .. x .. " is not the bytes it names"
+      return false, "token at " .. tostring(y) .. ":" .. tostring(x) .. " is not the bytes it names"
     end
     local start = lines.starts[y]
     if start == nil or x < 1 or x > lines.columns[y] or start + x - 1 ~= offset then
-      return false, "token at offset " .. offset .. " is placed at " .. y .. ":" .. x
+      return false, "token at offset " .. tostring(offset) .. " is placed at " .. tostring(y) .. ":" .. tostring(x)
     end
     if length > 0 then
       local yend, xend = Lexer.yend(tokens, i), Lexer.xend(tokens, i)
       local right = yend == y and offset + length - 1 == start + xend - 1 and xend <= lines.wide[y]
       if not right and placed(lines, yend, xend, true) ~= offset + length - 1 then
-        return false, "token at " .. y .. ":" .. x .. " ends at " .. yend .. ":" .. xend
+        return false, "token at " .. tostring(y) .. ":" .. tostring(x) .. " ends at " .. tostring(yend) .. ":" .. tostring(xend)
       end
     end
     cursor = offset + length
@@ -146,13 +146,13 @@ function Cover.check(source: string, lexed: Lexer.Lexed): boolean, string
   end
   for _, e in ipairs(lexed.errors) do
     if e.offset < 1 or e.length < 1 or e.offset + e.length - 1 > #source then
-      return false, e.code .. " error at " .. e.y .. ":" .. e.x .. " lies outside the source"
+      return false, e.code .. " error at " .. tostring(e.y) .. ":" .. tostring(e.x) .. " lies outside the source"
     end
     if placed(lines, e.y, e.x, false) ~= e.offset then
-      return false, e.code .. " error at offset " .. e.offset .. " is placed at " .. e.y .. ":" .. e.x
+      return false, e.code .. " error at offset " .. tostring(e.offset) .. " is placed at " .. tostring(e.y) .. ":" .. tostring(e.x)
     end
     if e.msg == "" or e.fix == "" then
-      return false, e.code .. " error at " .. e.y .. ":" .. e.x .. " has no message or no fix"
+      return false, e.code .. " error at " .. tostring(e.y) .. ":" .. tostring(e.x) .. " has no message or no fix"
     end
   end
   return true, ""

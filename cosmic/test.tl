@@ -465,7 +465,7 @@ local function grants_of(value: any): {Test.Grant}?, string
   local out: mut {Test.Grant} = {}
   if not value is {any} then return nil, "grants takes a list of grants" end
   for i, given in ipairs(value) do
-    local at = "grants[" .. i .. "]"
+    local at = "grants[" .. tostring(i) .. "]"
     if not given is {any:any} then return nil, at .. " takes a table" end
     local grant: Test.Grant = {}
     for key, field in pairs(given) do
@@ -609,7 +609,7 @@ function Test.needs_of(given: any): Test.Needs?, string
     flags[flag] = true
   end
   for i, grant in ipairs(policy.grants or {}) do
-    local at = "grants[" .. i .. "]"
+    local at = "grants[" .. tostring(i) .. "]"
     local path, letters = grant.path or "", grant.letters or ""
     if path == "" then return nil, at .. ".path takes a path" end
     if letters == "" or letters:find("^r?w?x?c?u?$") == nil then
