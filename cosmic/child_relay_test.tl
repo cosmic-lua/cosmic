@@ -730,7 +730,7 @@ local function test_the_upstream_proxy_is_reached_through_the_table(tmp: string)
             if data == nil then break end
             head = head .. data
           end
-          asked[#asked + 1] = head:match("^[^\r]*") or ""
+          table.insert(asked, head:match("^[^\r]*") or "")
           local _, _ = conn:write("HTTP/1.1 200 Connection established\r\n\r\n")
           local data = conn:read(4)
           if data ~= nil then

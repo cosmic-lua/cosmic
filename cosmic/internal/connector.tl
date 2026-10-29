@@ -794,7 +794,7 @@ end
 --- cannot be made nonblocking, and `fd` is the caller's then.
 function Leaf.adopted(fd: integer, held?: {raw_process.ConnectorEndpoint}, public?: boolean, timeout_ns?: integer):
     Connection.Connector?, string
-  if math.type(fd) ~= "integer" or fd < 0 then error("net: fd must be a descriptor", 2) end
+  if fd < 0 then error("net: fd must be a descriptor", 2) end
   local kept: {raw_process.ConnectorEndpoint} = {}
   if held ~= nil then kept = Leaf.checked_endpoints(held, true, 2) end
   local timeout_ms = Leaf.checked_timeout_ms(timeout_ns, 2)

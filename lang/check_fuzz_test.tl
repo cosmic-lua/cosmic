@@ -231,7 +231,11 @@ local function gen_statement(g: Gen, depth: integer, indent: string)
   elseif k == 5 then
     add(g, indent .. "p0.tag = " .. gen_expr(g, "string?", 2))
   elseif k == 6 then
-    add(g, indent .. "a0[#a0 + 1] = " .. gen_expr(g, "integer", 2))
+    -- The value is computed first: a call in an append's statement may shorten `a0` after the key is.
+    add(g, indent .. "do")
+    add(g, indent .. "  local appended: integer = " .. gen_expr(g, "integer", 2))
+    add(g, indent .. "  a0[#a0 + 1] = appended")
+    add(g, indent .. "end")
   elseif k == 7 then
     add(g, indent .. "m0[" .. gen_expr(g, "string", 2) .. "] = " .. (if g.src:int(1, 3) == 1 then "nil" else gen_expr(g, "integer", 2) end))
   elseif k == 8 then
@@ -338,7 +342,8 @@ local function gen_mistaken(src: Fuzz.Source): string
       lines[at] = "local " .. tostring(name) .. ": " .. t .. " = " .. wrong(t)
     end
   else
-    lines[#lines + 1] = MISTAKES[math.min(choice, #MISTAKES)]
+    local appended = assert(MISTAKES[math.min(choice, #MISTAKES)])
+    lines[#lines + 1] = appended
   end
   return PRELUDE .. table.concat(lines, "\n") .. "\n"
 end

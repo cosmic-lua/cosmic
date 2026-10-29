@@ -97,7 +97,7 @@ local function records_from(input: string): string, {{string}}
         records[#records + 1] = current
         started = true
       end
-      current[#current + 1] = parts[index]:sub(2)
+      table.insert(current, parts[index]:sub(2))
     end
   end
   return parts[1] or ",", records

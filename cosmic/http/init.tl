@@ -351,13 +351,10 @@ local CALLER <const> = 5
 --- up so that a span above 0 is never the 0 that curl reads as no limit;
 --- nil stays nil, the raw module's default. Raises at the caller of the
 --- public entry point (`CALLER`), naming `name` as the raw module's own
---- refusals do, for what is no integer from 0 to `most_ns`.
+--- refusals do, for what is outside 0 to `most_ns`.
 local function counted(ns: integer?, unit: integer, most_ns: integer,
                        name: string): integer?
   if ns == nil then return nil end
-  if math.type(ns) ~= "integer" then
-    error(("http: opts.%s must be an integer"):format(name), CALLER)
-  end
   if ns < 0 or ns > most_ns then
     error(("http: opts.%s must be between 0 and %d"):format(name, most_ns), CALLER)
   end

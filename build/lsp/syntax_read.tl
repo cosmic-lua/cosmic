@@ -125,17 +125,17 @@ function syntax_read.plan_of(name: string, text: string, path: string, kind: str
     requires[#requires + 1] = { name = site.name, line = site.y, column = site.x }
   end
   for _, place in ipairs(Globals.found(chunk)) do
-    refusals[#refusals + 1] = plan.refusal_of(plans.global_refusal(name .. ":" ..
-        tostring(place.line) .. ":" .. tostring(place.column)))
+    table.insert(refusals, plan.refusal_of(plans.global_refusal(name .. ":" ..
+        tostring(place.line) .. ":" .. tostring(place.column))))
   end
   local analysis, trouble = SyntaxAnalyzer.analysis_of(chunk, Node.scope(chunk, name), text, name)
   if analysis == nil then
-    refusals[#refusals + 1] = plan.refusal_of(trouble)
+    table.insert(refusals, plan.refusal_of(trouble))
     return { plan = nil, refusals = refusals, halted = true, requires = requires }
   end
   local misplaced = plans.policy_refusal(name, kind, analysis.inputs)
   if misplaced ~= nil then
-    refusals[#refusals + 1] = plan.refusal_of(misplaced)
+    table.insert(refusals, plan.refusal_of(misplaced))
     return { plan = nil, refusals = refusals, halted = true, requires = requires }
   end
   local tests: mut {string} = {}
@@ -167,7 +167,7 @@ function syntax_read.plan_of(name: string, text: string, path: string, kind: str
   local refused = plans.refusal(made_plan)
   if refused ~= nil then
     local at = plan.refusal_of(refused)
-    refusals[#refusals + 1] = { line = math.max(return_line(chunk), 1), column = at.column, message = at.message }
+    table.insert(refusals, { line = math.max(return_line(chunk), 1), column = at.column, message = at.message })
     return { plan = made_plan, refusals = refusals, halted = true, requires = requires }
   end
   return { plan = made_plan, refusals = refusals, halted = false, requires = requires }

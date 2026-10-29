@@ -2248,7 +2248,7 @@ local function phase_fixtures(p: PlatformContext): integer
     } }, high_jobs)
   local low: mut {Orchestration.Group} = {}
   local function add(spec: FixtureSpec)
-    low[#low + 1] = fixture_group(c, work, spec, low_jobs)
+    table.insert(low, fixture_group(c, work, spec, low_jobs))
   end
   add({ name = "runtime-regression", source = "runtime",
     timeout_ns = runtime_test_timeout_ns, extra = {},

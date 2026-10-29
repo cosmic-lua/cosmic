@@ -79,7 +79,7 @@ function ProjectRefusals.check(file: string, chunk: Ast.Chunk, scoped: Scopes.Sc
   local spoken: mut {integer: boolean} = {}
   local function say(node: Ast.Node, text: string)
     local at = Node.span(chunk, node)
-    out[#out + 1] = file .. ":" .. tostring(at.y) .. ":" .. tostring(at.x) .. ": " .. text
+    table.insert(out, file .. ":" .. tostring(at.y) .. ":" .. tostring(at.x) .. ": " .. text)
   end
   --- `callee` is the global `name` and so is called here: the use is judged by the call, not as a name.
   local function is_global(callee: Ast.Exp, name: string): boolean

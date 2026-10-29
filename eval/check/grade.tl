@@ -1862,7 +1862,7 @@ local function echo(target: Target, conn: Net.Conn)
       if more == nil then break end
       parts[#parts + 1] = more
     end
-    target.split[#target.split + 1] = table.concat(parts)
+    table.insert(target.split, table.concat(parts))
     return
   end
   while chunk ~= nil do

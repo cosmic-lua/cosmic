@@ -140,9 +140,3 @@ local function test_append_raising_write_releases_descriptor_and_keeps_exception
   sys.write, sys.close = real_write, real_close
   assert(not ok and why == marker and closes.value == 1)
 end
-
-local function test_append_rejects_invalid_data_before_creating_file(tmp: string)
-  local path = tmp .. "/log"
-  local ok = pcall(Fs.append, path, {} as string)
-  assert(not ok and Fs.exists(path) == false)
-end

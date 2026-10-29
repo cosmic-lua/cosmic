@@ -63,11 +63,11 @@ end
 
 write = function(value: any, name: string, out: mut {string})
   if value is string then
-    out[#out + 1] = quoted(value)
+    table.insert(out, quoted(value))
   elseif value is boolean then
-    out[#out + 1] = name == "value" and tostring(value) or name
+    table.insert(out, name == "value" and tostring(value) or name)
   elseif value is number then
-    out[#out + 1] = tostring(value)
+    table.insert(out, tostring(value))
   elseif value is {string: any} then
     local kind = value.kind
     if kind is string then

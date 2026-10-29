@@ -301,11 +301,11 @@ function Stub.made(chunk: Ast.Chunk, every?: boolean): Stub.Made
   local cursor: Cursor = { y = 1, x = 1 }
   local function put(at_y: integer, at_x: integer, text: string)
     if at_y > cursor.y then
-      out[#out + 1] = ("\n"):rep(at_y - cursor.y)
+      table.insert(out, ("\n"):rep(at_y - cursor.y))
       cursor.y, cursor.x = at_y, 1
     end
     if at_x > cursor.x then
-      out[#out + 1] = (" "):rep(at_x - cursor.x)
+      table.insert(out, (" "):rep(at_x - cursor.x))
     end
     out[#out + 1] = text
     -- A long string may span lines.

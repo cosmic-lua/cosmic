@@ -128,7 +128,7 @@ local function declared(): Declared
       assert((union.kind == "TypeUnion"), "`Node` is not a union")
       for _, member in ipairs(union.members) do
         assert((member.kind == "TypeName") and #member.path == 1, "a member of `Node` is not a name")
-        out.members[#out.members + 1] = assert(member.path[1])
+        table.insert(out.members, assert(member.path[1]))
       end
     end
   end
@@ -289,7 +289,7 @@ local function same_children(node: Ast.Node, seen: mut {string: boolean})
   seen[tostring(node.kind)] = true
   local got: mut {string} = {}
   Ast.children(node, function(child: Ast.Node)
-    got[#got + 1] = Dump.dump(child)
+    table.insert(got, Dump.dump(child))
     same_children(child, seen)
   end)
   local want = dumped_children(Dump.dump(node))

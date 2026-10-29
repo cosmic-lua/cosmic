@@ -266,17 +266,8 @@ local function test_create_is_only_an_option_of_writable_open(tmp: string)
   end
 end
 
---- The options are a table. A boolean would read as truthy through the
---- raw binding, so a Lua caller passing `true` is refused rather than
---- made writable.
-local function test_open_refuses_options_that_are_not_a_table(tmp: string)
-  local open: any = Sqlite.open
-  for _, given in ipairs({ true, false, "writable", 1 } as {any}) do
-    local ok, why = pcall(open as function(string, any): (any, any), tmp .. "/never.db", given)
-    assert(not ok and tostring(why):find("sqlite: open: options is a table", 1, true) ~= nil, tostring(why))
-  end
-  assert(Fs.exists(tmp .. "/never.db") == false)
-  -- An explicit false is the same as leaving the option out.
+--- An explicit false is the same as leaving the option out.
+local function test_open_takes_an_explicit_false_option_as_left_out(tmp: string)
   failed(Sqlite.open(tmp .. "/never.db", { writable = false }))
   assert(Fs.exists(tmp .. "/never.db") == false)
 end

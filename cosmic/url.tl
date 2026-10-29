@@ -214,16 +214,12 @@ end
 --- it as a `%` instead), when a decoded name or value is not valid UTF-8
 --- (naming the pair; `utf8 = false` allows any bytes), or when the text
 --- is past `max_bytes` or holds more than `max_pairs` pairs (1000). A
---- decoded NUL is allowed through, as in [`Url.unescape`]. Raises when
---- `text` is not a string.
+--- decoded NUL is allowed through, as in [`Url.unescape`].
 --- @param text string A query string, without its `?`, or a form body
 --- @param opts QueryOptions | nil Limits and leniency
 --- @return Query | nil The pairs, in order and by name
 --- @return string Why it was refused, or "" when it was not
 function Url.decode_query(text: string, opts?: Url.QueryOptions): Url.Query?, string
-  if type(text) ~= "string" then
-    error("Url.decode_query: text must be a string, not " .. type(text), 2)
-  end
   local max_pairs = opts and opts.max_pairs or 1000
   local max_bytes = opts and opts.max_bytes
   local lenient = opts ~= nil and opts.lenient == true

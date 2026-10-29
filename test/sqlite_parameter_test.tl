@@ -61,7 +61,6 @@ local function test_malformed_values_raise_and_do_not_execute()
     { values = { {}, {}, [0] = {} }, says = "values holds the key 0" },
     { values = { { integers = { 1, 2.5 } }, {} }, says = "element 2 of parameter 1's integers is not of its type" },
     { values = { { texts = { "a\0b" } }, {} }, says = "element 1 of parameter 1's texts holds a NUL" },
-    { values = { { blobs = "bytes" }, {} }, says = "parameter 1's blobs is no list" },
   }
   for _, case in ipairs(malformed) do
     local values = case.values as {Sqlite.Value}

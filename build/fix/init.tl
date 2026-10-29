@@ -1100,7 +1100,7 @@ local function lay_out_c(ctx: Fix)
   for _, outcome in ipairs(outcomes) do
     local findings = outcome.findings
     if findings == nil then
-      failures[#failures + 1] = outcome.file .. ": " .. assert(outcome.trouble)
+      table.insert(failures, outcome.file .. ": " .. assert(outcome.trouble))
     else
       for _, f in ipairs(findings) do
         local variants = f.variants
@@ -1108,8 +1108,8 @@ local function lay_out_c(ctx: Fix)
         -- its file was checked under.
         local seen = if variants ~= nil and #variants < #assert(outcome.variants) then
           " [" .. table.concat(variants, ", ") .. "]" else "" end
-        failures[#failures + 1] = f.file .. ":" .. tostring(f.line) .. ": " .. f.rule ..
-          " in " .. f.within .. seen .. ": " .. f.message
+        table.insert(failures, f.file .. ":" .. tostring(f.line) .. ": " .. f.rule ..
+            " in " .. f.within .. seen .. ": " .. f.message)
       end
     end
   end

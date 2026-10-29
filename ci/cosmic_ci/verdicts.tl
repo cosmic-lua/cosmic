@@ -212,7 +212,7 @@ local function merge_file(from: string, into: string): string, string
               "WHERE a.digest <> m.digest")
           if other == nil then return false, other_trouble end
           if other > 0 then
-            differing[#differing + 1] = Plural.count(other, "address", "addresses") .. " of " .. name
+            table.insert(differing, Plural.count(other, "address", "addresses") .. " of " .. name)
           end
         end
         local before, before_trouble = counted(db, "SELECT count(*) FROM main." .. q)
@@ -223,7 +223,7 @@ local function merge_file(from: string, into: string): string, string
         if not inserted then return false, insert_trouble end
         local after, after_trouble = counted(db, "SELECT count(*) FROM main." .. q)
         if after == nil then return false, after_trouble end
-        added[#added + 1] = Plural.count(after - before, "row") .. " to " .. name
+        table.insert(added, Plural.count(after - before, "row") .. " to " .. name)
       end
     end
     local committed, commit_trouble = db:exec("COMMIT")

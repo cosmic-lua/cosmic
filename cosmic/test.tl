@@ -826,14 +826,12 @@ end
 --- lacks it, and run, under a key that holds the answer, where it is
 --- present. A test that returns silently for a missing host tool or
 --- platform feature passes having made no call to `assert`, which
---- `cosmic test` lists as having made no call to `assert` and a held run fails. Raises for a reason
---- that is not a string or is empty and, under a runner, for a call as
---- the module loads rather than from a test. Outside a runner it
+--- `cosmic test` lists as having made no call to `assert` and a held run fails. Raises for an
+--- empty reason and, under a runner, for a call as the module loads rather than from a test. Outside a runner it
 --- returns and does nothing: no one there takes what it would raise for
 --- a skip, so a raise would be a failure of a test that only cannot be
 --- checked, and the caller that wants to stop returns itself.
 function Test.skip(reason: string)
-  if not (reason is string) then error("test: skip's reason is not a string", 2) end
   if reason == "" then error("test: skip's reason is empty", 2) end
   local installed = runner_in(Test)
   if installed == nil then return end
@@ -854,11 +852,10 @@ end
 --- held run fails. Unlike a skip it keeps its verdict, since the pass is a
 --- function of what its key holds. Reserved for the fuzz runner, which
 --- `cosmic fix --check .` holds it to; a test that cannot check what it is
---- about skips or declares `requires`. Raises for a reason that is not a
---- string or is empty; outside a runner it does nothing.
+--- about skips or declares `requires`. Raises for an empty
+--- reason; outside a runner it does nothing.
 --- @param reason what the run drew or read that left nothing to check
 function Test.passed_unchecked(reason: string)
-  if not (reason is string) then error("test: passed_unchecked's reason is not a string", 2) end
   if reason == "" then error("test: passed_unchecked's reason is empty", 2) end
   local installed = runner_in(Test)
   if installed == nil then return end

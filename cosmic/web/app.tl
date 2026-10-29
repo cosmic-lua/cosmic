@@ -84,7 +84,6 @@ local function stopping(self: Types.App): boolean
 end
 
 local function on_stop(self: Types.App, fn: function())
-  if type(fn) ~= "function" then error("web: on_stop takes a function", 2) end
   self.stoppers[#self.stoppers + 1] = fn
 end
 

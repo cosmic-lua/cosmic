@@ -159,7 +159,7 @@ local function nested(scope: Scope): Scope
 end
 
 local function add(g: Gen, text: string)
-  g.lines[#g.lines + 1] = ("  "):rep(g.depth + 1) .. text
+  table.insert(g.lines, ("  "):rep(g.depth + 1) .. text)
   g.fuel = g.fuel - 1
 end
 

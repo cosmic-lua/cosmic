@@ -54,8 +54,8 @@ function Clock.sleep_ns(nanoseconds: integer): boolean, string
 end
 
 --- `n` units of `unit_ns` nanoseconds each, for the constructors below;
---- raises, blaming their caller, for a count that is no number or a span
---- that is not a whole number of nanoseconds an integer holds.
+--- raises, blaming their caller, for a span that is not a whole number of
+--- nanoseconds an integer holds.
 local function span(n: number, unit_ns: integer, name: string): integer
   local kind = math.type(n)
   if kind == "integer" then
@@ -65,7 +65,7 @@ local function span(n: number, unit_ns: integer, name: string): integer
       error(("clock: %s(%d) is outside what an integer of nanoseconds holds"):format(name, count), 3)
     end
     return count * unit_ns
-  elseif kind == "float" then
+  else
     -- A count like 1.005 has no exact binary form, so its product is
     -- only near a whole number: within a few units in the last place.
     local scaled = n * unit_ns
@@ -76,15 +76,14 @@ local function span(n: number, unit_ns: integer, name: string): integer
     end
     return whole
   end
-  error(("clock: %s takes a number, not %s"):format(name, type(n)), 3)
 end
 
 --- `n` milliseconds as nanoseconds: `Clock.ms(250)` is 250000000. A float
 --- is as good as an integer when the span is a whole number of
 --- nanoseconds, to within the rounding of the product (`Clock.ms(0.5)` is
 --- 500000, and `Clock.seconds(1.005)` is 1005000000). Raises for anything
---- else: a value that is no number, a span with a fraction of a
---- nanosecond, or one outside what an integer holds.
+--- else: a span with a fraction of a nanosecond, or one outside what an
+--- integer holds.
 function Clock.ms(n: number): integer
   return span(n, 1000000, "Clock.ms")
 end
@@ -111,11 +110,10 @@ end
 --- raw call that takes its span as a count of one unit: `Clock.ceil(ns,
 --- Clock.ms(1))` is the milliseconds a poll waits, and 1 for a single
 --- nanosecond, where rounding down would answer 0, no wait at all.
---- Raises for a `unit` below 1 or an argument that is no integer.
+--- Raises for a `unit` below 1.
 function Clock.ceil(ns: integer, unit: integer): integer
-  if math.type(ns) ~= "integer" then error("clock: ns must be an integer", 2) end
-  if math.type(unit) ~= "integer" or unit < 1 then
-    error("clock: unit must be an integer above 0", 2)
+  if unit < 1 then
+    error("clock: unit must be above 0", 2)
   end
   return ns // unit + (if ns % unit ~= 0 then 1 else 0 end)
 end

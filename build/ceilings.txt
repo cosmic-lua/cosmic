@@ -2153,7 +2153,7 @@ lang/check.tl index_may_be_nil 36
 
 lang/check_flow_fuzz_test.tl index_may_be_nil 4
 
-lang/check_fuzz_test.tl index_may_be_nil 3
+lang/check_fuzz_test.tl index_may_be_nil 2
 
 lang/check_test.tl index_may_be_nil 1
 
@@ -3401,7 +3401,7 @@ cosmic/policy_fuzz_test.tl map_field 12
 
 cosmic/policy_test.tl map_field 4
 
-cosmic/poll_test.tl map_field 5
+cosmic/poll_test.tl map_field 3
 
 cosmic/proc_find_tool_test.tl map_field 1
 
@@ -3449,7 +3449,7 @@ cosmic/test.tl map_field 15
 
 cosmic/test_test.tl map_field 3
 
-cosmic/web/app_test.tl map_field 9
+cosmic/web/app_test.tl map_field 8
 
 cosmic/web/assets.tl map_field 1
 
@@ -3483,7 +3483,7 @@ cosmic/web/response.tl map_field 6
 
 cosmic/web/response_test.tl map_field 10
 
-cosmic/web/router_test.tl map_field 17
+cosmic/web/router_test.tl map_field 16
 
 cosmic/web/serve_test.tl map_field 9
 
@@ -3594,7 +3594,6 @@ cosmic/http/server.tl interface_method_value 2
 
 cosmic/net.tl interface_method_value 1
 
-cosmic/net_connector_test.tl interface_method_value 1
 
 cosmic/poll_test.tl interface_method_value 1
 
@@ -3606,7 +3605,6 @@ cosmic/web/app.tl interface_method_value 1
 
 cosmic/zip_test.tl interface_method_value 1
 
-test/sqlite_row_test.tl interface_method_value 1
 
 cosmic/child_drain_test.tl interface_method_value 4
 
@@ -3920,7 +3918,6 @@ core/socket_test.tl any_use 3
 
 core/sqlite_store_test.tl any_use 1
 
-core/sqlite_test.tl any_use 1
 
 core/syscalls_test.tl any_use 29
 
@@ -3932,7 +3929,6 @@ cosmic/child_policy_anywhere_test.tl any_use 1
 
 cosmic/child_terminal_test.tl any_use 8
 
-cosmic/clock_test.tl any_use 1
 
 cosmic/compress.tl any_use 1
 
@@ -3954,7 +3950,6 @@ cosmic/http/server.tl any_use 12
 
 cosmic/http/server_declared_types_test.tl any_use 1
 
-cosmic/http/server_range_test.tl any_use 3
 
 cosmic/http/server_test.tl any_use 4
 
@@ -3986,13 +3981,12 @@ cosmic/json_path_test.tl any_use 15
 
 cosmic/json_reader_fuzz_test.tl any_use 5
 
-cosmic/json_test.tl any_use 19
+cosmic/json_test.tl any_use 17
 
 cosmic/net.tl any_use 13
 
 cosmic/net_connector_test.tl any_use 1
 
-cosmic/net_resolve_test.tl any_use 2
 
 cosmic/net_resolve_through_test.tl any_use 2
 
@@ -4026,7 +4020,7 @@ cosmic/shape_test.tl any_use 8
 
 cosmic/signal.tl any_use 2
 
-cosmic/sqlite.tl any_use 9
+cosmic/sqlite.tl any_use 7
 
 cosmic/store.tl any_use 1
 
@@ -4116,7 +4110,7 @@ cosmic/web/testing_test.tl any_use 1
 
 cosmic/web/typed.tl any_use 3
 
-cosmic/web/typed_test.tl any_use 2
+cosmic/web/typed_test.tl any_use 1
 
 cosmic/web_example.tl any_use 1
 
@@ -4146,11 +4140,11 @@ lang/literals_test.tl any_use 5
 
 lang/relation_fuzz_test.tl any_use 2
 
-test/sqlite_parameter_test.tl any_use 9
+test/sqlite_parameter_test.tl any_use 8
 
-test/sqlite_result_test.tl any_use 8
+test/sqlite_result_test.tl any_use 6
 
-test/sqlite_row_test.tl any_use 26
+test/sqlite_row_test.tl any_use 25
 
 test/sqlite_transaction_test.tl any_use 1
 
@@ -4324,7 +4318,7 @@ core/sqlite_documented_test.tl cast_refused 4
 
 core/sqlite_functions_fuzz_test.tl cast_refused 1
 
-core/sqlite_test.tl cast_refused 9
+core/sqlite_test.tl cast_refused 7
 
 core/surface_test.tl cast_refused 5
 
@@ -4380,11 +4374,11 @@ cosmic/child_terminal_test.tl cast_refused 2
 
 cosmic/child_test.tl cast_refused 17
 
-cosmic/clock_test.tl cast_refused 3
+cosmic/clock_test.tl cast_refused 1
 
 cosmic/compress.tl cast_refused 1
 
-cosmic/compress_test.tl cast_refused 15
+cosmic/compress_test.tl cast_refused 13
 
 cosmic/coverage.tl cast_refused 1
 
@@ -4392,13 +4386,13 @@ cosmic/csv_test.tl cast_refused 2
 
 cosmic/declared_types_test.tl cast_refused 1
 
-cosmic/fs_append_test.tl cast_refused 2
+cosmic/fs_append_test.tl cast_refused 1
 
 cosmic/fs_test.tl cast_refused 2
 
 cosmic/hash.tl cast_refused 1
 
-cosmic/hash_test.tl cast_refused 15
+cosmic/hash_test.tl cast_refused 14
 
 cosmic/html.tl cast_refused 2
 
@@ -4414,7 +4408,6 @@ cosmic/http/server_declared_types_test.tl cast_refused 1
 
 cosmic/http/server_range_fuzz_test.tl cast_refused 1
 
-cosmic/http/server_range_test.tl cast_refused 1
 
 cosmic/http/server_test.tl cast_refused 11
 
@@ -4422,11 +4415,11 @@ cosmic/http/server_tool_test.tl cast_refused 2
 
 cosmic/http/wire_test.tl cast_refused 4
 
-cosmic/http_test.tl cast_refused 21
+cosmic/http_test.tl cast_refused 19
 
 cosmic/internal/connector.tl cast_refused 2
 
-cosmic/internal/connector_test.tl cast_refused 14
+cosmic/internal/connector_test.tl cast_refused 12
 
 cosmic/internal/relay_handed_lost_test.tl cast_refused 6
 
@@ -4448,7 +4441,7 @@ cosmic/internal/relay_wire_client_test.tl cast_refused 1
 
 cosmic/internal/relay_wire_fuzz_test.tl cast_refused 1
 
-cosmic/internal/relay_wire_test.tl cast_refused 11
+cosmic/internal/relay_wire_test.tl cast_refused 10
 
 cosmic/json.tl cast_refused 1
 
@@ -4466,9 +4459,8 @@ cosmic/json_test.tl cast_refused 66
 
 cosmic/net.tl cast_refused 1
 
-cosmic/net_connector_test.tl cast_refused 11
+cosmic/net_connector_test.tl cast_refused 5
 
-cosmic/net_resolve_test.tl cast_refused 5
 
 cosmic/net_resolve_through_test.tl cast_refused 5
 
@@ -4476,17 +4468,17 @@ cosmic/net_serve_test.tl cast_refused 7
 
 cosmic/net_tcp_test.tl cast_refused 6
 
-cosmic/net_test.tl cast_refused 5
+cosmic/net_test.tl cast_refused 2
 
 cosmic/policy_test.tl cast_refused 2
 
 cosmic/poll_example.tl cast_refused 1
 
-cosmic/poll_test.tl cast_refused 19
+cosmic/poll_test.tl cast_refused 16
 
 cosmic/proc.tl cast_refused 1
 
-cosmic/proc_user_test.tl cast_refused 3
+cosmic/proc_user_test.tl cast_refused 1
 
 cosmic/relay/address_fuzz_test.tl cast_refused 3
 
@@ -4512,7 +4504,7 @@ cosmic/shape_fuzz_test.tl cast_refused 7
 
 cosmic/shape_record_test.tl cast_refused 2
 
-cosmic/shape_test.tl cast_refused 14
+cosmic/shape_test.tl cast_refused 13
 
 cosmic/signal.tl cast_refused 1
 
@@ -4522,7 +4514,7 @@ cosmic/store.tl cast_refused 1
 
 cosmic/store_seal_test.tl cast_refused 3
 
-cosmic/stream_test.tl cast_refused 12
+cosmic/stream_test.tl cast_refused 8
 
 cosmic/tar.tl cast_refused 1
 
@@ -4544,7 +4536,6 @@ cosmic/template_test.tl cast_refused 1
 
 cosmic/test_policy_test.tl cast_refused 3
 
-cosmic/test_test.tl cast_refused 3
 
 cosmic/time.tl cast_refused 1
 
@@ -4556,11 +4547,11 @@ cosmic/time_test.tl cast_refused 8
 
 cosmic/time_zone_test.tl cast_refused 7
 
-cosmic/url_test.tl cast_refused 2
+cosmic/url_test.tl cast_refused 1
 
 cosmic/vector.tl cast_refused 1
 
-cosmic/web/app_test.tl cast_refused 6
+cosmic/web/app_test.tl cast_refused 5
 
 cosmic/web/cookies_test.tl cast_refused 1
 
@@ -4592,7 +4583,7 @@ cosmic/web/request_test.tl cast_refused 3
 
 cosmic/web/response_test.tl cast_refused 3
 
-cosmic/web/router_test.tl cast_refused 2
+cosmic/web/router_test.tl cast_refused 1
 
 cosmic/web/serve_test.tl cast_refused 1
 
@@ -4624,7 +4615,7 @@ test/sqlite_parameter_test.tl cast_refused 2
 
 test/sqlite_result_test.tl cast_refused 1
 
-test/sqlite_row_test.tl cast_refused 2
+test/sqlite_row_test.tl cast_refused 1
 
 # an `is` of a record, an interface or a collection, whose tag no program can read: the tagged unions of the plan
 # replace the `where` clause
@@ -5528,7 +5519,7 @@ cosmic/child_terminal_test.tl or_mix 2
 
 cosmic/child_test.tl or_mix 4
 
-cosmic/clock_test.tl or_mix 6
+cosmic/clock_test.tl or_mix 4
 
 cosmic/compress_checked_test.tl or_mix 1
 
@@ -5652,7 +5643,7 @@ cosmic/template_test.tl or_mix 5
 
 cosmic/test_policy_test.tl or_mix 3
 
-cosmic/test_test.tl or_mix 2
+cosmic/test_test.tl or_mix 1
 
 
 cosmic/time_test.tl or_mix 8
@@ -6531,7 +6522,6 @@ cosmic/net_serve_test.tl compare_disjoint 3
 
 cosmic/net_test.tl compare_disjoint 1
 
-cosmic/poll.tl compare_disjoint 1
 
 cosmic/removed_test.tl compare_disjoint 2
 
@@ -6821,7 +6811,7 @@ cosmic/errors_example.tl literal_needs_type 1
 
 cosmic/flags_example.tl literal_needs_type 1
 
-cosmic/fs_append_test.tl literal_needs_type 2
+cosmic/fs_append_test.tl literal_needs_type 1
 
 cosmic/fs_example.tl literal_needs_type 1
 
@@ -6829,7 +6819,7 @@ cosmic/fs_test.tl literal_needs_type 1
 
 cosmic/hash_example.tl literal_needs_type 1
 
-cosmic/hash_test.tl literal_needs_type 2
+cosmic/hash_test.tl literal_needs_type 1
 
 cosmic/html_example.tl literal_needs_type 1
 
@@ -6855,7 +6845,7 @@ cosmic/json_test.tl literal_needs_type 6
 
 cosmic/log_example.tl literal_needs_type 1
 
-cosmic/net_connector_test.tl literal_needs_type 4
+cosmic/net_connector_test.tl literal_needs_type 2
 
 cosmic/net_example.tl literal_needs_type 1
 
@@ -6873,7 +6863,6 @@ cosmic/poll_test.tl literal_needs_type 1
 
 cosmic/proc_example.tl literal_needs_type 1
 
-cosmic/proc_user_test.tl literal_needs_type 1
 
 cosmic/project_example.tl literal_needs_type 1
 
@@ -6991,7 +6980,7 @@ lang/literals_test.tl literal_needs_type 1
 
 lang/stdlib_test.tl literal_needs_type 2
 
-test/sqlite_parameter_test.tl literal_needs_type 11
+test/sqlite_parameter_test.tl literal_needs_type 10
 
 test/sqlite_result_test.tl literal_needs_type 4
 
@@ -7141,7 +7130,6 @@ core/proc_user_test.tl arms_differ 5
 
 core/promises_test.tl arms_differ 2
 
-core/sqlite_test.tl arms_differ 1
 
 core/syscalls_test.tl arms_differ 7
 
@@ -7207,13 +7195,12 @@ cosmic/shape_test.tl arms_differ 11
 
 cosmic/signal.tl arms_differ 1
 
-cosmic/stream_test.tl arms_differ 2
+cosmic/stream_test.tl arms_differ 1
 
 cosmic/tar.tl arms_differ 1
 
 cosmic/template_check_test.tl arms_differ 16
 
-cosmic/test_test.tl arms_differ 1
 
 cosmic/web/app.tl arms_differ 2
 
@@ -7634,11 +7621,10 @@ cosmic/errors_test.tl alternatives_as_value 1
 
 cosmic/flags_test.tl alternatives_as_value 4
 
-cosmic/fs_append_test.tl alternatives_as_value 1
 
 cosmic/fs_test.tl alternatives_as_value 3
 
-cosmic/hash_test.tl alternatives_as_value 21
+cosmic/hash_test.tl alternatives_as_value 17
 
 cosmic/http/multipart_test.tl alternatives_as_value 2
 
@@ -7648,7 +7634,7 @@ cosmic/http_test.tl alternatives_as_value 4
 
 cosmic/internal/relay_server_test.tl alternatives_as_value 1
 
-cosmic/internal/relay_wire_test.tl alternatives_as_value 4
+cosmic/internal/relay_wire_test.tl alternatives_as_value 3
 
 cosmic/json_path_test.tl alternatives_as_value 1
 
@@ -7658,7 +7644,7 @@ cosmic/json_test.tl alternatives_as_value 5
 
 cosmic/log_test.tl alternatives_as_value 1
 
-cosmic/net_resolve_test.tl alternatives_as_value 9
+cosmic/net_resolve_test.tl alternatives_as_value 4
 
 cosmic/net_resolve_through_test.tl alternatives_as_value 5
 
@@ -7668,11 +7654,10 @@ cosmic/net_test.tl alternatives_as_value 4
 
 cosmic/proc_tool_test.tl alternatives_as_value 1
 
-cosmic/proc_user_test.tl alternatives_as_value 2
 
 cosmic/rand_test.tl alternatives_as_value 3
 
-cosmic/shape_test.tl alternatives_as_value 3
+cosmic/shape_test.tl alternatives_as_value 2
 
 cosmic/store_handles_test.tl alternatives_as_value 2
 
@@ -7684,7 +7669,7 @@ cosmic/time_test.tl alternatives_as_value 1
 
 cosmic/time_zone_test.tl alternatives_as_value 1
 
-cosmic/url_test.tl alternatives_as_value 2
+cosmic/url_test.tl alternatives_as_value 1
 
 cosmic/web/cors_test.tl alternatives_as_value 4
 

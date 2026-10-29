@@ -243,7 +243,7 @@ local function add_leaf(route: Types.Route, ctx: Router.Context, root: Types.Nod
   end
   local segments, names, slash, wild = parsed.segments, parsed.names, parsed.slash, parsed.wild
   local what = ("%q"):format(pattern)
-  if type(route.handler) ~= "function" then refuse(what, "it has no handler") end
+  if route.handler == nil then refuse(what, "it has no handler") end
   if #route.methods == 0 then refuse(what, "it names no method") end
   if ctx.keep_prefix and reserved(ctx.prefix, segments) then
     refuse(what, "/_web/ is reserved for cosmic.web's own assets")

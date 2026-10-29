@@ -871,8 +871,8 @@ function Driver.new(options: Driver.Options): Driver.Build
         timing.check = timing.check + Clock.monotonic_ns() - started
         result.checked = checked
         for _, e in ipairs(checked.errors) do
-          result.bodies[#result.bodies + 1] = error_of(result, "checked", tostring(e.code), e.msg, e.fix, e.y, e.x, e.offset,
-            e.length, e.types, e.argument)
+          table.insert(result.bodies, error_of(result, "checked", tostring(e.code), e.msg, e.fix, e.y, e.x, e.offset,
+            e.length, e.types, e.argument))
         end
         local exempt: {integer: boolean} = {}
         if source.tests then
@@ -899,13 +899,13 @@ function Driver.new(options: Driver.Options): Driver.Build
     if not entry.checked then
       entry.checked = true
       for _, e in ipairs(result.scoped.errors) do
-        result.scope_errors[#result.scope_errors + 1] = error_of(result, "scoped", tostring(e.code), e.msg, e.fix, e.y, e.x,
-          e.offset, e.length, {})
+        table.insert(result.scope_errors, error_of(result, "scoped", tostring(e.code), e.msg, e.fix, e.y, e.x,
+          e.offset, e.length, {}))
       end
       if lowered ~= nil then
         for _, e in ipairs(build.program:errors(result.module)) do
-          result.declared[#result.declared + 1] = error_of(result, "declared", tostring(e.code), e.msg, e.fix, e.y, e.x,
-            e.offset, e.length, e.types)
+          table.insert(result.declared, error_of(result, "declared", tostring(e.code), e.msg, e.fix, e.y, e.x,
+            e.offset, e.length, e.types))
         end
       end
     end
@@ -938,7 +938,7 @@ function Driver.new(options: Driver.Options): Driver.Build
     end
     if result.broken then
       for _, p in ipairs(result.syntax) do
-        out[#out + 1] = file .. ":" .. tostring(p.y) .. ":" .. tostring(p.x) .. ": " .. p.msg .. " (" .. p.code .. "): " .. p.fix
+        table.insert(out, file .. ":" .. tostring(p.y) .. ":" .. tostring(p.x) .. ": " .. p.msg .. " (" .. p.code .. "): " .. p.fix)
       end
       return out
     end

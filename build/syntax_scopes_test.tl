@@ -39,7 +39,7 @@ local function members(source: string): string
   local chunk = assert(Node.parse(source, "fixture.tl"))
   local read: mut {string} = {}
   Lexical.walk(chunk, Node.scope(chunk, "fixture.tl"), function(module: string, name: string, line: integer)
-    read[#read + 1] = module .. "." .. name .. ":" .. tostring(line)
+    table.insert(read, module .. "." .. name .. ":" .. tostring(line))
   end)
   table.sort(read)
   return table.concat(read, " ")

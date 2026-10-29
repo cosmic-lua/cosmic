@@ -181,11 +181,11 @@ local function test_a_wait_the_caller_gives_replaces_the_poll(tmp: string)
     calls.value = calls.value + 1
     assert(fd == writer and events == sys.POLLOUT and left == nil)
     if fail ~= nil then return false, fail end
-    seen[#seen + 1] = drained(reader)
+    table.insert(seen, drained(reader))
     return true, ""
   end })
   assert(w:write(body))
-  seen[#seen + 1] = drained(reader)
+  table.insert(seen, drained(reader))
   assert(calls.value > 0 and table.concat(seen) == body)
   fail = Poll.CANCELLED
   local filled = string.rep("x", 1 << 17)

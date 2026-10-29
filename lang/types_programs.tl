@@ -275,7 +275,7 @@ a_function = function(c: Cursor, depth: integer): Types.Type
     local draft = store:fn({ tparams = tparams, params = params, rest = rest, rets = rets })
     if (draft.tag == "fn") then
       for _, index in ipairs(Generics.unused(draft)) do
-        params[#params + 1] = { type = store:var(0, index - 1) }
+        table.insert(params, { type = store:var(0, index - 1) })
       end
     end
   end
