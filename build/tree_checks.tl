@@ -1107,6 +1107,8 @@ end
 local launcher_allowed: mut {string: string} = {}
 launcher_allowed["build.caches_test"] = "names COSMIC_PORTABLE_CACHE as a key of the " ..
   "environment it hands a pure function of the cache variables"
+launcher_allowed["build.launcher_test"] = "renders the launcher's text with build.launcher and runs " ..
+  "it in a child of its own, with COSMIC_PORTABLE_TEST_CPUINFO named in the child's environment"
 launcher_allowed["build.test_sandbox_test"] = "names COSMIC_PORTABLE_CACHE in the environments " ..
   "it hands the sandbox's pure functions, and reads none from its own process"
 launcher_allowed["build.test_worker_test"] = "hands the worker's pure start function a made-up " ..

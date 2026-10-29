@@ -80,8 +80,15 @@ const release_configuration = Configuration{ .id = 1, .name = "release", .saniti
 const sanitized_configuration = Configuration{ .id = 2, .name = "sanitized", .sanitize = true };
 
 const targets = [_]Target{
+    // x86-64-v3 (AVX2, FMA, BMI1/2, F16C, LZCNT, MOVBE: Intel Haswell 2013,
+    // AMD Excavator 2015 or newer), not the architecture's baseline, so the
+    // numeric kernels compile to wide vectors and fused multiply-add with
+    // no runtime dispatch. The launcher refuses an older CPU by name
+    // ([`build/launcher.tl`]) instead of letting the core die with SIGILL.
+    // The aarch64 cores keep their baseline, which already has NEON.
     .{ .id = 1, .name = "x86_64-linux-musl", .uname_os = "Linux", .uname_arch = "x86_64", .query = .{
         .cpu_arch = .x86_64,
+        .cpu_model = .{ .explicit = &std.Target.x86.cpu.x86_64_v3 },
         .os_tag = .linux,
         .abi = .musl,
     } },
@@ -2105,17 +2112,23 @@ fn baselineHostTarget(b: *std.Build) std.Build.ResolvedTarget {
     });
 }
 
-/// `query` resolved, refusing a CPU other than its architecture's baseline:
-/// a host tool's bytes key the build's cache, and the checked core runs on
-/// runners other than the one that built it.
+/// `query` resolved, refusing a CPU other than the one it declares: the
+/// architecture's baseline where it names no model, else the explicit model
+/// (the x86-64-v3 of the shipped x86_64 target, which the checked core is
+/// built for). A host tool's bytes key the build's cache, and the checked
+/// core runs on runners other than the one that built it, so a CPU detected
+/// on this machine (`.native`) must never resolve here.
 fn baselineTarget(b: *std.Build, query: std.Target.Query) std.Build.ResolvedTarget {
     const resolved = b.resolveTargetQuery(query);
-    const expected = std.Target.Cpu.Model.baseline(
-        resolved.result.cpu.arch,
-        resolved.result.os,
-    );
+    const expected = switch (query.cpu_model) {
+        .explicit => |model| model,
+        else => std.Target.Cpu.Model.baseline(
+            resolved.result.cpu.arch,
+            resolved.result.os,
+        ),
+    };
     if (resolved.result.cpu.model != expected)
-        @panic("a host tool or the checked core resolved a CPU other than the baseline");
+        @panic("a host tool or the checked core resolved a CPU other than the one it declares");
     return resolved;
 }
 
