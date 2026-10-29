@@ -153,7 +153,7 @@ local function normalized(rows: {Config.Endpoint}): {Config.Endpoint}
   local kept: mut {Config.Endpoint} = {}
   local seen: mut {string: boolean} = {}
   for _, row in ipairs(rows) do
-    local key = row.host .. " " .. row.port
+    local key = row.host .. " " .. tostring(row.port)
     if seen[key] ~= true and (row.port == 0 or any[row.host] ~= true) then
       seen[key] = true
       kept[#kept + 1] = row

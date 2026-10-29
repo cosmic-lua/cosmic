@@ -362,7 +362,7 @@ local function target_parts(method: string, target: string): Target?, string
     local host = if parts.host:find(":", 1, true) then "[" .. parts.host .. "]" else parts.host end
     local port = parts.port
     return { path = parts.path ~= "" and parts.path or "/", query = parts.query or "",
-      authority = if port ~= nil then host .. ":" .. port else host end }, ""
+      authority = if port ~= nil then host .. ":" .. tostring(port) else host end }, ""
   end
   local mark = target:find("?", 1, true)
   if mark == nil then return { path = target, query = "" }, "" end
@@ -837,7 +837,7 @@ local function head_text(reply: wire.Reply, length: integer?, chunked: boolean,
       for _, entry in ipairs(value) do lines[#lines + 1] = name .. ": " .. entry end
     end
   end
-  if length ~= nil then lines[#lines + 1] = "Content-Length: " .. length end
+  if length ~= nil then lines[#lines + 1] = "Content-Length: " .. tostring(length) end
   if chunked then lines[#lines + 1] = "Transfer-Encoding: chunked" end
   if close then lines[#lines + 1] = "Connection: close" end
   return table.concat(lines, "\r\n") .. "\r\n\r\n"

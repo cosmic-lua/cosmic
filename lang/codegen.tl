@@ -1435,7 +1435,7 @@ end
 --- `false` of its patterns and binds the names of the others.
 local function match_statement(s: Ast.Match): Output
   G.matches = G.matches + 1
-  local prefix = "__m" .. G.matches .. "_"
+  local prefix = "__m" .. tostring(G.matches) .. "_"
   local width = 0
   for _, arm in ipairs(s.arms) do
     width = math.max(width, #arm.pats)
@@ -1444,7 +1444,7 @@ local function match_statement(s: Ast.Match): Output
   local out = new(y)
   local names: mut {string} = {}
   for i = 1, width do
-    names[i] = prefix .. i
+    names[i] = prefix .. tostring(i)
   end
   put(out, "do local " .. table.concat(names, ", ") .. " =")
   add_child(out, exp(s.scrutinee), " ")

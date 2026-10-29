@@ -197,8 +197,8 @@ end
 function relay_config.proxy_env(loopback: {string}, port?: integer, token?: string,
                                 connect?: {string}): {string:string}
   local userinfo = if token ~= nil then ("cosmic:" .. token .. "@") else "" end
-  local http = "http://" .. userinfo .. "127.0.0.1:" .. (port or relay_config.http_port)
-  local socks = "socks5h://" .. userinfo .. "127.0.0.1:" .. (port or relay_config.socks_port)
+  local http = "http://" .. userinfo .. "127.0.0.1:" .. tostring((port or relay_config.http_port))
+  local socks = "socks5h://" .. userinfo .. "127.0.0.1:" .. tostring((port or relay_config.socks_port))
   local targets = connect or {}
   local direct: mut {string} = {}
   local listed: mut {string:boolean} = {}
@@ -433,7 +433,7 @@ local function strings(value: any, name: string): {string}?, string
   if not value is {any} then return nil, name .. " is not a list" end
   local out: mut {string} = {}
   for i, entry in ipairs(value) do
-    if not entry is string then return nil, name .. "[" .. i .. "] is not a string" end
+    if not entry is string then return nil, name .. "[" .. tostring(i) .. "] is not a string" end
     out[i] = entry
   end
   return out, ""
@@ -445,10 +445,12 @@ local function endpoints_of(value: any, name: string): {relay_config.Endpoint}?,
   if #value > 128 then return nil, name .. " holds more than 128 endpoints" end
   local out: mut {relay_config.Endpoint} = {}
   for i, entry in ipairs(value) do
-    if not entry is {string: any} then return nil, name .. "[" .. i .. "] is not an endpoint" end
+    if not entry is {string: any} then
+      return nil, name .. "[" .. tostring(i) .. "] is not an endpoint"
+    end
     local host, port = entry.host, entry.port
     if not host is string or not port is integer or port < 0 or port > 65535 then
-      return nil, name .. "[" .. i .. "] is not a host and a port from 0 to 65535"
+      return nil, name .. "[" .. tostring(i) .. "] is not a host and a port from 0 to 65535"
     end
     out[i] = { host = host, port = port }
   end
@@ -479,7 +481,7 @@ local function upstream_of(value: any): relay_config.Upstream?, string
   if #addresses == 0 then return nil, "upstream.addresses holds no address" end
   for i, address in ipairs(addresses) do
     if Address.parse(address) == nil then
-      return nil, "upstream.addresses[" .. i .. "] is not a numeric address"
+      return nil, "upstream.addresses[" .. tostring(i) .. "] is not a numeric address"
     end
   end
   local up: relay_config.Upstream = { host = host, port = port, no_proxy = skipped, addresses = addresses }

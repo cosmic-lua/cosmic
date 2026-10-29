@@ -535,7 +535,7 @@ local function parameter_rewrites(source: string, tokens: Lexer.Tokens, ty: Ast.
           taken[other_name] = true
         end
       end
-      local name = "arg" .. index
+      local name = "arg" .. tostring(index)
       while taken[name] == true do
         name = name .. "_"
       end

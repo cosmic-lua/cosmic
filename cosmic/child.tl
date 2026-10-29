@@ -2360,7 +2360,7 @@ local function unmet(merged: Rules.Policy): string
   local held = #(merged.grants or {}) + (if merged.tmp == true and not file then 1 else 0 end)
   local most = file and MAX_ISOLATED_GRANTS or MAX_GRANTS
   if held > most then
-    return "grants: the policy holds " .. held ..
+    return "grants: the policy holds " .. tostring(held) ..
       (if file then ", and the sandbox's /proc is one more" else ", tmp's included" end) ..
       ", past the most a start takes, " .. most .. "; grant a directory above them instead"
   end
@@ -2576,7 +2576,7 @@ local function mapped_user(merged: Rules.Policy): MappedUser?, string
   if not platform and own == 0 then
     local merged_user = merged.user
     if merged_user ~= nil then
-      return nil, "user " .. merged_user .. ": a program runs as a user of the policy's only " ..
+      return nil, "user " .. tostring(merged_user) .. ": a program runs as a user of the policy's only " ..
         "where it is sandboxed, on Linux"
     end
     return nil, ""
@@ -2587,9 +2587,9 @@ local function mapped_user(merged: Rules.Policy): MappedUser?, string
     local merged_user = merged.user
     if merged_user ~= nil and (merged_user ~= own or (merged_group ~= nil and merged_group ~= group)) then
       local merged_group2 = merged.group
-      return nil, "user " .. merged_user .. (if merged_group2 ~= nil then ", group " .. merged_group2 else "" end) ..
+      return nil, "user " .. tostring(merged_user) .. (if merged_group2 ~= nil then ", group " .. tostring(merged_group2) else "" end) ..
         ": only a root caller chooses the user its program runs as, and this process is user " ..
-        own .. ", group " .. group .. ", which its program runs as: name that or none"
+        tostring(own) .. ", group " .. tostring(group) .. ", which its program runs as: name that or none"
     end
     return nil, ""
   end
@@ -2614,11 +2614,11 @@ local function mapped_user(merged: Rules.Policy): MappedUser?, string
   if user ~= nil then
     local group = merged.group or user
     if not Rules.maps_id(uid_map, user) or not Rules.maps_id(gid_map, group) then
-      return nil, "user " .. user .. " and group " .. group .. ": this " ..
+      return nil, "user " .. tostring(user) .. " and group " .. tostring(group) .. ": this " ..
         "process's user namespace does not map both, so its program cannot run as them"
     end
     if Rules.in_pool(uid_map, gid_map, user) or Rules.in_pool(uid_map, gid_map, group) then
-      return nil, "user " .. user .. " and group " .. group .. ": one is of the pool a " ..
+      return nil, "user " .. tostring(user) .. " and group " .. tostring(group) .. ": one is of the pool a " ..
         "root caller's sandboxes are each given a user from, which a concurrent one may be " ..
         "given: name one outside it"
     end
@@ -2682,11 +2682,11 @@ local function reached_by(merged: Rules.Policy, base: string, file: boolean,
       local what = "grant " .. string.format("%q", grant.path) .. " (" .. real .. ")"
       if reach.by == "" then
         return nil, what .. " cannot be used by the user a root caller's program runs as, " ..
-          "user " .. user.uid .. ": " .. reach.lacks .. "; change its mode so it may"
+          "user " .. tostring(user.uid) .. ": " .. reach.lacks .. "; change its mode so it may"
       elseif reach.by == "owner" then
         if not file then
-          return nil, what .. " is owned by user " .. st.uid .. " and not open to the user a " ..
-            "root caller's program runs as, user " .. user.uid .. ", which is not its owner, so " ..
+          return nil, what .. " is owned by user " .. tostring(st.uid) .. " and not open to the user a " ..
+            "root caller's program runs as, user " .. tostring(user.uid) .. ", which is not its owner, so " ..
             "it cannot use it: change its mode, or isolate \"file\", which mounts it so that " ..
             "user owns it"
         end
@@ -2998,8 +2998,8 @@ local function process_limit(merged: Rules.Policy, isolated: boolean): integer?,
   local held, _ = sys.getrlimit(sys.RLIMIT_NPROC)
   if held ~= nil and held.hard < wanted then
     if named_limit ~= nil then
-      return nil, "limits.processes " .. named_limit .. " is above this process's own hard " ..
-        "limit on processes, " .. held.hard .. ", which a child cannot raise"
+      return nil, "limits.processes " .. tostring(named_limit) .. " is above this process's own hard " ..
+        "limit on processes, " .. tostring(held.hard) .. ", which a child cannot raise"
     end
     return held.hard, ""
   end
@@ -3129,7 +3129,7 @@ local function held_to(argv: {string}, opts: Options, policy: Rules.Policy): Hel
       -- The namespace is mapped from outside with this process's own group
       -- beside the program's, which may not be one id twice.
       if user.gid == effective_group() then
-        return nil, "sandbox: group " .. user.gid .. " is this process's own, which its " ..
+        return nil, "sandbox: group " .. tostring(user.gid) .. " is this process's own, which its " ..
           "program's user namespace maps beside the program's: name another group, or a " ..
           "policy that makes no namespace"
       end
@@ -3393,8 +3393,8 @@ local function held_by_seatbelt(argv: {string}, opts: Options, policy: Rules.Pol
   local parameters = if profile.tmp ~= nil then 1 else 0 end
   for _, _ in pairs(profile.parameters) do parameters = parameters + 1 end
   if parameters > raw.SEATBELT_PARAMETER_MAX then
-    return nil, "sandbox: grants: the paths the profile holds, " .. parameters .. ", are past the " ..
-      "most a start takes, " .. raw.SEATBELT_PARAMETER_MAX .. "; grant a directory above them instead"
+    return nil, "sandbox: grants: the paths the profile holds, " .. tostring(parameters) .. ", are past the " ..
+      "most a start takes, " .. tostring(raw.SEATBELT_PARAMETER_MAX) .. "; grant a directory above them instead"
   end
   local env: mut {string:string} = {}
   for _, name in ipairs(merged.env or {}) do
@@ -3494,7 +3494,7 @@ local function nest_descriptors(slots: {integer:integer}): string
   table.sort(numbers)
   for _, number in ipairs(numbers) do
     local fd = slots[number] or number
-    local what = "descriptor " .. number .. (if fd ~= number then " (this process's " .. fd .. ")" else "" end)
+    local what = "descriptor " .. tostring(number) .. (if fd ~= number then " (this process's " .. tostring(fd) .. ")" else "" end)
     -- The descriptors the runtime retains of its own (its artifact and core,
     -- which a relaunch hands on) are refused to every binding that takes a
     -- descriptor, a stat included, by raising; any other raise is rethrown.
@@ -3506,16 +3506,16 @@ local function nest_descriptors(slots: {integer:integer}): string
     end
     if st ~= nil and st.kind == "dir" then
       return what .. " is a directory, which promises \"nest\" cannot hand a program: " ..
-        "with Landlock given up, /proc/self/fd/" .. number .. " opens every file beneath " ..
+        "with Landlock given up, /proc/self/fd/" .. string.format("%d", number) .. " opens every file beneath " ..
         "it and, by .., above it, and the root of its own holds no descriptor"
     elseif st ~= nil and st.kind == "file" then
-      local info, _ = Fs.read("/proc/self/fdinfo/" .. fd)
+      local info, _ = Fs.read("/proc/self/fdinfo/" .. tostring(fd))
       local flags = info ~= nil and info:match("flags:%s*(%d+)") or nil
       local mode = if flags ~= nil then (math.tointeger(tonumber(flags, 8)) or 0) & 3 else nil end
       if mode ~= 2 then
         return what .. " is a file not open for reading and writing, which promises " ..
           "\"nest\" cannot hand a program: with Landlock given up, /proc/self/fd/" ..
-          number .. " reopens it for what it was not opened for wherever its owner may; " ..
+          string.format("%d", number) .. " reopens it for what it was not opened for wherever its owner may; " ..
           "open it O_RDWR, or pass a pipe"
       end
     end
@@ -3619,9 +3619,9 @@ local function prepare_relay(connect: {string}, opts: Options, seatbelt: boolean
   if logged is integer then
     local looked, terminal = pcall(isatty, logged)
     if not looked then
-      return nil, "relay_log " .. logged .. " is a descriptor this program keeps for itself"
+      return nil, "relay_log " .. tostring(logged) .. " is a descriptor this program keeps for itself"
     elseif terminal then
-      return nil, "relay_log " .. logged .. " is a terminal, which a sandboxed relay may not hold as its " ..
+      return nil, "relay_log " .. tostring(logged) .. " is a terminal, which a sandboxed relay may not hold as its " ..
         "standard error: give a pipe, or \"inherit\" where this process's standard error is not one"
     end
   end
@@ -3739,7 +3739,7 @@ local function start(argv: {string}, opts: Options, pty?: Pty, serves_relay?: in
     local streams: {integer: integer | string} = { [0] = opts.stdin, [1] = opts.stdout, [2] = opts.stderr }
     for number, stream in pairs(streams) do
       if stream is integer and isatty(stream) then
-        return refuse("start: sandbox: terminal stdio[" .. number .. "] needs the verb's pty relay")
+        return refuse("start: sandbox: terminal stdio[" .. tostring(number) .. "] needs the verb's pty relay")
       end
     end
   end
@@ -3776,7 +3776,7 @@ local function start(argv: {string}, opts: Options, pty?: Pty, serves_relay?: in
       local fd = slots[number] or number
       if not (pty ~= nil and pty.streams[number] == true) and isatty(fd) then
         unwire(wiring, false)
-        return refuse("start: sandbox: terminal stdio[" .. number .. "] needs the verb's pty relay")
+        return refuse("start: sandbox: terminal stdio[" .. tostring(number) .. "] needs the verb's pty relay")
       end
     end
     for number, fd in pairs(slots) do
@@ -3785,7 +3785,7 @@ local function start(argv: {string}, opts: Options, pty?: Pty, serves_relay?: in
       if not looked and not tostring(terminal):find("retained", 1, true) then error(terminal, 0) end
       if looked and terminal then
         unwire(wiring, false)
-        return refuse("start: sandbox: terminal fds[" .. number .. "] needs the verb's pty relay")
+        return refuse("start: sandbox: terminal fds[" .. tostring(number) .. "] needs the verb's pty relay")
       end
     end
   end
@@ -3807,7 +3807,7 @@ local function start(argv: {string}, opts: Options, pty?: Pty, serves_relay?: in
     for number, fd in pairs(held.fds) do
       if slots[number] ~= nil then
         unwire(wiring, false)
-        return refuse("start: sandbox: fds[" .. number .. "] is a descriptor this program's " ..
+        return refuse("start: sandbox: fds[" .. tostring(number) .. "] is a descriptor this program's " ..
             "relaunch hands it (its artifact or core) on: name another")
       end
       extra = extra or {}

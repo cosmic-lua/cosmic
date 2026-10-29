@@ -20,7 +20,7 @@ function Example.middleware()
         local session = Session.of(req)
         local visits = (session:get_integer("visits") or 0) + 1
         session:set("visits", visits)
-        return Web.text("visit " .. visits)
+        return Web.text("visit " .. tostring(visits))
       end),
     },
     middleware = { Session.middleware{ store = SessionCookie.store{ keys = { Secret.generate() } } } },

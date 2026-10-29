@@ -198,7 +198,7 @@ function RelationPrograms.steps(r: Relation.Refusal): string
   local out: mut {string} = {}
   for _, step in ipairs(r.path) do
     local index = step.index
-    out[#out + 1] = if index ~= nil then step.kind .. " " .. index else step.kind end
+    out[#out + 1] = if index ~= nil then step.kind .. " " .. tostring(index) else step.kind end
   end
   return table.concat(out, " > ")
 end

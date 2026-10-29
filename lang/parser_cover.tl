@@ -43,10 +43,10 @@ local function walk(node: Ast.Node, parent: Ast.Node, state: Walk)
     return
   end
   local b = base_of(node)
-  local at = node.kind .. " at tokens " .. b.first .. " to " .. b.last
+  local at = node.kind .. " at tokens " .. tostring(b.first) .. " to " .. tostring(b.last)
   state.count = state.count + 1
   if b.id ~= state.count then
-    state.problem = at .. " has id " .. tostring(b.id) .. ", not " .. state.count
+    state.problem = at .. " has id " .. tostring(b.id) .. ", not " .. tostring(state.count)
     return
   end
   state.ids[state.count] = true
@@ -56,14 +56,14 @@ local function walk(node: Ast.Node, parent: Ast.Node, state: Walk)
     return
   end
   if b.first < parent.first or b.last > parent.last then
-    state.problem = at .. " is not within its parent, " .. parent.kind .. " at tokens " .. parent.first .. " to " .. parent.last
+    state.problem = at .. " is not within its parent, " .. parent.kind .. " at tokens " .. tostring(parent.first) .. " to " .. tostring(parent.last)
     return
   end
   local previous: {integer} = { parent.first - 1 }
   Ast.children(node, function(child: Ast.Node)
     local c = base_of(child)
     if c.first <= previous[1] and state.problem == "" then
-      state.problem = at .. " has a child, " .. child.kind .. " at tokens " .. c.first .. " to " .. c.last .. ", that begins before its elder sibling ends"
+      state.problem = at .. " has a child, " .. child.kind .. " at tokens " .. tostring(c.first) .. " to " .. tostring(c.last) .. ", that begins before its elder sibling ends"
     end
     walk(child, node, state)
     previous[1] = math.max(previous[1], c.last)
@@ -73,7 +73,7 @@ local function walk(node: Ast.Node, parent: Ast.Node, state: Walk)
     for _, stat in ipairs(node.stats) do
       local s = base_of(stat)
       if s.first ~= expected and state.problem == "" then
-        state.problem = at .. " does not tile: " .. stat.kind .. " begins at token " .. s.first .. ", not " .. tostring(expected)
+        state.problem = at .. " does not tile: " .. stat.kind .. " begins at token " .. tostring(s.first) .. ", not " .. tostring(expected)
       end
       expected = s.last + 1
     end
@@ -99,16 +99,16 @@ function Cover.check(source: string, parsed: Parser.Parsed): boolean, string
   end
   for _, r in ipairs(chunk.requires) do
     if state.ids[r.node] ~= true then
-      return false, "the require of " .. r.module .. " names node " .. r.node .. ", which does not exist"
+      return false, "the require of " .. r.module .. " names node " .. tostring(r.node) .. ", which does not exist"
     end
   end
   local at = 0
   for _, e in ipairs(parsed.errors) do
     if e.offset < 1 or e.length < 0 or e.offset + e.length - 1 > #source or e.offset < at then
-      return false, e.code .. " error at offset " .. e.offset .. " lies outside the source or out of order"
+      return false, e.code .. " error at offset " .. tostring(e.offset) .. " lies outside the source or out of order"
     end
     if e.msg == "" or e.fix == "" then
-      return false, e.code .. " error at " .. e.y .. ":" .. e.x .. " has no message or no fix"
+      return false, e.code .. " error at " .. tostring(e.y) .. ":" .. tostring(e.x) .. " has no message or no fix"
     end
     at = e.offset
   end
