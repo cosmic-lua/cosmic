@@ -670,7 +670,7 @@ end
 
 --- Refuses a production nested past `MAX_NESTING` and skips one token.
 local function too_deep(first: integer): Ast.Error
-  report("too_deep", first, "more than " .. MAX_NESTING .. " levels of nesting",
+  report("too_deep", first, "more than " .. tostring(MAX_NESTING) .. " levels of nesting",
     "split the code: name an inner expression with a `local`, or move an inner block into a function")
   S.muted = true
   if S.kind ~= "$EOF$" then
@@ -2563,7 +2563,7 @@ parse_block = function(mode: integer): Ast.Block
   local first = S.pos
   local stats: mut {Ast.Stat} = {}
   if S.nesting >= MAX_NESTING then
-    report("too_deep", first, "more than " .. MAX_NESTING .. " levels of nesting",
+    report("too_deep", first, "more than " .. tostring(MAX_NESTING) .. " levels of nesting",
       "split the code: name an inner expression with a `local`, or move an inner block into a function")
     S.muted = true
     if TERMINATOR[S.text] ~= true then

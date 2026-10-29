@@ -22,7 +22,7 @@ local types = require("cosmic.template.types")
 
 --- `name:line:col: reason`.
 local function refuse(name: string, line: integer, col: integer, reason: string): string
-  return name .. ":" .. line .. ":" .. col .. ": " .. reason
+  return name .. ":" .. tostring(line) .. ":" .. tostring(col) .. ": " .. reason
 end
 
 --- The place a walk last gave each interpolation it reached.

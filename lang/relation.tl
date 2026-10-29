@@ -321,7 +321,7 @@ local function rewrite(
   if t.open <= level then
     return t
   end
-  local key = tostring(t.id) .. ":" .. level
+  local key = tostring(t.id) .. ":" .. tostring(level)
   local held = memo[key]
   if held ~= nil then
     return held
@@ -1269,7 +1269,7 @@ function Relation.trace(r: Relation.Refusal): string
   local parts: mut {string} = {}
   for _, step in ipairs(r.path) do
     local index = step.index
-    parts[#parts + 1] = if index ~= nil then step.kind .. " " .. index else step.kind end
+    parts[#parts + 1] = if index ~= nil then step.kind .. " " .. tostring(index) else step.kind end
   end
   local where = #parts > 0 and table.concat(parts, " > ") or "here"
   return r.code .. " at " .. where .. ": " .. Types.display(r.sub) .. " is not below " .. Types.display(r.super)

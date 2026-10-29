@@ -273,7 +273,7 @@ function Round.execute(plan: Round.Plan, system: Round.System): integer
           break
         end
       end
-      say("round: " .. owner[done.id].task .. ": solver exit " .. done.code)
+      say("round: " .. owner[done.id].task .. ": solver exit " .. tostring(done.code))
     end
   end
   local failures = 0
@@ -284,7 +284,7 @@ function Round.execute(plan: Round.Plan, system: Round.System): integer
     local logs = graded.text:match("check: logs ([^\n]+)")
     local log = if logs ~= nil then logs .. "/grade.log" else entry.arena .. "/grade.log" end
     system.write(log, graded.text)
-    say("round: " .. entry.task .. ": grade exit " .. graded.code .. " (" .. log .. ")")
+    say("round: " .. entry.task .. ": grade exit " .. tostring(graded.code) .. " (" .. log .. ")")
     local result: mut {string} = {}
     for _, word in ipairs(entry.result) do result[#result + 1] = word end
     -- The log is named from the arena, as the transcript is.
