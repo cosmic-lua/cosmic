@@ -149,7 +149,7 @@ function Example.notifier()
         while #queue == 0 do
           if not notifier:wait(Clock.seconds(5)) then return end
         end
-        handled[#handled + 1] = assert(table.remove(queue, 1))
+        table.insert(handled, assert(table.remove(queue, 1)))
       end
     end)
     for _, job in ipairs({ "a", "b", "c" }) do

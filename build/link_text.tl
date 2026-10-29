@@ -580,8 +580,8 @@ local function scan(text: string, continues: {integer: boolean}, spans?: mut {li
         defined[key] = target
       end
       definition_lines[number] = true
-      out[#out + 1] = { line = number, column = text:find("[", start, true) - start + 1, form = "definition",
-        text = label, target = target, label = label }
+      table.insert(out, { line = number, column = text:find("[", start, true) - start + 1, form = "definition",
+        text = label, target = target, label = label })
     end
   end
 
@@ -666,8 +666,8 @@ local function scan(text: string, continues: {integer: boolean}, spans?: mut {li
       local run = #text:match("^`+", at)
       local written = text:sub(at, past - 1)
       if spans ~= nil and past > at + run and written:find("\n", 1, true) == nil then
-        spans[#spans + 1] = { line = line_of(at), column = column_of(at), written = written,
-          content = written:sub(run + 1, -run - 1) }
+        table.insert(spans, { line = line_of(at), column = column_of(at), written = written,
+          content = written:sub(run + 1, -run - 1) })
       end
       at = past
     elseif c == "[" then
@@ -739,7 +739,7 @@ function link_text.blocks_of(comments: {link_text.Comment}): {link_text.Block}
   local first, next_line = 0, -1
   local function flush()
     if #open.lines > 0 then
-      out[#out + 1] = { line = first, text = table.concat(open.lines, "\n"), starts = open.starts }
+      table.insert(out, { line = first, text = table.concat(open.lines, "\n"), starts = open.starts })
     end
     open.lines = {}
     open.starts = {}

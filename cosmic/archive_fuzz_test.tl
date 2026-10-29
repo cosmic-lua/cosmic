@@ -300,7 +300,7 @@ local function walk_summary(reader: Archive.Reader): string
       break
     end
     local entry: Archive.Entry = e
-    lines[#lines + 1] = entry.kind .. " " .. entry.path .. " " .. tostring(entry.size)
+    table.insert(lines, entry.kind .. " " .. entry.path .. " " .. tostring(entry.size))
   end
   reader:close()
   lines[#lines + 1] = ended

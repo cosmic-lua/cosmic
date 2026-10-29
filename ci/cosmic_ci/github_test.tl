@@ -171,7 +171,7 @@ local function test_the_harness_moved_is_gits_answer()
   local function moved(known: integer?, diff: integer?): boolean, {string}
     local lines: mut {string} = {}
     local answer = Github.harness_moved(function(argv: {string}): integer?
-      lines[#lines + 1] = table.concat(argv, " ")
+      table.insert(lines, table.concat(argv, " "))
       if argv[1] == "cat-file" and known ~= nil then return known end
       return diff
     end, base)

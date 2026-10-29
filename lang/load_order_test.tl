@@ -171,7 +171,7 @@ local function state_of(waiting: integer, open: {string: boolean}, said: mut {st
   return LoadOrder.new(waiting, function(_decl: Types.Decl, name: string): boolean
     return open[name] == true
   end, function(_node: Ast.Node, spelled: string, found: LoadOrder.Found)
-    said[#said + 1] = spelled .. " reads " .. found.read.name .. " through " .. table.concat(found.via, ",")
+    table.insert(said, spelled .. " reads " .. found.read.name .. " through " .. table.concat(found.via, ","))
   end), decl, node
 end
 

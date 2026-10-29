@@ -1220,7 +1220,7 @@ local function apply(seg: Json.Segment, node: Json.Match, out: mut {Json.Match})
   if seg_kind == "name" then
     local name = seg.name
     if shape == "object" and name ~= nil and t[name] ~= nil then
-      out[#out + 1] = { steps = extended(node.steps, name), value = t[name] }
+      table.insert(out, { steps = extended(node.steps, name), value = t[name] })
     end
   elseif seg_kind == "index" then
     if shape == "array" then
@@ -1228,14 +1228,14 @@ local function apply(seg: Json.Segment, node: Json.Match, out: mut {Json.Match})
       local position = index + 1
       if index < 0 then position = last_position(t) + 1 + index end
       if position >= 1 and t[position] ~= nil then
-        out[#out + 1] = { steps = extended(node.steps, position), value = t[position] }
+        table.insert(out, { steps = extended(node.steps, position), value = t[position] })
       end
     end
   else
     local kids, mixed = children(t)
     if kids == nil then return false, "json: " .. mixed end
     for _, kid in ipairs(kids) do
-      out[#out + 1] = { steps = extended(node.steps, kid.steps[1]), value = kid.value }
+      table.insert(out, { steps = extended(node.steps, kid.steps[1]), value = kid.value })
     end
   end
   return true, ""

@@ -46,7 +46,7 @@ function Globals.found(chunk: Ast.Chunk): {Globals.Place}
     end
     if scope == "global" then
       local first = Node.base(node).first
-      found[#found + 1] = { line = Lexer.y(chunk.tokens, first), column = Lexer.x(chunk.tokens, first) }
+      table.insert(found, { line = Lexer.y(chunk.tokens, first), column = Lexer.x(chunk.tokens, first) })
     end
   end)
   table.sort(found, function(a: Globals.Place, b: Globals.Place): boolean

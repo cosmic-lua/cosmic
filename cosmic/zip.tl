@@ -989,8 +989,8 @@ local function put_entry(self: EntryWriter, path: string, body: string | Stream.
     ok, trouble = write_streamed(self, path, body, method, dos_time, dos_date, hint, done)
   end
   if not ok then return false, trouble end
-  self.cd_parts[#self.cd_parts + 1] = central_header(path, method, dos_time, dos_date, done.crc,
-    done.csize, done.usize, attributes(type_bits, mode), local_offset, flags)
+  table.insert(self.cd_parts, central_header(path, method, dos_time, dos_date, done.crc,
+    done.csize, done.usize, attributes(type_bits, mode), local_offset, flags))
   self.count = self.count + 1
   return true, ""
 end

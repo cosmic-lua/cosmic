@@ -239,11 +239,11 @@ function TermFilter.new(): Filter
       drop_held()
     end
     if b >= 0x20 and b <= 0x7e then
-      st.out[#st.out + 1] = char(b)
+      table.insert(st.out, char(b))
     elseif b == ESC then
       st.state = AFTER_ESC
     elseif b == BEL or b == 8 or b == 9 or b == 10 or b == 13 then
-      st.out[#st.out + 1] = char(b)
+      table.insert(st.out, char(b))
     elseif b >= 0xc2 and b <= 0xf4 then
       st.held = char(b)
       st.low, st.high = 0x80, 0xbf
@@ -268,7 +268,7 @@ function TermFilter.new(): Filter
         if st.needed == 0 then
           local first, last = find(chunk, "^[ -~]+", at)
           if first ~= nil then
-            st.out[#st.out + 1] = sub(chunk, first, last)
+            table.insert(st.out, sub(chunk, first, last))
             at = last + 1
           end
         end
@@ -303,7 +303,7 @@ function TermFilter.new(): Filter
           elseif b == 0x50 or b == 0x58 or b == 0x5e or b == 0x5f then
             st.state, st.ends_at_bel = IN_STRING, false
           elseif b == 0x37 or b == 0x38 then
-            st.out[#st.out + 1] = "\27" .. char(b)
+            table.insert(st.out, "\27" .. char(b))
             st.state = GROUND
           elseif b >= 0x20 and b <= 0x2f then
             st.state = IGNORING_ESC

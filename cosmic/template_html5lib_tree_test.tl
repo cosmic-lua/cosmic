@@ -340,7 +340,7 @@ local function note(reach: Reach, label: string, kind: string)
 end
 
 local function fail(reach: Reach, file: string, kind: string, at: integer, input: string, what: string)
-  reach.failures[#reach.failures + 1] = ("%s: slot %s at %d of %q: %s"):format(file, kind, at, input, what)
+  table.insert(reach.failures, ("%s: slot %s at %d of %q: %s"):format(file, kind, at, input, what))
 end
 
 local function check_case(file: string, case: Case, reach: Reach)

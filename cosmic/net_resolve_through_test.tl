@@ -189,7 +189,7 @@ local function served(tmp: string, name: string, wait_ms: integer | string, befo
             local query = read_exact(conn, (string.unpack(">I2", head)))
             if query == nil then break end
             local asked, qtype = question(query)
-            out.queries[#out.queries + 1] = tostring(qtype) .. " " .. asked
+            table.insert(out.queries, tostring(qtype) .. " " .. asked)
             assert(conn:write(string.pack(">s2", answer(query))))
           end
           local _, _ = conn:close()

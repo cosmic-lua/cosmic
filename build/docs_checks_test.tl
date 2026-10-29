@@ -160,7 +160,7 @@ end
 --- module keeps to itself, though it is marked exported.
 local function test_a_local_record_nothing_names_is_refused()
   local rows = clean()
-  rows[#rows + 1] = row("cosmic.thing", "Pipe", "record", "local record Pipe", "A buffer.")
+  table.insert(rows, row("cosmic.thing", "Pipe", "record", "local record Pipe", "A buffer."))
   local db = projection(rows)
   local found = docs_checks.rendered(db, none)
   assert(#found == 1 and found[1]:find("cosmic.thing.Pipe: a `local` record", 1, true) ~= nil,
@@ -171,9 +171,9 @@ local function test_a_local_record_nothing_names_is_refused()
   assert(#found == 0, table.concat(found, "\n"))
 
   rows = clean()
-  rows[#rows + 1] = row("cosmic.thing", "Pipe", "record", "local record Pipe", "A buffer.")
-  rows[#rows + 1] = row("cosmic.thing", "drain", "function",
-    "function Thing.drain(p: Pipe): integer", "Empties `p`.")
+  table.insert(rows, row("cosmic.thing", "Pipe", "record", "local record Pipe", "A buffer."))
+  table.insert(rows, row("cosmic.thing", "drain", "function",
+    "function Thing.drain(p: Pipe): integer", "Empties `p`."))
   found = docs_checks.rendered(projection(rows), none)
   assert(#found == 0, table.concat(found, "\n"))
 end

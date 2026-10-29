@@ -539,10 +539,10 @@ local function parameter_rewrites(source: string, tokens: Lexer.Tokens, ty: Ast.
       while taken[name] == true do
         name = name .. "_"
       end
-      out[#out + 1] = {
+      table.insert(out, {
         row = "optional_type",
         edits = { { lo = Lexer.offset(tokens, first), hi = after, text = name .. "?: " } },
-      }
+      })
     end
   end
 end
@@ -1292,7 +1292,7 @@ local function class_rewrite(source: string, tokens: Lexer.Tokens, declared: {st
       end
       edits[#edits + 1] = { lo = flo, hi = fhi, text = "" }
     end
-    pieces[#pieces + 1] = (if (#pieces == 0 and #rec.members == 0) then "" else "\n" end) .. docs .. indented(slice, ranges)
+    table.insert(pieces, (if (#pieces == 0 and #rec.members == 0) then "" else "\n" end) .. docs .. indented(slice, ranges))
     -- Cut the statement's lines, and a blank line when two would meet.
     local cut = hi
     if lo > 1 and cut <= #source and blank_line(source, cut) and blank_line(source, line_start(source, lo - 1)) then
@@ -1316,10 +1316,10 @@ local function class_rewrite(source: string, tokens: Lexer.Tokens, declared: {st
         local between, before = declared_between(declared, written_name, rec_last, first)
         if between then
           reported[written_name] = true
-          found[#found + 1] = {
+          table.insert(found, {
             kind = if before then "shadow" else "scope" end, class = rec.name.name, method = name, y = Lexer.y(tokens, first),
             name = written_name,
-          }
+          })
         end
       end
     end
@@ -1367,10 +1367,10 @@ local function class_rewrite(source: string, tokens: Lexer.Tokens, declared: {st
           local between, before = declared_between(declared, written_name, rec_last, fl)
           if between then
             reported[written_name] = true
-            found[#found + 1] = {
+            table.insert(found, {
               kind = if before then "shadow" else "scope" end, class = rec.name.name, method = "__close", y = Lexer.y(tokens, fl),
               name = written_name,
-            }
+            })
           end
         end
       end
@@ -2010,7 +2010,7 @@ local function mut_tracker(tokens: Lexer.Tokens, hazards: mut {Translate.Hazard}
       local collection = collection_of(t)
       if collection ~= nil then
         local first = bounds(collection)
-        out[#out + 1] = { row = row, edits = { insert_before(tokens, first, "mut ") } }
+        table.insert(out, { row = row, edits = { insert_before(tokens, first, "mut ") } })
       end
     end
     -- A record declares a field `mut` exactly when its interface does: a
@@ -2091,9 +2091,9 @@ local function mut_tracker(tokens: Lexer.Tokens, hazards: mut {Translate.Hazard}
           local where = own ~= nil and bounds(own) or starts[start]
           for _, super in ipairs(outside) do
             if where ~= nil then
-              hazards[#hazards + 1] = {
+              table.insert(hazards, {
                 kind = "interface", class = start, method = field, y = Lexer.y(tokens, where), name = super,
-              }
+              })
             end
           end
         end
@@ -2102,7 +2102,7 @@ local function mut_tracker(tokens: Lexer.Tokens, hazards: mut {Translate.Hazard}
     end
     for decl in pairs(spread(assigned, false)) do
       if not decl.mut then
-        out[#out + 1] = { row = "mut_field", edits = { insert_before(tokens, bounds(decl), "mut ") } }
+        table.insert(out, { row = "mut_field", edits = { insert_before(tokens, bounds(decl), "mut ") } })
       end
     end
     for decl in pairs(spread(changed, true)) do
@@ -2231,7 +2231,7 @@ local function collect(source: string, parsed: Parser.Parsed, hazards: {Translat
         if (cur.kind == "Binary") and cur.op == "^" then
           local first = bounds(node)
           local _, last = bounds(cur.left)
-          out[#out + 1] = { row = "unary_power", edits = { insert_before(tokens, first, "("), insert_after(tokens, last, ")") } }
+          table.insert(out, { row = "unary_power", edits = { insert_before(tokens, first, "("), insert_after(tokens, last, ")") } })
         end
       end
     elseif (node.kind == "FieldDecl") then
@@ -2392,9 +2392,9 @@ local function collect(source: string, parsed: Parser.Parsed, hazards: {Translat
       end
     end
     if commas[s] == true then
-      out[#out + 1] = { row = "semicolon", edits = { replace_token(tokens, s, ",") } }
+      table.insert(out, { row = "semicolon", edits = { replace_token(tokens, s, ",") } })
     elseif not pending then
-      out[#out + 1] = { row = "semicolon", edits = { delete_with_blanks_before(source, tokens, s) } }
+      table.insert(out, { row = "semicolon", edits = { delete_with_blanks_before(source, tokens, s) } })
     end
   end
   return out

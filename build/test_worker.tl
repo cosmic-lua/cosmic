@@ -776,7 +776,7 @@ local function encode_hits(lines: mut {string}, tag: string, hits: Coverage.Hits
     table.sort(numbers)
     local text: mut {string} = {}
     for i, line in ipairs(numbers) do text[i] = tostring(line) end
-    lines[#lines + 1] = tag .. " " .. hex(path) .. " " .. table.concat(text, ",")
+    table.insert(lines, tag .. " " .. hex(path) .. " " .. table.concat(text, ","))
   end
 end
 
@@ -818,23 +818,23 @@ function worker.encode(report: worker.Report): string
   }
   encode_hits(lines, "load-hit", report.load_hits)
   encode_hits(lines, "test-hit", report.test_hits)
-  for _, name in ipairs(report.modules or {}) do lines[#lines + 1] = "module " .. hex(name) end
+  for _, name in ipairs(report.modules or {}) do table.insert(lines, "module " .. hex(name)) end
   local skipped = report.skipped
   if skipped ~= nil and skipped ~= "" then
-    lines[#lines + 1] = "skipped " .. hex(skipped)
+    table.insert(lines, "skipped " .. hex(skipped))
   end
-  lines[#lines + 1] = "asserted " .. tostring(report.asserted or 0)
+  table.insert(lines, "asserted " .. tostring(report.asserted or 0))
   local deliberate = report.deliberate
   if deliberate ~= nil and deliberate ~= "" then
-    lines[#lines + 1] = "deliberate " .. hex(deliberate)
+    table.insert(lines, "deliberate " .. hex(deliberate))
   end
   for _, met in ipairs(report.violations or {}) do
-    lines[#lines + 1] = "violation " .. hex(table.concat({ met.kind, met.at, met.target,
-      met.declared, met.actual }, "\t")) .. " " .. tostring(met.count)
+    table.insert(lines, "violation " .. hex(table.concat({ met.kind, met.at, met.target,
+      met.declared, met.actual }, "\t")) .. " " .. tostring(met.count))
   end
   local dropped = report.dropped
   if dropped ~= nil and dropped > 0 then
-    lines[#lines + 1] = "dropped " .. tostring(dropped)
+    table.insert(lines, "dropped " .. tostring(dropped))
   end
   lines[#lines + 1] = "end"
   return table.concat(lines, "\n") .. "\n"

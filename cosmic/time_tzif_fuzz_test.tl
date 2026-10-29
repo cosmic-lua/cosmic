@@ -23,7 +23,8 @@ local CARRIED <const> = { "America/New_York", "Asia/Kolkata", "Australia/Lord_Ho
 
 local samples: mut {string} = {}
 for _, name in ipairs(CARRIED) do
-  samples[#samples + 1] = assert(Store.zoneinfo(name))
+  local appended = assert(Store.zoneinfo(name))
+  samples[#samples + 1] = appended
 end
 
 --- Moments every zone read is asked about: the range's ends, the epoch,
