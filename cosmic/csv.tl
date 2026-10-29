@@ -85,9 +85,9 @@ local record Csv
   --- Where [`Csv.load`] reads CSV from: `path` or `text`, one of them.
   record Source
     --- A file to read, by SQLite's CSV table as it copies the rows.
-    path?: string
+    mut path?: string
     --- The CSV itself. It may not hold a NUL byte.
-    text?: string
+    mut text?: string
     --- Keep every cell as the text it is, the empty one `''`.
     raw?: boolean
     --- The one byte between fields, as [`Csv.Options`] says (default `,`);
@@ -501,7 +501,8 @@ function Csv.load(handle: Sqlite.Handle, name: string, source: Csv.Source): Csv.
   if #first == 0 then
     return undone("the CSV holds no header")
   end
-  local header = table.move(first[1]:texts(), 2, first[1]:count(), 1, {})
+  local columns = first[1]:texts()
+  local header = table.move(columns, 2, #columns, 1, {})
   local keys = Csv.column_names(header)
   local reserved = { "rowid", "oid", "_rowid_" }
   for _, each in ipairs(source.reserved or {}) do

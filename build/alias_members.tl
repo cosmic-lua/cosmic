@@ -10,9 +10,9 @@
 local record alias_members
   --- What the rule reads of a row of `docs` ([`build.schema`]).
   interface Declared
-    module: string
-    symbol: string
-    source_symbol: string
+    mut module: string
+    mut symbol: string
+    mut source_symbol: string
     kind: string
     signature: string
   end

@@ -117,7 +117,7 @@ local record Net
   --- `port`, 0 for any nonzero port at that host.
   record Endpoint
     --- The numeric address, no name.
-    host: string
+    mut host: string
     --- The port. A DNS server's is 1 to 65535; only a connector's table
     --- takes 0, any nonzero port.
     port: integer
@@ -161,9 +161,9 @@ local record Net
     timeout_ns?: integer
     --- Name servers to ask in place of the system's: one or more
     --- numeric [`Net.Endpoint`]s, such as [`Net.nameservers`] lists.
-    servers?: {Endpoint}
+    mut servers?: {Endpoint}
     --- A hosts file to read in place of the system's.
-    hosts_file?: string
+    mut hosts_file?: string
     --- Resolves over TCP alone, every socket of the lookup made by this
     --- connector, one [`Net.connector`] made with
     --- a table, and no datagram sent: the servers asked are `servers`, or
@@ -174,7 +174,7 @@ local record Net
     --- one connection at a time, sharing the connector's stream with
     --- any other request, each in its place by tag. Linux only, as the
     --- connector is.
-    connector?: Connector
+    mut connector?: Connector
   end
 
   --- What [`Net.serve`] serves, and how. A field of the wrong shape, or
@@ -228,7 +228,7 @@ local record Net
     --- [`Net.serve`] waits for too. What it raises goes to
     --- [`Net.ServeSpec.on_error`], with its stack, and the server stops all
     --- the same.
-    on_stop?: function(server: Server)
+    mut on_stop?: function(server: Server)
     --- Given what the protocol raised for a connection, with its stack,
     --- or why a listener failed to accept; nil to write each to stderr.
     --- What it raises, [`Net.serve`] raises, having closed every listener
