@@ -500,11 +500,16 @@ local function test_launcher_refuses_a_cpu_below_x86_64_v3(tmp: string)
   assert(not bit.result.ok, "a CPU without bmi2 was not refused")
   Fixture.contains(bit.err, "this CPU lacks bmi2;")
 
-  outcome_ok(run(ctx, "cpu-v3", ctx.work .. "/v3-cache", cpuinfo("v3", v3)),
-    "a CPU with x86-64-v3")
+  -- A launch past the check runs the payload (outcome_ok) and has made the
+  -- cache, which a refused launch never does.
+  local v3_cache = ctx.work .. "/v3-cache"
+  outcome_ok(run(ctx, "cpu-v3", v3_cache, cpuinfo("v3", v3)), "a CPU with x86-64-v3")
+  only_core(v3_cache)
   -- Nothing to read (no /proc): the check cannot tell and does not refuse.
-  outcome_ok(run(ctx, "cpu-unknown", ctx.work .. "/unknown-cache",
+  local unknown_cache = ctx.work .. "/unknown-cache"
+  outcome_ok(run(ctx, "cpu-unknown", unknown_cache,
     { COSMIC_PORTABLE_TEST_CPUINFO = ctx.work .. "/absent" }), "an unreadable cpuinfo")
+  only_core(unknown_cache)
 end
 
 -- The noexec case, which needs the host's own noexec mount, is

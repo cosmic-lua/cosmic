@@ -59,9 +59,11 @@ case "$portable_system" in
 esac
 # The x86_64 Linux core is built for x86-64-v3 and dies with SIGILL on an
 # older CPU, so refuse before anything is extracted. The kernel clears a
-# flag its OS support is missing from (avx without XSAVE state enabled), so
-# the flags answer for the OS too. A host that shows no flags line (no
-# /proc) is not refused: the check cannot tell, and the core may well run.
+# flag its OS support is missing from (avx when the OS does not enable YMM
+# state), so the flags answer for the OS too. The x86-64-v2 features (cx16,
+# lahf_lm, popcnt, sse4_1, sse4_2, ssse3) are not checked: every CPU with
+# AVX2 has them. A host that shows no flags line (no /proc) is not refused:
+# the check cannot tell, and the core may well run.
 portable_cpuinfo=@CPUINFO@
 portable_require_x86_64_v3() {
   portable_flags=
@@ -79,7 +81,7 @@ portable_require_x86_64_v3() {
     esac
   done
   [ -z "$portable_missing" ] ||
-    portable_die "this CPU lacks${portable_missing}; the x86_64 core needs x86-64-v3 (Intel Haswell 2013 or AMD Excavator 2015 or newer)"
+    portable_die "this CPU lacks${portable_missing}; the x86_64 core needs x86-64-v3 (AVX2 and the rest of x86-64-v3: Intel Haswell 2013 or AMD Excavator 2015 or newer)"
 }
 [ "$portable_system" != 'Linux x86_64' ] || portable_require_x86_64_v3
 @SELECT_HOOK@

@@ -310,11 +310,14 @@ build` writes `tally` in the project's build directory, outside the project
 prints its path on a line of its own; `cosmic build cmd/tally` writes only that one. `cosmic docs` lists your own modules with the standard library's, and
 `cosmic docs Tally.words` shows a function with the examples that call it.
 
-That `tally` is the whole program: copy that one file to a Linux (x86-64-v3,
-which is Haswell or Excavator and newer, or arm64) or arm64 macOS host with no cosmic on it and it runs, even with
-an empty environment (`env -i ./tally`). `file` calls it a shell script
-because it starts as one: a /bin/sh launcher with a core for each
-supported system and the program appended. On a host's first run the
+That `tally` is the whole program: copy that one file to a Linux (arm64,
+or x86-64 with AVX2, FMA, BMI1 and BMI2, F16C, LZCNT and MOVBE: Intel
+Haswell or AMD Excavator and newer mainstream cores, but not Atom-class
+or AVX-less Pentium and Celeron parts) or arm64 macOS host with no
+cosmic on it and it runs, even with an empty environment (`env -i
+./tally`). `file` calls it a shell script because it starts as one: a
+/bin/sh launcher with a core for each supported system and the program
+appended. On a host's first run the
 launcher copies that host's core into a private cache
 (`~/.cache/cosmic/cores`, `~/Library/Caches/cosmic/cores` on macOS, or
 `/tmp/cosmic-cores-<uid>` with no `HOME`; `cosmic help build` lists the

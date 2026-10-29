@@ -4,6 +4,7 @@
 --- ci/fixtures/launcher_test.tl's.
 
 local Child = require("cosmic.child")
+local artifact = require("build.artifact")
 local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
 local launcher = require("build.launcher")
@@ -59,13 +60,23 @@ local function test_a_feature_is_matched_whole(tmp: string)
   assert((r.stderr or ""):find("this CPU lacks avx bmi2;", 1, true), tostring(r.stderr))
 end
 
+-- The arm's core is empty, so a launch that gets past the CPU check stops at
+-- the digest of the core it extracts and has made the cache by then. A
+-- launch the check refuses does neither (the first test above).
+local function assert_passed_the_cpu_check(r: Child.Result, tmp: string)
+  local err = r.stderr or ""
+  assert(not err:find("this CPU lacks", 1, true), err)
+  assert(r.code == 126, "exit status " .. tostring(r.code))
+  assert(err:find("cosmic portable: extracted core digest differs", 1, true), err)
+  assert(Fs.stat(tmp .. "/cache") ~= nil, "a launch past the check made no cache")
+end
+
 local function test_a_cpu_with_x86_64_v3_is_not_refused(tmp: string)
   if not on_x86_64_linux() then
     Test.skip("the check runs on x86_64 Linux")
     return
   end
-  local r = launch(tmp, true, v3)
-  assert(not (r.stderr or ""):find("this CPU lacks", 1, true), tostring(r.stderr))
+  assert_passed_the_cpu_check(launch(tmp, true, v3), tmp)
 end
 
 local function test_a_missing_flags_line_is_not_refused(tmp: string)
@@ -73,12 +84,31 @@ local function test_a_missing_flags_line_is_not_refused(tmp: string)
     Test.skip("the check runs on x86_64 Linux")
     return
   end
-  local r = launch(tmp, true, nil)
-  assert(not (r.stderr or ""):find("this CPU lacks", 1, true), tostring(r.stderr))
+  assert_passed_the_cpu_check(launch(tmp, true, nil), tmp)
 end
 
 local function test_a_release_launcher_reads_only_proc_cpuinfo()
   local text = launcher.render(arm, false)
   assert(text:find('portable_cpuinfo=/proc/cpuinfo', 1, true), "release reads /proc/cpuinfo")
   assert(not text:find("TEST_CPUINFO", 1, true), "release carries the test override")
+end
+
+local function test_the_shell_header_fits_its_capacity_with_every_target_arm()
+  -- The header is a fixed size and the arms and hooks go into it: a launcher
+  -- addition that outgrows it fails here, not in a build. The cores are large
+  -- so the offsets and lengths in the arms have their widest digits.
+  local records = table.concat({
+    "1\t1\trelease\tx86\tLinux\tx86_64",
+    "2\t1\trelease\tarm\tLinux\taarch64",
+    "3\t1\trelease\tmac\tDarwin\tarm64",
+  }, "\n") .. "\n"
+  local cores: {string:string} = {
+    x86 = string.rep("x", 12000000),
+    arm = string.rep("a", 12000000),
+    mac = string.rep("m", 12000000),
+  }
+  local release, release_trouble = artifact.prefix(records, cores)
+  assert(release ~= nil, "the release header: " .. release_trouble)
+  local fixture, fixture_trouble = artifact.test_prefix(records, cores)
+  assert(fixture ~= nil, "the fixture header: " .. fixture_trouble)
 end
