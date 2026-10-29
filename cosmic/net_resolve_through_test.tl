@@ -7,6 +7,7 @@
 --- sent. Lookups no server answers, and those in a task beside others,
 --- run here.
 
+local Cell = require("cosmic.cell")
 local Child = require("cosmic.child")
 local Clock = require("cosmic.clock")
 local Connector = require("cosmic.internal.connector")
@@ -439,9 +440,9 @@ local function test_a_name_server_reset_as_it_is_made_leaves_the_stream_in_step(
   assert(sys.set_nonblocking(pair[2], true))
   assert(sys.write(pair[2], string.pack(">I4", socket.CONNECTOR_HELLO)) == 4)
   local dns <close> = assert(Connector.adopted(pair[1], { { host = "127.0.0.1", port = 53 } }, false, Clock.ms(100)))
-  local asked = { value = nil as string? }
-  local found = { value = nil as {Net.Resolved}? }
-  local why = { value = nil as string? }
+  local asked: Cell<string?> = { value = nil }
+  local found: Cell<{Net.Resolved}?> = { value = nil }
+  local why: Cell<string?> = { value = nil }
   Poll.run(function()
     -- The reply to the lookup's one request, tagged from 1: a socket the
     -- server reset as it was made.
@@ -506,9 +507,9 @@ local function test_a_connector_that_passes_the_wrong_descriptor_is_given_up(tmp
     assert(sys.set_nonblocking(pair[2], true))
     assert(sys.write(pair[2], string.pack(">I4", socket.CONNECTOR_HELLO)) == 4)
     local dns <close> = assert(Connector.adopted(pair[1], { { host = "127.0.0.1", port = 53 } }, false, Clock.ms(100)))
-    local asked = { value = nil as string? }
-    local found = { value = nil as {Net.Resolved}? }
-    local why = { value = nil as string? }
+    local asked: Cell<string?> = { value = nil }
+    local found: Cell<{Net.Resolved}?> = { value = nil }
+    local why: Cell<string?> = { value = nil }
     Poll.run(function()
       Poll.spawn(function()
         assert(Poll.readable(pair[2], Clock.seconds(5)))
@@ -710,8 +711,8 @@ end
 --- longest gap between its ticks, in milliseconds, with how long the
 --- lookup took.
 local function ticking_beside(lookup: function()): integer, integer
-  local worst = { value = 0 }
-  local took = { value = 0 }
+  local worst: Cell<integer> = { value = 0 }
+  local took: Cell<integer> = { value = 0 }
   Poll.run(function()
     local running = true
     local ticker = Poll.spawn(function()
@@ -738,8 +739,8 @@ local function test_a_lookup_nobody_answers_stalls_no_other_task(tmp: string)
   local hosts = tmp .. "/hosts"
   assert(Fs.write(hosts, ""))
   local silent = assert(Udp.bind("127.0.0.1", 0))
-  local found = { value = nil as {Net.Resolved}? }
-  local why = { value = nil as string? }
+  local found: Cell<{Net.Resolved}?> = { value = nil }
+  local why: Cell<string?> = { value = nil }
   local worst, took = ticking_beside(function()
     found.value, why.value = Net.resolve("silent.example.test", { timeout_ns = Clock.ms(600), servers = { { host = "127.0.0.1", port = silent.address.port } },
       hosts_file = hosts })
@@ -761,8 +762,8 @@ local function test_a_lookup_through_a_silent_connector_stalls_no_other_task(tmp
   local pair = assert(process.connector_pair())
   assert(sys.write(pair[2], string.pack(">I4", socket.CONNECTOR_HELLO)) == 4)
   local dns <close> = assert(Connector.adopted(pair[1], { { host = "127.0.0.1", port = 53 } }, false, Clock.ms(100)))
-  local found = { value = nil as {Net.Resolved}? }
-  local why = { value = nil as string? }
+  local found: Cell<{Net.Resolved}?> = { value = nil }
+  local why: Cell<string?> = { value = nil }
   local worst, took = ticking_beside(function()
     found.value, why.value = Net.resolve("silent.example.test", { timeout_ns = Clock.ms(600), connector = dns,
       servers = { { host = "127.0.0.1", port = 53 } }, hosts_file = hosts })
@@ -779,8 +780,8 @@ end
 --- and after.
 local function cancelled_lookup(opts: Net.ResolveOptions): integer, string, integer, integer
   local before = lowest_free_descriptor()
-  local outcome = { value = "" }
-  local waited = { value = 0 }
+  local outcome: Cell<string> = { value = "" }
+  local waited: Cell<integer> = { value = 0 }
   Poll.run(function()
     local task = Poll.spawn(function()
       local found, why = Net.resolve("cancelled.example.test", opts)

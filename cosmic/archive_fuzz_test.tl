@@ -6,6 +6,7 @@
 --- whatever the archive's bodies expand to.
 --- `FUZZ_SEED` and `FUZZ_ITERS` pick the inputs (build/fuzz/init.tl).
 
+local Cell = require("cosmic.cell")
 local Archive = require("cosmic.archive")
 local Compress = require("cosmic.compress")
 local Fs = require("cosmic.fs")
@@ -310,8 +311,8 @@ end
 --- itself spells (1 to 300, cycling), so the sniff and the tar's header
 --- reads land across reads wherever the input puts them.
 local function chunked(bytes: string): Stream.Reader
-  local at = { value = 1 }
-  local turn = { value = 0 }
+  local at: Cell<integer> = { value = 1 }
+  local turn: Cell<integer> = { value = 0 }
   local r: Stream.Reader = {}
   r.read = function(_self: Stream.Reader, max_bytes?: integer): string?, string
     if at.value > #bytes then return nil, "" end

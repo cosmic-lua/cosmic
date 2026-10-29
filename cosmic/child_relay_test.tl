@@ -12,6 +12,7 @@
 --- this host gives no user namespace, Landlock or seccomp each skips itself
 --- (Test.skip).
 
+local Cell = require("cosmic.cell")
 local Child = require("cosmic.child")
 local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
@@ -227,7 +228,7 @@ end
 --- and ends the test, skipped, where the host gives no sandbox. A skip
 --- raised in the run would come out of it as the run's own failure.
 local function while_waiting(tmp: string, body: function(handle: Child.Handle))
-  local refusal = { value = nil as string? }
+  local refusal: Cell<string?> = { value = nil }
   Poll.run(function()
     local handle, why = waiting(tmp, 9)
     if handle == nil then
@@ -260,9 +261,9 @@ end
 --- ungranted: ends the test, skipped, where the host gives no sandbox.
 local function flows(tmp: string): {string:string}, integer
   local database = sealed_client(tmp)
-  local said = { value = nil as {string:string}? }
-  local refusal = { value = nil as string? }
-  local other = { value = nil as integer? }
+  local said: Cell<{string:string}?> = { value = nil }
+  local refusal: Cell<string?> = { value = nil }
+  local other: Cell<integer?> = { value = nil }
   serving(function(granted: integer, ungranted: integer)
     local result, why = Child.run({ assert(Proc.executable()), "flows", tostring(granted),
       tostring(ungranted) }, granting(database, granted))
@@ -276,7 +277,7 @@ local function flows(tmp: string): {string:string}, integer
   end)
   local refusal_value = refusal.value
   if refusal_value ~= nil then Test.skip(refusal_value) end
-  return said.value, other.value
+  return assert(said.value), assert(other.value)
 end
 
 --- A granted flow reaches its server, in both protocols; one nothing
@@ -323,8 +324,8 @@ end
 
 --- A handle dropped unwaited ends the program and its relay too.
 local function test_a_dropped_handle_ends_the_relay(tmp: string)
-  local relay_pid = { value = nil as integer? }
-  local program_pid = { value = nil as integer? }
+  local relay_pid: Cell<integer?> = { value = nil }
+  local program_pid: Cell<integer?> = { value = nil }
   while_waiting(tmp, function(handle: Child.Handle)
     local relay, program = assert(handle._relay).pid, handle.pid
     relay_pid.value, program_pid.value = relay, program
@@ -460,7 +461,7 @@ local function test_the_relays_log_goes_where_the_start_says(tmp: string)
   assert(Fs.write(script, FLOWS))
   local database = sealed_client(tmp)
   local errors: mut {string:string} = {}
-  local refusal = { value = nil as string? }
+  local refusal: Cell<string?> = { value = nil }
   serving(function(granted: integer, ungranted: integer)
     for _, log in ipairs({ "inherit", "null" }) do
       local started = this_program.program({ "--standalone", script, database, tostring(granted),
@@ -494,8 +495,8 @@ local function test_the_relays_log_goes_to_a_descriptor_the_caller_gives(tmp: st
   assert(sys.mkfifo(tmp .. "/log", 384))
   local reader = assert(sys.open(tmp .. "/log", sys.O_RDONLY | sys.O_NONBLOCK, 0))
   local writer = assert(sys.open(tmp .. "/log", sys.O_WRONLY, 0))
-  local refusal = { value = nil as string? }
-  local program_stderr = { value = nil as string? }
+  local refusal: Cell<string?> = { value = nil }
+  local program_stderr: Cell<string?> = { value = nil }
   serving(function(granted: integer, ungranted: integer)
     local options = granting(database, granted)
     options.relay_log = writer
@@ -528,7 +529,7 @@ local function test_a_relay_whose_connector_has_ended_ends_with_its_program(tmp:
   assert(sys.mkfifo(tmp .. "/log", 384))
   local reader = assert(sys.open(tmp .. "/log", sys.O_RDONLY | sys.O_NONBLOCK, 0))
   local writer = assert(sys.open(tmp .. "/log", sys.O_WRONLY, 0))
-  local refusal = { value = nil as string? }
+  local refusal: Cell<string?> = { value = nil }
   serving(function(granted: integer, _: integer)
     local options = granting(database, granted)
     options.stdin, options.stdout, options.stderr, options.relay_log = "stream", "null", "null", writer
@@ -665,8 +666,8 @@ end
 --- relay reaches nothing but through the connectors it is handed.
 local function test_the_relays_policy_gives_it_no_network_of_its_own(tmp: string)
   local database, digest = sealed_client(tmp)
-  local said = { value = nil as string? }
-  local refusal = { value = nil as string? }
+  local said: Cell<string?> = { value = nil }
+  local refusal: Cell<string?> = { value = nil }
   serving(function(granted: integer, _ungranted: integer)
     local reached = assert(Net.connect(Net.tcp("127.0.0.2", granted), { timeout_ns = Clock.seconds(5) }))
     assert(reached:close())
@@ -714,8 +715,8 @@ local function test_the_upstream_proxy_is_reached_through_the_table(tmp: string)
   assert(Fs.write(script, FLOWS))
   local database = sealed_client(tmp)
   local asked: mut {string} = {}
-  local said = { value = nil as {string:string}? }
-  local refusal = { value = nil as string? }
+  local said: Cell<{string:string}?> = { value = nil }
+  local refusal: Cell<string?> = { value = nil }
   serving(function(granted: integer, ungranted: integer)
     local listener = assert(Net.listen(Net.tcp("127.0.0.2", 0)))
     local proxy = Poll.spawn(function()

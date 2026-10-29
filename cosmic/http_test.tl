@@ -4,6 +4,7 @@
 --- ([`Http.Options.script`]), where each connection curl opens reads a canned
 --- reply and records what curl sent.
 
+local Cell = require("cosmic.cell")
 local Clock = require("cosmic.clock")
 local Codec = require("cosmic.codec")
 local Fs = require("cosmic.fs")
@@ -783,7 +784,7 @@ end
 
 local function test_a_cancelled_download_removes_its_part_file_and_makes_no_target(tmp: string)
   local path = tmp .. "/got.bin"
-  local asked = { value = 0 }
+  local asked: Cell<integer> = { value = 0 }
   local ok, why = Http.download(url, path, {
     script = { reply("200 OK", "", string.rep("x", 200000)) },
     cancelled = function(): boolean
@@ -812,8 +813,8 @@ end
 
 local function test_a_download_cancelled_only_at_the_end_makes_no_target(tmp: string)
   local path = tmp .. "/got.bin"
-  local asked = { value = 0 }
-  local total = { value = 0 }
+  local asked: Cell<integer> = { value = 0 }
+  local total: Cell<integer> = { value = 0 }
   -- the ask after the last chunk, before the rename, is the last: an
   -- interrupt that came in that window still leaves nothing
   local ok, why = Http.download(url, path, {
@@ -1006,7 +1007,7 @@ local function test_download_result_cancel_and_callback_exception_keep_target(tm
   local path = tmp .. "/got"
   assert(Fs.write(path, "old"))
   for _, at in ipairs({ 1, 2, 3 }) do
-    local asked = { value = 0 }
+    local asked: Cell<integer> = { value = 0 }
     local result = Http.download_result(url, path, {
       script = { reply("200 OK", "", "body") },
       cancelled = function(): boolean
@@ -1082,7 +1083,7 @@ end
 local function test_download_result_interleaved_publishers_own_their_staged_files(tmp: string)
   local path = tmp .. "/got"
   for _, mismatch in ipairs({ false, true }) do
-    local published = { value = false }
+    local published: Cell<boolean> = { value = false }
     local result = Http.download_result(url, path, {
       script = { reply("200 OK", "", "outer") },
       sha256 = mismatch and string.rep("0", 64) or Hash.hex_sha256("outer"),

@@ -8,6 +8,7 @@
 --- cases that start nothing -- a refused option, a refused stream, a
 --- guard -- are in cosmic/child_test.tl.
 
+local Cell = require("cosmic.cell")
 local Child = require("cosmic.child")
 local Signal = require("cosmic.signal")
 local Clock = require("cosmic.clock")
@@ -189,7 +190,7 @@ end
 local function test_a_child_exiting_as_a_wait_ends_it_is_reaped()
   local h <close> = assert(Child.start(lua(sleep(30000))))
   local kill = sys.kill
-  local refused = { value = false }
+  local refused: Cell<boolean> = { value = false }
   local ok, trouble: boolean, any = pcall(function()
     sys.kill = function(pid: integer, signal: integer): boolean, string, integer
       -- The child leads its group, which the handle signals.
