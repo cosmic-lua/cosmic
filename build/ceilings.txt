@@ -1099,7 +1099,7 @@ cosmic/codec_test.tl nil_not_allowed 5
 
 cosmic/compress_test.tl nil_not_allowed 12
 
-cosmic/csv.tl nil_not_allowed 14
+cosmic/csv.tl nil_not_allowed 13
 
 cosmic/csv_fuzz_test.tl nil_not_allowed 25
 
