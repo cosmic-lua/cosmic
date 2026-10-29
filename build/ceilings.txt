@@ -7645,17 +7645,14 @@ build/dataset_fuzz_test.tl not_assignable 1
 
 build/driver_test.tl not_assignable 1
 
-build/fix/init.tl not_assignable 3
 
 build/fix/notes_test.tl not_assignable 1
 
 build/harness_epoch_test.tl not_assignable 2
 
-build/hash_test.tl not_assignable 1
 
 build/importer.tl not_assignable 1
 
-build/link_files.tl not_assignable 1
 
 build/link_text.tl not_assignable 1
 
@@ -7665,11 +7662,9 @@ build/reboot.tl not_assignable 3
 
 build/sandbox.tl not_assignable 1
 
-build/sandbox_connect_test.tl not_assignable 16
 
 build/sandbox_seal_tool_test.tl not_assignable 1
 
-build/stand_in_probe.tl not_assignable 29
 
 build/test_sandbox_system_confined_test.tl not_assignable 1
 
@@ -7677,19 +7672,15 @@ build/test_test.tl not_assignable 1
 
 build/test_worker.tl not_assignable 3
 
-build/work_test.tl not_assignable 2
 
 build/zig_fetch_test.tl not_assignable 1
 
-build/zig_lock_test.tl not_assignable 4
 
-build/zig_test.tl not_assignable 1
 
 core/class_form_test.tl not_assignable 1
 
 core/sqlite_test.tl not_assignable 1
 
-cosmic/channel_test.tl not_assignable 1
 
 cosmic/child_policy_root_user_test.tl not_assignable 2
 
@@ -7697,33 +7688,24 @@ cosmic/child_relay_seatbelt_test.tl not_assignable 1
 
 cosmic/child_relay_test.tl not_assignable 1
 
-cosmic/declared_types_test.tl not_assignable 1
 
 cosmic/html_test.tl not_assignable 2
 
 cosmic/http/server.tl not_assignable 4
 
-cosmic/http_test.tl not_assignable 1
 
 cosmic/internal/relay_config.tl not_assignable 1
 
-cosmic/internal/relay_server_test.tl not_assignable 19
 
-cosmic/internal/relay_token_fuzz_test.tl not_assignable 1
 
-cosmic/internal/relay_wire_test.tl not_assignable 5
 
 cosmic/json.tl not_assignable 1
 
 cosmic/json_test.tl not_assignable 42
 
-cosmic/net_resolve_tool_test.tl not_assignable 5
 
-cosmic/net_serve_test.tl not_assignable 4
 
-cosmic/poll_example.tl not_assignable 1
 
-cosmic/poll_test.tl not_assignable 8
 
 cosmic/store_handles_test.tl not_assignable 1
 
@@ -7733,19 +7715,15 @@ cosmic/template_build_test.tl not_assignable 1
 
 cosmic/time.tl not_assignable 1
 
-cosmic/web/app.tl not_assignable 1
 
-cosmic/web/assets.tl not_assignable 1
 
-cosmic/web/input.tl not_assignable 2
+cosmic/web/input.tl not_assignable 1
 
-cosmic/web/input_test.tl not_assignable 1
 
 cosmic/web/router.tl not_assignable 1
 
-cosmic/web/sse.tl not_assignable 2
+cosmic/web/sse.tl not_assignable 1
 
-eval/check/grade.tl not_assignable 1
 
 lang/declarations.tl not_assignable 1
 
@@ -8388,7 +8366,6 @@ cosmic/poll_example.tl cast_refused 1
 
 cosmic/poll_example.tl literal_missing 1
 
-cosmic/poll_example.tl not_assignable 1
 
 cosmic/poll_example.tl setmetatable_call 1
 
