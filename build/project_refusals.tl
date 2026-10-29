@@ -9,13 +9,18 @@
 ---
 --- - `require` is called with one literal name, as `require("m")` or `pcall(require, "m")`, and that name is
 ---   not under `cosmic.internal`;
---- - `package`, `loadfile`, `dofile`, `_G` and `_ENV` are not used (the last two hold every global under a name this check
+--- - `package`, `debug`, `loadfile`, `dofile`, `_G` and `_ENV` are not used (the last two hold every global under a name this check
 ---   cannot read: `_G.load`, `_G["load"]`, `local g = _G`);
 --- - `load` is called with a mode that is the literal `"t"`, or with no mode and so no environment, and no final argument
 ---   that could supply them (a call or `...`: wrap a call in parentheses to pass its first value).
 ---
+--- `debug` is declared by the tree's standard library (lang/stdlib.d.tl) and removed from what a project is given at run time and in
+--- its declarations, so a use of it is also an undeclared name; it is refused by name too, so that it stays closed should a
+--- declaration of it ever reach a project.
+---
 --- Cosmic's own tree is not held to this: the tool itself is made of modules that do all of these. The tree is told from a
---- project by the structure of the root ([`build.tree`]'s `is_own`), which is how [`build.pipeline`] chooses the options of a
+--- project by the structure of the root ([`build.tree`]'s `is_own`: a root with `core/`, `build/` and `build/importer.tl` is
+--- the tree, the same trust root as the reservation of `cosmic.*` to it), which is how [`build.pipeline`] chooses the options of a
 --- build (`project` is set for any other root, for `-e` and for a standalone file), so the check runs when the build says
 --- `project` and a tree check ([`build.tree_checks`]'s `package_readers` and `text_loaders`) holds the tree itself.
 ---
@@ -45,6 +50,8 @@ local whole: {string: string} = {
     "by a literal name instead",
   _G = "`_G` is the table of the globals, which holds `load`, `require` and `package` under any name: use the globals by their names",
   _ENV = "`_ENV` is the table of the globals, which holds `load`, `require` and `package` under any name: use the globals by their names",
+  debug = "`debug` reads the registry, the upvalues and the metatables of the core's own functions, which hand out what the " ..
+    "types keep from a project: use the library's modules instead",
   loadfile = "`loadfile` reads a chunk no checker read: require a module by a literal name instead",
   dofile = "`dofile` runs a chunk no checker read: require a module by a literal name instead",
 }
@@ -58,7 +65,7 @@ end
 function ProjectRefusals.check(file: string, chunk: Ast.Chunk, scoped: Scopes.Scoped): {string}
   local watched: mut {integer: string} = {}
   local any = false
-  for _, name in ipairs({ "package", "loadfile", "dofile", "_G", "_ENV", "require", "load", "pcall" }) do
+  for _, name in ipairs({ "package", "debug", "loadfile", "dofile", "_G", "_ENV", "require", "load", "pcall" }) do
     for _, id in ipairs(scoped.globals[name] or {}) do
       watched[id] = name
       any = true

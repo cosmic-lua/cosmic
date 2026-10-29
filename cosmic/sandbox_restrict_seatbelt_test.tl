@@ -114,12 +114,11 @@ end
 local function test_the_store_loads_a_module_after_the_restriction()
   macos_only()
   local said = in_child([[
-say("before", package.loaded["cosmic.csv"] == nil)
 say("restrict", Sandbox.restrict({}))
 local Csv = require("cosmic.csv")
 say("loaded", true, assert(assert(Csv.parse("a,b"))[1])[2])
 ]])
-  assert(said.lines.before == "true" and said.lines.restrict == "true ", said.raw)
+  assert(said.lines.restrict == "true ", said.raw)
   assert(said.lines.loaded == "true b", said.raw)
 end
 

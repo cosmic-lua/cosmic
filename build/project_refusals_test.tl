@@ -52,6 +52,15 @@ local function test_a_require_by_a_name_the_build_cannot_read_is_refused()
   refused("local ok = pcall(require)\nreturn ok\n", 1, "one literal module name")
 end
 
+local function test_debug_is_refused_whatever_the_way_it_is_read()
+  refused("local r = debug.getregistry()\nreturn r\n", 1, "`debug`")
+  refused("local d = debug\nreturn d\n", 1, "`debug`")
+  refused("return debug[\"getupvalue\"]\n", 1, "`debug`")
+  -- a local of that name is the program's own, and a field is no global
+  accepted("local debug = { trace = 1 }\nreturn debug.trace\n")
+  accepted("local t = { debug = 1 }\nreturn t.debug\n")
+end
+
 local function test_package_is_refused_whatever_the_way_it_is_read()
   refused("local s = package.searchers\nreturn s\n", 1, "`package`")
   refused("local p = package\nreturn p\n", 1, "`package`")
