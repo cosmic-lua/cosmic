@@ -22,6 +22,9 @@ local record must_confine_fixture
   --- to its environment and COSMIC_SANDBOX otherwise unset, and answers what it ended with and printed.
   run: function(tmp: string, name: string, args: {string}, set?: {string:string}): must_confine_fixture.Said
 
+  --- The same for the child `name` of the test module `module`, which registered it.
+  run_in: function(tmp: string, module: string, name: string, args: {string}, set?: {string:string}): must_confine_fixture.Said
+
   --- What the line `name=` of `said` holds. Raises where the child printed none.
   field: function(said: must_confine_fixture.Said, name: string): string
 end
@@ -31,10 +34,15 @@ function must_confine_fixture.probe(tmp: string): string
 end
 
 function must_confine_fixture.run(tmp: string, name: string, args: {string}, set?: {string:string}): must_confine_fixture.Said
+  return must_confine_fixture.run_in(tmp, "build.must_confine_children_test", name, args, set)
+end
+
+function must_confine_fixture.run_in(tmp: string, module: string, name: string, args: {string}, set?: {string:string}):
+    must_confine_fixture.Said
   local env = this_program.environment()
   env["COSMIC_SANDBOX"] = nil
   for key, value in pairs(set or {}) do env[key] = value end
-  local started = this_program.program(test_child.words(tmp, "build.must_confine_children_test", name, args),
+  local started = this_program.program(test_child.words(tmp, module, name, args),
     { env = env, cwd = tmp, stdout = "capture", stderr = "stdout", timeout_ns = Clock.seconds(60) })
   local result = assert(Child.run(started.argv, started.options))
   return { code = result.code or -1, text = result.stdout or "" }

@@ -94,6 +94,37 @@ local function test_the_sandbox_mode_holds_confine_to_must_confine(tmp: string)
   assert(misspelt.text:find('COSMIC_SANDBOX is "Must"', 1, true) ~= nil, misspelt.text)
 end
 
+--- COSMIC_SANDBOX=must is in every verdict's key, sandboxed or not: a test that stood, in a run without it, runs again
+--- in one with it, so a pass reached by falling back to an unconfined process does not stand for a run that forbids that.
+--- The suite is a project's of one plain test, run by `cosmic test` three times.
+local function test_the_sandbox_mode_is_part_of_the_key_of_a_verdict(tmp: string)
+  local root = tmp .. "/root"
+  assert(Fs.mkdirs(root .. "/suite"))
+  assert(Fs.write(root .. "/suite/plain_test.tl", "local function test_plain()\n  assert(true)\nend\n"))
+  local function run(must: boolean): string
+    local env = this_program.environment()
+    env["COSMIC_VERDICT_CACHE"] = "0"
+    env["COSMIC_TEST_ALL"] = nil
+    env["COSMIC_TEST_SANDBOX"] = nil
+    env["COSMIC_SANDBOX"] = nil
+    if must then env["COSMIC_SANDBOX"] = "must" end
+    local started = this_program.program({ "test" }, { cwd = root, env = env, stdout = "capture", stderr = "stdout",
+      timeout_ns = Clock.seconds(60) })
+    local result = assert(Child.run(started.argv, started.options))
+    return result.stdout or ""
+  end
+  local first = run(false)
+  assert(first:find("1 ran", 1, true) ~= nil, first)
+  local again = run(false)
+  assert(again:find("0 ran, 1 stood", 1, true) ~= nil, again)
+  local must = run(true)
+  -- A run held to sandboxing fails where none of its workers can be, as this one's sandbox may leave them.
+  if must:find("no worker can be sandboxed here", 1, true) ~= nil then
+    Test.skip(confine.unsandboxed_reason(must))
+  end
+  assert(must:find("1 ran", 1, true) ~= nil and must:find("0 ran", 1, true) == nil, must)
+end
+
 --- Where the platform has no sandbox to confine with, a process under `must_confine` is refused, not run unconfined, and
 --- a `confine` that cannot confine falls back to an unconfined process and runs. This branches on the platform because
 --- where it can confine, the process runs held to what was declared, which `must_confine_sandboxed_test.tl` checks.
@@ -103,7 +134,7 @@ local function test_without_a_sandbox_a_must_confined_process_is_refused_and_a_c
   end
   local said = fixture.run(tmp, "unsandboxed", { fixture.probe(tmp), tmp })
   assert(said.code == 0, said.text)
-  assert(fixture.field(said, "refused"):find("^must_confine: %S*could not start confined: .+ could not be applied: " ..
+  assert(fixture.field(said, "refused"):find("^must_confine: %S+ could not start confined: .+ could not be applied: " ..
       ".+ %(E[A-Z0-9]+%)$") ~= nil, said.text)
   assert(fixture.field(said, "fell_back") == "ok", said.text)
 end

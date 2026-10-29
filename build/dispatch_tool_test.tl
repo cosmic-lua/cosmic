@@ -131,7 +131,6 @@ local function test_e_answers_an_empty_chunk_and_a_bad_status(tmp: string)
   assert(bad.code == 2 and says(bad, "not an exit status"), tostring(bad.stderr))
 end
 
---- With no chunk at all it is a usage error.
 --- A `load` with no mode is text alone in a project, by the core and not by this check alone (core/surface.c's `load_with`
 --- forces the mode "t" and a chunk's own environment where none is passed): the bytecode of a function does not load.
 local function test_e_load_with_no_mode_does_not_load_bytecode(tmp: string)
@@ -145,6 +144,7 @@ local function test_e_load_with_no_mode_does_not_load_bytecode(tmp: string)
     tostring(named.code) .. tostring(named.stdout) .. tostring(named.stderr))
 end
 
+--- With no chunk at all it is a usage error.
 local function test_e_without_a_chunk_is_a_usage_error(tmp: string)
   local started = this_program.program({ "-e" }, { env = {}, cwd = tmp, stdout = "capture",
     stderr = "capture", timeout_ns = Clock.seconds(30) })

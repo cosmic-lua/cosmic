@@ -14,9 +14,10 @@
 --- - `load` is called with a mode that is the literal `"t"`, or with no mode and so no environment, and no final argument
 ---   that could supply them (a call or `...`: wrap a call in parentheses to pass its first value).
 ---
---- `debug` is declared by the tree's standard library (lang/stdlib.d.tl) and removed from what a project is given at run time and in
---- its declarations, so a use of it is also an undeclared name; it is refused by name too, so that it stays closed should a
---- declaration of it ever reach a project.
+--- `debug` is declared by lang/stdlib.d.tl, but [`build.withheld`] takes it (with `io`, `os`, `dofile` and `loadfile`) out of the
+--- globals of every program, the tree's included, and the core replaces it at run time with a stand-in whose every field
+--- raises (core/surface.c), so a use of it is also an undeclared name. It is refused by name too, so that it stays closed
+--- should a declaration of it ever reach a project.
 ---
 --- Cosmic's own tree is not held to this: the tool itself is made of modules that do all of these. The tree is told from a
 --- project by the structure of the root ([`build.tree`]'s `is_own`: a root with `core/`, `build/` and build/importer.tl is

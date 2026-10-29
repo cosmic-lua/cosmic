@@ -35,7 +35,7 @@ local function test_a_must_confined_process_is_confined_or_refused(tmp: string)
   assert(said.code == 0, said.text)
   local outcome = fixture.field(said, "confined")
   if outcome == "ok" then return end
-  assert(outcome:find("^must_confine: %S*could not start confined: .+ could not be applied: .+ %(E[A-Z0-9]+%)$") ~= nil,
+  assert(outcome:find("^must_confine: %S+ could not start confined: .+ could not be applied: .+ %(E[A-Z0-9]+%)$") ~= nil,
     said.text)
   Test.skip("a sandboxed worker could not confine what it started: " .. outcome)
 end
