@@ -531,7 +531,7 @@ build/alias_members.tl nil_not_allowed 2
 
 build/archive.tl nil_not_allowed 10
 
-build/archive_test.tl nil_not_allowed 32
+build/archive_test.tl nil_not_allowed 18
 
 build/archive_tool_test.tl nil_not_allowed 1
 
@@ -543,11 +543,11 @@ build/bare.tl nil_not_allowed 5
 
 build/bom.tl nil_not_allowed 25
 
-build/bom_test.tl nil_not_allowed 33
+build/bom_test.tl nil_not_allowed 15
 
 build/boot.tl nil_not_allowed 2
 
-build/c/declared_types_test.tl nil_not_allowed 5
+build/c/declared_types_test.tl nil_not_allowed 4
 
 build/c/init.tl nil_not_allowed 13
 
@@ -555,7 +555,7 @@ build/c/layout.tl nil_not_allowed 14
 
 build/c/rules.tl nil_not_allowed 34
 
-build/c/rules_test.tl nil_not_allowed 52
+build/c/rules_test.tl nil_not_allowed 27
 
 build/c/tree.tl nil_not_allowed 6
 
@@ -573,7 +573,7 @@ build/cache.tl nil_not_allowed 3
 
 build/cache_maintenance.tl nil_not_allowed 2
 
-build/cache_test.tl nil_not_allowed 38
+build/cache_test.tl nil_not_allowed 35
 
 build/cache_tool_test.tl nil_not_allowed 1
 
@@ -581,7 +581,7 @@ build/ceilings.tl nil_not_allowed 2
 
 build/ceilings_test.tl nil_not_allowed 2
 
-build/check_memo_test.tl nil_not_allowed 3
+build/check_memo_test.tl nil_not_allowed 1
 
 build/check_draws.tl nil_not_allowed 1
 
@@ -621,7 +621,7 @@ build/core_image.tl nil_not_allowed 10
 
 build/core_image_fuzz_test.tl nil_not_allowed 5
 
-build/coverage/syntax_lines.tl nil_not_allowed 2
+build/coverage/syntax_lines.tl nil_not_allowed 1
 
 build/coverage/syntax_lines_test.tl nil_not_allowed 1
 
@@ -633,7 +633,7 @@ build/dataset.tl nil_not_allowed 1
 
 build/dataset_fuzz_test.tl nil_not_allowed 15
 
-build/dataset_test.tl nil_not_allowed 17
+build/dataset_test.tl nil_not_allowed 16
 
 build/declared_key.tl nil_not_allowed 12
 
@@ -643,7 +643,7 @@ build/declared_key_test.tl nil_not_allowed 9
 
 build/declared_types_test.tl nil_not_allowed 1
 
-build/derivation.tl nil_not_allowed 7
+build/derivation.tl nil_not_allowed 5
 
 build/digest_test.tl nil_not_allowed 3
 
@@ -651,21 +651,19 @@ build/dispatch.tl nil_not_allowed 27
 
 build/dispatched_features_test.tl nil_not_allowed 1
 
-build/doc_anchors_test.tl nil_not_allowed 1
-
-build/docs.tl nil_not_allowed 57
+build/docs.tl nil_not_allowed 55
 
 build/docs_checks.tl nil_not_allowed 10
 
-build/docs_checks_test.tl nil_not_allowed 10
+build/docs_checks_test.tl nil_not_allowed 5
 
 build/docs_removed_test.tl nil_not_allowed 16
 
 build/docs_search_test.tl nil_not_allowed 2
 
-build/docs_test.tl nil_not_allowed 105
+build/docs_test.tl nil_not_allowed 97
 
-build/doctest/generate.tl nil_not_allowed 2
+build/doctest/generate.tl nil_not_allowed 1
 
 build/doctest/generate_test.tl nil_not_allowed 3
 
@@ -673,23 +671,23 @@ build/doctest/markdown.tl nil_not_allowed 9
 
 build/doctest/markdown_test.tl nil_not_allowed 40
 
-build/driver_test.tl nil_not_allowed 25
+build/driver_test.tl nil_not_allowed 18
 
 build/embed.tl nil_not_allowed 2
 
-build/embed_tool_test.tl nil_not_allowed 25
+build/embed_tool_test.tl nil_not_allowed 23
 
 build/example_checks.tl nil_not_allowed 1
 
-build/example_checks_test.tl nil_not_allowed 10
+build/example_checks_test.tl nil_not_allowed 1
 
-build/fetch.tl nil_not_allowed 18
+build/fetch.tl nil_not_allowed 17
 
 build/fetch_test.tl nil_not_allowed 1
 
 build/fetch_tool_test.tl nil_not_allowed 1
 
-build/fix/fix_test.tl nil_not_allowed 13
+build/fix/fix_test.tl nil_not_allowed 7
 
 build/fix/init.tl nil_not_allowed 1
 
@@ -699,19 +697,17 @@ build/fix/near_test.tl nil_not_allowed 3
 
 build/fix/notes_test.tl nil_not_allowed 1
 
-build/flow.tl nil_not_allowed 30
+build/flow.tl nil_not_allowed 29
 
-build/flow_fuzz_test.tl nil_not_allowed 1
+build/flow_test.tl nil_not_allowed 2
 
-build/flow_test.tl nil_not_allowed 3
-
-build/fuzz/fuzz_test.tl nil_not_allowed 3
+build/fuzz/fuzz_test.tl nil_not_allowed 2
 
 build/fuzz/init.tl nil_not_allowed 2
 
 build/fuzz/shrink.tl nil_not_allowed 11
 
-build/fuzz/shrink_test.tl nil_not_allowed 14
+build/fuzz/shrink_test.tl nil_not_allowed 11
 
 build/gen_syscalls.tl nil_not_allowed 16
 
@@ -721,31 +717,31 @@ build/harness_epoch_test.tl nil_not_allowed 5
 
 build/hash_sums_fuzz_test.tl nil_not_allowed 1
 
-build/hash_test.tl nil_not_allowed 41
+build/hash_test.tl nil_not_allowed 35
 
 build/hash_tool_test.tl nil_not_allowed 1
 
 build/host_requires.tl nil_not_allowed 5
 
-build/host_requires_test.tl nil_not_allowed 14
+build/host_requires_test.tl nil_not_allowed 9
 
-build/identity.tl nil_not_allowed 11
+build/identity.tl nil_not_allowed 10
 
-build/importer.tl nil_not_allowed 12
+build/importer.tl nil_not_allowed 9
 
-build/importer_boot_test.tl nil_not_allowed 5
+build/importer_boot_test.tl nil_not_allowed 4
 
 build/importer_store_test.tl nil_not_allowed 1
 
-build/importer_test.tl nil_not_allowed 31
+build/importer_test.tl nil_not_allowed 28
 
-build/json.tl nil_not_allowed 12
+build/json.tl nil_not_allowed 5
 
 build/json_query.tl nil_not_allowed 2
 
 build/json_query_fuzz_test.tl nil_not_allowed 1
 
-build/json_query_test.tl nil_not_allowed 4
+build/json_query_test.tl nil_not_allowed 3
 
 build/json_test.tl nil_not_allowed 2
 
@@ -755,7 +751,7 @@ build/key_parts_test.tl nil_not_allowed 1
 
 build/link_files.tl nil_not_allowed 7
 
-build/link_index.tl nil_not_allowed 9
+build/link_index.tl nil_not_allowed 7
 
 build/link_resolve.tl nil_not_allowed 17
 
@@ -777,7 +773,7 @@ build/perf_validation.tl nil_not_allowed 9
 
 build/plural_sites.tl nil_not_allowed 5
 
-build/policy_rules.tl nil_not_allowed 2
+build/policy_rules.tl nil_not_allowed 1
 
 build/positions.tl nil_not_allowed 1
 
@@ -789,13 +785,11 @@ build/rand_tool_test.tl nil_not_allowed 1
 
 build/reboot.tl nil_not_allowed 4
 
-build/reboot_test.tl nil_not_allowed 4
-
 build/rebuild_lock.tl nil_not_allowed 1
 
 build/rebuild_lock_tool_test.tl nil_not_allowed 3
 
-build/refresh.tl nil_not_allowed 10
+build/refresh.tl nil_not_allowed 9
 
 build/refresh_fuzz_test.tl nil_not_allowed 1
 
@@ -823,13 +817,13 @@ build/sandboxed_verdicts_test.tl nil_not_allowed 6
 
 build/schema.tl nil_not_allowed 8
 
-build/schema_test.tl nil_not_allowed 10
+build/schema_test.tl nil_not_allowed 5
 
 build/sealed_worker_test.tl nil_not_allowed 2
 
 build/shared_compiles.tl nil_not_allowed 3
 
-build/shared_compiles_test.tl nil_not_allowed 9
+build/shared_compiles_test.tl nil_not_allowed 4
 
 build/shared_compiles_tool_test.tl nil_not_allowed 9
 
@@ -839,19 +833,19 @@ build/shared_parses_tool_test.tl nil_not_allowed 1
 
 build/shared_sqlite.tl nil_not_allowed 1
 
-build/shared_sqlite_test.tl nil_not_allowed 7
+build/shared_sqlite_test.tl nil_not_allowed 6
 
 build/shared_verdicts.tl nil_not_allowed 10
 
-build/shared_verdicts_test.tl nil_not_allowed 9
+build/shared_verdicts_test.tl nil_not_allowed 3
 
-build/shared_verdicts_tool_test.tl nil_not_allowed 5
+build/shared_verdicts_tool_test.tl nil_not_allowed 4
 
-build/sql.tl nil_not_allowed 16
+build/sql.tl nil_not_allowed 15
 
-build/sql_store_test.tl nil_not_allowed 2
+build/sql_store_test.tl nil_not_allowed 1
 
-build/sql_test.tl nil_not_allowed 52
+build/sql_test.tl nil_not_allowed 51
 
 build/sql_tool_test.tl nil_not_allowed 1
 
@@ -863,7 +857,7 @@ build/stand_in_test.tl nil_not_allowed 4
 
 build/standalone_tool_test.tl nil_not_allowed 3
 
-build/stub_tree_test.tl nil_not_allowed 3
+build/stub_tree_test.tl nil_not_allowed 2
 
 build/subdirectory_verbs_test.tl nil_not_allowed 1
 
@@ -871,21 +865,21 @@ build/symbol_index.tl nil_not_allowed 4
 
 build/syntax_analyzer.tl nil_not_allowed 4
 
-build/syntax_analyzer_test.tl nil_not_allowed 25
+build/syntax_analyzer_test.tl nil_not_allowed 23
 
 build/syntax_contracts.tl nil_not_allowed 38
 
-build/syntax_contracts_test.tl nil_not_allowed 5
+build/syntax_contracts_test.tl nil_not_allowed 1
 
-build/syntax_derivation_test.tl nil_not_allowed 13
+build/syntax_derivation_test.tl nil_not_allowed 11
 
 build/syntax_link_text.tl nil_not_allowed 1
 
-build/syntax_links_test.tl nil_not_allowed 14
+build/syntax_links_test.tl nil_not_allowed 5
 
 build/syntax_match.tl nil_not_allowed 5
 
-build/syntax_match_test.tl nil_not_allowed 12
+build/syntax_match_test.tl nil_not_allowed 4
 
 build/syntax_node.tl nil_not_allowed 6
 
@@ -893,15 +887,13 @@ build/syntax_node_test.tl nil_not_allowed 3
 
 build/syntax_rewrite.tl nil_not_allowed 7
 
-build/syntax_rewrite_test.tl nil_not_allowed 3
-
 build/syntax_scopes_test.tl nil_not_allowed 11
 
 build/syntax_shape_specs.tl nil_not_allowed 5
 
 build/syntax_shape_specs_test.tl nil_not_allowed 1
 
-build/syntax_stub.tl nil_not_allowed 4
+build/syntax_stub.tl nil_not_allowed 2
 
 build/syntax_stub_test.tl nil_not_allowed 6
 
@@ -915,7 +907,7 @@ build/term_relay.tl nil_not_allowed 11
 
 build/test.tl nil_not_allowed 31
 
-build/test_bail_tool_test.tl nil_not_allowed 6
+build/test_bail_tool_test.tl nil_not_allowed 4
 
 build/test_inputs_test.tl nil_not_allowed 3
 
@@ -937,7 +929,7 @@ build/test_requires_tool_test.tl nil_not_allowed 1
 
 build/test_sandbox_probe.tl nil_not_allowed 1
 
-build/test_selection_test.tl nil_not_allowed 14
+build/test_selection_test.tl nil_not_allowed 10
 
 build/test_skip_tool_test.tl nil_not_allowed 1
 
@@ -951,7 +943,7 @@ build/this_program.tl nil_not_allowed 2
 
 build/this_program_test.tl nil_not_allowed 2
 
-build/time.tl nil_not_allowed 13
+build/time.tl nil_not_allowed 12
 
 build/time_input_fuzz_test.tl nil_not_allowed 3
 
@@ -961,37 +953,35 @@ build/todo_scan.tl nil_not_allowed 6
 
 build/todos.tl nil_not_allowed 13
 
-build/todos_git_test.tl nil_not_allowed 31
+build/todos_git_test.tl nil_not_allowed 22
 
-build/todos_test.tl nil_not_allowed 63
+build/todos_test.tl nil_not_allowed 49
 
-build/tree_checks.tl nil_not_allowed 77
+build/tree_checks.tl nil_not_allowed 71
 
-build/tree_checks_test.tl nil_not_allowed 68
+build/tree_checks_test.tl nil_not_allowed 36
 
-build/tree_program_test.tl nil_not_allowed 14
+build/tree_program_test.tl nil_not_allowed 12
 
 build/tree_root.tl nil_not_allowed 8
-
-build/vendor_test.tl nil_not_allowed 1
 
 build/verbs_fixture.tl nil_not_allowed 2
 
 build/verbs_store_test.tl nil_not_allowed 2
 
-build/work.tl nil_not_allowed 13
+build/work.tl nil_not_allowed 11
 
-build/work_test.tl nil_not_allowed 26
+build/work_test.tl nil_not_allowed 19
 
 build/work_tool_test.tl nil_not_allowed 1
 
 build/workflows_test.tl nil_not_allowed 48
 
-build/writer.tl nil_not_allowed 3
+build/writer.tl nil_not_allowed 1
 
-build/writer_test.tl nil_not_allowed 72
+build/writer_test.tl nil_not_allowed 59
 
-build/zig_fetch_test.tl nil_not_allowed 14
+build/zig_fetch_test.tl nil_not_allowed 12
 
 build/zig_test.tl nil_not_allowed 1
 
@@ -1009,7 +999,7 @@ core/connector_public_fuzz_test.tl nil_not_allowed 13
 
 core/connector_public_test.tl nil_not_allowed 5
 
-core/connector_request_fuzz_test.tl nil_not_allowed 5
+core/connector_request_fuzz_test.tl nil_not_allowed 2
 
 core/database_start_test.tl nil_not_allowed 2
 
@@ -1021,7 +1011,7 @@ core/fault_test.tl nil_not_allowed 3
 
 core/linkage_test.tl nil_not_allowed 3
 
-core/lookup_test.tl nil_not_allowed 9
+core/lookup_test.tl nil_not_allowed 7
 
 core/promises_test.tl nil_not_allowed 2
 
@@ -1033,11 +1023,11 @@ core/sqlite_functions_fuzz_test.tl nil_not_allowed 69
 
 core/sqlite_functions_test.tl nil_not_allowed 36
 
-core/sqlite_test.tl nil_not_allowed 8
+core/sqlite_test.tl nil_not_allowed 4
 
 core/sqlite_wait_lua_test.tl nil_not_allowed 3
 
-core/startup_test.tl nil_not_allowed 8
+core/startup_test.tl nil_not_allowed 4
 
 core/surface_test.tl nil_not_allowed 2
 
@@ -1045,7 +1035,7 @@ core/syscalls_pledge_test.tl nil_not_allowed 2
 
 core/syscalls_relay_test.tl nil_not_allowed 3
 
-core/syscalls_test.tl nil_not_allowed 21
+core/syscalls_test.tl nil_not_allowed 14
 
 core/syscalls_tool_test.tl nil_not_allowed 3
 
@@ -1055,7 +1045,7 @@ cosmic/archive.tl nil_not_allowed 11
 
 cosmic/archive_fuzz_test.tl nil_not_allowed 3
 
-cosmic/archive_test.tl nil_not_allowed 31
+cosmic/archive_test.tl nil_not_allowed 28
 
 cosmic/channel.tl nil_not_allowed 1
 
@@ -1081,7 +1071,7 @@ cosmic/child_policy_user_test.tl nil_not_allowed 2
 
 cosmic/child_relay_seatbelt_test.tl nil_not_allowed 6
 
-cosmic/child_relay_test.tl nil_not_allowed 4
+cosmic/child_relay_test.tl nil_not_allowed 3
 
 cosmic/child_stream_failure_test.tl nil_not_allowed 7
 
@@ -1097,17 +1087,17 @@ cosmic/codec_test.tl nil_not_allowed 5
 
 cosmic/compress_test.tl nil_not_allowed 12
 
-cosmic/csv.tl nil_not_allowed 13
+cosmic/csv.tl nil_not_allowed 11
 
-cosmic/csv_fuzz_test.tl nil_not_allowed 25
+cosmic/csv_fuzz_test.tl nil_not_allowed 24
 
-cosmic/csv_test.tl nil_not_allowed 28
+cosmic/csv_test.tl nil_not_allowed 14
 
 cosmic/declared_types_test.tl nil_not_allowed 4
 
 cosmic/errno_test.tl nil_not_allowed 7
 
-cosmic/errors.tl nil_not_allowed 6
+cosmic/errors.tl nil_not_allowed 1
 
 cosmic/flags.tl nil_not_allowed 24
 
@@ -1131,15 +1121,15 @@ cosmic/http/multipart.tl nil_not_allowed 11
 
 cosmic/http/multipart_fuzz_test.tl nil_not_allowed 23
 
-cosmic/http/multipart_test.tl nil_not_allowed 14
+cosmic/http/multipart_test.tl nil_not_allowed 4
 
 cosmic/http/server.tl nil_not_allowed 3
 
-cosmic/http/server_range_fuzz_test.tl nil_not_allowed 16
+cosmic/http/server_range_fuzz_test.tl nil_not_allowed 15
 
 cosmic/http/server_range_test.tl nil_not_allowed 2
 
-cosmic/http/server_test.tl nil_not_allowed 20
+cosmic/http/server_test.tl nil_not_allowed 17
 
 cosmic/http/server_tool_test.tl nil_not_allowed 2
 
@@ -1149,7 +1139,7 @@ cosmic/http/wire_fuzz_test.tl nil_not_allowed 33
 
 cosmic/http/wire_test.tl nil_not_allowed 4
 
-cosmic/http_store_test.tl nil_not_allowed 2
+cosmic/http_store_test.tl nil_not_allowed 1
 
 cosmic/http_test.tl nil_not_allowed 2
 
@@ -1173,13 +1163,13 @@ cosmic/internal/relay_resolv.tl nil_not_allowed 13
 
 cosmic/internal/relay_server.tl nil_not_allowed 11
 
-cosmic/internal/relay_server_native_test.tl nil_not_allowed 2
+cosmic/internal/relay_server_native_test.tl nil_not_allowed 1
 
-cosmic/internal/relay_server_test.tl nil_not_allowed 14
+cosmic/internal/relay_server_test.tl nil_not_allowed 13
 
 cosmic/internal/relay_start.tl nil_not_allowed 7
 
-cosmic/internal/relay_start_test.tl nil_not_allowed 7
+cosmic/internal/relay_start_test.tl nil_not_allowed 3
 
 cosmic/internal/relay_token_fuzz_test.tl nil_not_allowed 1
 
@@ -1191,17 +1181,17 @@ cosmic/internal/relay_wire_fuzz_test.tl nil_not_allowed 10
 
 cosmic/internal/relay_wire_test.tl nil_not_allowed 9
 
-cosmic/json.tl nil_not_allowed 47
+cosmic/json.tl nil_not_allowed 46
 
 cosmic/json_fuzz_test.tl nil_not_allowed 33
 
-cosmic/json_path_fuzz_test.tl nil_not_allowed 10
+cosmic/json_path_fuzz_test.tl nil_not_allowed 8
 
-cosmic/json_path_test.tl nil_not_allowed 6
+cosmic/json_path_test.tl nil_not_allowed 3
 
 cosmic/json_reader_fuzz_test.tl nil_not_allowed 14
 
-cosmic/json_reader_test.tl nil_not_allowed 4
+cosmic/json_reader_test.tl nil_not_allowed 3
 
 cosmic/json_test.tl nil_not_allowed 7
 
@@ -1213,13 +1203,13 @@ cosmic/net_connector_test.tl nil_not_allowed 9
 
 cosmic/net_numeric_fuzz_test.tl nil_not_allowed 1
 
-cosmic/net_resolve_test.tl nil_not_allowed 6
+cosmic/net_resolve_test.tl nil_not_allowed 2
 
-cosmic/net_resolve_through_test.tl nil_not_allowed 20
+cosmic/net_resolve_through_test.tl nil_not_allowed 15
 
 cosmic/net_resolve_tool_test.tl nil_not_allowed 1
 
-cosmic/net_serve_test.tl nil_not_allowed 8
+cosmic/net_serve_test.tl nil_not_allowed 7
 
 cosmic/net_test.tl nil_not_allowed 2
 
@@ -1233,17 +1223,17 @@ cosmic/poll_test.tl nil_not_allowed 18
 
 cosmic/rand_test.tl nil_not_allowed 2
 
-cosmic/relay/address.tl nil_not_allowed 6
+cosmic/relay/address.tl nil_not_allowed 5
 
 cosmic/relay/address_fuzz_test.tl nil_not_allowed 16
 
-cosmic/relay/address_test.tl nil_not_allowed 8
+cosmic/relay/address_test.tl nil_not_allowed 4
 
 cosmic/relay/grant.tl nil_not_allowed 5
 
 cosmic/removed_test.tl nil_not_allowed 7
 
-cosmic/sandbox/init.tl nil_not_allowed 5
+cosmic/sandbox/init.tl nil_not_allowed 2
 
 cosmic/sandbox/policy.tl nil_not_allowed 3
 
@@ -1271,7 +1261,7 @@ cosmic/sqlite.tl nil_not_allowed 6
 
 cosmic/store.tl nil_not_allowed 14
 
-cosmic/store_handles_test.tl nil_not_allowed 5
+cosmic/store_handles_test.tl nil_not_allowed 4
 
 cosmic/store_seal_test.tl nil_not_allowed 18
 
@@ -1297,7 +1287,7 @@ cosmic/template/lex.tl nil_not_allowed 6
 
 cosmic/template/markup.tl nil_not_allowed 10
 
-cosmic/template/parse.tl nil_not_allowed 60
+cosmic/template/parse.tl nil_not_allowed 57
 
 cosmic/template_build_test.tl nil_not_allowed 3
 
@@ -1313,13 +1303,13 @@ cosmic/template_html5lib_tree_test.tl nil_not_allowed 12
 
 cosmic/template_test.tl nil_not_allowed 74
 
-cosmic/test.tl nil_not_allowed 2
+cosmic/test.tl nil_not_allowed 1
 
 cosmic/test_policy_test.tl nil_not_allowed 11
 
 cosmic/test_test.tl nil_not_allowed 1
 
-cosmic/time.tl nil_not_allowed 78
+cosmic/time.tl nil_not_allowed 77
 
 cosmic/time_duration_fuzz_test.tl nil_not_allowed 1
 
@@ -1333,23 +1323,21 @@ cosmic/time_zone_test.tl nil_not_allowed 2
 
 cosmic/url.tl nil_not_allowed 15
 
-cosmic/url_fuzz_test.tl nil_not_allowed 26
+cosmic/url_fuzz_test.tl nil_not_allowed 9
 
 cosmic/url_test.tl nil_not_allowed 2
 
 cosmic/web/app.tl nil_not_allowed 2
 
-cosmic/web/app_test.tl nil_not_allowed 14
+cosmic/web/app_test.tl nil_not_allowed 10
 
 cosmic/web/assets.tl nil_not_allowed 5
-
-cosmic/web/assets_test.tl nil_not_allowed 1
 
 cosmic/web/cookies.tl nil_not_allowed 8
 
 cosmic/web/cookies_fuzz_test.tl nil_not_allowed 5
 
-cosmic/web/cookies_test.tl nil_not_allowed 2
+cosmic/web/cookies_test.tl nil_not_allowed 1
 
 cosmic/web/cors.tl nil_not_allowed 1
 
@@ -1377,9 +1365,9 @@ cosmic/web/input_fuzz_test.tl nil_not_allowed 7
 
 cosmic/web/input_multipart_fuzz_test.tl nil_not_allowed 3
 
-cosmic/web/input_multipart_test.tl nil_not_allowed 31
+cosmic/web/input_multipart_test.tl nil_not_allowed 25
 
-cosmic/web/input_test.tl nil_not_allowed 31
+cosmic/web/input_test.tl nil_not_allowed 24
 
 cosmic/web/middleware.tl nil_not_allowed 2
 
@@ -1401,7 +1389,7 @@ cosmic/web/router_test.tl nil_not_allowed 1
 
 cosmic/web/secret.tl nil_not_allowed 4
 
-cosmic/web/serve_test.tl nil_not_allowed 4
+cosmic/web/serve_test.tl nil_not_allowed 1
 
 cosmic/web/session/cookie.tl nil_not_allowed 1
 
@@ -1413,7 +1401,7 @@ cosmic/web/session/session_test.tl nil_not_allowed 8
 
 cosmic/web/session/sqlite.tl nil_not_allowed 1
 
-cosmic/web/session/sqlite_test.tl nil_not_allowed 5
+cosmic/web/session/sqlite_test.tl nil_not_allowed 4
 
 cosmic/web/sse.tl nil_not_allowed 9
 
@@ -1453,7 +1441,7 @@ eval/result_test.tl nil_not_allowed 1
 
 eval/round.tl nil_not_allowed 15
 
-eval/round_test.tl nil_not_allowed 19
+eval/round_test.tl nil_not_allowed 17
 
 eval/solve.tl nil_not_allowed 5
 
@@ -1465,7 +1453,7 @@ lang/ast.tl nil_not_allowed 1
 
 lang/ast_dump.tl nil_not_allowed 5
 
-lang/check.tl nil_not_allowed 98
+lang/check.tl nil_not_allowed 69
 
 lang/check_class_test.tl nil_not_allowed 30
 
@@ -1475,41 +1463,41 @@ lang/check_flow_fuzz_test.tl nil_not_allowed 4
 
 lang/check_flow_test.tl nil_not_allowed 9
 
-lang/check_fuzz_test.tl nil_not_allowed 12
+lang/check_fuzz_test.tl nil_not_allowed 8
 
-lang/check_generics_test.tl nil_not_allowed 29
+lang/check_generics_test.tl nil_not_allowed 24
 
-lang/check_match_test.tl nil_not_allowed 6
+lang/check_match_test.tl nil_not_allowed 5
 
-lang/check_refused_test.tl nil_not_allowed 7
+lang/check_refused_test.tl nil_not_allowed 6
 
 lang/check_speed_test.tl nil_not_allowed 5
 
 lang/check_test.tl nil_not_allowed 26
 
-lang/codegen.tl nil_not_allowed 24
+lang/codegen.tl nil_not_allowed 23
 
-lang/codegen_fuzz_test.tl nil_not_allowed 15
+lang/codegen_fuzz_test.tl nil_not_allowed 12
 
-lang/codegen_test.tl nil_not_allowed 13
+lang/codegen_test.tl nil_not_allowed 7
 
 lang/declarations.tl nil_not_allowed 22
 
 lang/declarations_speed_test.tl nil_not_allowed 2
 
-lang/declarations_test.tl nil_not_allowed 46
+lang/declarations_test.tl nil_not_allowed 30
 
 lang/lexer.tl nil_not_allowed 17
 
 lang/lexer_cover.tl nil_not_allowed 3
 
-lang/lexer_test.tl nil_not_allowed 34
+lang/lexer_test.tl nil_not_allowed 15
 
 lang/literals.tl nil_not_allowed 3
 
 lang/literals_test.tl nil_not_allowed 8
 
-lang/parser.tl nil_not_allowed 62
+lang/parser.tl nil_not_allowed 57
 
 lang/parser_cover.tl nil_not_allowed 1
 
@@ -1521,7 +1509,7 @@ lang/parser_recovery_test.tl nil_not_allowed 57
 
 lang/parser_test.tl nil_not_allowed 19
 
-lang/relation.tl nil_not_allowed 10
+lang/relation.tl nil_not_allowed 6
 
 lang/relation_fuzz_test.tl nil_not_allowed 6
 
@@ -1533,27 +1521,27 @@ lang/relation_test.tl nil_not_allowed 16
 
 lang/scopes.tl nil_not_allowed 67
 
-lang/scopes_cover.tl nil_not_allowed 3
+lang/scopes_cover.tl nil_not_allowed 2
 
-lang/scopes_fuzz_test.tl nil_not_allowed 3
+lang/scopes_fuzz_test.tl nil_not_allowed 1
 
 lang/scopes_programs.tl nil_not_allowed 3
 
-lang/scopes_test.tl nil_not_allowed 24
+lang/scopes_test.tl nil_not_allowed 21
 
-lang/stdlib_test.tl nil_not_allowed 3
+lang/stdlib_test.tl nil_not_allowed 2
 
-lang/translate.tl nil_not_allowed 88
+lang/translate.tl nil_not_allowed 87
 
 lang/translate_fuzz_test.tl nil_not_allowed 5
 
-lang/translate_test.tl nil_not_allowed 26
+lang/translate_test.tl nil_not_allowed 23
 
 lang/truthy_test.tl nil_not_allowed 1
 
-lang/types.tl nil_not_allowed 29
+lang/types.tl nil_not_allowed 21
 
-lang/types_programs.tl nil_not_allowed 6
+lang/types_programs.tl nil_not_allowed 5
 
 lang/types_test.tl nil_not_allowed 28
 
@@ -1571,11 +1559,7 @@ test/sqlite_parameter_test.tl nil_not_allowed 27
 
 test/sqlite_result_test.tl nil_not_allowed 7
 
-test/sqlite_row_test.tl nil_not_allowed 37
-
-test/sqlite_rowid_test.tl nil_not_allowed 2
-
-test/sqlite_transaction_test.tl nil_not_allowed 1
+test/sqlite_row_test.tl nil_not_allowed 32
 
 # a value that may be nil because an assignment dropped what a test showed: the assignment is of a value that is itself
 # optional (`owner, why = find()` after `if owner == nil`), so it narrows nothing; the rewrite tests again after the assignment
@@ -1684,9 +1668,9 @@ core/syscalls_tool_test.tl missing_return 1
 # an index read used where its element is wanted: an index is no place, so a test of it narrows nothing; the rewrite
 # reads it into a local and tests that, or iterates with `ipairs`
 
-build/archive.tl index_may_be_nil 6
+build/archive.tl index_may_be_nil 3
 
-build/archive_test.tl index_may_be_nil 8
+build/archive_test.tl index_may_be_nil 7
 
 build/artifact.tl index_may_be_nil 3
 
@@ -1696,11 +1680,9 @@ build/artifact_test.tl index_may_be_nil 1
 
 build/c/init.tl index_may_be_nil 17
 
-build/c/rules.tl index_may_be_nil 33
+build/c/rules.tl index_may_be_nil 22
 
 build/c/rules_test.tl index_may_be_nil 1
-
-build/c/tree.tl index_may_be_nil 2
 
 build/c_functions.tl index_may_be_nil 3
 
@@ -1712,7 +1694,7 @@ build/check_draws.tl index_may_be_nil 2
 
 build/closure_store.tl index_may_be_nil 6
 
-build/codec.tl index_may_be_nil 2
+build/codec.tl index_may_be_nil 1
 
 build/codec_fuzz_test.tl index_may_be_nil 6
 
@@ -1724,7 +1706,7 @@ build/compile_test.tl index_may_be_nil 1
 
 build/confine_test.tl index_may_be_nil 1
 
-build/core_image_fuzz_test.tl index_may_be_nil 6
+build/core_image_fuzz_test.tl index_may_be_nil 5
 
 build/database_start_fixture.tl index_may_be_nil 3
 
@@ -1766,15 +1748,13 @@ build/embed.tl index_may_be_nil 2
 
 build/embed_tool_test.tl index_may_be_nil 2
 
-build/example_checks.tl index_may_be_nil 1
-
 build/fetch.tl index_may_be_nil 1
 
 build/fix/fix_test.tl index_may_be_nil 2
 
 build/fix/near.tl index_may_be_nil 2
 
-build/flow.tl index_may_be_nil 6
+build/flow.tl index_may_be_nil 5
 
 build/fuzz/init.tl index_may_be_nil 2
 
@@ -1792,7 +1772,7 @@ build/host_features_test.tl index_may_be_nil 1
 
 build/host_requires.tl index_may_be_nil 1
 
-build/host_requires_test.tl index_may_be_nil 5
+build/host_requires_test.tl index_may_be_nil 4
 
 build/identity.tl index_may_be_nil 4
 
@@ -1850,7 +1830,7 @@ build/sandbox_test.tl index_may_be_nil 3
 
 build/sealed_nests_worker_test.tl index_may_be_nil 1
 
-build/shared_compiles.tl index_may_be_nil 10
+build/shared_compiles.tl index_may_be_nil 9
 
 build/shared_compiles_tool_test.tl index_may_be_nil 4
 
@@ -1870,7 +1850,7 @@ build/symbols.tl index_may_be_nil 1
 
 build/syntax_analyzer_test.tl index_may_be_nil 1
 
-build/syntax_contracts.tl index_may_be_nil 20
+build/syntax_contracts.tl index_may_be_nil 17
 
 build/syntax_derivation.tl index_may_be_nil 2
 
@@ -1878,7 +1858,7 @@ build/syntax_link_text.tl index_may_be_nil 1
 
 build/syntax_links_test.tl index_may_be_nil 1
 
-build/syntax_match.tl index_may_be_nil 6
+build/syntax_match.tl index_may_be_nil 5
 
 build/syntax_match_test.tl index_may_be_nil 1
 
@@ -1934,7 +1914,7 @@ build/todos_git_test.tl index_may_be_nil 3
 
 build/todos_test.tl index_may_be_nil 2
 
-build/tree_checks.tl index_may_be_nil 13
+build/tree_checks.tl index_may_be_nil 11
 
 build/tree_program.tl index_may_be_nil 1
 
@@ -1970,7 +1950,7 @@ core/promises_test.tl index_may_be_nil 6
 
 core/sqlite_functions_fuzz_test.tl index_may_be_nil 5
 
-core/startup_test.tl index_may_be_nil 11
+core/startup_test.tl index_may_be_nil 5
 
 core/syscalls_relay_test.tl index_may_be_nil 8
 
@@ -2024,7 +2004,7 @@ cosmic/http/server_declared_types_test.tl index_may_be_nil 1
 
 cosmic/http/server_test.tl index_may_be_nil 3
 
-cosmic/http/wire.tl index_may_be_nil 5
+cosmic/http/wire.tl index_may_be_nil 3
 
 cosmic/http/wire_fuzz_test.tl index_may_be_nil 1
 
@@ -2033,8 +2013,6 @@ cosmic/http_store_test.tl index_may_be_nil 2
 cosmic/internal/connector.tl index_may_be_nil 5
 
 cosmic/internal/connector_test.tl index_may_be_nil 47
-
-cosmic/internal/relay_config.tl index_may_be_nil 4
 
 cosmic/internal/relay_server_test.tl index_may_be_nil 2
 
@@ -2136,7 +2114,7 @@ cosmic/web/csp.tl index_may_be_nil 1
 
 cosmic/web/dev.tl index_may_be_nil 1
 
-cosmic/web/dev_supervise_test.tl index_may_be_nil 2
+cosmic/web/dev_supervise_test.tl index_may_be_nil 1
 
 cosmic/web/headers.tl index_may_be_nil 3
 
@@ -2160,7 +2138,7 @@ cosmic/web/serve_test.tl index_may_be_nil 2
 
 cosmic/web/session/cookie.tl index_may_be_nil 1
 
-cosmic/web/session/session_test.tl index_may_be_nil 8
+cosmic/web/session/session_test.tl index_may_be_nil 6
 
 cosmic/web/sse.tl index_may_be_nil 1
 
@@ -2184,7 +2162,7 @@ lang/ast.tl index_may_be_nil 1
 
 lang/ast_dump.tl index_may_be_nil 3
 
-lang/check.tl index_may_be_nil 38
+lang/check.tl index_may_be_nil 36
 
 lang/check_flow_fuzz_test.tl index_may_be_nil 4
 
@@ -2214,7 +2192,7 @@ lang/parser_recovery_test.tl index_may_be_nil 2
 
 lang/parser_test.tl index_may_be_nil 9
 
-lang/relation.tl index_may_be_nil 3
+lang/relation.tl index_may_be_nil 2
 
 lang/relation_fuzz_test.tl index_may_be_nil 17
 
@@ -2236,9 +2214,9 @@ lang/scopes_programs.tl index_may_be_nil 4
 
 lang/scopes_test.tl index_may_be_nil 2
 
-lang/translate.tl index_may_be_nil 10
+lang/translate.tl index_may_be_nil 8
 
-lang/types.tl index_may_be_nil 7
+lang/types.tl index_may_be_nil 3
 
 lang/types_fuzz_test.tl index_may_be_nil 3
 
@@ -2247,8 +2225,6 @@ lang/types_programs.tl index_may_be_nil 16
 lang/types_test.tl index_may_be_nil 13
 
 test/sqlite_json_test.tl index_may_be_nil 1
-
-test/sqlite_row_test.tl index_may_be_nil 1
 
 # an index write through a collection that is a view: the translator writes `mut` on the parameters a function
 # changes and not yet on the locals, which are declared `{T}`
@@ -7475,8 +7451,6 @@ build/policy_rules.tl array_of_optional 1
 core/artifact_fd_test.tl array_of_optional 4
 
 core/artifact_fd_tool_test.tl array_of_optional 1
-
-core/startup_test.tl array_of_optional 2
 
 cosmic/child.tl array_of_optional 2
 
