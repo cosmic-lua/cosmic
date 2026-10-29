@@ -13,15 +13,32 @@ local record TypeViolations
   end
 
   --- The first row of `rows` that is a parameter declared under cosmic/, as a line naming it and the test, or "". A
-  --- parameter declared in a `*_fake.tl` file is skipped: the hook's own tests declare those on purpose, to be violated.
+  --- parameter of a listed fixture file met by the test that owns it is skipped: the hook's own tests declare
+  --- those on purpose, to be violated.
   library: function(rows: {Row}): string
+end
+
+--- The fixture files the hook's tests declare parameters in on purpose, by the module of the one test that owns each. A
+--- file not listed here, or a listed one met by another test, is not exempt.
+local FIXTURES <const>: {string: string} = {
+  ["cosmic/boundary_hook_fake.tl"] = "build.boundary_hook_test",
+  ["cosmic/type_violations_fake.tl"] = "build.type_violations_test",
+}
+
+--- Whether `met` is a parameter of a fixture, met by the test that owns the fixture.
+local function fixture(met: TypeViolations.Row): boolean
+  for file, owner in pairs(FIXTURES) do
+    if met.target:find("(" .. file .. ":", 1, true) ~= nil and met.test:sub(1, #owner + 1) == owner .. " " then
+      return true
+    end
+  end
+  return false
 end
 
 function TypeViolations.library(rows: {TypeViolations.Row}): string
   for _, met in ipairs(rows) do
     -- A parameter's target names where it is declared, in parentheses.
-    if met.kind == "parameter" and met.target:find("(cosmic/", 1, true) ~= nil and
-        met.target:find("_fake.tl:", 1, true) == nil then
+    if met.kind == "parameter" and met.target:find("(cosmic/", 1, true) ~= nil and not fixture(met) then
       return string.format("type violation: %s: %s declared %s, got %s (met by %s)", met.at, met.target, met.declared,
         met.actual, met.test)
     end

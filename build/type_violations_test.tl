@@ -38,7 +38,7 @@ local function test_a_violation_a_pcall_swallowed_is_still_a_row_the_run_fails_f
   for i = before + 1, #worker.violations() do
     local met = assert(worker.violations()[i])
     rows[#rows + 1] = { kind = met.kind, at = met.at, target = met.target, declared = met.declared,
-      actual = met.actual, test = "t" }
+      actual = met.actual, test = "build.type_violations_test test_f" }
   end
   assert(#rows == 1, tostring(#rows))
   -- The fixture's own file is skipped, so this suite's run does not fail for it; the same row at a real file is not.
@@ -46,4 +46,15 @@ local function test_a_violation_a_pcall_swallowed_is_still_a_row_the_run_fails_f
   local line = TypeViolations.library({ row("parameter", "parameter x of Fake.f (cosmic/type_violations_real.tl:2)") })
   assert(line:find("parameter x of Fake.f (cosmic/type_violations_real.tl:2) declared string, got table", 1, true) ~= nil,
     line)
+end
+
+local function test_only_the_listed_fixtures_of_their_own_test_are_exempt()
+  local function met(file: string, test: string): TypeViolations.Row
+    return { kind = "parameter", at = "cosmic/a_test.tl:3", target = "parameter x of Fake.f (" .. file .. ":2)",
+      declared = "integer", actual = "string", test = test }
+  end
+  assert(TypeViolations.library({ met("cosmic/boundary_hook_fake.tl", "build.boundary_hook_test test_f") }) == "")
+  assert(TypeViolations.library({ met("cosmic/x_fake.tl", "build.boundary_hook_test test_f") }) ~= "")
+  assert(TypeViolations.library({ met("cosmic/boundary_hook_fake.tl", "cosmic.fs_test test_f") }) ~= "")
+  assert(TypeViolations.library({ met("cosmic/boundary_hook_fake.tl", "build.boundary_hook_test_extra test_f") }) ~= "")
 end
