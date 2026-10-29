@@ -88,11 +88,11 @@ local record Archive
     --- archive records, so a body that expands far past its header's
     --- claim stops at the cap. 8 GiB by default; `math.maxinteger`
     --- lifts it. A negative or fractional limit raises.
-    max_bytes?: integer
+    mut max_bytes?: integer
     --- Fails once one file would hold more than this many bytes, counted
     --- as `max_bytes` is. 1 GiB by default; `math.maxinteger` lifts it.
     --- A negative or fractional limit raises.
-    max_entry_bytes?: integer
+    mut max_entry_bytes?: integer
     --- A directory whose real directories a symlink's target may also
     --- pass through, for entries unpacked apart from where they will
     --- be put: a staging directory that is later moved into this one.

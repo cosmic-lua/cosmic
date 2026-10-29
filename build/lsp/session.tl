@@ -50,27 +50,27 @@ local record session
   --- One editor's session: what it opened and what it was told.
   record State
     --- The workspace's root, which a `require` is answered below.
-    root: string
+    mut root: string
     --- "utf-16" or "utf-8": what a position's character counts.
-    encoding: string
-    initialized: boolean
-    shut_down: boolean
+    mut encoding: string
+    mut initialized: boolean
+    mut shut_down: boolean
     --- Set at `exit`: the exit status the session ends with.
-    exit: integer?
+    mut exit: integer?
     --- The open documents, by URI.
     documents: mut {string:check.Document}
     --- Where complaints go, without their newline.
     err: function(line: string)
-    checker: check.Checker
+    mut checker: check.Checker
     --- Whether the editor takes a registration of the files to watch.
-    watch: boolean
+    mut watch: boolean
     store: {Sqlite.Handle}?
-    docs: hover.Docs
+    mut docs: hover.Docs
     --- The dependents yet to be checked again.
     queue: dependents.Queue
     --- Whether the person was shown that the root is no project, or that
     --- the tool was not checked against the tree: one message a session.
-    told_outside: boolean
+    mut told_outside: boolean
   end
 end
 

@@ -80,7 +80,7 @@ local record docs
     --- The module each module binds each name to, by module and name,
     --- as [`symbol_index.add_bound`] reads them: nil until a type's
     --- reference asks, then cached as `use_counts` is.
-    bound?: {string: string}
+    mut bound?: {string: string}
   end
 
   --- One worked example, matched to a symbol by content rather than by
@@ -95,19 +95,19 @@ local record docs
 
   --- One row of `docs`, with where it came from.
   record Entry is alias_members.Declared
-    module: string
-    symbol: string
-    source_symbol: string
-    exported: boolean
+    mut module: string
+    mut symbol: string
+    mut source_symbol: string
+    mut exported: boolean
     kind: string
     signature: string
     text: string
     file: string
     line: integer
     --- How many places in shipped modules refer to it.
-    uses: integer
+    mut uses: integer
     --- How many links in their comments name it (`links`).
-    links: integer
+    mut links: integer
     --- How many worked examples match it -- see [`examples_for`]. A
     --- listing count, not the examples themselves: `render` fetches
     --- those separately, only for the one entry it is showing.

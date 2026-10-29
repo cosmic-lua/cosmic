@@ -129,7 +129,7 @@ local record Types
     --- True for an action, false for literal text.
     action: boolean
     --- The text of literal text, with trimmed whitespace gone.
-    text: string
+    mut text: string
     --- The words of an action, in order, without its braces.
     tokens: {Token}
     --- The line of the item's first byte (of an action, its `{{`).
@@ -169,12 +169,12 @@ local record Types
   --- then each stage applied to what came before.
   record Pipeline
     --- What the path starts from.
-    head: Head
+    mut head: Head
     --- The variable's name, without its `$`, when `head` is `variable`;
     --- else "".
-    name: string
+    mut name: string
     --- The field names after the head, none for the head itself.
-    path: {string}
+    mut path: {string}
     --- The stages, applied first to last.
     stages: {Stage}
   end
@@ -213,7 +213,7 @@ local record Types
     --- The line its action ends on.
     end_line: integer
     --- The line of a block's `{{end}}`.
-    close_line: integer
+    mut close_line: integer
     --- A text node's literal text.
     text: string
     --- An interpolation's value.
@@ -222,7 +222,7 @@ local record Types
     --- then its `else`, if any.
     branches: mut {Branch}
     --- Where an interpolation's value lands, once `context` has run.
-    ctx: Slot
+    mut ctx: Slot
   end
 
   --- The names that cannot follow a `.` in Lua (`global`, which Lua 5.5

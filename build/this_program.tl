@@ -17,7 +17,7 @@ local record this_program
   --- How to start this very program (`program`): the command line and
   --- the options to hand [`Child.run`] or [`Child.start`].
   record Program
-    argv: {string}
+    mut argv: {string}
     options: Child.Options
   end
 end

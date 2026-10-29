@@ -148,7 +148,7 @@ local record Pending
   port: integer
   -- What a refusal by the connector's lists says.
   refusal: string
-  given_up: boolean
+  mut given_up: boolean
   mut done: boolean
   mut socket?: raw_socket.Socket
   mut why?: string
