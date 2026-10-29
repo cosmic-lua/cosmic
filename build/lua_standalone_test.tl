@@ -66,40 +66,13 @@ local function test_a_standalone_file_runs_on_what_it_loads(tmp: string)
   assert(not ok and err:find("the project has no module `cosmic.zip`", 1, true) ~= nil, out .. err)
 end
 
---- A file runs standalone having loaded nothing of the tree beyond
---- `lua_loads`, `standalone_loads` and what the test module's closure
---- holds: every one of them its artifact carries. One added to that
---- way fails here first.
-local function test_a_standalone_file_runs_on_what_standalone_loads(tmp: string)
-  local file = tmp .. "/loaded.tl"
-  assert(Fs.write(file, "local t: mut {string} = {}\n" ..
-      "for name in pairs(package.loaded) do t[#t + 1] = tostring(name) end\n" ..
-      "table.sort(t, function(a: string, b: string): boolean return a < b end)\nprint(table.concat(t, ' '))\n"))
-  local ok, out, err = run({ "--standalone", file })
-  assert(ok, err)
-  local allowed: mut {string:boolean} = { ["cosmic.sys"] = true }
-  for _, name in ipairs(test_inputs.lua_loads) do allowed[name] = true end
-  for _, name in ipairs(test_inputs.standalone_loads) do allowed[name] = true end
-  for name in pairs(package.loaded) do
-    if name is string then allowed[name] = true end
-  end
-  local seen = 0
-  for name in out:gmatch("%S+") do
-    if name:find("^build%.") or name:find("^cosmic%.") or name:find("^cmd%.") then
-      seen = seen + 1
-      assert(allowed[name], name .. " is loaded by --standalone but not in " ..
-          "standalone_loads: " .. out)
-    end
-  end
-  assert(seen > 0, out)
-end
-
 --- Every name in `standalone_loads` is loaded in this worker, which loads
 --- its harness and this module's closure. It is a smoke check only: the
 --- harness already loads some of them, so it cannot show that
 --- build.standalone's own requires reach each one. That is held by
---- [`test_a_standalone_file_runs_on_what_standalone_loads`], whose child may
---- load only the closure, `lua_loads` and `standalone_loads`.
+--- [`test_a_standalone_file_runs_on_what_it_loads`], in a sandboxed worker, whose child can load only the sealed
+--- database: the closure, `lua_loads` and `standalone_loads`. (A file cannot list what it loaded: it may not read
+--- `package`.)
 local function test_standalone_loads_are_loaded_in_this_worker()
   for _, name in ipairs(test_inputs.standalone_loads) do
     assert(package.loaded[name] ~= nil, name .. " is in standalone_loads but " ..

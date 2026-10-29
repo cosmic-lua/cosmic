@@ -196,8 +196,7 @@ end
 -- once a requirement can bind less than a whole module: inferred now, it
 -- would make n/a off Linux every test of modules that run there today
 -- (child_tool_test, syscalls_tool_test, declared_key_test and
--- declared_unenforced_test of ci/darwin-tests.txt, must_confine_test's
--- refusal checks). Split such modules first.
+-- declared_unenforced_test of ci/darwin-tests.txt). Split such modules first.
 
 --- Whether `path` is /proc or beneath it, which a grant may name as a
 --- directory.

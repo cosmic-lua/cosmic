@@ -12,12 +12,12 @@ local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
 local build_paths = require("build.paths")
 local Proc = require("cosmic.proc")
--- The child loads these from the store; cosmic.csv is the one it loads
--- only after it is restricted.
-local _csv = require("cosmic.csv")
-local _sandbox = require("cosmic.sandbox")
+-- The child loads these from the store; cosmic.csv, which only the child below requires, in its body and after the
+-- restriction, is in the closure all the same.
+local Sandbox = require("cosmic.sandbox")
 local _sqlite = require("cosmic.sqlite")
 local _store = require("cosmic.store")
+local test_child = require("build.test_child")
 local Test = require("cosmic.test")
 local sys = require("cosmic.sys")
 local this_program = require("build.this_program")
@@ -111,16 +111,28 @@ say("other", reads(%q))
   assert(said.lines.other == "denied: " .. DENIED, said.raw)
 end
 
-local function test_the_store_loads_a_module_after_the_restriction()
+--- The child of the test below: restricted, it loads a module from the store, which it had not loaded before. A module of
+--- this one's closure that nothing at its top level requires, so that the check that it is not loaded yet cannot pass
+--- vacuously.
+test_child.register("store after restriction", function(_args: {string}): integer
+  print("before=" .. tostring(package.loaded["cosmic.csv"] == nil))
+  local restricted, why = Sandbox.restrict({})
+  print("restrict=" .. tostring(restricted) .. " " .. why)
+  local Csv = require("cosmic.csv")
+  local rows = assert(Csv.parse("a,b"))
+  print("loaded=true " .. assert(assert(rows[1])[2]))
+  return 0
+end)
+
+local function test_the_store_loads_a_module_after_the_restriction(tmp: string)
   macos_only()
-  local said = in_child([[
-say("before", package.loaded["cosmic.csv"] == nil)
-say("restrict", Sandbox.restrict({}))
-local Csv = require("cosmic.csv")
-say("loaded", true, assert(assert(Csv.parse("a,b"))[1])[2])
-]])
-  assert(said.lines.before == "true" and said.lines.restrict == "true ", said.raw)
-  assert(said.lines.loaded == "true b", said.raw)
+  local started = this_program.program(test_child.words(tmp, "cosmic.sandbox_restrict_seatbelt_test", "store after restriction"), {
+    env = this_program.environment(), stdout = "capture", stderr = "stdout", timeout_ns = Clock.seconds(60) })
+  local result = assert(Child.run(started.argv, started.options))
+  local out = result.stdout or ""
+  assert(result.code == 0, out)
+  assert(out:find("before=true\n", 1, true) ~= nil and out:find("restrict=true \n", 1, true) ~= nil, out)
+  assert(out:find("loaded=true b\n", 1, true) ~= nil, out)
 end
 
 local function test_a_second_restriction_is_refused()
