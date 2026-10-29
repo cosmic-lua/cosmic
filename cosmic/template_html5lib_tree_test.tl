@@ -24,6 +24,7 @@
 ---   attribute's elsewhere, and none for code (`on...`, `style`).
 ---
 --- A refusal is never wrong, so it is never checked.
+local Cell = require("cosmic.cell")
 local Fs = require("cosmic.fs")
 local Template = require("cosmic.template")
 local Test = require("cosmic.test")
@@ -358,8 +359,8 @@ local function check_case(file: string, case: Case, reach: Reach)
       named[value] = (named[value] == nil or named[value] == name) and name or false
     end
   end
-  local closer = { value = nil as string? }
-  local tried = { value = false }
+  local closer: Cell<string?> = { value = nil }
+  local tried: Cell<boolean> = { value = false }
   local function closed(): string?
     if not tried.value then
       tried.value = true

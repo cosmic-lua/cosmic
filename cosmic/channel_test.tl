@@ -1,3 +1,4 @@
+local Cell = require("cosmic.cell")
 local Channel = require("cosmic.channel")
 local Clock = require("cosmic.clock")
 local Poll = require("cosmic.poll")
@@ -203,8 +204,8 @@ end
 local function test_a_receiver_that_loses_its_item_still_times_out_on_time()
   Poll.run(function()
     local queue: Channel.Queue<integer> = Channel.new()
-    local took = { value = 0 }
-    local why = { value = "" }
+    local took: Cell<integer> = { value = 0 }
+    local why: Cell<string> = { value = "" }
     local receiver = Poll.spawn(function()
       local start = Clock.monotonic_ns()
       local item, reason = queue:receive(Clock.ms(100))
@@ -219,7 +220,7 @@ local function test_a_receiver_that_loses_its_item_still_times_out_on_time()
     assert(receiver:join())
     assert(why.value == Poll.TIMEOUT)
     -- A wait that began again with the whole timeout would end near 130 ms.
-    assert(took.value >= Clock.ms(95) and took.value < Clock.ms(120), "took " .. took.value)
+    assert(took.value >= Clock.ms(95) and took.value < Clock.ms(120), "took " .. tostring(took.value))
   end)
 end
 
@@ -227,8 +228,8 @@ local function test_a_sender_that_loses_its_room_still_times_out_on_time()
   Poll.run(function()
     local queue: Channel.Queue<integer> = Channel.new({ capacity = 1 })
     assert(queue:send(0))
-    local took = { value = 0 }
-    local why = { value = "" }
+    local took: Cell<integer> = { value = 0 }
+    local why: Cell<string> = { value = "" }
     local sender = Poll.spawn(function()
       local start = Clock.monotonic_ns()
       local ok, reason = queue:send(1, Clock.ms(100))
@@ -242,7 +243,7 @@ local function test_a_sender_that_loses_its_room_still_times_out_on_time()
     assert(queue:try_send(2))
     assert(sender:join())
     assert(why.value == Poll.TIMEOUT)
-    assert(took.value >= Clock.ms(95) and took.value < Clock.ms(120), "took " .. took.value)
+    assert(took.value >= Clock.ms(95) and took.value < Clock.ms(120), "took " .. tostring(took.value))
     assert(queue:len() == 1 and queue:receive() == 2)
   end)
 end
@@ -407,7 +408,7 @@ local function test_one_consumer_sees_each_producers_items_in_order()
 end
 
 local function test_a_queue_of_another_run_is_refused_when_it_waits()
-  local stale = { value = nil as Channel.Queue<integer>? }
+  local stale: Cell<Channel.Queue<integer>?> = { value = nil }
   Poll.run(function() stale.value = Channel.new() end)
   local other = assert(stale.value)
   Poll.run(function()

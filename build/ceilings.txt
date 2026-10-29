@@ -3348,17 +3348,7 @@ core/startup_test.tl map_field 2
 
 core/surface_test.tl map_field 2
 
-cosmic/archive_fuzz_test.tl map_field 8
-
-cosmic/archive_test.tl map_field 19
-
-cosmic/channel_test.tl map_field 14
-
 cosmic/child.tl map_field 12
-
-cosmic/child_drain_test.tl map_field 20
-
-cosmic/child_lua_test.tl map_field 3
 
 cosmic/child_policy_database_sandboxed_test.tl map_field 32
 
@@ -3366,21 +3356,15 @@ cosmic/child_policy_database_test.tl map_field 11
 
 cosmic/child_policy_nest_calls_test.tl map_field 9
 
-cosmic/child_relay_seatbelt_test.tl map_field 29
+cosmic/child_relay_seatbelt_test.tl map_field 27
 
-cosmic/child_relay_test.tl map_field 60
+cosmic/child_relay_test.tl map_field 36
 
 cosmic/child_seatbelt_database_test.tl map_field 18
 
-cosmic/child_seatbelt_terminal_test.tl map_field 3
-
-cosmic/child_stream_failure_test.tl map_field 21
-
-cosmic/child_task_tool_test.tl map_field 86
+cosmic/child_task_tool_test.tl map_field 8
 
 cosmic/child_terminal_test.tl map_field 2
-
-cosmic/compress_test.tl map_field 2
 
 cosmic/csv_fuzz_test.tl map_field 1
 
@@ -3388,13 +3372,7 @@ cosmic/csv_test.tl map_field 25
 
 cosmic/flags.tl map_field 1
 
-cosmic/fs_append_test.tl map_field 21
-
 cosmic/fs_append_tool_test.tl map_field 2
-
-cosmic/fs_test.tl map_field 16
-
-cosmic/hash_test.tl map_field 4
 
 cosmic/html_test.tl map_field 3
 
@@ -3408,7 +3386,7 @@ cosmic/http/server_test.tl map_field 46
 
 cosmic/http/server_tool_test.tl map_field 5
 
-cosmic/http_test.tl map_field 19
+cosmic/http_test.tl map_field 1
 
 cosmic/internal/connector.tl map_field 2
 
@@ -3434,23 +3412,11 @@ cosmic/internal/relay_wire_test.tl map_field 11
 
 cosmic/json_path_test.tl map_field 2
 
-cosmic/json_reader_test.tl map_field 3
-
 cosmic/json_test.tl map_field 4
 
 cosmic/net.tl map_field 1
 
-cosmic/net_connector_test.tl map_field 13
-
-cosmic/net_resolve_through_test.tl map_field 35
-
-cosmic/net_serve_test.tl map_field 127
-
-cosmic/net_tcp_test.tl map_field 29
-
-cosmic/net_test.tl map_field 21
-
-cosmic/net_tool_test.tl map_field 3
+cosmic/net_tcp_test.tl map_field 15
 
 cosmic/policy.tl map_field 6
 
@@ -3458,15 +3424,13 @@ cosmic/policy_fuzz_test.tl map_field 12
 
 cosmic/policy_test.tl map_field 4
 
-cosmic/poll_test.tl map_field 139
+cosmic/poll_test.tl map_field 5
 
 cosmic/proc_find_tool_test.tl map_field 1
 
 cosmic/proc_tool_test.tl map_field 1
 
 cosmic/project.tl map_field 1
-
-cosmic/rand_test.tl map_field 5
 
 cosmic/removed_test.tl map_field 2
 
@@ -3482,19 +3446,13 @@ cosmic/sandbox_restrict_test.tl map_field 63
 
 cosmic/sandbox_test.tl map_field 3
 
-cosmic/seatbelt_network_probe_test.tl map_field 5
+cosmic/seatbelt_network_probe_test.tl map_field 2
 
 cosmic/shape_test.tl map_field 10
 
 cosmic/signal_ignored_test.tl map_field 2
 
-cosmic/store_handles_test.tl map_field 7
-
-cosmic/store_seal_test.tl map_field 5
-
-cosmic/stream_fd_test.tl map_field 18
-
-cosmic/stream_test.tl map_field 46
+cosmic/store_seal_test.tl map_field 3
 
 cosmic/tar_test.tl map_field 6
 
@@ -3506,17 +3464,13 @@ cosmic/template_build_test.tl map_field 4
 
 cosmic/template_check_test.tl map_field 5
 
-cosmic/template_fuzz_test.tl map_field 29
+cosmic/template_fuzz_test.tl map_field 6
 
 cosmic/template_go_test.tl map_field 2
-
-cosmic/template_html5lib_tree_test.tl map_field 5
 
 cosmic/test.tl map_field 15
 
 cosmic/test_test.tl map_field 3
-
-cosmic/time_tzif_fuzz_test.tl map_field 3
 
 cosmic/web/app_test.tl map_field 9
 
@@ -3580,7 +3534,7 @@ cosmic/web/typed_test.tl map_field 25
 
 cosmic/zip_fuzz_test.tl map_field 9
 
-cosmic/zip_test.tl map_field 18
+cosmic/zip_test.tl map_field 1
 
 eval/check/grade.tl map_field 16
 
@@ -4439,11 +4393,9 @@ cosmic/archive_fuzz_test.tl cast_refused 3
 
 cosmic/archive_test.tl cast_refused 4
 
-cosmic/channel_test.tl cast_refused 9
+cosmic/channel_test.tl cast_refused 8
 
 cosmic/child.tl cast_refused 1
-
-cosmic/child_drain_test.tl cast_refused 5
 
 cosmic/child_lua_test.tl cast_refused 9
 
@@ -4451,17 +4403,13 @@ cosmic/child_policy_anywhere_test.tl cast_refused 6
 
 cosmic/child_policy_isolate_test.tl cast_refused 2
 
-cosmic/child_relay_seatbelt_test.tl cast_refused 3
-
-cosmic/child_relay_test.tl cast_refused 14
+cosmic/child_relay_seatbelt_test.tl cast_refused 2
 
 cosmic/child_sandbox_tool_test.tl cast_refused 1
 
 cosmic/child_seatbelt_test.tl cast_refused 4
 
-cosmic/child_stream_failure_test.tl cast_refused 1
-
-cosmic/child_task_tool_test.tl cast_refused 30
+cosmic/child_task_tool_test.tl cast_refused 8
 
 cosmic/child_terminal_test.tl cast_refused 2
 
@@ -4471,7 +4419,7 @@ cosmic/clock_test.tl cast_refused 3
 
 cosmic/compress.tl cast_refused 1
 
-cosmic/compress_test.tl cast_refused 16
+cosmic/compress_test.tl cast_refused 15
 
 cosmic/coverage.tl cast_refused 1
 
@@ -4485,7 +4433,7 @@ cosmic/fs_test.tl cast_refused 2
 
 cosmic/hash.tl cast_refused 1
 
-cosmic/hash_test.tl cast_refused 17
+cosmic/hash_test.tl cast_refused 15
 
 cosmic/html.tl cast_refused 2
 
@@ -4553,23 +4501,23 @@ cosmic/json_test.tl cast_refused 66
 
 cosmic/net.tl cast_refused 1
 
-cosmic/net_connector_test.tl cast_refused 13
+cosmic/net_connector_test.tl cast_refused 11
 
 cosmic/net_resolve_test.tl cast_refused 5
 
-cosmic/net_resolve_through_test.tl cast_refused 15
+cosmic/net_resolve_through_test.tl cast_refused 5
 
-cosmic/net_serve_test.tl cast_refused 19
+cosmic/net_serve_test.tl cast_refused 7
 
-cosmic/net_tcp_test.tl cast_refused 7
+cosmic/net_tcp_test.tl cast_refused 6
 
-cosmic/net_test.tl cast_refused 6
+cosmic/net_test.tl cast_refused 5
 
 cosmic/policy_test.tl cast_refused 2
 
 cosmic/poll_example.tl cast_refused 1
 
-cosmic/poll_test.tl cast_refused 30
+cosmic/poll_test.tl cast_refused 19
 
 cosmic/proc.tl cast_refused 1
 
@@ -4609,8 +4557,6 @@ cosmic/store.tl cast_refused 1
 
 cosmic/store_seal_test.tl cast_refused 3
 
-cosmic/stream_fd_test.tl cast_refused 2
-
 cosmic/stream_test.tl cast_refused 12
 
 cosmic/tar.tl cast_refused 1
@@ -4627,7 +4573,7 @@ cosmic/template_fuzz_test.tl cast_refused 12
 
 cosmic/template_html5lib_tokenizer_test.tl cast_refused 13
 
-cosmic/template_html5lib_tree_test.tl cast_refused 4
+cosmic/template_html5lib_tree_test.tl cast_refused 3
 
 cosmic/template_test.tl cast_refused 1
 
@@ -4642,8 +4588,6 @@ cosmic/time_duration_fuzz_test.tl cast_refused 1
 cosmic/time_fuzz_test.tl cast_refused 1
 
 cosmic/time_test.tl cast_refused 8
-
-cosmic/time_tzif_fuzz_test.tl cast_refused 1
 
 cosmic/time_zone_test.tl cast_refused 7
 
@@ -5260,8 +5204,6 @@ cosmic/child_policy_root_user_test.tl condition_type 2
 cosmic/child_seatbelt_terminal_test.tl condition_type 2
 
 cosmic/child_seatbelt_test.tl condition_type 2
-
-cosmic/child_task_tool_test.tl condition_type 5
 
 cosmic/csv.tl condition_type 1
 
@@ -7337,8 +7279,6 @@ cosmic/child_drain_test.tl arms_differ 4
 
 cosmic/child_policy_anywhere_test.tl arms_differ 1
 
-cosmic/child_relay_seatbelt_test.tl arms_differ 1
-
 cosmic/child_test.tl arms_differ 1
 
 cosmic/compress_test.tl arms_differ 1
@@ -7896,7 +7836,7 @@ lang/types_speed_test.tl alternatives_as_value 1
 
 # a call of a generic function whose type parameter nothing at the call fixes: `Shape.record_of("Row")` and `Channel.new()` with no
 # type expected, and an inner call that is the argument of another generic (`must(Shape.into(v, SPEC))`); the rewrite types the result
-cosmic/channel_test.tl cannot_infer 5
+cosmic/channel_test.tl cannot_infer 4
 
 cosmic/shape_fuzz_test.tl cannot_infer 6
 

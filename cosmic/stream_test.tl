@@ -1,6 +1,7 @@
 --- Proves the Reader/Writer constructors read and write exactly what
 --- they are given, in bounded chunks, and that failures propagate.
 
+local Cell = require("cosmic.cell")
 local Clock = require("cosmic.clock")
 local Compress = require("cosmic.compress")
 local Fs = require("cosmic.fs")
@@ -217,7 +218,7 @@ local function test_transform_applies_a_fake_codec_across_chunk_boundaries()
   -- A fake codec that upper-cases everything it sees, splitting its
   -- own output oddly to prove the transform Reader does not assume
   -- one chunk in yields one chunk out.
-  local pending = { value = "" }
+  local pending: Cell<string> = { value = "" }
   local codec: Fake = {
     pending = function(_self: Fake): boolean return false end,
     update = function(_self: Fake, chunk: string): string?, string
@@ -242,7 +243,7 @@ local function test_transform_applies_a_fake_codec_across_chunk_boundaries()
 end
 
 local function test_transform_writer_flushes_the_codec_on_close()
-  local held = { value = "" }
+  local held: Cell<string> = { value = "" }
   local codec: Fake = {
     pending = function(_self: Fake): boolean return false end,
     update = function(_self: Fake, chunk: string): string?, string
@@ -273,8 +274,8 @@ local function test_transform_writer_drains_a_decoder_in_bounded_writes()
   -- drained `pending()` would hand all 16 MiB to `finish` at close.
   local plain_size = 16 * 1024 * 1024
   local packed = assert(Compress.deflate("zlib", string.rep("\0", plain_size)))
-  local total = { value = 0 }
-  local largest = { value = 0 }
+  local total: Cell<integer> = { value = 0 }
+  local largest: Cell<integer> = { value = 0 }
   local sink: Stream.Writer = {
     write = function(_s: Stream.Writer, d: string): boolean, string
       total.value = total.value + #d
@@ -297,7 +298,7 @@ local function test_transform_serves_small_reads_from_one_large_batch()
   -- batch on every read (`pending = pending:sub(want + 1)`) would be
   -- quadratic for small reads; reads of any size must still see the
   -- batch intact and in order.
-  local given = { value = false }
+  local given: Cell<boolean> = { value = false }
   local codec: Fake = {
     pending = function(_self: Fake): boolean return false end,
     update = function(_self: Fake, chunk: string): string?, string
@@ -517,7 +518,7 @@ local function test_transform_drains_a_pending_codec_before_feeding_it_more()
   -- A codec that expands each input byte to ten and hands back at most
   -- four bytes per call, like a bounded decoder: it must be asked for
   -- the rest with update("") before it is given new input.
-  local held = { value = "" }
+  local held: Cell<string> = { value = "" }
   local codec: Fake = {
     update = function(_self: Fake, chunk: string): string?, string
       assert(chunk == "" or held.value == "", "fed new input while output was pending")
@@ -734,7 +735,7 @@ end
 
 local function test_transform_writer_hold_reports_a_drain_that_fails_mid_write()
   -- The second call of one write, the drain, refuses.
-  local calls = { value = 0 }
+  local calls: Cell<integer> = { value = 0 }
   local t: Stream.Transform = {}
   t.update = function(_self: Stream.Transform, _chunk: string): string?, string
     calls.value = calls.value + 1
@@ -997,7 +998,7 @@ end
 --- Reader no more.
 local function test_rest_after_the_last_line_reads_nothing_more()
   local inner = Stream.from_string("a\nb")
-  local ended = { value = false }
+  local ended: Cell<boolean> = { value = false }
   local r: Stream.Reader = {}
   r.read = function(_self: Stream.Reader, max_bytes?: integer): string?, string
     assert(not ended.value, "read past the end")
@@ -1032,7 +1033,7 @@ end
 --- start with the lines, and `rest` gives it back before the rest.
 local function test_rest_after_a_raise_keeps_the_start_of_a_line()
   local answers: {string | boolean} = { "a\npar", false, "tial\nbody" }
-  local next_answer = { value = 0 }
+  local next_answer: Cell<integer> = { value = 0 }
   local r: Stream.Reader = {}
   r.read = function(_self: Stream.Reader, _max_bytes?: integer): string?, string
     next_answer.value = next_answer.value + 1
@@ -1052,7 +1053,7 @@ end
 --- rather than take bytes the Reader gave away; closing the Reader it
 --- gave closes the lines' Reader, once.
 local function test_rest_ends_the_lines_and_closes_the_reader()
-  local closes = { value = 0 }
+  local closes: Cell<integer> = { value = 0 }
   local inner = Stream.from_string("a\nb\n")
   local r: Stream.Reader = {}
   r.read = function(_self: Stream.Reader, max_bytes?: integer): string?, string
@@ -1115,7 +1116,7 @@ end
 --- A Reader that gives `chunks` one `read` at a time, whatever `max_bytes`
 --- asks, then fails with `failure` (an end of file when it is "").
 local function chunked(chunks: {string}, failure: string): Stream.Reader
-  local at = { value = 0 }
+  local at: Cell<integer> = { value = 0 }
   local r: Stream.Reader = {}
   r.read = function(_self: Stream.Reader, _max_bytes?: integer): string?, string
     at.value = at.value + 1

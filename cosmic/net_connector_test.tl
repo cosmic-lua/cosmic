@@ -1,6 +1,7 @@
 --- [`Net.listener_from`] and [`Net.connector`]: a listening socket
 --- another process or an earlier call made, taken as a listener, and the
 --- confined native connector (core/connector.c) as a connection maker.
+local Cell = require("cosmic.cell")
 local Clock = require("cosmic.clock")
 local Connector = require("cosmic.internal.connector")
 local Net = require("cosmic.net")
@@ -286,7 +287,7 @@ local function test_a_table_connector_serves_tasks_at_once()
     local listener, task = echo_server()
     local port = assert(listener.address.port)
     local connector = assert(Net.connector({ { host = "127.0.0.1", port = port } }))
-    local done = { value = 0 }
+    local done: Cell<integer> = { value = 0 }
     local tasks: mut {Poll.Task} = {}
     for n = 1, 4 do
       tasks[n] = Poll.spawn(function()
@@ -453,7 +454,7 @@ local function test_a_hung_connect_holds_up_no_other()
     local connector = assert(Net.connector({
       { host = "127.0.0.1", port = port }, { host = "127.0.0.1", port = echo },
     }, { timeout_ns = Clock.seconds(30) }))
-    local hung = { value = nil as string? }
+    local hung: Cell<string?> = { value = nil }
     local started = Clock.monotonic_ns()
     local hanging = Poll.spawn(function()
       local _, why = dial(connector, "127.0.0.1", port, Clock.ms(800))
@@ -533,7 +534,7 @@ end
 --- Makes `count` connections at once with `connect`, each within 500 ms:
 --- how many were made, closed again.
 local function made_at_once(count: integer, connect: function(): Net.Conn?, string): integer
-  local made = { value = 0 }
+  local made: Cell<integer> = { value = 0 }
   local tasks: mut {Poll.Task} = {}
   for i = 1, count do
     tasks[i] = Poll.spawn(function()
@@ -620,7 +621,7 @@ local function test_closing_a_connector_wakes_a_request_in_flight()
     local port, held = hung_port()
     local connector = assert(Net.connector({ { host = "127.0.0.1", port = port } },
       { timeout_ns = Clock.seconds(30) }))
-    local answer = { value = nil as string? }
+    local answer: Cell<string?> = { value = nil }
     local started = Clock.monotonic_ns()
     local waiting = Poll.spawn(function()
       local _, why = dial(connector, "127.0.0.1", port, Clock.seconds(20))

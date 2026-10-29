@@ -2,6 +2,7 @@
 --- test vectors, in Teal and in SQL alike, and that an algorithm
 --- nobody has heard of is refused rather than answered.
 
+local Cell = require("cosmic.cell")
 local Codec = require("cosmic.codec")
 local Hash = require("cosmic.hash")
 local Sqlite = require("cosmic.sqlite")
@@ -231,7 +232,7 @@ local function test_a_closed_incremental_hmac_is_finished()
 end
 
 local function test_an_incremental_hmac_revived_by_a_finalizer_is_finished()
-  local saved = { value = nil as Hash.Hasher? }
+  local saved: Cell<Hash.Hasher?> = { value = nil }
   local holder: Holder = setmetatable({} as Holder, {
     __gc = function(self: Holder) saved.value = self.h end,
   } as metatable<Holder>)
@@ -382,7 +383,7 @@ local function test_hasher_and_digest_carry_an_empty_error()
 end
 
 local function test_a_hasher_revived_by_a_finalizer_is_finished()
-  local saved = { value = nil as Hash.Hasher? }
+  local saved: Cell<Hash.Hasher?> = { value = nil }
   local holder: Holder = setmetatable({} as Holder, {
     __gc = function(self: Holder) saved.value = self.h end,
   } as metatable<Holder>)
