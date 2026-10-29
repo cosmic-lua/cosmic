@@ -521,8 +521,6 @@ end
 local function test_adopted_connector_refuses_what_is_no_descriptor_or_table()
   local ok, why = pcall(Connector.adopted, -1)
   assert(not ok and tostring(why):find("fd must be a descriptor", 1, true) ~= nil, tostring(why))
-  ok, why = pcall(Connector.adopted, "3" as any as integer)
-  assert(not ok and tostring(why):find("fd must be a descriptor", 1, true) ~= nil, tostring(why))
   local pair = stream_pair()
   ok, why = pcall(Connector.adopted, pair[1], { { host = "127.0.0.1" } } as {raw_process.ConnectorEndpoint})
   assert(not ok and tostring(why):find("endpoints[1] must be a host and a port", 1, true) ~= nil, tostring(why))

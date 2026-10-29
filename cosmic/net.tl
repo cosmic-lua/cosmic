@@ -561,30 +561,24 @@ local resolved_through: function(name: string, opts: Net.ResolveOptions): {Net.R
 --- refuses, fail "Invalid argument". In a task of [`Poll.run`] the call
 --- waits through the run, so only that task waits for the answer, and a
 --- task cancelled in it ends the lookup and fails "cancelled"; anywhere
---- else it holds the thread until it answers. A `name` that is no string
---- or an option of the wrong shape raises.
+--- else it holds the thread until it answers. A `timeout_ns` out of range,
+--- an empty `servers` list or a server port outside 1 to 65535 raises.
 function Net.resolve(name: string, opts?: Net.ResolveOptions): {Net.Resolved}?, string
-  if not (name is string) then error("net: name must be a string", 2) end
   opts = opts or {}
-  if type(opts) ~= "table" then error("net: options must be a table", 2) end
   Poll.checked_ns(opts.timeout_ns, "net", "timeout_ns", 2)
   local hosts_file = opts.hosts_file
-  if hosts_file ~= nil and not (hosts_file is string) then
-    error("net: hosts_file must be a string", 2)
-  end
   local servers: string?
   local opts_servers = opts.servers
   if opts_servers ~= nil then
     local listed = opts_servers
-    if type(listed) ~= "table" or #listed == 0 then
+    if #listed == 0 then
       error("net: servers must be a list of endpoints", 2)
     end
     local parts: mut {string} = {}
     for _, endpoint in ipairs(listed) do
-      if type(endpoint) ~= "table" then error("net: a server must be an endpoint", 2) end
       local host, port = endpoint.host, endpoint.port
-      if not (host is string and port is integer and port >= 1 and port <= 65535) then
-        error("net: a server must be an endpoint with a string host and an integer port from 1 to 65535", 2)
+      if port < 1 or port > 65535 then
+        error("net: a server must be an endpoint with a port from 1 to 65535", 2)
       end
       -- Only a host that holds none of the list's own punctuation may
       -- reach it, so one server cannot name another; the resolver
@@ -841,17 +835,8 @@ resolved_through = function(name: string, opts: Net.ResolveOptions): {Net.Resolv
   return found, ""
 end
 
---- A copy of the public lists `public`, raising for one the process would
---- refuse to start with.
+--- A copy of the public lists `public`.
 local function checked_public(public: Net.PublicOptions): Leaf.Public
-  local refused <const> = "net: public must hold a deny list and optionally an own list"
-  if type(public) ~= "table" or type(public.deny) ~= "table" then
-    error(refused, 3)
-  end
-  local given_own = public.own
-  if given_own ~= nil and type(given_own) ~= "table" then
-    error(refused, 3)
-  end
   local deny: mut {string} = {}
   local own: mut {string} = {}
   for i, cidr in ipairs(public.deny) do deny[i] = cidr end
@@ -898,7 +883,7 @@ function Net.connector(endpoints: {Net.Endpoint}, opts?: Net.ConnectorOptions): 
   local public: Leaf.Public?
   local given_public = opts and opts.public
   if given_public ~= nil then public = checked_public(given_public) end
-  if public == nil and (type(endpoints) ~= "table" or #endpoints == 0) then
+  if public == nil and #endpoints == 0 then
     error("net: a connector needs endpoints, opts.public, or both", 2)
   end
   return Leaf.connector(Leaf.checked_endpoints(endpoints, public ~= nil, 2), timeout_ms, public)

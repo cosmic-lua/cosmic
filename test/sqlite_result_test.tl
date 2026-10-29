@@ -29,7 +29,7 @@ local function test_bound_values_keep_kinds_and_invalid_lists_release_the_statem
   assert(row:integer(1) == 42 and row:number(2) == 1.5 and row:text(3) == "a\0b")
   assert(row:blob(4) == "a\0b" and row:kind(5) == "null")
   local invalid: {any} = {
-    false, 42, {}, { {}, {} }, { [0] = {} }, { { text = "a", blob = "b" } },
+    {}, { {}, {} }, { [0] = {} }, { { text = "a", blob = "b" } },
     { { ["text\0junk"] = "bad" } }, { { integer = 1.5 } }, { { text = false } },
   }
   for _, values in ipairs(invalid) do

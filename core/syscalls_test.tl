@@ -14,6 +14,7 @@ local Fs = require("cosmic.fs")
 local Net = require("cosmic.net")
 local Address = require("cosmic.relay.address")
 local Sqlite = require("cosmic.sqlite")
+local _Vector = require("cosmic.vector") -- loaded so that the store hands its raw table to [`raw_behind`]
 local sys = require("cosmic.sys")
 local Test = require("cosmic.test")
 local unix_socket = require("build.unix_socket")
@@ -1795,4 +1796,20 @@ local function test_noexec_scratch_requires_a_boolean_and_unveiling()
     nil, nil, nil, false, nil, { noexec_scratch = true })
   assert(not ok and tostring(trouble):find("noexec_scratch requires unveil", 1, true),
     tostring(trouble))
+end
+
+--- The C functions behind typed wrappers refuse a value of the wrong kind themselves: the wrappers declare the kind, so
+--- a checked run fails a call that hands them one, and only the raw function is handed it here. `equal` compares a MAC
+--- or token, which a number must not convert into.
+local function test_the_c_functions_refuse_what_is_no_string_or_count()
+  raises(hash.equal, 123, "123")
+  raises(hash.equal, "123", 123)
+  raises(hash.equal, print, "1")
+  raises(hash.equal, "1", nil)
+  raises(process.user, 123)
+  raises(process.user, print)
+  local corpus = assert(load("local raw, dims = ... return raw.corpus(dims)", "=raw_corpus", "t"))
+  local vector = raw_behind("cosmic.vector")
+  raises(corpus, vector, 1.5)
+  raises(corpus, vector, nil)
 end

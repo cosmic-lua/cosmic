@@ -38,7 +38,7 @@ local function test_walk_visits_each_node_once_in_source_order()
   local ids: mut {integer} = {}
   Node.walk(chunk, function(node: Ast.Node)
     kinds[#kinds + 1] = node.kind
-    ids[#ids + 1] = Node.base(node).id
+    table.insert(ids, Node.base(node).id)
   end)
   assert(table.concat(kinds, " ") == "Chunk Block Local Binding Integer If Arm Name Block CallStat Call Name Name",
     table.concat(kinds, " "))

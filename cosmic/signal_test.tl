@@ -56,7 +56,7 @@ local function test_guard_wait_takes_a_signal_in_a_task()
     local function waiter(g: Signal.Guard, name: string): Poll.Task
       return Poll.spawn(function()
         local signal, why = g:wait(Clock.seconds(5))
-        got[#got + 1] = name .. "=" .. tostring(signal) .. why
+        table.insert(got, name .. "=" .. tostring(signal) .. why)
       end)
     end
     local a = waiter(outer, "outer")
@@ -66,7 +66,7 @@ local function test_guard_wait_takes_a_signal_in_a_task()
     assert(a:join())
     assert(b:join())
     local signal, why = inner:wait(Clock.ms(10))
-    got[#got + 1] = tostring(signal) .. " " .. why
+    table.insert(got, tostring(signal) .. " " .. why)
   end)
   table.sort(got)
   local term = tostring(sys.SIGTERM)
@@ -87,11 +87,11 @@ local function test_a_guard_s_wait_ends_when_it_closes_under_another()
   Poll.run(function()
     local on_inner = Poll.spawn(function()
       local signal, why = inner:wait(Clock.seconds(5))
-      got[#got + 1] = "inner=" .. tostring(signal) .. " " .. why
+      table.insert(got, "inner=" .. tostring(signal) .. " " .. why)
     end)
     local on_outer = Poll.spawn(function()
       local signal, why = outer:wait(Clock.ms(100))
-      got[#got + 1] = "outer=" .. tostring(signal) .. " " .. why
+      table.insert(got, "outer=" .. tostring(signal) .. " " .. why)
     end)
     assert(Poll.delay(Clock.ms(10)))
     assert(inner:close())

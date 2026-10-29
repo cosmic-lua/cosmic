@@ -584,8 +584,8 @@ end
 --- (`Proxy-Authenticate: Basic realm="cosmic sandbox"`). Raises on a status
 --- outside 400 through 599.
 function relay_wire.connect_refusal(status: integer, why: string): string
-  if math.type(status) ~= "integer" or status < 400 or status > 599 then
-    error("connect_refusal: status must be an integer from 400 to 599", 2)
+  if status < 400 or status > 599 then
+    error("connect_refusal: status must be from 400 to 599", 2)
   end
   local phrase = why:gsub("[^\32-\126]", "?"):sub(1, MAX_PHRASE):match("^ *(.-) *$")
   if phrase == "" then

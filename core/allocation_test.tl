@@ -582,7 +582,7 @@ local corpus_storages: {Vector.Storage} = { "f32", "f16", "int8" }
 --- storage.
 local function test_a_corpus_leaves_nothing_whenever_an_allocation_fails()
   local blobs: mut {string} = {}
-  for i = 1, 70 do blobs[#blobs + 1] = corpus_vector(i) end
+  for i = 1, 70 do table.insert(blobs, corpus_vector(i)) end
   local query = corpus_vector(3)
   local allowed: {integer} = { 1, 5, 9, 40, 66 }
   local too_big = Vector.pack({ 70000, 1, 1, 1 })
@@ -651,7 +651,7 @@ end
 --- Ranking the centroids a corpus made allocates only Lua's scratch.
 local function test_nearest_n_leaves_nothing_whenever_an_allocation_fails()
   local centroids: mut {string} = {}
-  for i = 1, 5 do centroids[#centroids + 1] = corpus_vector(i) end
+  for i = 1, 5 do table.insert(centroids, corpus_vector(i)) end
   local query = corpus_vector(2)
   collectgarbage("collect")
   local bytes, blocks = testing.c_heap()

@@ -262,11 +262,11 @@ local function ignorer(globs: {string}): function(rel: string, name: string): bo
   local anchored: mut {string} = {}
   for _, glob in ipairs(globs) do
     if glob:sub(1, 1) == "/" then
-      anchored[#anchored + 1] = pattern_of(glob)
+      table.insert(anchored, pattern_of(glob))
     elseif glob:find("/", 1, true) then
-      paths[#paths + 1] = pattern_of(glob)
+      table.insert(paths, pattern_of(glob))
     else
-      names[#names + 1] = pattern_of(glob)
+      table.insert(names, pattern_of(glob))
     end
   end
   return function(rel: string, name: string): boolean
@@ -377,7 +377,7 @@ local function look(self: Watch)
   self.last = now
   if before == nil then return end
   local paths = changed(before, now)
-  if #paths > 0 then self.queue[#self.queue + 1] = event_for(paths) end
+  if #paths > 0 then table.insert(self.queue, event_for(paths)) end
 end
 
 function Watch.next(self: Watch, timeout_ns?: integer): Sse.Event?, string

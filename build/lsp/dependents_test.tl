@@ -63,7 +63,7 @@ local function test_a_change_to_a_comment_or_a_space_checks_no_dependent()
   local function between(_after: integer) end
   local quiet = served_between(root, batches, between)
   assert(quiet.dependents == 0, tostring(quiet.dependents))
-  batches[#batches + 1] = { change(root, "helper.tl", text) }
+  table.insert(batches, { change(root, "helper.tl", text) })
   local typed = served_between(root, batches, between)
   assert(typed.dependents == 1, tostring(typed.dependents))
   local last = assert(publications(typed)[#publications(typed)])
@@ -87,7 +87,7 @@ local function test_a_request_is_answered_before_the_dependents_left()
   local names = { "a", "b", "c" }
   local root = helped(names)
   local messages = opened(root, names)
-  messages[#messages + 1] = change(root, "helper.tl", text)
+  table.insert(messages, change(root, "helper.tl", text))
   local held: Asked = { asked = false }
   local ran = session_fixture.served_arriving(root, messages, function(checked: integer): string?
     if checked < 1 or held.asked then return nil end

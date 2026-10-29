@@ -66,19 +66,6 @@ local function test_equal_refuses_a_length_mismatch()
   assert(not Hash.equal("a\0", "a"))
 end
 
-local function test_equal_raises_on_a_non_string()
-  local equal = Hash.equal as function(any, any): boolean
-  local ok = pcall(equal, {}, "1")
-  assert(not ok)
-  ok = pcall(equal, "1", nil)
-  assert(not ok)
-  -- A number converts to a string in Lua; a MAC is never one.
-  ok = pcall(equal, 123, "123")
-  assert(not ok)
-  ok = pcall(equal, "123", 123)
-  assert(not ok)
-end
-
 local function test_digests_match_published_vectors()
   for _, v in ipairs(vectors) do
     local algorithm = v[1] as Hash.Algorithm

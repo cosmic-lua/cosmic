@@ -166,7 +166,8 @@ local function test_a_server_names_what_it_bound_and_serves_every_listener(tmp: 
       for _, address in ipairs(addresses) do
         local conn <close> = assert(Net.connect(address, { timeout_ns = Clock.seconds(5) }))
         assert(conn:write(address.kind .. "\n"))
-        answers[#answers + 1] = assert(Stream.lines(conn):read())
+        local appended = assert(Stream.lines(conn):read())
+        answers[#answers + 1] = appended
       end
       server:stop()
     end,
@@ -194,7 +195,8 @@ local function test_a_server_names_what_it_bound_and_serves_two_tcp_listeners()
       for _, address in ipairs(addresses) do
         local conn <close> = assert(Net.connect(address, { timeout_ns = Clock.seconds(5) }))
         assert(conn:write(address.kind .. "\n"))
-        answers[#answers + 1] = assert(Stream.lines(conn):read())
+        local appended = assert(Stream.lines(conn):read())
+        answers[#answers + 1] = appended
       end
       server:stop()
     end,

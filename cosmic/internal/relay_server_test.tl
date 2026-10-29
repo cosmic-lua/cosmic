@@ -177,7 +177,7 @@ local function start(tmp: string, opts: Options): Rig
       rig.log[#rig.log + 1] = line
     end,
     connector = opts.connector or function(address: string, port: integer, timeout_ns: integer): Net.Conn?, string
-      rig.asked[#rig.asked + 1] = address .. ":" .. tostring(port)
+      table.insert(rig.asked, address .. ":" .. tostring(port))
       rig.given[#rig.given + 1] = timeout_ns
       return Net.connect(Net.tcp(if redirect[address] ~= nil then "127.0.0.1" else address end, redirect[address] or port),
         { timeout_ns = timeout_ns })

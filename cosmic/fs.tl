@@ -289,7 +289,6 @@ local append_mt: metatable<AppendFile> = {
 --- or false and a reason naming `path`; a write failure wins over a
 --- close failure.
 function Fs.append(path: string, data: string, mode?: integer): boolean, string
-  if type(data) ~= "string" then error("fs: append data must be a string", 2) end
   local file <close>: AppendFile = setmetatable({ fd = -1 }, append_mt)
   local fd, trouble = sys.open(path, sys.O_WRONLY | sys.O_CREAT | sys.O_APPEND, mode or 0x1a4)
   if fd == nil then return false, path .. ": " .. trouble end

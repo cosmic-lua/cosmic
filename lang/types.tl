@@ -2100,13 +2100,13 @@ local function read_body(r: Reader, decl: Decl): Body
   while peek(r) ~= ")" do
     expect(r, "method")
     local method_name = string_of(r)
-    body.methods[#body.methods + 1] = { name = method_name, type = read_type(r) }
+    table.insert(body.methods, { name = method_name, type = read_type(r) })
     close(r)
   end
   close(r)
   expect(r, "values")
   while peek(r) ~= ")" do
-    body.values[#body.values + 1] = string_of(r)
+    table.insert(body.values, string_of(r))
   end
   close(r)
   if peek(r) == "(" then

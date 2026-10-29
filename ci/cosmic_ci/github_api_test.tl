@@ -450,7 +450,7 @@ local function stepped(pages: integer, cost_ns: integer): GithubApi.Client, {int
   local clock: Tally = { value = 0 }
   local timeouts: mut {integer} = {}
   local function send(request: GithubApi.Request): GithubApi.Reply?, string
-    timeouts[#timeouts + 1] = assert(request.timeout_ns)
+    table.insert(timeouts, (assert(request.timeout_ns)))
     clock.value = clock.value + cost_ns
     local number = #timeouts
     local head: mut {string: string} = {}

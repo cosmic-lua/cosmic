@@ -170,7 +170,7 @@ function PluralSites.of_chunk(chunk: Ast.Chunk): {{string}}
         if literal ~= nil then
           local noun = plural_after_space(literal, counted_exp(left))
           if noun ~= nil then
-            sites[#sites + 1] = concat_site(line_of(chunk, right), noun, literal)
+            table.insert(sites, concat_site(line_of(chunk, right), noun, literal))
           end
         end
       end
@@ -178,7 +178,7 @@ function PluralSites.of_chunk(chunk: Ast.Chunk): {{string}}
       local text = written_text(chunk, node)
       if text:find("%%d ") ~= nil then
         for _, noun in ipairs(format_plurals(text)) do
-          sites[#sites + 1] = format_site(Node.span(chunk, node).y, noun)
+          table.insert(sites, format_site(Node.span(chunk, node).y, noun))
         end
       end
     end

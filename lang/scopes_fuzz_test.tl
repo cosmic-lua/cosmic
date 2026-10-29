@@ -63,7 +63,7 @@ local ref_exp: function(r: Reference, e: Ast.Node, env: Decl?, fn: integer)
 local ref_block: function(r: Reference, stats: {Ast.Stat}, env: Decl?, fn: integer): Decl?
 
 local function expect(r: Reference, code: string, token: integer)
-  r.errors[#r.errors + 1] = code .. " " .. r.tokens.y[token] .. ":" .. tostring(Lexer.x(r.tokens, token))
+  table.insert(r.errors, code .. " " .. r.tokens.y[token] .. ":" .. tostring(Lexer.x(r.tokens, token)))
 end
 
 --- The environment after declaring `binding`, and the error a shadow is.

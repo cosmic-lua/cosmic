@@ -48,20 +48,20 @@ end
 --- Draws one request's fields onto `fields`, each a letter and its text.
 local function draw_request(src: Fuzz.Source, fields: mut {string})
   fields[#fields + 1] = "r"
-  fields[#fields + 1] = "m" .. Fuzz.pick(src, METHODS)
-  fields[#fields + 1] = "t" .. tostring(src:int(1, #TARGETS))
-  fields[#fields + 1] = "v" .. Fuzz.pick(src, { "HTTP/1.1", "HTTP/1.1", "HTTP/1.0" })
-  fields[#fields + 1] = "e" .. Fuzz.pick(src, { "\r\n", "\n" })
+  table.insert(fields, "m" .. Fuzz.pick(src, METHODS))
+  table.insert(fields, "t" .. tostring(src:int(1, #TARGETS)))
+  table.insert(fields, "v" .. Fuzz.pick(src, { "HTTP/1.1", "HTTP/1.1", "HTTP/1.0" }))
+  table.insert(fields, "e" .. Fuzz.pick(src, { "\r\n", "\n" }))
   local count = 0
   while Fuzz.more(src, count, 4) do
     count = count + 1
-    fields[#fields + 1] = "h" .. Fuzz.pick(src, NAMES) .. "\0" .. Fuzz.pick(src, VALUES)
+    table.insert(fields, "h" .. Fuzz.pick(src, NAMES) .. "\0" .. Fuzz.pick(src, VALUES))
   end
-  fields[#fields + 1] = "f" .. Fuzz.pick(src, { "none", "length", "chunked" })
+  table.insert(fields, "f" .. Fuzz.pick(src, { "none", "length", "chunked" }))
   local chunks = 0
   while Fuzz.more(src, chunks, 4) do
     chunks = chunks + 1
-    fields[#fields + 1] = "c" .. (src:int(0, 3) == 0 and Fuzz.bytes(src, 8) or Fuzz.pick(src, CHUNKS))
+    table.insert(fields, "c" .. (src:int(0, 3) == 0 and Fuzz.bytes(src, 8) or Fuzz.pick(src, CHUNKS)))
   end
 end
 
@@ -86,7 +86,7 @@ local function requests_of(fields: {string}): {Request}
         current.eol = text
       elseif letter == "h" then
         local zero = text:find("\0", 1, true) or #text + 1
-        current.headers[#current.headers + 1] = { text:sub(1, zero - 1), text:sub(zero + 1) }
+        table.insert(current.headers, { text:sub(1, zero - 1), text:sub(zero + 1) })
       elseif letter == "f" then
         current.framing = text
       elseif letter == "c" then

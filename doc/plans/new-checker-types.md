@@ -543,7 +543,7 @@ each is a PR with its tests and a check in [`build/tree_checks.tl`], beside
 code, pinned by file and code. a rule's ceiling is its codes' count; it only
 falls ([a count the tree cannot yet bring to zero is a ceiling]) and a new
 violation is refused. every error has a code, a fix and a catalogue row from
-the PR that adds it. the translator ([`lang/translate.tl`]), the scope
+the PR that adds it. the translator (`lang/translate.tl`), the scope
 builder and the speed harness exist already. a piece is briefed to its
 builder in a page of this file, not the whole plan. the pieces end at [the
 switch]: the new checker replaces the fork once it is at least as sound as
@@ -1128,7 +1128,6 @@ silent. *not adopted:* each reading's looser form, named here.
 [`lang/speed.tl`]: ../../lang/speed.tl
 [`lang/stdlib.d.tl`]: ../../lang/stdlib.d.tl
 [`lang/syntax_codes.tl`]: ../../lang/syntax_codes.tl
-[`lang/translate.tl`]: ../../lang/translate.tl
 [`lang/warnings.tl`]: ../../lang/warnings.tl
 [`Proc.exit`]: ../../cosmic/proc.tl
 [`Scoped.resolved`]: ../../lang/scopes.tl

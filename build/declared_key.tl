@@ -1289,7 +1289,7 @@ local function walk_system(paths: {string}): string, {string}, integer
   local function walk(path: string, dev: integer?)
     local st, trouble = sys.lstat(path)
     if st == nil then
-      lines[#lines + 1] = path .. " missing " .. tostring(trouble)
+      table.insert(lines, path .. " missing " .. tostring(trouble))
       return
     end
     if dev ~= nil and st.dev ~= dev then
@@ -1297,8 +1297,8 @@ local function walk_system(paths: {string}): string, {string}, integer
       return
     end
     if st.kind == "dir" then
-      lines[#lines + 1] = path .. " dir " .. tostring(st.mode)
-      directories[#directories + 1] = path .. "\t" .. signature(st)
+      table.insert(lines, path .. " dir " .. tostring(st.mode))
+      table.insert(directories, path .. "\t" .. signature(st))
       newest.mtime_ns = math.max(newest.mtime_ns, st.mtime * 1000000000 + st.mtime_ns)
     else
       local line = path .. " " .. st.kind .. " " .. tostring(st.mode) .. " " ..
@@ -1312,7 +1312,7 @@ local function walk_system(paths: {string}): string, {string}, integer
     end
     local entries, refused = sys.readdir(path)
     if entries == nil then
-      lines[#lines + 1] = path .. " unlisted " .. tostring(refused)
+      table.insert(lines, path .. " unlisted " .. tostring(refused))
       return
     end
     local names: mut {string} = {}

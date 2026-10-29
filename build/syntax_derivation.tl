@@ -107,7 +107,7 @@ local function insert_test_inputs(db: Sqlite.Handle, source_hash: string, declar
     end
   end
   if declared ~= nil then
-    rows[#rows + 1] = { "line", tostring(declared.line) }
+    table.insert(rows, { "line", tostring(declared.line) })
     each("reads", declared.reads)
     each("host", declared.host)
     each("env", declared.env)

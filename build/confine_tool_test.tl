@@ -145,7 +145,7 @@ local function test_a_confined_process_has_somewhere_to_write(tmp: string)
         if inherited ~= nil then { TMPDIR = inherited } else nil end }) do
       local r = assert(Child.run({ probe, "write /tmp/f x && cat /tmp/f; env-of TMPDIR" },
         { env = environment, stdout = "capture" }))
-      said[#said + 1] = assert(r.stdout)
+      table.insert(said, assert(r.stdout))
     end
     confine.confine(nil)
   end, nil, { own })
@@ -180,7 +180,7 @@ local function test_a_confined_process_has_its_portable_cache_by_where_it_leads(
         "mkdirs $COSMIC_PORTABLE_CACHE && ls $COSMIC_PORTABLE_CACHE; " ..
           "print $COSMIC_PORTABLE_CACHE" },
         { env = { COSMIC_PORTABLE_CACHE = cache }, stdout = "capture" }))
-      said[#said + 1] = assert(r.stdout)
+      table.insert(said, assert(r.stdout))
     end
     confine.confine(nil)
   end, nil, { own })

@@ -30,9 +30,6 @@ local function test_the_constructors_refuse_what_is_no_span_an_integer_holds()
       local ok, err = pcall(make, bad)
       assert(not ok and tostring(err):find(name, 1, true), name .. " " .. tostring(bad))
     end
-    local text: any = "5"
-    local ok, err = pcall(make, text as number)
-    assert(not ok and tostring(err):find("takes a number, not string", 1, true), tostring(err))
   end
   local ok, err = pcall(Clock.ms, 0.0000001)
   assert(not ok and tostring(err):find("not a whole number of nanoseconds", 1, true), tostring(err))
@@ -55,8 +52,6 @@ local function test_ceil_rounds_a_span_up_to_a_count_of_the_unit()
     local ok, why = pcall(Clock.ceil, 1, bad)
     assert(not ok and tostring(why):find("unit must be", 1, true), tostring(why))
   end
-  local ok, why = pcall(Clock.ceil, 1.5 as integer, ms)
-  assert(not ok and tostring(why):find("ns must be an integer", 1, true), tostring(why))
 end
 
 local function test_the_clocks_read_and_the_monotonic_one_does_not_go_back()

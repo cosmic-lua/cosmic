@@ -385,7 +385,7 @@ local function writes_lua(input: string): boolean, string
   -- ... end` has two blank lines in it that the source has not, so the lines after it are two late), then hold the programs with
   -- a `repeat` to the line count too.
   if input:find("repeat", 1, true) ~= nil then
-    Fuzz.label("written")
+    Fuzz.label("repeat, not held to its lines")
     return true, ""
   end
   if line_count(ours.text) > line_count(input) then

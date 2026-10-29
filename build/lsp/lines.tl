@@ -29,10 +29,10 @@ function lines.lines_of(text: string): Split
     local stop = text:find("[\r\n]", at)
     starts[#starts + 1] = at
     if stop == nil then
-      texts[#texts + 1] = text:sub(at)
+      table.insert(texts, text:sub(at))
       return { starts = starts, texts = texts }
     end
-    texts[#texts + 1] = text:sub(at, stop - 1)
+    table.insert(texts, text:sub(at, stop - 1))
     at = stop + 1
     if text:sub(stop, stop + 1) == "\r\n" then at = stop + 2 end
   end

@@ -43,7 +43,7 @@ end
 local function test_the_origin_of_a_request_is_its_scheme_and_host()
   local seen: mut {string} = {}
   local app = Web.app{ routes = { Web.get("/", function(req: Web.Request): Web.Response
-    seen[#seen + 1] = Origin.of_request(req) or "-"
+    table.insert(seen, Origin.of_request(req) or "-")
     return Web.text("ok")
   end) }, trusted_proxy = true }
   local client = Web.test_client(app)

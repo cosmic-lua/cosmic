@@ -144,13 +144,13 @@ local function compare(where: string, fields: {string: boolean}, actual: {string
     if value == nil then
       problems[#problems + 1] = where .. name .. " is declared but not registered"
     elseif (type(value) == "function") ~= is_function then
-      problems[#problems + 1] = where .. name .. " is declared as a " ..
-        (if is_function then "function" else "value" end) .. " but registered as a " .. type(value)
+      table.insert(problems, where .. name .. " is declared as a " ..
+          (if is_function then "function" else "value" end) .. " but registered as a " .. type(value))
     end
   end
   for name in pairs(actual) do
     if fields[name] == nil then
-      problems[#problems + 1] = where .. tostring(name) .. " is registered but not declared"
+      table.insert(problems, where .. tostring(name) .. " is registered but not declared")
     end
   end
 end

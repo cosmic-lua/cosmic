@@ -124,7 +124,7 @@ local function tokenize(input: string, initial: string, last_tag: string): Run
     flush()
     if m.tag_kind == "S" then
       m.last_tag = m.tag_name
-      tokens[#tokens + 1] = tag_text("S", m.tag_name, m.tag_attrs, m.tag_self)
+      table.insert(tokens, tag_text("S", m.tag_name, m.tag_attrs, m.tag_self))
     else
       tokens[#tokens + 1] = "E:" .. m.tag_name
     end
@@ -867,7 +867,7 @@ local function check_case(
     if borrowed then
       return
     end
-    reach.failures[#reach.failures + 1] = ("reference tokenizer: %s (%s): %q"):format(description, initial, input)
+    table.insert(reach.failures, ("reference tokenizer: %s (%s): %q"):format(description, initial, input))
     return
   end
   -- The input after the end tag that leaves RCDATA, RAWTEXT or script
@@ -907,8 +907,8 @@ local function check_case(
         local key = where .. "/" .. kind
         reach.accepted[key] = (reach.accepted[key] or 0) + 1
         if not allowed(where, kind, run.attrs[at + 1], run.tails[at + 1], last or "") then
-          reach.failures[#reach.failures + 1] = ("%s (%s): slot %s at %d of %q: tokenizer is in %s"):format(
-            description, initial, kind, at, input, where)
+          table.insert(reach.failures, ("%s (%s): slot %s at %d of %q: tokenizer is in %s"):format(
+            description, initial, kind, at, input, where))
         end
       end
     end

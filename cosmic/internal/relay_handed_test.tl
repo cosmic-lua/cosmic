@@ -198,7 +198,7 @@ local function test_a_lookup_through_an_ended_name_servers_connector_tells_lost(
         if data == nil then break end
         reply = reply .. data
       end
-      statuses[#statuses + 1] = reply:match("^HTTP/1.1 (%d+)") or "none"
+      table.insert(statuses, reply:match("^HTTP/1.1 (%d+)") or "none")
       local _, _ = conn:close()
     end
     relay:stop()
@@ -276,7 +276,7 @@ local function test_the_upstream_is_resolved_once_and_an_ungranted_name_never(tm
             local query = read_exact(conn, (string.unpack(">I2", head)))
             if query == nil then break end
             local asked, qtype = question(query)
-            queries[#queries + 1] = tostring(qtype) .. " " .. asked
+            table.insert(queries, tostring(qtype) .. " " .. asked)
             assert(conn:write(string.pack(">s2", answer(query))))
           end
           local _, _ = conn:close()

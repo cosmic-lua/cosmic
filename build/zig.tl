@@ -209,7 +209,7 @@ function Zig.build_args(root: string, project: string, output: string,
       end
     end
     if not jobs_given then
-      out[#out + 1] = "-j" .. tostring(Zig.build_jobs(cpus))
+      table.insert(out, "-j" .. tostring(Zig.build_jobs(cpus)))
     end
     for i, word in ipairs(argv) do
       if i >= 2 then

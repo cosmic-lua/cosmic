@@ -620,11 +620,6 @@ function Lexer.lex(source: string, name: string): Lexer.Lexed
   local tokens: Tokens = {
     kind = {}, text = {}, offset = {}, y = {}, line = {}, yend = {}, xend = {}, value = {}, number = {}, comments = {},
   }
-  -- The loop writes the arrays through the names below, and each is written once through `tokens`, which is what
-  -- shows [`lang.translate`] that the record's field changes.
-  --
-  -- TODO: write the arrays through their names alone, once `mut_tracker` of lang/translate.tl credits a field of a
-  -- record to a write through a local that holds it.
   local kinds, texts, offsets, ys = tokens.kind, tokens.text, tokens.offset, tokens.y
   local line_offsets, values, comments_at = tokens.line, tokens.value, tokens.comments
   tokens.line[#tokens.line + 1] = 1

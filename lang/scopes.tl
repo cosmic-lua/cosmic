@@ -369,10 +369,10 @@ end
 
 local function report(code: Scopes.Code, token: integer, msg: string, fix: string, other?: Scopes.Place)
   local tokens = S.tokens
-  S.errors[#S.errors + 1] = {
+  table.insert(S.errors, {
     filename = S.filename, code = code, msg = msg, fix = fix, y = Lexer.y(tokens, token), x = Lexer.x(tokens, token),
     offset = Lexer.offset(tokens, token), length = Lexer.length(tokens, token), other = other,
-  }
+  })
 end
 
 -- Scopes -------------------------------------------------------------------
@@ -850,7 +850,7 @@ local function use_type(t: Ast.TypeName)
   if declared ~= nil and (declared.space ~= "value" or #path > 1) then
     add_global(S.globals, head, t.id)
   elseif S.defer then
-    S.pending[#S.pending + 1] = { node = t, name = head, depth = math.min(#S.marks, S.floor) }
+    table.insert(S.pending, { node = t, name = head, depth = math.min(#S.marks, S.floor) })
   else
     unknown_type(t, head)
   end

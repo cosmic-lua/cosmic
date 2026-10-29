@@ -62,7 +62,7 @@ test_child.register("serve", function(argv: {string}): integer
     local pinned: Config.Upstream = { host = up.host, port = up.port, authorization = up.authorization,
       no_proxy = up.no_proxy, addresses = resolved }
     assert(dns:close())
-    lines[#lines + 1] = "upstream " .. table.concat(resolved, ",")
+    table.insert(lines, "upstream " .. table.concat(resolved, ","))
     local resolve_connector = assert(Net.connector(servers, { timeout_ns = name_servers.wait_ns }))
     local resolve: Net.ResolveOptions = { servers = servers, connector = resolve_connector }
     local http = assert(Net.listen(Net.tcp("127.0.0.1", 0)))
@@ -84,7 +84,7 @@ test_child.register("serve", function(argv: {string}): integer
         if data == nil then break end
         reply = reply .. data
       end
-      lines[#lines + 1] = target .. " " .. (reply:match("^HTTP/1.1 (%d+)") or "none")
+      table.insert(lines, target .. " " .. (reply:match("^HTTP/1.1 (%d+)") or "none"))
       local _, _ = conn:close()
     end
     relay:stop()

@@ -355,10 +355,10 @@ local function report(code: Parser.Code, index: integer, msg: string, fix: strin
   if other ~= nil then
     place = { y = S.ys[other], x = Lexer.x(S.tokens, other), offset = S.tokens.offset[other], length = #S.texts[other] }
   end
-  S.errors[#S.errors + 1] = {
+  table.insert(S.errors, {
     filename = S.name, code = code, msg = msg, fix = fix, y = S.ys[at], x = Lexer.x(S.tokens, at), offset = S.tokens.offset[at],
     length = #S.texts[at], other = place,
-  }
+  })
 end
 
 --- Whether the current token is a `|` that begins the next `match` arm: it
@@ -908,7 +908,7 @@ local function parse_function_type(): Ast.Type
       advance()
       variadic = true
     end
-    params[#params + 1] = { kind = "PType", id = 0, first = pfirst, last = end_of(), name = name, optional = optional, variadic = variadic, type = t }
+    table.insert(params, { kind = "PType", id = 0, first = pfirst, last = end_of(), name = name, optional = optional, variadic = variadic, type = t })
     if S.text == "," then
       advance()
       after_comma(")", "parameters")
@@ -2593,7 +2593,7 @@ parse_block = function(mode: integer): Ast.Block
         advance()
       end
       if S.pos > at then
-        stats[#stats + 1] = error_node(at)
+        table.insert(stats, error_node(at))
       end
     end
     local t = S.text
