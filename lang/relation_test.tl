@@ -518,7 +518,7 @@ local function test_a_function_that_never_returns_is_below_every_function_of_its
   assert(below(w, dies, nothing(w, {})))
   assert(below(w, dies, dies))
   assert(below(w, s:fn({ params = { { type = s.string } }, rets = {} }), func(w, { s.string }, { s.integer })))
-  refused(w, dies, func(w, { s.string }, { s.integer }), "arity")
+  assert(below(w, dies, func(w, { s.string }, { s.integer })))
   local may_return = refused(w, func(w, {}, { s.string }), dies, "may_return", "alternative 1")
   assert(may_return.sub == func(w, {}, { s.string }) and may_return.super == dies)
   refused(w, nothing(w, {}), dies, "may_return", "alternative 1")
@@ -573,25 +573,50 @@ local function test_a_function_takes_as_many_arguments_as_are_passed()
   local maybe = with({ { type = s.integer, omittable = true } })
   local two = with({ { type = s.integer }, { type = s.integer } })
   local none = with({})
-  -- one that takes fewer than are passed, or more that are required, takes not all
-  local r = refused(w, none, one, "arity")
-  assert(r.index == 1)
-  r = refused(w, one, none, "arity")
+  -- one that requires more than are passed takes not all
+  local r = refused(w, one, none, "arity")
   assert(r.index == 1)
   refused(w, two, one, "arity")
-  refused(w, one, two, "arity")
+  -- one that takes fewer than are passed drops the trailing arguments, which Lua discards
+  assert(below(w, none, one))
+  assert(below(w, one, two))
+  assert(below(w, none, two))
   -- one that passes an optional argument is met by one that takes it, or a rest parameter
   assert(below(w, maybe, none))
   assert(below(w, maybe, one))
   assert(below(w, maybe, maybe))
   refused(w, one, maybe, "arity")
-  refused(w, none, maybe, "arity")
+  assert(below(w, none, maybe))
   assert(below(w, with({ { type = s.integer }, { type = s.string, omittable = true } }), one))
   refused(w, with({ { type = s.integer }, { type = s.string } }), one, "arity")
   -- the omitted argument is `nil` or its type: an optional parameter takes the optional's type
   assert(below(w, with({ { type = s.number, omittable = true } }), with({ { type = s.integer, omittable = true } })))
   refused(w, with({ { type = s.integer, omittable = true } }), with({ { type = s.number, omittable = true } }),
     "union_none", "parameter 1 > member 1")
+end
+
+local function test_a_function_may_drop_only_trailing_parameters_of_the_function_wanted()
+  local w = world()
+  local s = w.store
+  local function with(...: Types.Type): Types.Type
+    local params: mut {Types.Param} = {}
+    for _, t in ipairs({ ... }) do
+      table.insert(params, { type = t })
+    end
+    return s:fn({ params = params })
+  end
+  assert(below(w, with(s.string), with(s.string, s.integer)))
+  assert(below(w, with(s.number), with(s.integer, s.string)))
+  -- the parameters kept are still taken contravariantly
+  refused(w, with(s.integer), with(s.number, s.string), "number_for_integer", "parameter 1")
+  -- a middle parameter is not dropped: the one kept stands at the position of the first
+  refused(w, with(s.string), with(s.integer, s.string), "mismatch", "parameter 1")
+  -- a parameter the function wanted never passes is not dropped
+  refused(w, with(s.string, s.integer), with(s.string), "arity")
+  -- the rest parameter of the function wanted is still met by a rest parameter
+  refused(w, with(s.string), s:fn({ params = { { type = s.string } }, rest = s.integer }), "arity")
+  -- returns are not touched
+  refused(w, func(w, { s.string }, {}), func(w, { s.string, s.integer }, { s.integer }), "return_length")
 end
 
 local function test_a_rest_parameter_meets_the_arguments_after_the_last_parameter()

@@ -864,18 +864,20 @@ local function parameters_below(j: Relation.Judge, f: Fn, g: Fn, why: boolean): 
     local gt, g_may_omit, g_is_rest = slot(g, i)
     local ft, f_may_omit = slot(f, i)
     if gt ~= nil then
-      if ft == nil then
-        return arity(j, why, f, g, i)
-      end
-      if g_may_omit and not f_may_omit then
-        return arity(j, why, f, g, i)
-      end
-      local r = rel(j, gt, ft, why)
-      if r ~= nil then
-        if g_is_rest then
-          return through(why, "rest", i, r)
+      -- Where `f` takes no parameter, it takes none after either: Lua drops the arguments a caller
+      -- passes past the last parameter and `f` never reads them. So only trailing parameters are
+      -- dropped, the ones kept are compared here, and the rest parameter of `g` is held below.
+      if ft ~= nil then
+        if g_may_omit and not f_may_omit then
+          return arity(j, why, f, g, i)
         end
-        return through(why, "parameter", i, r)
+        local r = rel(j, gt, ft, why)
+        if r ~= nil then
+          if g_is_rest then
+            return through(why, "rest", i, r)
+          end
+          return through(why, "parameter", i, r)
+        end
       end
     elseif not f_may_omit then
       return arity(j, why, f, g, i)

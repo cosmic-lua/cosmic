@@ -226,12 +226,12 @@ local function test_a_typed_multipart_route_binds_and_answers_problems(tmp: stri
 end
 
 local function test_a_typed_route_registers_a_multipart_spec_text_can_carry()
-  local ok = pcall(Web.post_typed, "/up", Web.input(Web.NONE, Web.NONE,
+  local ok, err = pcall(Web.post_typed, "/up", Web.input(Web.NONE, Web.NONE,
     Web.multipart_body(Shape.record_of("Signup"))), function(_req: Web.Request): Web.Response
       return Web.empty()
     end)
-  assert(ok)
-  local bad = pcall(Web.get_typed, "/up", Web.input(Web.NONE, Web.NONE, Web.multipart_body(SIGNUP)),
+  assert(ok, err)
+  local bad, _ = pcall(Web.get_typed, "/up", Web.input(Web.NONE, Web.NONE, Web.multipart_body(SIGNUP)),
     function(_req: Web.Request): Web.Response return Web.empty() end)
   assert(not bad, "GET takes no body")
 end
