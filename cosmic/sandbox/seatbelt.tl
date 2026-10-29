@@ -51,7 +51,7 @@ local record Seatbelt
     --- is `localhost:PORT`, which holds 127.0.0.1 and ::1 alike (the relay
     --- holds the port on both) and lets it bind and listen nowhere. Required with `connect`; a policy without
     --- `connect` is refused one.
-    relay_port?: integer
+    mut relay_port?: integer
     --- The port of the host's loopback the network relay accepts at, for
     --- the relay's own profile; nil for any other. The relay may connect to
     --- any address and port (Seatbelt cannot name one by number, so the
@@ -62,7 +62,7 @@ local record Seatbelt
     --- reaches, and run no program but `core`: the rest of what it is granted
     --- `x` it may map as a library and not run. Only the start of the relay
     --- sets it.
-    serves_relay?: integer
+    mut serves_relay?: integer
   end
 
   --- Text to pass to sandbox_init_with_parameters, values kept outside

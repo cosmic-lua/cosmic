@@ -99,9 +99,9 @@ local function samples(source: Source, case: Case, n: integer, calibration: bool
 end
 
 local record Count
-  hits: integer
-  total: integer
-  finite: integer
+  mut hits: integer
+  mut total: integer
+  mut finite: integer
 end
 
 local function observe(counts: mut {string:Count}, name: string, hit: boolean, finite?: boolean)
