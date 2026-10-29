@@ -332,6 +332,10 @@ static float squared_l2_f16 (const _Float16 *a, const float *b, size_t n) {
  * same, whatever order it sums in. They cannot overflow 32 bits:
  * 16000 * 127 * 127 < 2^31, and with the query biased by 128, below
  * 16000 * 255 * 127. */
+/* TODO: once a caller runs int8 corpora on x86-64 hosts without VNNI: the
+ * compiler makes this loop 128-bit `vpmaddwd`s, and a 256-bit loop of
+ * intrinsics measured about 20% faster at 768 dimensions in cache (130
+ * against 156 ns a row). Write that loop under `__AVX2__`. */
 static int32_t dot_i8 (const int8_t *a, const int8_t *b, size_t n) {
   int32_t total = 0;
   for (size_t i = 0; i < n; i++) total += (int32_t)a[i] * (int32_t)b[i];
@@ -423,13 +427,12 @@ static bool has_avx512_vnni (void) {
   return (b & need) == need && (c & (1u << 11)) != 0;
 }
 
-/* AVX2 (leaf 7's ebx bit 5) and AVX-VNNI (leaf 7 subleaf 1's eax bit 4),
- * with the 256-bit state saved (XCR0 bits 1, 2). */
+/* AVX-VNNI (leaf 7 subleaf 1's eax bit 4), with the 256-bit state saved
+ * (XCR0 bits 1, 2). The core is built for x86-64-v3, so it has AVX2. */
 static bool has_avx_vnni (void) {
   unsigned a, b, c, d;
-  if ((saved_state() & 0x6u) != 0x6u || !__get_cpuid_count(7, 0, &a, &b, &c, &d)) return false;
-  if ((b & (1u << 5)) == 0) return false;
-  return __get_cpuid_count(7, 1, &a, &b, &c, &d) && (a & (1u << 4)) != 0;
+  return (saved_state() & 0x6u) == 0x6u && __get_cpuid_count(7, 1, &a, &b, &c, &d)
+         && (a & (1u << 4)) != 0;
 }
 #endif
 

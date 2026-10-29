@@ -97,7 +97,7 @@ local function test_what_moves_the_features_of_a_host()
   end
   local start = features("flags : aes pclmulqdq sse4_1 ssse3\n", "6.17.0-1022-azure\n", "#22-Ubuntu SMP\n")
   -- Features no core chooses code by, and their order, name no new host.
-  assert(features("flags : sse4_1 aes ssse3 pclmulqdq avx512f\n", "6.17.0-1022-azure\n",
+  assert(features("flags : sse4_1 aes ssse3 pclmulqdq avx512bw\n", "6.17.0-1022-azure\n",
     "#22-Ubuntu SMP\n") == start)
   assert(features("flags : aes pclmulqdq sse4_1\n", "6.17.0-1022-azure\n", "#22-Ubuntu SMP\n") ~= start)
   assert(features("flags : aes pclmulqdq sse4_1 ssse3\n", "6.17.0-1023-azure\n", "#22-Ubuntu SMP\n") ~= start)

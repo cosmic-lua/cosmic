@@ -101,6 +101,10 @@ local exempt: {string: string} = {
   ["core/syscalls.c:make_mirrored"] = sandbox_only,
   ["core/syscalls.c:cosmic_mountinfo_local_flock"] = "a release core calls it only for a file on NFS, which no " ..
     "test's host has; the checked core's testing table reaches it (`mountinfo_local_flock`), and its run enters it",
+  -- TODO: once build/host_names.tl names a CPU feature a module can require
+  -- (`avx512_vnni`, `avx_vnni`), move these two to `prerequisites`, so that
+  -- a host which has the feature is held to entering the kernel; today
+  -- the host that has it only reports the exemption as entered.
   ["core/vector.c:dot_i8_avx512_vnni"] = vnni_only,
   ["core/vector.c:dot_i8_avx_vnni"] = vnni_only,
   ["core/store.c:die_unreadable"] = "the store's own database cannot be read, and the process ends",

@@ -1009,13 +1009,16 @@ end
 -- The corpus's search against a brute-force reference
 --------------------------------------------------------------------------
 
---- The numbers a corpus's vectors are drawn from. All but the last are
---- ones a float sum holds exactly; the last overflows a float's sums.
+--- The numbers a corpus's vectors are drawn from. All but the last two
+--- are ones a float sum holds exactly; the fifth (for the smaller
+--- storages, whose references round) holds numbers too small for a half
+--- or a code; the last overflows a float's sums.
 local function alphabet(kind: integer): {number}
   if kind == 0 then return { 0, 1 } end
   if kind == 1 then return { -1, 0, 1 } end
   if kind == 2 then return { -3, -2, -1, 0, 1, 2, 3 } end
   if kind == 3 then return { 0.25, -0.25, 0.5, 1, -1.5, 0, 2 } end
+  if kind == 5 then return { 0.25, -0.25, 1, -1, 1e-9, -1e-9, 0, 2 } end
   return { 1e30, -1e30, 3e38, -3e38, 1e-30, 1, 0 }
 end
 
@@ -1119,8 +1122,12 @@ local function gen_search_input(src: Fuzz.Source): string
   local storage = Fuzz.pick(src, { "f32", "f32", "f16", "int8", "int8" })
   local kind = src:int(0, 11)
   if kind > 4 then kind = kind % 4 end
+  -- A smaller storage rounds a number this small to zero, as the sign
+  -- bits of the first pass must not.
+  if storage ~= "f32" and src:int(0, 3) == 0 then kind = 5 end
   local letters = alphabet(kind)
-  local dims = Fuzz.pick(src, { 1, 1, 2, 3, 3, 4, 5, 9, 17 })
+  -- Past the 64 bytes a VNNI kernel takes at a time, and its tail.
+  local dims = Fuzz.pick(src, { 1, 1, 2, 3, 3, 4, 5, 9, 17, 70, 133 })
   local fields: mut {string} = { storage, tostring(kind), tostring(dims) }
   fields[#fields + 1] = Fuzz.pick(src, { "1", "1", "2", "3", "5", "10", "40", "9223372036854775807" })
   fields[#fields + 1] = Fuzz.pick(src, { "inner_product", "cosine", "l2" })

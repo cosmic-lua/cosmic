@@ -488,7 +488,7 @@ print("corpus", table.concat(exact.ids, " "), "candidates", table.concat(quick.i
 A corpus holds its vectors as 32-bit floats unless `storage` says
 otherwise, to [`Vector.load`] or [`Vector.corpus`]. `"f16"` keeps 16-bit
 floats and `"int8"` keeps one signed byte per dimension with a scale per
-vector. [`Vector.Corpus.add`] converts the f32 vector it is given, and
+vector. `corpus:add` converts the f32 vector it is given, and
 the query stays f32. Every option of `search` works as before. A scan
 reads fewer bytes, so it is faster.
 
@@ -501,7 +501,7 @@ rows' size, and these held 100,000 of 131,072):
 | ------- | --------------- | --------------------------- | ---------------------- |
 | `"f32"` | 4,138 bytes     | 71 ms                       | all                    |
 | `"f16"` | 2,155 bytes     | 20 ms                       | 99.5% to 100%          |
-| `"int8"`| 1,159 bytes     | 4 to 7 ms (12 to 18 without VNNI) | 97.5% to 98%     |
+| `"int8"`| 1,159 bytes     | 4 to 8 ms (12 to 18 without VNNI) | 97.5% to 98%     |
 
 The f16 and int8 corpora fit this processor's 260 MB cache and the f32
 one does not, so part of their lead is the machine's.
@@ -514,7 +514,7 @@ Choose by what the corpus costs and what a missed neighbour costs:
 - **`"f16"`** halves the memory and finds the same neighbours. A half
   has 11 significant bits, which an embedding rarely needs. It holds magnitudes up to 65504, and `add` raises on a
   number of 65520 or more instead of storing infinity, as pgvector's
-  `halfvec` refuses it. Numbers under 3e-8 become zero. It is the usual
+  `halfvec` refuses it. Numbers under 2.9e-8 become zero. It is the usual
   choice for a corpus that is too big for f32.
 - **`"int8"`** is a quarter of the memory and the fastest scan, and
   loses a few of the top 10. Each vector is stored as `round(x / scale)`
@@ -734,7 +734,6 @@ sign bits, 400 candidates: 0.91
 [`cosmic.json`]: ../../cosmic/json.tl
 [`cosmic.sqlite`]: ../../cosmic/sqlite.tl
 [`cosmic.vector`]: ../../cosmic/vector.tl
-[`Vector.Corpus.add`]: ../../cosmic/vector.tl
 [`Vector.corpus`]: ../../cosmic/vector.tl
 [`Vector.kmeans`]: ../../cosmic/vector.tl
 [`Vector.load`]: ../../cosmic/vector.tl

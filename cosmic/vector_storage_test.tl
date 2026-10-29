@@ -426,7 +426,7 @@ local function test_candidates_read_the_signs_of_the_f32_vector()
       if d <= 12 then
         local sign = 1
         if next_number() < 0 then sign = -1 end
-        -- Under 3e-8, and under half a code of the vector, so zero when stored.
+        -- Under 2.9e-8, and under half a code of the vector, so zero when stored.
         t[#t + 1] = sign * 1e-9
       else
         t[#t + 1] = next_number()
@@ -608,9 +608,17 @@ local function test_every_int8_kernel_answers_alike()
   end
   testing.vector_kernel(original)
   assert(testing.vector_kernel() == original)
-  -- Which of the others ran depends on the CPU: a host without them
-  -- compares the portable kernel with itself above and nothing more.
-  assert(ran % 1 == 0)
+  -- The widest kernel the CPU has is the one chosen at open, and a host
+  -- with one compared it above. A host with none compares the portable
+  -- kernel with itself and nothing more.
+  local widest = "generic"
+  for _, name in ipairs(vectorized) do
+    local available, _ = pcall(testing.vector_kernel, name)
+    if available and widest == "generic" then widest = name end
+  end
+  testing.vector_kernel(original)
+  assert(original == widest, "the kernel chosen at open is " .. original .. ", the widest is " .. widest)
+  assert(widest == "generic" or ran > 0)
 end
 
 --- The collector counts the bytes of a smaller corpus, and they are

@@ -311,8 +311,8 @@ converts it; a query stays f32; every search option behaves as for f32.
   lengths of the dequantized vectors, so it is the cosine of what is
   stored. `l2` uses `|a|^2 + |b|^2 - 2 a.b` over the dequantized vectors,
   summed in double and clamped at zero, so a vector's distance to itself
-  is exactly 0. A vector under about 1e-36 in magnitude has no direction
-  and is stored as zeros.
+  is exactly 0. A vector, or a query, under 1.4e-36 in magnitude has no
+  direction and is held as zeros.
 - **Bit vectors** for `candidates` are made from the f32 vector in `add`
   for f16 and int8, since the f32 numbers are gone later: the first pass
   keeps the rows it would keep in an f32 corpus. They cost `dims / 8`
@@ -342,7 +342,7 @@ converts it; a query stays f32; every search option behaves as for f32.
 **Status:** built. Measured on 100,000 x 768 clustered vectors on the
 development VM (L3 cache 260 MB, so the smaller corpora fit it), best
 of five, 20 queries: f32 71 ms exact, 1.6 ms with `candidates = 200`;
-f16 20 ms, 1.4 ms, top-10 overlap with f32 0.99 to 1.0; int8 4 to 7 ms
+f16 20 ms, 1.4 ms, top-10 overlap with f32 0.99 to 1.0; int8 4 to 8 ms
 (12 to 18 ms portable), 1.4 ms, overlap 0.975 to 0.98. Held per vector: 4,138,
 2,155 and 1,159 bytes. [`cosmic/vector_storage_test.tl`] holds the
 behavior; [`cosmic/vector_fuzz_test.tl`] holds the search to a reference

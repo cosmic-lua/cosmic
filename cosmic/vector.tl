@@ -19,7 +19,7 @@
 --- Storage: a corpus keeps its vectors as 32-bit floats (`"f32"`, the
 --- default), as 16-bit floats (`"f16"`, half the memory) or as 8-bit
 --- integers with one scale per vector (`"int8"`, a quarter), as
---- [`Vector.corpus`] is told. [`Vector.Corpus.add`] converts the f32
+--- [`Vector.corpus`] is told. `corpus:add` converts the f32
 --- vector it is given; a query stays f32, and every search option
 --- behaves the same for each storage. A smaller storage scans faster,
 --- since a scan is bound by memory, and ranks the vectors as stored, so
@@ -29,7 +29,7 @@
 --- - `"f16"` rounds each number to the nearest half (11 significant
 ---   bits, ties to even). It refuses in `add` a number of 65520 or more
 ---   in magnitude, which a half cannot hold, rather than store infinity
----   (pgvector's `halfvec` refuses it too). A number under 3e-8 in
+---   (pgvector's `halfvec` refuses it too). A number under 2.9e-8 in
 ---   magnitude becomes zero. A score is the sum over the stored halves
 ---   against the f32 query.
 --- - `"int8"` stores `round(x / scale)` for `scale = max|x| / 127`
@@ -38,8 +38,8 @@
 ---   search. A row's score is the exact integer dot product of the two
 ---   code vectors times both scales. `cosine` divides by the lengths of
 ---   the two dequantized vectors, and `l2` is the distance between them.
----   A vector whose largest number is under about 1e-36 has no direction
----   and is stored as zeros.
+---   A vector, or a query, whose largest number is under 1.4e-36 has no
+---   direction and is held as zeros.
 ---
 --- The f32 vector given to `add` is not kept. The binary first pass of
 --- `candidates` reads one bit per dimension (its sign) of each vector,
@@ -284,6 +284,10 @@ end
 --- of the first row's length (or, for `"f16"`, one it cannot hold).
 function Vector.load(db: Sqlite.Handle, sql: string, values?: {Sqlite.Value},
                      opts?: Vector.CorpusOptions): Vector.Corpus?, string
+  -- A storage the core refuses raises here, before a query is open to leak.
+  if opts ~= nil and opts.storage ~= nil then
+    local _ = raw.corpus(1, opts.storage)
+  end
   local q, why = Sqlite.query(db, sql, values)
   if not q then
     return nil, why
