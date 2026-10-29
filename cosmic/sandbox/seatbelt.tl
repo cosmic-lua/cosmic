@@ -279,7 +279,7 @@ function Seatbelt.compile(policy: rules.Policy, options?: Seatbelt.Options): Sea
   local runs: string?
   if serves ~= nil and options_core ~= nil then runs = paths[options_core].path end
   for i, grant in ipairs(merged.grants or {}) do
-    local name = "PATH_" .. i
+    local name = "PATH_" .. tostring(i)
     parameters[name] = grant.path
     allow(text, fattr, grant.letters, '(' .. (if directories[grant.path] == true then "subpath" else "literal" end) ..
         ' (param "' .. name .. '"))', serves ~= nil and grant.path ~= runs)
@@ -305,7 +305,7 @@ function Seatbelt.compile(policy: rules.Policy, options?: Seatbelt.Options): Sea
   if relay_port ~= nil then
     -- `localhost` is ::1 at the port as well: the start holds the port
     -- there too ([`cosmic.internal.relay_start`]'s `loopback_listeners`).
-    text[#text + 1] = '(allow network-outbound (remote tcp "localhost:' .. relay_port .. '"))'
+    text[#text + 1] = '(allow network-outbound (remote tcp "localhost:' .. tostring(relay_port) .. '"))'
   end
   if serves ~= nil then
     if math.type(serves) ~= "integer" or serves < 1 or serves > 65535 then
@@ -316,7 +316,7 @@ function Seatbelt.compile(policy: rules.Policy, options?: Seatbelt.Options): Sea
     -- c-ares reads the system's name servers from configd's DNS
     -- configuration, through this one service.
     text[#text + 1] = '(allow network-outbound (remote ip "*:*"))'
-    text[#text + 1] = '(allow network-inbound (local tcp "localhost:' .. serves .. '"))'
+    text[#text + 1] = '(allow network-inbound (local tcp "localhost:' .. tostring(serves) .. '"))'
     text[#text + 1] = '(allow mach-lookup (global-name "com.apple.SystemConfiguration.DNSConfiguration"))'
   end
   local limits = merged.limits or {}
@@ -340,15 +340,15 @@ function Seatbelt.credentials_unmet(merged: rules.Policy, user: integer, group: 
   local differs: mut {string} = {}
   local merged_user = merged.user
   if merged_user ~= nil and merged_user ~= user then
-    differs[#differs + 1] = "user " .. merged_user
+    differs[#differs + 1] = "user " .. tostring(merged_user)
   end
   local merged_group = merged.group
   if merged_group ~= nil and merged_group ~= group then
-    differs[#differs + 1] = "group " .. merged_group
+    differs[#differs + 1] = "group " .. tostring(merged_group)
   end
   if #differs == 0 then return "" end
   return table.concat(differs, ", ") .. ": Seatbelt runs a program as this process's own user and " ..
-    "group, " .. user .. " and " .. group .. ", and cannot change them: name those or none"
+    "group, " .. tostring(user) .. " and " .. tostring(group) .. ", and cannot change them: name those or none"
 end
 
 --- The grants `policy` gives on macOS before the host is read: its own
