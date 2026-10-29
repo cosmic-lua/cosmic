@@ -40,7 +40,10 @@ local function test_a_violation_a_pcall_swallowed_is_still_a_row_the_run_fails_f
     rows[#rows + 1] = { kind = met.kind, at = met.at, target = met.target, declared = met.declared,
       actual = met.actual, test = "t" }
   end
-  local line = TypeViolations.library(rows)
-  assert(line:find("parameter x of Fake.f (cosmic/type_violations_fake.tl:2) declared integer, got string", 1, true) ~= nil,
+  assert(#rows == 1, tostring(#rows))
+  -- The fixture's own file is skipped, so this suite's run does not fail for it; the same row at a real file is not.
+  assert(TypeViolations.library(rows) == "")
+  local line = TypeViolations.library({ row("parameter", "parameter x of Fake.f (cosmic/type_violations_real.tl:2)") })
+  assert(line:find("parameter x of Fake.f (cosmic/type_violations_real.tl:2) declared string, got table", 1, true) ~= nil,
     line)
 end
