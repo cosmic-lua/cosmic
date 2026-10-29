@@ -4,7 +4,7 @@ Embedding search in cosmic: store a model's vectors, find the nearest
 to a query under any filter, and blend that with keyword search, in one
 binary with nothing else running. This plan is the outcome of a design
 discussion ([#3218]) and the record of what is decided, what is built,
-and what comes next. All four phases are in the tree; the guide that
+and what comes next. All five phases are in the tree; the guide that
 ends them is [`doc/guides/semantic-search.md`].
 
 ## Goal and scope
@@ -31,10 +31,12 @@ corpus outgrows brute force.
   text form `'[1,2,3]'`, which is also a JSON array. It is the de facto
   standard for vector search in SQL, so tutorials and users already know
   it. SQLite has no custom operators, so there are functions only.
-- **Storage types: f32 and bits first.** A vector is a blob of
-  little-endian 32-bit floats, which is what an embedding API's base64
-  `float32` decodes to; a bit vector is a blob, one bit per dimension.
-  f16 and int8 wait until a caller needs them.
+- **Storage types: f32 and bits in SQL; f16 and int8 in the corpus.** A
+  vector is a blob of little-endian 32-bit floats, which is what an
+  embedding API's base64 `float32` decodes to; a bit vector is a blob,
+  one bit per dimension. The in-memory corpus can also hold f16 and int8
+  ([phase 5](#phase-5-f16-and-int8-storage-built)); the SQL functions
+  read f32 blobs alone.
 - **Brute force with SQL filtering is the design** up to about a million
   vectors. A scan scores every row the `WHERE` keeps, so a filter never
   loses a match. That is the problem Redis vector sets' `FILTER-EF` and
@@ -55,8 +57,10 @@ corpus outgrows brute force.
   direct-only is for functions with effects.
 - **Identical results across targets are not required** for floating
   point. A kernel may sum in whatever order its target's vectors make
-  fastest. The same core gives the same answer on every run: no threads,
-  no runtime dispatch.
+  fastest. The same core gives the same answer on every run: no threads.
+  The one runtime choice is the int8 dot product, which uses VNNI where
+  the CPU has it: its sums are exact integers, so no choice changes an
+  answer.
 - **No C++ and nothing copyleft in the core.** That rules out USearch,
   hnswlib and FAISS (C++), Redis 8's vector sets (RSALv2, SSPLv1 or
   AGPLv3) and GSL (GPL).
@@ -287,13 +291,68 @@ that calls a provider needs a key and the network):
 is compiled and, but for the provider call, run offline by `cosmic test`
 over a toy word-hash embedding.
 
+## Phase 5: f16 and int8 storage (built)
+
+`Vector.corpus(dims, { storage = "f16" | "int8" })` (and a fourth
+argument to [`Vector.load`]) holds the corpus in half the memory or a
+quarter, and scans faster. `add` still takes a packed f32 vector and
+converts it; a query stays f32; every search option behaves as for f32.
+
+- **f16** rounds to nearest, ties to even. A number of 65520 or more in
+  magnitude would round to infinity: `add` raises rather than saturate,
+  as pgvector's `halfvec` raises "out of range for type halfvec" on input.
+  Scores sum the widened halves against the f32 query in the f32 kernels'
+  eight lanes (`vcvtph2ps` on x86-64-v3, `fcvtl` on Armv8.2-A).
+- **int8** is Redis vector sets' Q8: `scale = max|x| / 127`,
+  `q = round(x / scale)` (ties to even), the scale stored beside the
+  codes (with their sum and the sum of their squares). The query is
+  quantized once per search. A score is the exact int32 dot product of
+  the codes times both scales. `cosine` multiplies by the stored inverse
+  lengths of the dequantized vectors, so it is the cosine of what is
+  stored. `l2` uses `|a|^2 + |b|^2 - 2 a.b` over the dequantized vectors,
+  summed in double and clamped at zero, so a vector's distance to itself
+  is exactly 0. A vector under about 1e-36 in magnitude has no direction
+  and is stored as zeros.
+- **Bit vectors** for `candidates` are made from the f32 vector in `add`
+  for f16 and int8, since the f32 numbers are gone later: the first pass
+  keeps the rows it would keep in an f32 corpus. They cost `dims / 8`
+  bytes a row from the start. An f32 corpus still makes them on the
+  first search that asks.
+- **[`Vector.kmeans`]** works on every storage by widening each row into a
+  scratch buffer; [`Vector.nearest`] takes f32 centroids and is unchanged.
+- **Kernels** are plain loops in [`core/vector.c`], with the f16 lanes
+  written as vector types (the compiler shuffles the array form). On
+  x86-64-v3 the int8 sum is `vpmovsxbw` and `vpmaddwd`; on Armv8.2-A it
+  is `sdot`.
+- **VNNI.** Where the CPU has AVX-512 VNNI (with the 256-bit forms of
+  AVX-512 VL) or AVX-VNNI, a runtime-selected kernel (found with `cpuid`
+  and `xgetbv`; `__builtin_cpu_supports` does not link in the static
+  musl cores) multiplies 32 unsigned by 32 signed bytes per
+  instruction. A signed product is `sum(row * (query + 128)) - 128 *
+  sum(row)`, so each int8 row keeps the sum of its codes. A 512-bit form
+  measured no faster than the 256-bit one: the scan is bound by memory.
+  On 100,000 x 768 the exact int8 inner product takes 12 to 18 ms
+  portable and 4 to 8 ms with either VNNI kernel (a shared VM: repeated
+  rounds, and the order of the kernels, move each by a few ms; the
+  256-bit AVX-512 VNNI form was never slower than AVX-VNNI). A 512-bit
+  form took 7 to 8 ms and was dropped. Tests select each kernel through
+  [`testing.vector_kernel`] ([`cosmic.internal.testing`]) and compare
+  them to the bit.
+
+**Status:** built. Measured on 100,000 x 768 clustered vectors on the
+development VM (L3 cache 260 MB, so the smaller corpora fit it), best
+of five, 20 queries: f32 71 ms exact, 1.6 ms with `candidates = 200`;
+f16 20 ms, 1.4 ms, top-10 overlap with f32 0.99 to 1.0; int8 4 to 7 ms
+(12 to 18 ms portable), 1.4 ms, overlap 0.975 to 0.98. Held per vector: 4,138,
+2,155 and 1,159 bytes. [`cosmic/vector_storage_test.tl`] holds the
+behavior; [`cosmic/vector_fuzz_test.tl`] holds the search to a reference
+over each storage's stored numbers; [`core/allocation_test.tl`] walks
+the new allocations.
+
 ## Later
 
 Each waits on a caller who needs it:
 
-- **f16 and int8 storage.** pgvector advises `halfvec` for scale; Redis
-  vector sets default to int8, which they measure as costing little
-  recall at a quarter of the space.
 - **pgvector's `avg(vector)` and `sum(vector)` aggregates** (a TODO in
   [`core/vector.c`]).
 - **HNSW in C**, if IVF's recall is not enough on a real corpus.
@@ -347,6 +406,7 @@ A separate track, pulled by its own callers. From the same discussion:
 [`cosmic/vector_ivf_test.tl`]: ../../cosmic/vector_ivf_test.tl
 [`cosmic/vector_sql_test.tl`]: ../../cosmic/vector_sql_test.tl
 [`cosmic/vector_test.tl`]: ../../cosmic/vector_test.tl
+[`cosmic/vector_storage_test.tl`]: ../../cosmic/vector_storage_test.tl
 [`cosmic/vector_example.tl`]: ../../cosmic/vector_example.tl
 [`cosmic/vector.tl`]: ../../cosmic/vector.tl
 [`cosmic/internal/vector.d.tl`]: ../../cosmic/internal/vector.d.tl
@@ -355,5 +415,10 @@ A separate track, pulled by its own callers. From the same discussion:
 [`doc/guides/semantic-search.md`]: ../guides/semantic-search.md
 
 [`cosmic.internal.hash`]: ../../cosmic/internal/hash.d.tl
+[`cosmic.internal.testing`]: ../../cosmic/internal/testing.d.tl
 [`cosmic.internal.vector`]: ../../cosmic/internal/vector.d.tl
 [`Signal.guard`]: ../../cosmic/signal.tl
+[`testing.vector_kernel`]: ../../cosmic/internal/testing.d.tl
+[`Vector.kmeans`]: ../../cosmic/vector.tl
+[`Vector.load`]: ../../cosmic/vector.tl
+[`Vector.nearest`]: ../../cosmic/vector.tl

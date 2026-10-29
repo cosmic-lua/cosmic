@@ -26,8 +26,10 @@ local record vector
       candidates: integer?, allow: {integer}?): {integer}?, {number} | string
   end
 
-  -- Raises on a dimension count outside 1 to 16000.
-  corpus: function(dims: integer): Corpus
+  -- `storage` is "f32" (the default), "f16" or "int8". Raises on a
+  -- dimension count outside 1 to 16000 and on another storage. An f16
+  -- corpus's `add` also raises on a number of 65520 or more in magnitude.
+  corpus: function(dims: integer, storage: string?): Corpus
   -- Raises on an entry that is not a finite number.
   pack: function(numbers: {number}): string
   -- Raises on a string that is not a whole number of floats.

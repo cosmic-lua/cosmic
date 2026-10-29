@@ -1,8 +1,8 @@
 --- Fuzz properties for the vectors of [`cosmic.vector`] and the SQL
 --- functions beside them (core/vector.c): the text a vector is read from,
 --- every SQL function over arbitrary blobs, the packing functions, the
---- corpus's search against a brute-force reference, and the centroid
---- search. Each is total -- an answer or a refusal, never a crash -- and
+--- corpus's search against a brute-force reference (over the vectors as
+--- each storage holds them), and the centroid search. Each is total -- an answer or a refusal, never a crash -- and
 --- each answer is held to a reference written here in Teal, over the
 --- bytes. `FUZZ_SEED` and `FUZZ_ITERS` pick the inputs (build/fuzz/init.tl).
 ---
@@ -1039,12 +1039,89 @@ end
 
 local ID_EDGES <const>: {integer} = { math.mininteger, math.maxinteger, 0, -1, 1 << 40 }
 
+--- The smallest normal float, as a double.
+local FLT_MIN <const> = 1.1754943508222875e-38
+
+--- The nearest whole number to `x`, a tie to the even one.
+local function round_even(x: number): number
+  local below = math.floor(x)
+  local rest = x - below
+  if rest > 0.5 or (rest == 0.5 and below % 2 == 1) then return below + 1 end
+  return below
+end
+
+--- `x` as a half-precision float holds it, as a double, or nil where a half
+--- cannot: a magnitude of 65520 or more rounds to infinity.
+local function half_of(x: number): number?
+  local magnitude = math.abs(x)
+  if magnitude >= 65520 then return nil end
+  if magnitude == 0 then return 0.0 end
+  local exponent = math.floor(math.log(magnitude, 2))
+  while 2.0 ^ exponent > magnitude do exponent = exponent - 1 end
+  while 2.0 ^ (exponent + 1) <= magnitude do exponent = exponent + 1 end
+  -- Eleven significant bits, and a fixed step below the normal range.
+  local step = 2.0 ^ (math.max(exponent, -14) - 10)
+  local rounded = round_even(magnitude / step) * step
+  if x < 0 then return -rounded end
+  return rounded
+end
+
+--- The numbers an int8 corpus holds for `numbers`: each code (the number
+--- over the scale, a tie to the even, within 127) times the scale, which is
+--- the largest magnitude over 127 as a float. A scale under a normal float
+--- holds all zeros.
+local function int8_of(numbers: {number}): {number}
+  local largest = 0.0
+  for _, x in ipairs(numbers) do largest = math.max(largest, math.abs(x)) end
+  local scale = f32(largest / 127)
+  local out: mut {number} = {}
+  for _, x in ipairs(numbers) do
+    if scale >= FLT_MIN then
+      local code = math.max(-127, math.min(127, round_even(f32(x / scale))))
+      out[#out + 1] = code * scale
+    else
+      out[#out + 1] = 0.0
+    end
+  end
+  return out
+end
+
+--- What a corpus of `storage` holds for a vector it was given, or nil where
+--- `add` refuses it.
+local function stored_row(storage: string, numbers: {number}): {number}?
+  if storage == "int8" then return int8_of(numbers) end
+  if storage == "f16" then
+    local out: mut {number} = {}
+    for _, x in ipairs(numbers) do
+      local half = half_of(x)
+      if half == nil then return nil end
+      out[#out + 1] = half
+    end
+    return out
+  end
+  return numbers
+end
+
+--- What a search compares the rows with: an int8 corpus quantizes the query;
+--- the others compare it as given.
+local function stored_query(storage: string, numbers: {number}): {number}
+  if storage == "int8" then return int8_of(numbers) end
+  return numbers
+end
+
+local function storage_of(name: string): Vector.Storage
+  if name == "f16" then return "f16" end
+  if name == "int8" then return "int8" end
+  return "f32"
+end
+
 local function gen_search_input(src: Fuzz.Source): string
+  local storage = Fuzz.pick(src, { "f32", "f32", "f16", "int8", "int8" })
   local kind = src:int(0, 11)
   if kind > 4 then kind = kind % 4 end
   local letters = alphabet(kind)
   local dims = Fuzz.pick(src, { 1, 1, 2, 3, 3, 4, 5, 9, 17 })
-  local fields: mut {string} = { tostring(kind), tostring(dims) }
+  local fields: mut {string} = { storage, tostring(kind), tostring(dims) }
   fields[#fields + 1] = Fuzz.pick(src, { "1", "1", "2", "3", "5", "10", "40", "9223372036854775807" })
   fields[#fields + 1] = Fuzz.pick(src, { "inner_product", "cosine", "l2" })
   if src:int(0, 1) == 0 then
@@ -1125,14 +1202,22 @@ local function shown(ids: {integer}, scores: {number}): string
   return "[" .. table.concat(parts, " ") .. "]"
 end
 
+--- Whether `a` is `b` to the rounding of a float sum.
+local function within(a: number, b: number): boolean
+  if a == b then return true end
+  if b == math.huge or b == -math.huge then return false end
+  return math.abs(a - b) <= 1e-5 * math.max(1, math.abs(b))
+end
+
 local function check_search(input: string): boolean, string
   local fields = Fuzz.unpack(input)
-  local kind, dims = to_int(assert(fields[1])), to_int(assert(fields[2]))
-  local k = to_int(assert(fields[3]))
-  local metric = assert(fields[4])
+  local storage = assert(fields[1])
+  local kind, dims = to_int(assert(fields[2])), to_int(assert(fields[3]))
+  local k = to_int(assert(fields[4]))
+  local metric = assert(fields[5])
   local candidates: integer? = nil
-  if assert(fields[5]) ~= "" then candidates = to_int(assert(fields[5])) end
-  local allow_field = assert(fields[6])
+  if assert(fields[6]) ~= "" then candidates = to_int(assert(fields[6])) end
+  local allow_field = assert(fields[7])
   local allow: {integer}? = nil
   local allowed: mut {integer: boolean} = {}
   if allow_field ~= "none" then
@@ -1143,23 +1228,32 @@ local function check_search(input: string): boolean, string
     end
     allow = list
   end
-  local query = numbers_of(assert(fields[7]))
-  local corpus = Vector.corpus(dims)
+  local query = numbers_of(assert(fields[8]))
+  local held_query = stored_query(storage, query)
+  local corpus = Vector.corpus(dims, { storage = storage_of(storage) })
   local pool: mut {Scored} = {}
+  -- The rows as given, whose signs the first pass reads, and as held.
   local rows: mut {{number}} = {}
-  for at = 8, #fields do
+  for at = 9, #fields do
     local id_text, numbers_text = assert(fields[at]):match("^(.-)|(.*)$")
     local id, numbers = to_int(assert(id_text)), numbers_of(assert(numbers_text))
-    corpus:add(id, Vector.pack(numbers))
-    rows[#rows + 1] = numbers
-    if allow == nil or allowed[id] == true then
-      pool[#pool + 1] = { id = id, key = key_of(metric, numbers, query), row = #rows }
+    local held_row = stored_row(storage, numbers)
+    local added, _ = pcall(corpus.add, corpus, id, Vector.pack(numbers))
+    if held_row == nil then
+      if added then return false, "an f16 corpus took " .. csv(numbers) end
+      Fuzz.label("f16 refused")
+    else
+      if not added then return false, "a corpus refused " .. csv(numbers) end
+      rows[#rows + 1] = numbers
+      if allow == nil or allowed[id] == true then
+        pool[#pool + 1] = { id = id, key = key_of(metric, held_row, held_query), row = #rows }
+      end
     end
   end
   if corpus:count() ~= #rows then return false, "count is " .. tostring(corpus:count()) end
   local hits = assert(corpus:search(Vector.pack(query), k, { metric = metric_of(metric), candidates = candidates, allow = allow }))
-  local who = ("%s k=%d candidates=%s of %d rows (%d eligible), query %s"):format(
-    metric, k, tostring(candidates), #rows, #pool, csv(query))
+  local who = ("%s %s k=%d candidates=%s of %d rows (%d eligible), query %s"):format(
+    storage, metric, k, tostring(candidates), #rows, #pool, csv(query))
   if #hits.ids ~= #hits.scores then return false, who .. ": ids and scores differ in length" end
   if kind == 4 then
     -- Sums that overflow: no reference, but an answer still holds together.
@@ -1212,23 +1306,28 @@ local function check_search(input: string): boolean, string
     if metric == "l2" then return math.sqrt(-s.key) end
     return s.key
   end
-  if metric == "cosine" then
+  -- A cosine, or any score from a smaller storage, is held to the rounding
+  -- of a float sum; the others, whose sums are exact, to the bit.
+  if metric == "cosine" or storage ~= "f32" then
     local used: mut {integer: boolean} = {}
     for i = 1, want do
       local expected = assert(order[i])
       local got = assert(hits.scores[i])
-      if not (got == score_of(expected) or math.abs(got - score_of(expected)) <= 1e-5) then
+      if not within(got, score_of(expected)) then
         return false, ("%s: score %d is %.9g, not %.9g: %s"):format(who, i, got, score_of(expected),
           shown(hits.ids, hits.scores))
       end
       local before = hits.scores[i - 1]
-      if before ~= nil and (before < got or (before == got and assert(hits.ids[i - 1]) > assert(hits.ids[i]))) then
+      local worse = false
+      if before ~= nil then
+        if metric == "l2" then worse = before > got else worse = before < got end
+      end
+      if worse or (before == got and assert(hits.ids[i - 1]) > assert(hits.ids[i])) then
         return false, who .. ": out of order " .. shown(hits.ids, hits.scores)
       end
       local found = false
       for _, s in ipairs(pool) do
-        local near = s.key == got or math.abs(s.key - got) <= 1e-5
-        if used[s.row] == nil and s.id == hits.ids[i] and near then
+        if used[s.row] == nil and s.id == hits.ids[i] and within(score_of(s), got) then
           used[s.row] = true
           found = true
           break
@@ -1254,6 +1353,7 @@ local function check_search(input: string): boolean, string
     end
   end
   Fuzz.label(metric)
+  Fuzz.label(storage)
   if want == 0 then Fuzz.label("no hits") end
   if allow ~= nil then Fuzz.label("allowed") end
   if k > #order then Fuzz.label("k outruns the rows") end
@@ -1269,9 +1369,9 @@ local function test_search_matches_a_brute_force_reference(tmp: string)
     dir = tmp,
     gen = gen_search_input,
     check = check_search,
-    requires = { "inner_product", "cosine", "l2", "no hits", "allowed", "candidates", "k outruns the rows",
-      "zero vectors last", "overflowing" },
-    shares = { inner_product = 0.1, cosine = 0.1, l2 = 0.1, allowed = 0.1 },
+    requires = { "inner_product", "cosine", "l2", "f32", "f16", "int8", "f16 refused", "no hits", "allowed",
+      "candidates", "k outruns the rows", "zero vectors last", "overflowing" },
+    shares = { inner_product = 0.1, cosine = 0.1, l2 = 0.1, f16 = 0.1, int8 = 0.2, allowed = 0.1 },
   })
 end
 
@@ -1282,13 +1382,15 @@ end
 --- Hostile calls, in plain Lua so that a typed caller need not build
 --- their arguments. Each case says whether it raises.
 local REFUSAL_CHUNK <const> = [[
-  local Vector, dims, ops = ...
+  local Vector, dims, ops, storage = ...
   local good = {}
   for i = 1, dims do good[i] = 1 end
   good = Vector.pack(good)
   local nan = string.pack("<f", 0 / 0)
   local inf = string.pack("<f", math.huge)
-  local corpus = Vector.corpus(dims)
+  local over = string.pack("<f", 65520) .. good:sub(5)
+  local under = string.pack("<f", 65519) .. good:sub(5)
+  local corpus = Vector.corpus(dims, { storage = storage })
   corpus:add(7, good)
   local count = 1
   local cases = {
@@ -1300,6 +1402,8 @@ local REFUSAL_CHUNK <const> = [[
     add_string_id = { true, function() corpus:add("x", good) end },
     add_table = { true, function() corpus:add(1, {}) end },
     add_nil = { true, function() corpus:add(1, nil) end },
+    add_over_half = { storage == "f16", function() corpus:add(2, over) end },
+    add_under_half = { false, function() corpus:add(3, under) end },
     add_ok = { false, function() corpus:add(-3, good) end },
     add_ok_again = { false, function() corpus:add(7, good) end },
     search_k0 = { true, function() corpus:search(good, 0) end },
@@ -1332,6 +1436,10 @@ local REFUSAL_CHUNK <const> = [[
     corpus_dims_float = { true, function() Vector.corpus(1.5) end },
     corpus_dims_nil = { true, function() Vector.corpus(nil) end },
     corpus_dims_max = { false, function() Vector.corpus(16000) end },
+    corpus_storage_word = { true, function() Vector.corpus(dims, { storage = "bf16" }) end },
+    corpus_storage_number = { true, function() Vector.corpus(dims, { storage = 16 }) end },
+    corpus_storage_f16 = { false, function() Vector.corpus(dims, { storage = "f16" }) end },
+    corpus_storage_int8 = { false, function() Vector.corpus(dims, { storage = "int8" }) end },
     kmeans_k0 = { true, function() Vector.kmeans(corpus, 0) end },
     kmeans_k_big = { true, function() Vector.kmeans(corpus, corpus:count() + 1) end },
     kmeans_iterations0 = { true, function() Vector.kmeans(corpus, 1, { iterations = 0 }) end },
@@ -1346,8 +1454,10 @@ local REFUSAL_CHUNK <const> = [[
     if ok == case[1] then
       return op .. (ok and " should have raised" or " raised: " .. tostring(why))
     end
-    if ok and op == "add_ok" then count = count + 1 end
-    if ok and op == "add_ok_again" then count = count + 1 end
+    if ok and (op == "add_ok" or op == "add_ok_again" or op == "add_over_half"
+        or op == "add_under_half") then
+      count = count + 1
+    end
     if corpus:count() ~= count then
       return op .. " left a count of " .. corpus:count() .. ", not " .. count
     end
@@ -1360,18 +1470,20 @@ local REFUSAL_CHUNK <const> = [[
 local run_refusals = assert(load(REFUSAL_CHUNK, "=vector_fuzz_refusals", "t"))
 
 local REFUSAL_OPS <const>: {string} = { "add_short", "add_long", "add_nan", "add_inf", "add_float_id",
-  "add_string_id", "add_table", "add_nil", "add_ok", "add_ok_again", "search_k0", "search_kneg",
+  "add_string_id", "add_table", "add_nil", "add_over_half", "add_under_half", "add_ok", "add_ok_again", "search_k0", "search_kneg",
   "search_kfloat", "search_kstring", "search_knil", "search_metric", "search_metric_number",
   "search_cand0", "search_candneg", "search_candfloat", "search_allow_word", "search_allow_float",
   "search_allow_table", "search_allow_number", "search_short", "search_nan", "search_number",
   "search_ok", "search_big_k", "search_everything", "search_allow_empty", "search_allow_whole_float",
   "corpus_dims0", "corpus_dims_neg", "corpus_dims_big", "corpus_dims_float", "corpus_dims_nil",
-  "corpus_dims_max", "kmeans_k0", "kmeans_k_big", "kmeans_iterations0", "kmeans_ok",
+  "corpus_dims_max", "corpus_storage_word", "corpus_storage_number", "corpus_storage_f16",
+  "corpus_storage_int8", "kmeans_k0", "kmeans_k_big", "kmeans_iterations0", "kmeans_ok",
   "method_on_nothing", "method_on_table" }
 
 local function gen_refusals_input(src: Fuzz.Source): string
-  local fields: mut {string} = { tostring(Fuzz.pick(src, { 1, 1, 2, 3, 9, 17 })) }
-  while Fuzz.more(src, #fields - 1, 14) do
+  local fields: mut {string} = { tostring(Fuzz.pick(src, { 1, 1, 2, 3, 9, 17 })),
+    Fuzz.pick(src, { "f32", "f16", "int8" }) }
+  while Fuzz.more(src, #fields - 2, 14) do
     fields[#fields + 1] = Fuzz.pick(src, REFUSAL_OPS)
   end
   return Fuzz.pack(fields)
@@ -1380,12 +1492,13 @@ end
 local function check_refusals(input: string): boolean, string
   local fields = Fuzz.unpack(input)
   local dims = to_int(assert(fields[1]))
+  local storage = assert(fields[2])
   local ops: mut {string} = {}
-  for at = 2, #fields do ops[#ops + 1] = assert(fields[at]) end
-  local answer = run_refusals(Vector, dims, ops)
+  for at = 3, #fields do ops[#ops + 1] = assert(fields[at]) end
+  local answer = run_refusals(Vector, dims, ops, storage)
   if not (answer is string) then return false, "the chunk answered oddly" end
   if answer ~= "ok" then
-    return false, ("dims %d, %s: %s"):format(dims, table.concat(ops, " "), answer)
+    return false, ("dims %d, %s, %s: %s"):format(dims, storage, table.concat(ops, " "), answer)
   end
   Fuzz.label("refused")
   return true, ""

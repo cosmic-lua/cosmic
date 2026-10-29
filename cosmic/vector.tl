@@ -16,6 +16,37 @@
 --- vectors, ids and bit vectors, so a large one makes it collect as any
 --- large value does, and a corpus nothing refers to gives them all back.
 ---
+--- Storage: a corpus keeps its vectors as 32-bit floats (`"f32"`, the
+--- default), as 16-bit floats (`"f16"`, half the memory) or as 8-bit
+--- integers with one scale per vector (`"int8"`, a quarter), as
+--- [`Vector.corpus`] is told. [`Vector.Corpus.add`] converts the f32
+--- vector it is given; a query stays f32, and every search option
+--- behaves the same for each storage. A smaller storage scans faster,
+--- since a scan is bound by memory, and ranks the vectors as stored, so
+--- its scores differ from f32's by the rounding and its ranking can swap
+--- close neighbors.
+---
+--- - `"f16"` rounds each number to the nearest half (11 significant
+---   bits, ties to even). It refuses in `add` a number of 65520 or more
+---   in magnitude, which a half cannot hold, rather than store infinity
+---   (pgvector's `halfvec` refuses it too). A number under 3e-8 in
+---   magnitude becomes zero. A score is the sum over the stored halves
+---   against the f32 query.
+--- - `"int8"` stores `round(x / scale)` for `scale = max|x| / 127`
+---   (ties to even), so each number of a vector is within half a scale
+---   of its stored value. A query is quantized the same way once per
+---   search. A row's score is the exact integer dot product of the two
+---   code vectors times both scales. `cosine` divides by the lengths of
+---   the two dequantized vectors, and `l2` is the distance between them.
+---   A vector whose largest number is under about 1e-36 has no direction
+---   and is stored as zeros.
+---
+--- The f32 vector given to `add` is not kept. The binary first pass of
+--- `candidates` reads one bit per dimension (its sign) of each vector,
+--- so an `"f16"` or `"int8"` corpus makes them in `add` from the f32
+--- vector, `dims / 8` bytes a row, where an `"f32"` corpus makes them on
+--- the first search that asks.
+---
 --- Out of memory: a call that cannot get the memory it needs raises
 --- "not enough memory", as any Lua allocation does, and leaves the corpus
 --- as it was (an `add` that raised added nothing; a later call works
@@ -85,10 +116,24 @@ local record Vector
     allow?: {integer}
   end
 
+  --- How a corpus holds its vectors; see the module's description.
+  enum Storage
+    "f32"
+    "f16"
+    "int8"
+  end
+
+  record CorpusOptions
+    --- How the vectors are stored; `"f32"` by default.
+    storage?: Vector.Storage
+  end
+
   --- n vectors of one dimension count, each with an id.
   record Corpus
     --- The dimension count of every vector in the corpus.
     dims: integer
+    --- How the corpus holds its vectors.
+    storage: Storage
     --- The core's buffer behind the corpus; not for callers.
     handle: raw_vector.Corpus
     --- `corpus:add(id, v)`: see [`Vector.corpus`].
@@ -136,10 +181,11 @@ function Vector.normalize(v: string): string
   return raw.normalize(v)
 end
 
---- Adds a vector under an id. Raises on a vector of another length
---- than the corpus's dimensions, or with a value that is not finite.
---- A second add of an id makes a second row: ids are not unique to the
---- corpus.
+--- Adds a vector under an id, as f32 numbers: it is converted to the
+--- corpus's storage. Raises on a vector of another length than the
+--- corpus's dimensions, or with a value that is not finite, or, in an
+--- `"f16"` corpus, one of 65520 or more in magnitude. A second add of
+--- an id makes a second row: ids are not unique to the corpus.
 local function corpus_add(self: Vector.Corpus, id: integer, v: string)
   self.handle:add(id, v)
 end
@@ -203,20 +249,24 @@ function Vector.nearest_n(centroids: {string}, v: string, n: integer): {integer}
   return raw.nearest(centroids, v, n)
 end
 
---- An empty corpus of vectors with `dims` dimensions, from 1 to 16000.
-function Vector.corpus(dims: integer): Vector.Corpus
-  return { dims = dims, handle = raw.corpus(dims), add = corpus_add, count = corpus_count,
-    search = corpus_search }
+--- An empty corpus of vectors with `dims` dimensions, from 1 to 16000,
+--- held as `opts.storage` (`"f32"` by default). Raises on another
+--- storage.
+function Vector.corpus(dims: integer, opts?: Vector.CorpusOptions): Vector.Corpus
+  local storage: Vector.Storage = (opts and opts.storage) or "f32"
+  return { dims = dims, storage = storage, handle = raw.corpus(dims, storage), add = corpus_add,
+    count = corpus_count, search = corpus_search }
 end
 
-local function add_row(held: Vector.Corpus?, id: integer, blob: string): Vector.Corpus?, string
+local function add_row(held: Vector.Corpus?, id: integer, blob: string,
+                       opts?: Vector.CorpusOptions): Vector.Corpus?, string
   local at = "row " .. tostring(id) .. ": "
   local target: Vector.Corpus
   if held == nil then
     if #blob == 0 or #blob % 4 ~= 0 or #blob // 4 > 16000 then
       return nil, at .. "not a vector blob"
     end
-    target = Vector.corpus(#blob // 4)
+    target = Vector.corpus(#blob // 4, opts)
   else
     target = held
   end
@@ -229,9 +279,11 @@ end
 
 --- A corpus from the rows a query answers, each an integer id and a
 --- vector blob, in that order: `Vector.load(db, "SELECT id, embedding
---- FROM chunks")`. Answers `nil` and why when the query fails or a row
---- holds something else than a vector of the first row's length.
-function Vector.load(db: Sqlite.Handle, sql: string, values?: {Sqlite.Value}): Vector.Corpus?, string
+--- FROM chunks")`. `opts` is as [`Vector.corpus`]'s. Answers `nil` and
+--- why when the query fails or a row holds something else than a vector
+--- of the first row's length (or, for `"f16"`, one it cannot hold).
+function Vector.load(db: Sqlite.Handle, sql: string, values?: {Sqlite.Value},
+                     opts?: Vector.CorpusOptions): Vector.Corpus?, string
   local q, why = Sqlite.query(db, sql, values)
   if not q then
     return nil, why
@@ -243,7 +295,7 @@ function Vector.load(db: Sqlite.Handle, sql: string, values?: {Sqlite.Value}): V
       failure = "load wants an integer id and a vector blob in each row"
       break
     end
-    local grown, trouble = add_row(corpus, row:integer(1), row:blob(2))
+    local grown, trouble = add_row(corpus, row:integer(1), row:blob(2), opts)
     if grown == nil then
       failure = trouble
       break

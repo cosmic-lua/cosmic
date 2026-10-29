@@ -3,15 +3,16 @@
  * names, so the table cosmic/internal/testing.d.tl declares is the one
  * every core registers, but each instrument raises rather than
  * instrument. No shipped core has an allocator a program can make
- * fail. The five raw namespace calls (core/namespace_calls.c) are no
- * instruments: they are real here, as in the checked core, and not
- * stand-ins.
+ * fail. The five raw namespace calls (core/namespace_calls.c) and the
+ * vector kernel selector (core/vector.c) are no instruments: they are
+ * real here, as in the checked core, and not stand-ins.
  */
 
 #include "testing.h"
 
 #include "lauxlib.h"
 #include "namespace_calls.h"
+#include "vector.h"
 
 /* The instruments core/testing_checked.c registers, by name: edit the
  * two lists together. core/declarations_test.tl fails the run of
@@ -37,6 +38,7 @@ int cosmic_open_testing (lua_State *L) {
     lua_setfield(L, -2, *name);
   }
   cosmic_add_namespace_calls(L);
+  cosmic_add_vector_kernel(L);
   lua_pushliteral(L, COSMIC_CONFIGURATION_NAME);
   lua_setfield(L, -2, "configuration");
   return 1;
