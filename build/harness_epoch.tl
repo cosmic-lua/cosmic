@@ -109,7 +109,7 @@ harness_epoch.acknowledged = {
 
   ["build.key_parts"] = "8d6552f9b67824ad5158996a1806062870f2e0a7f8eac6d42f27b3fa26337fc2",
 
-  ["build.launcher"] = "fdb80d70095da4e274d9a6915dd6c538354cdc33357ecac50ecf51eb7f89d4d9",
+  ["build.launcher"] = "40a625bfb41cc84e48dd9c3ff9241aeeb8a8945a41116c054286c45d3e181975",
 
   ["build.load_module"] = "a54bd951a24ee621ba85cda899b57226f1203ebc7ff8e710fad39459d5ba6e63",
 
