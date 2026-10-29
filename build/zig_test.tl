@@ -477,7 +477,7 @@ local function test_boot_lock_classifies_the_begin_result_not_its_reason(tmp: st
   end
   for i, each in ipairs(outcomes) do
     outcome, calls.value, closes.value = each, 0, 0
-    statuses[i] = Zig.with_lock(build_dir(tmp .. "/" .. i), {}, function(_env: {string:string}): integer
+    statuses[i] = Zig.with_lock(build_dir(tmp .. "/" .. tostring(i)), {}, function(_env: {string:string}): integer
       return 7
     end)
     attempts[i], closures[i] = calls.value, closes.value

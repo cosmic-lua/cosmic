@@ -679,9 +679,19 @@ local checked_gather_cap_ns <const> = Clock.seconds(780)
 --- How many rows the verdict cache at `path` holds that a host of
 --- `features` ([`HostId.features`]) cannot stand on: those stamped with
 --- other key parts, or none (build/shared_verdicts.tl's `parts`, whose
---- first is "host features <digest>"). Nil and why where `path` is no
+--- first is "host features <digest>"), but for those that name the
+--- identity of their host and its rest but for the features ("host
+--- identity", "host rest"), which the gathering run looks up under their
+--- own host's key (build/test_key.tl's `lookup`). Nil and why where `path` is no
 --- cache of this format, which a gathering run then bounds as one with
 --- nothing to run again.
+-- TODO: count only the rows whose rest is this host's ("host rest"), once
+-- the driver can name this host's rest: build/declared_key.tl's
+-- `host_split` is the tree's, which the pinned release the driver runs on
+-- cannot call, and ci/cosmic_ci/host_id.tl names only the features. Today
+-- a row of another rest (another image, user or sandbox) is counted as
+-- one to look up, which no key of this host reaches, so those tests run
+-- again beyond the time given.
 function Orchestration.stale_rows(path: string, features: string): integer?, string
   if features:match("^%x+$") == nil then
     return nil, "host features " .. features .. " are no digest"
@@ -689,7 +699,8 @@ function Orchestration.stale_rows(path: string, features: string): integer?, str
   local db, open_trouble = Sqlite.open(path)
   if db == nil then return nil, path .. ": " .. open_trouble end
   local rows, trouble = Sqlite.text_rows(db, "SELECT COUNT(*) FROM declared_v1 " ..
-      "WHERE parts NOT LIKE 'host features " .. features .. ",%'")
+      "WHERE parts NOT LIKE 'host features " .. features .. ",%' AND NOT " ..
+      "(parts LIKE '%, host identity %' AND parts LIKE '%, host rest %')")
   local _, _ = db:close()
   if rows == nil then return nil, path .. ": " .. trouble end
   local first = rows[1]
@@ -1289,7 +1300,11 @@ local function checked_suite(c: Context, target: string, work: string,
   local checked_run = Orchestration.suite_run({
     COSMIC_VERDICT_CACHE = Orchestration.suite_verdicts(Env.all(), "checked"),
     COSMIC_TEST_TIMEOUT = checked_suite_test_timeout_s,
-    COSMIC_CI_GATHER = if gathering then "1" else "" end })
+    COSMIC_CI_GATHER = if gathering then "1" else "" end,
+    -- The gathering run's tool also looks a test up under the key of
+    -- a host of other features that kept its row (build/test_key.tl's
+    -- `lookup`), the shares' alone being what its cache holds.
+    COSMIC_TEST_FOREIGN_FEATURES = if gathering then "1" else "" end })
   local checked_environment = checked_run.env
   local checked_words = with_census(checked_run.words)
   local shard_words: {string} = if share ~= nil then { "--shard", share } else {} end

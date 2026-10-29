@@ -215,11 +215,11 @@ local function test_landlock_is_held_to_the_kernels_abi()
     assert(ask(host, "landlock").kind == "skipped")
     return
   end
-  local at = ask(host, "landlock:" .. abi)
-  assert(at.kind == "present" and at.key == "abi=" .. abi)
+  local at = ask(host, "landlock:" .. tostring(abi))
+  assert(at.kind == "present" and at.key == "abi=" .. tostring(abi))
   assert(ask(host, "landlock").kind == "present")
-  assert(ask(host, "landlock:" .. (abi + 1)).kind == "skipped")
-  assert(ask(host, "landlock:" .. (abi + 1)).why:find("below", 1, true))
+  assert(ask(host, "landlock:" .. tostring((abi + 1))).kind == "skipped")
+  assert(ask(host, "landlock:" .. tostring((abi + 1))).why:find("below", 1, true))
 end
 
 --- `root` follows the run's user, and `proc` the mount.

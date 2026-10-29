@@ -232,6 +232,10 @@ allowed["build.declared_key.dispatched"] = "what build/dispatched_features_test.
   "holds the tree's CPU dispatch sites to: the features a key holds are the ones they read"
 allowed["build.declared_key.system_sources"] = "what build/host_features_test.tl " ..
   "holds ci/testdata/host_features to: a key names each recorded host as ci/cosmic_ci/host_id.tl does"
+allowed["build.declared_key.host_identity"] = "what build/declared_key_test.tl " ..
+  "holds the host's identity to, the first of the `host_split` the harness keys by"
+allowed["build.shared_verdicts.host_of"] = "what build/shared_verdicts_test.tl " ..
+  "holds the parts a row names its host by to"
 allowed["build.confine.confine"] = "a test's own declaration: " ..
   "what the processes a test starts need, which only a test makes"
 allowed["build.confine.must_confine"] = "a test's own declaration: " ..

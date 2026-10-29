@@ -40,7 +40,7 @@ end
 local function test_an_elf_whose_headers_do_not_fit_is_keyed_whole()
   local core = fixture.elf("code", "dwarf")
   for _, cut in ipairs({ 63, 64, 100, #core - 1 }) do
-    assert(core_image.digest(core:sub(1, cut)) == nil, "cut at " .. cut)
+    assert(core_image.digest(core:sub(1, cut)) == nil, "cut at " .. tostring(cut))
   end
   -- A segment past the end of the file.
   assert(core_image.digest(set(core, 97, 8, #core + 1)) == nil)

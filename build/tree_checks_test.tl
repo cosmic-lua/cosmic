@@ -152,7 +152,7 @@ local function test_an_internal_module_is_absent_from_the_public_docs(dir: strin
   local public = assert(Sqlite.text_rows(db, "SELECT DISTINCT module FROM docs WHERE " ..
       symbols.public_only("module", true) .. " ORDER BY module"))
   assert(#all == 2 and all[1]:text(1) == "cosmic.fs" and all[2]:text(1) == "cosmic.internal.shared",
-    #all .. " modules")
+    tostring(#all) .. " modules")
   assert(#public == 1 and public[1]:text(1) == "cosmic.fs")
   assert(symbols.is_public_module("cosmic.fs"))
   assert(not symbols.is_public_module("cosmic.internal.shared"))
@@ -1222,7 +1222,7 @@ local function test_a_memo_answers_the_body_check_until_a_module_a_file_requires
   local plain = table.concat(tree_checks.checked(root, {}, memo), "\n")
   assert(plain:find("build/top.tl:2:", 1, true) and plain:find("build/alone.tl:1:", 1, true), plain)
   local count = assert(Sqlite.rows(memo, "SELECT count(*) FROM check_memo WHERE kind = 'checked'"))
-  assert(count[1]:integer(1) == 3, "the three files: " .. count[1]:integer(1))
+  assert(count[1]:integer(1) == 3, "the three files: " .. tostring(count[1]:integer(1)))
   assert(Sqlite.run(memo, "UPDATE check_memo SET value = ?1 WHERE kind = 'checked'", { { text = "N\nE\tnil_not_allowed\t7\t9\tplanted\tdo it" } }))
   local hit = table.concat(tree_checks.checked(root, {}, memo), "\n")
   assert(hit:find("build/top.tl:7:9: planted (nil_not_allowed): do it", 1, true) and not hit:find("not_assignable", 1, true), hit)

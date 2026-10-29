@@ -62,7 +62,7 @@ local function test_a_stub_leaves_out_bodies_and_comments_and_keeps_positions()
       -- The one-line function keeps its `end` at the column it had.
       assert(stubbed[i]:match("^M%.g = function%(s: string%): string +end$") ~= nil, "line 12: " .. stubbed[i])
     else
-      assert(stubbed[i] == line, "line " .. i .. ": " .. stubbed[i])
+      assert(stubbed[i] == line, "line " .. tostring(i) .. ": " .. stubbed[i])
     end
   end
   local text = stub_of(source("local record M", "end", "M.g = function(s: string): string return s end", "return (M)"))
@@ -107,7 +107,7 @@ local function test_a_module_returning_its_record_keeps_only_what_its_type_names
   }
   assert(#stubbed == #want, table.concat(stubbed, "\n"))
   for i, line in ipairs(want) do
-    assert(stubbed[i] == line, "line " .. i .. ": " .. stubbed[i])
+    assert(stubbed[i] == line, "line " .. tostring(i) .. ": " .. stubbed[i])
   end
 end
 

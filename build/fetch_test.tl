@@ -159,7 +159,7 @@ local function test_a_bad_url_or_command_line_is_a_usage_error()
       { url, "--head", "-o", "x" }, { url, "-o", "" },
   } as {{string}}) do
     local ran = run(words, {})
-    assert(ran.code == 2, table.concat(words, " ") .. " exited " .. ran.code .. ": " .. ran.err)
+    assert(ran.code == 2, table.concat(words, " ") .. " exited " .. tostring(ran.code) .. ": " .. ran.err)
     assert(ran.out == "" and ran.err:find("cosmic: fetch: ", 1, true) == 1, ran.err)
   end
 end
@@ -173,7 +173,7 @@ local function closed_port(): integer
 end
 
 local function test_a_refused_connection_fails()
-  local refused = "http://127.0.0.1:" .. closed_port() .. "/"
+  local refused = "http://127.0.0.1:" .. tostring(closed_port()) .. "/"
   local ran = run({ refused })
   assert(ran.code == 1, tostring(ran.code) .. ran.err)
   assert(ran.out == "" and ran.err:find("cosmic: fetch: " .. refused, 1, true) == 1, ran.err)
@@ -205,7 +205,7 @@ local function test_credentials_never_reach_a_message_or_the_json(tmp: string)
   local json = run({ "--head", "--json", secret }, { reply("200 OK", "") })
   assert(json.code == 0 and not json.out:find("hunter2", 1, true), json.out)
   assert(json.out:find("***@cosmic.test", 1, true), json.out)
-  local refused = run({ "http://user:hunter2@127.0.0.1:" .. closed_port() .. "/" })
+  local refused = run({ "http://user:hunter2@127.0.0.1:" .. tostring(closed_port()) .. "/" })
   assert(refused.code == 1 and not refused.err:find("hunter2", 1, true), refused.err)
 end
 

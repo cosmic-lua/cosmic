@@ -344,7 +344,7 @@ local function test_a_closure_store_answers_for_its_closure_s_links(tmp: string)
   assert(db:close())
   local links: mut {string} = {}
   for _, use in ipairs(found) do
-    if use.link then links[#links + 1] = use.from_file .. ":" .. use.line end
+    if use.link then links[#links + 1] = use.from_file .. ":" .. tostring(use.line) end
   end
   assert(table.concat(links, " ") == "greet_test.tl:2", table.concat(links, " "))
 end

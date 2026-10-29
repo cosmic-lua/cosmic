@@ -134,7 +134,7 @@ local function test_a_checked_run_reports_a_false_value_and_changes_no_verdict(t
   assert(text:find("2 ran, 0 stood", 1, true), "a standing verdict hid a test from the report: " .. text)
 
   local rows = violations(root)
-  assert(#rows == 1, #rows .. " rows")
+  assert(#rows == 1, tostring(#rows) .. " rows")
   assert(table.concat(rows[1]:texts(), " | ") == "parameter | greet_test.tl:5 | parameter name of function (greet.tl:6) | string|nil | integer | 1",
     table.concat(rows[1]:texts(), " | "))
 

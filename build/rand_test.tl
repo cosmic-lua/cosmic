@@ -268,7 +268,7 @@ local function test_shuffle_keeps_every_line_and_visits_every_order()
   end
   local count = 0
   for _ in pairs(orders) do count = count + 1 end
-  assert(count == 6, "saw " .. count .. " of the 6 orders")
+  assert(count == 6, "saw " .. tostring(count) .. " of the 6 orders")
   local entropic = run({ "shuffle" }, { stdin = "1\n2\n3\n4\n5\n6\n7\n8\n" })
   local got = lines(entropic.out)
   table.sort(got)

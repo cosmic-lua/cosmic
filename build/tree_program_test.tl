@@ -133,7 +133,7 @@ local function test_the_guides_and_templates_are_the_modules_the_stage_derives_f
     return a[1] < b[1]
   end)
   -- the same files, the same modules, the same text: two guides and two templates
-  assert(#entries == 4 and #derived == 4, #entries .. " / " .. #derived)
+  assert(#entries == 4 and #derived == 4, tostring(#entries) .. " / " .. tostring(#derived))
   for i, entry in ipairs(entries) do
     local row = assert(derived[i])
     assert(entry[1] == row[1] and entry[3] == row[2] and entry[2] == row[3], entry[1] .. " is not the stage's " .. row[1])

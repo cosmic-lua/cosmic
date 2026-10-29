@@ -49,7 +49,7 @@ local function test_a_bundle_parses_back_or_is_refused(tmp: string)
         local der = src:int(0, 2) == 0 and real or
           sequence(Fuzz.bytes(src, 300) .. ("c"):rep(src:int(0, 1) * 200))
         ders[#ders + 1] = der
-        blocks[#blocks + 1] = block(der, "Root " .. #ders)
+        blocks[#blocks + 1] = block(der, "Root " .. tostring(#ders))
         blocks[#blocks + 1] = ""
       end
       local text = table.concat(blocks, "\n")
