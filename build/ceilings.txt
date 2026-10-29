@@ -3558,7 +3558,7 @@ cosmic/sandbox/seatbelt.tl map_field 3
 
 cosmic/sandbox/seatbelt_test.tl map_field 29
 
-cosmic/sandbox_restrict_seatbelt_test.tl map_field 32
+cosmic/sandbox_restrict_seatbelt_test.tl map_field 31
 
 cosmic/sandbox_restrict_test.tl map_field 63
 

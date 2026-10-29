@@ -19,7 +19,7 @@
 --- declaration of it ever reach a project.
 ---
 --- Cosmic's own tree is not held to this: the tool itself is made of modules that do all of these. The tree is told from a
---- project by the structure of the root ([`build.tree`]'s `is_own`: a root with `core/`, `build/` and `build/importer.tl` is
+--- project by the structure of the root ([`build.tree`]'s `is_own`: a root with `core/`, `build/` and build/importer.tl is
 --- the tree, the same trust root as the reservation of `cosmic.*` to it), which is how [`build.pipeline`] chooses the options of a
 --- build (`project` is set for any other root, for `-e` and for a standalone file), so the check runs when the build says
 --- `project` and a tree check ([`build.tree_checks`]'s `package_readers` and `text_loaders`) holds the tree itself.
