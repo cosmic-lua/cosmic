@@ -1098,8 +1098,8 @@ local function examples_of(chunk: Ast.Chunk, scoped: Scopes.Scoped, lines: {stri
       local until_y, until_x = next_place(chunk, stats, index, #lines)
       local opener = first_token(chunk, stat)
       local body = own_text(block_text(lines, opener.y, opener.x, until_y, until_x))
-      out[#out + 1] = { name = member_of(stat), text = doc_text(stat.doc),
-        source = preamble_text(scoped, pre, stat, #out == 0) .. body, line = opener.y }
+      table.insert(out, { name = member_of(stat), text = doc_text(stat.doc),
+        source = preamble_text(scoped, pre, stat, #out == 0) .. body, line = opener.y })
     end
   end
   return out

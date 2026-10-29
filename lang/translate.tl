@@ -1292,7 +1292,7 @@ local function class_rewrite(source: string, tokens: Lexer.Tokens, declared: {st
       end
       edits[#edits + 1] = { lo = flo, hi = fhi, text = "" }
     end
-    pieces[#pieces + 1] = (if (#pieces == 0 and #rec.members == 0) then "" else "\n" end) .. docs .. indented(slice, ranges)
+    table.insert(pieces, (if (#pieces == 0 and #rec.members == 0) then "" else "\n" end) .. docs .. indented(slice, ranges))
     -- Cut the statement's lines, and a blank line when two would meet.
     local cut = hi
     if lo > 1 and cut <= #source and blank_line(source, cut) and blank_line(source, line_start(source, lo - 1)) then

@@ -1081,6 +1081,12 @@ local function test_an_append_in_a_statement_that_calls_stands_only_for_a_table_
   assert(holes(escapes .. "for i = 1, 2 do\n  out[#out + 1] = tostring(i)\n  keep[1] = out\nend\n") == "array_hole")
   -- one let out after the write, and outside any loop that holds it, is not yet out when the write runs
   assert(holes(escapes .. "out[#out + 1] = tostring(1)\nkeep[1] = out\n") == "")
+  -- a read of the table by the code of the statement reaches it in the call that may shorten it
+  local own = "local xs: mut {integer} = {1, 2, 3}\n"
+  assert(holes(own .. "xs[#xs + 1] = table.remove(xs) or 0\n") == "array_hole")
+  assert(holes(own .. "xs[#xs + 1] = table.remove(xs, 1) or 0\n") == "array_hole")
+  assert(holes(own .. "local function g(a: mut {integer}): integer\n  table.remove(a)\n  return 1\nend\nxs[#xs + 1] = g(xs)\n") == "array_hole")
+  assert(holes("local record Bag\n  mut items: mut {integer}\n  drop: function(self: Bag): integer\nend\nlocal xs: mut {integer} = {1, 2, 3}\nlocal bag: Bag = { items = xs, drop = function(self: Bag): integer\n  table.remove(self.items)\n  return 1\nend }\nxs[#xs + 1] = bag:drop()\n") == "array_hole")
   -- a local assigned again may be another table
   assert(holes("local out: mut {string} = {}\nout = {}\nout[#out + 1] = tostring(1)\n") == "array_hole")
 end

@@ -27,7 +27,7 @@ local function gen_base(src: Fuzz.Source, depth: integer): string
     local form = src:int(1, 4)
     local t = gen_type(src, depth - 1)
     if form == 1 then
-      params[#params + 1] = "p" .. tostring(#params) .. ": " .. t
+      table.insert(params, "p" .. tostring(#params) .. ": " .. t)
     elseif form == 2 then
       params[#params + 1] = "? " .. t
     elseif form == 3 then

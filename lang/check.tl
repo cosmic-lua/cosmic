@@ -5828,6 +5828,35 @@ function Writes.may_shorten(ctx: Ctx, object: Ast.Exp, s: Ast.Assign): boolean
   if v == nil or v.kind ~= "local" or v.assigned or #v.captures > 0 or privacy.literal[id] ~= true then
     return true
   end
+  -- A read of the local by the code the statement runs (`xs[#xs + 1] = table.remove(xs)`, `g(xs)`) reaches the table in the
+  -- very call that may shorten it, whatever [`Writes.stays_private`] says of the same read elsewhere.
+  local used: mut {boolean} = {}
+  local function look(node: Ast.Node)
+    if node.kind == "Name" and node.binding == id then
+      used[#used + 1] = true
+    else
+      Ast.children(node, look)
+    end
+  end
+  for _, target in ipairs(s.targets) do
+    local held = peel(target)
+    local own = false
+    if held.kind == "Index" then
+      local base = peel(held.object)
+      if base.kind == "Name" then
+        own = base.binding == id
+      end
+    end
+    if not own then
+      look(target)
+    end
+  end
+  for _, value in ipairs(s.values) do
+    look(value)
+  end
+  if #used > 0 then
+    return true
+  end
   -- The statement and the loops that hold it, inside the scope of the local: where a read lets the table out in time.
   local from, to = s.first, s.last
   for _, loop in ipairs(privacy.loops) do
