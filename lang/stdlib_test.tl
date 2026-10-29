@@ -77,6 +77,12 @@ local function test_a_move_that_may_copy_a_nil_or_leave_a_hole_is_refused()
   moves("local mv = table.move\nmv(xs, 1, n, 50, ys)\n", "overload_value array_hole")
   moves("local t = table\nt.move(xs, 1, n, 1, ys)\n", "array_hole")
   moves("(table.move)(xs, 1, #xs, 1, ys)\n", "overload_value array_hole")
+  -- the member is the library's however it is spelled
+  moves("table[\"move\"](xs, 1, n, 50)\n", "array_hole")
+  moves("local mv = table[\"move\"]\nmv(xs, 1, n, 50)\n", "array_hole")
+  moves("local mv = table[\"move\"]\nmv(xs, 1, #xs, 1, ys)\n", "array_hole arity")
+  -- a table literal to start is dense only if it is: a hole in it is refused as it is anywhere
+  moves("table.move(xs, 1, #xs, 1, { 1, nil, 3 })\n", "nil_not_allowed")
 end
 
 -- what the declarations say --------------------------------------------------------------------------

@@ -2198,6 +2198,100 @@ local function key_names(key: Ast.Exp, kt: Type): {string}?
   return nil
 end
 
+--- The rules by which an index write to a `mut` array is no hole ([`Writes.leaves_no_hole`]).
+local record Writes
+end
+
+--- Whether `a` and `b` name the same place: a name, or fields of one.
+function Writes.same_place(a: Ast.Exp, b: Ast.Exp): boolean
+  local x, y = peel(a), peel(b)
+  if (x.kind == "Name") and (y.kind == "Name") then
+    return x.binding ~= nil and x.binding == y.binding
+  elseif (x.kind == "Field") and (y.kind == "Field") then
+    return x.name == y.name and Writes.same_place(x.object, y.object)
+  end
+  return false
+end
+
+--- Whether `key` is `#object`: the key of the last element of the array `object`.
+function Writes.is_length_of(key: Ast.Exp, object: Ast.Exp): boolean
+  local len = peel(key)
+  return (len.kind == "Unary") and len.op == "#" and Writes.same_place(len.operand, object)
+end
+
+--- Whether `e` is `#place` for `array`, or `#array - k` for a literal `k` of 0 or more: at most the length of the array.
+function Writes.at_most_length(e: Ast.Exp, array: Ast.Exp): boolean
+  local x = peel(e)
+  if (x.kind == "Binary") and x.op == "-" then
+    local k = peel(x.right)
+    return (k.kind == "Integer") and k.value >= 0 and Writes.is_length_of(x.left, array)
+  end
+  return Writes.is_length_of(e, array)
+end
+
+--- Whether `e` is a name, or a field of one.
+function Writes.is_place(e: Ast.Exp): boolean
+  local x = peel(e)
+  if (x.kind == "Name") then
+    return true
+  end
+  return (x.kind == "Field") and Writes.is_place(x.object)
+end
+
+--- Whether the call `table.move(a1, f, e, t [, a2])` keeps the array it writes dense and copies only elements that are
+--- there. `a1` and `a2` are arrays with elements 1 to their length, none nil, so the copy
+---   - reads elements `f` to `e` of `a1`, all there when `f` is a literal of 1 or more and `e` is at most `#a1` (the
+---     range is empty where `e` is below `f`), and
+---   - writes them at `t` onward, a contiguous run that leaves no gap when `t` is 1 (it starts the array, and the
+---     elements past the run stay as they were) or `#a2 + 1` (it continues the array).
+--- Every argument is a literal, a place or the length of a place, so nothing runs between reading the lengths and the
+--- copy to change them. `a2` may be a table literal where `t` is 1. A `t` of 0 or less writes keys no array has, and a `t`
+--- above `#a2 + 1` leaves a hole, so neither stands.
+function Writes.move_dense(args: {Ast.Exp}): boolean
+  local a1, f, e, t, a2 = args[1], args[2], args[3], args[4], args[5]
+  if a1 == nil or f == nil or e == nil or t == nil or #args > 5 or not Writes.is_place(a1) then
+    return false
+  end
+  local from = peel(f)
+  if not ((from.kind == "Integer") and from.value >= 1) or not Writes.at_most_length(e, a1) then
+    return false
+  end
+  local to = peel(t)
+  if (to.kind == "Integer") and to.value == 1 then
+    return a2 == nil or Writes.is_place(a2) or peel(a2).kind == "Table"
+  end
+  local into = if a2 == nil then a1 else a2 end
+  if not Writes.is_place(into) or not ((to.kind == "Binary") and to.op == "+") then
+    return false
+  end
+  local one = peel(to.right)
+  return (one.kind == "Integer") and one.value == 1 and Writes.is_length_of(to.left, into)
+end
+
+--- Reports the call `node` of `table.move` that [`Writes.move_dense`] does not accept.
+function Writes.move_refuse(ctx: Ctx, node: Ast.Call)
+  report(ctx, "array_hole", node, "`table.move` here may copy a nil or leave a hole in the array it writes",
+    "copy elements that are there (`table.move(a, 1, #a, 1, b)`, the first element being a literal 1 or more and the last " ..
+      "`#a`) and write them at 1 or at `#b + 1`; or append with `b[#b + 1] = v` or `table.insert`")
+end
+
+--- Reports the reads of `table.move` that are no call: a function value that is called later has no arguments to check.
+function Writes.move_stray(ctx: Ctx)
+  for _, read in pairs(ctx.moves) do
+    report(ctx, "array_hole", read, "`table.move` is read as a value, and a call of it is checked only where it is written",
+      "call it where you name it: `table.move(a, 1, #a, 1, b)`")
+  end
+end
+
+--- Notes the read of the member `name` of `base` at `node`, if it is `table.move` ([`Writes.move_stray`]). Whatever spells
+--- the read (`table.move`, `table["move"]`, a name for the library), the member is the one the declaration of `table` has.
+function Writes.note_move(ctx: Ctx, node: Ast.Node, base: Type, name: string)
+  local library = ctx.program.globals["table"]
+  if name == "move" and library ~= nil and (base.tag == "named") and base.decl == library.decl then
+    ctx.moves[node.id] = node
+  end
+end
+
 --- `object[key]` read: the element of an array or the value of a map as an optional (an index read may be nil), the
 --- fields a literal or enum key names in a record.
 local function index_read(ctx: Ctx, node: Ast.Index, object: Type): Type
@@ -2247,6 +2341,7 @@ local function index_read(ctx: Ctx, node: Ast.Index, object: Type): Type
         field_unknown(ctx, node.key, t, name)
         return ctx.invalid
       end
+      Writes.note_move(ctx, node, t, name)
       types[#types + 1] = put_in(ctx, t, list[1].type)
     end
     return store:union(types)
@@ -5141,91 +5236,6 @@ local function leaf(ctx: Ctx, e: Ast.Exp, expected: Type?): Type
   return ctx.invalid
 end
 
---- The rules by which an index write to a `mut` array is no hole ([`Writes.leaves_no_hole`]).
-local record Writes
-end
-
---- Whether `a` and `b` name the same place: a name, or fields of one.
-function Writes.same_place(a: Ast.Exp, b: Ast.Exp): boolean
-  local x, y = peel(a), peel(b)
-  if (x.kind == "Name") and (y.kind == "Name") then
-    return x.binding ~= nil and x.binding == y.binding
-  elseif (x.kind == "Field") and (y.kind == "Field") then
-    return x.name == y.name and Writes.same_place(x.object, y.object)
-  end
-  return false
-end
-
---- Whether `key` is `#object`: the key of the last element of the array `object`.
-function Writes.is_length_of(key: Ast.Exp, object: Ast.Exp): boolean
-  local len = peel(key)
-  return (len.kind == "Unary") and len.op == "#" and Writes.same_place(len.operand, object)
-end
-
---- Whether `e` is `#place` for `array`, or `#array - k` for a literal `k` of 0 or more: at most the length of the array.
-function Writes.at_most_length(e: Ast.Exp, array: Ast.Exp): boolean
-  local x = peel(e)
-  if (x.kind == "Binary") and x.op == "-" then
-    local k = peel(x.right)
-    return (k.kind == "Integer") and k.value >= 0 and Writes.is_length_of(x.left, array)
-  end
-  return Writes.is_length_of(e, array)
-end
-
---- Whether `e` is a name, or a field of one.
-function Writes.is_place(e: Ast.Exp): boolean
-  local x = peel(e)
-  if (x.kind == "Name") then
-    return true
-  end
-  return (x.kind == "Field") and Writes.is_place(x.object)
-end
-
---- Whether the call `table.move(a1, f, e, t [, a2])` keeps the array it writes dense and copies only elements that are
---- there. `a1` and `a2` are arrays with elements 1 to their length, none nil, so the copy
----   - reads elements `f` to `e` of `a1`, all there when `f` is a literal of 1 or more and `e` is at most `#a1` (the
----     range is empty where `e` is below `f`), and
----   - writes them at `t` onward, a contiguous run that leaves no gap when `t` is 1 (it starts the array, and the
----     elements past the run stay as they were) or `#a2 + 1` (it continues the array).
---- Every argument is a literal, a place or the length of a place, so nothing runs between reading the lengths and the
---- copy to change them. `a2` may be a table literal where `t` is 1. A `t` of 0 or less writes keys no array has, and a `t`
---- above `#a2 + 1` leaves a hole, so neither stands.
-function Writes.move_dense(args: {Ast.Exp}): boolean
-  local a1, f, e, t, a2 = args[1], args[2], args[3], args[4], args[5]
-  if a1 == nil or f == nil or e == nil or t == nil or #args > 5 or not Writes.is_place(a1) then
-    return false
-  end
-  local from = peel(f)
-  if not ((from.kind == "Integer") and from.value >= 1) or not Writes.at_most_length(e, a1) then
-    return false
-  end
-  local to = peel(t)
-  if (to.kind == "Integer") and to.value == 1 then
-    return a2 == nil or Writes.is_place(a2) or peel(a2).kind == "Table"
-  end
-  local into = if a2 == nil then a1 else a2 end
-  if not Writes.is_place(into) or not ((to.kind == "Binary") and to.op == "+") then
-    return false
-  end
-  local one = peel(to.right)
-  return (one.kind == "Integer") and one.value == 1 and Writes.is_length_of(to.left, into)
-end
-
---- Reports the call `node` of `table.move` that [`Writes.move_dense`] does not accept.
-function Writes.move_refuse(ctx: Ctx, node: Ast.Call)
-  report(ctx, "array_hole", node, "`table.move` here may copy a nil or leave a hole in the array it writes",
-    "copy elements that are there (`table.move(a, 1, #a, 1, b)`, the first element being a literal 1 or more and the last " ..
-      "`#a`) and write them at 1 or at `#b + 1`; or append with `b[#b + 1] = v` or `table.insert`")
-end
-
---- Reports the reads of `table.move` that are no call: a function value that is called later has no arguments to check.
-function Writes.move_stray(ctx: Ctx)
-  for _, read in pairs(ctx.moves) do
-    report(ctx, "array_hole", read, "`table.move` is read as a value, and a call of it is checked only where it is written",
-      "call it where you name it: `table.move(a, 1, #a, 1, b)`")
-  end
-end
-
 --- The hint for `r.m(r, ...)`, a call of a method with `.` and its receiver as the first argument. `callee` is the type of the
 --- function: a method is a function whose first parameter is the declaration of the object it is read from, and the call
 --- passes a value of that declaration first.
@@ -5285,10 +5295,7 @@ local function apply(ctx: Ctx, n: Ast.Exp, t: Type, expected: Type?, wants_lists
       return ctx.invalid, nil
     end
     local read = member_read(ctx, n, base, n.name)
-    local library = ctx.program.globals["table"]
-    if n.name == "move" and library ~= nil and (base.tag == "named") and base.decl == library.decl then
-      ctx.moves[n.id] = n
-    end
+    Writes.note_move(ctx, n, base, n.name)
     if ctx.flow.paths > 0 and read.tag ~= "invalid" then
       local key = path_key(ctx, n)
       local fact = key ~= nil and ctx.flow.facts[key] or nil

@@ -364,8 +364,8 @@ end
 
 local function test_the_program_is_named_by_its_own_argument_not_read_from_argv()
   for _, name in ipairs({ "C:\\x\\prog.exe", "dir/", "p" }) do
-    -- A typed array has no slot 0 to plant a name in (`table.move` into 0 is refused), so the name here is the
-    -- parameter's alone.
+    -- A typed array has no slot 0 to plant a name in (`table.move` into 0 is refused): build/flags_argv_tool_test.tl
+    -- shows, in a program run as a script is, that the path in slot 0 is not the name.
     local line: {string} = { "--help" }
     local done = assert(Flags.dispatch(line, 1, help_commands, name))
     assert(done.help:sub(1, 7 + #name) == "usage: " .. name, done.help)
