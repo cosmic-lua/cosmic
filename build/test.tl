@@ -140,6 +140,7 @@ local confine = require("build.confine")
 local shared_compiles = require("build.shared_compiles")
 local shared_verdicts = require("build.shared_verdicts")
 local test_report = require("build.test_report")
+local type_violations = require("build.type_violations")
 local test_sandbox = require("build.test_sandbox")
 local test_sandbox_probe = require("build.test_sandbox_probe")
 local declared_key = require("build.declared_key")
@@ -2180,6 +2181,17 @@ local function keep_violations(records: Sqlite.Handle, rec: Recording,
   return true, ""
 end
 
+--- The violations a checked run met, as [`type_violations`] reads them.
+local function library_violation(rec: Recording): string
+  local rows: mut {type_violations.Row} = {}
+  for _, key in ipairs(rec.violation_order) do
+    local met = assert(rec.violations[key])
+    rows[#rows + 1] = { kind = met.kind, at = met.at, target = met.target, declared = met.declared,
+      actual = met.actual, test = assert(rec.violation_tests[key]) }
+  end
+  return type_violations.library(rows)
+end
+
 --- The most violations a checked run lists beneath its summary.
 local SAMPLE_VIOLATIONS <const> = 10
 
@@ -2202,8 +2214,8 @@ local function say_violations(rec: Recording)
     end
   end
   local distinct = #rec.violation_order
-  log:say(string.format("test: run-time types: %s, %d distinct, at %s (a parameter declared under cosmic/ fails the test that meets it; the " ..
-      "rest are reported only)%s; all of them: cosmic sql --build 'SELECT * FROM " ..
+  log:say(string.format("test: run-time types: %s, %d distinct, at %s (a parameter declared under cosmic/ " ..
+      "fails the test that meets it; the rest are reported only)%s; all of them: cosmic sql --build 'SELECT * FROM " ..
       "type_violations'",
     plural.count(total, "violation"), distinct, plural.count(places, "place"),
     rec.violations_dropped > 0 and string.format("; %s more went unrecorded",
@@ -2297,7 +2309,12 @@ local function settle(ctx: Run)
   end
   if rec.checks then
     local kept, keep_trouble = keep_violations(records, rec, ctx.run_at_ns)
-    if not kept then errors[#errors + 1] = "type violations: " .. keep_trouble end
+    -- The hook raises at the first violation of a parameter of cosmic/, which a `pcall` in the code under test can
+    -- swallow: the run fails all the same.
+    local violated = library_violation(rec)
+    if not kept or violated ~= "" then
+      errors[#errors + 1] = if not kept then "type violations: " .. keep_trouble else violated end
+    end
   end
   local pruned, prune_trouble = test.prune_history(records, handle.run)
   if not pruned then

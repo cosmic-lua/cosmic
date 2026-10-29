@@ -580,8 +580,12 @@ local function hook(_: integer, text: string, ...: any): any...
         latest.met = nil
         local noted = lua_pcall(note, check, index, value, index > given)
         local met = latest.met
-        -- A parameter of the standard library that meets a kind its declaration refuses ends the call, at the first one:
-        -- either the caller or the declaration is wrong, and both are fixed.
+        -- A parameter of the standard library that meets a kind its declaration refuses ends the call, at the first
+        -- one: either the caller or the declaration is wrong, and both are fixed.
+        --
+        -- TODO: once the checker lists each declared return and field write and lang/codegen.tl writes a check for it
+        -- in a checked compile (doc/plans/strict-teal.md), raise for those kinds too: until then a return value or
+        -- field of cosmic/ that is of a kind its declaration refuses is recorded and let through.
         if noted and check.kind == "p" and lua_sub(check.at, 1, #LIBRARY) == LIBRARY and met ~= nil then
           lua_error("parameter violated at " .. met.at .. ": " .. met.target .. " is " .. met.actual ..
               ", declared " .. met.declared, 0)

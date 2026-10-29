@@ -2,8 +2,8 @@
 --- and written by the new checker (`COSMIC_GRAMMAR=new`), each function with typed parameters begins with a check of them
 --- ([`lang.boundary_checks`]), and the tool's worker runs the tests with the hook that records a value of another kind
 --- ([`build.test_worker`]'s `install_checks`). A violation is reported at the line of the caller in the summary and in the working
---- database's `type_violations`, as kind "parameter", and fails nothing, since the project declares it outside cosmic/ (a parameter declared there fails
---- the test, [`build.boundary_hook_test`]); a correct call reports nothing.
+--- database's `type_violations`, as kind "parameter", and fails nothing, since the project declares it outside cosmic/ (a parameter declared there
+--- fails the test, [`build.boundary_hook_test`]); a correct call reports nothing.
 ---
 --- The project is compiled by the tool the test starts, in the new mode whatever the mode of the suite that runs this test.
 local Child = require("cosmic.child")

@@ -1,7 +1,7 @@
 --- The `__cosmic_tc` hook of the test worker ([`worker.install_checks`]) fails a call at the first parameter of the
 --- standard library that meets a kind its declaration refuses, and only that: a parameter declared elsewhere, and the
---- other kinds of boundary, are recorded and let through. The checks are crossed by hand with [`worker.cross`], as the Lua
---- of a checked function crosses them, so the test fails nothing of its own.
+--- other kinds of boundary, are recorded and let through. The checks are crossed by hand with [`worker.cross`], as the
+--- Lua of a checked function crosses them, so the test fails nothing of its own.
 local Test = require("cosmic.test")
 local worker = require("build.test_worker")
 
@@ -41,8 +41,8 @@ local function test_a_library_parameter_of_another_kind_fails_the_call_at_its_fi
   assert(not ok)
   local said = tostring(why)
   assert(said:find("parameter violated at ", 1, true) == 1, said)
-  assert(said:find("parameter x of Fake.f (cosmic/boundary_hook_fake.tl:3) is string, declared integer", 1, true) ~= nil,
-    said)
+  assert(said:find("parameter x of Fake.f (cosmic/boundary_hook_fake.tl:3) is string, declared integer", 1,
+    true) ~= nil, said)
   local met = met_since(before)
   assert(#met == 1 and assert(met[1]).kind == "parameter" and assert(met[1]).actual == "string")
   -- The row is kept and counted again, and the call fails again.

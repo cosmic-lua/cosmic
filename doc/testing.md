@@ -325,10 +325,12 @@ writes a check at the entry of a function for each typed parameter ([`lang.bound
 the `)` that ends the parameters, so no line moves and a tail call stays one, which hands the hook the values and the
 kinds the declared types admit. A value of another kind is a row of kind `parameter` at the line of the caller. A
 parameter declared under `cosmic/` raises there, "parameter violated at <caller>: ...", so the first violation fails the
-test that met it: the caller or the declaration is wrong, and the fix is the declaration (`T?` where nil really flows) or
-the caller, so a test cannot pass a wrong kind to a typed `cosmic/` parameter on purpose. A parameter declared elsewhere
-is reported, and the function runs on. A variadic parameter, `self` and a parameter typed `any` are not checked. It
-writes no check of a returned value or a field write yet, so the run reports rows of kind `fact` and `parameter`. The compile is keyed apart from an unchecked one ([`importer.checked_tool`]).
+test that met it: the caller or the declaration is wrong, and the fix is the declaration (`T?` where nil really flows)
+or the caller, so a test cannot pass a wrong kind to a typed `cosmic/` parameter on purpose. The run fails too, in its
+summary, for a violation a `pcall` swallowed, naming the first. A parameter declared elsewhere is reported, and the
+function runs on. A variadic parameter, `self` and a parameter typed `any` are not checked. It writes no check of a
+returned value or a field write yet, so the run reports rows of kind `fact` and `parameter`. The compile is keyed apart
+from an unchecked one ([`importer.checked_tool`]).
 The tests of declared boundaries (`*_declared_types_test.tl`, through [`build/type_watch.tl`]) skip in every run until a
 compile writes the checks of returns and fields as well: a pass would check only the parameters.
 
