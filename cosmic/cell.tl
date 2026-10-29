@@ -13,6 +13,6 @@ local record Cell<T>
   mut value: T
 end
 
--- TODO: replace Cells with plain locals once captured_assigned lets a closure assign a captured local it never narrows.
+-- TODO: replace Cells (every [`Cell`] use) with plain locals once captured_assigned lets a closure assign a captured local it never narrows.
 
 return Cell

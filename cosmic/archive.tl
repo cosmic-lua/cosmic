@@ -6,6 +6,7 @@
 --- and written, the format chosen by the file's name, through the one
 --- writer shape tar and zip share.
 
+-- TODO: make this `local type Cell = require("cosmic.cell")` once the store keeps a module that only a `local type` require names; today that drops cosmic.cell from the binary and build/link_index_test fails.
 local Cell = require("cosmic.cell")
 local Fs = require("cosmic.fs")
 local sys = require("cosmic.sys")

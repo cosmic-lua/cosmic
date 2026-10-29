@@ -57,6 +57,7 @@
 --- failure is reported. A JSON client should read an error's `pointer`, not
 --- its `field`: the dotted `field` is ambiguous for a key that holds a `.`.
 
+-- TODO: make this `local type Cell = require("cosmic.cell")` once the store keeps a module that only a `local type` require names; today that drops cosmic.cell from the binary and build/link_index_test fails.
 local Cell = require("cosmic.cell")
 local Codec = require("cosmic.codec")
 local Fs = require("cosmic.fs")
