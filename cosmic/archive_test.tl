@@ -854,7 +854,8 @@ local function test_extract_byte_limits_that_are_not_whole_numbers_of_bytes_rais
   end)
   local float = assert(load("return ...")) as function(number): integer
   for _, name in ipairs({ "max_bytes", "max_entry_bytes" }) do
-    local function try(value: integer): string
+    local function try(count: number): string
+      local value = float(count)
       local opts: Archive.ExtractOptions = {}
       if name == "max_bytes" then opts.max_bytes = value else opts.max_entry_bytes = value end
       local ok, why = pcall(function(): boolean
@@ -865,9 +866,9 @@ local function test_extract_byte_limits_that_are_not_whole_numbers_of_bytes_rais
       return tostring(why)
     end
     assert(try(-1):find("archive_test:%d+: archive: " .. name .. " is negative"))
-    assert(try(float(1.5)):find("archive: " .. name .. " is not a whole number of bytes", 1, true))
-    assert(try(float(0 / 0)):find("archive: " .. name .. " is not a whole number of bytes", 1, true))
-    assert(try(float(-math.huge)):find("archive: " .. name .. " is not a whole number of bytes", 1, true))
+    assert(try(1.5):find("archive: " .. name .. " is not a whole number of bytes", 1, true))
+    assert(try(0 / 0):find("archive: " .. name .. " is not a whole number of bytes", 1, true))
+    assert(try(-math.huge):find("archive: " .. name .. " is not a whole number of bytes", 1, true))
   end
   local reader = assert(Archive.open(archive))
   local ok, why = pcall(function(): boolean

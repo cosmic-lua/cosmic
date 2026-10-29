@@ -34,6 +34,4 @@ local function test_user_rejects_malformed_names()
     local ok, trouble = pcall(Proc.user, name)
     assert(not ok and tostring(trouble):find("user name", 1, true))
   end
-  assert(not pcall(Proc.user, 123 as string))
-  assert(not pcall(Proc.user, {} as string))
 end

@@ -63,7 +63,7 @@ local function test_every_flattened_path_reads_back_and_is_selectable(tmp: strin
         local normal = assert(Json.path(leaf.steps))
         local line, line_err = json_query.flat_line(leaf.steps, leaf.value)
         if line == nil then return false, normal .. ": " .. line_err end
-        local tail = " = " .. assert(Json.encode(leaf.value))
+        local tail = " = " .. assert(Json.encode_any(leaf.value))
         if line:sub(-#tail) ~= tail then return false, line .. " does not end with" .. tail end
         local path = line:sub(1, #line - #tail)
         local steps, why = Json.from_path(path)
@@ -73,7 +73,7 @@ local function test_every_flattened_path_reads_back_and_is_selectable(tmp: strin
         end
         local value, get_err = Json.get(doc, steps)
         if get_err ~= "" then return false, path .. ": " .. get_err end
-        local a, b = Json.encode_any(value), Json.encode(leaf.value)
+        local a, b = Json.encode_any(value), Json.encode_any(leaf.value)
         if a ~= b then
           return false, path .. " reads back as " .. tostring(a) .. ", not " .. tostring(b)
         end

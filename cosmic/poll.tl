@@ -743,7 +743,6 @@ end
 --- cancelled first.
 function Poll.delay(ns: integer): boolean, string
   local task = current("Poll.delay", 2)
-  if ns == nil then error("poll: ns must be an integer from 0 to " .. tostring(Poll.MOST_NS), 2) end
   Poll.checked_ns(ns, "poll", "ns", 2)
   return park(task, { task = task, expiry_ok = true }, ns)
 end
@@ -785,7 +784,6 @@ local shielding_mt: metatable<Shielding> = {
 --- only those to end it. What `fn` raises, it raises.
 function Poll.shielded(fn: function())
   local task = current("Poll.shielded", 2)
-  if type(fn) ~= "function" then error("poll: Poll.shielded takes a function", 2) end
   -- Made before the count moves, so a refused allocation leaves it be.
   local held: Shielding = { task = task }
   local _held <close> = setmetatable(held, shielding_mt)
@@ -796,7 +794,6 @@ end
 --- Starts `fn` as a task of its own, run once the calling task waits.
 function Poll.spawn(fn: function()): Poll.Task
   current("Poll.spawn", 2)
-  if type(fn) ~= "function" then error("poll: Poll.spawn takes a function", 2) end
   return start(fn)
 end
 
@@ -994,7 +991,6 @@ end
 --- cannot be called from within a task.
 function Poll.run(main: function())
   if ongoing.loop ~= nil then error("poll: Poll.run is already running", 2) end
-  if type(main) ~= "function" then error("poll: Poll.run takes a function", 2) end
   ongoing.loop = { tasks = {}, live = 0, ready = {}, fds = {}, events = {}, watched = {}, timers = {},
     stale = 0, seq = 0 }
   -- Nothing may allocate between setting `loop` and the pcall, or a

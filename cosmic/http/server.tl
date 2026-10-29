@@ -775,11 +775,11 @@ end
 ---
 --- Range concerns only GET, and a server ignores it for every other
 --- method; a handler that honors If-Range passes nil where its
---- validator does not match. A `size` that is no integer from 0
+--- validator does not match. A `size` below 0
 --- raises.
 function Server.range(header: string?, size: integer): Server.Range
-  if not (math.type(size) == "integer" and size >= 0) then
-    error("http: Server.range's size must be an integer from 0", 2)
+  if size < 0 then
+    error("http: Server.range's size must be from 0", 2)
   end
   local unranged: Server.Range = { kind = "whole" }
   if header == nil then return unranged end

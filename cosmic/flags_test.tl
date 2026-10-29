@@ -1,5 +1,4 @@
 local Flags = require("cosmic.flags")
-local Globals = require("cosmic.internal.globals")
 
 local spec: {string:boolean} = { ["--check"] = false, ["--jobs"] = true }
 
@@ -372,16 +371,6 @@ local function test_the_program_is_named_by_its_own_argument_not_read_from_argv(
     local one = assert(Flags.dispatch({ "build", "-h" }, 1, help_commands, name))
     assert(one.help:sub(1, 13 + #name) == "usage: " .. name .. " build", one.help)
   end
-end
-
-local function test_dispatch_without_the_program_name_says_so()
-  -- An untyped caller, which the compiler cannot refuse.
-  local chunk = assert(load('local Flags = require("cosmic.flags") ' ..
-      'return pcall(Flags.dispatch, { "build" }, 1, { build = { run = function() return 0 end } })',
-    "=flags", "t", Globals.table()))
-  local ok, trouble = chunk()
-  assert(ok == false)
-  assert(tostring(trouble):find("needs the program's name", 1, true) ~= nil, tostring(trouble))
 end
 
 local function test_options_lists_them_as_help_does()

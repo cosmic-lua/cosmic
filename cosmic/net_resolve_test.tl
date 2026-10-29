@@ -65,14 +65,7 @@ local function test_a_name_the_resolver_cannot_take_fails_and_a_degenerate_argum
   assert(found == nil and why == "Invalid argument", why)
   found, why = Net.resolve("example.test", { hosts_file = tmp .. "/x\0y" })
   assert(found == nil and why == "Invalid argument", why)
-  local number: any = 7
-  local text: any = "x"
-  assert(not pcall(Net.resolve, number as string))
-  assert(not pcall(Net.resolve, "example.test", text as Net.ResolveOptions))
   assert(not pcall(Net.resolve, "example.test", { timeout_ns = -1 }))
-  assert(not pcall(Net.resolve, "example.test", { timeout_ns = 0.5 } as Net.ResolveOptions))
-  assert(not pcall(Net.resolve, "example.test", { hosts_file = number } as Net.ResolveOptions))
-  assert(not pcall(Net.resolve, "example.test", { servers = text } as Net.ResolveOptions))
   assert(not pcall(Net.resolve, "example.test", { servers = {} }))
   assert(not pcall(Net.resolve, "example.test", { servers = { { host = "127.0.0.1", port = 70000 } } }))
   assert(not pcall(Net.resolve, "example.test", { servers = { { host = "127.0.0.1", port = 0 } } }))

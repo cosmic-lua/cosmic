@@ -15,7 +15,7 @@ local function decoded(text: string, opts?: Json.DecodeOptions): any
 end
 
 local function encoded(value: any, opts?: Json.EncodeOptions): string
-  local text, err = Json.encode(value, opts)
+  local text, err = Json.encode_any(value, opts)
   assert(text ~= nil, "encode failed: " .. err)
   assert(err == "", "a success carries \"\" in the error slot")
   return text
@@ -29,7 +29,7 @@ local function decode_failure(text: string, opts?: Json.DecodeOptions): string
 end
 
 local function encode_failure(value: any, opts?: Json.EncodeOptions): string
-  local text, err = Json.encode(value, opts)
+  local text, err = Json.encode_any(value, opts)
   assert(text == nil and err ~= "", "expected encode to fail, got " .. tostring(text))
   return err
 end
@@ -52,6 +52,13 @@ local function same(a: any, b: any): boolean
     if x[k] == nil then return false end
   end
   return true
+end
+
+local function test_encode_writes_a_literal_value_as_encode_any_does()
+  local text = assert(Json.encode({ first = "x", second = "y" }))
+  assert(text == assert(Json.encode_any({ first = "x", second = "y" })), text)
+  assert(assert(Json.encode({ "a", "b" })) == '["a","b"]')
+  assert(Json.encode_any(nil) == "null")
 end
 
 local function test_decode_object()

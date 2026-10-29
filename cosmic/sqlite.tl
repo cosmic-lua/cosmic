@@ -258,11 +258,6 @@ end
 --- `handle:limit(name, value)` sets one of the connection's limits,
 --- `"attached"` among them, and answers the old one.
 function Sqlite.open(path: string, opts?: Sqlite.OpenOptions): Sqlite.Handle?, string
-  local given: any = opts
-  if given ~= nil and type(given) ~= "table" then
-    error("sqlite: open: options is a table such as { writable = true }, not a " ..
-        type(given), 2)
-  end
   return sqlite.open(path, opts and opts.writable, opts and opts.immutable, opts and opts.create)
 end
 
@@ -270,10 +265,6 @@ end
 --- cleanup. A failed open has no `handle`; a successful one has code zero.
 --- A path containing NUL raises, as do invalid options.
 function Sqlite.open_result(path: string, opts?: Sqlite.OpenOptions): Sqlite.OpenResult
-  local given: any = opts
-  if given ~= nil and type(given) ~= "table" then
-    error("sqlite: open_result: options is a table", 2)
-  end
   return sqlite.open_result(path, opts and opts.writable, opts and opts.immutable, opts and opts.create)
 end
 
@@ -288,9 +279,6 @@ end
 --- a number for numbers, a string for texts and blobs, and no NUL in a
 --- text, which carray reads to its first NUL.
 local function check_array<T>(key: integer, field: string, list: {T})
-  if type(list) ~= "table" then
-    error("sqlite: parameter " .. tostring(key) .. "'s " .. field .. " is no list", 5)
-  end
   for i = 1, rawlen(list) do
     local element = rawget(list, i)
     local fits: boolean
@@ -486,12 +474,8 @@ end
 
 --- The kind and value of column `index` of `row`, which `name` reads.
 --- Raises, blaming the caller of the accessor that called this, unless
---- `index` is an integer position the row has a column at.
+--- `index` is a position the row has a column at.
 local function cell_at(row: Stored, index: integer, name: string): Sqlite.Kind, any
-  if math.type(index) ~= "integer" then
-    error("sqlite: row:" .. name .. "(" .. tostring(index) ..
-        "): a column is an integer position from 1", 3)
-  end
   local count = #row // 2
   if index < 1 or index > count then
     error("sqlite: row:" .. name .. "(" .. tostring(index) .. "): the row has " .. tostring(count) ..
@@ -596,14 +580,10 @@ local text_stored_mt: metatable<TextStored> = { __index = TextStored }
 
 --- The bytes of column `index` of `row`, which `name` reads. Raises,
 --- blaming the caller of the accessor that called this, unless `index`
---- is an integer position the row has a column at.
+--- is a position the row has a column at.
 local function text_at(row: TextStored, index: integer, name: string): string
   local held = row[index]
-  if held is string and math.type(index) == "integer" then return held end
-  if math.type(index) ~= "integer" then
-    error("sqlite: row:" .. name .. "(" .. tostring(index) ..
-        "): a column is an integer position from 1", 3)
-  end
+  if held is string then return held end
   local count = #row
   error("sqlite: row:" .. name .. "(" .. tostring(index) .. "): the row has " .. tostring(count) ..
       (if count == 1 then " column" else " columns" end), 3)

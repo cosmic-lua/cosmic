@@ -412,9 +412,6 @@ function Flags.dispatch(argv: {string}, from: integer,
   if next(commands) == nil then
     error("flags: dispatch needs a command to choose among", 2)
   end
-  if type(program) ~= "string" then
-    error("flags: dispatch needs the program's name, as its fourth argument", 2)
-  end
   local name = argv[from]
   if name == "--help" or name == "-h" or (name == "help" and commands.help == nil) then
     local asked = name == "help" and argv[from + 1] or nil
