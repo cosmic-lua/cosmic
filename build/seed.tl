@@ -11,8 +11,8 @@
 --- - [`Seed.program`], a [`build.driver`] build over the modules of the tree on disk, from which the bridge's searcher answers
 ---   `require` for the build's code up to [`build.boot`].
 ---
---- THE FILES ARE READ AS WRITTEN. The tree holds the text the new checker reads, so a source is never translated here
---- (`Driver.Source.translate` is off), and the module a path names is the one [`lang.declarations`]'s `module_of` says.
+--- THE FILES ARE READ AS WRITTEN. The tree holds the text the new checker reads, so a source is read here exactly as it is written,
+--- and the module a path names is the one [`lang.declarations`]'s `module_of` says.
 ---
 --- THE LUA IS THE BUILD'S. A module is written as the build's own compile writes it ([`build.pipeline`]): a test of a record or
 --- an interface is written as the test for a table (`counted`), as the fork writes it and as the pins of `[checked]` count,

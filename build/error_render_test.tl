@@ -1,5 +1,5 @@
 --- Tests of [`build.error_render`]: the errors and warnings of the new checker's driver as the lines a build prints, one
---- real program for each stage that reports (the lexer, the parser, the scope builder, the translator, the lowering of
+--- real program for each stage that reports (the lexer, the parser, the scope builder, the lowering of
 --- declarations, the checker's expressions, its flow, its generics, and the warnings).
 local Driver = require("build.driver")
 local ErrorRender = require("build.error_render")

@@ -1,14 +1,14 @@
---- What the code generator and the translator take as true of a value from its syntax alone ([`lang.codegen`], [`lang.translate`]):
+--- What the code generator takes as true of a value from its syntax alone ([`lang.codegen`]):
 --- the rule that tells an `if` expression whose middle operand is never false, which is written `c and a or b`, from
---- one that needs a function called on the spot. The driver gives it for every source, the translated and the
---- written in the new grammar alike, so a file's `if` expression compiles to the same Lua whichever way the file came.
+--- one that needs a function called on the spot. The driver gives it for every source, so a file's `if` expression
+--- compiles to the same Lua wherever it is compiled.
 local Ast = require("lang.ast")
 
 local record Truthy
   --- Whether `e` can be neither false nor nil, from its syntax alone: a literal that is no `false`, a table, a function,
   --- an arithmetic or concatenation (the language has no metamethod to make one answer false), or a parenthesized or cast
-  --- one of those. A cast does not make a value truthy: `v as string` is false or nil when `v` is. It is what the
-  --- translator needs of a middle operand to write an `if` expression, and what a code generator may take as truthy.
+  --- one of those. A cast does not make a value truthy: `v as string` is false or nil when `v` is. It is what a middle operand needs for an `if`
+  --- expression to be written as `c and a or b`, and what a code generator may take as truthy.
   never_false: function(e: Ast.Exp): boolean
 end
 
