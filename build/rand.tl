@@ -148,7 +148,7 @@ local function arguments(argv: {string}): Request?, string
   local parsed, trouble = Flags.parse(marked(argv), 3, spec)
   if parsed == nil then return nil, trouble end
   for _, name in ipairs(parsed.given) do
-    if not allowed[command][name] then
+    if allowed[command][name] ~= true then
       if name == "--seed" then
         return nil, "--seed is refused with " .. command .. ": its output is secret, and a seed would make it replayable"
       end
@@ -162,14 +162,14 @@ local function arguments(argv: {string}): Request?, string
     end
     request.words[#request.words + 1] = word
   end
-  if parsed.set["--v4"] and parsed.set["--v7"] then
+  if parsed.set["--v4"] == true and parsed.set["--v7"] == true then
     return nil, "name one of --v4 and --v7, not both"
   end
-  if parsed.set["--v7"] then request.version = 7 end
-  if parsed.set["--hex"] and parsed.set["--base64url"] then
+  if parsed.set["--v7"] == true then request.version = 7 end
+  if parsed.set["--hex"] == true and parsed.set["--base64url"] == true then
     return nil, "name one of --hex and --base64url, not both"
   end
-  if parsed.set["--hex"] then request.encoding = "hex" end
+  if parsed.set["--hex"] == true then request.encoding = "hex" end
   local given = parsed.values["-n"]
   if given ~= nil then
     local count = integer_of(given)

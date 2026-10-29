@@ -1,3 +1,4 @@
+local Cell = require("cosmic.cell")
 local Fs = require("cosmic.fs")
 local sys = require("cosmic.sys")
 
@@ -55,7 +56,7 @@ local function test_append_completes_short_writes(tmp: string)
   local path = tmp .. "/log"
   assert(Fs.write(path, "before"))
   local real_write = sys.write
-  local writes = { value = 0 }
+  local writes: Cell<integer> = { value = 0 }
   sys.write = function(fd: integer, data: string): integer?, string, integer
     writes.value = writes.value + 1
     return real_write(fd, data:sub(1, 2))
@@ -68,7 +69,7 @@ end
 
 local function test_append_zero_progress_closes_once(tmp: string)
   local real_write, real_close = sys.write, sys.close
-  local closes = { value = 0 }
+  local closes: Cell<integer> = { value = 0 }
   sys.write = function(_fd: integer, _data: string): integer?, string, integer
     return 0, "", 0
   end
@@ -87,8 +88,8 @@ local function test_append_partial_failure_keeps_prefix_and_first_error(tmp: str
   local path = tmp .. "/log"
   assert(Fs.write(path, "before"))
   local real_write, real_close = sys.write, sys.close
-  local writes = { value = 0 }
-  local closes = { value = 0 }
+  local writes: Cell<integer> = { value = 0 }
+  local closes: Cell<integer> = { value = 0 }
   sys.write = function(fd: integer, data: string): integer?, string, integer
     writes.value = writes.value + 1
     if writes.value == 1 then return real_write(fd, data:sub(1, 2)) end
@@ -108,8 +109,8 @@ end
 local function test_append_close_failure_does_not_retry_a_recycled_descriptor(tmp: string)
   local path = tmp .. "/log"
   local real_close = sys.close
-  local closes = { value = 0 }
-  local recycled = { value = -1 }
+  local closes: Cell<integer> = { value = 0 }
+  local recycled: Cell<integer> = { value = -1 }
   sys.close = function(fd: integer): boolean, string, integer
     closes.value = closes.value + 1
     assert(real_close(fd))
@@ -126,7 +127,7 @@ end
 
 local function test_append_raising_write_releases_descriptor_and_keeps_exception(tmp: string)
   local real_write, real_close = sys.write, sys.close
-  local closes = { value = 0 }
+  local closes: Cell<integer> = { value = 0 }
   local marker = {}
   sys.write = function(_fd: integer, _data: string): integer?, string, integer
     error(marker)

@@ -1,211 +1,57 @@
---- What build/must_confine_test.tl and build/must_confine_sandboxed_test.tl
---- share: a tree for a suite, the runs of `cosmic test` on it, and what such
---- a run prints of a refused start. Test support.
+--- What the end-to-end tests of [`confine.must_confine`] share (build/must_confine_test.tl and
+--- build/must_confine_sandboxed_test.tl): a stand-in program for a child to start, and a run of one of the children of
+--- build/must_confine_children_test.tl in this program. Test support.
 
 local Child = require("cosmic.child")
 local Clock = require("cosmic.clock")
-local Fs = require("cosmic.fs")
 local stand_in = require("build.stand_in")
+local test_child = require("build.test_child")
 local this_program = require("build.this_program")
 
 local record must_confine_fixture
-  --- What a run printed and whether it passed.
-  record Run
+  --- What a child ended with and printed.
+  record Said
+    code: integer
     text: string
-    ok: boolean
   end
+
+  --- A stand-in program built under `tmp` (build/stand_in.tl), which a child confined to itself alone can start.
+  probe: function(tmp: string): string
+
+  --- Runs the child `name` of build/must_confine_children_test.tl in this program with `args`, in `tmp`, with `set` added
+  --- to its environment and COSMIC_SANDBOX otherwise unset, and answers what it ended with and printed.
+  run: function(tmp: string, name: string, args: {string}, set?: {string:string}): must_confine_fixture.Said
+
+  --- The same for the child `name` of the test module `module`, which registered it.
+  run_in: function(tmp: string, module: string, name: string, args: {string}, set?: {string:string}): must_confine_fixture.Said
+
+  --- What the line `name=` of `said` holds. Raises where the child printed none.
+  field: function(said: must_confine_fixture.Said, name: string): string
 end
 
---- Makes `root`, a tree for a suite, with a stand-in program
---- (build/stand_in.tl) at bin/probe for its tests to start, which
---- declare it: in the tree, since a sandboxed worker has a /tmp of its
---- own over this test's.
-function must_confine_fixture.suite_tree(tmp: string, root: string)
-  assert(Fs.mkdirs(root .. "/suite"))
-  assert(Fs.mkdirs(root .. "/bin"))
-  assert(stand_in.place(assert(stand_in.build(tmp .. "/stand-in")), root .. "/bin/probe"))
+function must_confine_fixture.probe(tmp: string): string
+  return (assert(stand_in.build(tmp .. "/stand-in")))
 end
 
---- Runs `cosmic test` on `root` with `words` after it, answering what
---- it printed and whether it passed.
-function must_confine_fixture.run(root: string, output: string, env: {string:string},
-                                  words?: {string}): must_confine_fixture.Run
-  local fd = assert(Fs.open_write(output))
-  local args: mut {string} = { "test" }
-  for _, word in ipairs(words or {}) do args[#args + 1] = word end
-  local started = this_program.program(args, {
-    cwd = root, env = env, stdout = fd, stderr = fd,
-    process_group = true, timeout_ns = Clock.seconds(60),
-  })
-  local result, trouble = Child.run(started.argv, started.options)
-  assert(Fs.close(fd))
-  local text = assert(Fs.read(output))
-  assert(result ~= nil, tostring(trouble) .. text)
-  return { text = text, ok = result.ok }
+function must_confine_fixture.run(tmp: string, name: string, args: {string}, set?: {string:string}): must_confine_fixture.Said
+  return must_confine_fixture.run_in(tmp, "build.must_confine_children_test", name, args, set)
 end
 
---- The environment a suite runs in: the pinned one, with no verdict cache
---- shared, COSMIC_SANDBOX as `mode` has it, and its workers sandboxed
---- where they can be, whatever this run's switch: this one's own
---- sandbox may refuse theirs, which a run that requires one would fail
---- on.
-function must_confine_fixture.environment(mode: string?): {string:string}
+function must_confine_fixture.run_in(tmp: string, module: string, name: string, args: {string}, set?: {string:string}):
+    must_confine_fixture.Said
   local env = this_program.environment()
-  env.COSMIC_VERDICT_CACHE = "0"
-  env.COSMIC_TEST_ALL = nil
-  env.COSMIC_TEST_SANDBOX = nil
-  env.COSMIC_SANDBOX = mode
-  return env
+  env["COSMIC_SANDBOX"] = nil
+  for key, value in pairs(set or {}) do env[key] = value end
+  local started = this_program.program(test_child.words(tmp, module, name, args),
+    { env = env, cwd = tmp, stdout = "capture", stderr = "stdout", timeout_ns = Clock.seconds(60) })
+  local result = assert(Child.run(started.argv, started.options))
+  return { code = result.code or -1, text = result.stdout or "" }
 end
 
---- The line a run printed for one failing test of `module`, from its
---- message on.
-function must_confine_fixture.failure_of(text: string, module: string, name: string): string?
-  return text:match("FAIL  suite%." .. module .. " " .. name .. ": ([^\n]*)")
-end
-
---- What a run prints of a start refused in a worker held by a Landlock
---- ruleset, which the kernel refuses every mount: `bin/probe` cannot start
---- in a root of its own.
---- @param module the module whose worker is held
-function must_confine_fixture.refusal(module: string): string
-  return "bin/probe cannot start in a root of its own: " .. module .. "'s worker is held " ..
-    "by a Landlock ruleset, under which the kernel refuses every mount; declare " ..
-    "the promise \"nest\" in its Test.policy"
-end
-
---- Makes `root`, a tree for a suite as [`suite_tree`] does, with `held_test.tl`
---- in it: three tests, of which a start in a root of its own, through
---- `confine` and through a sandbox of its own that unveils, fails in a
---- worker held by a Landlock ruleset, and a plain one passes.
-function must_confine_fixture.held_suite(tmp: string, root: string)
-  must_confine_fixture.suite_tree(tmp, root)
-  assert(Fs.write(root .. "/suite/held_test.tl", [==[
-local Child = require("cosmic.child")
-local Fs = require("cosmic.fs")
-local Globals = require("cosmic.internal.globals")
-local Test = require("cosmic.test")
-
-Test.policy { grants = { { path = "bin/probe", letters = "r" } } }
-
--- The worker's own `build.confine` and the raw process table, which a suite outside the tree cannot require, are read
--- through `package.loaded` and the searchers, which no typed file may do: a case is a chunk of Lua.
-local function lua(body: string, tmp: string)
-  local chunk = assert(load([=[
-local tmp, Child, Fs = ...
-local confine = package.loaded["build.confine"]
-local function raw()
-  for _, searcher in ipairs(package.searchers) do
-    local loader, extra = searcher("build.confine")
-    if type(loader) == "function" and type(extra) == "table" then return extra end
-  end
-  error("no raw table")
-end
-]=] .. body, "=held_test", "t", Globals.table()))
-  chunk(tmp, Child, Fs)
-end
-
-local function test_confined(tmp: string)
-  lua([=[
-confine.confine({ reads = { "bin/probe" } })
-local ran, _ = Child.run({ "bin/probe", "write " .. tmp .. "/ran ran" })
-confine.confine(nil)
-assert(ran == nil, "an unconfined process ran in its place")
-assert(Fs.stat(tmp .. "/ran") == nil, "nothing runs in its place")
-]=], tmp)
-end
-
-local function test_own_sandbox()
-  lua([=[
-local pid, _ = raw().spawn("bin/probe", { "bin/probe", "exit 0" }, nil, nil, nil, nil, nil,
-  false, nil, { unveil = { reads = { "bin/probe" } }, offline = true })
-assert(pid == nil, "a process started in a root of its own")
-]=], "")
-end
-
-local function test_plain()
-  assert(Child.run({ "bin/probe", "exit 0" }))
-end
-]==]))
-end
-
---- Makes `root` as [`suite_tree`] does, with a suite of one test that starts
---- the stand-in under `must_confine` on a file of the tree, the way a
---- confined process sees it and not a file of a directory beside it
---- (`tmp`/hidden).
---- @param tmp the test's directory
---- @param root the suite's tree
-function must_confine_fixture.confined_suite(tmp: string, root: string)
-  local hidden = tmp .. "/hidden"
-  must_confine_fixture.suite_tree(tmp, root)
-  assert(Fs.mkdirs(hidden))
-  assert(Fs.write(hidden .. "/f", "secret"))
-  assert(Fs.write(root .. "/suite/data.txt", "in"))
-  local real = assert(Fs.absolute(root .. "/suite/data.txt"))
-  assert(Fs.write(root .. "/suite/real_test.tl", string.format([==[
-local Child = require("cosmic.child")
-local Fs = require("cosmic.fs")
-local Globals = require("cosmic.internal.globals")
-local Test = require("cosmic.test")
-
-Test.policy { grants = { { path = "bin/probe", letters = "r" } }, promises = { "nest" } }
-
--- The worker's own `build.confine`, which a suite outside the tree cannot require, is read through `package.loaded`, which
--- no typed file may do: the case is a chunk of Lua.
-local function test_confined(tmp: string)
-  local chunk = assert(load([=[
-local tmp, Child, Fs = ...
-local confine = package.loaded["build.confine"]
-local probe = assert(Fs.absolute("bin/probe"))
-confine.must_confine({ reads = { %q, probe } })
-local r, _ = Child.run({ probe,
-  "exists %s/f 3; copy %s out; " ..
-  "present /proc/self/net/dev && grep-count /proc/self/net/dev : || exit 0" },
-  { cwd = tmp, stdout = "capture" })
-confine.confine(nil)
-if r == nil then return end -- refused: the run says why
-assert(r.code == 0, "the confined process exited " .. tostring(r.code))
-local out = assert(Fs.read(tmp .. "/out"))
-assert(out == "in" and (r.stdout == "" or r.stdout == "1\n"), out .. tostring(r.stdout))
-]=], "=real_test", "t", Globals.table()))
-  chunk(tmp, Child, Fs)
-end
-]==], real, hidden, real)))
-end
-
---- Makes `root` as [`suite_tree`] does, with a suite of one test that confines
---- a process with more paths than a sandbox unveils, so that it falls back to
---- an unconfined one unless COSMIC_SANDBOX=must holds `confine` to
---- `must_confine`.
---- @param tmp the test's directory
---- @param root the suite's tree
-function must_confine_fixture.fallback_suite(tmp: string, root: string)
-  must_confine_fixture.suite_tree(tmp, root)
-  assert(Fs.write(root .. "/suite/fallback_test.tl", [==[
-local Child = require("cosmic.child")
-local Fs = require("cosmic.fs")
-local Globals = require("cosmic.internal.globals")
-local Test = require("cosmic.test")
-
-Test.policy { grants = { { path = "bin/probe", letters = "r" } }, promises = { "nest" } }
-
--- The worker's own `build.confine`, which a suite outside the tree cannot require, is read through `package.loaded`, which
--- no typed file may do: the case is a chunk of Lua.
-local function test_falls_back(tmp: string)
-  local chunk = assert(load([=[
-local tmp, Child, Fs = ...
-local confine = package.loaded["build.confine"]
-local probe = assert(Fs.absolute("bin/probe"))
-local many = { probe }
-for i = 1, confine.unveil_max + 1 do many[#many + 1] = tmp .. "/many" .. tostring(i) end
-confine.confine({ reads = many })
-local r = assert(Child.run({ probe, "exit 0" }))
-confine.confine(nil)
-assert(r.ok, "the process it fell back to did not run")
-]=], "=fallback_test", "t", Globals.table()))
-  chunk(tmp, Child, Fs)
-end
-]==]))
+function must_confine_fixture.field(said: must_confine_fixture.Said, name: string): string
+  local value = ("\n" .. said.text):match("\n" .. name .. "=([^\n]*)")
+  assert(value ~= nil, name .. " is not among what the child printed: " .. said.text)
+  return value
 end
 
 return must_confine_fixture

@@ -2,13 +2,15 @@
 --- alone, each connection made by the native connector, which reaches the
 --- name servers of its table and nothing else. A lookup that a server of
 --- the test's own answers runs in a process of its own (this program,
---- standalone) while this one is the server, on a loopback port it
+--- running the child of this module) while this one is the server, on a loopback port it
 --- listens at for TCP and binds for UDP, to see that no datagram is
 --- sent. Lookups no server answers, and those in a task beside others,
 --- run here.
 
+local Cell = require("cosmic.cell")
 local Child = require("cosmic.child")
 local Clock = require("cosmic.clock")
+local Config = require("cosmic.internal.relay_config")
 local Connector = require("cosmic.internal.connector")
 local Fs = require("cosmic.fs")
 local Net = require("cosmic.net")
@@ -16,10 +18,10 @@ local Resolv = require("cosmic.internal.relay_resolv")
 local Poll = require("cosmic.poll")
 local RelayStart = require("cosmic.internal.relay_start")
 local sys = require("cosmic.sys")
+local test_child = require("build.test_child")
 local this_program = require("build.this_program")
 local Test = require("cosmic.test")
 local Udp = require("build.udp_fixture")
-local _ = require("build.standalone")
 local type raw_process = require("cosmic.internal.process")
 local type raw_socket = require("cosmic.internal.socket")
 
@@ -98,20 +100,14 @@ local function answer(query: string): string
     string.pack(">I2I2I2I4s2", 0xC00C, qtype, 1, 60, data)
 end
 
---- Resolves argv[1] through a connector whose table is 127.0.0.1 at each
+--- The child of the lookups below: resolves argv[1] through a connector whose table is 127.0.0.1 at each
 --- port of argv[2] (comma-separated) and nothing else, waiting argv[3]
 --- milliseconds for each connection (or, where argv[3] is "relay", as
 --- cosmic.internal.relay_start chooses for its default lookup time), twice, so the second asks the same
 --- process again: the first within argv[4] milliseconds, if given, the
 --- second within five seconds. Prints each answer's addresses, sorted, on
 --- a line, and then how many milliseconds each lookup took, on a line.
-local SCRIPT <const> = [[
-local Clock = require("cosmic.clock")
-local Fs = require("cosmic.fs")
-local Net = require("cosmic.net")
-local RelayStart = require("cosmic.internal.relay_start")
-local Config = require("cosmic.internal.relay_config")
-return function(argv: {string}): integer
+test_child.register("resolve", function(argv: {string}): integer
   local asked: mut {Config.Endpoint} = {}
   local servers: mut {Net.Endpoint} = {}
   for text in (argv[2] or ""):gmatch("[^,]+") do
@@ -119,10 +115,10 @@ return function(argv: {string}): integer
     asked[#asked + 1] = { host = "127.0.0.1", port = port }
     servers[#servers + 1] = { host = "127.0.0.1", port = port }
   end
-  local request: RelayStart.NameServerOptions = { servers = asked }
+  local names: RelayStart.NameServerOptions = { servers = asked }
   local dns: Net.Connector
   if argv[3] == "relay" then
-    local plan = assert(RelayStart.name_servers(request))
+    local plan = assert(RelayStart.name_servers(names))
     dns = assert(Net.connector(servers, { timeout_ns = plan.wait_ns }))
   else
     dns = assert(Net.connector(servers, { timeout_ns = Clock.ms(assert(math.tointeger(tonumber(argv[3])))) }))
@@ -144,8 +140,7 @@ return function(argv: {string}): integer
   said[#said + 1] = table.concat(took, ",")
   local _, _ = Fs.put(Fs.stdout, table.concat(said, "\n"))
   return 0
-end
-]]
+end)
 
 --- Reads exactly `count` bytes of `conn`, or nil at its end.
 local function read_exact(conn: Net.Conn, count: integer): string?
@@ -158,7 +153,7 @@ local function read_exact(conn: Net.Conn, count: integer): string?
   return out
 end
 
---- What a run of SCRIPT saw: the lines it printed, and what the test's
+--- What a run of the child saw: the lines it printed, and what the test's
 --- name server saw.
 local record Served
   lines: mut {string}
@@ -168,15 +163,13 @@ local record Served
   mut connections: integer
 end
 
---- Runs SCRIPT for `name` against a TCP name server of the test's own on
+--- Runs the child for `name` against a TCP name server of the test's own on
 --- 127.0.0.1, which a UDP socket at the same port watches for datagrams.
 --- `before` gives the ports of the connector's table that come before
 --- the server's, made in the run; `wait_ms` is the connector's wait, and
 --- `first_ms` the first lookup's time.
 local function served(tmp: string, name: string, wait_ms: integer | string, before?: function(): {integer},
                       first_ms?: integer): Served
-  local script = tmp .. "/resolve.tl"
-  assert(Fs.write(script, SCRIPT))
   local out: Served = { lines = {}, queries = {}, datagrams = 0, connections = 0 }
   Poll.run(function()
     local listener = assert(Net.listen(Net.tcp("127.0.0.1", 0)))
@@ -218,9 +211,9 @@ local function served(tmp: string, name: string, wait_ms: integer | string, befo
       ports[#ports + 1] = tostring(other)
     end
     ports[#ports + 1] = tostring(port)
-    local argv = { "--standalone", script, name, table.concat(ports, ","), tostring(wait_ms) }
-    if first_ms ~= nil then argv[#argv + 1] = tostring(first_ms) end
-    local started = this_program.program(argv,
+    local args = { name, table.concat(ports, ","), tostring(wait_ms) }
+    if first_ms ~= nil then args[#args + 1] = tostring(first_ms) end
+    local started = this_program.program(test_child.words(tmp, "cosmic.net_resolve_through_test", "resolve", args),
       { stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(60) })
     local child <close> = assert(Child.start(started.argv, started.options))
     local result: Child.Result?
@@ -439,9 +432,9 @@ local function test_a_name_server_reset_as_it_is_made_leaves_the_stream_in_step(
   assert(sys.set_nonblocking(pair[2], true))
   assert(sys.write(pair[2], string.pack(">I4", socket.CONNECTOR_HELLO)) == 4)
   local dns <close> = assert(Connector.adopted(pair[1], { { host = "127.0.0.1", port = 53 } }, false, Clock.ms(100)))
-  local asked = { value = nil as string? }
-  local found = { value = nil as {Net.Resolved}? }
-  local why = { value = nil as string? }
+  local asked: Cell<string?> = { value = nil }
+  local found: Cell<{Net.Resolved}?> = { value = nil }
+  local why: Cell<string?> = { value = nil }
   Poll.run(function()
     -- The reply to the lookup's one request, tagged from 1: a socket the
     -- server reset as it was made.
@@ -506,9 +499,9 @@ local function test_a_connector_that_passes_the_wrong_descriptor_is_given_up(tmp
     assert(sys.set_nonblocking(pair[2], true))
     assert(sys.write(pair[2], string.pack(">I4", socket.CONNECTOR_HELLO)) == 4)
     local dns <close> = assert(Connector.adopted(pair[1], { { host = "127.0.0.1", port = 53 } }, false, Clock.ms(100)))
-    local asked = { value = nil as string? }
-    local found = { value = nil as {Net.Resolved}? }
-    local why = { value = nil as string? }
+    local asked: Cell<string?> = { value = nil }
+    local found: Cell<{Net.Resolved}?> = { value = nil }
+    local why: Cell<string?> = { value = nil }
     Poll.run(function()
       Poll.spawn(function()
         assert(Poll.readable(pair[2], Clock.seconds(5)))
@@ -710,8 +703,8 @@ end
 --- longest gap between its ticks, in milliseconds, with how long the
 --- lookup took.
 local function ticking_beside(lookup: function()): integer, integer
-  local worst = { value = 0 }
-  local took = { value = 0 }
+  local worst: Cell<integer> = { value = 0 }
+  local took: Cell<integer> = { value = 0 }
   Poll.run(function()
     local running = true
     local ticker = Poll.spawn(function()
@@ -738,8 +731,8 @@ local function test_a_lookup_nobody_answers_stalls_no_other_task(tmp: string)
   local hosts = tmp .. "/hosts"
   assert(Fs.write(hosts, ""))
   local silent = assert(Udp.bind("127.0.0.1", 0))
-  local found = { value = nil as {Net.Resolved}? }
-  local why = { value = nil as string? }
+  local found: Cell<{Net.Resolved}?> = { value = nil }
+  local why: Cell<string?> = { value = nil }
   local worst, took = ticking_beside(function()
     found.value, why.value = Net.resolve("silent.example.test", { timeout_ns = Clock.ms(600), servers = { { host = "127.0.0.1", port = silent.address.port } },
       hosts_file = hosts })
@@ -761,8 +754,8 @@ local function test_a_lookup_through_a_silent_connector_stalls_no_other_task(tmp
   local pair = assert(process.connector_pair())
   assert(sys.write(pair[2], string.pack(">I4", socket.CONNECTOR_HELLO)) == 4)
   local dns <close> = assert(Connector.adopted(pair[1], { { host = "127.0.0.1", port = 53 } }, false, Clock.ms(100)))
-  local found = { value = nil as {Net.Resolved}? }
-  local why = { value = nil as string? }
+  local found: Cell<{Net.Resolved}?> = { value = nil }
+  local why: Cell<string?> = { value = nil }
   local worst, took = ticking_beside(function()
     found.value, why.value = Net.resolve("silent.example.test", { timeout_ns = Clock.ms(600), connector = dns,
       servers = { { host = "127.0.0.1", port = 53 } }, hosts_file = hosts })
@@ -779,8 +772,8 @@ end
 --- and after.
 local function cancelled_lookup(opts: Net.ResolveOptions): integer, string, integer, integer
   local before = lowest_free_descriptor()
-  local outcome = { value = "" }
-  local waited = { value = 0 }
+  local outcome: Cell<string> = { value = "" }
+  local waited: Cell<integer> = { value = 0 }
   Poll.run(function()
     local task = Poll.spawn(function()
       local found, why = Net.resolve("cancelled.example.test", opts)

@@ -4,10 +4,20 @@
 local Child = require("cosmic.child")
 local Clock = require("cosmic.clock")
 local Test = require("cosmic.test")
+local test_child = require("build.test_child")
 local this_program = require("build.this_program")
 
 --- The program itself, started with `-e`.
 Test.policy{ profiles = { "cosmic" } }
+
+--- The child of the test below: the names of the modules loaded when `-e` runs a chunk (the test module's own are among them).
+test_child.register("loaded", function(_args: {string}): integer
+  local names: mut {string} = {}
+  for name in pairs(package.loaded) do names[#names + 1] = tostring(name) end
+  table.sort(names, function(a: string, b: string): boolean return a < b end)
+  print(table.concat(names, " "))
+  return 0
+end)
 
 --- The modules of the verbs ([`build.verb_list`]) and what only they read: `-e` loads the checker it
 --- checks its chunk with, and none of these.
@@ -22,12 +32,8 @@ local verbs <const>: {string} = {
 --- answers a chunk. A module required at dispatch's top level for a verb's sake is loaded by every child a
 --- test starts, and fails this.
 local function test_e_loads_none_of_the_verbs(tmp: string)
-  local started = this_program.program({ "-e", [[
-local names: mut {string} = {}
-for name in pairs(package.loaded) do names[#names + 1] = tostring(name) end
-table.sort(names, function(a: string, b: string): boolean return a < b end)
-print(table.concat(names, " "))
-]] }, { env = {}, cwd = tmp, stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(30) })
+  local started = this_program.program(test_child.words(tmp, "build.dispatch_tool_test", "loaded"),
+    { env = {}, cwd = tmp, stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(30) })
   local r = assert(Child.run(started.argv, started.options))
   assert(r.ok, tostring(r.stdout) .. tostring(r.stderr))
   local loaded = " " .. (r.stdout or "") .. " "
@@ -95,12 +101,47 @@ local function test_e_binds_no_module_and_requires_what_the_program_holds(tmp: s
     tostring(absent.stdout) .. tostring(absent.stderr))
 end
 
+--- A one-liner is a program outside the tree: it may not hand the library to text by the modules that hold the tool's own
+--- tables ([`build.project_refusals`]), and what it may do beside them still runs.
+local function test_e_is_refused_what_a_project_is_refused_and_runs_the_near_misses(tmp: string)
+  local globals = evaluate(tmp, 'local Globals = require("cosmic.internal.globals") print("ran") return 0')
+  assert(globals.code == 1 and globals.stdout == "" and says(globals, "cosmic.internal.globals"),
+    tostring(globals.stdout) .. tostring(globals.stderr))
+  -- the owner's repro: the globals handed to a chunk of text by `load`
+  local handed = evaluate(tmp, 'local G=require("cosmic.internal.globals") local f=load("return 1","=x","t",G.table()) if f then f() end')
+  assert(handed.code == 1 and says(handed, "cosmic.internal.globals"), tostring(handed.stdout) .. tostring(handed.stderr))
+  local underscore = evaluate(tmp, 'local f = _G.load print("ran") return 0')
+  assert(underscore.code == 1 and underscore.stdout == "", tostring(underscore.stdout) .. tostring(underscore.stderr))
+  local packaged = evaluate(tmp, 'print("ran") return #package.searchers')
+  assert(packaged.code == 1 and packaged.stdout == "" and says(packaged, "`package`"), tostring(packaged.stdout) .. tostring(packaged.stderr))
+  local bytecode = evaluate(tmp, 'print("ran") local f = load("return 1", "=x", "b", {}) return 0')
+  assert(bytecode.code == 1 and bytecode.stdout == "" and says(bytecode, "`load` takes the mode"),
+    tostring(bytecode.stdout) .. tostring(bytecode.stderr))
+  local text = evaluate(tmp, 'local f = load("return 7", "=x", "t", {}) if f == nil then return 1 end print(f()) return 0')
+  assert(text.code == 0 and text.stdout == "7\n", tostring(text.stdout) .. tostring(text.stderr))
+  local public = evaluate(tmp, 'local Fs = require("cosmic.fs") print(Fs.dirname("/a/b")) return 0')
+  assert(public.code == 0 and public.stdout == "/a\n", tostring(public.stdout) .. tostring(public.stderr))
+end
+
 --- An empty chunk runs and exits 0; a chunk that returns what is no exit status exits 2.
 local function test_e_answers_an_empty_chunk_and_a_bad_status(tmp: string)
   local empty = evaluate(tmp, "")
   assert(empty.code == 0 and empty.stdout == "", tostring(empty.stderr))
   local bad = evaluate(tmp, "return 256")
   assert(bad.code == 2 and says(bad, "not an exit status"), tostring(bad.stderr))
+end
+
+--- A `load` with no mode is text alone in a project, by the core and not by this check alone (core/surface.c's `load_with`
+--- forces the mode "t" and a chunk's own environment where none is passed): the bytecode of a function does not load.
+local function test_e_load_with_no_mode_does_not_load_bytecode(tmp: string)
+  local dumped = evaluate(tmp, 'local f, why = load((string.dump(function(...: any): any return (...) end))) ' ..
+      'if f ~= nil then print("loaded") return 1 end print(why) return 0')
+  assert(dumped.code == 0 and (dumped.stdout or ""):find("binary chunk", 1, true) ~= nil,
+    tostring(dumped.code) .. tostring(dumped.stdout) .. tostring(dumped.stderr))
+  local named = evaluate(tmp, 'local f, why = load((string.dump(function(...: any): any return (...) end)), "=x") ' ..
+      'if f ~= nil then print("loaded") return 1 end print(why) return 0')
+  assert(named.code == 0 and (named.stdout or ""):find("binary chunk", 1, true) ~= nil,
+    tostring(named.code) .. tostring(named.stdout) .. tostring(named.stderr))
 end
 
 --- With no chunk at all it is a usage error.

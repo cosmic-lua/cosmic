@@ -137,8 +137,15 @@ replacement, and database-only rebuilds.
 ## select and cache one core
 
 The generated shell in [`build.launcher`](../../build/launcher.tl) maps
-`uname -sm` to a generated release record. It opens the artifact
-before changing the cache. It validates the cache leaf's kind, owner, mode,
+`uname -sm` to a generated release record. On Linux x86_64 it then reads
+the `flags` line of `/proc/cpuinfo` and exits 126, naming the missing
+features, when the CPU lacks what the core's x86-64-v3 build needs (AVX,
+AVX2, FMA, BMI1 and BMI2, F16C, MOVBE, LZCNT, XSAVE). On Linux aarch64 it
+does the same with the `Features` line, for what the core's Armv8.2-A
+build needs: `asimddp` (dot-product), `asimdhp` and `fphp` (half-precision
+floats), `atomics` (LSE), `asimdrdm` and `crc32`. A host with no such line
+is not refused. It opens the artifact before changing the
+cache. It validates the cache leaf's kind, owner, mode,
 and contents. The cache parent is the user's trust boundary.
 
 On a cold start, the launcher copies the selected manifest range to a private

@@ -131,7 +131,7 @@ end
 local function test_a_global_in_a_program_is_a_syntax_error_of_the_new_parser()
   local planned = syntax_read.plan_of("g.tl", "global G_X: integer\nreturn {}\n", "g", "module", false, false)
   assert(planned.plan == nil and planned.halted)
-  assert(#planned.refusals == 1 and planned.refusals[1] ~= nil, said(planned))
+  assert(#planned.refusals == 1, said(planned))
   assert(said(planned):find("global", 1, true) ~= nil, said(planned))
 end
 

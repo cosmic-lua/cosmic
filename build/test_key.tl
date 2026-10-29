@@ -439,7 +439,7 @@ local function closure_of(roots: {string}, own: {string},
   for _, name in ipairs(roots) do stack[#stack + 1] = name end
   while #stack > 0 do
     local name = table.remove(stack)
-    if not seen[name] then
+    if seen[name] ~= true then
       seen[name] = true
       names[#names + 1] = name
       for _, required in ipairs(imports[name] or {}) do stack[#stack + 1] = required end
@@ -790,7 +790,7 @@ end
 local function tool_use(rec: Recording, m: Module): ToolUse
   local effective = rec.effective[m.path]
   if effective.tool then return "declared" end
-  if effective.lua or effective.nests then
+  if effective.lua == true or effective.nests == true then
     return if seals(rec, m) then "sealed" else "allowed" end
   end
   return if can_forbid(rec, m) then "forbidden" else "allowed" end
@@ -804,7 +804,7 @@ end
 --- making no root of its own, since the kernel refuses every mount under
 --- a ruleset.
 local function hold_of(rec: Recording, m: Module): worker.Hold
-  if not rec.sandbox or rec.effective[m.path].nests then return "none" end
+  if not rec.sandbox or rec.effective[m.path].nests == true then return "none" end
   return if tool_use(rec, m) == "forbidden" then "forbid" else "mounts" end
 end
 
@@ -847,7 +847,7 @@ local function extras_digest(rec: Recording): string
     for _, name in ipairs(rec.tree_names) do in_tree[name] = true end
     local lines: mut {string} = {}
     for _, row in ipairs(rows) do
-      if not in_tree[row:text(1)] then
+      if in_tree[row:text(1)] ~= true then
         lines[#lines + 1] = table.concat(row:texts(), "\0")
       end
     end
@@ -961,7 +961,7 @@ local launch_only: {string:boolean} = { COSMIC_REBOOTED = true, OLDPWD = true, S
 function test_key.worker_environment(environment: {string:string}): {string:string}
   local out: mut {string:string} = {}
   for name, value in pairs(environment) do
-    if name:sub(1, 29) ~= "COSMIC_PORTABLE_STARTUP_TEST_" and not launch_only[name] then
+    if name:sub(1, 29) ~= "COSMIC_PORTABLE_STARTUP_TEST_" and launch_only[name] ~= true then
       out[name] = value
     end
   end
@@ -1097,7 +1097,7 @@ local function sweep_stores(rec: Recording)
   local listed, _ = Fs.list(directory)
   for _, entry in ipairs(listed or {}) do
     -- One kept aside for a report ([`mismatch_path`]) stays until removed.
-    if not named[entry] and not entry:match("%.mismatch%.db$") then
+    if named[entry] ~= true and not entry:match("%.mismatch%.db$") then
       local gone, trouble = Fs.remove(directory .. "/" .. entry)
       if not gone then
         log:complain("test: " .. directory .. "/" .. entry .. ": " .. trouble)
@@ -1153,7 +1153,7 @@ local function store_at(rec: Recording, address: string, names: {string},
     local written, write_trouble = closure_store.write(projection_of(rec), path, names, assert(rec.basis),
       extraction)
     if not written then return nil, "the store of its closure: " .. write_trouble end
-    if not base then
+    if base ~= true then
       rec.writing_ns = rec.writing_ns + (Clock.monotonic_ns() - started)
       local wrote, _ = sys.stat(path)
       rec.written = rec.written + 1
@@ -1417,7 +1417,7 @@ local function write_sealed(sealing: Sealing, store: string, whole: string, out:
       for _, row in ipairs(held) do absent[row:text(1)] = nil end
       for _, statement in ipairs(sealed_fill) do
         local reads = statement:match("program%.([%w_]+)")
-        if reads == nil or not absent[reads] then
+        if reads == nil or absent[reads] ~= true then
           local done, done_trouble = db:exec(statement)
           if not done then return false, done_trouble end
         end
@@ -1594,7 +1594,7 @@ local function address_digest(rec: Recording, address: string, names: {string},
       local shared = rec.shared
       where = if shared ~= nil then ("the shared verdicts at " .. shared.path) else "" end
     end
-    if kept ~= nil and kept ~= digest and not rec.store_mismatched[address] then
+    if kept ~= nil and kept ~= digest and rec.store_mismatched[address] ~= true then
       rec.store_mismatched[address] = true
       mismatched(rec, address, made, digest, kept, where, false)
     end
@@ -1680,7 +1680,7 @@ end
 local function policy_of(rec: Recording, job: Job): Sandbox.Policy?, string
   local effective = rec.effective[job.m.path]
   local policy = test_policy.worker(assert(job.plan), effective)
-  if effective.noexec_ready then
+  if effective.noexec_ready == true then
     local made, made_trouble = Fs.mkdirs(assert(job.scratch) .. "/noexec")
     if not made then return nil, "its private noexec scratch: " .. made_trouble end
   end
@@ -1876,7 +1876,7 @@ function test_key.gather(rec: Recording, from: Gather): string?
   local holds_system = false
   for _, m in ipairs(selected_modules) do
     local effective = rec.effective[m.path]
-    if effective ~= nil and effective.system then holds_system = true end
+    if effective ~= nil and effective.system == true then holds_system = true end
   end
   rec.system = declared_key.system_identity(digests_of(rec), nil, holds_system)
   tool_of(rec)
@@ -2034,7 +2034,7 @@ function test_key.lookup(rec: Recording, m: Module, id: string,
   local elsewhere: shared_verdicts.Found? = nil
   local asked = false
   local rec_shared = rec.shared
-  if key ~= nil and not force and own == nil and consult and rec_shared ~= nil then
+  if key ~= nil and not force and own == nil and consult == true and rec_shared ~= nil then
     local answer, trouble = shared_verdicts.declared(rec_shared, key)
     if answer == nil and trouble ~= "" then drop_shared(rec, trouble) end
     elsewhere = answer
@@ -2216,7 +2216,7 @@ function test_key.persist_digests(records: Sqlite.Handle, rec: Recording,
   local digests = rec.digests
   if digests ~= nil and digests.read > 0 then
     local kept, keep_trouble = true, ""
-    if whole then kept, keep_trouble = records:exec("DELETE FROM digests") end
+    if whole == true then kept, keep_trouble = records:exec("DELETE FROM digests") end
     for _, row in ipairs(kept and declared_key.kept(digests) or {}) do
       if kept then
         kept, keep_trouble = Sqlite.run(records,
@@ -2262,7 +2262,7 @@ function test_key.prepare(rec: Recording, job: Job): Prepared
     return cannot(declares_trouble, true, nil)
   end
   local effective = rec.effective[job.m.path]
-  if effective.noexec and not effective.noexec_ready then
+  if effective.noexec == true and effective.noexec_ready ~= true then
     return cannot("", false, effective.noexec_trouble)
   end
   -- The store its worker attaches ([`worker.Invocation`]'s `store`).
@@ -2282,7 +2282,7 @@ function test_key.prepare(rec: Recording, job: Job): Prepared
     if sealed == nil and sealed_trouble ~= "" then
       return cannot(sealed_trouble, false, nil)
     end
-    if sealed == nil and rec.effective[job.m.path].lua and not rec.effective[job.m.path].store and
+    if sealed == nil and rec.effective[job.m.path].lua == true and not rec.effective[job.m.path].store and
         not rec.effective[job.m.path].tool then
       local launched, _ = Proc.relaunch()
       local why = if (launched == nil or launched.argv[2] ~= "--artifact" or launched.argv[3] == nil) then

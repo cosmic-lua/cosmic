@@ -2,6 +2,7 @@
 --- and refuse corrupt or truncated input rather than answering with
 --- something wrong.
 
+local Cell = require("cosmic.cell")
 local Codec = require("cosmic.codec")
 local Compress = require("cosmic.compress")
 local Sqlite = require("cosmic.sqlite")
@@ -492,7 +493,7 @@ end
 
 local function test_a_stream_revived_by_a_finalizer_is_finished()
   for _, case in ipairs(every_kind()) do
-    local saved = { value = nil as Compress.Stream? }
+    local saved: Cell<Compress.Stream?> = { value = nil }
     local holder: Holder = setmetatable({} as Holder, {
       __gc = function(self: Holder) saved.value = self.s end,
     } as metatable<Holder>)

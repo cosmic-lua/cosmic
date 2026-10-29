@@ -124,7 +124,7 @@ function symbols.shown_docs(alias: string, public: boolean, indexed?: boolean): 
   local source = "replace(" .. alias .. ".source_symbol, ':', '.')"
   local written = "substr(" .. source .. ", 1, instr(" .. source .. " || '.', '.') - 1)"
   local hidden: string
-  if indexed then
+  if indexed == true then
     hidden = "NOT EXISTS (SELECT 1 FROM docs lr WHERE lr.module = " .. alias ..
       ".module AND lr.source_symbol = " .. written .. " AND " ..
       symbols.local_declaration("lr") .. ")"
@@ -260,7 +260,7 @@ function symbols.named(databases: {Sqlite.Handle}, public: {boolean},
     if rows ~= nil then
       for _, row in ipairs(rows) do
         local name = row:text(2) ~= "" and row:text(2) or row:text(1)
-        if not seen[name] then
+        if seen[name] ~= true then
           seen[name] = true
           out[#out + 1] = name
         end

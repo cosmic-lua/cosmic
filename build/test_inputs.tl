@@ -142,14 +142,14 @@ test_inputs.standalone_loads = {
 --- an edit to the compiler, which moves its identity, runs a test that
 --- only runs Lua in a child no more than one that runs none.
 function test_inputs.compiler_sought(closure: {string}, lua?: boolean): {string}
-  if not lua then return closure end
+  if lua ~= true then return closure end
   local added: mut {string:boolean} = {}
   for _, list in ipairs({ test_inputs.lua_loads, test_inputs.standalone_loads }) do
     for _, name in ipairs(list) do added[name] = true end
   end
   local out: mut {string} = {}
   for _, name in ipairs(closure) do
-    if not added[name] then out[#out + 1] = name end
+    if added[name] ~= true then out[#out + 1] = name end
   end
   return out
 end
@@ -199,7 +199,7 @@ local function closure(m: Module, by_path: {string:Module},
   if m.inputs ~= nil and m.inputs.lua and standalone ~= nil then stack[#stack + 1] = standalone end
   while #stack > 0 do
     local here = table.remove(stack)
-    if not seen[here.path] then
+    if seen[here.path] ~= true then
       seen[here.path] = true
       files[#files + 1] = here.file
       names[#names + 1] = here.path
@@ -209,9 +209,9 @@ local function closure(m: Module, by_path: {string:Module},
         if name == "build.fuzz" then fuzzes = true end
         if erased[name] then
           -- Loads nothing, so no part of the closure.
-        elseif other ~= nil and not seen[name] then
+        elseif other ~= nil and seen[name] ~= true then
           stack[#stack + 1] = other
-        elseif other == nil and declarations[name] ~= nil and not seen[name] then
+        elseif other == nil and declarations[name] ~= nil and seen[name] ~= true then
           seen[name] = true
           files[#files + 1] = declarations[name]
           names[#names + 1] = name
@@ -226,7 +226,7 @@ local function closure(m: Module, by_path: {string:Module},
   local function hold(loads: {string})
     for _, name in ipairs(loads) do
       local other = by_path[name]
-      if other ~= nil and not seen[name] then
+      if other ~= nil and seen[name] ~= true then
         seen[name] = true
         files[#files + 1] = other.file
         names[#names + 1] = name

@@ -518,7 +518,7 @@ local function verify(fact: Fact, value: any): any
   if fact.negated then
     broken = kinds[kind] == true or (kind == "number" and kinds.integer == true and math_type(value) == "integer")
   else
-    broken = not kinds[kind] or (kind == "number" and fact.integral and math_type(value) ~= "integer")
+    broken = kinds[kind] ~= true or (kind == "number" and fact.integral and math_type(value) ~= "integer")
   end
   if not broken then return value end
   local actual = kind
@@ -532,7 +532,7 @@ local function hook(_: integer, text: string, ...: any): any...
   if check == nil then
     local fact = facts[text]
     if fact ~= nil then return verify(fact, (...)) end
-    if not malformed[text] then
+    if malformed[text] ~= true then
       if lua_byte(text, 1) == 110 then
         if lua_pcall(parse_fact, text) then
           return verify(facts[text], (...))
@@ -558,7 +558,7 @@ local function hook(_: integer, text: string, ...: any): any...
     if kinds ~= nil then
       local value = (lua_select(index, ...))
       local kind = lua_type(value)
-      if not kinds[kind] or (kind == "number" and check.integral[index] and
+      if kinds[kind] ~= true or (kind == "number" and check.integral[index] == true and
           math_type(value) ~= "integer") then
         -- A check that fails to say so is no failure of the test.
         local _ = lua_pcall(note, check, index, value, index > given)
@@ -933,7 +933,7 @@ end
 -- the tree.
 local function refusal(name: string, module_path: string, closure: {string:boolean},
                        tree: {string:boolean}): string?
-  if closure[name] or not tree[name] then return nil end
+  if closure[name] == true or tree[name] ~= true then return nil end
   return string.format("module '%s' is outside the import closure of %s: the build " ..
       "follows a require only when it is called directly on a literal name, or through " ..
       "pcall(require, \"<name>\"), so a name computed at run time is not followed, and a change to %s " ..
@@ -1075,7 +1075,7 @@ function worker.invocation(given: worker.Invocation): worker.Command
     argv[#argv + 1] = value
   end
   if given.policy ~= nil then argv[#argv + 1] = "--sandboxed" end
-  if given.own_scratch then argv[#argv + 1] = "--own-scratch" end
+  if given.own_scratch == true then argv[#argv + 1] = "--own-scratch" end
   if given.policy ~= nil and given.hold == "forbid" then
     local runs = given.runs or {}
     argv[#argv + 1] = "--runs"
@@ -1144,7 +1144,7 @@ local function unkeyed(modules: {string}, carried: {string:boolean},
   for _, name in ipairs(worker.loads) do listed[name] = true end
   local out: mut {string} = {}
   for _, name in ipairs(modules) do
-    if carried[name] and not listed[name] and not closure[name] then
+    if carried[name] == true and listed[name] ~= true and closure[name] ~= true then
       out[#out + 1] = name
     end
   end
@@ -1166,7 +1166,7 @@ end
 --- standing.
 function worker.judge(judging: worker.Judging): worker.Judgement
   local result = judging.result
-  if result == nil and judging.refused then
+  if result == nil and judging.refused == true then
     return { passed = false, message = judging.trouble, skipped = "" }
   elseif result == nil then
     return { passed = false, skipped = "",
@@ -1408,7 +1408,7 @@ function worker.run(argv: {string}): integer
   -- change ([`confine.call`]): its own, as it is handed it and as it
   -- resolves, and where a process it starts writes its coverage.
   local own: mut {string} = { tmp }
-  if sandboxed and ("\n" .. expected_needs .. "\n"):find("\nnoexec true\n", 1, true) then
+  if sandboxed and ("\n" .. expected_needs .. "\n"):find("\nnoexec true\n", 1, true) ~= nil then
     own[#own + 1] = "/noexec"
   end
   local resolved_tmp, _ = Fs.absolute(tmp)

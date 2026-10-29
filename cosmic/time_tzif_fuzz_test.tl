@@ -8,6 +8,7 @@
 --- and arbitrary bytes. `FUZZ_SEED` and `FUZZ_ITERS` pick the inputs
 --- (build/fuzz/init.tl).
 
+local Cell = require("cosmic.cell")
 local Fuzz = require("build.fuzz")
 local Store = require("cosmic.store")
 local Time = require("cosmic.time")
@@ -136,7 +137,7 @@ end
 --- cost that grows faster than the length, which the reference would
 --- share, still leaves it short of the largest drawn read. Taken the
 --- first time a read is slow enough to ask.
-local reference_ns = { value = nil as integer? }
+local reference_ns: Cell<integer?> = { value = nil }
 local function reference(): integer
   if reference_ns.value == nil then
     local count = 4000
@@ -151,7 +152,7 @@ local function reference(): integer
     end
     reference_ns.value = 10 * least
   end
-  return reference_ns.value
+  return assert(reference_ns.value)
 end
 
 --- Whatever `data` is, reading it and asking the zone about moments

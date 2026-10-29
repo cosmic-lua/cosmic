@@ -362,11 +362,11 @@ end
 --- @param reads the host paths the plan binds
 --- @return why, "" for none
 local function why_shared_scratch(effective: test_inputs.Effective, reads: {string}): string
-  if effective.system then
+  if effective.system == true then
     return "it declares `system`, which gives it the system's directories"
   end
   if effective.tool then return "it declares `tool`, which gives it the directory o/bin" end
-  if effective.noexec then
+  if effective.noexec == true then
     return "it declares `noexec`, whose private scratch is a bind of a host directory"
   end
   local cache = (effective.caches or {})[1]
@@ -440,7 +440,7 @@ function test_sandbox.plan(root: string, scratch: string, effective: test_inputs
   -- With `run` where the path is run, as it may be by a worker's test; a
   -- read of a path of the closure is not.
   local function give(path: string, inside?: string, run?: boolean)
-    if seen[path] then return end
+    if seen[path] == true then return end
     local there, _ = sys.stat(path)
     if there == nil then return end -- a read of it finds nothing, as it would
     seen[path] = true
@@ -448,7 +448,7 @@ function test_sandbox.plan(root: string, scratch: string, effective: test_inputs
     if inside ~= nil then at[path] = inside end
     -- A file no one may run is no file to grant `x` on: the start refuses
     -- a grant its user could not use by the file's mode.
-    if run and (there.kind == "dir" or there.mode & 0x49 ~= 0) then
+    if run == true and (there.kind == "dir" or there.mode & 0x49 ~= 0) then
       runs[path] = true
     end
   end
@@ -525,7 +525,7 @@ function test_sandbox.plan(root: string, scratch: string, effective: test_inputs
   -- `lua`, whose children would read what it holds. One that declares
   -- `store` is given the real one; any other runs on a sealed database
   -- ([`build.test`]'s `sealed_for`) and is given none.
-  if (effective.nests or effective.lua) and effective.store and not effective.tool then
+  if (effective.nests == true or effective.lua == true) and effective.store and not effective.tool then
     local launched, _ = Proc.relaunch()
     if launched ~= nil and launched.argv[2] == "--artifact" and launched.argv[3] ~= nil then
       -- Given by a name a grant may name, which the worker is told it by
@@ -571,7 +571,7 @@ function test_sandbox.plan(root: string, scratch: string, effective: test_inputs
     local source = above .. "/" .. relative
     -- One host path is bound at one place: a file the plan gives already
     -- (the tree's own, or a `reads` or `host` entry) is not given again.
-    if seen[source] and refused == "" then
+    if seen[source] == true and refused == "" then
       refused = string.format("Test.policy grant of /parent/%s: %s is given another way " ..
           "(a file of the tree, a `reads` or a `host` entry); a file is bound at one place",
         relative, source)
@@ -626,7 +626,7 @@ function test_sandbox.plan(root: string, scratch: string, effective: test_inputs
   end
   reads = {}
   for _, path in ipairs(given_reads) do
-    if not runs[path] and shown_by(path, given_reads, at) then
+    if runs[path] ~= true and shown_by(path, given_reads, at) then
       at[path] = nil
     else
       reads[#reads + 1] = path

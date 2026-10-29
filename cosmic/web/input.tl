@@ -57,6 +57,8 @@
 --- failure is reported. A JSON client should read an error's `pointer`, not
 --- its `field`: the dotted `field` is ambiguous for a key that holds a `.`.
 
+-- TODO: make this `local type Cell = require("cosmic.cell")` once the store keeps a module that only a `local type` require names; today that drops cosmic.cell from the binary and build/link_index_test fails.
+local Cell = require("cosmic.cell")
 local Codec = require("cosmic.codec")
 local Fs = require("cosmic.fs")
 local Json = require("cosmic.json")
@@ -382,18 +384,18 @@ end
 --- A Reader over `source` that fails with [`OVER_LIMIT`] when it would pass
 --- `limit` bytes, and the count of the bytes it passed so far.
 local function counted(source: Stream.Reader, limit: integer): Stream.Reader, function(): integer
-  local passed = { total = 0 }
+  local passed: Cell<integer> = { value = 0 }
   local reader: Stream.Reader = {
     read = function(_self: Stream.Reader, max?: integer): string?, string
-      local chunk, why = source:read(math.min(max or CHUNK, limit + 1 - passed.total))
+      local chunk, why = source:read(math.min(max or CHUNK, limit + 1 - passed.value))
       if chunk == nil then return nil, why end
-      passed.total = passed.total + #chunk
-      if passed.total > limit then return nil, OVER_LIMIT end
+      passed.value = passed.value + #chunk
+      if passed.value > limit then return nil, OVER_LIMIT end
       return chunk, ""
     end,
     close = function(_self: Stream.Reader): boolean, string return true, "" end,
   }
-  return reader, function(): integer return passed.total end
+  return reader, function(): integer return passed.value end
 end
 
 --- The file an upload is being written to, where the closer of a killed

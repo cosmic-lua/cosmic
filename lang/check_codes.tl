@@ -263,10 +263,11 @@ Codes.catalog = {
   },
   {
     code = "index_may_be_nil", rule = "an index read may be nil",
-    why = "Lua answers nil for an index out of range, and no refinement answers the element: any other reference " ..
-      "to the collection may change it between a test and the read",
-    fix = "read it into a local and test it (`local row = <xs>[<i>] if row ~= nil then ... end`), or iterate with " ..
-      "`for _, row in ipairs(<xs>)`",
+    why = "Lua answers nil for an index out of range. Only a test of the length against a literal shows an element " ..
+      "(`#<xs> ~= 0` for `<xs>[1]`, until code runs that may shorten an array); no other refinement answers it, since " ..
+      "any other reference to the collection may change it between a test and the read",
+    fix = "read it into a local and test it (`local row = <xs>[<i>] if row ~= nil then ... end`), test the length " ..
+      "(`if #<xs> ~= 0 then ... <xs>[1] ... end`), or iterate with `for _, row in ipairs(<xs>)`",
   },
   {
     code = "view_as_mut", rule = "collections are views unless declared mutable",

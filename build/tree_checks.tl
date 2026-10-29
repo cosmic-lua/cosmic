@@ -95,6 +95,8 @@ allowed["build.memprobe.sink"] = "where a mark writes its line, which a test tak
 allowed["build.dataset.load"] = "the loader load_text composes and falls back on, tested directly " ..
   "over rows a test builds, whose keys no file need hold"
 
+allowed["cosmic.cell.value"] = "the one field of a record that is the module: a program reads and assigns it through the Cell it holds, not through the module"
+
 allowed["cosmic.http.public_key_pin"] = "public API: how a program makes the pin `opts.pin` holds a " ..
   "server's key to; cosmic's own fetches choose roots, not pins"
 
@@ -415,7 +417,7 @@ function tree_checks.exports(db: Sqlite.Handle, excused?: {string: string}): {st
   end
   local stale: mut {string} = {}
   for name in pairs(excused) do
-    if not found[name] then
+    if found[name] ~= true then
       stale[#stale + 1] = name .. ": allowed, but now used or gone -- remove its allowance"
     end
   end
@@ -530,7 +532,7 @@ function tree_checks.unnamed_types(db: Sqlite.Handle): {string}
     local pending: mut {string} = {}
     local function names_in(signature: string)
       for name in pairs(tops) do
-        if not reached[name] and signature:find("%f[%w_.]" .. name .. "%f[^%w_]") ~= nil then
+        if reached[name] ~= true and signature:find("%f[%w_.]" .. name .. "%f[^%w_]") ~= nil then
           reached[name] = true
           pending[#pending + 1] = name
         end
@@ -676,7 +678,7 @@ function tree_checks.anchors(db: Sqlite.Handle, expected?: {string}): {string}
   end
   table.sort(out)
   for _, name in ipairs(expected or anchors_expected) do
-    if not found[name] then
+    if found[name] ~= true then
       out[#out + 1] = name .. " is no longer taken for a doc anchor"
     end
   end
@@ -724,14 +726,14 @@ function tree_checks.compiler_readers(db: Sqlite.Handle, named?: {string}): {str
   for _, name in ipairs(named or declared_key.compiler_readers) do listed[name] = true end
   local missing, stale: mut {string}, mut {string} = {}, {}
   for name in pairs(found) do
-    if not listed[name] then
+    if listed[name] ~= true then
       missing[#missing + 1] = name .. " reads the compiler's identity, but " ..
         "build/key_parts.tl's `compiler_readers` does not name it, so no key " ..
         "of a test that runs it holds it"
     end
   end
   for name in pairs(listed) do
-    if not found[name] then
+    if found[name] ~= true then
       stale[#stale + 1] = name .. " is named in build/key_parts.tl's " ..
         "`compiler_readers`, but no longer reads the compiler's identity -- remove it"
     end
@@ -794,7 +796,7 @@ function tree_checks.build_directory(db: Sqlite.Handle, excused?: {string: strin
   end
   local stale: mut {string} = {}
   for file in pairs(excused) do
-    if not found[file] then
+    if found[file] ~= true then
       stale[#stale + 1] = file .. ": excused in build/tree_checks.tl's `spelled`, but no " ..
         "longer spells the build directory -- remove it"
     end
@@ -975,7 +977,7 @@ function tree_checks.restricted(db: Sqlite.Handle, rules?: {string: Restriction}
     local allowed_here: mut {string: boolean} = {}
     for _, file in ipairs(rule.files) do allowed_here[file] = true end
     for _, row in ipairs(rows) do
-      if not allowed_here[row:text(1)] then
+      if allowed_here[row:text(1)] ~= true then
         out[#out + 1] = row:text(1) .. ":" .. row:text(2) .. ": " .. name .. " is used outside " ..
           table.concat(rule.files, ", ") .. ": " .. rule.why
       end
@@ -999,9 +1001,9 @@ local requirers: {string: Restriction} = {
   },
   ["cosmic.internal.globals"] = {
     files = { "build.fuzz", "build.load_module",
-      "build.raw_tables_test", "build.sandbox", "build.sandboxed_verdicts_test", "build.sealed_worker_test", "build.standalone",
+      "build.raw_tables_test", "build.sandbox", "build.sealed_worker_test", "build.standalone",
       "build.test_closure_diagnostic_test", "build.test_closure_test", "build.type_watch", "core.load_env_test", "core.surface_test",
-      "cosmic.coverage_test", "cosmic.flags_test", "cosmic.test_tool_test", "test.coverage_cache_test" },
+      "cosmic.coverage_test", "cosmic.flags_test", "test.coverage_cache_test" },
     why = "only the modules that run a program or a hook as a chunk of Lua text take the globals whole, as its " ..
       "environment: it holds `require`, which a chunk loads modules the build does not see by; any other module " ..
       "passes the chunk the few names it needs",
@@ -1047,7 +1049,7 @@ function tree_checks.declarations(db: Sqlite.Handle): {string}
   local out: mut {string} = {}
   for _, row in ipairs(rows) do
     for _, name in ipairs(closure_store.required_by(row:text(2))) do
-      if not declared[name] then
+      if declared[name] ~= true then
         out[#out + 1] = row:text(1) .. " requires " .. name .. ", which is no declaration: " ..
           "a closure store follows a declaration's requires among declarations alone " ..
           "(build/closure_store.tl's `declared`), so declare what it needs of " .. name ..
@@ -1105,6 +1107,8 @@ end
 local launcher_allowed: mut {string: string} = {}
 launcher_allowed["build.caches_test"] = "names COSMIC_PORTABLE_CACHE as a key of the " ..
   "environment it hands a pure function of the cache variables"
+launcher_allowed["build.launcher_test"] = "renders the launcher's text with build.launcher and runs " ..
+  "it in a child of its own, with COSMIC_PORTABLE_TEST_CPUINFO named in the child's environment"
 launcher_allowed["build.test_sandbox_test"] = "names COSMIC_PORTABLE_CACHE in the environments " ..
   "it hands the sandbox's pure functions, and reads none from its own process"
 launcher_allowed["build.test_worker_test"] = "hands the worker's pure start function a made-up " ..
@@ -1154,7 +1158,7 @@ function tree_checks.sealed_launch(db: Sqlite.Handle, unsealed: {string:boolean}
         break
       end
     end
-    if named and not unsealed[row:text(1)] then
+    if named and unsealed[row:text(1)] ~= true then
       seen[row:text(1)] = true
       if allowed_here[row:text(1)] == nil then
         out[#out + 1] = row:text(1) .. " names the portable launcher's contract, but its worker runs " ..
@@ -1165,7 +1169,7 @@ function tree_checks.sealed_launch(db: Sqlite.Handle, unsealed: {string:boolean}
   end
   local stale: mut {string} = {}
   for name in pairs(allowed_here) do
-    if not seen[name] then
+    if seen[name] ~= true then
       stale[#stale + 1] = name .. " is excused in build/tree_checks.tl's `launcher_allowed`, but " ..
         "no longer names the portable launcher's contract in a sealed test -- remove it"
     end
@@ -1502,7 +1506,7 @@ function tree_checks.verbs(db: Sqlite.Handle, quickstart: string?): {string}
           found_fields[row:text(1)][field] = true
           local spec = spec_fields(row:text(3), last)
           local name = spec.strings.name or "?"
-          if not listed[row:text(1)] then
+          if listed[row:text(1)] ~= true then
             out[#out + 1] = "`" .. name .. "` (" .. row:text(1) .. ") assigns a `spec` but " ..
               "build/verb_list.tl does not list its module, so no verb dispatches to it -- " ..
               "list it there"
@@ -1543,7 +1547,7 @@ function tree_checks.verbs(db: Sqlite.Handle, quickstart: string?): {string}
   local unread: mut {string} = {}
   for entry_module, fields in pairs(expected) do
     for _, field in ipairs(fields) do
-      if not (found_fields[entry_module] or {})[field] then
+      if (found_fields[entry_module] or {})[field] ~= true then
         unread[#unread + 1] = "build/verb_list.tl loads `" .. entry_module .. "`'s `" .. field ..
           "`, but that module assigns no `<x>." .. field .. " = {` table literal at the start " ..
           "of a line, which is how a spec is read here"
@@ -1570,7 +1574,7 @@ function tree_checks.guides(db: Sqlite.Handle): {string}
   local out: mut {string} = {}
   for _, row in ipairs(rows) do
     local name = row:text(1):sub(#"doc.guides." + 1)
-    if not known[name] then
+    if known[name] ~= true then
       out[#out + 1] = "doc/guides/" .. name .. ".md is in neither `symbols.guides` nor " ..
         "`symbols.internal_guides` (build/symbols.tl): name it in one, so it ships or " ..
         "is left out on purpose"
@@ -1605,9 +1609,9 @@ local FILE_NAMES: {string: boolean} = { zig = true }
 --- tree (or a package under one): [`build.this_program`], not "the build."
 local function names_a_module(hit: string, modules: {string: boolean}): boolean
   local name = hit:match("^build%.([%w_.]*[%w_])")
-  if name ~= nil and FILE_NAMES[name] then return false end
+  if name ~= nil and FILE_NAMES[name] == true then return false end
   while name ~= nil and name ~= "" do
-    if modules["build." .. name] then return true end
+    if modules["build." .. name] == true then return true end
     name = name:match("^(.*)%.[^.]*$")
   end
   return false
@@ -1705,7 +1709,7 @@ function tree_checks.public_docs(db: Sqlite.Handle, excused?: {string: string}):
         if rule.breaks(before, hit, after, modules) then
           local key = row:text(1) .. " " .. (row:text(2) ~= "" and row:text(2) or "(module)") .. " " .. rule.name
           found[key] = true
-          if excused[key] == nil and not seen[word] then
+          if excused[key] == nil and seen[word] ~= true then
             seen[word] = true
             out[#out + 1] = row:text(4) .. ":" .. row:text(5) .. ": " .. row:text(1) .. " " ..
               (row:text(2) ~= "" and row:text(2) or "(module)") .. ": its doc text has `" .. word ..
@@ -1717,7 +1721,7 @@ function tree_checks.public_docs(db: Sqlite.Handle, excused?: {string: string}):
   end
   local stale: mut {string} = {}
   for key in pairs(excused) do
-    if not found[key] then
+    if found[key] ~= true then
       stale[#stale + 1] = key .. ": exempt, but its doc no longer breaks the rule -- " ..
         "remove the exemption"
     end
@@ -1830,7 +1834,7 @@ function tree_checks.plurals(db: Sqlite.Handle, extra?: {{string}}, excused?: {s
   end
   local stale: mut {string} = {}
   for key in pairs(excused) do
-    if not found[key] then
+    if found[key] ~= true then
       stale[#stale + 1] = key .. ": exempt, but nothing there writes a literal plural " ..
         "after a number any more -- remove the exemption"
     end
@@ -1936,7 +1940,7 @@ function tree_checks.ci_testdata(root: string): {string}
           else
             findings[#findings + 1] = { code = code, y = math.tointeger(tonumber(y)) or 0,
               x = math.tointeger(tonumber(x)) or 0, msg = msg, fix = fix }
-            if not seen[code] then
+            if seen[code] ~= true then
               seen[code] = true
               codes[#codes + 1] = code
             end
@@ -2145,7 +2149,7 @@ local function kept_findings(text: string, codes: {string}): DeclareOutcome?
   for _, fields in ipairs(check_memo.decode(text)) do
     if fields[1] == "E" and #fields == 6 then
       local y, x = math.tointeger(tonumber(fields[3])), math.tointeger(tonumber(fields[4]))
-      if not known[fields[2]] or y == nil or x == nil then
+      if known[fields[2]] ~= true or y == nil or x == nil then
         return nil
       end
       outcome.errors[#outcome.errors + 1] = { code = fields[2], y = y, x = x, msg = fields[5], fix = fields[6] }
@@ -2190,7 +2194,7 @@ local function required_modules(source: string, file: string): {string}
   local out: mut {string} = {}
   local seen: mut {string: boolean} = {}
   for _, name in source:gmatch("require%s*[%(,]?%s*([\"'])([%w_%.%-]+)%1") do
-    if not seen[name] then
+    if seen[name] ~= true then
       seen[name] = true
       out[#out + 1] = name
     end
@@ -2249,7 +2253,7 @@ local function tree_of(given: {{string}}, salt: string, bindings?: {{string}}, w
   local row_of: mut {Driver.Source: DeclareFile} = {}
   for _, source in ipairs(index.sources) do
     -- A declaration derived from a header is no file of the tree: its text is in the salt of the checks that read it.
-    if not derived[source.filename] then
+    if derived[source.filename] ~= true then
       local row: DeclareFile = {
         file = source.filename, source = source.text, module = source.module, dialect = source.dialect,
         imports = required_modules(source.text, source.filename), key = "",
@@ -2293,7 +2297,7 @@ local function tree_of(given: {{string}}, salt: string, bindings?: {{string}}, w
       local m = stack[#stack]
       stack[#stack] = nil
       local dep = by_module[m]
-      if dep ~= nil and not reached[dep.module] then
+      if dep ~= nil and reached[dep.module] ~= true then
         reached[dep.module] = true
         for _, next_module in ipairs(dep.imports) do
           stack[#stack + 1] = next_module
@@ -2564,7 +2568,6 @@ local packagers: {string: string} = {
   ["build/test_worker.tl"] = "holds `require` to a test's closure through the searchers and `package.loaded`",
   ["build/udp_fixture.tl"] = "reads the core's raw table through the searchers",
   ["build/unix_socket.tl"] = "reads the core's raw table through the searchers",
-  ["cosmic/removed_example.tl"] = "shows that `package.loaded` holds a module once required",
   ["cosmic/store.tl"] = "reads the store's searcher",
 }
 
@@ -2613,8 +2616,6 @@ local loaders: {string: string} = {
   ["build/fuzz/init.tl"] = "the constant chunk `return __cosmic_tc`, the hook a checked run defines",
   ["build/load_module.tl"] = "the named loader: the constant chunk `return require((...))`",
   ["build/lua_tail.tl"] = "the Lua the compiler wrote, loaded in an environment of its own to dump its bytecode",
-  ["build/must_confine_fixture.tl"] = "constant chunks of the test support that probe the confinement of a worker, " ..
-    "which no typed file may do",
   ["build/sandbox.tl"] = "the script the checker compiled ([`build.standalone`]'s `code`), as the main of a sealed program",
   ["build/standalone.tl"] = "the Lua the checker compiled from a file or a `-e` chunk, or kept from such a compile",
   ["build/test_worker.tl"] = "the constant chunk that reads a value's metatable in the form the compiler writes",

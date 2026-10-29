@@ -304,6 +304,9 @@ local record Ctx
   bounds: mut {{Types.TParam}}
   --- How many generic-call arguments are being checked: a literal there has no type to be checked against.
   mut lenient: integer
+  --- Set while the arguments of a generic call are checked: a function there is held to the parameters of the type it is
+  --- instantiated to, which no declaration spells, so it never drops a trailing parameter.
+  mut no_drop: boolean
   members: {Decl: Members}
   --- The same for a declaration used as a value, which also has its statics.
   value_members: {Decl: Members}
@@ -344,6 +347,9 @@ local record Ctx
   --- The locals the assignment being checked assigns, whose function literals name them while they are unset.
   mut assigning: {integer: boolean}
   mut quiet: integer
+  --- How many `<close>` locals the walk is inside the scope of: a handler runs when the scope ends, so no test of the
+  --- length of an array is believed there ([`Tests.length_edges`]).
+  mut closers: integer
   --- The module that declares the callee of the call being dispatched, "" where the walk does not know it.
   mut callee_module: string
   --- The module of the declaration the last member read took its member from, "" where it had none.
@@ -999,9 +1005,32 @@ local function refused(ctx: Ctx, node: Ast.Node, got: Type, want: Type, r: Relat
   end
 end
 
+--- Whether the checker sees the parameter list of the function `node` writes or names: a function literal, or a
+--- `local function` that nothing assigns. The type of a variable, field, parameter or return of function type is what
+--- was declared, which may leave out parameters the value takes ([`Relation.subtype_known`]).
+local function knows_parameters(ctx: Ctx, node: Ast.Node): boolean
+  if ctx.no_drop then
+    return false
+  end
+  local at = peel(node)
+  if at.kind == "FunctionLit" then
+    return true
+  end
+  if at.kind == "Name" then
+    local id = at.binding
+    if id == nil then
+      return false
+    end
+    local v = ctx.scoped.vars[id]
+    return v ~= nil and v.fn ~= nil and not v.assigned
+  end
+  return false
+end
+
 --- Whether the value of `node`, of type `got`, may stand where `want` is wanted, reporting it where not.
 local function expect(ctx: Ctx, node: Ast.Node, got: Type, want: Type, where: string, named?: string): boolean
-  if below(ctx, got, want) then
+  local known = knows_parameters(ctx, node)
+  if below(ctx, got, want) or (known and Relation.subtype_known(ctx.judge, got, want)) then
     return true
   end
   local r = ctx.judge:refuse(got, want)
@@ -2309,66 +2338,6 @@ function Writes.note_move(ctx: Ctx, node: Ast.Node, base: Type, name: string)
   end
 end
 
---- `object[key]` read: the element of an array or the value of a map as an optional (an index read may be nil), the
---- fields a literal or enum key names in a record.
-local function index_read(ctx: Ctx, node: Ast.Index, object: Type): Type
-  local store = ctx.store
-  local t = readable(ctx, node.object, object, "it has no elements to read")
-  if t == nil then
-    local _ = expr(ctx, node.key, nil)
-    return ctx.invalid
-  end
-  if (t.tag == "array") then
-    local k = expr(ctx, node.key, store.integer)
-    local _ = key_ok(ctx, node.key, k, store.integer, subject(ctx, node.object))
-    local element = t.element
-    if not t.mut then
-      element = view(store, element)
-    end
-    return store:optional(element)
-  elseif (t.tag == "map") then
-    local k = expr(ctx, node.key, t.key)
-    local _ = key_ok(ctx, node.key, k, t.key, subject(ctx, node.object))
-    local value = t.value
-    if not t.mut then
-      value = view(store, value)
-    end
-    return store:optional(value)
-  elseif (t.tag == "named") and (t.decl.kind == "record" or t.decl.kind == "class" or t.decl.kind == "userdata") then
-    local k = expr(ctx, node.key, nil)
-    if k.tag == "invalid" then
-      return ctx.invalid
-    end
-    local names = key_names(node.key, k)
-    if names == nil then
-      local index = members_index(ctx, t.decl, t.value)
-      local array_part = index ~= nil and index.array or nil
-      if array_part ~= nil and below(ctx, k, store.integer) then
-        return store:optional(put_in(ctx, t, array_part))
-      end
-      report(ctx, "record_index", node, subject(ctx, node.key) .. " is " .. tq(ctx, k) .. ", which names no field of " ..
-          tq(ctx, t) .. ": a record is not a map",
-        "write the field (`" .. text_of(ctx, node.object) .. ".field`), or index a `{K: V}`", { show(ctx, k) })
-      return ctx.invalid
-    end
-    local types: mut {Type} = {}
-    for _, name in ipairs(names) do
-      local list = member_types(ctx, t, name)
-      if list == nil or list[1].method then
-        field_unknown(ctx, node.key, t, name)
-        return ctx.invalid
-      end
-      Writes.note_move(ctx, node, t, name)
-      types[#types + 1] = put_in(ctx, t, list[1].type)
-    end
-    return store:union(types)
-  end
-  local _ = expr(ctx, node.key, nil)
-  report(ctx, "not_indexable", node, subject(ctx, node.object) .. " is " .. tq(ctx, t) .. ", which has no elements to index",
-    "index an array, a map or a record", { show(ctx, t) })
-  return ctx.invalid
-end
-
 -- Operators ------------------------------------------------------------------------------------
 
 --- Reports that the operand `node`, of type `t`, is not what `op` takes.
@@ -2698,6 +2667,26 @@ local record Tests
   type_name: function(ctx: Ctx, node: Ast.Binary)
   --- Reports `(x) is T` where `x` is a place, which the parentheses make a value.
   parenthesized: function(ctx: Ctx, node: Ast.IsTest)
+  --- The place `e` counts, if `e` is `#place` and the place holds an array.
+  counted: function(ctx: Ctx, f: Flow.State, e: Ast.Node): Place?
+  --- `f` where the array at `p` has at least `n` elements; nothing is known in the scope of a `<close>` local, whose
+  --- handler may shorten the array where the scope ends.
+  know_length: function(ctx: Ctx, f: Flow.State, p: Place, n: integer): Flow.State
+  --- The edges of `left op right` (not `~=`) where one side is `#place`, the place holds an array, and the other is an
+  --- integer literal: the states where it holds and where it fails, each knowing the least length that gives.
+  length_edges: function(ctx: Ctx, f: Flow.State, op: string, left: Ast.Node, right: Ast.Node): Flow.State, Flow.State
+  --- Whether the read `object[key]` of an array is an element it has: `key` is an integer literal, or `#object`, and the
+  --- flow has the array at least that long.
+  length_proves: function(ctx: Ctx, object: Ast.Exp, key: Ast.Exp): boolean
+  --- Whether a call of `callee` runs no code of the program: `assert` and `type` of the standard library.
+  quiet_callee: function(callee: Ast.Exp?): boolean
+  --- Whether the code of `node` holds a call. It reads the tree with a list, so that a chain of any depth is read without
+  --- recursion.
+  has_call: function(node: Ast.Node): boolean
+  --- A `<close>` local is declared: nothing is known of the length of an array until its scope ends.
+  closes: function(ctx: Ctx)
+  --- A scope entered with `closers` open is left: the handlers of its `<close>` locals have run.
+  leaves: function(ctx: Ctx, closers: integer)
 end
 
 function Tests.warn(ctx: Ctx, code: Warnings.Code, node: Ast.Node, msg: string, fix: string)
@@ -3052,6 +3041,199 @@ function Tests.by_kind(ctx: Ctx, cur: Type, kind: string, keep: boolean): Type
   return store:union(out)
 end
 
+-- What a test of the length of an array shows, and what an index read may rely on.
+--
+-- An array holds the keys 1 to `#t` and no others (`array_of_optional` and `array_hole` keep it so), so `t[n]` is an element
+-- wherever `#t` is at least `n`. A test of `#place` against an integer literal gives the flow that fact for the first
+-- indexes ([`Flow.know_length`]) of a place that holds an array: a local, or fixed fields from one. The fact stands until
+-- code runs that may shorten an array: a call (but `assert` and `type`, which run no code of the program), a write of a
+-- literal nil to an index (the array may be under another name), the iterator of a generic `for` and the scope of a `<close>`
+-- local, whose handler runs when it ends. A function made at the point does not inherit it ([`Flow.enter`]), and an
+-- assignment to the place takes it away like any fact of the place.
+--
+-- A `table.move` that may copy a nil or leave a hole is refused (`array_hole`, [`Writes.move_dense`]), so a move keeps the
+-- density this relies on.
+
+function Tests.counted(ctx: Ctx, f: Flow.State, e: Ast.Node): Place?
+  local at = peel(e)
+  if not ((at.kind == "Unary") and at.op == "#") then
+    return nil
+  end
+  local p = place_of(ctx, f, at.operand)
+  if p ~= nil and ctx.store:non_nil(current(f, p)).tag == "array" then
+    return p
+  end
+  return nil
+end
+
+function Tests.know_length(ctx: Ctx, f: Flow.State, p: Place, n: integer): Flow.State
+  if ctx.closers > 0 then
+    return f
+  end
+  return Flow.know_length(f, p.key, n, ctx.store.boolean, ctx.store.integer)
+end
+
+function Tests.length_edges(ctx: Ctx, f: Flow.State, op: string, left: Ast.Node, right: Ast.Node): Flow.State, Flow.State
+  local test = op
+  local literal = peel(right)
+  local p = Tests.counted(ctx, f, left)
+  if p == nil then
+    -- `n op #t` is `#t op' n`.
+    p = Tests.counted(ctx, f, right)
+    literal = peel(left)
+    if op == "<" then
+      test = ">"
+    elseif op == ">" then
+      test = "<"
+    elseif op == "<=" then
+      test = ">="
+    elseif op == ">=" then
+      test = "<="
+    end
+  end
+  if p == nil or literal.kind ~= "Integer" then
+    return f, f
+  end
+  -- A literal far from what a fact tells is held to the ends, which keeps `n + 1` in range: the least length it gives is
+  -- still past what a fact tells, or below zero.
+  local n = math.max(-1, math.min(literal.value, 65536))
+  local yes, no = 0, 0
+  if test == "==" then
+    yes = n
+    -- A length is not below zero, so `#t ~= 0` is a first element.
+    if literal.value == 0 then
+      no = 1
+    end
+  elseif test == ">=" then
+    yes = n
+  elseif test == ">" then
+    yes = n + 1
+  elseif test == "<" then
+    no = n
+  elseif test == "<=" then
+    no = n + 1
+  end
+  return Tests.know_length(ctx, f, p, yes), Tests.know_length(ctx, f, p, no)
+end
+
+function Tests.length_proves(ctx: Ctx, object: Ast.Exp, key: Ast.Exp): boolean
+  local f = ctx.flow
+  if f.paths == 0 then
+    return false
+  end
+  local p = place_of(ctx, f, object)
+  if p == nil then
+    return false
+  end
+  local at = peel(key)
+  if at.kind == "Integer" then
+    return Flow.knows_length(f, p.key, at.value)
+  elseif (at.kind == "Unary") and at.op == "#" then
+    -- The last element is there where the first is.
+    local same = place_of(ctx, f, at.operand)
+    return same ~= nil and same.key == p.key and Flow.knows_length(f, p.key, 1)
+  end
+  return false
+end
+
+function Tests.quiet_callee(callee: Ast.Exp?): boolean
+  return callee ~= nil and (callee.kind == "Name") and callee.binding == nil and (callee.text == "assert" or callee.text == "type")
+end
+
+function Tests.has_call(node: Ast.Node): boolean
+  local waiting: mut {Ast.Node} = { node }
+  local found = false
+  local function wait(child: Ast.Node)
+    waiting[#waiting + 1] = child
+  end
+  while #waiting > 0 and not found do
+    local at = assert(waiting[#waiting])
+    waiting[#waiting] = nil
+    if (at.kind == "Call") or (at.kind == "MethodCall") then
+      found = true
+    elseif at.kind ~= "FunctionLit" then
+      -- A function made here runs when it is called, and that call is a call.
+      Ast.children(at, wait)
+    end
+  end
+  return found
+end
+
+function Tests.closes(ctx: Ctx)
+  ctx.closers = ctx.closers + 1
+  ctx.flow = Flow.forget_lengths(ctx.flow)
+end
+
+function Tests.leaves(ctx: Ctx, closers: integer)
+  if ctx.closers ~= closers then
+    ctx.closers = closers
+    ctx.flow = Flow.forget_lengths(ctx.flow)
+  end
+end
+
+--- `object[key]` read: the element of an array or the value of a map as an optional (an index read may be nil, unless a
+--- length test shows the array has the element: [`Tests.length_proves`]), the fields a literal or enum key names in a record.
+local function index_read(ctx: Ctx, node: Ast.Index, object: Type): Type
+  local store = ctx.store
+  local t = readable(ctx, node.object, object, "it has no elements to read")
+  if t == nil then
+    local _ = expr(ctx, node.key, nil)
+    return ctx.invalid
+  end
+  if (t.tag == "array") then
+    local k = expr(ctx, node.key, store.integer)
+    local _ = key_ok(ctx, node.key, k, store.integer, subject(ctx, node.object))
+    local element = t.element
+    if not t.mut then
+      element = view(store, element)
+    end
+    if Tests.length_proves(ctx, node.object, node.key) then
+      return element
+    end
+    return store:optional(element)
+  elseif (t.tag == "map") then
+    local k = expr(ctx, node.key, t.key)
+    local _ = key_ok(ctx, node.key, k, t.key, subject(ctx, node.object))
+    local value = t.value
+    if not t.mut then
+      value = view(store, value)
+    end
+    return store:optional(value)
+  elseif (t.tag == "named") and (t.decl.kind == "record" or t.decl.kind == "class" or t.decl.kind == "userdata") then
+    local k = expr(ctx, node.key, nil)
+    if k.tag == "invalid" then
+      return ctx.invalid
+    end
+    local names = key_names(node.key, k)
+    if names == nil then
+      local index = members_index(ctx, t.decl, t.value)
+      local array_part = index ~= nil and index.array or nil
+      if array_part ~= nil and below(ctx, k, store.integer) then
+        return store:optional(put_in(ctx, t, array_part))
+      end
+      report(ctx, "record_index", node, subject(ctx, node.key) .. " is " .. tq(ctx, k) .. ", which names no field of " ..
+          tq(ctx, t) .. ": a record is not a map",
+        "write the field (`" .. text_of(ctx, node.object) .. ".field`), or index a `{K: V}`", { show(ctx, k) })
+      return ctx.invalid
+    end
+    local types: mut {Type} = {}
+    for _, name in ipairs(names) do
+      local list = member_types(ctx, t, name)
+      if list == nil or list[1].method then
+        field_unknown(ctx, node.key, t, name)
+        return ctx.invalid
+      end
+      Writes.note_move(ctx, node, t, name)
+      types[#types + 1] = put_in(ctx, t, list[1].type)
+    end
+    return store:union(types)
+  end
+  local _ = expr(ctx, node.key, nil)
+  report(ctx, "not_indexable", node, subject(ctx, node.object) .. " is " .. tq(ctx, t) .. ", which has no elements to index",
+    "index an array, a map or a record", { show(ctx, t) })
+  return ctx.invalid
+end
+
 --- The edges of `field == "lit"` for a field that tells the members of a union of records apart. The true edge keeps
 --- the members whose tag enum still has the value, each with all its values. The false edge notes that the tag is not
 --- the value, and drops a member once every value of its enum has been noted on the path, so that a chain of tests
@@ -3152,6 +3334,8 @@ local function compare_edges(ctx: Ctx, f: Flow.State, node: Ast.Binary): Flow.St
     yes, no = tag_edges(ctx, f, l, r.value)
   elseif (l.kind == "String") and (r.kind == "Field") then
     yes, no = tag_edges(ctx, f, r, l.value)
+  elseif (l.kind == "Unary") or (r.kind == "Unary") then
+    yes, no = Tests.length_edges(ctx, f, "==", l, r)
   end
   if node.op == "==" then
     return yes, no
@@ -3218,6 +3402,8 @@ edges = function(ctx: Ctx, f: Flow.State, e: Ast.Node): Flow.State, Flow.State
       return merge(ctx, ly, ry), rn
     elseif op == "==" or op == "~=" then
       return compare_edges(ctx, f, at)
+    elseif op == "<" or op == "<=" or op == ">" or op == ">=" then
+      return Tests.length_edges(ctx, f, op, at.left, at.right)
     end
   elseif (at.kind == "IsTest") then
     local p = place_of(ctx, f, at.value)
@@ -3832,7 +4018,11 @@ local function function_body(ctx: Ctx, params: {Ast.Param}, body: Ast.Block, ft:
     unfixed_now[id] = true
   end
   ctx.unfixed_now = unfixed_now
+  -- The scope of a `<close>` local around the function is not open while it runs.
+  local outer_closers = ctx.closers
+  ctx.closers = 0
   block(ctx, body)
+  ctx.closers = outer_closers
   ctx.unfixed_now = outer_unfixed
   if ctx.flow.live then
     local last = body.stats[#body.stats]
@@ -4157,7 +4347,7 @@ local record Calls
   literal_arguments: function(ctx: Ctx, call: Literals.Call, node: Ast.Node, args: {Ast.Exp}, recv_node: Ast.Node?)
   gsub_key: function(ctx: Ctx, c: Fn, args: {Ast.Exp}, off: integer, key: string)
   method_dot: function(ctx: Ctx, n: Ast.Call, callee: Type, object: Type)
-  expect_argument: function(ctx: Ctx, node: Ast.Node, got: Type, want: Type, callee: string, position: integer, named?: string):
+  expect_argument: function(ctx: Ctx, node: Ast.Node, got: Type, want: Type, callee: string, position: integer, named?: string, generic?: boolean):
     boolean
   dispatch: function(ctx: Ctx, node: Ast.Node, callee_node: Ast.Node, callee: string, ft: Type, cands: {Type}?,
                      args: {Ast.Exp}, recv: Type?, recv_node: Ast.Node?, expected: Type?): {Alt}
@@ -4165,9 +4355,11 @@ end
 
 --- [`expect_argument`] for argument `position` of a call of `callee`: an error it reports says so ([`Codes.Argument`]).
 function Calls.expect_argument(ctx: Ctx, node: Ast.Node, got: Type, want: Type, callee: string, position: integer,
-                               named?: string): boolean
+                               named?: string, generic?: boolean): boolean
   ctx.argument = { callee = callee, module = ctx.callee_module, position = position }
+  ctx.no_drop = generic == true
   local ok = expect_argument(ctx, node, got, want, " as argument " .. tostring(position) .. " of " .. quoted(callee), named)
+  ctx.no_drop = false
   ctx.argument = nil
   return ok
 end
@@ -4255,6 +4447,10 @@ local function apply_function(ctx: Ctx, node: Ast.Node, callee: string, f: Fn, a
   local n = #vals.types
   local why = arity_problem(f, off, n, open)
   local reported = false
+  local generic = false
+  if declared ~= nil then
+    generic = #declared.tparams > 0
+  end
   for i, t in ipairs(vals.types) do
     local want = parameter_at(f, off, i)
     local at = args[math.min(i, #args)] or node
@@ -4269,7 +4465,7 @@ local function apply_function(ctx: Ctx, node: Ast.Node, callee: string, f: Fn, a
       if original ~= nil and declared ~= nil and names_invalid(want) then
         named = Calls.shown(ctx, declared, original)
       end
-      local _ = Calls.expect_argument(ctx, at, t, want, callee, i, named)
+      local _ = Calls.expect_argument(ctx, at, t, want, callee, i, named, generic)
     end
   end
   if why == "too few" or (why == "too many" and not reported) then
@@ -4668,7 +4864,7 @@ local function apply_overloads(ctx: Ctx, node: Ast.Node, callee: string, cands: 
             local want = parameter_at(c, off, i)
             local t = expr(ctx, a, want)
             if want ~= nil then
-              local _ = Calls.expect_argument(ctx, a, t, want, callee, i)
+              local _ = Calls.expect_argument(ctx, a, t, want, callee, i, nil, #declared.tparams > 0)
             end
           end
         end
@@ -5057,9 +5253,21 @@ local function after_call(ctx: Ctx, node: Ast.Node, callee: Ast.Exp?, alts: {Alt
     ctx.flow = Flow.dead(ctx.flow)
     return
   end
+  if not Tests.quiet_callee(callee) then
+    ctx.flow = Flow.forget_lengths(ctx.flow)
+  end
   local first = args[1]
   if callee ~= nil and (callee.kind == "Name") and callee.binding == nil and callee.text == "assert" and first ~= nil then
     local yes, _ = edges(ctx, ctx.flow, first)
+    -- The test is read in the state after the arguments, and a call among them (the test's own or one after it) may have
+    -- shortened an array the test showed to be long: the facts of lengths are what the arguments leave, none that the
+    -- test adds.
+    for _, given in ipairs(args) do
+      if Tests.has_call(given) then
+        yes = Flow.forget_lengths(yes)
+        break
+      end
+    end
     ctx.flow = yes
     return
   end
@@ -5584,6 +5792,7 @@ local function local_statement(ctx: Ctx, s: Ast.Local)
           "write its type: `local " .. b.name .. ": T` (`T?` if it may stay unset), or give it a value")
       elseif b.attr == "close" then
         check_closable(ctx, b, wants[i])
+        Tests.closes(ctx)
       end
     end
     return
@@ -5629,6 +5838,7 @@ local function local_statement(ctx: Ctx, s: Ast.Local)
     end
     if b.attr == "close" then
       check_closable(ctx, b, ctx.vars[b.id])
+      Tests.closes(ctx)
     end
   end
 end
@@ -6134,6 +6344,13 @@ local function assign_statement(ctx: Ctx, s: Ast.Assign)
   end
   local vals = check_assignment(ctx, s)
   for i, target in ipairs(s.targets) do
+    -- A nil at an index may take the last element of an array, whatever name the array has.
+    if (target.kind == "Index") then
+      local value = s.values[i]
+      if value == nil or peel(value).kind == "Nil" then
+        ctx.flow = Flow.forget_lengths(ctx.flow)
+      end
+    end
     local id: integer? = nil
     if (target.kind == "Name") then
       id = target.binding
@@ -6533,15 +6750,19 @@ local function for_generic(ctx: Ctx, s: Ast.ForIn)
   end
   local entry = ctx.flow
   ctx.flow = run_loop(ctx, entry, function(head: Flow.State): Flow.State, Flow.State
-    ctx.flow = head
+    -- The iterator runs before each pass and when the loop ends, and may shorten an array.
+    local ran = Flow.forget_lengths(head)
+    ctx.flow = ran
     local loop = open_loop(ctx)
     for _, v in ipairs(s.vars) do
       declare_local(ctx, v.id, false)
     end
     block(ctx, s.body)
     local back, breaks = close_loop(ctx, loop, ctx.flow)
-    return back, merge_maybe(ctx, head, breaks)
+    return back, merge_maybe(ctx, ran, breaks)
   end)
+  -- The value to close, which the iterator call may answer in the fourth place, is closed where the loop ends.
+  ctx.flow = Flow.forget_lengths(ctx.flow)
 end
 
 --- The bodies of the methods of a class, and of the declarations nested in a record, interface or class.
@@ -6704,6 +6925,7 @@ local function repeat_statement(ctx: Ctx, s: Ast.Repeat)
   ctx.flow = run_loop(ctx, ctx.flow, function(head: Flow.State): Flow.State, Flow.State
     ctx.flow = head
     local loop = open_loop(ctx)
+    local closers = ctx.closers
     stats(ctx, s.body)
     local continues = loop.continues
     if continues ~= nil then
@@ -6712,6 +6934,11 @@ local function repeat_statement(ctx: Ctx, s: Ast.Repeat)
     local _ = condition(ctx, s.cond)
     local yes, no = edges(ctx, ctx.flow, s.cond)
     ctx.loops[#ctx.loops] = nil
+    -- The scope of the body ends after the condition, which both edges leave.
+    if ctx.closers ~= closers then
+      yes, no = Flow.forget_lengths(yes), Flow.forget_lengths(no)
+      ctx.closers = closers
+    end
     return no, merge_maybe(ctx, yes, loop.breaks)
   end)
 end
@@ -6941,7 +7168,9 @@ stats = function(ctx: Ctx, b: Ast.Block)
 end
 
 block = function(ctx: Ctx, b: Ast.Block)
+  local closers = ctx.closers
   stats(ctx, b)
+  Tests.leaves(ctx, closers)
 end
 
 function Check.enums(lowered: Declarations.Lowered): {integer: {string}}
@@ -6964,12 +7193,12 @@ function Check.check(program: Declarations.Program, input: Declarations.Input, l
   local ctx: Ctx = {
     program = program, store = store, judge = program.judge, input = input, lowered = lowered, scoped = input.scoped,
     tokens = input.chunk.tokens, filename = input.filename, errors = {}, vars = {}, frames = {}, binders = {},
-    bounds = {}, lenient = 0, members = {}, value_members = {}, pending = {}, within = 0, probes = {},
+    bounds = {}, lenient = 0, no_drop = false, members = {}, value_members = {}, pending = {}, within = 0, probes = {},
     load = LoadOrder.new(0, function(_decl: Decl, _name: string): boolean
       return false
     end, function(_node: Ast.Node, _spelled: string, _found: LoadOrder.Found) end),
     literals = {}, declared = {}, union_fields = {}, spine = {},
-    top = 0, ternaries = {}, invalid = store.invalid, nil_type = store:atom("nil"), flow = Flow.start(), unfixed_now = {}, assigning = {}, quiet = 0, callee_module = "", member_module = "", moves = {},
+    top = 0, ternaries = {}, invalid = store.invalid, nil_type = store:atom("nil"), flow = Flow.start(), unfixed_now = {}, assigning = {}, quiet = 0, closers = 0, callee_module = "", member_module = "", moves = {},
     loops = {}, keys = {}, edges = {}, guards = {}, reads = {}, unfixed = {}, narrowed = {}, boundaries = {}, types = {}, callees = {}, consts = {}, library = {}, typed = typed ~= false, warnings = {},
     unite = function(a: Type, b: Type): Type
       return store:union({ a, b })

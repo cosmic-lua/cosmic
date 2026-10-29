@@ -157,7 +157,7 @@ function tree_root.move(argv: {string},
   if named ~= nil and named ~= "" then
     root = narrow.lexical(joined_to(from, named))
     local directory, _ = Fs.is_dir(root)
-    if not directory then
+    if directory ~= true then
       return { refused = "COSMIC_TREE=" .. named .. " is not a directory", note = "" }
     end
     local there, _ = Fs.absolute(root)

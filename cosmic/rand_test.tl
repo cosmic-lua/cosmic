@@ -1,3 +1,4 @@
+local Cell = require("cosmic.cell")
 local Codec = require("cosmic.codec")
 local Rand = require("cosmic.rand")
 
@@ -55,12 +56,12 @@ local function test_uniform_draws_within_range_from_any_bit_source()
   assert(Rand.uniform(draw, math.mininteger, math.mininteger + 1) <= math.mininteger + 1)
   -- Words are masked to 3 and rejected while past the span 2.
   local words = { 7, 3, 1 }
-  local at = { value = 0 }
+  local at: Cell<integer> = { value = 0 }
   local got = Rand.uniform(function(): integer
     at.value = at.value + 1
     return words[at.value]
   end, 0, 2)
-  assert(got == 1 and at.value == 3, "rejection: " .. tostring(got) .. " after " .. at.value)
+  assert(got == 1 and at.value == 3, "rejection: " .. tostring(got) .. " after " .. tostring(at.value))
   assert(not pcall(Rand.uniform, draw, 3, 2))
 end
 

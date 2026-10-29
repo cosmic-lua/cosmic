@@ -1,4 +1,5 @@
 --- Bounded output transfer preserves Reader errors and caller supervision.
+local Cell = require("cosmic.cell")
 local Child = require("cosmic.child")
 local Signal = require("cosmic.signal")
 local _Fs = require("cosmic.fs")
@@ -147,7 +148,7 @@ local function test_sink_failure_is_not_replayed_and_borrowed_sink_stays_open()
   local h <close> = start('assert(require("cosmic.fs").put(1, "abcdef"))')
   local sink = Stream.collect()
   local original = sink.write
-  local writes = { value = 0 }
+  local writes: Cell<integer> = { value = 0 }
   sink.write = function(self: Stream.Collector, bytes: string): boolean, string
     writes.value = writes.value + 1
     assert(original(self, bytes:sub(1, 1)))
@@ -178,7 +179,7 @@ local function test_cooperative_cancel_releases_drain_ownership()
   local h <close> = start('assert(require("cosmic.fs").take(0, 1))',
     { stdin = "stream", stdout = "stream" })
   Poll.run(function()
-    local got = { value = nil as Child.DrainResult? }
+    local got: Cell<Child.DrainResult?> = { value = nil }
     local task = Poll.spawn(function() got.value = h:drain(options(Stream.collect())) end)
     assert(Poll.delay(0))
     task:cancel()
@@ -194,7 +195,7 @@ local function test_a_new_signal_wakes_a_parked_drain_without_taking_it()
     { stdin = "stream", stdout = "stream" })
   local guard = assert(Signal.guard())
   Poll.run(function()
-    local got = { value = nil as Child.DrainResult? }
+    local got: Cell<Child.DrainResult?> = { value = nil }
     local task = Poll.spawn(function() got.value = h:drain(options(Stream.collect())) end)
     assert(Poll.delay(0))
     assert(sys.kill(sys.getpid(), sys.SIGTERM))
@@ -211,7 +212,7 @@ local function test_closing_the_captured_guard_under_another_ends_the_wait()
     { stdin = "stream", stdout = "stream" })
   local outer = assert(Signal.guard())
   Poll.run(function()
-    local got = { value = nil as Child.DrainResult? }
+    local got: Cell<Child.DrainResult?> = { value = nil }
     local task = Poll.spawn(function() got.value = h:drain(options(Stream.collect())) end)
     assert(Poll.delay(0))
     local inner = assert(Signal.guard())
@@ -228,7 +229,7 @@ local function test_an_explicit_handle_close_wakes_drain_before_cleanup_finishes
   local h <close> = start('assert(require("cosmic.fs").take(0, 1))',
     { stdin = "stream", stdout = "stream" })
   Poll.run(function()
-    local got = { value = nil as Child.DrainResult? }
+    local got: Cell<Child.DrainResult?> = { value = nil }
     local task = Poll.spawn(function() got.value = h:drain(options(Stream.collect())) end)
     assert(Poll.delay(0))
     assert(h:close())
@@ -270,7 +271,7 @@ end
 local function test_killing_a_task_in_a_yielding_sink_releases_ownership()
   local h <close> = start('assert(require("cosmic.fs").put(1, "abcdef"))')
   local sink = Stream.collect()
-  local writing = { value = false }
+  local writing: Cell<boolean> = { value = false }
   sink.write = function(_self: Stream.Collector, _data: string): boolean, string
     writing.value = true
     return Poll.delay(Clock.seconds(10))
@@ -289,7 +290,7 @@ local function test_saved_source_failure_follows_prefix_and_wins_at_exact_limit(
   local h <close> = start('assert(require("cosmic.fs").put(1, "abcdef"))')
   local fd = assert(h._streams)[1].fd
   local read = sys.read
-  local seen = { value = false }
+  local seen: Cell<boolean> = { value = false }
   sys.read = function(which: integer, count: integer): string?, string, integer
     if which == fd and seen.value then
       return nil, "read: cancelled-looking real error", sys.EBADF
@@ -365,7 +366,7 @@ local function test_a_single_write_never_exceeds_the_chunk_bound()
   local h <close> = start('assert(require("cosmic.fs").put(1, string.rep("x", 262144)))')
   local sink = Stream.collect()
   local original = sink.write
-  local biggest = { value = 0 }
+  local biggest: Cell<integer> = { value = 0 }
   sink.write = function(self: Stream.Collector, bytes: string): boolean, string
     biggest.value = math.max(biggest.value, #bytes)
     return original(self, bytes)
@@ -380,7 +381,7 @@ local Fs = require("cosmic.fs")
 assert(Fs.take(0, 1)) assert(Fs.put(1, "finished"))]],
     { stdin = "stream", stdout = "stream" })
   Poll.run(function()
-    local got = { value = nil as Child.DrainResult? }
+    local got: Cell<Child.DrainResult?> = { value = nil }
     local sink = Stream.collect()
     local task = Poll.spawn(function()
       Poll.shielded(function() got.value = h:drain(options(sink)) end)

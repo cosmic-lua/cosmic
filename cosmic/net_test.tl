@@ -1,3 +1,4 @@
+local Cell = require("cosmic.cell")
 local unix_socket = require("build.unix_socket")
 local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
@@ -559,8 +560,8 @@ end
 --- "cancelled" once its task is cancelled; out of one, it waits alone.
 local function test_in_a_run_a_waiting_read_ends_when_its_task_is_cancelled()
   local p <close> = pair()
-  local answer = { value = "" }
-  local others = { value = 0 }
+  local answer: Cell<string> = { value = "" }
+  local others: Cell<integer> = { value = 0 }
   Poll.run(function()
     local reader = Poll.spawn(function()
       local data, why = p.accepted:read()
@@ -586,8 +587,8 @@ local function test_in_a_run_a_read_on_a_connection_closed_under_it_ends()
   local server <close> = assert(Net.listen(Net.tcp("127.0.0.1", 0), { timeout_ns = Clock.seconds(5) }))
   local _first_client <close> = assert(Net.connect(server.address, { timeout_ns = Clock.seconds(5) }))
   local first = assert(server:accept())
-  local answer = { value = "" }
-  local later = { value = "" }
+  local answer: Cell<string> = { value = "" }
+  local later: Cell<string> = { value = "" }
   Poll.run(function()
     local reader = Poll.spawn(function()
       local data, why = first:read()
@@ -612,7 +613,7 @@ end
 local function test_in_a_run_a_write_waits_while_another_task_drains()
   local p <close> = pair()
   local size = 4 * 1024 * 1024
-  local got = { value = 0 }
+  local got: Cell<integer> = { value = 0 }
   Poll.run(function()
     Poll.spawn(function()
       assert(p.client:write(string.rep("x", size)))
@@ -629,7 +630,7 @@ local function test_in_a_run_a_write_waits_while_another_task_drains()
       end
     end)
   end)
-  assert(got.value == size, "got " .. got.value .. " of " .. tostring(size) .. " bytes")
+  assert(got.value == size, "got " .. tostring(got.value) .. " of " .. tostring(size) .. " bytes")
 end
 
 --- In a task, a wait past its timeout fails with Poll.TIMEOUT, as it does out
@@ -651,8 +652,8 @@ local function test_in_a_run_a_connect_to_a_full_backlog_fails_at_once(tmp: stri
   if unix_socket.skipped(tmp) then return end
   local path = tmp .. "/s.sock"
   local _full <close> = full(path)
-  local conn = { value = nil as Net.Conn? }
-  local why = { value = "" }
+  local conn: Cell<Net.Conn?> = { value = nil }
+  local why: Cell<string> = { value = "" }
   local began = Clock.monotonic_ns()
   Poll.run(function()
     conn.value, why.value = Net.connect(Net.unix(path), { timeout_ns = Clock.seconds(20) })

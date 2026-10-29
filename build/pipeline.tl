@@ -39,6 +39,7 @@ local Fs = require("cosmic.fs")
 local GrammarMode = require("build.grammar_mode")
 local Hash = require("cosmic.hash")
 local LuaTail = require("build.lua_tail")
+local ProjectRefusals = require("build.project_refusals")
 local Receivers = require("build.syntax_receivers")
 local Report = require("build.syntax_report")
 local Stub = require("build.syntax_stub")
@@ -90,6 +91,9 @@ local record Pipeline
     standard: Driver.Provider
     --- Whether the checker kept the type of each node, which the readers of the type report need.
     types: boolean
+    --- Whether the build is a project's, outside cosmic's tree ([`Pipeline.Options`]'s `project`), whose programs are held to
+    --- what [`build.project_refusals`] says.
+    project: boolean?
     --- The stubs a caller gave ([`Pipeline.over`]), by module: none for a build that makes them of what it reads.
     given: {string: string}
     --- The stub of each standard-library module of the tree that a project's checker would read in its place, as a source that
@@ -322,6 +326,7 @@ function Pipeline.over(entries: {{string}}, kinds: {string: string}, options: Pi
   return {
     build = TreeProgram.build(index, options.globals, options.types, nil, standard), ceilings = options.ceilings, index = index,
     globals = options.globals, standard = standard, types = options.types, given = stubs or {}, stubs = nil, stubbed = nil,
+    project = options.project,
   }
 end
 
@@ -374,7 +379,7 @@ local function identity(reader: Reader): string
   local stack: mut {string} = { "build.pipeline" }
   while #stack > 0 do
     local name = assert(table.remove(stack))
-    if not seen[name] and (name:sub(1, 5) == "lang." or name:sub(1, 6) == "build.") then
+    if seen[name] ~= true and (name:sub(1, 5) == "lang." or name:sub(1, 6) == "build.") then
       seen[name] = true
       local source = reader.source(name)
       if source ~= nil then
@@ -667,6 +672,11 @@ local function generated_of(m: Module, built: Pipeline.Built, facts?: boolean, j
     for _, w in ipairs(result.warnings) do
       lines[#lines + 1] = ErrorRender.line(m.file, w)
     end
+    if built.project == true then
+      for _, line in ipairs(ProjectRefusals.check(m.file, result.chunk, result.scoped)) do
+        lines[#lines + 1] = line
+      end
+    end
   end
   if hints ~= nil then
     -- A line of the checker's own error carries what the docs answer for it, as the fork's does ([`ErrorRender.lines`]).
@@ -829,6 +839,11 @@ function Pipeline.checked_alone(file: string, text: string, options: Pipeline.Op
     end
     for _, w in ipairs(result.warnings) do
       told[#told + 1] = ErrorRender.line(file, w)
+    end
+    if options.project == true then
+      for _, line in ipairs(ProjectRefusals.check(file, result.chunk, result.scoped)) do
+        told[#told + 1] = line
+      end
     end
   end
   if #told > 0 then

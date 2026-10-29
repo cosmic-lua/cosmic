@@ -44,6 +44,9 @@ local record Flow
     unsets: integer
     --- The assignment that dropped the fact of each place that has none now.
     gone: {string: Scopes.Place}
+    --- Set by [`Flow.forget_lengths`] on a state it found to hold no fact of a length, so that the next call on the same state
+    --- does not walk its facts again. A state is never changed otherwise, so the flag never goes stale.
+    mut settled?: boolean
   end
 
   --- The state of a body's first statement: live, with nothing known.
@@ -88,6 +91,19 @@ local record Flow
 
   --- The id of the local a place key is rooted in.
   root: function(key: string): integer
+
+  --- `f` knowing that the array at the place `key` has at least `n` elements, for the first of them (the facts are kept
+  --- for the indexes up to a few, which a literal reads). A fact is a path from the place, so an assignment to the place
+  --- takes it away and a join keeps the ones both edges hold; `marker` is the type it is narrowed to, `declared` the type
+  --- that is not. Code that runs can shorten any array, so [`Flow.forget_lengths`] takes the facts of every array away,
+  --- and a function made at the point does not inherit them ([`Flow.enter`]).
+  know_length: function(f: State, key: string, n: integer, marker: Type, declared: Type): State
+
+  --- Whether `f` knows the array at the place `key` has at least `n` elements.
+  knows_length: function(f: State, key: string, n: integer): boolean
+
+  --- `f` without the facts of the lengths of arrays: control passes code that may shorten any array.
+  forget_lengths: function(f: State): State
 end
 
 local NONE: {string: Flow.Fact} = {}
@@ -96,6 +112,16 @@ local NO_GONE: {string: Scopes.Place} = {}
 
 local function is_path(key: string): boolean
   return key:find(".", 1, true) ~= nil
+end
+
+--- What the key of a fact of a length has after the place.
+local LENGTH <const> = ".#len"
+
+--- The most elements of an array a fact tells: a literal index past it is not proved.
+local MOST <const> = 16
+
+function Flow.knows_length(f: Flow.State, key: string, n: integer): boolean
+  return f.paths > 0 and n >= 1 and n <= MOST and f.facts[key .. LENGTH .. tostring(n)] ~= nil
 end
 
 function Flow.root(key: string): integer
@@ -165,6 +191,27 @@ function Flow.narrow(f: Flow.State, key: string, narrowed: Type, declared: Type)
     paths = paths + 1
   end
   return made(f.live, facts, paths, f.unset, f.unsets, gone)
+end
+
+function Flow.know_length(f: Flow.State, key: string, n: integer, marker: Type, declared: Type): Flow.State
+  local wanted: mut {string} = {}
+  for i = 1, math.min(n, MOST) do
+    local at = key .. LENGTH .. tostring(i)
+    if f.facts[at] == nil then
+      wanted[#wanted + 1] = at
+    end
+  end
+  if #wanted == 0 then
+    return f
+  end
+  local facts: mut {string: Flow.Fact} = {}
+  for k, fact in pairs(f.facts) do
+    facts[k] = fact
+  end
+  for _, at in ipairs(wanted) do
+    facts[at] = { type = marker, declared = declared }
+  end
+  return made(f.live, facts, f.paths + #wanted, f.unset, f.unsets, f.gone)
 end
 
 function Flow.dead(f: Flow.State): Flow.State
@@ -260,10 +307,15 @@ end
 function Flow.enter(f: Flow.State, unfixed: {integer: boolean}?): Flow.State
   local facts = f.facts
   local paths = f.paths
-  if unfixed ~= nil and next(facts) ~= nil then
+  if next(facts) ~= nil then
     local doomed: mut {string} = {}
     for k in pairs(facts) do
-      if unfixed[Flow.root(k)] == true then
+      -- A function runs when the arrays of the code around it have another length.
+      local lost = k:find(LENGTH, 1, true) ~= nil
+      if not lost and unfixed ~= nil then
+        lost = unfixed[Flow.root(k)] == true
+      end
+      if lost then
         doomed[#doomed + 1] = k
       end
     end
@@ -278,6 +330,28 @@ function Flow.enter(f: Flow.State, unfixed: {integer: boolean}?): Flow.State
     end
   end
   return made(true, facts, paths, NO_UNSET, 0, NO_GONE)
+end
+
+function Flow.forget_lengths(f: Flow.State): Flow.State
+  if f.paths == 0 or f.settled == true then
+    return f
+  end
+  local facts: mut {string: Flow.Fact} = {}
+  local lost = 0
+  for k, fact in pairs(f.facts) do
+    if k:find(LENGTH, 1, true) ~= nil then
+      lost = lost + 1
+    else
+      facts[k] = fact
+    end
+  end
+  if lost == 0 then
+    f.settled = true
+    return f
+  end
+  local out = made(f.live, if next(facts) == nil then NONE else facts end, f.paths - lost, f.unset, f.unsets, f.gone)
+  out.settled = true
+  return out
 end
 
 function Flow.forget(f: Flow.State): Flow.State

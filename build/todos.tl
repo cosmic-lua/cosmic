@@ -163,7 +163,7 @@ local function in_repository(root: string): boolean
   while dir ~= nil do
     -- One that cannot be looked at (EACCES) is none git could open.
     local there, _ = Fs.exists(dir .. "/.git")
-    if there then return true end
+    if there == true then return true end
     local parent = Fs.dirname(dir)
     if parent == dir then return false end
     dir = parent
@@ -217,7 +217,7 @@ end
 --- The file of commits to pass over, where `root` holds one.
 local function ignored_revs(root: string): string?
   local listed, _ = Fs.exists(root .. "/" .. IGNORED_REVS)
-  if listed then return root .. "/" .. IGNORED_REVS end
+  if listed == true then return root .. "/" .. IGNORED_REVS end
   return nil
 end
 
@@ -461,7 +461,7 @@ local function carry_forward(db: Sqlite.Handle, root: string, head: string,
       end
       -- A commit blame now passes over, or no longer does, may be the
       -- one any line is blamed on.
-      if touched[IGNORED_REVS] then
+      if touched[IGNORED_REVS] == true then
         touched = nil
       end
       local kept, rows_trouble = Sqlite.text_rows(db,
@@ -470,7 +470,7 @@ local function carry_forward(db: Sqlite.Handle, root: string, head: string,
         return false, rows_trouble
       end
       for _, each in ipairs(kept) do
-        if touched ~= nil and not touched[each:text(1)] then
+        if touched ~= nil and touched[each:text(1)] ~= true then
           local ok, move_trouble = Sqlite.run(db,
             "UPDATE blames SET head = ?1 WHERE head = ?2 AND path = ?3",
             { { text = head }, { text = old }, { text = each:text(1) } })
@@ -872,7 +872,7 @@ function todos.run(argv: {string}, at?: string, seen?: reboot.Seen): integer
   local file_count = 0
   for _, todo in ipairs(listed) do
     log:say(todos.render(todo))
-    if not files[todo.file] then
+    if files[todo.file] ~= true then
       files[todo.file] = true
       file_count = file_count + 1
     end

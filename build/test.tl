@@ -638,7 +638,7 @@ local function write_coverage(handle: Sqlite.Handle, modules: {Module},
       if #lines > 0 then
         local flags: mut {string} = {}
         for i, line in ipairs(lines) do
-          if per_line[line] then
+          if per_line[line] == true then
             flags[i] = "1"
             totals.hit = totals.hit + 1
           else
@@ -908,7 +908,7 @@ local function finish(rec: Recording, job: Job, result: Child.Result?,
   -- reads, its sandbox holds to what its key holds
   -- ([`test_sandbox.Plan`]'s `held`); unsandboxed, nothing does, and the
   -- key trusts its declaration as it trusts the test's own.
-  if key == nil and not job.unrun then rec.tally.every = rec.tally.every + 1 end
+  if key == nil and job.unrun ~= true then rec.tally.every = rec.tally.every + 1 end
   local saved, save_trouble = record_run(rec.records, job.m.path, job.name, kept_pass,
     message, Clock.now_ns(), run_key(key or "", key), rec.run_at_ns, elapsed)
   if not saved then
@@ -920,7 +920,7 @@ local function finish(rec: Recording, job: Job, result: Child.Result?,
     local scratch = job.scratch
     if scratch ~= nil then
       message = message .. "\n  its directory is kept: " .. scratch .. "/real"
-    elseif job.own_scratch then
+    elseif job.own_scratch == true then
       message = message .. "\n  its directory was a tmpfs of its worker's own, gone with it " ..
         "(" .. test_sandbox.switch .. "=0 keeps one on the host; a fuzz failure's \"kept\" path " ..
         "above is in it too: rerun with the FUZZ_CASE it names)"
@@ -948,7 +948,7 @@ end
 local function sweep(rec: Recording, jobs: {Job}, ended?: boolean)
   for _, job in ipairs(jobs) do
     local scratch = job.scratch
-    if (ended or job.passed) and scratch ~= nil then
+    if (ended == true or job.passed == true) and scratch ~= nil then
       local gone, trouble = Fs.remove_tree(scratch)
       if not gone then
         rec.errors[#rec.errors + 1] = job.id .. ": could not remove its directory " ..
@@ -1007,7 +1007,7 @@ local function run_jobs(rec: Recording, jobs: {Job}, limits: State.Limits,
   local phase = progress.phase("test", "running", "test")
   while next_job <= #jobs or #running > 0 do
     while #running < limits.jobs and next_job <= #jobs and
-        not (bail and #rec.failures > failures_before) do
+        not (bail == true and #rec.failures > failures_before) do
       local job = jobs[next_job]
       next_job = next_job + 1
       if launch(rec, job) then
@@ -1489,7 +1489,7 @@ local function read_identities(ctx: Run): integer?
   ctx.harness = harness
   -- A checked run's modules carry checks, which no tool may be made of
   -- nor the tree's own projection hold: it writes its projection aside.
-  ctx.database = handle.dir .. (if ctx.checks then "/cosmic.checked.db" else "/cosmic.db" end)
+  ctx.database = handle.dir .. (if ctx.checks == true then "/cosmic.checked.db" else "/cosmic.db" end)
   return nil
 end
 
@@ -1504,7 +1504,7 @@ local function choose_sandbox(ctx: Run): integer?
   local promises: {string} = {}
   ctx.held = sandbox_mode == "on" or Env.get("COSMIC_SANDBOX") == "must" or
     Env.get("COSMIC_CI_REQUIRE_SANDBOX") == "1"
-  if ctx.held then
+  if ctx.held == true then
     local read, promises_trouble = host_names.read_promises(Env.get("COSMIC_TEST_PROMISES") or "")
     if read == nil then
       local _, _ = work.close(handle)
@@ -1663,9 +1663,9 @@ local function select_tests(ctx: Run): integer?
   local unmatched: mut {string} = {}
   local unfound: mut {string} = {}
   for _, selector in ipairs(selectors) do
-    if not matched[selector] then
+    if matched[selector] ~= true then
       unmatched[#unmatched + 1] = selector
-    elseif not found[selector] then
+    elseif found[selector] ~= true then
       unfound[#unfound + 1] = selector
     end
   end
@@ -1705,7 +1705,7 @@ local function select_tests(ctx: Run): integer?
     for _, m in ipairs(selected_modules) do
       local names: mut {string} = {}
       for _, name in ipairs(selected_tests[m.path]) do
-        if dealt[m.path .. " " .. name] then names[#names + 1] = name end
+        if dealt[m.path .. " " .. name] == true then names[#names + 1] = name end
       end
       if #names > 0 then
         kept[#kept + 1] = m
@@ -1790,7 +1790,7 @@ local function make_recording(ctx: Run)
   -- project's figure.
   local native_lines: Coverage.Hits = {}
   local unowned: Coverage.Hits = {}
-  if ctx.own_tree then
+  if ctx.own_tree == true then
     native_lines = Coverage.native_lines()
   else
     unowned = Coverage.native_lines()
@@ -1825,7 +1825,7 @@ local function make_recording(ctx: Run)
       sandbox_mode == "off" then (test_sandbox.switch .. "=0 ") else "" end),
   }
   ctx.rec = rec
-  if ctx.checks then
+  if ctx.checks == true then
     for _, m in ipairs(assert(ctx.result).modules) do rec.files[m.path] = m.file end
   end
   test_key.begin(rec, { runtime = assert(ctx.runtime), sandbox = ctx.sandboxed == true,
@@ -1837,7 +1837,7 @@ local function make_recording(ctx: Run)
   -- to use them. An unsandboxed run reads and writes them only where
   -- COSMIC_VERDICT_CACHE names them (see [`choose_sandbox`]).
   local cache_path, cache_trouble: string?, string = nil, ""
-  if ctx.shares then cache_path, cache_trouble = shared_verdicts.location() end
+  if ctx.shares == true then cache_path, cache_trouble = shared_verdicts.location() end
   if cache_path ~= nil then
     rec.shared, cache_trouble = shared_verdicts.open(cache_path)
   end
@@ -1884,7 +1884,7 @@ local function require_of_host(ctx: Run): integer?
     return { ok = answer.ok, why = answer.why, broken = answer.broken }
   end, ctx.held == true, ctx.promises or {}, ctx.leg or "")
   ctx.c_unavailable = {}
-  if ctx.own_tree and ctx.whole and host ~= nil then
+  if ctx.own_tree == true and ctx.whole == true and host ~= nil then
     -- The probe below runs later, when `host` may have been assigned.
     local probed = host
     local needs: mut {string: boolean} = {}
@@ -1900,7 +1900,7 @@ local function require_of_host(ctx: Run): integer?
           rec.errors[#rec.errors + 1] = "C coverage requires " .. answer.name .. ": " .. answer.why
         elseif answer.kind ~= "present" then
           local why = "requires " .. answer.name .. ": " .. answer.why
-          if ctx.held and host_names.promised(assert(ctx.promises), answer.name) then
+          if ctx.held == true and host_names.promised(assert(ctx.promises), answer.name) then
             rec.failures[#rec.failures + 1] = "C coverage " .. why .. ": this held run promises it"
           end
         end
@@ -1964,7 +1964,7 @@ local function look_up_verdicts(ctx: Run)
         if key ~= nil then keyed_count = keyed_count + 1 end
         if found.asked then
           looked[id], looked_count = true, looked_count + 1
-          if previous[id] then ran_here = ran_here + 1 end
+          if previous[id] == true then ran_here = ran_here + 1 end
           if found.elsewhere ~= nil then found_count = found_count + 1 end
         end
         if found.outcome == "run" then
@@ -1984,7 +1984,7 @@ local function look_up_verdicts(ctx: Run)
   -- `host_features` reads the processor's whole description.
   local census_asked = ctx.census
   local parts: mut {{string}} = {}
-  if rec.shared ~= nil or census_asked then
+  if rec.shared ~= nil or census_asked == true then
     parts = {
       -- As ci/cosmic_ci/host_id.tl names CI's verdict cache.
       { "host features", declared_key.host_features() },
@@ -2004,7 +2004,7 @@ local function look_up_verdicts(ctx: Run)
     if rec.base_store ~= nil then
       table.insert(parts, { "store", test_key.base_store_digest(rec):sub(1, 12) })
     end
-    if not sandboxed then
+    if sandboxed ~= true then
       table.insert(parts, { "tree", hex_sha256(assert(ctx.root)):sub(1, 12) })
     end
     local runs_tool = false
@@ -2034,7 +2034,7 @@ local function look_up_verdicts(ctx: Run)
   -- tells whether its own were among what CI restored
   -- (ci/cosmic_ci/report.tl's `qualify`).
   local shared = rec.shared
-  if census_asked or (shared ~= nil and looked_count > 0 and
+  if census_asked == true or (shared ~= nil and looked_count > 0 and
       looked_count == keyed_count and ran_here == 0 and found_count == 0) then
     local line: string? = nil
     if shared ~= nil and found_count == 0 then
@@ -2042,10 +2042,10 @@ local function look_up_verdicts(ctx: Run)
       line = census ~= nil and shared_verdicts.unmatched(shared.path, looked_count,
         census, parts) or nil
     end
-    if line == nil and census_asked then line = shared_verdicts.key_parts(parts) end
+    if line == nil and census_asked == true then line = shared_verdicts.key_parts(parts) end
     if line ~= nil then log:say(line) end
     local rec_shared = rec.shared
-    if census_asked and rec_shared ~= nil then
+    if census_asked == true and rec_shared ~= nil then
       local held, _ = shared_verdicts.held(rec_shared)
       if held ~= nil then log:say(shared_verdicts.census_line(held)) end
     end
@@ -2195,7 +2195,7 @@ local function say_violations(rec: Recording)
   for _, key in ipairs(rec.violation_order) do
     local met = rec.violations[key]
     total = total + met.count
-    if not seen[met.at] then
+    if seen[met.at] ~= true then
       seen[met.at] = true
       places = places + 1
     end
@@ -2255,11 +2255,11 @@ local function settle(ctx: Run)
   local function_lines: mut {string} = {}
   ctx.function_lines = function_lines
   local functions = Coverage.native_functions()
-  if ctx.own_tree and rec.not_run > 0 then
+  if ctx.own_tree == true and rec.not_run > 0 then
     -- The tests not started are the ones that would have entered some.
     function_lines[1] = string.format("test: C functions not checked: %s not run " ..
         "after the first failure", plural.count(rec.not_run, "test"))
-  elseif ctx.own_tree and ctx.whole and #functions > 0 then
+  elseif ctx.own_tree == true and ctx.whole == true and #functions > 0 then
     -- A host whose name cannot be had is held to every function.
     local names, uname_trouble = sys.uname()
     if names == nil then errors[#errors + 1] = "uname: " .. uname_trouble end
@@ -2280,7 +2280,7 @@ local function settle(ctx: Run)
       table.insert(function_lines, "test: C exemptions a test entered on this core: " ..
           table.concat(entered.stale, ", "))
     end
-  elseif ctx.own_tree and #assert(ctx.selectors) == 0 and #functions > 0 then
+  elseif ctx.own_tree == true and #assert(ctx.selectors) == 0 and #functions > 0 then
     -- A share's tests enter only some of them; a whole run, which CI's
     -- merge queue makes on every leg, holds the core to all of them.
     function_lines[1] = string.format("test: C functions not checked: shard %d of %d " ..

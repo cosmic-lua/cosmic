@@ -96,7 +96,7 @@ local function arguments(argv: {string}): verb.Request?, string
   if parsed == nil then return nil, trouble end
   local modes: mut {string} = {}
   for _, name in ipairs({ "exists", "keys", "shape", "flat" }) do
-    if parsed.set["--" .. name] then modes[#modes + 1] = "--" .. name end
+    if parsed.set["--" .. name] == true then modes[#modes + 1] = "--" .. name end
   end
   if #modes > 1 then
     return nil, "name one of " .. table.concat(modes, " and ") .. ", not both"
@@ -203,7 +203,7 @@ local function distinct(found: {Json.Match}): {Json.Match}
   local kept: mut {Json.Match} = {}
   for _, hit in ipairs(found) do
     local pointer = assert(Json.pointer(hit.steps))
-    if not seen[pointer] then
+    if seen[pointer] ~= true then
       seen[pointer] = true
       kept[#kept + 1] = hit
     end
@@ -267,7 +267,7 @@ function verb.run(argv: {string}, io?: verb.Io): integer
     local named = request.file
     if request.pathlike and named ~= nil then
       local there, _ = Fs.exists(named)
-      if not there then read_trouble = read_trouble .. "; a path starts with `$`" end
+      if there ~= true then read_trouble = read_trouble .. "; a path starts with `$`" end
     end
     complain(read_trouble)
     return bare.refused

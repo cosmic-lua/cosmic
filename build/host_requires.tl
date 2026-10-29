@@ -407,13 +407,13 @@ local function program_key(path: string, search: string?): string?, string
     return "sha256:" .. hex_sha256(opened.data)
   end
   key = key .. ";interpreter=" .. interpreter_digest(words[1])
-  if words[1] ~= nil and words[1]:match("/env$") then
+  if words[1] ~= nil and words[1]:match("/env$") ~= nil then
     local index = 2
     while words[index] ~= nil do
       local word = words[index]
       if word == "-u" or word == "-C" or word == "--unset" or word == "--chdir" then
         index = index + 2
-      elseif word:sub(1, 1) == "-" or word:match("^[%w_]+=") then
+      elseif word:sub(1, 1) == "-" or word:match("^[%w_]+=") ~= nil then
         index = index + 1
       else
         break

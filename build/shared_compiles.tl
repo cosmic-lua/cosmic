@@ -167,7 +167,7 @@ function shared_compiles.key(key: string, own_tree: boolean, generated?: boolean
                              format?: string): string
   return Hash.hex_sha256((format or compiled) .. "\n" .. key .. "\n" ..
       (if own_tree then "own" else "project" end) .. "\n" ..
-      (if generated then "doctest" else "tree" end))
+      (if generated == true then "doctest" else "tree" end))
 end
 
 local schema <const> = cache_formats.compiles

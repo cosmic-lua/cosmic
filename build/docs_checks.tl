@@ -305,7 +305,7 @@ function docs_checks.rendered(db: Sqlite.Handle, exempt?: docs_checks.Exempt): {
         end
       end
       -- A function or a container has a page of its own to reach.
-      if kind == "function" or kind == "method" or containers[kind] then
+      if kind == "function" or kind == "method" or containers[kind] == true then
         local found = lookup(source_symbol)
         local answer: docs.Entry? = nil
         if found ~= nil then
@@ -317,12 +317,12 @@ function docs_checks.rendered(db: Sqlite.Handle, exempt?: docs_checks.Exempt): {
         end
         if found ~= nil and answer == nil then
           out[#out + 1] = where .. ": `cosmic docs " .. source_symbol .. "` does not answer with it"
-        elseif answer ~= nil and containers[kind] then
+        elseif answer ~= nil and containers[kind] == true then
           inspect(module .. " " .. source_symbol, answer)
         end
       end
       if signature:sub(1, 6) == "local " and source_symbol:find("[.:]") == nil and
-          containers[kind] and not canonical[module .. "\n" .. source_symbol] then
+          containers[kind] == true and canonical[module .. "\n" .. source_symbol] ~= true then
         local named = false
         for _, other in ipairs(signatures[module]) do
           if other:find("[^.%w_]" .. source_symbol .. "[^%w_]") ~= nil and
@@ -354,12 +354,12 @@ function docs_checks.rendered(db: Sqlite.Handle, exempt?: docs_checks.Exempt): {
     end
   end
   for key, reason in pairs(excused) do
-    if not used[key] then
+    if used[key] ~= true then
       out[#out + 1] = key .. ": excused (" .. reason .. "), but it is documented or gone"
     end
   end
   for key, reason in pairs(kept) do
-    if not kept_used[key] then
+    if kept_used[key] ~= true then
       out[#out + 1] = key .. ": kept as a surface (" .. reason .. "), but it is gone"
     end
   end
@@ -480,12 +480,12 @@ function docs_checks.references(db: Sqlite.Handle, help?: {string: string},
             "finds nothing" end
         end
       elseif verb ~= nil then
-        if not placeholder(verb) and not known[verb] then
+        if not placeholder(verb) and known[verb] ~= true then
           problem = "names no verb"
         end
       else
         local chain = span:match("^(%u[%w]*[%.:][%w_%.:]*[%w_])")
-        if chain ~= nil and records[chain:match("^[%w]+")] and
+        if chain ~= nil and records[chain:match("^[%w]+")] == true and
             (#chain == #span or span:sub(#chain + 1, #chain + 1):match("[%s(]") ~= nil) then
           chain = chain:gsub(":", ".")
           if not resolves(chain) then
@@ -511,7 +511,7 @@ function docs_checks.references(db: Sqlite.Handle, help?: {string: string},
     check("`cosmic help" .. (if name ~= "" then " " .. name else "" end) .. "`", text)
   end
   for span, reason in pairs(dangling) do
-    if not danglers[span] then
+    if danglers[span] ~= true then
       out[#out + 1] = "`" .. span .. "` is allowed to dangle (" .. reason ..
         "), but it resolves or is gone"
     end

@@ -40,7 +40,7 @@ end
 local state <const> = { installed = false }
 
 function assertions.install()
-  if state.installed then return end
+  if state.installed == true then return end
   state.installed = true
   rawset(_G as {string:any}, "assert", raw.assert)
 end

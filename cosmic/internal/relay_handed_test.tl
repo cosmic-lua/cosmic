@@ -2,22 +2,22 @@
 --- connectors its starter handed it (cosmic/internal/relay_start.tl), and a relay
 --- behind an upstream the starter resolved once. A relay whose lookups a
 --- name server of this test's own answers holds its thread while it looks
---- up, so it runs in a process of its own (this program, standalone) while
+--- up, so it runs in a process of its own (this program, running a child of build.relay_children_test) while
 --- this one is the name server, on a loopback port it listens at for TCP
 --- and binds for UDP, to see each query and that no datagram is sent.
 
 local Child = require("cosmic.child")
 local Clock = require("cosmic.clock")
 local Connector = require("cosmic.internal.connector")
-local Fs = require("cosmic.fs")
 local Net = require("cosmic.net")
 local Poll = require("cosmic.poll")
 local Relay = require("cosmic.internal.relay_server")
 local Test = require("cosmic.test")
 local Udp = require("build.udp_fixture")
 local sys = require("cosmic.sys")
+local _ = require("build.relay_children_test")
+local test_child = require("build.test_child")
 local this_program = require("build.this_program")
-local _ = require("build.standalone")
 
 --- The program itself, which runs a relay; a loopback alone answers; the
 --- connectors are processes this one and the program fork.
@@ -241,92 +241,6 @@ local function answer(query: string): string
     string.pack(">I2I2I2I4s2", 0xC00C, qtype, 1, 60, data)
 end
 
---- Prepares the upstream proxy.test, named by the caller's https_proxy, as
---- the starter does (resolving it through the name server at 127.0.0.1
---- port argv[1]), and serves a relay that resolves through the same server,
---- with a proxy of its own at the port https_proxy names: asks it for
---- api.test three times (through the proxy), for ungranted.test (refused
---- before any lookup) and for direct.test (granted, reached directly, and so
---- looked up). Prints each answer's status line, a line each.
-local SCRIPT <const> = [[
-local Clock = require("cosmic.clock")
-local Config = require("cosmic.internal.relay_config")
-local Connector = require("cosmic.internal.connector")
-local Fs = require("cosmic.fs")
-local Net = require("cosmic.net")
-local Poll = require("cosmic.poll")
-local Relay = require("cosmic.internal.relay_server")
-local SandboxRelay = require("cosmic.internal.relay_start")
-return function(argv: {string}): integer
-  local dns_port = assert(math.tointeger(tonumber((argv[1] or ""))))
-  local servers: {Net.Endpoint} = { { host = "127.0.0.1", port = dns_port } }
-  local lines: mut {string} = {}
-  Poll.run(function()
-    local proxy = assert(Net.listen(Net.tcp("127.0.0.1", 0)))
-    local serving = Poll.spawn(function()
-      while true do
-        local conn = proxy:accept()
-        if conn == nil then return end
-        Poll.spawn(function()
-          local head = ""
-          while not head:find("\r\n\r\n", 1, true) do
-            local data = conn:read(4096)
-            if data == nil then break end
-            head = head .. data
-          end
-          local _, _ = conn:write("HTTP/1.1 200 Connection established\r\n\r\n")
-          local _, _ = conn:close()
-        end)
-      end
-    end)
-    -- As the starter does: the upstream's host resolved once, through a
-    -- connector of the name servers.
-    local plan = assert(SandboxRelay.plan({}, { https_proxy = "http://proxy.test:" .. tostring(assert(proxy.address.port)),
-      no_proxy = "direct.test" }))
-    local up = assert(plan.upstream)
-    local name_servers = assert(SandboxRelay.name_servers({ servers = { { host = "127.0.0.1", port = dns_port } } }))
-    local dns = assert(Connector.start(name_servers.servers, name_servers.wait_ns // 1000000))
-    local resolved = assert(SandboxRelay.upstream_addresses(up, { fd = dns.fd, name_servers = name_servers }, ""))
-    local pinned: Config.Upstream = { host = up.host, port = up.port, authorization = up.authorization,
-      no_proxy = up.no_proxy, addresses = resolved }
-    assert(dns:close())
-    table.insert(lines, "upstream " .. table.concat(resolved, ","))
-    local resolve_connector = assert(Net.connector(servers, { timeout_ns = name_servers.wait_ns }))
-    local resolve: Net.ResolveOptions = { servers = servers, connector = resolve_connector }
-    local http = assert(Net.listen(Net.tcp("127.0.0.1", 0)))
-    local relay = Relay.start({
-      http = http, grants = { "api.test:443", "direct.test:443" }, upstream = pinned, resolve = resolve,
-      log = function(_: string) end,
-      connector = function(address: string, port: integer, timeout_ns: integer): Net.Conn?, string
-        return Net.connect(Net.tcp(address, port), { timeout_ns = timeout_ns })
-      end,
-    })
-    for _, target in ipairs({ "api.test:443", "api.test:443", "api.test:443", "ungranted.test:443",
-        "direct.test:443" }) do
-      local conn = assert(Net.connect(http.address, { timeout_ns = Clock.seconds(5) }))
-      conn:set_timeout(Clock.seconds(10))
-      assert(conn:write("CONNECT " .. target .. " HTTP/1.1\r\nHost: " .. target .. "\r\n\r\n"))
-      local reply = ""
-      while not reply:find("\r\n") do
-        local data = conn:read(4096)
-        if data == nil then break end
-        reply = reply .. data
-      end
-      table.insert(lines, target .. " " .. (reply:match("^HTTP/1.1 (%d+)") or "none"))
-      local _, _ = conn:close()
-    end
-    relay:stop()
-    relay:wait()
-    assert(resolve_connector:close())
-    serving:cancel()
-    assert(http:close())
-    assert(proxy:close())
-  end)
-  local _, _ = Fs.put(Fs.stdout, table.concat(lines, "\n"))
-  return 0
-end
-]]
-
 --- Reads exactly `count` bytes of `conn`, or nil at its end.
 local function read_exact(conn: Net.Conn, count: integer): string?
   local out = ""
@@ -343,8 +257,6 @@ end
 --- and a granted one is, over TCP alone.
 local function test_the_upstream_is_resolved_once_and_an_ungranted_name_never(tmp: string)
   require_native_connector()
-  local script = tmp .. "/relay.tl"
-  assert(Fs.write(script, SCRIPT))
   local queries: mut {string} = {}
   local datagrams = { value = 0 }
   local lines: mut {string} = {}
@@ -381,7 +293,7 @@ local function test_the_upstream_is_resolved_once_and_an_ungranted_name_never(tm
         end
       end
     end)
-    local started = this_program.program({ "--standalone", script, tostring(port) },
+    local started = this_program.program(test_child.words(tmp, "build.relay_children_test", "serve", { tostring(port) }),
       { stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(60) })
     local child <close> = assert(Child.start(started.argv, started.options))
     local result: Child.Result?

@@ -4,6 +4,7 @@
 --- this file has no binary bytes of its own and no test spawns an
 --- external program.
 
+local Cell = require("cosmic.cell")
 local Codec = require("cosmic.codec")
 local Fs = require("cosmic.fs")
 local Stream = require("cosmic.stream")
@@ -498,7 +499,7 @@ end
 --- A Reader over `rounds` copies of `chunk`, that calls `each(n)` before
 --- its n-th read.
 local function repeating(chunk: string, rounds: integer, each?: function(integer)): Stream.Reader
-  local n = { value = 0 }
+  local n: Cell<integer> = { value = 0 }
   local r: Stream.Reader = {}
   r.read = function(_self: Stream.Reader, _max_bytes?: integer): string?, string
     if n.value >= rounds then return nil, "" end
@@ -653,7 +654,7 @@ local function test_a_streamed_body_takes_bounded_memory()
   local rounds = 48 -- 3 MiB through each method
   local warm = 6
   for _, method in ipairs({ "deflate", "store" } as {Zip.Method}) do
-    local written = { value = 0 }
+    local written: Cell<integer> = { value = 0 }
     local sink: Stream.Writer = {}
     sink.write = function(_self: Stream.Writer, data: string): boolean, string
       written.value = written.value + #data
@@ -664,8 +665,8 @@ local function test_a_streamed_body_takes_bounded_memory()
     collectgarbage()
     collectgarbage()
     local base = collectgarbage("count")
-    local early = { value = 0.0 }
-    local late = { value = 0.0 }
+    local early: Cell<number> = { value = 0.0 }
+    local late: Cell<number> = { value = 0.0 }
     local body = repeating(chunk, rounds, function(n: integer)
       collectgarbage()
       local grown = collectgarbage("count") - base

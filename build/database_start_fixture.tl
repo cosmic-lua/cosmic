@@ -53,7 +53,7 @@ local function closure(roots: {string}): {Module}, {string:string}
   local bytecode: mut {string:string} = {}
   local seen: mut {string:boolean} = {}
   local function visit(name: string)
-    if seen[name] then return end
+    if seen[name] == true then return end
     seen[name] = true
     local code, _ = Store.bytecode(name)
     if code == nil then return end

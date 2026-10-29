@@ -231,7 +231,7 @@ local class Base64Decoder is verb.Coder
     self.total = self.total + #chunk
     if self.bad_at ~= nil then
       self.run = self.run + #chunk
-      if self.run_pad and chunk:find("[^=]") then self.run_pad = false end
+      if self.run_pad and chunk:find("[^=]") ~= nil then self.run_pad = false end
       return "", ""
     end
     local data = self.carry .. chunk

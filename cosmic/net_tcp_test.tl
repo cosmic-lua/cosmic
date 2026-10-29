@@ -1,3 +1,4 @@
+local Cell = require("cosmic.cell")
 local Signal = require("cosmic.signal")
 local Net = require("cosmic.net")
 local Poll = require("cosmic.poll")
@@ -110,9 +111,9 @@ local function test_in_a_run_a_tcp_connect_waits_through_the_run()
   local server <close> = assert(Net.listen(Net.tcp("127.0.0.1", 0),
     { backlog = 1, timeout_ns = Clock.seconds(5) }))
   local held: mut {Net.Conn} = {}
-  local ticks = { value = 0 }
-  local ticks_at_end = { value = -1 }
-  local why = { value = "" }
+  local ticks: Cell<integer> = { value = 0 }
+  local ticks_at_end: Cell<integer> = { value = -1 }
+  local why: Cell<string> = { value = "" }
   Poll.run(function()
     local first = assert(Net.connect(server.address, { timeout_ns = Clock.seconds(5) }))
     held[#held + 1] = first
@@ -140,7 +141,7 @@ local function test_in_a_run_a_tcp_connect_waits_through_the_run()
   assert(ticks_at_end.value > 0, "no other task ran while a connection waited")
   local port = assert(server.address.port)
   assert(server:close())
-  local refused = { value = nil as Net.Conn? }
+  local refused: Cell<Net.Conn?> = { value = nil }
   Poll.run(function()
     refused.value, why.value = Net.connect(Net.tcp("127.0.0.1", port), { timeout_ns = Clock.seconds(5) })
   end)

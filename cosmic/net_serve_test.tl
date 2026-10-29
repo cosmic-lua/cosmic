@@ -1,3 +1,4 @@
+local Cell = require("cosmic.cell")
 local Signal = require("cosmic.signal")
 local unix_socket = require("build.unix_socket")
 local Clock = require("cosmic.clock")
@@ -85,7 +86,7 @@ end
 --- listener, are served on.
 local function test_an_error_in_one_connection_leaves_the_others_served()
   local troubles: mut {string} = {}
-  local later = { value = "" }
+  local later: Cell<string> = { value = "" }
   assert(Net.serve{
     listeners = { Net.tcp("127.0.0.1", 0) },
     serve = function(conn: Net.Conn)
@@ -120,9 +121,9 @@ end
 --- in the backlog, neither answered nor closed, until the first
 --- closes, and is then served.
 local function test_at_the_connection_limit_accepting_waits()
-  local accepted = { value = 0 }
-  local waiting_why = { value = "" }
-  local answer = { value = "" }
+  local accepted: Cell<integer> = { value = 0 }
+  local waiting_why: Cell<string> = { value = "" }
+  local answer: Cell<string> = { value = "" }
   assert(Net.serve{
     listeners = { Net.tcp("127.0.0.1", 0) },
     limits = { connections = 1 },
@@ -157,7 +158,7 @@ end
 
 --- A connection's reads and writes wait at most the spec's timeout_ns.
 local function test_timeout_ns_bounds_each_connection()
-  local why = { value = "" }
+  local why: Cell<string> = { value = "" }
   assert(Net.serve{
     listeners = { Net.tcp("127.0.0.1", 0) },
     timeout_ns = Clock.ms(20),
@@ -181,12 +182,12 @@ end
 --- its task killed, its protocol never resumed, before Net.serve
 --- returns.
 local function stop_drains_then_kills_after_grace_ns_at(path: string?)
-  local started = { value = 0 }
-  local stuck_why = { value = "" }
-  local answer = { value = "" }
+  local started: Cell<integer> = { value = 0 }
+  local stuck_why: Cell<string> = { value = "" }
+  local answer: Cell<string> = { value = "" }
   local returned_at = 0
-  local stopped_at = { value = 0 }
-  local stuck = { value = nil as Client? }
+  local stopped_at: Cell<integer> = { value = 0 }
+  local stuck: Cell<Client?> = { value = nil }
   assert(Net.serve{
     listeners = { listener_at(path) },
     grace_ns = Clock.ms(200),
@@ -237,7 +238,7 @@ end
 --- the ones that could and called nothing.
 local function test_a_listener_that_cannot_listen_fails_the_server(tmp: string)
   if unix_socket.skipped(tmp) then return end
-  local called = { value = false }
+  local called: Cell<boolean> = { value = false }
   local ok, why = Net.serve{
     listeners = { Net.unix(tmp .. "/a.sock"), Net.unix(tmp .. "/missing/b.sock") },
     serve = echo,
@@ -298,8 +299,8 @@ end
 local function test_a_protocol_ignoring_failures_is_killed_at_grace_ns()
   local failures: mut {string} = {}
   local errors: mut {string} = {}
-  local started = { value = 0 }
-  local closed = { value = 0 }
+  local started: Cell<integer> = { value = 0 }
+  local closed: Cell<integer> = { value = 0 }
   local closer_mt: metatable<Closer> = { __close = function() closed.value = closed.value + 1 end }
   local held: {Client} = {}
   assert(Net.serve{
@@ -331,7 +332,7 @@ local function test_a_protocol_ignoring_failures_is_killed_at_grace_ns()
     assert(ended == nil and why == "", why)
     local _, _ = c.conn:close()
   end
-  assert(closed.value == 2, "closed " .. closed.value .. " of 2")
+  assert(closed.value == 2, "closed " .. tostring(closed.value) .. " of 2")
   assert(#failures == 0, table.concat(failures, ","))
   assert(#errors == 0, table.concat(errors, "\n"))
 end
@@ -340,9 +341,9 @@ end
 --- the rest are served on to their end.
 local function test_a_killed_protocols_close_error_is_reported()
   local errors: mut {string} = {}
-  local started = { value = false }
+  local started: Cell<boolean> = { value = false }
   local raiser_mt: metatable<Closer> = { __close = function() error("broken close", 0) end }
-  local held = { value = nil as Client? }
+  local held: Cell<Client?> = { value = nil }
   assert(Net.serve{
     listeners = { Net.tcp("127.0.0.1", 0) },
     grace_ns = 0,
@@ -370,11 +371,11 @@ end
 --- returns soon after grace_ns.
 local function test_a_killed_protocols_close_cannot_wait()
   local errors: mut {string} = {}
-  local wrote = { value = "" }
-  local started = { value = false }
+  local wrote: Cell<string> = { value = "" }
+  local started: Cell<boolean> = { value = false }
   local returned_at = 0
-  local stopped_at = { value = 0 }
-  local held = { value = nil as Client? }
+  local stopped_at: Cell<integer> = { value = 0 }
+  local held: Cell<Client?> = { value = nil }
   assert(Net.serve{
     listeners = { Net.tcp("127.0.0.1", 0) },
     grace_ns = Clock.ms(50),
@@ -407,8 +408,8 @@ end
 --- The limit counts connections across listeners: while one listener's
 --- connection holds the only place, another listener accepts nothing.
 local function test_the_connection_limit_is_shared_by_every_listener()
-  local waiting_why = { value = "" }
-  local answer = { value = "" }
+  local waiting_why: Cell<string> = { value = "" }
+  local answer: Cell<string> = { value = "" }
   assert(Net.serve{
     listeners = { Net.tcp("127.0.0.1", 0), Net.tcp("127.0.0.1", 0) },
     limits = { connections = 1 },
@@ -439,9 +440,9 @@ end
 --- A connection's protocol may stop the server it is served by, and
 --- still finish its own answer.
 local function a_protocol_stops_its_server_at(path: string?)
-  local answer = { value = "" }
-  local serving = { value = nil as Net.Server? }
-  local bound = { value = nil as Net.Address? }
+  local answer: Cell<string> = { value = "" }
+  local serving: Cell<Net.Server?> = { value = nil }
+  local bound: Cell<Net.Address?> = { value = nil }
   assert(Net.serve{
     listeners = { listener_at(path) },
     serve = function(conn: Net.Conn)
@@ -475,8 +476,8 @@ end
 --- A server stopped before it accepts anything returns at once, its
 --- protocol never run; stopping it again does nothing.
 local function a_server_stopped_twice_before_accepting_returns_at(path: string?)
-  local served = { value = false }
-  local bound = { value = nil as Net.Address? }
+  local served: Cell<boolean> = { value = false }
+  local bound: Cell<Net.Address?> = { value = nil }
   assert(Net.serve{
     listeners = { listener_at(path) },
     serve = function(_conn: Net.Conn) served.value = true end,
@@ -516,8 +517,8 @@ end
 --- The server releases its guard, so the signal is not delivered again;
 --- a guard of the caller's around the call sees it.
 local function sigterm_stops_the_server_and_it_drains_at(path: string?)
-  local started = { value = false }
-  local answer = { value = "" }
+  local started: Cell<boolean> = { value = false }
+  local answer: Cell<string> = { value = "" }
   -- Closed only where an assertion fails first, which delivers the
   -- signal: released below otherwise.
   local outer <close> = assert(Signal.guard())
@@ -559,9 +560,9 @@ end
 --- first is SIGINT, to stop on either kind: a worker started with
 --- SIGINT ignored, whose guard leaves it so, fails this case.
 local function a_second_signal_ends_the_grace_at(path: string?)
-  local started = { value = false }
-  local stuck_why = { value = "" }
-  local stuck = { value = nil as Client? }
+  local started: Cell<boolean> = { value = false }
+  local stuck_why: Cell<string> = { value = "" }
+  local stuck: Cell<Client?> = { value = nil }
   -- Closed only where an assertion fails first: released below otherwise.
   local outer <close> = assert(Signal.guard())
   assert(Net.serve{
@@ -616,7 +617,7 @@ end
 --- The longest `grace_ns` a wait can last drains as a short one does:
 --- the connection open finishes, and the server returns true.
 local function test_the_longest_grace_drains_the_connections_open()
-  local answer = { value = "" }
+  local answer: Cell<string> = { value = "" }
   local ok, why = Net.serve{
     listeners = { Net.tcp("127.0.0.1", 0) },
     grace_ns = Poll.MOST_NS,
@@ -641,11 +642,11 @@ end
 --- task of the run with the server, once the listener is closed and
 --- before the connection in flight has finished.
 local function on_stop_runs_once_at_stop_at(path: string?)
-  local calls = { value = 0 }
-  local finished = { value = false }
+  local calls: Cell<integer> = { value = 0 }
+  local finished: Cell<boolean> = { value = false }
   local seen: mut {string} = {}
-  local serving = { value = nil as Net.Server? }
-  local bound = { value = nil as Net.Address? }
+  local serving: Cell<Net.Server?> = { value = nil }
+  local bound: Cell<Net.Address?> = { value = nil }
   assert(Net.serve{
     listeners = { listener_at(path) },
     serve = function(conn: Net.Conn)
@@ -687,7 +688,7 @@ end
 
 --- SIGTERM calls on_stop as `stop` does, once.
 local function on_stop_runs_once_at_sigterm_at(path: string?)
-  local calls = { value = 0 }
+  local calls: Cell<integer> = { value = 0 }
   -- Closed only where an assertion fails first: released below otherwise.
   local outer <close> = assert(Signal.guard())
   assert(Net.serve{
@@ -720,8 +721,8 @@ end
 --- the idle client read at the end.
 local function stopped_with_an_idle_client(closing: boolean, grace_ns: integer): integer, string
   local idle: mut {Net.Conn: boolean} = {}
-  local stopped_at = { value = 0 }
-  local idle_client = { value = nil as Client? }
+  local stopped_at: Cell<integer> = { value = 0 }
+  local idle_client: Cell<Client?> = { value = nil }
   local spec: Net.ServeSpec = {
     listeners = { Net.tcp("127.0.0.1", 0) },
     grace_ns = grace_ns,
@@ -773,7 +774,7 @@ end
 --- server stops all the same.
 local function a_raising_on_stop_reaches_on_error_and_the_server_stops_at(path: string?)
   local troubles: mut {string} = {}
-  local bound = { value = nil as Net.Address? }
+  local bound: Cell<Net.Address?> = { value = nil }
   local ok, why = Net.serve{
     listeners = { listener_at(path) },
     serve = echo,
@@ -804,7 +805,7 @@ end
 --- A second signal cancels a wait on_stop makes, as it ends the grace,
 --- and the server returns.
 local function a_second_signal_cancels_on_stops_wait_at(path: string?)
-  local waited = { value = "" }
+  local waited: Cell<string> = { value = "" }
   -- Closed only where an assertion fails first: released below otherwise.
   local outer <close> = assert(Signal.guard())
   assert(Net.serve{
@@ -837,9 +838,9 @@ end
 --- A server with on_stop stops from a coroutine a task made, as one
 --- without does: on_stop is called and Net.serve returns.
 local function test_on_stop_runs_when_stopped_from_a_coroutine()
-  local calls = { value = 0 }
-  local stopped = { value = "" }
-  local serving = { value = nil as Net.Server? }
+  local calls: Cell<integer> = { value = 0 }
+  local stopped: Cell<string> = { value = "" }
+  local serving: Cell<Net.Server?> = { value = nil }
   assert(Net.serve{
     listeners = { Net.tcp("127.0.0.1", 0) },
     serve = function(conn: Net.Conn)
@@ -867,7 +868,7 @@ end
 --- after on_stop's wait, within the grace from there, is not killed,
 --- though it outlasts the grace counted from the stop.
 local function test_the_grace_begins_once_on_stop_returns()
-  local answer = { value = "" }
+  local answer: Cell<string> = { value = "" }
   assert(Net.serve{
     listeners = { Net.tcp("127.0.0.1", 0) },
     grace_ns = Clock.ms(400),

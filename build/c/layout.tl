@@ -149,7 +149,7 @@ local function laid_out(source: string): string
           depth = depth - 1
         elseif t.text == "(" then
           if depth == 0 and parens == 0 and prev ~= nil and prev.kind == "word" and
-              not keywords[prev.text] and prev2 ~= nil and
+              keywords[prev.text] ~= true and prev2 ~= nil and
               (prev2.kind == "word" or prev2.text == "*") and
               tokens[i - 1] == prev then
             -- Find the close, then what follows it.
@@ -225,7 +225,7 @@ local function laid_out(source: string): string
         local t = toks[k]
         local text = t.text
         if t.kind == "comment" then text = shifted(text, at - width(indent)) end
-        if spaced[t] and toks[k + 1] ~= nil and toks[k + 1].text == "(" then
+        if spaced[t] == true and toks[k + 1] ~= nil and toks[k + 1].text == "(" then
           text = text .. " "
           -- What continues the parameters is lined up under them, unless
           -- they begin on a line of their own at an indent of their own.

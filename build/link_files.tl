@@ -56,7 +56,7 @@ function link_files.skipper(dir: string): function(string): boolean
     local parts: mut {string} = {}
     for part in entry:gmatch("[^/]+") do parts[#parts + 1] = part end
     for index, part in ipairs(parts) do
-      if never[part] or (index == 1 and (part == "bin" or part == "static")) then
+      if never[part] == true or (index == 1 and (part == "bin" or part == "static")) then
         return true
       end
       if part:sub(1, 1) == "." and not (index == 1 and part == ".claude") then
@@ -252,7 +252,7 @@ local function module_level_zig(source: string): {string: boolean}
   end
   local out: mut {string: boolean} = {}
   for name in pairs(top) do
-    if not inner[name] then out[name] = true end
+    if inner[name] ~= true then out[name] = true end
   end
   return out
 end

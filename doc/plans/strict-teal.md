@@ -514,8 +514,13 @@ standard library's declarations are audited, each of these named:
 
 a restriction. `m[k]` and `m.k` on a `{K:V}` are `V | nil`. `t[i]` on a
 `{T}` is `T | nil`, because Lua answers nil for an index out of range
-rather than trapping, and no refinement answers `T`: any other reference
-to the array may change it between a length test and the read. a loop
+rather than trapping, and no refinement but one answers `T`: any other
+reference to the array may change it between a test and the read. the one
+is a length test against a literal (`#t > 0`, `#t >= 2`, `#t == 3`,
+`assert(#t > 0)`), which gives a read at a literal index up to 16 or at
+`#t`, from the test to code that may shorten an array: a call (not
+`assert` or `type`), a nil written to an index, the iterator of a generic
+`for`, the scope of a `<close>` local and a function made there. a loop
 over the elements is `for i, v in ipairs(t)`, which gives `v: T`, and the
 error for a nil-guarded index read in a numeric `for` suggests it. an
 index is not a place: a test of `t[k]` narrows nothing, and the rewrite
@@ -524,8 +529,9 @@ any module, with no exemption: it reads an index into a local and
 asserts it, or uses a general accessor that raises on a miss.
 
 a tuple type indexed by a literal in range is its member's type, and out
-of range is refused. length facts (`#t > 0` giving `t[1]`) are not
-tracked.
+of range is refused. a length fact gives only a literal index (or `#t`):
+the index of a loop (`for i = 1, #t`) and a comparison with another
+local (`i <= #t`) are not tracked.
 
 ### arrays are dense
 

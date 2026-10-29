@@ -8,6 +8,8 @@
 --- at or past the 4 GiB mark) and in each entry's extra field (a size
 --- or a local header offset at or past 4 GiB).
 
+-- TODO: make this `local type Cell = require("cosmic.cell")` once the store keeps a module that only a `local type` require names; today that drops cosmic.cell from the binary and build/link_index_test fails.
+local Cell = require("cosmic.cell")
 local Fs = require("cosmic.fs")
 local sys = require("cosmic.sys")
 local Compress = require("cosmic.compress")
@@ -734,20 +736,20 @@ function Zip.open(path: string): Zip.Reader?, string
     local _, _ = Fs.close(fd)
     return refuse(path .. ": " .. strouble)
   end
-  local reading = { closed = false }
+  local reading_closed: Cell<boolean> = { value = false }
   local pread: Pread = function(offset: integer, count: integer): string?, string
     -- Once closed, `fd` may already name some other file.
-    if reading.closed == true then return refuse(path .. ": the reader is closed") end
+    if reading_closed.value == true then return refuse(path .. ": the reader is closed") end
     local data, ptrouble = sys.pread(fd, count, offset)
     if data == nil then return nil, ptrouble end
     return data, ""
   end
   local reader, otrouble = open_reader(st.size, pread, function(): boolean, string
-    reading.closed = true
+    reading_closed.value = true
     return Fs.close(fd)
   end)
   if reader == nil then
-    reading.closed = true
+    reading_closed.value = true
     local _, _ = Fs.close(fd)
     return nil, otrouble
   end
@@ -756,14 +758,14 @@ end
 
 --- A reader over a zip already in memory as `data`.
 function Zip.open_string(data: string): Zip.Reader?, string
-  local reading = { closed = false }
+  local reading_closed: Cell<boolean> = { value = false }
   local pread: Pread = function(offset: integer, count: integer): string?, string
-    if reading.closed == true then return refuse("the reader is closed") end
+    if reading_closed.value == true then return refuse("the reader is closed") end
     if offset >= #data then return "", "" end
     return data:sub(offset + 1, offset + count), ""
   end
   return open_reader(#data, pread, function(): boolean, string
-    reading.closed = true
+    reading_closed.value = true
     return true, ""
   end)
 end

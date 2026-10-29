@@ -6,6 +6,7 @@
 --- the template's lines. `FUZZ_SEED` and `FUZZ_ITERS` pick the inputs
 --- (build/fuzz/init.tl).
 
+local Cell = require("cosmic.cell")
 local Fuzz = require("build.fuzz")
 local Html = require("cosmic.html")
 local Json = require("cosmic.json")
@@ -1160,8 +1161,8 @@ end
 
 local function read_tag(s: string): Tag
   local tag: Tag = { name = "", attrs = {}, selfclosing = false, state = "tag_name", at = "", rest = "", slots = {} }
-  local name = { value = "" }
-  local value = { value = "" }
+  local name: Cell<string> = { value = "" }
+  local value: Cell<string> = { value = "" }
   local function push()
     tag.attrs[#tag.attrs + 1] = name.value .. "=" .. value.value
     name.value, value.value = "", ""
@@ -1377,11 +1378,11 @@ local function test_a_block_in_a_tag_adds_only_the_attributes_it_writes(tmp: str
       end
       Fuzz.label("compiled")
       -- Each slot numbered in the order the source has it, as the helpers are.
-      local count = { value = 0 }
+      local count: Cell<integer> = { value = 0 }
       local function number(piece: string): string
         return (piece:gsub("{{%.x}}", function(): string
           count.value = count.value + 1
-          return "\1" .. count.value .. "\2"
+          return "\1" .. tostring(count.value) .. "\2"
         end))
       end
       local n_before, n_arm = number(before), number(arm)
@@ -1392,7 +1393,7 @@ local function test_a_block_in_a_tag_adds_only_the_attributes_it_writes(tmp: str
         kinds[#kinds + 1] = made
       end
       if #kinds ~= count.value then
-        return false, tostring(#kinds) .. " slots compiled of " .. count.value .. ": " .. body
+        return false, tostring(#kinds) .. " slots compiled of " .. tostring(count.value) .. ": " .. body
       end
       -- What each run writes in the block, and the attributes that alone makes.
       local runs: mut {string} = { "", n_arm }
