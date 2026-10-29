@@ -47,7 +47,7 @@ local record LoadOrder
   --- What a walk of a module has noted.
   record State
     --- How many statics the walk has yet to pass.
-    waiting: integer
+    mut waiting: integer
     --- By the id of the function.
     effects: {integer: Effects}
     --- The functions a local holds, by the id of the local.
@@ -58,7 +58,7 @@ local record LoadOrder
     implementers: {Types.Decl: {Types.Decl}}
     --- The nodes (function literals and names) that only store a function, by id: the place that takes it is mentioned
     --- instead.
-    given: {integer: boolean}
+    given: mut {integer: boolean}
     --- Whether the static `name` of `decl` is still to be defined.
     undefined: function(decl: Types.Decl, name: string): boolean
     --- Reports a mention at `node`, spelled `spelled`, that reaches the read found.

@@ -36,28 +36,28 @@ local String = require("cosmic.string")
 local record flow
   --- A value in the text: an object, an array, or a scalar.
   record Node
-    kind: string
+    mut kind: string
     --- A scalar's text as it is written: a string as `quote` writes
     --- it, or a bare word.
     text?: string
     --- An object's or array's members, in order.
-    items?: {flow.Item}
+    mut items?: {flow.Item}
     --- Whether a container stays on one line.
-    inline?: boolean
+    mut inline?: boolean
     --- For a container `from` built or `update` changed, the widest line
     --- it stays on one line within, decided where it is rendered.
-    width?: integer
+    mut width?: integer
     --- A comment on a multi-line container's opening line.
-    comment?: string
+    mut comment?: string
     --- The comments and blank lines after its last member.
-    tail?: {string}
+    mut tail?: {string}
   end
 
   --- A member of an object or array.
   record Item
     --- An object member's key, as the key reads; nil in an array.
     key?: string
-    value: flow.Node
+    mut value: flow.Node
     --- The comment lines before it, "" for a blank line.
     before: {string}
     --- A comment after it on its line.
@@ -67,7 +67,7 @@ local record flow
   --- A whole text: the comments around its root value.
   record Doc
     head: {string}
-    root: flow.Node
+    mut root: flow.Node
     --- A comment after the root on its closing line.
     comment?: string
     foot: {string}
@@ -166,7 +166,7 @@ end
 ---   joins to its pair: write the character itself.
 --- - No key twice in one object, which GitHub refuses.
 local function scan(text: string, comments: mut {string}): {string}
-  local found: {string} = characters(text)
+  local found: mut {string} = characters(text)
   local line = 1
   local function say(why: string)
     found[#found + 1] = ("line %d: %s"):format(line, why)

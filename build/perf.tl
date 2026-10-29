@@ -32,7 +32,7 @@ local record Perf
   end
   record Pair
     a: number
-    b: number
+    mut b: number
   end
 end
 

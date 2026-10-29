@@ -40,10 +40,10 @@ local record SandboxProbe
     name: string
     --- whether a test's confinement (build.confine's `confine`) needs it
     needed: boolean
-    held: boolean
+    mut held: boolean
     --- "held", or why not: an errno's name and message, or what the
     --- child said
-    said: string
+    mut said: string
   end
   record Report
     parts: {Part}
