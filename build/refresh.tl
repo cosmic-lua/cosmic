@@ -209,7 +209,7 @@ function refresh.tzdata_release(text: string): refresh.Source?, string
   for _, file in ipairs(index.urls) do
     local sha256 = file.digests["sha256"]
     if file.packagetype == "sdist" and sha256 ~= nil and #sha256 == 64 and
-        sha256:match("^%x+$") then
+        sha256:match("^%x+$") ~= nil then
       return { path = "", url = file.url, version = index.info.version, sha256 = sha256:lower() }, ""
     end
   end
@@ -313,7 +313,7 @@ local cacert: refresh.Dataset = {
       else
         readable[#readable + 1] = one
         local digest = Hash.sha256(one.der)
-        if not distinct[digest] then
+        if distinct[digest] ~= true then
           distinct[digest] = true
           count = count + 1
         end
@@ -739,7 +739,7 @@ local function run(argv: {string}): integer
   -- Neither a name nor a file: every dataset, from upstream.
   local chosen: mut {refresh.Dataset} = {}
   for _, dataset in ipairs(refresh.datasets) do
-    if next(wanted) == nil or wanted[dataset.name] then
+    if next(wanted) == nil or wanted[dataset.name] == true then
       chosen[#chosen + 1] = dataset
     end
   end

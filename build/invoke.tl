@@ -197,7 +197,7 @@ function invoke.run(args: {string}, opts: invoke.Options): invoke.Result
   if not err_back then keep[saved_err] = true end
   local closing: mut {integer} = {}
   for _, fd in ipairs(held) do
-    if not keep[fd] then closing[#closing + 1] = fd end
+    if keep[fd] ~= true then closing[#closing + 1] = fd end
   end
   held = closing
   release()

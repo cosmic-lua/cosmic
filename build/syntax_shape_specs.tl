@@ -112,7 +112,7 @@ local function record_spec(decl: Types.Decl, path: string, shape: string, holdin
   if #body.supers > 0 then
     return nil, path .. ": a record that implements an interface has no shape; its inherited fields are not read"
   end
-  if holding[decl] then
+  if holding[decl] == true then
     return nil, path .. ": a record that holds itself has no finite shape"
   end
   holding[decl] = true
@@ -147,7 +147,7 @@ end
 spec_of = function(t: Type, path: string, shape: string, holding: mut {Types.Decl: boolean}, store: Types.Store):
     string?, string
   if (t.atom == true) then
-    if LEAVES[t.tag] then
+    if LEAVES[t.tag] == true then
       return shape .. "." .. tostring(t.tag), ""
     elseif t.tag == "invalid" then
       return nil, path .. ": a type the checker did not resolve"

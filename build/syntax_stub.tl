@@ -345,7 +345,7 @@ local function reached(program: Declarations.Program, module: string): Reached
   local seen: mut {integer: boolean} = {}
   local add: function(d: Types.Decl)
   local function walk(t: Types.Type)
-    if seen[t.id] then
+    if seen[t.id] == true then
       return
     end
     seen[t.id] = true

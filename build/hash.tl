@@ -222,7 +222,7 @@ local function arguments(argv: {string}): Request?, string
   local chosen: mut {Algorithm} = {}
   local spelled: mut {string} = {}
   for _, name in ipairs(ALGORITHMS) do
-    if parsed.set["--" .. name] then
+    if parsed.set["--" .. name] == true then
       chosen[#chosen + 1] = name
       spelled[#spelled + 1] = "--" .. name
     end

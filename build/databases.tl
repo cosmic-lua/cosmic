@@ -66,7 +66,7 @@ local function describe(path: string): integer?, string
   for _, row in ipairs(sizes) do
     local name, pages, bytes, payload = row:text(1), row:text(2), row:text(3), row:text(4)
     local rows = ""
-    if is_table[name] then
+    if is_table[name] == true then
       local counted, count_trouble = Sqlite.text_rows(db,
         "SELECT count(*) FROM " .. quoted(name))
       if counted == nil then
@@ -207,7 +207,7 @@ local function describe_under(path: string, about: function(string): boolean): i
     for _, c in ipairs(columns) do has[c:text(1)] = true end
     local chosen: string? = nil
     for _, candidate in ipairs(source_columns) do
-      if chosen == nil and has[candidate] then chosen = candidate end
+      if chosen == nil and has[candidate] == true then chosen = candidate end
     end
     if chosen ~= nil then
       local values, value_trouble = Sqlite.text_rows(db,

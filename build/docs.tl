@@ -596,7 +596,7 @@ local function query_words(query: string): {string}
   local short: mut {string} = {}
   local stop: mut {string} = {}
   for word in query:gmatch("[%w_]+") do
-    if STOP_WORDS[word:lower()] then
+    if STOP_WORDS[word:lower()] == true then
       stop[#stop + 1] = word
     elseif #word > 1 then
       words[#words + 1] = word
@@ -1122,7 +1122,7 @@ end
 local function answers_for(view: docs.View, index: integer, module: string): boolean
   if module == "" then
     for at = 1, #view.databases do
-      if not view.public[at] then return at == index end
+      if view.public[at] ~= true then return at == index end
     end
     return false
   end
@@ -1239,12 +1239,12 @@ local function count_uses(view: docs.View, module: string,
       end
       for _, row in ipairs(rows) do
         local from_module = row:text(1)
-        local counted = not view.public[index] or
+        local counted = view.public[index] ~= true or
           (symbols.is_public_module(module) and symbols.is_public_module(from_module))
         if counted and view.owners[from_module] == index then
           local position = module .. "\n" .. symbol .. "\n" .. from_module ..
             "\n" .. row:text(2) .. "\n" .. row:text(3)
-          if not seen[position] then
+          if seen[position] ~= true then
             seen[position] = true
             total = total + 1
           end
@@ -1283,11 +1283,11 @@ local function count_links(view: docs.View, module: string,
       end
       for _, row in ipairs(rows) do
         local from_module = row:text(1)
-        local counted = not view.public[index] or
+        local counted = view.public[index] ~= true or
           (symbols.is_public_module(module) and symbols.is_public_module(from_module))
         -- One place per line, as [`docs.uses`] lists them.
         local position = row:text(2) .. "\n" .. row:text(3)
-        if counted and answers_for(view, index, from_module) and not seen[position] then
+        if counted and answers_for(view, index, from_module) and seen[position] ~= true then
           seen[position] = true
           total = total + 1
         end
@@ -1409,7 +1409,7 @@ local function by_options(view: docs.View, query: string,
   local out: mut {docs.Entry} = {}
   for _, entry in ipairs(fields) do
     local verb = entry.module == "cosmic.cli" and entry.symbol:match("^Cli%.(%w+)$") or nil
-    if verb ~= nil and not held[entry.module .. "\n" .. entry.symbol] then
+    if verb ~= nil and held[entry.module .. "\n" .. entry.symbol] ~= true then
       local spoken = tokens_of(entry.source_symbol .. "\n" .. entry.signature .. "\n" ..
           entry.text .. "\n" .. Flags.options(Cli.verbs[verb].spec or {}))
       local all = true
@@ -1505,7 +1505,7 @@ local function lookup_names(view: docs.View, query: string): docs.Lookup?, strin
       if entry.module == "cosmic.cli" and entry.symbol == "Cli." .. query then
         if library then verb = entry else answers[#answers + 1] = entry end
         seen[entry.module .. "\n" .. entry.symbol] = true
-      elseif not internal and not seen[entry.module .. "\n" .. entry.symbol] then
+      elseif not internal and seen[entry.module .. "\n" .. entry.symbol] ~= true then
         rest[#rest + 1] = entry
       end
     end
@@ -2037,7 +2037,7 @@ function docs.uses(view: docs.View, query: string): {docs.Use}?, string
     local key = use.module .. "\n" .. use.symbol .. "\n" .. use.from_module ..
       "\n" .. use.from_file .. "\n" .. tostring(use.line) .. "\n" .. tostring(use.link) ..
       "\n" .. use.path .. "\n" .. use.anchor
-    if not seen[key] then
+    if seen[key] ~= true then
       seen[key] = true
       out[#out + 1] = use
     end
@@ -2274,7 +2274,7 @@ local function inherited_lines(view: docs.View, entry: docs.Entry): {string}?, s
       local short = target.source_symbol:match("([^.]*)$")
       for _, member in ipairs(members) do
         local name = member.source_symbol:match("([^.]*)$")
-        if not own[name] then
+        if own[name] ~= true then
           local note = first_sentence(member.text)
           local tail = member.signature:match("^[%w_]+: function%(" .. short .. "(.*)$")
           if member.kind == "value" then
@@ -2439,7 +2439,7 @@ function docs.render(view: docs.View, entry: docs.Entry): {string}?, string
       if is_call(item) and (best == nil or points_better(item, best)) then best = item end
       index[#index + 1] = "  " .. listed(item)
       for _, member in ipairs(under[item.source_symbol] or {}) do
-        if not listed_symbols[member.symbol] then
+        if listed_symbols[member.symbol] ~= true then
           index[#index + 1] = "    " .. member_line(member, NOTE_LIMIT)
         end
       end

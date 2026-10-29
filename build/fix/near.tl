@@ -122,7 +122,7 @@ local function words(text: string): {string: boolean}, integer
   local set: mut {string: boolean} = {}
   local count = 0
   for word in text:lower():gmatch("[%a_][%w_]*") do
-    if #word > 2 and not STOP[word] and not set[word] then
+    if #word > 2 and STOP[word] ~= true and set[word] ~= true then
       set[word] = true
       count = count + 1
     end
@@ -185,8 +185,8 @@ function near.index(known: {near.Known}): near.Index
       within[taken] = (within[taken] or 0) + 1
     end
     comparable[index] = (other.kind == "function" or other.kind == "method") and
-      other.text ~= "" and not EXAMPLES_ONLY[other.module]
-    if comparable[index] then
+      other.text ~= "" and EXAMPLES_ONLY[other.module] ~= true
+    if comparable[index] == true then
       local set, count = words(other.text)
       their_counts[index] = count
       for word in pairs(set) do
@@ -237,7 +237,7 @@ function near.notes(module: string, candidates: {near.Candidate},
         end
       end
     end
-    local commands = COMMANDS[name] and not mine.method and
+    local commands = COMMANDS[name] == true and mine.method ~= true and
       (named_all[name] or 0) - (named_in ~= nil and named_in[name] or 0) == 0
     -- A pair that shares no words can only be noted as a command's
     -- stand-in, so only then is every library function looked at.
@@ -250,7 +250,7 @@ function near.notes(module: string, candidates: {near.Candidate},
     end
     for _, index in ipairs(scan) do
       local other = known[index]
-      if comparable[index] then
+      if comparable[index] == true then
         local same = other.module == module and
           (other.source_symbol == mine.source_symbol or other.symbol == name)
         local why: string? = nil

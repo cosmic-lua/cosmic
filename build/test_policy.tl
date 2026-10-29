@@ -82,7 +82,7 @@ end
 local function worker_promises(nests?: boolean): {Sandbox.Promise}
   local out: mut {Sandbox.Promise} = {}
   for _, promise in ipairs(base_promises) do out[#out + 1] = promise end
-  if nests then out[#out + 1] = "nest" end
+  if nests == true then out[#out + 1] = "nest" end
   return out
 end
 
@@ -107,7 +107,7 @@ local function shape(effective: test_inputs.Effective): Sandbox.Policy
   local held, _ = sys.getrlimit(sys.RLIMIT_NOFILE)
   if held ~= nil then limits.open_files = math.min(held.hard, MOST_OPEN_FILES) end
   return {
-    profiles = if effective.system then { "system" } else nil end,
+    profiles = if effective.system == true then { "system" } else nil end,
     isolate = { "file" },
     promises = worker_promises(effective.nests),
     loopback = loopback,
@@ -129,7 +129,7 @@ end
 --- what the plan says is run (`runs`), what a device allows, else `r`.
 local function letters_of(path: string, inside: string, runs: {string:boolean}): string
   if devices[inside] ~= nil then return devices[inside] end
-  if runs[path] then return "rx" end
+  if runs[path] == true then return "rx" end
   return "r"
 end
 
@@ -159,7 +159,7 @@ function test_policy.worker(plan: test_sandbox.Plan, effective: test_inputs.Effe
   -- The private noexec scratch: a writable grant without `x`, which the
   -- root of `isolate` "file" mounts noexec ([`build.test`]'s `launch` makes
   -- the directory it is bound from).
-  if effective.noexec_ready and scratch ~= nil then
+  if effective.noexec_ready == true and scratch ~= nil then
     grants[#grants + 1] = { path = "/noexec", from = scratch .. "/noexec", letters = "rwc" }
   end
   -- A worker whose root shows no directory of the host has its scratch
