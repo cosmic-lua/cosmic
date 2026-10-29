@@ -107,11 +107,11 @@ local function gen_nodes(src: Fuzz.Source, depth: integer, out: mut {string}, ki
   while Fuzz.more(src, #out, 14) do
     local kind = src:int(0, 9)
     if kind <= 4 then
-      out[#out + 1] = Fuzz.pick(src, kit.markup)
+      table.insert(out, Fuzz.pick(src, kit.markup))
     elseif kind <= 6 then
-      out[#out + 1] = src:int(0, 3) == 0 and gen_variable_slot(src, bound) or Fuzz.pick(src, kit.slots)
+      table.insert(out, src:int(0, 3) == 0 and gen_variable_slot(src, bound) or Fuzz.pick(src, kit.slots))
     elseif depth >= 3 then
-      out[#out + 1] = Fuzz.pick(src, kit.loose)
+      table.insert(out, Fuzz.pick(src, kit.loose))
     elseif kind == 7 then
       out[#out + 1] = "{{if .a}}"
       gen_nodes(src, depth + 1, out, kit, bound)
@@ -130,7 +130,7 @@ local function gen_nodes(src: Fuzz.Source, depth: integer, out: mut {string}, ki
       for _, name in ipairs(names) do
         inner[#inner + 1] = name
       end
-      out[#out + 1] = if #names == 0 then "{{range .l}}" else "{{range " .. table.concat(names, ", ") .. " := .l}}" end
+      table.insert(out, if #names == 0 then "{{range .l}}" else "{{range " .. table.concat(names, ", ") .. " := .l}}" end)
       gen_nodes(src, depth + 1, out, kit, inner)
       if src:int(0, 1) == 0 then
         out[#out + 1] = "{{else}}"
@@ -163,7 +163,7 @@ local function gen_body(src: Fuzz.Source): string
     end
   else
     gen_nodes(src, 0, out, ANY, {})
-    out[#out + 1] = Fuzz.pick(src, CLOSERS)
+    table.insert(out, Fuzz.pick(src, CLOSERS))
   end
   return table.concat(out)
 end
@@ -173,7 +173,7 @@ end
 local function gen_sound_nodes(src: Fuzz.Source): string
   local out: mut {string} = {}
   gen_nodes(src, 0, out, ANY, {})
-  out[#out + 1] = Fuzz.pick(src, CLOSERS)
+  table.insert(out, Fuzz.pick(src, CLOSERS))
   return table.concat(out)
 end
 

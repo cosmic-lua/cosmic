@@ -89,7 +89,7 @@ function relay_wire_fixture.records(message: string, sizes?: {integer}, version?
   local out: mut {string} = {}
   local at = 1
   local function record(payload: string)
-    out[#out + 1] = "\22" .. relay_wire_fixture.be(version or 0x0301, 2) .. relay_wire_fixture.be(#payload, 2) .. payload
+    table.insert(out, "\22" .. relay_wire_fixture.be(version or 0x0301, 2) .. relay_wire_fixture.be(#payload, 2) .. payload)
   end
   for _, size in ipairs(sizes or {}) do
     if at > #message then

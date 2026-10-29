@@ -399,7 +399,7 @@ local function send(client: Testing.Client, method: string, path: string, opts: 
       if line[1]:lower() == "content-length" then has_length = true end
     end
     if not has_length and length ~= nil and not bodiless(reply.status) then
-      lines[#lines + 1] = { "content-length", tostring(length) }
+      table.insert(lines, { "content-length", tostring(length) })
     end
     if method == "HEAD" or bodiless(reply.status) then body = "" end
     local made = response_of(reply.status, lines, body)

@@ -164,11 +164,11 @@ function Warnings.add(list: mut {Warnings.Warning}, filename: string, tokens: Le
   if tokens.text[first] == nil or tokens.text[to] == nil then
     return
   end
-  list[#list + 1] = {
+  table.insert(list, {
     filename = filename, code = code, kind = Warnings.kind_of(code), msg = msg, fix = fix, y = Lexer.y(tokens, first),
     x = Lexer.x(tokens, first), offset = Lexer.offset(tokens, first),
     length = math.max(0, Lexer.stop(tokens, to) - Lexer.offset(tokens, first)),
-  }
+  })
 end
 
 --- What a binding declares, as the fork says it: an argument, a function, a type or a variable.

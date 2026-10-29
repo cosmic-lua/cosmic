@@ -1050,6 +1050,41 @@ local function test_a_write_that_may_leave_a_hole_is_refused_with_its_fix()
   assert(codes_of(head .. "local function pick(): mut {integer}\n  return xs\nend\npick()[#pick() + 1] = v\n") == "array_hole")
 end
 
+local function test_an_append_in_a_statement_that_calls_stands_only_for_a_table_no_call_can_name()
+  local function holes(body: string): string
+    return codes_of(body)
+  end
+  local shrinks = "local xs: mut {integer} = {1, 2, 3}\nlocal function shrink(): integer\n  table.remove(xs)\n  table.remove(xs)\n  return 7\nend\n"
+  -- the call runs after `#xs + 1` is computed and may shorten `xs`, so the write lands past the end: a hole
+  assert(holes(shrinks .. "xs[#xs + 1] = shrink()\n") == "array_hole")
+  assert(holes(shrinks .. "xs[#xs + 1] = 1 + shrink()\n") == "array_hole")
+  -- a call in the key of another target runs between the key and the write too
+  assert(holes(shrinks .. "local ys: mut {integer} = {}\nys[shrink()], xs[#xs + 1] = 1, 2\n") == "array_hole array_hole")
+  -- a local made from a table literal that nothing else names: the call cannot reach it
+  assert(holes("local out: mut {string} = {}\nout[#out + 1] = tostring(1)\nout[#out + 1] = tostring(2)\n") == "")
+  assert(holes("local out: mut {string} = {}\nfor i = 1, 3 do\n  out[#out + 1] = tostring(i)\nend\nreturn out\n") == "")
+  assert(holes("local out: mut {string} = {}\nout[#out + 1] = tostring(1)\nprint(table.concat(out))\nlocal n = #out\n") == "")
+  -- a function literal in the statement is no call: its body runs elsewhere
+  assert(holes("local fs: mut {function(): integer} = {}\nfs[#fs + 1] = function(): integer\n  return #tostring(1)\nend\n") == "")
+  -- a statement with no call is an append whatever names the table
+  assert(holes(shrinks .. "xs[#xs + 1] = 1 + #xs\n") == "")
+  -- near misses: a parameter, a field and a local that a closure reads may be named from the call
+  assert(holes("local function put(out: mut {string})\n  out[#out + 1] = tostring(1)\nend\n") == "array_hole")
+  assert(holes("local record Box\n  mut items: mut {string}\nend\nlocal box: Box = { items = {} }\nbox.items[#box.items + 1] = tostring(1)\n") == "array_hole")
+  assert(holes("local out: mut {string} = {}\nlocal function pop()\n  table.remove(out)\nend\nout[#out + 1] = tostring(1)\n") == "array_hole")
+  -- a local made from a call, or from another name, may be held by something else
+  assert(holes("local function make(): mut {string}\n  return {}\nend\nlocal out = make()\nout[#out + 1] = tostring(1)\n") == "array_hole")
+  -- a local the program let out before the write, in the statement, or in a loop that holds it
+  local escapes = "local keep: mut {mut {string}} = {}\nlocal out: mut {string} = {}\n"
+  assert(holes(escapes .. "keep[1] = out\nout[#out + 1] = tostring(1)\n") == "array_hole")
+  assert(holes(escapes .. "local function hold(a: mut {string}): string\n  keep[1] = a\n  return \"\"\nend\nout[#out + 1] = hold(out)\n") == "array_hole")
+  assert(holes(escapes .. "for i = 1, 2 do\n  out[#out + 1] = tostring(i)\n  keep[1] = out\nend\n") == "array_hole")
+  -- one let out after the write, and outside any loop that holds it, is not yet out when the write runs
+  assert(holes(escapes .. "out[#out + 1] = tostring(1)\nkeep[1] = out\n") == "")
+  -- a local assigned again may be another table
+  assert(holes("local out: mut {string} = {}\nout = {}\nout[#out + 1] = tostring(1)\n") == "array_hole")
+end
+
 local function test_a_loop_over_the_keys_of_an_array_writes_them_only_while_it_leaves_the_length_alone()
   local head = "local xs: mut {integer} = {}\nlocal v: integer = 3\nlocal m: integer? = nil\n" ..
     "local function shrink(): integer?\n  xs[#xs] = nil\n  return nil\nend\n"

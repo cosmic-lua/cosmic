@@ -240,7 +240,7 @@ function derivation.packed_parses(db: Sqlite.Handle,
   for _, row in ipairs(names) do
     local of = requires[row:text(1)] or {}
     requires[row:text(1)] = of
-    of[#of + 1] = row:text(2)
+    table.insert(of, row:text(2))
   end
   for _, name in ipairs(packed_tables) do
     local rows, rows_trouble = Sqlite.rows(db,
@@ -256,10 +256,10 @@ function derivation.packed_parses(db: Sqlite.Handle,
       for index = 2, row:count() do
         local kind = row:kind(index)
         if kind == "integer" then
-          out[#out + 1] = "i" .. tostring(row:integer(index)) .. ";"
+          table.insert(out, "i" .. tostring(row:integer(index)) .. ";")
         elseif kind == "text" then
           local value = row:text(index)
-          out[#out + 1] = "t" .. tostring(#value) .. ":" .. value
+          table.insert(out, "t" .. tostring(#value) .. ":" .. value)
         elseif kind == "null" then
           out[#out + 1] = "n"
         else
@@ -270,8 +270,8 @@ function derivation.packed_parses(db: Sqlite.Handle,
     for _, hash in ipairs(hashes) do
       local of = pieces[hash] or {}
       pieces[hash] = of
-      of[#of + 1] = name .. " " .. widths[name] .. " " .. tostring((counts[hash] or 0)) .. "\n"
-      of[#of + 1] = table.concat(by_hash[hash] or {})
+      table.insert(of, name .. " " .. widths[name] .. " " .. tostring((counts[hash] or 0)) .. "\n")
+      table.insert(of, table.concat(by_hash[hash] or {}))
     end
   end
   local present, present_trouble = Sqlite.text_rows(db,

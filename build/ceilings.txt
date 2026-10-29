@@ -2190,7 +2190,7 @@ lang/check.tl index_may_be_nil 38
 
 lang/check_flow_fuzz_test.tl index_may_be_nil 4
 
-lang/check_fuzz_test.tl index_may_be_nil 3
+lang/check_fuzz_test.tl index_may_be_nil 2
 
 lang/check_test.tl index_may_be_nil 1
 

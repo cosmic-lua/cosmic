@@ -57,7 +57,7 @@ function Example.subcommands()
           asked[#asked + 1] = "report needs one file"
           return 2
         end
-        asked[#asked + 1] = assert(got.words[1]) .. " " .. (got.values["--month"] or "every month")
+        table.insert(asked, assert(got.words[1]) .. " " .. (got.values["--month"] or "every month"))
         return 0
       end,
     },
@@ -65,7 +65,7 @@ function Example.subcommands()
       about = "Adds an amount to a ledger file.",
       usage = "<file> <amount>",
       run = function(got: Flags.Parsed): integer
-        asked[#asked + 1] = "add " .. table.concat(got.words, " ")
+        table.insert(asked, "add " .. table.concat(got.words, " "))
         return 0
       end,
     },

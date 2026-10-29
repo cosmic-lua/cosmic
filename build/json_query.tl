@@ -83,7 +83,7 @@ function json_query.flatten(value: any, opts?: json_query.FlattenOptions): {Json
   local open: {any:boolean} = {}
   local steps: Json.Steps = table.move(root, 1, #root, 1, {})
   local function leaf(v: any)
-    leaves[#leaves + 1] = { steps = table.move(steps, 1, #steps, 1, {}), value = v }
+    table.insert(leaves, { steps = table.move(steps, 1, #steps, 1, {}), value = v })
   end
   -- Walks `v`, answering why it cannot be read, if it cannot.
   local function walk(v: any, depth: integer): string?
@@ -268,7 +268,7 @@ local function render(node: Node): string
         local optional = if node.seen[name] < node.objects then "?" else "" end
         members[#members + 1] = (name:match("^[%a_][%w_]*$") and name or Json.quote(name)) .. optional .. ": " .. render(node.fields[name])
       end
-      parts[#parts + 1] = "{" .. table.concat(members, ", ") .. "}"
+      table.insert(parts, "{" .. table.concat(members, ", ") .. "}")
     end
   end
   if node.arrays > 0 then
@@ -280,7 +280,7 @@ local function render(node: Node): string
     elseif elements == nil then
       parts[#parts + 1] = "[" .. size .. "]"
     else
-      parts[#parts + 1] = "[" .. size .. " x " .. render(elements) .. "]"
+      table.insert(parts, "[" .. size .. " x " .. render(elements) .. "]")
     end
   end
   return table.concat(parts, "|")

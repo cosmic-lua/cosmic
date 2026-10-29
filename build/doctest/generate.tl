@@ -208,8 +208,8 @@ local function emit_example(out: mut {string}, file: string, example: Example)
   out[#out + 1] = "local function " .. example.name .. "(tmp: string)"
   out[#out + 1] = "  local _ = tmp"
   for _, f in ipairs(example.files) do
-    out[#out + 1] = "  __doctest_write(tmp, " .. quote(f.path) .. ", " ..
-      quote(f.content) .. ")"
+    table.insert(out, "  __doctest_write(tmp, " .. quote(f.path) .. ", " ..
+        quote(f.content) .. ")")
   end
   if example.has_output then
     out[#out + 1] = "  local print, __doctest_get = __doctest_capture()"
@@ -220,11 +220,11 @@ local function emit_example(out: mut {string}, file: string, example: Example)
   end
   if example.has_output then
     out[#out + 1] = "  local __doctest_got = __doctest_get()"
-    out[#out + 1] = "  local __doctest_want = " .. quote(example.output_text)
+    table.insert(out, "  local __doctest_want = " .. quote(example.output_text))
     out[#out + 1] =
       '  assert((__doctest_got):gsub("%s+$", "") == (__doctest_want):gsub("%s+$", ""),'
-    out[#out + 1] = '    "doctest: " .. ' .. quote(file) ..
-      ' .. ": output did not match\\nwant:\\n" .. __doctest_want ..'
+    table.insert(out, '    "doctest: " .. ' .. quote(file) ..
+        ' .. ": output did not match\\nwant:\\n" .. __doctest_want ..')
     out[#out + 1] = '      "\\ngot:\\n" .. __doctest_got)'
   end
   out[#out + 1] = "end"
@@ -456,7 +456,7 @@ end
   for _, item in ipairs(items) do
     local example = item.example
     if item.kind == "example" and example ~= nil then
-      out[#out + 1] = "-- line " .. example.name .. " " .. tostring(example.line)
+      table.insert(out, "-- line " .. example.name .. " " .. tostring(example.line))
     end
   end
 

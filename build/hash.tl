@@ -177,10 +177,10 @@ function verb.parse_sums(text: string, digest_size: integer): verb.Sums
         if name == nil then
           refuse("improperly formatted: bad escape in the file name")
         else
-          sums.entries[#sums.entries + 1] = {
+          table.insert(sums.entries, {
             digest = digest:lower(), name = name, line = number,
             binary = body:sub(width + 2, width + 2) == "*",
-          }
+          })
         end
       end
     end

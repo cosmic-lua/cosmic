@@ -2018,7 +2018,7 @@ function Time.format_duration(d: Time.Duration): string
   end
   local parts: mut {string} = {}
   local function put(n: integer, unit: string)
-    if n ~= 0 then parts[#parts + 1] = ("%d%s"):format(math.abs(n), unit) end
+    if n ~= 0 then table.insert(parts, ("%d%s"):format(math.abs(n), unit)) end
   end
   put(years, "y")
   put(months, "mo")

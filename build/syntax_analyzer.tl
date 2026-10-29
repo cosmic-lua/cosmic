@@ -493,20 +493,20 @@ local function members_docs(chunk: Ast.Chunk, lines: {string}, symbol: string, m
         local meta = member.name.name:sub(1, 2) == "__"
         if pass == (if meta then 2 else 1 end) then
           local name = symbol .. "." .. member.name.name
-          out[#out + 1] = { symbol = name, source_symbol = name, exported = false,
+          table.insert(out, { symbol = name, source_symbol = name, exported = false,
             kind = if meta then "metamethod" else "field" end, signature = field_signature(chunk, lines, member),
-            text = doc_text(member.doc), line = first_token(chunk, member.type).y }
+            text = doc_text(member.doc), line = first_token(chunk, member.type).y })
         end
       elseif pass == 1 and nested ~= nil and ((member.kind == "Record") or (member.kind == "Interface") or (member.kind == "Class") or
           (member.kind == "Enum")) then
         local name = symbol .. "." .. nested.name.name
-        out[#out + 1] = { symbol = name, source_symbol = name, exported = false, kind = type_kind(member),
-          signature = line_at(lines, line), text = doc_text(nested.name.doc), line = line }
+        table.insert(out, { symbol = name, source_symbol = name, exported = false, kind = type_kind(member),
+          signature = line_at(lines, line), text = doc_text(nested.name.doc), line = line })
         type_docs(chunk, lines, name, member, out)
       elseif pass == 1 and nested ~= nil then
         local name = symbol .. "." .. nested.name.name
-        out[#out + 1] = { symbol = name, source_symbol = name, exported = false, kind = "field",
-          signature = field_signature(chunk, lines, member), text = doc_text(nested.name.doc), line = line }
+        table.insert(out, { symbol = name, source_symbol = name, exported = false, kind = "field",
+          signature = field_signature(chunk, lines, member), text = doc_text(nested.name.doc), line = line })
       elseif (member.kind == "Method") then
         -- TODO: drop the metamethod half of this branch (`__x` is a method of a class), once the tree writes the
         -- `__close` of a metatable as the metamethod field the new checker takes: the translator writes it as a
@@ -516,10 +516,10 @@ local function members_docs(chunk: Ast.Chunk, lines: {string}, symbol: string, m
         local meta = member.name.name:sub(1, 2) == "__"
         if pass == (if meta then 2 else 3 end) then
           local name = symbol .. (if meta then "." else ":" end) .. member.name.name
-          out[#out + 1] = { symbol = name, source_symbol = name, exported = false,
+          table.insert(out, { symbol = name, source_symbol = name, exported = false,
             kind = if meta then "metamethod" else "method" end,
             signature = head_text(chunk, lines, Node.base(member).first, member.body), text = doc_text(member.doc),
-            line = line }
+            line = line })
         end
       end
     end
@@ -533,8 +533,8 @@ type_docs = function(chunk: Ast.Chunk, lines: {string}, symbol: string, decl: As
     local line = line_of(chunk, decl)
     for _, value in ipairs(decl.values) do
       local full = symbol .. "." .. value.value
-      out[#out + 1] = { symbol = full, source_symbol = full, exported = false, kind = "value",
-        signature = string.format("%q", value.value), text = doc_text(value.doc), line = line }
+      table.insert(out, { symbol = full, source_symbol = full, exported = false, kind = "value",
+        signature = string.format("%q", value.value), text = doc_text(value.doc), line = line })
     end
   elseif (decl.kind == "Record") then
     members_docs(chunk, lines, symbol, decl.members, out)
@@ -574,13 +574,13 @@ local function docs_of(chunk: Ast.Chunk, lines: {string}): {Entry}
       else
         doc = stat.doc
       end
-      out[#out + 1] = { symbol = symbol, source_symbol = symbol, exported = false, kind = "function",
-        signature = function_signature(chunk, lines, stat), text = doc_text(doc), line = line }
+      table.insert(out, { symbol = symbol, source_symbol = symbol, exported = false, kind = "function",
+        signature = function_signature(chunk, lines, stat), text = doc_text(doc), line = line })
     elseif declared ~= nil and not ((stat.kind == "Import")) then
       local name = declared.name
       local kind = type_kind(stat)
-      out[#out + 1] = { symbol = name.name, source_symbol = name.name, exported = false, kind = kind,
-        signature = line_at(lines, line), text = doc_text(name.doc), line = line }
+      table.insert(out, { symbol = name.name, source_symbol = name.name, exported = false, kind = kind,
+        signature = line_at(lines, line), text = doc_text(name.doc), line = line })
       if kind ~= "type" then
         type_docs(chunk, lines, name.name, stat, out)
       end
@@ -592,8 +592,8 @@ local function docs_of(chunk: Ast.Chunk, lines: {string}): {Entry}
         text = ""
       end
       if #text > 0 then
-        out[#out + 1] = { symbol = first.name, source_symbol = first.name, exported = false, kind = "value",
-          signature = line_at(lines, line), text = text, line = line }
+        table.insert(out, { symbol = first.name, source_symbol = first.name, exported = false, kind = "value",
+          signature = line_at(lines, line), text = text, line = line })
       end
     end
   end
@@ -1006,7 +1006,7 @@ local function preamble_of(chunk: Ast.Chunk, lines: {string}): Preamble
         out.helpers[#out.helpers + 1] = { names = names, code = code, lines = breaks + 1, node = stat }
       end
     elseif (stat.kind == "CallStat") then
-      out.calls[#out.calls + 1] = own_text(block_text(lines, opener.y, opener.x, until_y, until_x))
+      table.insert(out.calls, own_text(block_text(lines, opener.y, opener.x, until_y, until_x)))
       out.call_nodes[#out.call_nodes + 1] = stat
     end
   end

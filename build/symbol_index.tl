@@ -283,7 +283,7 @@ function symbol_index.named(index: symbol_index.Index, query: string): {link_res
     local module = query:sub(1, dot - 1)
     if index.modules[module] then
       modules[#modules + 1] = module
-      lists[#lists + 1] = index.members[module .. "\n" .. (query:sub(dot + 1):gsub(":", "."))] or {}
+      table.insert(lists, index.members[module .. "\n" .. (query:sub(dot + 1):gsub(":", "."))] or {})
     end
     at = dot + 1
   end
@@ -296,10 +296,10 @@ function symbol_index.named(index: symbol_index.Index, query: string): {link_res
   -- its module ([`cosmic.sqlite.Handle.close`]).
   local prefix, name = query:match("^([%w_]+%.[%w_%.]+)%.([%w_]+)$")
   if prefix ~= nil then
-    lists[#lists + 1] = through(index, once_each(named_rows(index, prefix)), name)
+    table.insert(lists, through(index, once_each(named_rows(index, prefix)), name))
   end
   for _, module in ipairs(modules) do
-    lists[#lists + 1] = members_of(index, module, query:sub(#module + 2))
+    table.insert(lists, members_of(index, module, query:sub(#module + 2)))
   end
   return symbols(once_each(lists))
 end

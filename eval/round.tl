@@ -182,7 +182,7 @@ function Round.plan(options: Round.Options, root: string, tool: string, commit: 
       if value == nil then return end
       for _, argv in ipairs({ solve, result }) do
         argv[#argv + 1] = flag
-        argv[#argv + 1] = tostring(value)
+        table.insert(argv, tostring(value))
       end
     end
     both("--max-turns", options.max_turns)

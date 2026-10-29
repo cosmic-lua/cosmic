@@ -155,12 +155,12 @@ local function test_a_typed_route_is_given_an_empty_none_for_an_absent_slot()
     local app = Web.app{ routes = {
       Web.get_typed("/a", Web.input(Web.NONE, Web.NONE, Web.no_body),
         function(_req: Web.Request, p: Web.None, q: Web.None, b: Web.None): Web.Response
-          seen[#seen + 1] = type(p) .. type(q) .. type(b)
+          table.insert(seen, type(p) .. type(q) .. type(b))
           return Web.text("ok")
         end),
       Web.post_typed("/b", Web.input(Web.NONE, Web.NONE, Web.json_body(Shape.record_of("Created"))),
         function(_req: Web.Request, p: Web.None, q: Web.None, _b: Created): Web.Response
-          seen[#seen + 1] = type(p) .. type(q)
+          table.insert(seen, type(p) .. type(q))
           return Web.text("ok")
         end),
     } }

@@ -249,7 +249,7 @@ local function identify_in(known: Graph, name: string, file: string,
       return true, ""
     end
     seen[slot] = true
-    graph[#graph + 1] = line_of(slot, dependency)
+    table.insert(graph, line_of(slot, dependency))
     for _, required in ipairs(dependency.requires) do
       local child, child_trouble = resolve(required, required)
       if child == nil and child_trouble ~= "" then

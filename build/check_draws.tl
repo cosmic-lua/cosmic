@@ -140,7 +140,7 @@ local function nest(v: Vis): Vis
 end
 
 local function add(g: Gen, text: string)
-  g.lines[#g.lines + 1] = ("  "):rep(g.depth) .. text
+  table.insert(g.lines, ("  "):rep(g.depth) .. text)
   g.fuel = g.fuel - 1
 end
 

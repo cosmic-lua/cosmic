@@ -192,7 +192,7 @@ function link_files.blocks(kind: string, source: string): {link_text.Block}
       local line_start = line_starts[comment.line] or 1
       local raw_at = source:find(comment.text, line_start, true) or 0
       local lines, at = slash_comment(comment.text, if raw_at > 0 then raw_at - line_start + 1 else 1 end)
-      comments[#comments + 1] = placed({ line = comment.line, lines = lines, doc = false }, raw_at, at)
+      table.insert(comments, placed({ line = comment.line, lines = lines, doc = false }, raw_at, at))
     end
   elseif kind == "zig" then
     comments = zig_comments(source)

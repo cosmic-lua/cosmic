@@ -81,15 +81,15 @@ local function gen_statement(src: Fuzz.Source, n: integer, out: mut {string}, cl
   local k = src:int(1, 21)
   local tag = "-- c" .. tostring(n)
   if k <= 3 then
-    out[#out + 1] = "local v" .. tostring(n) .. ": " .. gen_type(src, 1) .. " " .. tag
+    table.insert(out, "local v" .. tostring(n) .. ": " .. gen_type(src, 1) .. " " .. tag)
   elseif k == 4 then
-    out[#out + 1] = "local function f" .. tostring(n) .. "(a: " .. gen_type(src, 1) .. "): " .. gen_type(src, 1) .. ", string " .. tag
+    table.insert(out, "local function f" .. tostring(n) .. "(a: " .. gen_type(src, 1) .. "): " .. gen_type(src, 1) .. ", string " .. tag)
     out[#out + 1] = "  return nil, \"\""
     out[#out + 1] = "end"
   elseif k == 5 or k == 6 then
-    out[#out + 1] = "local t" .. tostring(n) .. " = " .. gen_ternary(src) .. "; " .. tag
+    table.insert(out, "local t" .. tostring(n) .. " = " .. gen_ternary(src) .. "; " .. tag)
   elseif k == 7 then
-    out[#out + 1] = if Fuzz.pick(src, { "for", "while", "repeat" }) == "repeat" then "repeat" else "for i = 1, 3 do " .. tag end
+    table.insert(out, if Fuzz.pick(src, { "for", "while", "repeat" }) == "repeat" then "repeat" else "for i = 1, 3 do " .. tag end)
     local last = out[#out]
     if last == "repeat" then
       out[#out] = "repeat " .. tag
@@ -102,51 +102,51 @@ local function gen_statement(src: Fuzz.Source, n: integer, out: mut {string}, cl
       out[#out + 1] = "end"
     end
   elseif k == 8 then
-    out[#out + 1] = "local type R" .. tostring(n) .. " = " .. Fuzz.pick(src, { "record", "enum" }) .. " " .. tag
-    out[#out + 1] = "  " .. (if out[#out]:find("enum", 1, true) then "\"a\"" else "x: " .. gen_type(src, 1) end)
+    table.insert(out, "local type R" .. tostring(n) .. " = " .. Fuzz.pick(src, { "record", "enum" }) .. " " .. tag)
+    table.insert(out, "  " .. (if out[#out]:find("enum", 1, true) then "\"a\"" else "x: " .. gen_type(src, 1) end))
     out[#out + 1] = "end"
   elseif k == 9 then
-    out[#out + 1] = "local n" .. tostring(n) .. " = " .. Fuzz.pick(src, { "1_000", "0x1p4", "0xFF_FF", "3" }) .. " " .. tag
+    table.insert(out, "local n" .. tostring(n) .. " = " .. Fuzz.pick(src, { "1_000", "0x1p4", "0xFF_FF", "3" }) .. " " .. tag)
   elseif k == 10 then
-    out[#out + 1] = "--[[ long " .. tostring(n) .. " ]]"
+    table.insert(out, "--[[ long " .. tostring(n) .. " ]]")
     out[#out + 1] = "--[==["
-    out[#out + 1] = "  more " .. tostring(n)
-    out[#out + 1] = "]==] -- c" .. tostring(n)
+    table.insert(out, "  more " .. tostring(n))
+    table.insert(out, "]==] -- c" .. tostring(n))
   elseif k == 11 then
-    out[#out + 1] = "local g" .. tostring(n) .. ": " .. gen_type(src, 1) .. " = " .. Fuzz.pick(src, { "nil", "x as " .. gen_type(src, 0) }) .. " " .. tag
+    table.insert(out, "local g" .. tostring(n) .. ": " .. gen_type(src, 1) .. " = " .. Fuzz.pick(src, { "nil", "x as " .. gen_type(src, 0) }) .. " " .. tag)
   elseif k == 12 then
-    out[#out + 1] = "local record P" .. tostring(n) .. " " .. tag
-    out[#out + 1] = "  metamethod __close: function(P" .. tostring(n) .. ")"
-    out[#out + 1] = "  v: " .. gen_type(src, 1)
+    table.insert(out, "local record P" .. tostring(n) .. " " .. tag)
+    table.insert(out, "  metamethod __close: function(P" .. tostring(n) .. ")")
+    table.insert(out, "  v: " .. gen_type(src, 1))
     out[#out + 1] = "  readonly w: integer"
     out[#out + 1] = "end"
   elseif k == 15 then
     -- An interface and two records that implement it: one write makes all three `mut`.
     classes[2] = classes[2] + 1
-    out[#out + 1] = "local interface I" .. tostring(n) .. " " .. tag
+    table.insert(out, "local interface I" .. tostring(n) .. " " .. tag)
     out[#out + 1] = "  v: integer"
     out[#out + 1] = "end"
-    out[#out + 1] = "local record A" .. tostring(n) .. " is I" .. tostring(n)
+    table.insert(out, "local record A" .. tostring(n) .. " is I" .. tostring(n))
     out[#out + 1] = "  v: integer"
     out[#out + 1] = "end"
-    out[#out + 1] = "local record B" .. tostring(n) .. " is I" .. tostring(n)
+    table.insert(out, "local record B" .. tostring(n) .. " is I" .. tostring(n))
     out[#out + 1] = "  v: integer"
     out[#out + 1] = "end"
-    out[#out + 1] = "local function g" .. tostring(n) .. "(a: A" .. tostring(n) .. ")"
+    table.insert(out, "local function g" .. tostring(n) .. "(a: A" .. tostring(n) .. ")")
     out[#out + 1] = "  a.v = 1"
     out[#out + 1] = "end"
   elseif k == 16 then
     -- A name declared before a record and again between it and its method.
     classes[1] = classes[1] + 1
-    out[#out + 1] = "local x" .. tostring(n) .. " = 1"
-    out[#out + 1] = "local record S" .. tostring(n) .. " " .. tag
+    table.insert(out, "local x" .. tostring(n) .. " = 1")
+    table.insert(out, "local record S" .. tostring(n) .. " " .. tag)
     out[#out + 1] = "  n: integer"
     out[#out + 1] = "end"
     if src:int(0, 1) == 1 then
-      out[#out + 1] = "local x" .. tostring(n) .. " = 2"
+      table.insert(out, "local x" .. tostring(n) .. " = 2")
     end
-    out[#out + 1] = "function S" .. tostring(n) .. ":get(): integer"
-    out[#out + 1] = "  return x" .. tostring(n) .. " + self.n"
+    table.insert(out, "function S" .. tostring(n) .. ":get(): integer")
+    table.insert(out, "  return x" .. tostring(n) .. " + self.n")
     out[#out + 1] = "end"
   elseif k == 17 then
     local items = src:int(2, 5)
@@ -155,10 +155,10 @@ local function gen_statement(src: Fuzz.Source, n: integer, out: mut {string}, cl
     for i = 1, items do
       parts[i] = if keyed then "k" .. tostring(i) .. " = " .. tostring(i) else tostring(i) end
     end
-    out[#out + 1] = "local t" .. tostring(n) .. " = { " .. table.concat(parts, "; ") .. (if src:int(0, 1) == 1 then ";" else "" end) .. " } " .. tag
+    table.insert(out, "local t" .. tostring(n) .. " = { " .. table.concat(parts, "; ") .. (if src:int(0, 1) == 1 then ";" else "" end) .. " } " .. tag)
   elseif k == 18 then
-    out[#out + 1] = "--[[ a" .. tostring(n) .. " ]] --[==[ b ]==] " .. tag
-    out[#out + 1] = "local y" .. tostring(n) .. " = 1"
+    table.insert(out, "--[[ a" .. tostring(n) .. " ]] --[==[ b ]==] " .. tag)
+    table.insert(out, "local y" .. tostring(n) .. " = 1")
   elseif k == 19 then
     out[#out + 1] = "for i = 1, 3 do " .. tag
     out[#out + 1] = "  if f() then goto continue end"
@@ -180,31 +180,31 @@ local function gen_statement(src: Fuzz.Source, n: integer, out: mut {string}, cl
         parts[i] = tostring(src:int(1, 9))
       end
     end
-    out[#out + 1] = "local nest" .. tostring(n) .. " = { " .. table.concat(parts, "; ") .. " } " .. tag
+    table.insert(out, "local nest" .. tostring(n) .. " = { " .. table.concat(parts, "; ") .. " } " .. tag)
   elseif k == 21 then
     -- An interface nested in a record of the same file, named with its qualifier.
-    out[#out + 1] = "local record Stream" .. tostring(n) .. " " .. tag
-    out[#out + 1] = "  interface Reader" .. tostring(n)
+    table.insert(out, "local record Stream" .. tostring(n) .. " " .. tag)
+    table.insert(out, "  interface Reader" .. tostring(n))
     out[#out + 1] = "    w: integer"
     out[#out + 1] = "  end"
     out[#out + 1] = "end"
-    out[#out + 1] = "local record Fd" .. tostring(n) .. " is Stream" .. tostring(n) .. ".Reader" .. tostring(n)
+    table.insert(out, "local record Fd" .. tostring(n) .. " is Stream" .. tostring(n) .. ".Reader" .. tostring(n))
     out[#out + 1] = "  w: integer"
     out[#out + 1] = "end"
-    out[#out + 1] = "local function use" .. tostring(n) .. "(f: Fd" .. tostring(n) .. ")"
+    table.insert(out, "local function use" .. tostring(n) .. "(f: Fd" .. tostring(n) .. ")")
     out[#out + 1] = "  f.w = 1"
     out[#out + 1] = "end"
   else
     -- A record with methods, which becomes a class.
     classes[1] = classes[1] + 1
-    out[#out + 1] = "local record C" .. tostring(n) .. " " .. tag
+    table.insert(out, "local record C" .. tostring(n) .. " " .. tag)
     out[#out + 1] = "  count: integer"
     out[#out + 1] = "  items: {string}"
     -- the method gives the field's results, since a field that disagrees with its method is refused
     local rets = gen_type(src, 1)
-    out[#out + 1] = "  bump: function(C" .. tostring(n) .. "): " .. rets
+    table.insert(out, "  bump: function(C" .. tostring(n) .. "): " .. rets)
     out[#out + 1] = "end"
-    out[#out + 1] = "function C" .. tostring(n) .. ":bump(): " .. rets
+    table.insert(out, "function C" .. tostring(n) .. ":bump(): " .. rets)
     out[#out + 1] = "  self.count = self.count + 1"
     out[#out + 1] = "  table.insert(self.items, \"x\")"
     out[#out + 1] = "  return nil"

@@ -203,8 +203,8 @@ function docs_checks.rendered(db: Sqlite.Handle, exempt?: docs_checks.Exempt): {
     end
     for _, line in ipairs(lines) do
       if private_member(line) then
-        out[#out + 1] = label .. ": lists a member the module keeps to itself: " ..
-          String.trim(line)
+        table.insert(out, label .. ": lists a member the module keeps to itself: " ..
+            String.trim(line))
       end
     end
     for _, line in ipairs(shown_prose(lines)) do
@@ -291,8 +291,8 @@ function docs_checks.rendered(db: Sqlite.Handle, exempt?: docs_checks.Exempt): {
     local where = row:text(7) .. ":" .. row:text(8) .. ": " .. key
     if symbol ~= "" then
       if signature:gsub("^local ", ""):find("--", 1, true) ~= nil then
-        out[#out + 1] = where .. ": the signature has a comment in it: " ..
-          signature:gsub("%s+", " ")
+        table.insert(out, where .. ": the signature has a comment in it: " ..
+            signature:gsub("%s+", " "))
       end
       if source_symbol:find("[.:]_[^_]") ~= nil or source_symbol:find("^_[^_]") ~= nil then
         out[#out + 1] = where .. ": a member the module keeps to itself is shown"

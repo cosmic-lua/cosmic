@@ -234,7 +234,7 @@ local function test_which_remote_forms_the_profile_compiler_takes(tmp: string)
   for _, form in ipairs(forms(8080)) do
     local ok, why = compiles(tmp, profile(BASE, form.lines), form.parameters)
     parsed[form.name] = ok
-    report[#report + 1] = form.name .. ": " .. (if ok then "compiles" else ("REFUSED " .. brief(why)) end)
+    table.insert(report, form.name .. ": " .. (if ok then "compiles" else ("REFUSED " .. brief(why)) end))
   end
   -- A rule that is not SBPL is refused, so a "compiles" above is the system's
   -- parse and not a start that skips the profile.
@@ -269,15 +269,15 @@ local function test_a_port_rule_reaches_its_port_and_no_other(tmp: string)
     v6 = listener("::1", 0)
     if v6 ~= nil then v6_port = port_of(v6.address) end
   end
-  report[#report + 1] = "listeners: 127.0.0.1:" .. tostring(allowed_port) .. " (allowed), 127.0.0.1:" .. tostring(other_port) ..
-    " (other), [::1]:" .. (v6 ~= nil and tostring(v6_port) or ("none: " .. tostring(v6_why)))
+  table.insert(report, "listeners: 127.0.0.1:" .. tostring(allowed_port) .. " (allowed), 127.0.0.1:" .. tostring(other_port) ..
+      " (other), [::1]:" .. (v6 ~= nil and tostring(v6_port) or ("none: " .. tostring(v6_why))))
   local firsts: {string:string} = {}
   for index, form in ipairs(forms(allowed_port)) do
     if form.scoped then
       local text = profile(BASE, form.lines)
       local ok, why = compiles(tmp, text, form.parameters)
       if not ok then
-        report[#report + 1] = form.name .. ": does not compile " .. brief(why)
+        table.insert(report, form.name .. ": does not compile " .. brief(why))
       else
         local a_nc, a_bash = tcp_reach(tmp, text, form.parameters, "127.0.0.1", allowed_port)
         local o_nc, o_bash = tcp_reach(tmp, text, form.parameters, "127.0.0.1", other_port)
@@ -293,7 +293,7 @@ local function test_a_port_rule_reaches_its_port_and_no_other(tmp: string)
             local rule_port = v6_port == allowed_port and form.lines or forms(v6_port)[index].lines
             local v6_text = profile(BASE, rule_port)
             local v_nc, v_bash = tcp_reach(tmp, v6_text, form.parameters, "::1", v6_port)
-            report[#report + 1] = "  [::1]:" .. tostring(v6_port) .. ": nc=" .. v_nc .. " bash=" .. v_bash
+            table.insert(report, "  [::1]:" .. tostring(v6_port) .. ": nc=" .. v_nc .. " bash=" .. v_bash)
           end
         end
       end
@@ -333,17 +333,17 @@ local function test_a_port_rule_and_udp(tmp: string)
   local bare = profile(BASE, {})
   local control = profile({ "(version 1)", "(allow default)" }, {})
   local to_rule = udp_arrives(allowed, text, tmp, allowed_port, "127.0.0.1")
-  report[#report + 1] = "udp 127.0.0.1:" .. tostring(allowed_port) .. " (rule's port): " .. to_rule
+  table.insert(report, "udp 127.0.0.1:" .. tostring(allowed_port) .. " (rule's port): " .. to_rule)
   local to_other = udp_arrives(other, text, tmp, other_port, "127.0.0.1")
-  report[#report + 1] = "udp 127.0.0.1:" .. tostring(other_port) .. " (other port): " .. to_other
+  table.insert(report, "udp 127.0.0.1:" .. tostring(other_port) .. " (other port): " .. to_other)
   assert(to_rule:find("^DELIVERED"), "udp to the rule's port was not sent\n" .. table.concat(report, "\n"))
   assert(to_other:find("^not delivered") and to_other:find("DENIED"), "udp to another port was not denied\n" ..
       table.concat(report, "\n"))
-  report[#report + 1] = "udp, no rule: " .. udp_arrives(allowed, bare, tmp, allowed_port, "127.0.0.1")
+  table.insert(report, "udp, no rule: " .. udp_arrives(allowed, bare, tmp, allowed_port, "127.0.0.1"))
   local v6 = Udp.bind("::1", allowed_port)
   if v6 ~= nil then
-    report[#report + 1] = "udp [::1]:" .. tostring(allowed_port) .. " (rule's number): " ..
-      udp_arrives(v6, text, tmp, allowed_port, "::1")
+    table.insert(report, "udp [::1]:" .. tostring(allowed_port) .. " (rule's number): " ..
+        udp_arrives(v6, text, tmp, allowed_port, "::1"))
     Udp.close(v6)
   else
     report[#report + 1] = "udp ::1: no socket to send to"
@@ -351,8 +351,8 @@ local function test_a_port_rule_and_udp(tmp: string)
   -- nc speaks UDP too, which says whether it is the tool or the rule.
   local nc = run_under(tmp, text, {}, { "/bin/sh", "-c", "echo ping | /usr/bin/nc -n -u -w 1 127.0.0.1 " .. tostring(allowed_port) })
   local packet = Udp.receive(allowed, Clock.ms(400))
-  report[#report + 1] = "nc -u to the rule's port: " .. (if packet ~= nil then "DELIVERED" else "not delivered" end) ..
-    " (" .. verdict(nc) .. ")"
+  table.insert(report, "nc -u to the rule's port: " .. (if packet ~= nil then "DELIVERED" else "not delivered" end) ..
+      " (" .. verdict(nc) .. ")")
   -- The control shows the sending works at all on this host.
   local sanity = udp_arrives(other, control, tmp, other_port, "127.0.0.1")
   report[#report + 1] = "udp, allow default: " .. sanity
@@ -435,15 +435,15 @@ local function test_a_unix_socket_is_denied_under_default_deny(tmp: string)
   local function rule(path: string): string
     return "(allow network-outbound (remote unix-socket (path-literal \"" .. path .. "\")))"
   end
-  report[#report + 1] = mdns .. ": " .. (if sys.stat(mdns) ~= nil then "exists" else "absent" end)
+  table.insert(report, mdns .. ": " .. (if sys.stat(mdns) ~= nil then "exists" else "absent" end))
   local control = unix_reach(tmp, profile({ "(version 1)", "(allow default)" }, {}), {}, mdns)
   report[#report + 1] = "allow default: " .. control
   local bare = unix_reach(tmp, profile(BASE, {}), {}, mdns)
   report[#report + 1] = "default-deny: " .. bare
-  report[#report + 1] = "with (remote ip \"*:*\"): " ..
-    unix_reach(tmp, profile(BASE, { "(allow network-outbound (remote ip \"*:*\"))" }), {}, mdns)
-  report[#report + 1] = "with a rule on /var/run/mDNSResponder: " ..
-    unix_reach(tmp, profile(BASE, { rule(mdns) }), {}, mdns)
+  table.insert(report, "with (remote ip \"*:*\"): " ..
+      unix_reach(tmp, profile(BASE, { "(allow network-outbound (remote ip \"*:*\"))" }), {}, mdns))
+  table.insert(report, "with a rule on /var/run/mDNSResponder: " ..
+      unix_reach(tmp, profile(BASE, { rule(mdns) }), {}, mdns))
   local granted = unix_reach(tmp, profile(BASE, { rule(real) }), {}, mdns)
   report[#report + 1] = "with a rule on /private/var/run/mDNSResponder: " .. granted
   -- A socket of the test's own, where the path fits sun_path.
@@ -451,9 +451,9 @@ local function test_a_unix_socket_is_denied_under_default_deny(tmp: string)
   local server = Net.listen(Net.unix(own))
   if server ~= nil then
     local resolved = sys.realpath(own) or own
-    report[#report + 1] = "own socket, default-deny: " .. unix_reach(tmp, profile(BASE, {}), {}, own)
-    report[#report + 1] = "own socket, rule by param: " .. unix_reach(tmp, profile(BASE,
-      { "(allow network-outbound (remote unix-socket (path-literal (param \"SOCK\"))))" }), { SOCK = resolved }, own)
+    table.insert(report, "own socket, default-deny: " .. unix_reach(tmp, profile(BASE, {}), {}, own))
+    table.insert(report, "own socket, rule by param: " .. unix_reach(tmp, profile(BASE,
+      { "(allow network-outbound (remote unix-socket (path-literal (param \"SOCK\"))))" }), { SOCK = resolved }, own))
     local _, _ = server:close()
   else
     report[#report + 1] = "own socket: none"
@@ -551,9 +551,9 @@ local function resolve_under(tmp: string, text: string, report: mut {string}, la
     local ok = ended.started and ended.text:find(resolver.works, 1, true) ~= nil
     worked[resolver.name] = ok
     if index == 1 then first = ok end
-    report[#report + 1] = label .. " / " .. resolver.name .. ": " .. (if ok then "WORKS" else "fails" end) ..
-      (if ended.started then (" [code " .. tostring(ended.code) .. " signal " .. tostring(ended.signal) .. "]") else "" end) ..
-      (if ended.started then (" " .. brief(ended.text)) else (" NOSTART " .. brief(ended.why)) end)
+    table.insert(report, label .. " / " .. resolver.name .. ": " .. (if ok then "WORKS" else "fails" end) ..
+        (if ended.started then (" [code " .. tostring(ended.code) .. " signal " .. tostring(ended.signal) .. "]") else "" end) ..
+        (if ended.started then (" " .. brief(ended.text)) else (" NOSTART " .. brief(ended.why)) end))
   end
   return first, worked
 end
@@ -612,7 +612,7 @@ local function test_what_a_resolver_is_refused_with_network_and_resolver_files(t
   local with_files = profile(strict(), { OUTBOUND, table.concat(resolver_files(nil), "\n") })
   -- Only the second run's refusals matter: the log is read once, after both.
   local c_ares, worked = resolve_under(tmp, with_files, report, "network and resolver files")
-  report[#report + 1] = denials()
+  table.insert(report, denials())
   assert(compiles(tmp, text, {}), "the strict profile does not compile\n" .. table.concat(report, "\n"))
   assert(not bare, "the c-ares way resolved with no resolver file\n" .. table.concat(report, "\n"))
   assert(c_ares, "the c-ares way fails with outbound network and the resolver files\n" .. table.concat(report, "\n"))
@@ -671,8 +671,8 @@ local function test_which_mach_services_a_resolver_needs(tmp: string)
         end
       end
     end
-    report[#report + 1] = "without " .. prefix .. ": " ..
-      (if #needed == 0 then "nothing fails" else ("needed by " .. table.concat(needed, ", ")) end)
+    table.insert(report, "without " .. prefix .. ": " ..
+        (if #needed == 0 then "nothing fails" else ("needed by " .. table.concat(needed, ", ")) end))
     -- Only SystemConfiguration's lookup matters, and only to dnsinfo.
     local expected = if prefix == "com.apple.SystemConfiguration" then "scutil --dns" else "" end
     assert(table.concat(needed, ", ") == expected, "without " .. prefix .. ", " .. table.concat(needed, ", ") ..
@@ -707,8 +707,8 @@ local function test_which_resolver_files_and_network_a_resolver_needs(tmp: strin
         end
       end
     end
-    report[#report + 1] = "without " .. path .. ": " ..
-      (if #needed == 0 then "nothing fails" else ("needed by " .. table.concat(needed, ", ")) end)
+    table.insert(report, "without " .. path .. ": " ..
+        (if #needed == 0 then "nothing fails" else ("needed by " .. table.concat(needed, ", ")) end))
     -- /etc/resolv.conf is a link to this one, the only file a resolver reads.
     local expected = if path == "/private/var/run/resolv.conf" then "udp-by-resolv.conf" else "" end
     assert(table.concat(needed, ", ") == expected, "without " .. path .. ", " .. table.concat(needed, ", ") ..

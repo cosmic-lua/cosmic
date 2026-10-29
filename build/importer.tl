@@ -1264,7 +1264,7 @@ local function compile_derived(handle: work.Handle, tool: string,
               progress.failure = generate_trouble
               break
             end
-            result.left_out[#result.left_out + 1] = left_out(m.file, m.file, generate_trouble)
+            table.insert(result.left_out, left_out(m.file, m.file, generate_trouble))
             failed[m.path] = true
           end
           generated = made_generated

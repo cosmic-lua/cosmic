@@ -377,7 +377,7 @@ local function serve_upload(r: Repo, request: GithubApi.Request): GithubApi.Repl
   local content_type = request.headers["Content-Type"]
   assert(content_type == expected[name], name .. " is uploaded as " .. tostring(content_type))
   if content_type ~= nil then r.uploaded[name] = content_type end
-  rel.assets[#rel.assets + 1] = { name = name, id = r.assets, data = assert(request.body) }
+  table.insert(rel.assets, { name = name, id = r.assets, data = assert(request.body) })
   return reply(201, '{"id":' .. tostring(r.assets) .. ',"name":' .. json(name) .. ',"state":"uploaded"}')
 end
 
@@ -554,7 +554,7 @@ local function seed(r: Repo, draft: boolean, assets: {string:string}): Release
   for _, name in ipairs(Prerelease.assets()) do
     if assets[name] then
       r.assets = r.assets + 1
-      rel.assets[#rel.assets + 1] = { name = name, id = r.assets, data = assert(assets[name]) }
+      table.insert(rel.assets, { name = name, id = r.assets, data = assert(assets[name]) })
     end
   end
   for name, data in pairs(assets) do
@@ -589,8 +589,8 @@ local function test_publish_creates_tag_and_release(tmp: string)
   -- Other commits' releases, two pages of them: the published ones end
   -- the drafts on the first, so the second is never asked for.
   for id = 1, 150 do
-    r.releases[#r.releases + 1] = { id = id, tag = string.format("next-%040x", id), draft = false,
-      prerelease = true, assets = {}, title = "", notes = "" }
+    table.insert(r.releases, { id = id, tag = string.format("next-%040x", id), draft = false,
+      prerelease = true, assets = {}, title = "", notes = "" })
   end
   assert(publish(r) == "prerelease published and verified: " .. tag)
   assert(r.tags[tag] == commit)
@@ -619,8 +619,8 @@ end
 local function test_publish_finds_a_draft_past_a_page_of_drafts(tmp: string)
   local r = repo(tmp)
   for id = 1, 100 do
-    r.releases[#r.releases + 1] = { id = id, tag = string.format("next-%040x", id), draft = true,
-      prerelease = true, assets = {}, title = "", notes = "", target = nil }
+    table.insert(r.releases, { id = id, tag = string.format("next-%040x", id), draft = true,
+      prerelease = true, assets = {}, title = "", notes = "", target = nil })
   end
   seed(r, true, {})
   assert(publish(r) == "prerelease published and verified: " .. tag)
@@ -634,8 +634,8 @@ end
 local function test_publish_refuses_a_list_of_only_drafts(tmp: string)
   local r = repo(tmp)
   for id = 1, 1000 do
-    r.releases[#r.releases + 1] = { id = id, tag = string.format("next-%040x", id), draft = true,
-      prerelease = true, assets = {}, title = "", notes = "", target = nil }
+    table.insert(r.releases, { id = id, tag = string.format("next-%040x", id), draft = true,
+      prerelease = true, assets = {}, title = "", notes = "", target = nil })
   end
   refused("first 1000 are all drafts", function() publish(r) end)
   assert(count(r, "GET repos/owner/repo/releases?per_page=100&page=11") == 0, logged(r))

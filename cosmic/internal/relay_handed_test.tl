@@ -198,7 +198,7 @@ local function test_a_lookup_through_an_ended_name_servers_connector_tells_lost(
         if data == nil then break end
         reply = reply .. data
       end
-      statuses[#statuses + 1] = reply:match("^HTTP/1.1 (%d+)") or "none"
+      table.insert(statuses, reply:match("^HTTP/1.1 (%d+)") or "none")
       local _, _ = conn:close()
     end
     relay:stop()
@@ -290,7 +290,7 @@ return function(argv: {string}): integer
     local pinned: Config.Upstream = { host = up.host, port = up.port, authorization = up.authorization,
       no_proxy = up.no_proxy, addresses = resolved }
     assert(dns:close())
-    lines[#lines + 1] = "upstream " .. table.concat(resolved, ",")
+    table.insert(lines, "upstream " .. table.concat(resolved, ","))
     local resolve_connector = assert(Net.connector(servers, { timeout_ns = name_servers.wait_ns }))
     local resolve: Net.ResolveOptions = { servers = servers, connector = resolve_connector }
     local http = assert(Net.listen(Net.tcp("127.0.0.1", 0)))
@@ -312,7 +312,7 @@ return function(argv: {string}): integer
         if data == nil then break end
         reply = reply .. data
       end
-      lines[#lines + 1] = target .. " " .. (reply:match("^HTTP/1.1 (%d+)") or "none")
+      table.insert(lines, target .. " " .. (reply:match("^HTTP/1.1 (%d+)") or "none"))
       local _, _ = conn:close()
     end
     relay:stop()
@@ -364,7 +364,7 @@ local function test_the_upstream_is_resolved_once_and_an_ungranted_name_never(tm
             local query = read_exact(conn, (string.unpack(">I2", head)))
             if query == nil then break end
             local asked, qtype = question(query)
-            queries[#queries + 1] = tostring(qtype) .. " " .. asked
+            table.insert(queries, tostring(qtype) .. " " .. asked)
             assert(conn:write(string.pack(">s2", answer(query))))
           end
           local _, _ = conn:close()

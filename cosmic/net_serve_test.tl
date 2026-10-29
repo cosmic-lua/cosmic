@@ -71,7 +71,8 @@ local function test_several_connections_are_served_at_once()
       local third <close> = client(addresses[1])
       for i, c in ipairs({ third, second, first }) do
         assert(c.conn:write("line " .. tostring(i) .. "\n"))
-        answers[#answers + 1] = assert(c.lines:read())
+        local appended = assert(c.lines:read())
+        answers[#answers + 1] = appended
       end
       server:stop()
     end,
@@ -656,10 +657,10 @@ local function on_stop_runs_once_at_stop_at(path: string?)
     end,
     on_stop = function(server: Net.Server)
       calls.value = calls.value + 1
-      seen[#seen + 1] = tostring(server == serving.value)
-      seen[#seen + 1] = tostring(Poll.in_task())
-      seen[#seen + 1] = tostring(released((assert(bound.value, "the server was ready"))))
-      seen[#seen + 1] = tostring(finished.value)
+      table.insert(seen, tostring(server == serving.value))
+      table.insert(seen, tostring(Poll.in_task()))
+      table.insert(seen, tostring(released((assert(bound.value, "the server was ready")))))
+      table.insert(seen, tostring(finished.value))
     end,
     on_ready = function(addresses: {Net.Address}, server: Net.Server)
       serving.value = server

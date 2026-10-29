@@ -481,7 +481,7 @@ local function judged(run: Run, rule: string)
 end
 
 local function report(run: Run, line: integer, text: string)
-  run.problems[#run.problems + 1] = string.format("%s:%d: %s", run.subject.file, line, text)
+  table.insert(run.problems, string.format("%s:%d: %s", run.subject.file, line, text))
 end
 
 local function callee_fn(run: Run, call: Ast.Node): Types.Type?
@@ -1692,11 +1692,11 @@ local function stale(run: Run, name: string, exemptions: {string: string}, used:
   table.sort(keys)
   for _, key in ipairs(keys) do
     if String.starts_with(key, stubbed) then
-      run.problems[#run.problems + 1] = string.format("%s: contracts.%s names %s; no table may name a function of " ..
-          "build/importer.tl, which a test's tree stubs", file, name, key)
+      table.insert(run.problems, string.format("%s: contracts.%s names %s; no table may name a function of " ..
+          "build/importer.tl, which a test's tree stubs", file, name, key))
     elseif String.starts_with(key, prefix) and used[key] ~= true then
-      run.problems[#run.problems + 1] = string.format("%s: contracts.%s names %s, which no longer needs it; drop the entry",
-        file, name, key)
+      table.insert(run.problems, string.format("%s: contracts.%s names %s, which no longer needs it; drop the entry",
+        file, name, key))
     end
   end
 end

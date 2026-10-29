@@ -411,7 +411,7 @@ function test_inputs.canonical(maybe: PolicyRules.Declared?): string
   local lines: mut {string} = {}
   local function list(field: string, values: {string})
     for _, value in ipairs(values) do
-      lines[#lines + 1] = field .. " " .. string.format("%q", value)
+      table.insert(lines, field .. " " .. string.format("%q", value))
     end
   end
   list("reads", declared.reads)

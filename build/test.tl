@@ -888,7 +888,7 @@ local function finish(rec: Recording, job: Job, result: Child.Result?,
   -- A test that said why it did not check keeps its verdict: its pass is a
   -- function of its key, and it is counted apart.
   if passed and deliberate ~= "" then
-    rec.deliberate[#rec.deliberate + 1] = deliberate:match("^[^\n]+") or deliberate
+    table.insert(rec.deliberate, deliberate:match("^[^\n]+") or deliberate)
   end
   -- What the records keep: a skip is no pass, nor is a pass that made no call to `assert`.
   local kept_pass = passed and skipped == "" and not unchecked
@@ -1968,7 +1968,7 @@ local function look_up_verdicts(ctx: Run)
           if found.elsewhere ~= nil then found_count = found_count + 1 end
         end
         if found.outcome == "run" then
-          jobs[#jobs + 1] = test_key.job_of(found, m, name, id)
+          table.insert(jobs, test_key.job_of(found, m, name, id))
         elseif found.outcome == "stand" then
           rec.shared_keys[assert(key)] = key
           stand(rec, credited, m, name, id, found)
@@ -1996,30 +1996,30 @@ local function look_up_verdicts(ctx: Run)
       { "harness", test_key.harness_word(rec.epoch, rec.timeout_ns) },
     }
     local launcher = rec.launcher
-    if launcher ~= nil then parts[#parts + 1] = { "launcher", launcher:sub(1, 12) } end
+    if launcher ~= nil then table.insert(parts, { "launcher", launcher:sub(1, 12) }) end
     -- What every closure store holds alike, by its bytes, which the key
     -- of every test whose module does not declare `store` holds within
     -- its store's digest: named so a run whose stores all moved says
     -- so rather than leaving it to the parts beside it.
     if rec.base_store ~= nil then
-      parts[#parts + 1] = { "store", test_key.base_store_digest(rec):sub(1, 12) }
+      table.insert(parts, { "store", test_key.base_store_digest(rec):sub(1, 12) })
     end
     if not sandboxed then
-      parts[#parts + 1] = { "tree", hex_sha256(assert(ctx.root)):sub(1, 12) }
+      table.insert(parts, { "tree", hex_sha256(assert(ctx.root)):sub(1, 12) })
     end
     local runs_tool = false
     for _, m in ipairs(selected_modules) do
       if rec.effective[m.path] ~= nil and rec.effective[m.path].tool then runs_tool = true end
     end
     if runs_tool then
-      parts[#parts + 1] = { "program", test_key.program_of(rec):sub(1, 12) }
+      table.insert(parts, { "program", test_key.program_of(rec):sub(1, 12) })
     end
     -- Last, so the parts above keep their places: the identity itself,
     -- which a gathering run keys other hosts' verdicts by
     -- ([`shared_verdicts.hosts_like`]), and the rest of it that is no
     -- feature.
-    parts[#parts + 1] = { "host identity", assert(rec.host) }
-    parts[#parts + 1] = { "host rest", assert(rec.host_rest) }
+    table.insert(parts, { "host identity", assert(rec.host) })
+    table.insert(parts, { "host rest", assert(rec.host_rest) })
     rec.owed.parts = shared_verdicts.named(parts)
   end
   -- In a fresh checkout (as CI's is), where every keyed test was looked
@@ -2277,8 +2277,8 @@ local function settle(ctx: Run)
     -- An exemption a test entered is one this core no longer needs. The
     -- other core may still need it, so it is named here, never failed.
     if #entered.stale > 0 then
-      function_lines[#function_lines + 1] = "test: C exemptions a test entered on this core: " ..
-        table.concat(entered.stale, ", ")
+      table.insert(function_lines, "test: C exemptions a test entered on this core: " ..
+          table.concat(entered.stale, ", "))
     end
   elseif ctx.own_tree and #assert(ctx.selectors) == 0 and #functions > 0 then
     -- A share's tests enter only some of them; a whole run, which CI's

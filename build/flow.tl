@@ -169,7 +169,7 @@ local function scan(text: string, comments: mut {string}): {string}
   local found: mut {string} = characters(text)
   local line = 1
   local function say(why: string)
-    found[#found + 1] = ("line %d: %s"):format(line, why)
+    table.insert(found, ("line %d: %s"):format(line, why))
   end
   --- For each open container, an object's keys seen, or false.
   local open: mut {{string: boolean} | boolean} = {}
@@ -199,7 +199,7 @@ local function scan(text: string, comments: mut {string}): {string}
         say("a # right after a token: put a space before it")
       end
       local stop = text:find("\n", i, true) or n + 1
-      comments[#comments + 1] = (text:sub(i, stop - 1):gsub("[ \t\r]+$", ""))
+      table.insert(comments, (text:sub(i, stop - 1):gsub("[ \t\r]+$", "")))
       i = stop
     elseif c == '"' or c == "'" then
       if c == "'" then say("a single-quoted string: write it double-quoted") end
@@ -367,7 +367,7 @@ local function trivia(r: Reader): Trivia
         t.lines[#t.lines + 1] = r.line
       end
       local stop = text:find("\n", r.at, true) or #text + 1
-      t.entries[#t.entries + 1] = (text:sub(r.at, stop - 1):gsub("[ \t\r]+$", ""))
+      table.insert(t.entries, (text:sub(r.at, stop - 1):gsub("[ \t\r]+$", "")))
       t.lines[#t.lines + 1] = r.line
       r.at = stop
       run = 0
@@ -604,7 +604,7 @@ local function write(out: mut {string}, node: flow.Node, pad: string, after: int
   for index, item in ipairs(items) do
     comment_lines(out, tidy(item.before, index == 1, false), inner)
     local key = item.key
-    out[#out + 1] = inner .. (if key ~= nil then key_text(key) .. ": " else "" end)
+    table.insert(out, inner .. (if key ~= nil then key_text(key) .. ": " else "" end))
     write(out, item.value, inner, 1)
     local item_comment = item.comment
     out[#out] = out[#out] .. "," .. (if item_comment ~= nil then " " .. item_comment else "" end)
@@ -735,11 +735,11 @@ local function build(value: any, opts: flow.Options, depth: integer): flow.Node
   if is_array(value) and value is {any} then
     node.kind = "array"
     for _, each in ipairs(value) do
-      items[#items + 1] = { value = build(each, opts, depth + 1), before = {} }
+      table.insert(items, { value = build(each, opts, depth + 1), before = {} })
     end
   elseif value is {string: any} then
     for _, key in ipairs(ordered(value, opts)) do
-      items[#items + 1] = { key = key, value = build(value[key], opts, depth + 1), before = {} }
+      table.insert(items, { key = key, value = build(value[key], opts, depth + 1), before = {} })
     end
   end
   local scalars = true

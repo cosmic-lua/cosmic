@@ -141,7 +141,7 @@ local function test_a_waiting_sender_is_woken_by_receive()
     local result: mut {string} = {}
     local sender = Poll.spawn(function()
       local ok, why = queue:send(2)
-      result[#result + 1] = tostring(ok) .. ":" .. why
+      table.insert(result, tostring(ok) .. ":" .. why)
     end)
     assert(Poll.delay(0))
     assert(#result == 0 and queue:len() == 1)
@@ -190,7 +190,7 @@ local function test_a_cancelled_waiter_answers_cancelled_and_loses_nothing()
     assert(full:send(1))
     local sender = Poll.spawn(function()
       local ok, why = full:send(2)
-      reasons[#reasons + 1] = tostring(ok) .. ":" .. why
+      table.insert(reasons, tostring(ok) .. ":" .. why)
     end)
     assert(Poll.delay(0))
     sender:cancel()

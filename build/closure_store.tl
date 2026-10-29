@@ -219,8 +219,8 @@ end
 --- the work it would have saved, and nothing else.
 local function remember(whole: string, token: string, basis: closure_store.Basis)
   local parts: mut {string} = {}
-  local function put_string(value: string) parts[#parts + 1] = string.pack("<s4", value) end
-  local function put_count(value: integer) parts[#parts + 1] = string.pack("<I4", value) end
+  local function put_string(value: string) table.insert(parts, string.pack("<s4", value)) end
+  local function put_count(value: integer) table.insert(parts, string.pack("<I4", value)) end
   put_string(token)
   put_string(basis.shared)
   -- In the order `pairs` has them: a reader takes them by name.

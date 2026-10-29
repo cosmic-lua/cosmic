@@ -222,6 +222,20 @@ local record Members
   array: Type?
 end
 
+--- Where the program lets a table out of the local that names it, for each local that holds a table literal.
+local record Privacy
+  record Span
+    first: integer
+    last: integer
+  end
+  --- The locals declared with a table literal, by the id of the binding.
+  literal: mut {integer: boolean}
+  --- The first token of each read of such a local that [`Writes.stays_private`] does not allow, by the id of the binding.
+  escapes: mut {integer: mut {integer}}
+  --- The first and last token of each loop.
+  loops: mut {Privacy.Span}
+end
+
 --- What a numeric loop `for i = 1, #t do` whose body leaves the length of `t` alone knows: `i` is a key `t` has for as long
 --- as the body runs, so a non-nil value written at it overwrites a slot and leaves no hole ([`Writes.leaves_no_hole`]).
 local record Fill
@@ -350,6 +364,9 @@ local record Ctx
   --- change after it is made ([`Scopes.Capture.after`]), which no fact of the code around it holds inside it.
   reads: mut {integer: {Scopes.Var}}
   unfixed: mut {integer: {integer: boolean}}
+  --- What the program does with the locals that hold a table literal ([`Writes.privacy`]), worked out the first time a write
+  --- asks.
+  mut privacy: Privacy?
   --- The reads of narrowed places, by the offset of the place.
   narrowed: mut {integer: Check.Narrowed}
   --- The parameters of the functions checked, by the id of the binding of the parameter.
@@ -484,11 +501,11 @@ local function report(ctx: Ctx, code: Code, node: Ast.Node, msg: string, fix: st
       " == nil then return nil, why end`), or read the value into a new local that nothing assigns (`local v = " ..
       name .. "`) and test that"
   end
-  ctx.errors[#ctx.errors + 1] = {
+  table.insert(ctx.errors, {
     filename = ctx.filename, code = code, msg = msg, fix = fix, y = Lexer.y(tokens, first), x = Lexer.x(tokens, first),
     offset = Lexer.offset(tokens, first), length = math.max(0, Lexer.stop(tokens, last) - Lexer.offset(tokens, first)),
     other = other, types = shown or {}, argument = ctx.argument,
-  }
+  })
 end
 
 --- Whether `t` is `nil` or has the nil flag.
@@ -542,7 +559,7 @@ local function members_of(store: Store, t: Type): {Type}
         out[#out + 1] = inner
       end
       if m.nilable then
-        out[#out + 1] = store:atom("nil")
+        table.insert(out, store:atom("nil"))
       end
     else
       out[#out + 1] = m
@@ -554,7 +571,7 @@ local function members_of(store: Store, t: Type): {Type}
       add(Types.unfold(m))
     end
     if whole.nilable then
-      out[#out + 1] = store:atom("nil")
+      table.insert(out, store:atom("nil"))
     end
   else
     add(whole)
@@ -5728,15 +5745,114 @@ function Writes.fill_of(s: Ast.ForNum): Fill?
   return { var = s.var.id, object = object }
 end
 
+--- Whether `child`, a name read in `parent`, only indexes the table it names, takes its length, returns it or hands it to a
+--- function of the standard library that does not keep it: nothing then holds the table but the local that names it.
+function Writes.stays_private(ctx: Ctx, parent: Ast.Node, child: Ast.Node): boolean
+  if parent.kind == "Index" then
+    return parent.object == child
+  elseif parent.kind == "Unary" then
+    return parent.op == "#"
+  elseif parent.kind == "Return" then
+    return true
+  elseif parent.kind ~= "Call" or parent.args[1] ~= child then
+    return false
+  end
+  local callee = peel(parent.callee)
+  local resolved = ctx.scoped.resolved
+  if callee.kind == "Name" then
+    return resolved[callee.id] == nil and (callee.text == "ipairs" or callee.text == "pairs")
+  elseif callee.kind == "Field" then
+    local library = peel(callee.object)
+    local name = callee.name
+    return library.kind == "Name" and library.text == "table" and resolved[library.id] == nil and
+      (name == "insert" or name == "remove" or name == "concat" or name == "unpack" or name == "sort")
+  end
+  return false
+end
+
+--- What the program does with each local that holds a table literal ([`Privacy`]), worked out the first time it is asked.
+function Writes.privacy(ctx: Ctx): Privacy
+  local held = ctx.privacy
+  if held ~= nil then
+    return held
+  end
+  local made: Privacy = { literal = {}, escapes = {}, loops = {} }
+  local waiting: mut {Ast.Node} = { ctx.input.chunk }
+  while #waiting > 0 do
+    local node = assert(waiting[#waiting])
+    waiting[#waiting] = nil
+    if node.kind == "Local" then
+      for i, binding in ipairs(node.bindings) do
+        local value = node.values[i]
+        if value ~= nil and peel(value).kind == "Table" and binding.attr ~= "close" then
+          made.literal[binding.id] = true
+        end
+      end
+    elseif node.kind == "While" or node.kind == "Repeat" or node.kind == "ForNum" or node.kind == "ForIn" then
+      made.loops[#made.loops + 1] = { first = node.first, last = node.last }
+    end
+    Ast.children(node, function(child: Ast.Node)
+      if child.kind == "Name" then
+        local id = child.binding
+        if id ~= nil and not Writes.stays_private(ctx, node, child) then
+          local list: mut {integer} = made.escapes[id] or {}
+          made.escapes[id] = list
+          list[#list + 1] = child.first
+        end
+      end
+      waiting[#waiting + 1] = child
+    end)
+  end
+  ctx.privacy = made
+  return made
+end
+
+--- Whether the statement `s`, which writes `object[#object + 1]` and runs code, may find `object` shortened by that code
+--- between computing the key and writing the element. It may not where `object` is a local that no code but its own function
+--- can name when the statement runs: the local is declared with a table literal, is never assigned or read by a function
+--- nested in its own, and has not been let out ([`Writes.stays_private`]) by a read at or before the statement, nor by a
+--- read in a loop that holds the statement (the next pass would find the table out). Code that runs in the statement then
+--- has no way to name the table. A parameter, a local made from a call or from another name, a field and a local read by a
+--- closure may be named from elsewhere, and no call is known not to.
+function Writes.may_shorten(ctx: Ctx, object: Ast.Exp, s: Ast.Assign): boolean
+  local array = peel(object)
+  local id: integer? = nil
+  if array.kind == "Name" then
+    id = array.binding
+  end
+  if id == nil then
+    return true
+  end
+  local v = ctx.scoped.vars[id]
+  local privacy = Writes.privacy(ctx)
+  if v == nil or v.kind ~= "local" or v.assigned or #v.captures > 0 or privacy.literal[id] ~= true then
+    return true
+  end
+  -- The statement and the loops that hold it, inside the scope of the local: where a read lets the table out in time.
+  local from, to = s.first, s.last
+  for _, loop in ipairs(privacy.loops) do
+    if loop.first <= s.first and s.last <= loop.last and loop.first >= v.from then
+      from, to = math.min(from, loop.first), math.max(to, loop.last)
+    end
+  end
+  for _, at in ipairs(privacy.escapes[id] or {}) do
+    if at <= s.last or (at >= from and at <= to) then
+      return true
+    end
+  end
+  return false
+end
+
 --- The type of `object` to write a member of, after reporting what it may not be.
 local function writable_base(ctx: Ctx, object: Ast.Exp): Type?
   local t = expr(ctx, object, nil)
   return readable(ctx, object, t, "it has no member to write")
 end
 
---- The place `target` writes, reporting what may not be written. It is the `at`th target of its statement, which `removes`
---- if it is the only one and gives it a literal nil. A write to an array that is no append is left in `pending`.
-local function place_of_target(ctx: Ctx, target: Ast.Exp, at: integer, removes: boolean, pending: mut {Pending}): Type?, boolean
+--- The place `target` writes, reporting what may not be written. It is the `at`th target of the statement `s`, which `removes`
+--- if it is the only one and gives it a literal nil. A write to an array that is no append, or is one in a statement that runs `runs_code`, is left in `pending`.
+local function place_of_target(ctx: Ctx, s: Ast.Assign, target: Ast.Exp, at: integer, removes: boolean, runs_code: boolean,
+                               pending: mut {Pending}): Type?, boolean
   local store = ctx.store
   if (target.kind == "Name") then
     local t = name_value(ctx, target)
@@ -5787,7 +5903,7 @@ local function place_of_target(ctx: Ctx, target: Ast.Exp, at: integer, removes: 
         -- The last element goes, so the elements left are the first ones. Of several targets, another may write the key
         -- the length names after this one is gone (`t[#t], t[#t + 1] = nil, v`).
         return base.element, true
-      elseif not Writes.is_append(target) then
+      elseif not Writes.is_append(target) or (runs_code and Writes.may_shorten(ctx, target.object, s)) then
         pending[#pending + 1] = { target = target, at = at, owner = owner, base = base }
       end
       return base.element, false
@@ -5874,6 +5990,27 @@ function Writes.leaves_no_hole(ctx: Ctx, vals: Values, p: Pending): boolean
   return false
 end
 
+--- Whether the assignment `s` calls a function between computing the key of its targets and writing them. Lua computes every
+--- target's table and key first, then the values, so a call in a value (or in a key of another target) may shorten an array
+--- after `#t + 1` is computed, and the write then lands past the end. A function literal is no call: its body runs elsewhere.
+function Writes.runs_code(s: Ast.Assign): boolean
+  local calls: mut {boolean} = {}
+  local function visit(node: Ast.Node)
+    if (node.kind == "Call") or (node.kind == "MethodCall") then
+      calls[#calls + 1] = true
+    elseif node.kind ~= "FunctionLit" then
+      Ast.children(node, visit)
+    end
+  end
+  for _, target in ipairs(s.targets) do
+    visit(target)
+  end
+  for _, value in ipairs(s.values) do
+    visit(value)
+  end
+  return #calls > 0
+end
+
 local function check_assignment(ctx: Ctx, s: Ast.Assign): Values?
   local named: mut {integer: boolean} = {}
   for _, target in ipairs(s.targets) do
@@ -5900,8 +6037,9 @@ local function check_assignment(ctx: Ctx, s: Ast.Assign): Values?
   local pending: mut {Pending} = {}
   local first = s.values[1]
   local removes = #s.targets == 1 and #s.values == 1 and first ~= nil and peel(first).kind == "Nil"
+  local runs_code = Writes.runs_code(s)
   for i, target in ipairs(s.targets) do
-    local want, deleting = place_of_target(ctx, target, i, removes, pending)
+    local want, deleting = place_of_target(ctx, s, target, i, removes, runs_code, pending)
     if want ~= nil then
       wants[i] = want
       deletes[i] = deleting
@@ -5912,9 +6050,15 @@ local function check_assignment(ctx: Ctx, s: Ast.Assign): Values?
   for _, p in ipairs(pending) do
     if not Writes.leaves_no_hole(ctx, vals, p) then
       local target = p.target
-      report(ctx, "array_hole", target, subject(ctx, target) .. " may leave a hole in the array " .. p.owner,
-        "append with `" .. text_of(ctx, target.object) .. "[#" .. text_of(ctx, target.object) .. " + 1] = v` or " ..
-          "`table.insert`, remove with `table.remove`, or key a map `{integer: T}` for sparse data", { show(ctx, p.base) })
+      if Writes.is_append(target) then
+        report(ctx, "array_hole", target, subject(ctx, target) .. " is written by a statement that calls a function, which " ..
+            "may shorten the array " .. p.owner .. " after the key is computed and leave a hole",
+          "call first and write after: `local v = f()`, then `" .. text_of(ctx, target) .. " = v`", { show(ctx, p.base) })
+      else
+        report(ctx, "array_hole", target, subject(ctx, target) .. " may leave a hole in the array " .. p.owner,
+          "append with `" .. text_of(ctx, target.object) .. "[#" .. text_of(ctx, target.object) .. " + 1] = v` or " ..
+            "`table.insert`, remove with `table.remove`, or key a map `{integer: T}` for sparse data", { show(ctx, p.base) })
+      end
     end
   end
   local counted = check_counts(ctx, s, #s.targets, vals, #s.values, "target")

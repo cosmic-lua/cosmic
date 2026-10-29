@@ -374,7 +374,7 @@ local function test_sql_never_stages_the_tree(tmp: string)
     local given: any = ...
     if given is string then
       local here, _ = sys.getcwd()
-      listed[#listed + 1] = given:sub(1, 1) == "/" and given or (here or "") .. "/" .. given
+      table.insert(listed, given:sub(1, 1) == "/" and given or (here or "") .. "/" .. given)
     end
     return readdir(...)
   end

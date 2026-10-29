@@ -206,22 +206,22 @@ local function parse_call(name: string, lines: {string}): Call?, string
       if ptype == nil then
         return nil, name .. ": parameter '" .. pname .. "' has no type"
       end
-      call.parameters[#call.parameters + 1] = {
+      table.insert(call.parameters, {
         name = pname,
         kind = teal_type(ptype),
         optional = optional,
         description = pdescription,
-      }
+      })
     elseif tag == "return" then
       local kind, rname, description = rest:match("^(%S+)%s+([%w_]+)%s*(.*)$")
       if kind == nil then
         return nil, name .. ": a @return line has no type and name"
       end
-      call.results[#call.results + 1] = {
+      table.insert(call.results, {
         kind = teal_type(kind),
         name = rname,
         description = description,
-      }
+      })
     elseif tag == nil then
       local text = line:gsub("^%s+", "")
       if call.summary == "" then
@@ -282,12 +282,12 @@ local function parse_class(lines: {string}, at: {integer}): Class?, string
       if fname == nil then
         return nil, "a @field line names no field"
       end
-      class.fields[#class.fields + 1] = {
+      table.insert(class.fields, {
         name = fname,
         kind = teal_type(kind),
         description = description,
         line = at[index],
-      }
+      })
     elseif tag == nil then
       local text = line:gsub("^%s+", "")
       if class.summary == "" then
@@ -334,7 +334,7 @@ local function parse_alias(lines: {string}, at: {integer}): Alias?, string
       end
       alias.members[#alias.members + 1] = { value = value, description = said }
     elseif tag == nil then
-      alias.prose[#alias.prose + 1] = (line:gsub("^%s+", ""))
+      table.insert(alias.prose, (line:gsub("^%s+", "")))
     else
       return nil, (alias.name ~= "" and alias.name or "an alias") .. ": an alias block takes no @" ..
         tag
@@ -629,8 +629,8 @@ function generator.declaration(header: string, target?: Target): string?, string
         local metamethod = class.userdata and field.name:sub(1, 2) == "__"
         -- A field that may be nil may be left out of a literal.
         local optional = not metamethod and field.kind:sub(-1) == "?" and field.kind:sub(1, 9) ~= "function("
-        out[#out + 1] = "    " .. field.name ..
-          (if optional then "?: " .. field.kind:sub(1, -2) else ": " .. field.kind end)
+        table.insert(out, "    " .. field.name ..
+            (if optional then "?: " .. field.kind:sub(1, -2) else ": " .. field.kind end))
       end
       out[#out + 1] = "  end"
       out[#out + 1] = ""
@@ -642,7 +642,7 @@ function generator.declaration(header: string, target?: Target): string?, string
       out[#out + 1] = ""
     end
     comment(out, "  ", call_comment(call))
-    out[#out + 1] = "  " .. call.name .. ": " .. signature(call)
+    table.insert(out, "  " .. call.name .. ": " .. signature(call))
   end
 
   for _, class in ipairs(classes) do
@@ -663,20 +663,20 @@ function generator.declaration(header: string, target?: Target): string?, string
   out[#out + 1] = "-- `cosmic docs` shows in place of this file's own lines -- see"
   out[#out + 1] = "-- `build.derivation`'s `origin_lines`."
   for _, alias in ipairs(aliases) do
-    out[#out + 1] = "-- line " .. alias.name .. " " .. tostring(alias.line)
+    table.insert(out, "-- line " .. alias.name .. " " .. tostring(alias.line))
   end
   for _, class in ipairs(classes) do
     local prefix = ""
     if class.name ~= "Constants" then
-      out[#out + 1] = "-- line " .. class.name .. " " .. tostring(class.line)
+      table.insert(out, "-- line " .. class.name .. " " .. tostring(class.line))
       prefix = class.name .. "."
     end
     for _, field in ipairs(class.fields) do
-      out[#out + 1] = "-- line " .. prefix .. field.name .. " " .. tostring(field.line)
+      table.insert(out, "-- line " .. prefix .. field.name .. " " .. tostring(field.line))
     end
   end
   for _, call in ipairs(calls) do
-    out[#out + 1] = "-- line " .. call.name .. " " .. tostring(call.line)
+    table.insert(out, "-- line " .. call.name .. " " .. tostring(call.line))
   end
   out[#out + 1] = ""
   return table.concat(out, "\n"), ""

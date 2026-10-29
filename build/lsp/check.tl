@@ -495,7 +495,7 @@ function check.diagnose(checker: Checker, document: Document, encoding: string):
       message = message,
       code = code,
     }
-    out[#out + 1] = assert(Json.encode_any(diagnostic))
+    table.insert(out, (assert(Json.encode_any(diagnostic))))
   end
   for _, refusal in ipairs(checked.refusals) do
     add(refusal.line, refusal.column, refusal.message, refusal.code)

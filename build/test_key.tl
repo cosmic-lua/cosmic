@@ -474,7 +474,7 @@ function test_key.value_imports(db: Sqlite.Handle): {string:{string}}?, string
   for _, row in ipairs(rows) do
     local list = out[row:text(1)] or {}
     out[row:text(1)] = list
-    list[#list + 1] = row:text(2)
+    table.insert(list, row:text(2))
   end
   return out, ""
 end

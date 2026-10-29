@@ -328,7 +328,7 @@ local function pieces_of(head: string): {{string}}
   local function finish()
     local lines = current.lines
     while #lines > 0 and lines[#lines] == "" do lines[#lines] = nil end
-    if #lines > 0 then out[#out + 1] = { table.concat(lines, "\n"), current.code } end
+    if #lines > 0 then table.insert(out, { table.concat(lines, "\n"), current.code }) end
     current.lines = {}
     current.code = ""
   end

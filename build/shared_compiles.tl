@@ -187,8 +187,8 @@ local function unpacked(refs: string): {SyntaxReceivers.Reference}?
   local rest = refs:gsub("([^\t\n]*)\t([^\t\n]*)\t(%d+)\n", function(module: string,
                                                                      member: string,
                                                                      line: string): string
-    out[#out + 1] = { module = module, member = member,
-      line = math.tointeger(tonumber(line)) or 0 }
+    table.insert(out, { module = module, member = member,
+      line = math.tointeger(tonumber(line)) or 0 })
     return ""
   end)
   if rest ~= "" then return nil end
@@ -583,10 +583,10 @@ function shared_compiles.for_build(environment?: {string:string}): importer.Shar
     end,
     keep = function(m: importer.Module, own_tree: boolean, made: importer.Shared.Compile)
       if open.cache == nil then return end
-      owed.kept[#owed.kept + 1] = {
+      table.insert(owed.kept, {
         key = shared_compiles.key(assert(m.key), own_tree, m.generated),
         lua = made.lua, bytecode = made.bytecode, references = made.references,
-      }
+      })
     end,
     analyzers = function(hashes: {string}): {string}
       local cache = open.cache

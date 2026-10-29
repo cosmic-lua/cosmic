@@ -161,14 +161,14 @@ function Lexical.walk(chunk: Ast.Chunk, scoped: Resolved.Scoped,
         local bound = object.binding
         local v = if bound ~= nil then scoped.vars[bound] else nil end
         if v ~= nil and v.module ~= "" then
-          reads[#reads + 1] = { var = v.id, module = v.module, name = node.name, line = line, token = Node.base(node).first }
+          table.insert(reads, { var = v.id, module = v.module, name = node.name, line = line, token = Node.base(node).first })
         end
       elseif (object.kind == "Call") then
         local callee = object.callee
         local only = object.args[1]
         if (callee.kind == "Name") and callee.text == "require" and callee.binding == nil and #object.args == 1 and
             only ~= nil and (only.kind == "String") then
-          reads[#reads + 1] = { var = 0, module = only.value, name = node.name, line = line, token = Node.base(node).first }
+          table.insert(reads, { var = 0, module = only.value, name = node.name, line = line, token = Node.base(node).first })
         end
       end
     end

@@ -680,11 +680,11 @@ local function report(ctx: Ctx, code: Declarations.Code, first: integer, last: i
                       shown?: {string}, other?: Scopes.Place)
   local tokens = ctx.tokens
   local to = math.max(first, last)
-  ctx.errors[#ctx.errors + 1] = {
+  table.insert(ctx.errors, {
     filename = ctx.filename, code = code, msg = msg, fix = fix, y = Lexer.y(tokens, first), x = Lexer.x(tokens, first),
     offset = Lexer.offset(tokens, first), length = math.max(0, Lexer.stop(tokens, to) - Lexer.offset(tokens, first)),
     other = other, types = shown or {},
-  }
+  })
 end
 
 local function report_at(ctx: Ctx, code: Declarations.Code, node: Ast.Node, msg: string, fix: string,
@@ -723,7 +723,7 @@ local function push_frame(ctx: Ctx, barrier: boolean, params: {Ast.TypeParam})
   for i, p in ipairs(params) do
     ids[p.name.id] = i - 1
   end
-  ctx.frames[#ctx.frames + 1] = { barrier = barrier, count = #params, ids = ids, names = parameter_names(params) }
+  table.insert(ctx.frames, { barrier = barrier, count = #params, ids = ids, names = parameter_names(params) })
 end
 
 local function pop_frame(ctx: Ctx)
@@ -1086,7 +1086,7 @@ local function use_entry(ctx: Ctx, t: Ast.TypeName, e: Entry): Type
       made = store:named(decl, args)
     end
     if #args > 0 and made.tag ~= "invalid" then
-      ctx.uses[#ctx.uses + 1] = { node = t, decl = decl, args = args, names = binder_names(ctx.frames) }
+      table.insert(ctx.uses, { node = t, decl = decl, args = args, names = binder_names(ctx.frames) })
     end
     return made
   end
@@ -1132,7 +1132,7 @@ local function use_entry(ctx: Ctx, t: Ast.TypeName, e: Entry): Type
         tostring(MAX_DEPTH) .. " types deep", "name a part of the arguments with a record, which a type does not unfold")
     return store.invalid
   end
-  ctx.uses[#ctx.uses + 1] = { node = t, alias = alias, args = args, names = binder_names(ctx.frames) }
+  table.insert(ctx.uses, { node = t, alias = alias, args = args, names = binder_names(ctx.frames) })
   return made
 end
 
@@ -1424,7 +1424,7 @@ lower_type = function(ctx: Ctx, t: Ast.Type): Type
       out = store:union(members)
     end
     if (out.tag == "union") then
-      ctx.unions[#ctx.unions + 1] = { node = t, type = out, names = binder_names(ctx.frames) }
+      table.insert(ctx.unions, { node = t, type = out, names = binder_names(ctx.frames) })
     end
   elseif (t.kind == "TypeOptional") then
     local inner = lower_type(ctx, t.inner)

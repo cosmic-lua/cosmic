@@ -338,7 +338,8 @@ local function gen_mistaken(src: Fuzz.Source): string
       lines[at] = "local " .. tostring(name) .. ": " .. t .. " = " .. wrong(t)
     end
   else
-    lines[#lines + 1] = MISTAKES[math.min(choice, #MISTAKES)]
+    local appended = assert(MISTAKES[math.min(choice, #MISTAKES)])
+    lines[#lines + 1] = appended
   end
   return PRELUDE .. table.concat(lines, "\n") .. "\n"
 end
