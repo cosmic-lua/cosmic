@@ -112,7 +112,7 @@ local function test_a_worker_is_started_as_its_command_line_says()
     "suite.a_test", "test_x", "/tmp/tmp", "/tmp/children", "", "suite.a_test",
     "--tree", "suite.a_test", "suite.b" }
   assert(#argv == #expected, table.concat(argv, " "))
-  for i, value in ipairs(expected) do assert(argv[i] == value, i .. ": " .. argv[i]) end
+  for i, value in ipairs(expected) do assert(argv[i] == value, tostring(i) .. ": " .. argv[i]) end
   assert(assert(options.env).PATH == "/bin" and assert(options.env).COVERAGE == "1")
   assert(assert(options.env).COSMIC_COVERAGE_STARTUP == "1")
   assert(assert(options.fds)[worker.report_fd] == "capture" and assert(options.fds)[254] == 7)

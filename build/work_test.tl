@@ -797,7 +797,7 @@ local function stage_files(root: string, files: {string:string}): work.Staged?, 
   local handle = assert(work.open(root))
   local staged, trouble = work.stage(handle, false)
   assert(work.close(handle))
-  if staged ~= nil then return staged end
+  if staged ~= nil then return staged, "" end
   return nil, trouble
 end
 
@@ -844,7 +844,7 @@ local function test_stage_refuses_an_asset_it_cannot_carry(tmp: string)
     { "static/big.bin", ("x"):rep(16 * 1024 * 1024 + 1), "past the 16 MiB limit" },
   }
   for i, case in ipairs(cases) do
-    local staged, trouble = stage_files(tmp .. "/" .. i, { [case[1]] = case[2] })
+    local staged, trouble = stage_files(tmp .. "/" .. tostring(i), { [case[1]] = case[2] })
     assert(staged == nil, case[1])
     assert(trouble:find(case[1], 1, true) and trouble:find(case[3], 1, true), trouble)
   end

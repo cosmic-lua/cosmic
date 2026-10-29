@@ -113,5 +113,5 @@ local function test_a_test_in_flight_at_the_first_failure_finishes(tmp: string)
   local rows = assert(Sqlite.text_rows(db, "SELECT test, passed FROM runs ORDER BY test"))
   assert(db:close())
   assert(#rows == 2 and rows[1]:text(1) == "test_a_fails" and rows[1]:text(2) == "0" and
-      rows[2]:text(1) == "test_b_passes" and rows[2]:text(2) == "1", "the runs kept: " .. #rows)
+      rows[2]:text(1) == "test_b_passes" and rows[2]:text(2) == "1", "the runs kept: " .. tostring(#rows))
 end

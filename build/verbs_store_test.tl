@@ -144,7 +144,7 @@ local function test_help_is_a_short_index_of_every_verb(tmp: string)
   local all = verbs_fixture.expect(tmp, "help", { "help" }, 0).stdout or ""
   local lines = 0
   for _ in all:gmatch("\n") do lines = lines + 1 end
-  assert(lines < 60, lines .. " lines:\n" .. all)
+  assert(lines < 60, tostring(lines) .. " lines:\n" .. all)
   for _, verb in ipairs(Cli.order) do
     local command = Cli.verbs[verb]
     assert(all:find(assert(command.usage) .. "  ", 1, true), verb .. " is not in the index:\n" .. all)

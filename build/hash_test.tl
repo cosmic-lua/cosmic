@@ -303,7 +303,7 @@ local function test_hmac_of_every_algorithm_agrees_with_hash_hmac(tmp: string)
       for _, message in ipairs(messages) do
         local ran = run({ "--" .. algorithm, "--hmac-file", key_file }, message)
         local want = Codec.hex(Hash.hmac(algorithm, key, message))
-        assert(ran.out == want .. "  -\n", algorithm .. " key " .. #key .. " message " .. #message)
+        assert(ran.out == want .. "  -\n", algorithm .. " key " .. tostring(#key) .. " message " .. tostring(#message))
       end
     end
   end
@@ -348,7 +348,7 @@ local function test_a_failed_write_exits_2_in_every_mode(tmp: string)
   local function full(_: string): boolean, string return false, "No space left on device" end
   for _, words in ipairs({ { a }, { "--json", a }, { "--check", sums }, { "--check", "-" } } as {{string}}) do
     local ran = run(words, ABC["sha256"] .. "  " .. a .. "\n", full)
-    assert(ran.code == 2, table.concat(words, " ") .. ": " .. ran.code)
+    assert(ran.code == 2, table.concat(words, " ") .. ": " .. tostring(ran.code))
     assert(ran.err == "cosmic: hash: standard output: No space left on device\n", ran.err)
   end
   -- A `--quiet` check that has nothing to say has nothing to lose.
@@ -387,5 +387,5 @@ local function test_a_large_input_streams_in_bounded_memory()
   -- 96 MiB went through; Lua held a few chunks of it at a time, never
   -- the whole.
   local grew = peak() - before
-  assert(grew < 8 * 1024, "Lua memory grew by " .. grew .. " KiB while hashing 96 MiB")
+  assert(grew < 8 * 1024, "Lua memory grew by " .. tostring(grew) .. " KiB while hashing 96 MiB")
 end

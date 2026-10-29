@@ -129,7 +129,7 @@ local function test_uses_lists_a_projects_links_to_the_standard_library(tmp: str
   local linked = 0
   for _ in result.stdout:gmatch(": link cosmic%.fs read\n") do linked = linked + 1 end
   local page = docs_in(project, "cosmic.fs.read")
-  assert(page:find("linked from " .. linked .. ";", 1, true), linked .. " links listed:\n" .. page)
+  assert(page:find("linked from " .. tostring(linked) .. ";", 1, true), tostring(linked) .. " links listed:\n" .. page)
 end
 
 --- While another run holds the project's working database, as a `cosmic

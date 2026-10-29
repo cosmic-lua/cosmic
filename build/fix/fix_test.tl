@@ -33,7 +33,7 @@ local function test_a_path_that_is_not_there_is_missing_before_it_is_judged(tmp:
       tostring(trouble))
   assert(#picked.files == 1 and picked.files[1] == tmp .. "/real.tl",
     "the real source should still be listed")
-  assert(#picked.refused == 3, "expected three refusals, got " .. #picked.refused)
+  assert(#picked.refused == 3, "expected three refusals, got " .. tostring(#picked.refused))
   for i, what in ipairs({ "nope", "nosuchdir/" }) do
     assert(picked.refused[i]:find("No such file", 1, true) ~= nil,
       what .. " should be reported as missing, not judged on its suffix: " ..

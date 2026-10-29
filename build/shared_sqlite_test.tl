@@ -87,8 +87,8 @@ local function test_a_cache_being_written_is_tried_again_then_answered_busy(tmp:
   local waited, trouble = held_open(tmp .. "/cache.db",
     { "BEGIN IMMEDIATE", "INSERT INTO held (x) VALUES (1)" }, wait_ns)
   assert(trouble:find("locked", 1, true) ~= nil, trouble)
-  assert(waited >= wait_ns, "answered busy after " .. waited .. " ns")
-  assert(waited < gave_up_late_ns, "answered busy after " .. waited .. " ns")
+  assert(waited >= wait_ns, "answered busy after " .. tostring(waited) .. " ns")
+  assert(waited < gave_up_late_ns, "answered busy after " .. tostring(waited) .. " ns")
 end
 
 --- A cache another connection holds whole, before it is in write-ahead
@@ -98,8 +98,8 @@ local function test_a_cache_held_whole_is_waited_on_no_longer_than_the_wait(tmp:
   local wait_ns = Clock.ms(100)
   local waited, trouble = held_open(tmp .. "/cache.db", { "BEGIN EXCLUSIVE" }, wait_ns)
   assert(trouble:find("locked", 1, true) ~= nil, trouble)
-  assert(waited >= wait_ns, "answered busy after " .. waited .. " ns")
-  assert(waited < gave_up_late_ns, "answered busy after " .. waited .. " ns")
+  assert(waited >= wait_ns, "answered busy after " .. tostring(waited) .. " ns")
+  assert(waited < gave_up_late_ns, "answered busy after " .. tostring(waited) .. " ns")
 end
 
 --- A cache already in write-ahead mode opens while another connection
@@ -134,7 +134,7 @@ local function test_a_captured_cancellation_stops_the_wal_retry(tmp: string)
   assert(holder:close())
   assert(db == nil and trouble ~= "", trouble)
   assert(signal == sys.SIGTERM, "the cache consumed the guard's signal")
-  assert(waited < Clock.seconds(1), "cancelled after " .. waited .. " ns")
+  assert(waited < Clock.seconds(1), "cancelled after " .. tostring(waited) .. " ns")
   local opened = assert(shared_sqlite.open(path, prepare))
   assert(opened:close())
 end

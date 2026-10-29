@@ -80,7 +80,7 @@ function link_files.walk(dir: string): {string}?, string
   local files, trouble = Fs.walk(dir, function(entry: string): boolean return skip(entry) end)
   if files == nil then return nil, trouble end
   table.sort(files)
-  return files
+  return files, ""
 end
 
 --- The kind of `file`, a path from the root of a tree `own` says is or

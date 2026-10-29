@@ -59,7 +59,7 @@ local function test_a_formatted_line_reads_back(tmp: string)
         end
       end
       if #got.entries ~= #names then
-        return false, "read " .. #got.entries .. " entries, wrote " .. #names
+        return false, "read " .. #got.entries .. " entries, wrote " .. tostring(#names)
       end
       return true, ""
     end,

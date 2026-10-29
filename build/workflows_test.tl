@@ -113,8 +113,8 @@ local function test_flow_actions_keep_to_the_shared_subset()
       local run = step.run
       if run ~= nil then
         assert(run is string and not run:find("\n", 1, true),
-          path .. ": step " .. i .. "'s run is not one line: put it under .github/scripts/")
-        assert(shell is string, path .. ": step " .. i .. " runs with no shell")
+          path .. ": step " .. tostring(i) .. "'s run is not one line: put it under .github/scripts/")
+        assert(shell is string, path .. ": step " .. tostring(i) .. " runs with no shell")
       end
     end
   end
@@ -364,7 +364,7 @@ local function test_a_branch_push_runs_no_alpine_leg()
   local include = ((platform.strategy as {string: any}).matrix as {string: any}).include as {{string: string}}
   assert(include[1].name == nil, "the first entry names a leg: " .. tostring(include[1].name))
   for i = 2, #include do
-    assert(include[i].name ~= nil, "entry " .. i .. " names no leg")
+    assert(include[i].name ~= nil, "entry " .. tostring(i) .. " names no leg")
     for key in pairs(include[1]) do
       assert(include[i][key] ~= nil, include[i].name .. " keeps alpine-x86_64's " .. key)
     end
@@ -883,7 +883,7 @@ local function test_the_verdict_cache_is_named_by_the_host_too()
     end
   end
   assert(named, "the host-id step is gone")
-  assert(cached == 4, "the base's lookup, the restore, the save by content and its name under the commit: " .. cached)
+  assert(cached == 4, "the base's lookup, the restore, the save by content and its name under the commit: " .. tostring(cached))
 end
 
 --- The key a restore of the verdicts under `prefix` (an expression)
@@ -1258,7 +1258,7 @@ local function test_a_branch_saves_compiles_for_its_later_pushes()
   for key, step in pairs(saves_of(steps)) do
     if branch_compiles(key) then branch[#branch + 1] = step end
   end
-  assert(#branch == 1, "a branch's compiles are saved by " .. #branch .. " steps")
+  assert(#branch == 1, "a branch's compiles are saved by " .. tostring(#branch) .. " steps")
   local with = branch[1].with as {string: string}
   assert(with.path == "${{ runner.temp }}/build-cache" and
       with.key == BRANCH_COMPILES .. "${{ steps.compiles-trim.outputs.digest }}",
@@ -1367,7 +1367,7 @@ local function test_a_main_push_reuses_the_queue_run()
   for name in pairs(ours) do
     assert(theirs[name] ~= nil, "seed has a leg the platform job has not: " .. name)
   end
-  assert(count == 5, "legs: " .. count)
+  assert(count == 5, "legs: " .. tostring(count))
   -- Only the checked job's seed relays no product.
   local marked: mut {string: any} = {}
   for _, leg in ipairs(((seed.strategy as {string: any}).matrix as {string: any}).include as {{string: any}}) do
@@ -1450,7 +1450,7 @@ local function test_a_main_push_reuses_the_queue_run()
       assert(step["continue-on-error"] == nil, path .. "'s seed may fail unseen")
     end
   end
-  assert(saved == 5, "the verdicts (by content, and their name under the commit), compiles, zig outputs and driver marker: " .. saved)
+  assert(saved == 5, "the verdicts (by content, and their name under the commit), compiles, zig outputs and driver marker: " .. tostring(saved))
   -- The zig outputs, after the product's relay, and none of it a
   -- failure: a lookup by the prefix of their core and vendor part, a
   -- leg's restore's first, then, where it found none, the queue leg's
@@ -1465,7 +1465,7 @@ local function test_a_main_push_reuses_the_queue_run()
     end
     if relay ~= nil and i > relay then zig_steps[#zig_steps + 1] = step end
   end
-  assert(#zig_steps == 4, "the zig outputs take other steps than four after the relay: " .. #zig_steps)
+  assert(#zig_steps == 4, "the zig outputs take other steps than four after the relay: " .. tostring(#zig_steps))
   for _, step in ipairs(zig_steps) do
     assert(step["continue-on-error"] == true, tostring(step.name or step.id) .. " can fail seed")
   end
@@ -2313,8 +2313,8 @@ local function test_a_job_moves_its_tree_once_and_puts_it_back_once()
       end
       if #moves > 0 or #backs > 0 then
         placed = placed + 1
-        assert(#moves == 1, where .. " moves its tree " .. #moves .. " times")
-        assert(#backs == 1, where .. " puts its tree back " .. #backs .. " times")
+        assert(#moves == 1, where .. " moves its tree " .. tostring(#moves) .. " times")
+        assert(#backs == 1, where .. " puts its tree back " .. tostring(#backs) .. " times")
         local move, back = moves[1], backs[1]
         assert(move < back, where .. " puts its tree back before it moves it")
         assert(last_driver < back, where .. " runs the CI driver after it puts its tree back")
@@ -2339,7 +2339,7 @@ local function test_a_job_moves_its_tree_once_and_puts_it_back_once()
       end
     end
   end
-  assert(placed >= 3, "only " .. placed .. " jobs move their tree")
+  assert(placed >= 3, "only " .. tostring(placed) .. " jobs move their tree")
 end
 
 --- A failed job of the merge queue's run has the run cancelled,
@@ -2921,7 +2921,7 @@ local function test_a_queue_run_takes_the_verdicts_of_the_run_ahead()
     local budget = within + 3 * call
     local minutes = find["timeout-minutes"] as integer
     assert(budget + 30 <= minutes * 60 and minutes < (job["timeout-minutes"] as integer),
-      where .. "'s lookup outlasts its step, or its step the job: " .. budget .. " s")
+      where .. "'s lookup outlasts its step, or its step the job: " .. tostring(budget) .. " s")
 
     local download = steps[at["ahead-download"]]
     local with = download.with as {string: string}

@@ -32,7 +32,7 @@ end
 
 function GrammarMode.of(word: string?): GrammarMode.Mode?, string
   if word == nil or word == "" or word == "new" then
-    return "new"
+    return "new", ""
   elseif word == "teal" then
     return nil, "COSMIC_GRAMMAR=teal: the fork's grammar is gone; rewrite a project to the new grammar by hand, as doc/guides/project.md says"
   end

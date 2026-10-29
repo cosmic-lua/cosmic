@@ -732,7 +732,7 @@ local function test_static_files_ship_as_payload_not_as_modules(tmp: string)
   local db = assert(Sqlite.open(tmp .. "/p.db"))
   local rows = assert(Sqlite.text_rows(db,
     "SELECT path, sha256, type, gzip IS NOT NULL, length(data) FROM payload ORDER BY path"))
-  assert(#rows == 4, #rows .. " payload rows")
+  assert(#rows == 4, tostring(#rows) .. " payload rows")
   assert(rows[1]:text(1) == "css/app.css" and rows[1]:text(2) == Hash.hex_sha256(css))
   assert(rows[1]:text(3) == "text/css; charset=utf-8" and rows[1]:text(4) == "1" and rows[1]:text(5) == tostring(#css))
   assert(rows[2]:text(1) == "logo.png" and rows[2]:text(3) == "image/png" and rows[2]:text(4) == "0")
@@ -774,7 +774,7 @@ local function test_an_edit_to_cosmic_mime_moves_the_signature(tmp: string)
   local before = assert(writer.signature(handle, result, "binary"))
   local real = Store.bytecode
   Store.bytecode = function(name: string): string?, string
-    if name == "cosmic.mime" then return "an edited cosmic.mime" end
+    if name == "cosmic.mime" then return "an edited cosmic.mime", "" end
     return real(name)
   end
   local after, trouble = writer.signature(handle, result, "binary")

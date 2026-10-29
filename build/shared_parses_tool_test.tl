@@ -216,7 +216,7 @@ local function test_a_mapped_parse_stands_only_for_a_mapped_one(tmp: string)
   checkout(tmp .. "/plain", plain)
   built_as(tmp .. "/plain", env, "; 1 source parsed, 3 taken from another checkout;")
   assert(doc_line(tmp .. "/plain", "example_1") == tostring(own_line),
-    doc_line(tmp .. "/plain", "example_1") .. " " .. own_line)
+    doc_line(tmp .. "/plain", "example_1") .. " " .. tostring(own_line))
   local rows = dump(path, "SELECT mapped, count(*) FROM parsed_v1 GROUP BY mapped ORDER BY mapped")
   assert(rows == "0\t4\n1\t1", rows)
   -- Each stands for its own.

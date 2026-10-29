@@ -244,7 +244,7 @@ local function test_a_test_or_example_the_program_requires_is_carried(tmp: strin
     "SELECT path FROM modules WHERE path IN ('shared_example', 'fixture_test') " ..
       "ORDER BY path")
   assert(#modules == 2, "a required example and test are carried, and " ..
-      "only " .. #modules .. " were")
+      "only " .. tostring(#modules) .. " were")
   local imports = rows_of(path,
     "SELECT count(*) FROM imports WHERE path = 'shared_example' " ..
       "AND requires = 'fixture_test'")
@@ -537,9 +537,9 @@ local function test_a_program_serves_the_static_files_it_carries(tmp: string)
     cwd = elsewhere, stdout = "capture", stderr = "capture", timeout_ns = Time.seconds(30) }))
   assert(r.ok, "exit " .. tostring(r.code) .. ": " .. tostring(r.stderr))
   local out = assert(r.stdout)
-  assert(out:find("payload\tcss/app.css\ttext/css; charset=utf-8\t" .. #css .. "\t1\n" ..
+  assert(out:find("payload\tcss/app.css\ttext/css; charset=utf-8\t" .. tostring(#css) .. "\t1\n" ..
       "payload\tlogo.png\timage/png\t6\t0\n", 1, true), out)
-  assert(out:find("false\t2\t" .. #css .. "\ttext/css; charset=utf-8\ttrue\t6\tnil\n", 1, true), out)
+  assert(out:find("false\t2\t" .. tostring(#css) .. "\ttext/css; charset=utf-8\ttrue\t6\tnil\n", 1, true), out)
 end
 
 --- `cosmic build` with the new checker (`COSMIC_GRAMMAR=new`, `grammar` here) compiles the project with it: a project written in

@@ -29,7 +29,7 @@ Test.policy{ loopback = { "127.0.0.1" } }
 --- Fails, listing what `during` met under build/, unless it met nothing.
 local function honest(what: string, fn: function())
   local found = TypeWatch.during(fn, "build/")
-  assert(#found == 0, what .. ": " .. #found .. " violations:\n" .. table.concat(found, "\n"))
+  assert(#found == 0, what .. ": " .. tostring(#found) .. " violations:\n" .. table.concat(found, "\n"))
 end
 
 --- A line that is no comment, a comment that carries on, and one that does
@@ -130,16 +130,16 @@ local function test_a_reference_naming_no_type_is_as_declared()
   honest("build.alias_members", function()
     local source: alias_members.Source<alias_members.Declared> = {
       declared = function(_module: string, _name: string): alias_members.Declared?, string
-        return nil
+        return nil, ""
       end,
       exported = function(_module: string, _name: string): alias_members.Declared?, string
-        return nil
+        return nil, ""
       end,
       bound = function(_module: string, _name: string): string?, string
-        return nil
+        return nil, ""
       end,
       under = function(_target: alias_members.Declared): {alias_members.Declared}?, string
-        return {}
+        return {}, ""
       end,
       as_member = function(_owner: alias_members.Declared, member: alias_members.Declared,
                            _name: string): alias_members.Declared

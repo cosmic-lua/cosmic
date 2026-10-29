@@ -94,7 +94,7 @@ function TreeProgram.splice(build: Driver.Build, module: string, file: string): 
     return nil, file .. ": the new checker's build has no module " .. module
   end
   if read.text:find("record_of", 1, true) == nil then
-    return false
+    return false, ""
   end
   -- The calls are read in a build of its own, where the module is lowered as it stands and then retired: this build has not
   -- met the module when its text is replaced, so the replacement keeps its program, and what the reading lowered of the
@@ -111,7 +111,7 @@ function TreeProgram.splice(build: Driver.Build, module: string, file: string): 
   if resolved ~= read.text and build:replace(module, resolved) == nil then
     return nil, file .. ": the new checker's build lost the module " .. module
   end
-  return true
+  return true, ""
 end
 
 --- `modules` in an order in which each comes after the modules among them that its text requires by a literal name (as
@@ -301,7 +301,7 @@ function TreeProgram.derived_of(root: string): {{string}}?, string
       out[#out + 1] = { file, made, template_module(file) }
     end
   end
-  return out
+  return out, ""
 end
 
 function TreeProgram.build(index: Driver.Index, globals: TreeProgram.Globals, types?: boolean,

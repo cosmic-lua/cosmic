@@ -236,7 +236,7 @@ end
 local function examples_for(db: Sqlite.Handle, public: boolean, module: string,
                             symbol: string): {docs.Example}?, string
   if symbol == "" then
-    return {}
+    return {}, ""
   end
   local rows, trouble = Sqlite.text_rows(db,
     "SELECT e.name, e.text, e.file, e.line, e.source FROM examples_fts " ..
@@ -254,7 +254,7 @@ local function examples_for(db: Sqlite.Handle, public: boolean, module: string,
     out[#out + 1] = { name = row:text(1), text = row:text(2), file = row:text(3),
       line = math.tointeger(tonumber(row:text(4))) or 0, source = row:text(5) }
   end
-  return out
+  return out, ""
 end
 
 --- How many worked examples a symbol's page shows in full; the rest are
@@ -439,7 +439,7 @@ local function modules_ending(db: Sqlite.Handle, query: string): {docs.Entry}?, 
   if rows == nil then
     return nil, trouble
   end
-  return entries_of(rows)
+  return entries_of(rows), ""
 end
 
 --- What a module with no documentation row of its own answers for its
@@ -455,7 +455,7 @@ local function module_symbol(db: Sqlite.Handle, public: boolean,
   if rows == nil then
     return nil, trouble
   end
-  return entries_of(rows)
+  return entries_of(rows), ""
 end
 
 --- The rows named `query` exactly: a symbol as declared ([`Fs.read`]), a
@@ -469,7 +469,7 @@ local function named(db: Sqlite.Handle, public: boolean, query: string): {docs.E
   if rows == nil then
     return nil, trouble
   end
-  return entries_of(rows)
+  return entries_of(rows), ""
 end
 
 --- The rows named exactly by one of `names` (`d.symbol IN (...)`), in
@@ -492,7 +492,7 @@ local function named_all(db: Sqlite.Handle, public: boolean,
   if rows == nil then
     return nil, trouble
   end
-  return entries_of(rows)
+  return entries_of(rows), ""
 end
 
 --- The symbols a module offers, for the listing under a module's own
@@ -528,7 +528,7 @@ local function declared_in(db: Sqlite.Handle, public: boolean, module: string): 
   if rows == nil then
     return nil, trouble
   end
-  return entries_of(rows)
+  return entries_of(rows), ""
 end
 
 --- The fields of every record and interface in `module`, and the values
@@ -545,7 +545,7 @@ local function members_of(db: Sqlite.Handle, public: boolean,
   if rows == nil then
     return nil, trouble
   end
-  return entries_of(rows)
+  return entries_of(rows), ""
 end
 
 --- Every module's own documentation row, and every documented record
@@ -560,7 +560,7 @@ local function modules_of(db: Sqlite.Handle, public: boolean): {docs.Entry}?, st
   if rows == nil then
     return nil, trouble
   end
-  return entries_of(rows)
+  return entries_of(rows), ""
 end
 
 --- A GLOB matching documentation that spells `word` as code: in
@@ -639,7 +639,7 @@ local function stand_ins(db: Sqlite.Handle, public: boolean,
   if rows == nil then
     return nil, trouble
   end
-  return entries_of(rows)
+  return entries_of(rows), ""
 end
 
 --- For a qualified name that names nothing (`Proc.which`), what its
@@ -666,7 +666,7 @@ local function scoped(db: Sqlite.Handle, public: boolean, qualifier: string,
       return nil, trouble
     end
     if #rows > 0 then
-      return entries_of(rows)
+      return entries_of(rows), ""
     end
   end
   local rows, trouble = Sqlite.text_rows(db,
@@ -677,7 +677,7 @@ local function scoped(db: Sqlite.Handle, public: boolean, qualifier: string,
   if rows == nil then
     return nil, trouble
   end
-  return entries_of(rows)
+  return entries_of(rows), ""
 end
 
 --- How the columns of `docs_fts` count toward relevance: a word in a
@@ -730,7 +730,7 @@ local function partly_searched(db: Sqlite.Handle, public: boolean,
   end)
   while #ids > CLOSEST do ids[#ids] = nil end
   if #ids == 0 then
-    return {}
+    return {}, ""
   end
   -- The ids are integers this function read, so they are safe to spell out.
   local rows, trouble = Sqlite.text_rows(db,
@@ -747,7 +747,7 @@ local function partly_searched(db: Sqlite.Handle, public: boolean,
   for _, id in ipairs(ids) do
     out[#out + 1] = by_id[id]
   end
-  return out
+  return out, ""
 end
 
 --- `word` in lowercase without an ending that makes it a longer form of
@@ -817,7 +817,7 @@ local function searched_docs(db: Sqlite.Handle, public: boolean,
   if rows == nil then
     return nil, trouble
   end
-  return entries_of(rows)
+  return entries_of(rows), ""
 end
 
 --- The rows carrying some words of `query` when none carries them all,
@@ -826,13 +826,13 @@ local function closest(db: Sqlite.Handle, public: boolean,
                        query: string): {docs.Entry}?, string
   local words = query_words(query)
   if #words < 2 then
-    return {}
+    return {}, ""
   end
   local rows, trouble = partly_searched(db, public, words)
   if rows == nil then
     return nil, trouble
   end
-  return entries_of(rows)
+  return entries_of(rows), ""
 end
 
 --- Every worked example whose own name, comment, or checked source carries
@@ -861,7 +861,7 @@ local function searched_examples(db: Sqlite.Handle, public: boolean, fts: string
         line = math.tointeger(tonumber(row:text(5))) or 0, source = row:text(6) } },
     }
   end
-  return out
+  return out, ""
 end
 
 --- Whether `db` holds the shipped tables at all: a database built
@@ -887,7 +887,7 @@ end
 local function searched(db: Sqlite.Handle, public: boolean, query: string): {docs.Entry}?, string
   local fts = fts_query(query)
   if fts == "" then
-    return {}
+    return {}, ""
   end
   local from_docs, docs_trouble = searched_docs(db, public, query)
   if from_docs == nil then
@@ -900,7 +900,7 @@ local function searched(db: Sqlite.Handle, public: boolean, query: string): {doc
   local out: mut {docs.Entry} = {}
   for _, entry in ipairs(from_docs) do out[#out + 1] = entry end
   for _, entry in ipairs(from_examples) do out[#out + 1] = entry end
-  return out
+  return out, ""
 end
 
 --- Whether `db` holds the `catalog` and the index over it: a database built before the codes of the checker were written to
@@ -987,7 +987,7 @@ local function uses_of(db: Sqlite.Handle, public: boolean, query: string): {docs
     return nil, linked_trouble
   end
   if not linked then
-    return out
+    return out, ""
   end
   local path = query:gsub("^%./", ""):gsub("/$", "")
   local anchor: string? = nil
@@ -1014,7 +1014,7 @@ local function uses_of(db: Sqlite.Handle, public: boolean, query: string): {docs
       from_file = row:text(4), line = math.tointeger(tonumber(row:text(5))) or 0,
       link = true, path = row:text(6), anchor = row:text(7) }
   end
-  return out
+  return out, ""
 end
 
 --- Says once a process, on stderr, that the projection at `path`, which
@@ -1153,7 +1153,7 @@ local function across<T>(view: docs.View,
       end
     end
   end
-  return out
+  return out, ""
 end
 
 local function entry_module(entry: docs.Entry): string
@@ -1176,9 +1176,9 @@ local function value_record(db: Sqlite.Handle, module: string): string?, string
     return nil, trouble
   end
   if #rows == 0 then
-    return nil
+    return nil, ""
   end
-  return alias_members.value_record(rows[1]:text(1))
+  return alias_members.value_record(rows[1]:text(1)), ""
 end
 
 --- The name `entry` is used by, as a use of it is recorded, when that
@@ -1188,12 +1188,12 @@ end
 local function used_as(view: docs.View, entry: docs.Entry): string?, string
   local owner = view.owners[entry.module]
   if owner == nil or entry.symbol == "" then
-    return nil
+    return nil, ""
   end
   local cached = view.value_records[entry.module]
   if cached == nil then
     local record, trouble = value_record(view.databases[owner], entry.module)
-    if record == nil and trouble ~= nil then
+    if record == nil and trouble ~= "" then
       return nil, trouble
     end
     cached = record or ""
@@ -1203,7 +1203,7 @@ local function used_as(view: docs.View, entry: docs.Entry): string?, string
   if cached ~= "" and String.starts_with(entry.source_symbol, prefix) then
     return (entry.source_symbol:sub(#prefix + 1):gsub(":", ".")), ""
   end
-  return nil
+  return nil, ""
 end
 
 local function use_key(module: string, symbol: string): string
@@ -1301,7 +1301,7 @@ end
 local function effective_counts(view: docs.View, entries: {docs.Entry}): boolean, string
   for _, entry in ipairs(entries) do
     local used, used_trouble = used_as(view, entry)
-    if used == nil and used_trouble ~= nil then
+    if used == nil and used_trouble ~= "" then
       return false, used_trouble
     end
     local uses, trouble = count_uses(view, entry.module, used or entry.symbol)
@@ -1343,7 +1343,7 @@ function docs.view(databases: {Sqlite.Handle}, public?: {boolean}): docs.View?, 
     end
   end
   return { databases = databases, public = scope, owners = owners,
-    use_counts = {}, link_counts = {}, value_records = {} }
+    use_counts = {}, link_counts = {}, value_records = {} }, ""
 end
 
 --- `entries` as a lookup's answer, with the entries of `ahead` standing before them.
@@ -1390,7 +1390,7 @@ local function by_options(view: docs.View, query: string,
     if phrase ~= "  " then wanted[#wanted + 1] = phrase end
   end
   if #wanted == 0 then
-    return {}
+    return {}, ""
   end
   local names: mut {string} = {}
   for verb, command in pairs(Cli.verbs) do
@@ -1722,7 +1722,7 @@ function docs.index(view: docs.View): {docs.Summary}?, string
   table.sort(out, function(a: docs.Summary, b: docs.Summary): boolean
     return a.module < b.module
   end)
-  return out
+  return out, ""
 end
 
 --- Every one of `names` that names a symbol exactly, in one query per
@@ -1733,7 +1733,7 @@ end
 --- fails for that, only for real trouble reading a database.
 function docs.named_all(view: docs.View, names: {string}): {docs.Entry}?, string
   if #names == 0 then
-    return {}
+    return {}, ""
   end
   local found, trouble = across(view,
     function(db: Sqlite.Handle, public: boolean): {docs.Entry}?, string
@@ -1820,7 +1820,7 @@ local function member_of(view: docs.View, module: string, name: string): {docs.E
     return found, ""
   end
   local record, record_trouble = value_record(db, module)
-  if record == nil and record_trouble ~= nil then
+  if record == nil and record_trouble ~= "" then
     return nil, record_trouble
   end
   if record ~= nil then
@@ -2019,7 +2019,7 @@ function docs.uses(view: docs.View, query: string): {docs.Use}?, string
   end
   for _, entry in ipairs(members) do
     local used, used_trouble = used_as(view, entry)
-    if used == nil and used_trouble ~= nil then
+    if used == nil and used_trouble ~= "" then
       return nil, used_trouble
     end
     local more, more_trouble = across(view,
@@ -2053,7 +2053,7 @@ function docs.uses(view: docs.View, query: string): {docs.Use}?, string
     if a.path ~= b.path then return a.path < b.path end
     return a.anchor < b.anchor
   end)
-  return out
+  return out, ""
 end
 
 --- The declaring record or enum of a member's source symbol:
@@ -2152,11 +2152,11 @@ local function first_declared(view: docs.View, sql: string,
         return nil, trouble
       end
       if #rows > 0 then
-        return entries_of(rows)[1]
+        return entries_of(rows)[1], ""
       end
     end
   end
-  return nil
+  return nil, ""
 end
 
 --- The fields, methods or values declared directly under `target`, as
@@ -2185,11 +2185,11 @@ local function members_under(view: docs.View, target: docs.Entry): {docs.Entry}?
         end
       end
       if #out > 0 then
-        return out
+        return out, ""
       end
     end
   end
-  return out
+  return out, ""
 end
 
 --- The rows of `view` that [`build.alias_members`] follows a
@@ -2212,7 +2212,7 @@ local function type_source(view: docs.View): alias_members.Source<docs.Entry>
     bound = function(module: string, name: string): string?, string
       local cached = view.bound
       if cached ~= nil then
-        return cached[module .. "\n" .. name]
+        return cached[module .. "\n" .. name], ""
       end
       local index = symbol_index.new()
       for _, db in ipairs(view.databases) do
@@ -2222,7 +2222,7 @@ local function type_source(view: docs.View): alias_members.Source<docs.Entry>
         end
       end
       view.bound = index.bound
-      return index.bound[module .. "\n" .. name]
+      return index.bound[module .. "\n" .. name], ""
     end,
     under = function(target: docs.Entry): {docs.Entry}?, string
       return members_under(view, target)
@@ -2247,7 +2247,7 @@ local function inherited_lines(view: docs.View, entry: docs.Entry): {string}?, s
   local lines: mut {string} = {}
   local references = entry.symbol ~= "" and alias_members.references(entry) or {}
   if #references == 0 then
-    return lines
+    return lines, ""
   end
   local own: mut {string: boolean} = {}
   if entry.kind == "record" or entry.kind == "interface" then
@@ -2263,7 +2263,7 @@ local function inherited_lines(view: docs.View, entry: docs.Entry): {string}?, s
   local values: mut {string} = {}
   for _, reference in ipairs(references) do
     local target, target_trouble = alias_members.resolved(type_source(view), entry, reference)
-    if target == nil and target_trouble ~= nil then
+    if target == nil and target_trouble ~= "" then
       return nil, target_trouble
     end
     if target ~= nil and target.source_symbol ~= entry.source_symbol then
@@ -2300,7 +2300,7 @@ local function inherited_lines(view: docs.View, entry: docs.Entry): {string}?, s
   emit(heading .. "values:", values)
   emit(heading .. "fields:", fields)
   emit(heading .. "methods:", methods)
-  return lines
+  return lines, ""
 end
 
 --- The members named `name` of the types `owners` stand for, each as
@@ -2314,7 +2314,7 @@ end
 through_alias = function(view: docs.View, query: string): {docs.Entry}?, string
   local prefix, name = query:match("^([%w_]+%.[%w_%.]+)%.([%w_]+)$")
   if prefix == nil then
-    return {}
+    return {}, ""
   end
   local owners, owners_trouble = across(view,
     function(db: Sqlite.Handle, public: boolean): {docs.Entry}?, string
@@ -2543,7 +2543,7 @@ function docs.render(view: docs.View, entry: docs.Entry): {string}?, string
       -- A member of the record the module's value is typed as is asked
       -- for by the module's name, which no other module's shares.
       local used, used_trouble = used_as(view, entry)
-      if used == nil and used_trouble ~= nil then
+      if used == nil and used_trouble ~= "" then
         return nil, used_trouble
       end
       lines[#lines + 1] = "  " .. table.concat(said, " and ") .. "; cosmic uses " ..

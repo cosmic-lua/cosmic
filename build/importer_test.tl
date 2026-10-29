@@ -43,11 +43,11 @@ end
 local function module_requiring(uses: {string}): string
   local lines: mut {string} = {}
   for index, used in ipairs(uses) do
-    lines[#lines + 1] = "local m" .. index .. " = require(\"" .. used .. "\")"
+    lines[#lines + 1] = "local m" .. tostring(index) .. " = require(\"" .. used .. "\")"
   end
   lines[#lines + 1] = "local record M\n  uses: {any}\nend"
   local names: mut {string} = {}
-  for index = 1, #uses do names[#names + 1] = "m" .. index end
+  for index = 1, #uses do names[#names + 1] = "m" .. tostring(index) end
   lines[#lines + 1] = "M.uses = { " .. table.concat(names, ", ") .. " }"
   lines[#lines + 1] = "return M"
   return table.concat(lines, "\n") .. "\n"
@@ -140,7 +140,7 @@ local function requires_of_fixture(root: string, path: string): {string}?, strin
   end
   for _, m in ipairs(result.modules) do
     if m.path == path then
-      return m.requires
+      return m.requires, ""
     end
   end
   return nil, path .. ": not found among compiled modules"
@@ -402,7 +402,7 @@ local function test_a_module_moved_to_its_init_file_is_compiled_again()
   assert(Fs.rename(root .. "/x.tl", root .. "/x/init.tl"))
   local result = assert(compile_fixture(root))
   assert(result.compiled == 1 and result.cached == 1,
-    result.compiled .. " compiled, " .. result.cached .. " cached")
+    tostring(result.compiled) .. " compiled, " .. tostring(result.cached) .. " cached")
   local function by_path(modules: {importer.Module}, path: string): importer.Module
     for _, m in ipairs(modules) do
       if m.path == path then return m end
@@ -616,7 +616,7 @@ local function test_ignores_a_require_inside_a_comment_and_a_string()
   local requires, trouble = requires_of_fixture(root, "main")
   assert(requires ~= nil, "compile failed: " .. tostring(trouble))
   assert(#requires == 0,
-    "expected no requires, got " .. #requires .. ": " .. table.concat(requires, ", "))
+    "expected no requires, got " .. tostring(#requires) .. ": " .. table.concat(requires, ", "))
 end
 
 --- A genuine top-level require of a real sibling module is found.
@@ -628,7 +628,7 @@ local function test_finds_a_real_top_level_require()
   assert(root ~= nil, "could not write fixture: " .. tostring(write_trouble))
   local requires, trouble = requires_of_fixture(root, "main")
   assert(requires ~= nil, "compile failed: " .. tostring(trouble))
-  assert(#requires == 1, "expected 1 require, got " .. #requires)
+  assert(#requires == 1, "expected 1 require, got " .. tostring(#requires))
   assert(requires[1] == "real_dep", "got: " .. tostring(requires[1]))
 end
 
@@ -1007,7 +1007,7 @@ local function test_uses_of_a_record_field_follow_the_value_s_type()
     local uses = assert(docs.uses(view, query))
     local lines: mut {string} = {}
     for _, use in ipairs(uses) do
-      lines[#lines + 1] = use.from_file .. ":" .. use.line
+      lines[#lines + 1] = use.from_file .. ":" .. tostring(use.line)
     end
     assert(table.concat(lines, " ") == "main.tl:7 main.tl:8",
       query .. ": " .. table.concat(lines, " "))
@@ -1864,7 +1864,7 @@ local function test_a_passing_unjudged_compile_is_cached()
   work.close(handle)
   assert(result ~= nil, trouble)
   assert(result.compiled == 0 and result.cached == unjudged.compiled,
-    result.compiled .. " compiled, " .. result.cached .. " cached")
+    tostring(result.compiled) .. " compiled, " .. tostring(result.cached) .. " cached")
 end
 
 --- A declaration of what a test reads holds for its own module's tests,
@@ -1943,7 +1943,7 @@ local function test_a_compile_sweeps_the_uses_of_a_vanished_compile()
     "INSERT INTO typed_refs (key, ordinal, module, member, line) " ..
       "VALUES ('no-such-compile', 1, 'shapes', 'Box.width', 3)"))
   local again = compiled_clean(handle)
-  assert(again.compiled == 0, again.compiled .. " compiled on a warm run")
+  assert(again.compiled == 0, tostring(again.compiled) .. " compiled on a warm run")
   assert(count_of(handle.db,
     "SELECT count(*) FROM typed_refs WHERE key = 'no-such-compile'") == 0,
     "the uses of a vanished compile were kept")
