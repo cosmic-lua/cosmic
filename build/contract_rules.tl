@@ -159,7 +159,7 @@ end
 --- @param kind the module's kind as the importer staged it
 --- @param generated whether a generator wrote it
 function rules.applies(kind: string, generated?: boolean): boolean
-  return (kind == "module" or kind == "main") and not generated
+  return (kind == "module" or kind == "main") and generated ~= true
 end
 
 return rules

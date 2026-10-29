@@ -296,7 +296,7 @@ function generate.prose(source: string): string
       kept[#kept + 1] = line
     elseif line:match("^<!%-%- policy:.*%-%->%s*$") then
       -- Renders as nothing.
-    elseif not titled and line:match("^#%s") then
+    elseif not titled and line:match("^#%s") ~= nil then
       titled = true
     else
       if line ~= "" then titled = true end

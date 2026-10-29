@@ -526,7 +526,7 @@ local function extract_streamed(file: string, source: Stream.Reader, dest: strin
   local function record(entry: Archive.Entry)
     local name = normal(entry.path)
     for slot, member in ipairs(wanted) do
-      if not found[slot] and under(name, member) then found[slot] = true end
+      if found[slot] ~= true and under(name, member) then found[slot] = true end
     end
     if not force then
       local clash = clash_of(entry, dest, selected)
@@ -575,7 +575,7 @@ local function extract_streamed(file: string, source: Stream.Reader, dest: strin
   end
   local missing: mut {string} = {}
   for slot, member in ipairs(wanted) do
-    if not found[slot] then missing[#missing + 1] = member end
+    if found[slot] ~= true then missing[#missing + 1] = member end
   end
   if #missing > 0 then
     return give_up(fail(bare.failed, file .. ": no such member: " .. table.concat(missing, ", ")))
@@ -732,7 +732,7 @@ local function gather(paths: {string}, skip_file: string?): {Item}?, Outcome
       if trouble ~= nil then return nil, trouble end
     end
     local rooted, _ = Fs.is_dir(given)
-    if (root and rooted) or (not root and by_name[name].kind == "dir") then
+    if (root and rooted == true) or (not root and by_name[name].kind == "dir") then
       local record Seen
         relative: string
         kind: string
@@ -795,7 +795,7 @@ local function create(out: string, paths: {string}, reproducible: boolean, to: v
   if format == nil then return fail(bare.refused, bare_message(format_why)) end
   local skip_file: string?
   local present, _ = Fs.exists(out)
-  if present then
+  if present == true then
     local resolved, _ = Fs.absolute(out)
     skip_file = resolved
   end
@@ -863,7 +863,7 @@ function verb.run(argv: {string}, io?: verb.Io): integer
   local words = flags.words
   local action = words[1]
   local function only(option: string, actions: {string}): boolean
-    if not flags.set[option] and flags.values[option] == nil then return true end
+    if flags.set[option] ~= true and flags.values[option] == nil then return true end
     for _, name in ipairs(actions) do
       if name == action then return true end
     end

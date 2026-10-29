@@ -340,7 +340,11 @@ local stmt: function(Gen, Vis, integer)
 local function block(g: Gen, v: Vis, depth: integer, max: integer, facts?: Cond, negated?: boolean)
   local inner = nest(v)
   if facts then
-    if negated then learn(inner, facts.no, facts.rno) else learn(inner, facts.yes, facts.ryes) end
+    if negated == true then
+      learn(inner, facts.no, facts.rno)
+    else
+      learn(inner, facts.yes, facts.ryes)
+    end
   end
   g.depth = g.depth + 1
   local n = 0
@@ -818,7 +822,7 @@ local function loop(g: Gen, v: Vis, depth: integer, kind?: integer, labelled?: b
   if k == 6 then k = 2 end
   local i = fresh(g, "i")
   local label: string? = nil
-  if labelled or g.src:int(0, 2) > 0 then label = fresh(g, "next") end
+  if labelled == true or g.src:int(0, 2) > 0 then label = fresh(g, "next") end
   if k == 0 then
     local c = cond(g, v, 1)
     add(g, "local " .. i .. " = 0")

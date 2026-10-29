@@ -108,7 +108,7 @@ local unsafe_keys <const>: {string: boolean} = {
 --- Whether `key` may be written bare: an identifier YAML reads as its
 --- text.
 function flow.bare(key: string): boolean
-  return key:match("^[%a_$][%w_$]*$") ~= nil and not unsafe_keys[key:lower()]
+  return key:match("^[%a_$][%w_$]*$") ~= nil and unsafe_keys[key:lower()] ~= true
 end
 
 --- The escapes a double-quoted string may hold, which the two read
@@ -176,7 +176,7 @@ local function scan(text: string, comments: mut {string}): {string}
   local function key(name: string)
     local keys = open[#open]
     if keys is {string: boolean} then
-      if keys[name] then say("the key " .. name .. " twice in one object") end
+      if keys[name] == true then say("the key " .. name .. " twice in one object") end
       keys[name] = true
     end
   end
@@ -214,9 +214,9 @@ local function scan(text: string, comments: mut {string}): {string}
         elseif d == "\\" then
           local e = text:sub(i + 1, i + 1)
           local hex = text:sub(i + 2, i + 5)
-          if not ESCAPES[e] or (e == "u" and not hex:match("^%x%x%x%x$")) then
+          if ESCAPES[e] ~= true or (e == "u" and not hex:match("^%x%x%x%x$")) then
             say("the escape \\" .. e .. ", which the two read differently: write \\uXXXX")
-          elseif e == "u" and hex:upper():match("^D[89A-F]") then
+          elseif e == "u" and hex:upper():match("^D[89A-F]") ~= nil then
             say("the escape \\u" .. hex .. ", half a surrogate pair: write the character itself")
           end
           i = i + 1
@@ -230,7 +230,7 @@ local function scan(text: string, comments: mut {string}): {string}
         if name == "<<" then say("the key <<, which YAML 1.1 reads as a merge") end
         if name is string then key(name) end
       end
-    elseif c == "/" and text:sub(i + 1, i + 1):match("[/*]") then
+    elseif c == "/" and text:sub(i + 1, i + 1):match("[/*]") ~= nil then
       local opening = text:sub(i, i + 1)
       say("a " .. opening .. " comment, which YAML does not have: write #")
       -- Past the comment, so what it holds is not read as tokens.
@@ -264,7 +264,7 @@ local function scan(text: string, comments: mut {string}): {string}
           key(word)
         end
       elseif word ~= "true" and word ~= "false" and word ~= "null" and
-          not (word:match("^%-?[1-9]%d*$") and #word:gsub("^%-", "") <= 15) and word ~= "0" then
+          (word:match("^%-?[1-9]%d*$") and #word:gsub("^%-", "") <= 15) ~= true and word ~= "0" then
         say("the bare value " .. word .. ": quote it, or write a decimal integer of at most 15 digits")
       end
     else
@@ -571,7 +571,7 @@ local function one_line(node: flow.Node, column: integer, after: integer): boole
   if node.comment ~= nil or #tidy(node.tail, true, true) > 0 then return false end
   local items = members(node)
   if #items == 0 then return true end
-  if not node.inline then return false end
+  if node.inline ~= true then return false end
   for _, item in ipairs(items) do
     if item.comment ~= nil or #tidy(item.before, true, true) > 0 or not one_line(item.value, 0, 0) then
       return false
@@ -806,7 +806,7 @@ function flow.set(node: flow.Node, key: string | integer, new: flow.Node)
       end
     end
     items[#items + 1] = { key = key, value = new, before = {} }
-    if node.inline then node.width = node.width or 100 end
+    if node.inline == true then node.width = node.width or 100 end
   elseif node.kind == "array" and key is integer and key >= 1 and key <= #members(node) + 1 then
     local items = members(node)
     local member = items[key]
@@ -815,7 +815,7 @@ function flow.set(node: flow.Node, key: string | integer, new: flow.Node)
     else
       items[key] = { value = new, before = {} }
     end
-    if node.inline then node.width = node.width or 100 end
+    if node.inline == true then node.width = node.width or 100 end
   else
     error("flow.set: " .. tostring(key) .. " is no member a " .. tostring(node.kind) .. " can have", 2)
   end
@@ -960,7 +960,7 @@ local function update(node: flow.Node, value: any, o: flow.Options, depth: integ
       end
     end
     for _, key in ipairs(ordered(value, o)) do
-      if not seen[key] then
+      if seen[key] ~= true then
         kept[#kept + 1] = { key = key, value = build(value[key], o, depth + 1), before = {} }
       end
     end
@@ -968,7 +968,7 @@ local function update(node: flow.Node, value: any, o: flow.Options, depth: integ
   node.items = kept
   -- One written on one line and changed stays there only while it
   -- fits; one left as it was keeps its line, however long.
-  if node.inline and inline_text(node) ~= was then node.width = o.width or 100 end
+  if node.inline == true and inline_text(node) ~= was then node.width = o.width or 100 end
   return node
 end
 

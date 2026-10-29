@@ -161,7 +161,7 @@ local function once_each(lists: {{symbol_index.Row}}): mut {symbol_index.Row}
   for _, list in ipairs(lists) do
     for _, row in ipairs(list) do
       local full = row.module .. "\n" .. row.symbol
-      if not seen[full] then
+      if seen[full] ~= true then
         seen[full] = true
         out[#out + 1] = row
       end
@@ -272,7 +272,7 @@ end
 --- The symbols `query`, a name with a `.` or a `:`, names.
 function symbol_index.named(index: symbol_index.Index, query: string): {link_resolve.Symbol}
   local lists = named_rows(index, query)
-  if #once_each(lists) == 0 and index.modules[query] and index.first[query] ~= nil then
+  if #once_each(lists) == 0 and index.modules[query] == true and index.first[query] ~= nil then
     lists[#lists + 1] = { index.first[query] }
   end
   local modules: mut {string} = {}
@@ -281,7 +281,7 @@ function symbol_index.named(index: symbol_index.Index, query: string): {link_res
     local dot = query:find(".", at, true)
     if dot == nil then break end
     local module = query:sub(1, dot - 1)
-    if index.modules[module] then
+    if index.modules[module] == true then
       modules[#modules + 1] = module
       lists[#lists + 1] = index.members[module .. "\n" .. (query:sub(dot + 1):gsub(":", "."))] or {}
     end

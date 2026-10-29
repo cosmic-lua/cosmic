@@ -240,7 +240,7 @@ local formats: {string:dataset.Format} = {
       "of anything else a `value` column, and any other value one row",
     extensions = { "json" },
     read = function(text: string, opts: dataset.ReadOptions): dataset.Rows?, string
-      if opts.raw then
+      if opts.raw == true then
         return refuse("the json format has no raw cells: its values are typed by JSON")
       end
       local document, trouble = Json.decode(text, { null_value = Json.null })
@@ -261,7 +261,7 @@ local formats: {string:dataset.Format} = {
       if opts.at ~= nil then
         return refuse("the ndjson format takes no path: each line is a row")
       end
-      if opts.raw then
+      if opts.raw == true then
         return refuse("the ndjson format has no raw cells: its values are typed by JSON")
       end
       local values, trouble = Json.decode_lines(text, { null_value = Json.null })
@@ -368,7 +368,7 @@ local function columns_of(rows: {dataset.Row}, first: {string}?): {string}, {str
   local seen: mut {string:boolean} = {}
   local keys: mut {string} = {}
   for _, key in ipairs(first or {}) do
-    if not seen[key] then
+    if seen[key] ~= true then
       seen[key] = true
       keys[#keys + 1] = key
     end
@@ -376,7 +376,7 @@ local function columns_of(rows: {dataset.Row}, first: {string}?): {string}, {str
   local rest: mut {string} = {}
   for _, row in ipairs(rows) do
     for key in pairs(row) do
-      if not seen[key] then
+      if seen[key] ~= true then
         seen[key] = true
         rest[#rest + 1] = key
       end
