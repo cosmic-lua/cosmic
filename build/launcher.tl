@@ -52,10 +52,36 @@ case $0 in
   *) cosmic_artifact=$PWD/$0 ;;
 esac
 
-case "$(uname -sm)" in
+portable_system=$(uname -sm)
+case "$portable_system" in
 @TARGETS@
   *) portable_die 'unsupported target' ;;
 esac
+# The x86_64 Linux core is built for x86-64-v3 and dies with SIGILL on an
+# older CPU, so refuse before anything is extracted. The kernel clears a
+# flag its OS support is missing from (avx without XSAVE state enabled), so
+# the flags answer for the OS too. A host that shows no flags line (no
+# /proc) is not refused: the check cannot tell, and the core may well run.
+portable_cpuinfo=@CPUINFO@
+portable_require_x86_64_v3() {
+  portable_flags=
+  while IFS= read -r portable_line; do
+    case $portable_line in
+      flags*) portable_flags=" ${portable_line#*:} "; break ;;
+    esac
+  done 2>/dev/null < "$portable_cpuinfo"
+  [ -n "$portable_flags" ] || return 0
+  portable_missing=
+  for portable_flag in avx avx2 fma bmi1 bmi2 movbe f16c abm xsave; do
+    case $portable_flags in
+      *" $portable_flag "*) ;;
+      *) portable_missing="$portable_missing $portable_flag" ;;
+    esac
+  done
+  [ -z "$portable_missing" ] ||
+    portable_die "this CPU lacks${portable_missing}; the x86_64 core needs x86-64-v3 (Intel Haswell 2013 or AMD Excavator 2015 or newer)"
+}
+[ "$portable_system" != 'Linux x86_64' ] || portable_require_x86_64_v3
 @SELECT_HOOK@
 
 # Keep this open across extraction and exec: startup adopts this descriptor,
@@ -486,6 +512,8 @@ local shipped = without_comments(template)
 function launcher.render(arms: string, test_hooks: boolean): string
   local rendered = substitute(shipped, "@TARGETS@", arms)
   if test_hooks then
+    rendered = substitute(rendered, "@CPUINFO@",
+      '"${COSMIC_PORTABLE_TEST_CPUINFO-/proc/cpuinfo}"')
     rendered = substitute(rendered, "@SELECT_HOOK@",
       "portable_test_hook after_select")
     rendered = substitute(rendered, "@ADOPT_HOOK@",
@@ -498,6 +526,7 @@ function launcher.render(arms: string, test_hooks: boolean): string
       "  portable_test_hook before_publish")
     rendered = rendered:gsub("portable_die%(%) %{", test_hook_function .. "\nportable_die() {")
   else
+    rendered = substitute(rendered, "@CPUINFO@", "/proc/cpuinfo")
     rendered = substitute(rendered, "@SELECT_HOOK@", "")
     rendered = substitute(rendered, "@ADOPT_HOOK@", "")
     rendered = substitute(rendered, "@REPAIR_HOOK@", "")

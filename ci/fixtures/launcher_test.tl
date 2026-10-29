@@ -467,5 +467,45 @@ exit "$result"
     "payload signal was not passed through")
 end
 
+-- The x86_64 core is built for x86-64-v3: the launcher names what an older
+-- CPU lacks and exits 126 before it makes the cache or extracts a core. The
+-- fixture launcher reads COSMIC_PORTABLE_TEST_CPUINFO where the release one
+-- reads /proc/cpuinfo (build/launcher.tl).
+local function test_launcher_refuses_a_cpu_below_x86_64_v3(tmp: string)
+  local ctx = setup(tmp)
+  if ctx.target ~= "x86_64-linux-musl" then
+    Test.skip("only the x86_64 Linux launcher checks the CPU")
+    return
+  end
+  local function cpuinfo(name: string, flags: string): {string:string}
+    local path = ctx.work .. "/" .. name
+    Fixture.write(path, "processor\t: 0\nvendor_id\t: Test\nflags\t\t: " .. flags ..
+        "\nvmx flags\t: ept\n\nprocessor\t: 1\nflags\t\t: sse2\n")
+    return { COSMIC_PORTABLE_TEST_CPUINFO = path }
+  end
+  local v3 = "fpu sse4_2 avx avx2 fma bmi1 bmi2 movbe f16c abm xsave"
+
+  local old = ctx.work .. "/old-cache"
+  local refused = run(ctx, "cpu-old", old, cpuinfo("old", "fpu sse4_2 avx xsave abm"))
+  assert(not refused.result.ok and refused.result.code == 126,
+    "a CPU below x86-64-v3 was not refused with 126")
+  Fixture.contains(refused.err,
+    "cosmic portable: this CPU lacks avx2 fma bmi1 bmi2 movbe f16c;")
+  assert(sys.lstat(old) == nil, "a refused launch made the cache")
+
+  -- Each feature counts, whole: "avx2" does not stand for "avx", nor
+  -- "bmi1" for "bmi2".
+  local bit = run(ctx, "cpu-no-bmi2", ctx.work .. "/bit-cache",
+    cpuinfo("bit", (v3:gsub(" bmi2", ""))))
+  assert(not bit.result.ok, "a CPU without bmi2 was not refused")
+  Fixture.contains(bit.err, "this CPU lacks bmi2;")
+
+  outcome_ok(run(ctx, "cpu-v3", ctx.work .. "/v3-cache", cpuinfo("v3", v3)),
+    "a CPU with x86-64-v3")
+  -- Nothing to read (no /proc): the check cannot tell and does not refuse.
+  outcome_ok(run(ctx, "cpu-unknown", ctx.work .. "/unknown-cache",
+    { COSMIC_PORTABLE_TEST_CPUINFO = ctx.work .. "/absent" }), "an unreadable cpuinfo")
+end
+
 -- The noexec case, which needs the host's own noexec mount, is
 -- launcher_noexec_test.tl's.
