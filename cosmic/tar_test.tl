@@ -363,12 +363,12 @@ local function test_global_pax_headers_keep_only_the_keys_the_reader_uses()
   local big = string.rep("v", 256 * 1024)
   for i = 1, 40 do
     local rec = pax_rec("comment." .. tostring(i), big)
-    parts[#parts + 1] = header("PaxHeaders/g", "g", #rec) .. padded(rec)
+    table.insert(parts, header("PaxHeaders/g", "g", #rec) .. padded(rec))
   end
   local sparse = pax_rec("GNU.sparse.name", "x")
   local mtime = pax_rec("mtime", "12345")
-  parts[#parts + 1] = header("PaxHeaders/g", "g", #sparse + #mtime) .. padded(sparse .. mtime)
-  parts[#parts + 1] = header("f", "0", 0) .. END
+  table.insert(parts, header("PaxHeaders/g", "g", #sparse + #mtime) .. padded(sparse .. mtime))
+  table.insert(parts, header("f", "0", 0) .. END)
   local r = Tar.reader(Stream.from_string(table.concat(parts)))
   parts = nil
   collectgarbage()

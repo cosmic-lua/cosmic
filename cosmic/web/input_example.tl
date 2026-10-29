@@ -171,7 +171,8 @@ function Example.upload()
         local avatars = assert(assert(Input.multipart(req).value).files["avatar"])
         local avatar = assert(avatars[1])
         assert(avatar.path:find(avatar.filename, 1, true) == nil, "the client's name is no part of the path")
-        kept[#kept + 1] = assert(Fs.read(avatar.path))
+        local appended = assert(Fs.read(avatar.path))
+        kept[#kept + 1] = appended
         return Web.text(form.display_name .. ":" .. avatar.filename .. (":%d"):format(avatar.size))
       end, { input_options = { max_file_bytes = 1024 } }),
   } }

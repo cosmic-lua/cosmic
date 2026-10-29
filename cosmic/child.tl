@@ -1147,7 +1147,7 @@ local function pump(entries: mut {Entry}, timeout_ns: integer,
   -- holding the thread in a task, draining it, would take the wake from
   -- a task waiting on it (`g:wait`) before the run could tell it.
   if signalled == true and Innermost.active() ~= nil and (in_run or not Poll.in_task()) then
-    entries[#entries + 1] = { fd = raw.child_signal_fd(), events = sys.POLLIN, kind = "wake" }
+    table.insert(entries, { fd = raw.child_signal_fd(), events = sys.POLLIN, kind = "wake" })
   end
   local fds: mut {integer} = {}
   local events: mut {integer} = {}

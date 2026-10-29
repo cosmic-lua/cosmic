@@ -953,7 +953,7 @@ local class LineReader is Stream.Lines
       if at <= #chunk then
         self.held = self.held + #chunk - at + 1
         if self.held > limit then return fail(self, too_long(self)) end
-        self.parts[#self.parts + 1] = at == 1 and chunk or chunk:sub(at)
+        table.insert(self.parts, at == 1 and chunk or chunk:sub(at))
       end
       self.chunk, self.at = "", 1
       if self.ended then
@@ -1364,7 +1364,7 @@ local function feed(self: TransformWriter, data: string): boolean, string
   end
   if hold == 0 then return true, "" end
   local held = self.held
-  held[#held + 1] = table.concat(parts)
+  table.insert(held, table.concat(parts))
   -- This write went through: the oldest held write is now safe to release.
   if #held > hold then return emit(self, table.remove(held, 1)) end
   return true, ""

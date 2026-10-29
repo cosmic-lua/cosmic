@@ -239,7 +239,7 @@ local function layout(root: string): string
         lines[#lines + 1] = path .. "/"
         walk(path)
       else
-        lines[#lines + 1] = path .. " = " .. assert(Fs.read(root .. path))
+        table.insert(lines, path .. " = " .. assert(Fs.read(root .. path)))
       end
     end
   end

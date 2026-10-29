@@ -326,7 +326,7 @@ local function line_of(token: integer): integer
 end
 
 local function refuse(code: Codegen.Code, token: integer, msg: string, fix: string)
-  G.errors[#G.errors + 1] = { code = code, msg = msg, fix = fix, y = Lexer.y(G.tokens, token), x = Lexer.x(G.tokens, token) }
+  table.insert(G.errors, { code = code, msg = msg, fix = fix, y = Lexer.y(G.tokens, token), x = Lexer.x(G.tokens, token) })
 end
 
 --- The words Lua 5.5 reserves that the grammar lets name a field, a key or a function of a record.

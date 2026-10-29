@@ -1453,9 +1453,9 @@ function Relay.start(spec: Relay.Spec): Relay.Serving
   end
   local function listen(listener: Net.Listener?, protocol: string)
     if listener ~= nil then
-      run.acceptors[#run.acceptors + 1] = Poll.spawn(function()
+      table.insert(run.acceptors, Poll.spawn(function()
         accept_loop(run, listener, protocol)
-      end)
+      end))
     end
   end
   listen(spec.http, "connect")

@@ -548,7 +548,8 @@ local function test_in_a_run_a_server_serves_connections_at_once()
     end
     for i = 3, 1, -1 do
       assert(clients[i]:write("c" .. tostring(i) .. "\n"))
-      answered[#answered + 1] = assert(Stream.lines(clients[i]):read())
+      local appended = assert(Stream.lines(clients[i]):read())
+      answered[#answered + 1] = appended
       assert(clients[i]:close())
     end
   end)

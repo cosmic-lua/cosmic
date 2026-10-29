@@ -382,9 +382,9 @@ local function bind(argument: Arg, values: mut {Sqlite.Value}): string
     local null: Sqlite.Value = {}
     values[#values + 1] = null
   elseif k == "i" then
-    values[#values + 1] = { integer = to_int(argument.payload) }
+    table.insert(values, { integer = to_int(argument.payload) })
   elseif k == "t" then
-    values[#values + 1] = { text = render_text(argument.payload) }
+    table.insert(values, { text = render_text(argument.payload) })
   elseif k == "x" then
     values[#values + 1] = { text = argument.payload }
   else
@@ -1153,7 +1153,7 @@ local function check_search(input: string): boolean, string
     corpus:add(id, Vector.pack(numbers))
     rows[#rows + 1] = numbers
     if allow == nil or allowed[id] == true then
-      pool[#pool + 1] = { id = id, key = key_of(metric, numbers, query), row = #rows }
+      table.insert(pool, { id = id, key = key_of(metric, numbers, query), row = #rows })
     end
   end
   if corpus:count() ~= #rows then return false, "count is " .. tostring(corpus:count()) end

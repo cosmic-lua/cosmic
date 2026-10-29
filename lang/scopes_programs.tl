@@ -44,7 +44,8 @@ end
 
 local function add(g: Gen, ...: string)
   for i = 1, select("#", ...) do
-    g.out[#g.out + 1] = (select(i, ...))
+    local appended = (select(i, ...))
+    g.out[#g.out + 1] = appended
   end
 end
 

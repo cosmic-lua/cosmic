@@ -17,7 +17,7 @@ local function fake(name: string, log: mut {string}, hold_ns?: integer, dies?: b
   local ended = { value = gone or false }
   local stand_in: any = {
     connect = function(_: any, address: Net.Address, opts: Net.ConnectOptions): any, string
-      log[#log + 1] = name .. " " .. assert(address.host) .. " " .. tostring(assert(opts.timeout_ns))
+      table.insert(log, name .. " " .. assert(address.host) .. " " .. tostring(assert(opts.timeout_ns)))
       if hold > 0 then
         local waited, why = Poll.delay(hold)
         if not waited then return nil, why end

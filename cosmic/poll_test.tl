@@ -854,23 +854,23 @@ local function test_waits_sharing_descriptors_come_and_go(tmp: string)
         for r = 1, 3 do
           waiting[i][r] = Poll.spawn(function()
             local ok, why = Poll.readable(readers[i], Clock.seconds(5))
-            seen[#seen + 1] = tostring(i) .. "r" .. tostring(r) .. (if ok then "" else " " .. why end)
+            table.insert(seen, tostring(i) .. "r" .. tostring(r) .. (if ok then "" else " " .. why end))
           end)
         end
         Poll.spawn(function()
           -- The writer is writable, but this wait does not ask that.
           answers[i] = assert(Poll.ready({ readers[i], writers[i] }, { sys.POLLIN, 0 }, Clock.seconds(5)))
-          seen[#seen + 1] = tostring(i) .. "q"
+          table.insert(seen, tostring(i) .. "q")
         end)
         Poll.spawn(function()
           assert(Poll.writable(writers[i], Clock.seconds(5)))
-          seen[#seen + 1] = tostring(i) .. "w"
+          table.insert(seen, tostring(i) .. "w")
         end)
       end
       assert(Poll.delay(0))
       assert(Poll.delay(0))
       local expected: mut {string} = {}
-      for i = 1, count do expected[#expected + 1] = tostring(i) .. "w" end
+      for i = 1, count do table.insert(expected, tostring(i) .. "w") end
       assert(table.concat(seen, ",") == table.concat(expected, ","), table.concat(seen, ","))
       seen, expected = {}, {}
       -- A cancel or a closing answers its waits at once, a write at the
@@ -901,9 +901,9 @@ local function test_waits_sharing_descriptors_come_and_go(tmp: string)
         local how = (i + round) % 3
         if how == 0 then
           assert(sys.write(writers[i], "x") == 1)
-          expected[#expected + 1] = tostring(i) .. "r1"
-          expected[#expected + 1] = tostring(i) .. "r3"
-          expected[#expected + 1] = tostring(i) .. "q"
+          table.insert(expected, tostring(i) .. "r1")
+          table.insert(expected, tostring(i) .. "r3")
+          table.insert(expected, tostring(i) .. "q")
         end
       end
       assert(Poll.delay(0))
@@ -959,17 +959,17 @@ local function test_a_shielded_wait_outlasts_a_cancel()
     local shielded = Poll.spawn(function()
       Poll.shielded(function()
         local ok, why = Poll.delay(Clock.ms(30))
-        seen[#seen + 1] = "delay " .. tostring(ok) .. why
+        table.insert(seen, "delay " .. tostring(ok) .. why)
         Poll.shielded(function()
           local inner_ok, inner_why = Poll.delay(0)
-          seen[#seen + 1] = "nested " .. tostring(inner_ok) .. inner_why
+          table.insert(seen, "nested " .. tostring(inner_ok) .. inner_why)
         end)
         ok, why = Poll.delay(0)
-        seen[#seen + 1] = "after nested " .. tostring(ok) .. why
+        table.insert(seen, "after nested " .. tostring(ok) .. why)
       end)
       raises(function() Poll.shielded(function() error("inside", 0) end) end, "inside")
       local ok, why = Poll.delay(Clock.ms(30))
-      seen[#seen + 1] = "after " .. tostring(ok) .. " " .. why
+      table.insert(seen, "after " .. tostring(ok) .. " " .. why)
     end)
     assert(Poll.delay(0))
     shielded:cancel()
@@ -1284,7 +1284,8 @@ local function test_a_queue_pattern_loses_no_item()
     local consumer = Poll.spawn(function()
       while #got < 3 do
         while #queue == 0 do assert(notifier:wait(Clock.seconds(30))) end
-        got[#got + 1] = table.remove(queue, 1)
+        local appended = table.remove(queue, 1)
+        got[#got + 1] = appended
       end
     end)
     -- Queued before the consumer first waits, and in a burst.
@@ -1398,7 +1399,7 @@ local function test_a_notice_beats_a_timeout_reached_in_the_same_tick()
     local notifier = Poll.notifier()
     local task = Poll.spawn(function()
       local ok, why = notifier:wait(Clock.ms(2))
-      answers[#answers + 1] = tostring(ok) .. ":" .. why
+      table.insert(answers, tostring(ok) .. ":" .. why)
     end)
     assert(Poll.delay(0))
     -- Past the deadline, but not yet expired by the run.
@@ -1418,7 +1419,7 @@ local function test_a_timeout_beats_a_notice_sent_in_the_same_tick()
     local notifier = Poll.notifier()
     local task = Poll.spawn(function()
       local ok, why = notifier:wait(Clock.ms(5))
-      answers[#answers + 1] = tostring(ok) .. ":" .. why
+      table.insert(answers, tostring(ok) .. ":" .. why)
     end)
     local sender = Poll.spawn(function()
       assert(Poll.delay(Clock.ms(5)))

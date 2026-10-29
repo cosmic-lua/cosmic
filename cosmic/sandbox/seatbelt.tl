@@ -305,7 +305,7 @@ function Seatbelt.compile(policy: rules.Policy, options?: Seatbelt.Options): Sea
   if relay_port ~= nil then
     -- `localhost` is ::1 at the port as well: the start holds the port
     -- there too ([`cosmic.internal.relay_start`]'s `loopback_listeners`).
-    text[#text + 1] = '(allow network-outbound (remote tcp "localhost:' .. tostring(relay_port) .. '"))'
+    table.insert(text, '(allow network-outbound (remote tcp "localhost:' .. tostring(relay_port) .. '"))')
   end
   if serves ~= nil then
     if math.type(serves) ~= "integer" or serves < 1 or serves > 65535 then
@@ -316,7 +316,7 @@ function Seatbelt.compile(policy: rules.Policy, options?: Seatbelt.Options): Sea
     -- c-ares reads the system's name servers from configd's DNS
     -- configuration, through this one service.
     text[#text + 1] = '(allow network-outbound (remote ip "*:*"))'
-    text[#text + 1] = '(allow network-inbound (local tcp "localhost:' .. tostring(serves) .. '"))'
+    table.insert(text, '(allow network-inbound (local tcp "localhost:' .. tostring(serves) .. '"))')
     text[#text + 1] = '(allow mach-lookup (global-name "com.apple.SystemConfiguration.DNSConfiguration"))'
   end
   local limits = merged.limits or {}

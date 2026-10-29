@@ -545,7 +545,7 @@ local function test_a_value_at_the_depth_limit_survives_and_one_past_it_raises_a
           local s = Session.of(req)
           s:set("ok", nest(Session.MAX_DEPTH - 1))
           local ran, why = pcall(function() s:set("too", nest(Session.MAX_DEPTH)) end)
-          reasons[#reasons + 1] = if ran then "no error" else tostring(why) end
+          table.insert(reasons, if ran then "no error" else tostring(why) end)
           return Web.text("ok")
         end),
         Web.get("/has/:key", function(req: Web.Request): Web.Response
@@ -570,7 +570,7 @@ local function test_a_flash_that_is_not_utf8_raises_at_the_call()
     middleware = { Session.middleware(options(cookie_store())) },
     routes = { Web.post("/f", function(req: Web.Request): Web.Response
       local ran, why = pcall(function() Session.of(req):flash("info", "bad \xff text") end)
-      reasons[#reasons + 1] = if ran then "no error" else tostring(why) end
+      table.insert(reasons, if ran then "no error" else tostring(why) end)
       return Web.text("ok")
     end) },
   }

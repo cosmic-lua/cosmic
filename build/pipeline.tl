@@ -483,7 +483,7 @@ function Pipeline.pinned(ceilings: Ceilings.Table): {string: string}
       local file = key:match("^(%S+)") or key
       local list = lines[file] or {}
       lines[file] = list
-      list[#list + 1] = stage .. " " .. key .. " " .. tostring(count)
+      table.insert(list, stage .. " " .. key .. " " .. tostring(count))
     end
   end
   local out: mut {string: string} = {}
