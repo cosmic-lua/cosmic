@@ -114,9 +114,9 @@ end
 
 local function test_the_client_carries_bytes_both_ways_with_the_half_close(tmp: string)
   local ran, heard = serving(function(port: integer, _: {string}): Ran
-    return verb(tmp, client("127.0.0.2:" .. port, "127.0.0.2", port), "ping")
+    return verb(tmp, client("127.0.0.2:" .. tostring(port), "127.0.0.2", port), "ping")
   end)
-  assert(ran.code == 0, ran.code .. ": " .. ran.err)
+  assert(ran.code == 0, tostring(ran.code) .. ": " .. ran.err)
   -- The server answered only after the end of what was sent, which is the
   -- half-close, and the client's standard output ended with its end.
   assert(ran.out == "echo:ping", "the output: " .. ran.out)
@@ -128,24 +128,24 @@ end
 
 local function test_a_port_nothing_grants_exits_1_and_the_relay_says_the_remedy(tmp: string)
   local ran, _, granted = serving(function(at: integer, _: {string}): Ran
-    return verb(tmp, client("127.0.0.2:" .. at, "127.0.0.2", at + 1), "never sent")
+    return verb(tmp, client("127.0.0.2:" .. tostring(at), "127.0.0.2", at + 1), "never sent")
   end)
   local port = granted + 1
-  assert(ran.code == 1, ran.code .. ": " .. ran.err)
+  assert(ran.code == 1, tostring(ran.code) .. ": " .. ran.err)
   assert(ran.out == "", ran.out)
   -- The relay's own line, on the verb's standard error, names the grant that
   -- would allow it; the client's, the reply's meaning.
-  assert(ran.err:find("not granted: --connect 127.0.0.2:" .. port, 1, true), ran.err)
-  assert(ran.err:find("sandbox connect: 127.0.0.2:" .. port .. ": connection not allowed by ruleset", 1, true), ran.err)
+  assert(ran.err:find("not granted: --connect 127.0.0.2:" .. tostring(port), 1, true), ran.err)
+  assert(ran.err:find("sandbox connect: 127.0.0.2:" .. tostring(port) .. ": connection not allowed by ruleset", 1, true), ran.err)
 end
 
 local function test_a_name_is_resolved_by_the_relay_and_never_by_the_program(tmp: string)
   local ran = serving(function(port: integer, _: {string}): Ran
     -- No name of this sandbox resolves: the relay is asked for a name and
     -- refuses it as it is not granted, and the program has no DNS to ask.
-    return verb(tmp, client("127.0.0.2:" .. port, "ungranted.example", 443), "")
+    return verb(tmp, client("127.0.0.2:" .. tostring(port), "ungranted.example", 443), "")
   end)
-  assert(ran.code == 1, ran.code .. ": " .. ran.err)
+  assert(ran.code == 1, tostring(ran.code) .. ": " .. ran.err)
   assert(ran.err:find("not granted: --connect ungranted.example:443", 1, true), ran.err)
 end
 
@@ -184,7 +184,7 @@ local function test_a_callers_https_proxy_is_the_relays_upstream(tmp: string)
       local _, _ = conn:close()
     end)
     local env = this_program.environment()
-    env.https_proxy = "http://127.0.0.2:" .. proxy
+    env.https_proxy = "http://127.0.0.2:" .. tostring(proxy)
     made.value = verb(tmp, client("through.example:443", "through.example", 443), "ping", env)
     task:cancel()
     assert(listener:close())

@@ -10,7 +10,7 @@ local function found(source: string, name: string): string
   local chunk, why = Node.parse(source, name)
   local out: mut {string} = {}
   for _, place in ipairs(Globals.found((assert(chunk, why)))) do
-    out[#out + 1] = place.line .. ":" .. place.column
+    out[#out + 1] = tostring(place.line) .. ":" .. tostring(place.column)
   end
   return table.concat(out, " ")
 end

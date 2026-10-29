@@ -395,7 +395,6 @@ build/pipeline_check.tl field_fixed 2
 
 build/pipeline_test.tl arms_differ 7
 
-build/pipeline_test.tl concat_type 1
 
 build/pipeline_test.tl field_fixed 1
 
@@ -6544,181 +6543,93 @@ test/sqlite_row_test.tl and_ternary 1
 
 # a number or a boolean concatenated: the rewrite writes `tostring`
 
-build/archive_test.tl concat_type 4
 
-build/artifact_test.tl concat_type 1
 
-build/assertions_test.tl concat_type 2
 
-build/bare_test.tl concat_type 5
 
-build/c/declared_types_test.tl concat_type 1
 
-build/c/rules_test.tl concat_type 9
 
-build/c/tree_test.tl concat_type 4
 
-build/c/variants_test.tl concat_type 2
 
-build/check_memo_test.tl concat_type 2
 
-build/closure_store_test.tl concat_type 1
 
-build/compile_test.tl concat_type 1
 
-build/confine_declared_types_test.tl concat_type 2
 
-build/core_image_test.tl concat_type 1
 
-build/coverage/syntax_lines_test.tl concat_type 1
 
-build/dataset_fuzz_test.tl concat_type 6
 
-build/dataset_test.tl concat_type 7
 
-build/declared_key_test.tl concat_type 1
 
-build/declared_types_test.tl concat_type 1
 
-build/dispatched_features_test.tl concat_type 6
 
-build/docs_project_test.tl concat_type 2
 
-build/docs_test.tl concat_type 10
 
-build/doctest/markdown_test.tl concat_type 7
 
-build/driver_test.tl concat_type 2
 
-build/embed_tool_test.tl concat_type 3
 
-build/example_checks_test.tl concat_type 2
 
-build/fetch_test.tl concat_type 3
 
-build/fetch_tool_test.tl concat_type 1
 
-build/fix/fix_test.tl concat_type 1
 
-build/flow_test.tl concat_type 1
 
-build/fuzz/fuzz_test.tl concat_type 2
 
-build/hash_sums_fuzz_test.tl concat_type 1
 
-build/hash_test.tl concat_type 4
 
-build/host_features_test.tl concat_type 2
 
-build/host_requires_test.tl concat_type 4
 
-build/importer_declared_types_test.tl concat_type 1
 
-build/importer_test.tl concat_type 10
 
-build/json_query_test.tl concat_type 1
 
-build/json_test.tl concat_type 2
 
-build/link_index_test.tl concat_type 4
 
-build/link_text_fuzz_test.tl concat_type 8
 
-build/links_test.tl concat_type 2
 
-build/policy_rules_test.tl concat_type 2
 
-build/rand_test.tl concat_type 1
 
-build/refresh_fuzz_test.tl concat_type 1
 
-build/refresh_store_test.tl concat_type 5
 
-build/roots_test.tl concat_type 1
 
-build/run_file_tool_test.tl concat_type 1
 
-build/runtime_checks_keys_test.tl concat_type 6
 
-build/runtime_checks_tool_test.tl concat_type 1
 
-build/sandbox_closure_tool_test.tl concat_type 3
 
-build/sandbox_connect_test.tl concat_type 9
 
-build/sandbox_connect_tool_test.tl concat_type 9
 
-build/sandbox_refusal_tool_test.tl concat_type 6
 
-build/sandbox_seal_tool_test.tl concat_type 11
 
-build/sandbox_test.tl concat_type 11
 
-build/sandbox_tool_test.tl concat_type 15
 
-build/shared_compiles_test.tl concat_type 1
 
-build/shared_parses_tool_test.tl concat_type 1
 
-build/shared_sqlite_test.tl concat_type 5
 
-build/shared_verdicts_test.tl concat_type 6
 
-build/shared_verdicts_tool_test.tl concat_type 2
 
-build/syntax_globals_test.tl concat_type 2
 
-build/syntax_links_test.tl concat_type 1
 
-build/syntax_node_test.tl concat_type 2
 
-build/syntax_receivers_test.tl concat_type 10
 
-build/syntax_scopes_test.tl concat_type 1
 
-build/syntax_shape_specs_test.tl concat_type 1
 
-build/syntax_stub_test.tl concat_type 2
 
-build/term_filter_fuzz_test.tl concat_type 1
 
-build/term_filter_test.tl concat_type 3
 
-build/term_relay_backpressure_test.tl concat_type 3
 
-build/term_relay_seatbelt_test.tl concat_type 1
 
-build/test_bail_tool_test.tl concat_type 1
 
-build/test_test.tl concat_type 5
 
-build/test_worker_test.tl concat_type 1
 
-build/time_test.tl concat_type 1
 
-build/todos_git_test.tl concat_type 7
 
-build/todos_test.tl concat_type 19
 
-build/tree_checks_test.tl concat_type 2
 
-build/tree_program_test.tl concat_type 2
 
-build/unix_socket_declared_types_test.tl concat_type 1
 
-build/verb_list_test.tl concat_type 1
 
-build/verbs_store_test.tl concat_type 1
 
-build/verify_codesign_test.tl concat_type 1
 
-build/work_test.tl concat_type 1
 
-build/workflows_test.tl concat_type 12
 
-build/writer_test.tl concat_type 1
 
-build/zig_test.tl concat_type 1
 
 cosmic/child.tl concat_type 29
 

@@ -2143,13 +2143,17 @@ local function test_the_gathering_run_counts_the_rows_it_cannot_stand_on(tmp: st
   stamped_cache(path, {
     "host features aaaa, host h1", "host features aaaa, host h1",
     "host features bbbb, host h1", "host features aaaaaaaa, host h1", "", "host features bbbb",
+    -- Another host's rows that name their identity and rest are looked up
+    -- under its key, not run again; one that names only one of them is.
+    "host features bbbb, host h1, host identity 01, host rest 02",
+    "host features bbbb, host h1, host identity 01",
   })
   -- Only the exact digest and its comma count as this host's: a longer
   -- digest that starts with it, rows of no parts and rows of other
   -- features are all run again here.
-  assert(Orchestration.stale_rows(path, "aaaa") == 4)
+  assert(Orchestration.stale_rows(path, "aaaa") == 5)
   assert(Orchestration.stale_rows(path, "bbbb") == 5)
-  assert(Orchestration.stale_rows(path, "cccc") == 6)
+  assert(Orchestration.stale_rows(path, "cccc") == 7)
   local count, why = Orchestration.stale_rows(path, "aaaa' OR '1")
   assert(count == nil and why:find("no digest", 1, true) ~= nil, why)
   assert(Fs.write(tmp .. "/text.db", "checked\n"))

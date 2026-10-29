@@ -16,5 +16,5 @@ local function test_a_directory_that_holds_a_socket_has_no_refusal(tmp: string)
   local found = TypeWatch.during(function()
     assert(unix_socket.refusal(tmp) == nil, "the worker's own directory refuses a unix socket")
   end, "build/")
-  assert(#found == 0, #found .. " violations:\n" .. table.concat(found, "\n"))
+  assert(#found == 0, tostring(#found) .. " violations:\n" .. table.concat(found, "\n"))
 end

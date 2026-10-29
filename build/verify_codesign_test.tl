@@ -16,7 +16,7 @@ end
 local function fake_codesign(probe: string, dir: string, status: integer): string
   local log = dir .. "/calls"
   assert(stand_in.place(probe, dir .. "/codesign",
-    "append " .. log .. " $@\nexit " .. status))
+    "append " .. log .. " $@\nexit " .. tostring(status)))
   return log
 end
 

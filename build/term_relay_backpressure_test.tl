@@ -74,7 +74,7 @@ local function test_a_signal_is_served_while_the_terminal_takes_no_output()
   assert(result ~= nil, tostring(why))
   assert(not result.timed_out, "the relay never served the signal")
   assert(result.signal == sys.SIGTERM, "the program was ended by " .. tostring(result.signal))
-  assert(took < BOUND_MS, took .. " ms")
+  assert(took < BOUND_MS, tostring(took) .. " ms")
   assert(outer:release() == sys.SIGTERM, "the relay's guard caught the signal")
   assert(same(caller.before, (assert(sys.tcgetattr(caller.slave)))), "the termios was not restored")
   assert(blocking(caller.slave), "the terminal was left non-blocking")
@@ -103,8 +103,8 @@ local function test_a_program_that_ends_does_not_wait_for_a_terminal_that_takes_
     if data == "" then break end
     held = held + #data
   end
-  assert(held < 400000, "the stalled output was delivered whole: " .. held)
-  assert(took < BOUND_MS, took .. " ms")
+  assert(held < 400000, "the stalled output was delivered whole: " .. tostring(held))
+  assert(took < BOUND_MS, tostring(took) .. " ms")
   assert(same(caller.before, (assert(sys.tcgetattr(caller.slave)))), "the termios was not restored")
   assert(blocking(caller.slave), "the terminal was left non-blocking")
   finish(caller)

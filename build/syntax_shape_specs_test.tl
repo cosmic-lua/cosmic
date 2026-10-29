@@ -143,7 +143,7 @@ local function test_the_calls_line_does_not_move()
   for text in (source .. "\n"):gmatch("([^\n]*)\n") do
     line = line + 1
     if text:find("record_of", 1, true) then
-      assert(line == 5, "the call is on line " .. line .. ", not 5")
+      assert(line == 5, "the call is on line " .. tostring(line) .. ", not 5")
     end
   end
 end
