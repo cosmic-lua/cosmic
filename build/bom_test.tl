@@ -137,7 +137,7 @@ local function test_fill_refuses_a_notice_past_the_file_s_end(tmp: string)
   assert(Fs.write(tmp .. "/vendor/zlib/zlib.h", "one\ntwo\n"))
   local db = database()
   local filled, trouble = bom.fill(db, tmp, "main.")
-  assert(not filled and trouble:find("has 2 lines, not 9", 1, true), trouble)
+  assert(not filled and trouble:find("has 2 lines, not 9", 1, true) ~= nil, trouble)
   assert(db:close())
 end
 

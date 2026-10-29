@@ -39,7 +39,7 @@ local record Cookies
     --- Its lifetime in seconds; zero or less deletes it. Nil makes a
     --- session cookie, which browsers may keep across restarts, so it is no
     --- reliable expiry.
-    max_age?: integer
+    mut max_age?: integer
     --- An absolute expiry in nanoseconds since the epoch, written as
     --- `Expires` beside `Max-Age` for a client that ignores the latter
     --- (never by default).
@@ -49,7 +49,7 @@ local record Cookies
     --- Only sent over https (false by default).
     secure?: boolean
     --- "Lax" by default.
-    same_site?: SameSite
+    mut same_site?: SameSite
     --- A partitioned (CHIPS) cookie; needs `secure`.
     partitioned?: boolean
   end
@@ -63,22 +63,22 @@ local record Cookies
     --- Its value, quotes kept.
     value: string
     --- `Path`; nil when absent or not an absolute path.
-    path?: string
+    mut path?: string
     --- `Domain`, lowercase and without a leading dot.
-    domain?: string
+    mut domain?: string
     --- `Max-Age` in seconds.
-    max_age?: integer
+    mut max_age?: integer
     --- `Expires` in nanoseconds since the epoch; nil when absent or not a
     --- date.
-    expires_ns?: integer
+    mut expires_ns?: integer
     --- Whether `Secure` was given.
-    secure: boolean
+    mut secure: boolean
     --- Whether `HttpOnly` was given.
-    http_only: boolean
+    mut http_only: boolean
     --- [`SameSite`]; nil when absent or not one of the three.
-    same_site?: SameSite
+    mut same_site?: SameSite
     --- Whether `Partitioned` was given.
-    partitioned: boolean
+    mut partitioned: boolean
   end
 end
 
@@ -208,7 +208,7 @@ function Cookies.format(name: string, value: string, attrs?: Cookies.Attributes)
   local max_age = a.max_age
   if max_age ~= nil then
     if math.type(max_age) ~= "integer" then error("cookies: max_age must be an integer", 2) end
-    parts[#parts + 1] = "Max-Age=" .. max_age
+    parts[#parts + 1] = "Max-Age=" .. tostring(max_age)
   end
   local expires_ns = a.expires_ns
   if expires_ns ~= nil then

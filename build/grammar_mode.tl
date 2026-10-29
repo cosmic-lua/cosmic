@@ -1,6 +1,6 @@
 --- Which checker compiles the tree: the new one, `new`, the word `cosmic compile --grammar` takes and `COSMIC_GRAMMAR` may
---- name. An unset or empty variable is `new`. The fork's grammar, `teal`, is gone: a project still in it is migrated with
---- `cosmic migrate`, and any other word is refused too.
+--- name. An unset or empty variable is `new`. The fork's grammar, `teal`, is gone: a project still in it is rewritten to the
+--- new grammar by hand (doc/guides/project.md), and any other word is refused too.
 ---
 --- The mode is part of the tool string that every compile key carries ([`GrammarMode.tool`]), as the identity of a compile
 --- with run-time checks is ([`build.importer`]'s `checked_tool`), so a compiled row, a compile the checkouts share and the
@@ -17,8 +17,8 @@ local record GrammarMode
     "new"
   end
 
-  --- The mode `word` names: `new` for nil, "" and "new", nil and why for any other word (`teal` is refused, naming
-  --- `cosmic migrate`).
+  --- The mode `word` names: `new` for nil, "" and "new", nil and why for any other word (`teal` is refused, pointing to
+  --- the project guide).
   of: function(word: string?): Mode?, string
 
   --- The mode `COSMIC_GRAMMAR` asks for ([`GrammarMode.of`]).
@@ -32,9 +32,9 @@ end
 
 function GrammarMode.of(word: string?): GrammarMode.Mode?, string
   if word == nil or word == "" or word == "new" then
-    return "new"
+    return "new", ""
   elseif word == "teal" then
-    return nil, "COSMIC_GRAMMAR=teal: the fork's grammar is gone; `cosmic migrate` rewrites a project to the new one"
+    return nil, "COSMIC_GRAMMAR=teal: the fork's grammar is gone; rewrite a project to the new grammar by hand, as doc/guides/project.md says"
   end
   return nil, "COSMIC_GRAMMAR=" .. word .. ": the only grammar is `new` (the default)"
 end

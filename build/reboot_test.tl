@@ -206,7 +206,7 @@ local function test_own_tool_is_a_binary_under_the_trees_outputs(tmp: string)
     assert(own == want, path .. ": " .. tostring(own) .. " " .. trouble)
   end
   local none, missing = reboot.own_tool(tmp .. "/elsewhere", tmp .. "/elsewhere/cosmic")
-  assert(none == nil and missing:find(paths.resolve(tmp .. "/elsewhere").directory, 1, true), missing)
+  assert(none == nil and missing:find(paths.resolve(tmp .. "/elsewhere").directory, 1, true) ~= nil, missing)
 end
 
 --- A tool carries a tree's code when every module and main of the tree

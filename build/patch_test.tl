@@ -76,28 +76,28 @@ local function test_an_unwritable_file_fails_the_tree(dir: string)
   checkout(dir .. "/root", { ["a.h"] = "x\n" })
   assert(Fs.mkdirs(dir .. "/out/a.h"))
   local ok, err = Patch.tree(dir .. "/root", "lib", dir .. "/out")
-  assert(not ok and err:find(dir .. "/out/a.h", 1, true), err)
+  assert(not ok and err:find(dir .. "/out/a.h", 1, true) ~= nil, err)
 end
 
 local function test_a_find_must_match_exactly_once(dir: string)
   checkout(dir .. "/none", { ["src/a.h"] = "abc\n" },
     { ["01-missing.txt"] = record("src/a.h", "xyz", "q") })
   local ok, err = Patch.tree(dir .. "/none", "lib", dir .. "/out-none")
-  assert(not ok and err:find("01-missing.txt", 1, true) and
-      err:find("found 0 matches", 1, true), err)
+  assert(not ok and err:find("01-missing.txt", 1, true) ~= nil and
+      err:find("found 0 matches", 1, true) ~= nil, err)
 
   checkout(dir .. "/twice", { ["src/a.h"] = "abc\nabc\n" },
     { ["01-twice.txt"] = record("src/a.h", "abc", "q") })
   ok, err = Patch.tree(dir .. "/twice", "lib", dir .. "/out-twice")
-  assert(not ok and err:find("01-twice.txt", 1, true) and
-      err:find("found 2 matches", 1, true), err)
+  assert(not ok and err:find("01-twice.txt", 1, true) ~= nil and
+      err:find("found 2 matches", 1, true) ~= nil, err)
 end
 
 --- Matches may overlap: "aa" occurs twice in "aaa", and is refused.
 local function test_overlapping_matches_count_twice()
   local parsed = assert(Patch.parse(record("a", "aa", "b"), "r"))
   local out, err = Patch.apply("aaa", parsed, "r")
-  assert(out == nil and err:find("found 2 matches", 1, true), err)
+  assert(out == nil and err:find("found 2 matches", 1, true) ~= nil, err)
 end
 
 --- A record whose bytes hold a `---` line names a fence of its own.
@@ -129,8 +129,8 @@ local function test_a_malformed_record_is_refused_by_name()
       { "file: a\nnote: n\n--- find\n--- replace\nb\n--- end\n", "the find block is empty" },
   }) do
     local parsed, err = Patch.parse(case[1], "bad.txt")
-    assert(parsed == nil and err:find("bad.txt", 1, true) and
-        err:find(case[2], 1, true), case[2] .. ": " .. err)
+    assert(parsed == nil and err:find("bad.txt", 1, true) ~= nil and
+        err:find(case[2], 1, true) ~= nil, case[2] .. ": " .. err)
   end
 end
 
@@ -203,7 +203,7 @@ local function test_a_failed_tree_leaves_nothing_behind(dir: string)
   checkout(root, { ["a.h"] = "one\n" }, { ["01.txt"] = record("a.h", "absent", "x") })
   local cache = dir .. "/cache"
   local made, err = Patch.prepare(root, "lib", cache)
-  assert(made == nil and err:find("found 0 matches", 1, true), err)
+  assert(made == nil and err:find("found 0 matches", 1, true) ~= nil, err)
   local left, _ = Fs.list(cache)
   assert(left == nil or #left == 0, "a failed tree left something in the cache")
 end
@@ -250,15 +250,15 @@ local function test_zig_lib_that_fails_leaves_nothing(dir: string)
   local out = dir .. "/cache/lib-key"
   assert(Fs.mkdirs(dir .. "/cache"))
   local written, err = Patch.zig_lib(dir .. "/root", dir .. "/lib", out)
-  assert(not written and err:find("patch/zig-lib/01-absent.txt: found 0 matches", 1, true), err)
-  assert(not Fs.exists(out), "a failed library was left at its name")
+  assert(not written and err:find("patch/zig-lib/01-absent.txt: found 0 matches", 1, true) ~= nil, err)
+  assert(Fs.exists(out) ~= true, "a failed library was left at its name")
   local left = assert((Fs.list(dir .. "/cache")))
   for _, name in ipairs(left) do
     assert(name:match("^%.scratch%.") == nil, "a failed library left its scratch: " .. name)
   end
   assert(Fs.write(dir .. "/root/patch/zig-lib/01-absent.txt", record("std/Gone.zig", "a", "b")))
   local gone, gone_err = Patch.zig_lib(dir .. "/root", dir .. "/lib", out)
-  assert(not gone and gone_err:find("no file std/Gone.zig to patch", 1, true), gone_err)
+  assert(not gone and gone_err:find("no file std/Gone.zig to patch", 1, true) ~= nil, gone_err)
 end
 
 --- A library another build put at the name first is kept as it is: the
@@ -323,13 +323,13 @@ local function darwin_flush_case(tmp: string, empty: boolean, fail: boolean)
     return names
   end
   fs.fsync = function(fd: integer): boolean, string
-    assert(flushes.value == 0 or renamed.value, "payload fsync followed the device flush")
+    assert(flushes.value == 0 or renamed.value == true, "payload fsync followed the device flush")
     syncs.value = syncs.value + 1
     return real_sync(fd)
   end
   raw.full_fsync = function(fd: integer): boolean, string, integer
     flushes.value, owner.value = flushes.value + 1, fd
-    assert(syncs.value > 0 and not renamed.value, "full flush preceded payload sync or followed rename")
+    assert(syncs.value > 0 and renamed.value ~= true, "full flush preceded payload sync or followed rename")
     local st = assert(sys.fstat(fd))
     assert(st.kind == "file", "full flush used a directory descriptor")
     local found = false
@@ -355,8 +355,8 @@ local function darwin_flush_case(tmp: string, empty: boolean, fail: boolean)
     assert(flushes.value == 1, "device flush missing or repeated")
     assert(sys.fstat(owner.value) == nil, "scratch owner descriptor leaked")
     if fail then
-      assert(path == nil and trouble:find("injected full flush failure", 1, true), trouble)
-      assert(not renamed.value, "failed device flush published a tree")
+      assert(path == nil and trouble:find("injected full flush failure", 1, true) ~= nil, trouble)
+      assert(renamed.value ~= true, "failed device flush published a tree")
       assert(table.concat(assert(Fs.list(cache)), ",") == ".scratch-gate",
         "failed device flush left a payload or scratch owner")
     else

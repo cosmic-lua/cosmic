@@ -31,13 +31,13 @@ local record wire
     --- Where the bytes come from: the connection.
     source: Stream.Reader
     --- Bytes read and not yet taken, from `at`.
-    buf: string
+    mut buf: string
     --- Where in `buf` the bytes not yet taken start.
-    at: integer
+    mut at: integer
     --- Every byte taken from it so far.
-    taken: integer
+    mut taken: integer
     --- Set where the last line asked for passed its budget.
-    long: boolean
+    mut long: boolean
   end
 
   --- A request's head, read whole.
@@ -68,7 +68,7 @@ local record wire
     continue: boolean
     --- Bytes of the head, counted against `head_bytes` with a chunked
     --- body's chunk extensions and trailers.
-    spent: integer
+    mut spent: integer
   end
 
   --- What [`wire.read_head`] read: a head, or why there is none.
@@ -135,20 +135,20 @@ local record wire
     --- list writes nothing, and a list of Content-Length is refused.
     headers?: {string: string | {string}}
     --- nil for none, a string, or a Reader, which [`wire.send`] closes.
-    body?: string | Stream.Reader
+    mut body?: string | Stream.Reader
     --- The body's size: a string's own, a Reader's, or, with no body,
     --- 0, but for a HEAD the size of a GET's body, and for a 304 a
     --- 200's. A Reader without it goes chunked to an HTTP/1.1 client,
     --- and to an HTTP/1.0 one until the connection closes.
-    length?: integer
+    mut length?: integer
     --- Whether the connection closes after the reply.
     close?: boolean
     --- The request's method; nil is taken for one that is not HEAD.
     method?: string
     --- The request's version.
-    version?: string
+    mut version?: string
     --- The Date header's value.
-    date: string
+    mut date: string
   end
 end
 
@@ -362,7 +362,7 @@ local function target_parts(method: string, target: string): Target?, string
     local host = if parts.host:find(":", 1, true) then "[" .. parts.host .. "]" else parts.host end
     local port = parts.port
     return { path = parts.path ~= "" and parts.path or "/", query = parts.query or "",
-      authority = if port ~= nil then host .. ":" .. port else host end }, ""
+      authority = if port ~= nil then host .. ":" .. tostring(port) else host end }, ""
   end
   local mark = target:find("?", 1, true)
   if mark == nil then return { path = target, query = "" }, "" end
@@ -837,7 +837,7 @@ local function head_text(reply: wire.Reply, length: integer?, chunked: boolean,
       for _, entry in ipairs(value) do lines[#lines + 1] = name .. ": " .. entry end
     end
   end
-  if length ~= nil then lines[#lines + 1] = "Content-Length: " .. length end
+  if length ~= nil then lines[#lines + 1] = "Content-Length: " .. tostring(length) end
   if chunked then lines[#lines + 1] = "Transfer-Encoding: chunked" end
   if close then lines[#lines + 1] = "Connection: close" end
   return table.concat(lines, "\r\n") .. "\r\n\r\n"

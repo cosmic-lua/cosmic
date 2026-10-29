@@ -56,7 +56,7 @@ end
 --- `action.yaml` under ACTIONS, at any depth.
 local function action_paths(): {string}
   local paths: mut {string} = {}
-  if not Fs.is_dir(ACTIONS) then return paths end
+  if Fs.is_dir(ACTIONS) ~= true then return paths end
   for _, relative in ipairs((assert(Fs.walk(ACTIONS)))) do
     local name = relative:match("[^/]+$")
     if name == "action.yml" or name == "action.yaml" then
@@ -113,8 +113,8 @@ local function test_flow_actions_keep_to_the_shared_subset()
       local run = step.run
       if run ~= nil then
         assert(run is string and not run:find("\n", 1, true),
-          path .. ": step " .. i .. "'s run is not one line: put it under .github/scripts/")
-        assert(shell is string, path .. ": step " .. i .. " runs with no shell")
+          path .. ": step " .. tostring(i) .. "'s run is not one line: put it under .github/scripts/")
+        assert(shell is string, path .. ": step " .. tostring(i) .. " runs with no shell")
       end
     end
   end
@@ -364,7 +364,7 @@ local function test_a_branch_push_runs_no_alpine_leg()
   local include = ((platform.strategy as {string: any}).matrix as {string: any}).include as {{string: string}}
   assert(include[1].name == nil, "the first entry names a leg: " .. tostring(include[1].name))
   for i = 2, #include do
-    assert(include[i].name ~= nil, "entry " .. i .. " names no leg")
+    assert(include[i].name ~= nil, "entry " .. tostring(i) .. " names no leg")
     for key in pairs(include[1]) do
       assert(include[i][key] ~= nil, include[i].name .. " keeps alpine-x86_64's " .. key)
     end
@@ -570,9 +570,9 @@ end
 local function walk_steps(where: string, steps: {{string: any}}, holders: {{string: any}}, walk: Walk)
   for _, step in ipairs(steps) do
     local uses = step.uses
-    if uses is string and uses:match("^actions/checkout@") then
+    if uses is string and uses:match("^actions/checkout@") ~= nil then
       walk.checkout, walk.sparse = true, checked_out(step)
-    elseif uses is string and uses:match("^%./") then
+    elseif uses is string and uses:match("^%./") ~= nil then
       local dir = normal(uses)
       assert(walk.checkout, where .. " uses " .. dir .. " before any checkout")
       assert(holds(walk.sparse, dir), where .. "'s sparse checkout does not hold " .. dir ..
@@ -693,7 +693,7 @@ local function test_the_workflows_run_the_scripts_there_are()
       local dependency = normal(reference)
       local st = Fs.stat(dependency)
       assert(st ~= nil and st.kind == "file", script .. " names " .. dependency .. ", which is no file")
-      if not named[dependency] then
+      if named[dependency] ~= true then
         named[dependency] = true
         pending[#pending + 1] = dependency
       end
@@ -794,7 +794,7 @@ end
 local function test_a_path_that_climbs_out_of_the_checkout_is_refused()
   assert(normal("ci/../.github/scripts/cosmic-driver.sh") == ".github/scripts/cosmic-driver.sh")
   local ok, err = pcall(normal, "./../.github/scripts/cosmic-driver.sh")
-  assert(not ok and tostring(err):find("climbs out of the checkout", 1, true), tostring(err))
+  assert(not ok and tostring(err):find("climbs out of the checkout", 1, true) ~= nil, tostring(err))
 end
 
 local function test_a_local_action_is_one_there_is()
@@ -883,7 +883,7 @@ local function test_the_verdict_cache_is_named_by_the_host_too()
     end
   end
   assert(named, "the host-id step is gone")
-  assert(cached == 4, "the base's lookup, the restore, the save by content and its name under the commit: " .. cached)
+  assert(cached == 4, "the base's lookup, the restore, the save by content and its name under the commit: " .. tostring(cached))
 end
 
 --- The key a restore of the verdicts under `prefix` (an expression)
@@ -1168,7 +1168,7 @@ local function save_of(steps: {{string: any}}, path: string): {string: any}?, {s
   for key, step in pairs(saves_of(steps)) do
     local from = (step.with as {string: string}).path
     if from == path .. "-commit" and
-        (key:find("sha-${{ github.sha }}-", 1, true) or key:find("outputs.verdicts-sha }}", 1, true)) then
+        (key:find("sha-${{ github.sha }}-", 1, true) or key:find("outputs.verdicts-sha }}", 1, true)) ~= nil then
       commit = step
     elseif from == path then
       if branch_compiles(key) then
@@ -1258,7 +1258,7 @@ local function test_a_branch_saves_compiles_for_its_later_pushes()
   for key, step in pairs(saves_of(steps)) do
     if branch_compiles(key) then branch[#branch + 1] = step end
   end
-  assert(#branch == 1, "a branch's compiles are saved by " .. #branch .. " steps")
+  assert(#branch == 1, "a branch's compiles are saved by " .. tostring(#branch) .. " steps")
   local with = branch[1].with as {string: string}
   assert(with.path == "${{ runner.temp }}/build-cache" and
       with.key == BRANCH_COMPILES .. "${{ steps.compiles-trim.outputs.digest }}",
@@ -1367,7 +1367,7 @@ local function test_a_main_push_reuses_the_queue_run()
   for name in pairs(ours) do
     assert(theirs[name] ~= nil, "seed has a leg the platform job has not: " .. name)
   end
-  assert(count == 5, "legs: " .. count)
+  assert(count == 5, "legs: " .. tostring(count))
   -- Only the checked job's seed relays no product.
   local marked: mut {string: any} = {}
   for _, leg in ipairs(((seed.strategy as {string: any}).matrix as {string: any}).include as {{string: any}}) do
@@ -1407,7 +1407,7 @@ local function test_a_main_push_reuses_the_queue_run()
       uploads[with.name] = true
     end
   end
-  assert(downloads["seed-${{ matrix.name }}"] and downloads["portable-product-${{ matrix.name }}"],
+  assert(downloads["seed-${{ matrix.name }}"] == true and downloads["portable-product-${{ matrix.name }}"] == true,
     "seed downloads neither the leg's seed nor its product")
   assert(uploads["portable-product-${{ matrix.name }}"], "seed relays no product")
   local relayed = 0
@@ -1450,7 +1450,7 @@ local function test_a_main_push_reuses_the_queue_run()
       assert(step["continue-on-error"] == nil, path .. "'s seed may fail unseen")
     end
   end
-  assert(saved == 5, "the verdicts (by content, and their name under the commit), compiles, zig outputs and driver marker: " .. saved)
+  assert(saved == 5, "the verdicts (by content, and their name under the commit), compiles, zig outputs and driver marker: " .. tostring(saved))
   -- The zig outputs, after the product's relay, and none of it a
   -- failure: a lookup by the prefix of their core and vendor part, a
   -- leg's restore's first, then, where it found none, the queue leg's
@@ -1465,7 +1465,7 @@ local function test_a_main_push_reuses_the_queue_run()
     end
     if relay ~= nil and i > relay then zig_steps[#zig_steps + 1] = step end
   end
-  assert(#zig_steps == 4, "the zig outputs take other steps than four after the relay: " .. #zig_steps)
+  assert(#zig_steps == 4, "the zig outputs take other steps than four after the relay: " .. tostring(#zig_steps))
   for _, step in ipairs(zig_steps) do
     assert(step["continue-on-error"] == true, tostring(step.name or step.id) .. " can fail seed")
   end
@@ -1890,7 +1890,7 @@ local function test_the_checked_suite_is_gathered_in_a_job_of_its_own_on_linux_x
   }
   held_to_the_leg("checked", checked, platform, joined({ SETUP_STEPS, VERDICT_STEPS }),
     function(step_name: string, theirs: string?): string?
-      if BOTH[step_name] then return theirs end
+      if BOTH[step_name] == true then return theirs end
       return if theirs then FULL .. " && " .. theirs else FULL end
     end)
   local steps = steps_in(checked)
@@ -1955,7 +1955,7 @@ local function test_the_checked_suite_is_gathered_in_a_job_of_its_own_on_linux_x
       for conjunct in (condition .. " && "):gmatch("(.-) && ") do
         for _, text in ipairs(unmet) do held = held or conjunct == text end
       end
-      assert(held == not light[called], "the checked job runs " .. called ..
+      assert(held == light[called] ~= true, "the checked job runs " .. called ..
           (if held then " only on a full run: " else " on a light run: " end) .. condition)
     end
   end
@@ -2313,8 +2313,8 @@ local function test_a_job_moves_its_tree_once_and_puts_it_back_once()
       end
       if #moves > 0 or #backs > 0 then
         placed = placed + 1
-        assert(#moves == 1, where .. " moves its tree " .. #moves .. " times")
-        assert(#backs == 1, where .. " puts its tree back " .. #backs .. " times")
+        assert(#moves == 1, where .. " moves its tree " .. tostring(#moves) .. " times")
+        assert(#backs == 1, where .. " puts its tree back " .. tostring(#backs) .. " times")
         local move, back = moves[1], backs[1]
         assert(move < back, where .. " puts its tree back before it moves it")
         assert(last_driver < back, where .. " runs the CI driver after it puts its tree back")
@@ -2339,7 +2339,7 @@ local function test_a_job_moves_its_tree_once_and_puts_it_back_once()
       end
     end
   end
-  assert(placed >= 3, "only " .. placed .. " jobs move their tree")
+  assert(placed >= 3, "only " .. tostring(placed) .. " jobs move their tree")
 end
 
 --- A failed job of the merge queue's run has the run cancelled,
@@ -2805,10 +2805,10 @@ local function test_a_branch_push_starts_no_job_it_skips()
         local condition = job["if"]
         local excepted = SKIPPED_ON_A_BRANCH[path .. " " .. name]
         for _, skip in ipairs(BRANCH_SKIPS) do
-          assert(excepted or not (condition is string and condition:find(skip, 1, true)),
+          assert(excepted == true or not (condition is string and condition:find(skip, 1, true)),
             path .. ": job " .. name .. "'s if names " .. skip .. ", so a branch push shows it skipped")
         end
-        assert(excepted or not (condition is string and condition:find("needs%.[%w_-]+%.outputs%.[%w_-]+ != ''")),
+        assert(excepted == true or not (condition is string and condition:find("needs%.[%w_-]+%.outputs%.[%w_-]+ != ''")),
           path .. ": job " .. name ..
             " runs only where a job it needs found something, so a branch push shows it skipped")
       end
@@ -2921,7 +2921,7 @@ local function test_a_queue_run_takes_the_verdicts_of_the_run_ahead()
     local budget = within + 3 * call
     local minutes = find["timeout-minutes"] as integer
     assert(budget + 30 <= minutes * 60 and minutes < (job["timeout-minutes"] as integer),
-      where .. "'s lookup outlasts its step, or its step the job: " .. budget .. " s")
+      where .. "'s lookup outlasts its step, or its step the job: " .. tostring(budget) .. " s")
 
     local download = steps[at["ahead-download"]]
     local with = download.with as {string: string}
@@ -3217,7 +3217,7 @@ local function test_a_leg_that_skips_the_portable_suite_still_attests_what_it_ra
       end
     end
   end
-  assert(seen.portable and seen.fixtures and seen.attest and seen.upload,
+  assert(seen.portable == true and seen.fixtures == true and seen.attest == true and seen.upload == true,
     "a full run's leg misses a step of the product's")
   -- A regression's failure in the queue surfaces sooner. Attest reads
   -- the digest the portable step records, so it follows.

@@ -64,7 +64,7 @@ local function test_now_has_four_formats()
   assert(said({ "now", "--format", "epoch" }) == "1772971200\n")
   assert(said({ "now", "--format", "rfc3339", "--zone", "UTC" }) == "2026-03-08T12:00:00+00:00\n")
   local bad = run({ "now", "--format", "unix" })
-  assert(bad.code == 2 and bad.out == "" and bad.err:find("--format is rfc3339", 1, true), bad.err)
+  assert(bad.code == 2 and bad.out == "" and bad.err:find("--format is rfc3339", 1, true) ~= nil, bad.err)
 end
 
 local function test_now_json_is_a_record_of_the_moment()
@@ -115,7 +115,7 @@ local function test_a_time_in_an_overlap_is_the_earlier_by_default()
   assert(overlap("--disambiguate", "earlier") == "2026-11-01T05:30:00+00:00\n")
   assert(overlap("--disambiguate", "later") == "2026-11-01T06:30:00+00:00\n")
   local rejected = run({ "convert", "2026-11-01T01:30", "--from", "America/New_York", "--disambiguate", "reject" })
-  assert(rejected.code == 2 and rejected.err:find("happens twice", 1, true), rejected.err)
+  assert(rejected.code == 2 and rejected.err:find("happens twice", 1, true) ~= nil, rejected.err)
   -- An offset in the text says which one it is.
   assert(said({ "convert", "2026-11-01T01:30:00-05:00", "--to", "UTC", "--disambiguate", "reject" }) ==
       "2026-11-01T06:30:00+00:00\n")
@@ -221,7 +221,7 @@ local function test_an_add_with_no_answer_exits_1()
   assert(exact.code == 1 and exact.out == "", exact.out)
   -- A result in a gap under "reject".
   local gap = run({ "add", "2026-03-07T02:30", "1d", "--zone", "America/New_York", "--disambiguate", "reject" })
-  assert(gap.code == 1 and gap.err:find("does not exist", 1, true), gap.err)
+  assert(gap.code == 1 and gap.err:find("does not exist", 1, true) ~= nil, gap.err)
   says_time_once(gap.err)
   assert(said({ "add", "2026-03-07T02:30", "1d", "--zone", "America/New_York" }) == "2026-03-08T03:30:00-04:00\n")
 end
@@ -286,7 +286,7 @@ local function test_a_command_line_it_cannot_read_is_refused()
       { "convert", "@0", "--disambiguate", "sometimes" }, { "add", "@0", "1d", "--from", "UTC" },
   }) do
     local ran = run(words)
-    assert(ran.code == 2 and ran.out == "", table.concat(words, " ") .. ": " .. ran.code .. ran.out)
+    assert(ran.code == 2 and ran.out == "", table.concat(words, " ") .. ": " .. tostring(ran.code) .. ran.out)
     assert(ran.err:find("cosmic: time: ", 1, true) and ran.err:find("cosmic time now", 1, true), ran.err)
   end
 end
@@ -361,7 +361,7 @@ local function test_seconds_are_optional_in_rfc_3339_as_in_local_text()
   assert(named.ns == full.ns and assert(named.zone).name == "America/New_York")
   assert(assert(time_verb.parse_input("2026-03-08t12:00z", utc)).ns == full.ns)
   local none, why = time_verb.parse_input("2026-03-08T12:00+5", utc)
-  assert(none == nil and why:find("RFC 3339", 1, true) and why:find("offset", 1, true), why)
+  assert(none == nil and why:find("RFC 3339", 1, true) ~= nil and why:find("offset", 1, true) ~= nil, why)
 end
 
 local function test_an_error_after_the_minutes_counts_bytes_of_the_users_text()
@@ -397,13 +397,13 @@ local function test_a_gap_and_an_overlap_are_resolved_as_asked()
   assert(hour((assert(read("2026-03-08T02:30", "later")))) == "2026-03-08T03:30:00-04:00")
   assert(hour((assert(read("2026-03-08T02:30", "earlier")))) == "2026-03-08T01:30:00-05:00")
   local none, why = read("2026-03-08T02:30", "reject")
-  assert(none == nil and why:find("does not exist", 1, true), why)
+  assert(none == nil and why:find("does not exist", 1, true) ~= nil, why)
   -- 2026-11-01 01:30 happens twice: EDT, then EST.
   assert(hour((assert(read("2026-11-01T01:30")))) == "2026-11-01T01:30:00-04:00")
   assert(hour((assert(read("2026-11-01T01:30", "earlier")))) == "2026-11-01T01:30:00-04:00")
   assert(hour((assert(read("2026-11-01T01:30", "later")))) == "2026-11-01T01:30:00-05:00")
   local twice, twice_why = read("2026-11-01T01:30", "reject")
-  assert(twice == nil and twice_why:find("happens twice", 1, true), twice_why)
+  assert(twice == nil and twice_why:find("happens twice", 1, true) ~= nil, twice_why)
 end
 
 local function test_a_bad_input_is_refused_naming_the_forms()

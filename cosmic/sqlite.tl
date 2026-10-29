@@ -289,7 +289,7 @@ end
 --- text, which carray reads to its first NUL.
 local function check_array<T>(key: integer, field: string, list: {T})
   if type(list) ~= "table" then
-    error("sqlite: parameter " .. key .. "'s " .. field .. " is no list", 5)
+    error("sqlite: parameter " .. tostring(key) .. "'s " .. field .. " is no list", 5)
   end
   for i = 1, rawlen(list) do
     local element = rawget(list, i)
@@ -302,10 +302,10 @@ local function check_array<T>(key: integer, field: string, list: {T})
       fits = type(element) == "string"
     end
     if not fits then
-      error("sqlite: element " .. i .. " of parameter " .. key .. "'s " .. field .. " is not of its type", 5)
+      error("sqlite: element " .. tostring(i) .. " of parameter " .. tostring(key) .. "'s " .. field .. " is not of its type", 5)
     end
     if field == "texts" and element is string and element:find("\0", 1, true) ~= nil then
-      error("sqlite: element " .. i .. " of parameter " .. key .. "'s texts holds a NUL; bind it in blobs", 5)
+      error("sqlite: element " .. tostring(i) .. " of parameter " .. tostring(key) .. "'s texts holds a NUL; bind it in blobs", 5)
     end
   end
 end
@@ -361,13 +361,13 @@ local function bind(
 ): boolean, string
   local count = statement:parameters()
   if highest > count then
-    return false, "sqlite: values holds a parameter " .. highest ..
-      ", and the statement has " .. count
+    return false, "sqlite: values holds a parameter " .. tostring(highest) ..
+      ", and the statement has " .. tostring(count)
   end
   for index = 1, count do
     local value = values[index]
     if value == nil then
-      return false, "sqlite: parameter " .. index .. " has no value (use {} for NULL)"
+      return false, "sqlite: parameter " .. tostring(index) .. " has no value (use {} for NULL)"
     end
     local ok: boolean
     local trouble: string
@@ -393,7 +393,7 @@ local function bind(
       ok, trouble = statement:bind_null(index)
     end
     if not ok then
-      return false, "sqlite: parameter " .. index .. ": " .. trouble
+      return false, "sqlite: parameter " .. tostring(index) .. ": " .. trouble
     end
   end
   return true, ""
@@ -494,7 +494,7 @@ local function cell_at(row: Stored, index: integer, name: string): Sqlite.Kind, 
   end
   local count = #row // 2
   if index < 1 or index > count then
-    error("sqlite: row:" .. name .. "(" .. index .. "): the row has " .. count ..
+    error("sqlite: row:" .. name .. "(" .. tostring(index) .. "): the row has " .. tostring(count) ..
         (if count == 1 then " column" else " columns" end), 3)
   end
   local at = 2 * index - 1
@@ -505,7 +505,7 @@ end
 --- cell of kind `kind`, blaming the caller of the accessor that raises
 --- it.
 local function mismatch(name: string, index: integer, kind: Sqlite.Kind, wants: string): string
-  return "sqlite: row:" .. name .. "(" .. index .. "): column " .. index .. " is " ..
+  return "sqlite: row:" .. name .. "(" .. tostring(index) .. "): column " .. tostring(index) .. " is " ..
     described(kind) .. ", not " .. wants
 end
 
@@ -605,7 +605,7 @@ local function text_at(row: TextStored, index: integer, name: string): string
         "): a column is an integer position from 1", 3)
   end
   local count = #row
-  error("sqlite: row:" .. name .. "(" .. index .. "): the row has " .. count ..
+  error("sqlite: row:" .. name .. "(" .. tostring(index) .. "): the row has " .. tostring(count) ..
       (if count == 1 then " column" else " columns" end), 3)
 end
 

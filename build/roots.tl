@@ -84,7 +84,7 @@ local function parse_pem(pem: string): {roots.Root}?, string
   if body ~= nil then
     return nil, "the last certificate is not closed"
   end
-  return found
+  return found, ""
 end
 
 --- The bytes a `MULTILINE_OCTAL` value's lines spell (`\060\202...`),

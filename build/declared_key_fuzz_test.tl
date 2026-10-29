@@ -62,7 +62,7 @@ local function canonical(d: Drawn): Drawn
     local seen: mut {string:boolean} = {}
     local set: mut {string} = {}
     for _, entry in ipairs(d.lists[name]) do
-      if entry ~= "" and not seen[entry] then
+      if entry ~= "" and seen[entry] ~= true then
         seen[entry] = true
         set[#set + 1] = entry
       end
@@ -127,7 +127,7 @@ end
 local function draw_spec(src: Fuzz.Source): Drawn
   local d: Drawn = { scalars = {}, lists = {} }
   for _, name in ipairs(SCALARS) do
-    if not OPTIONAL[name] or src:int(0, 1) == 1 then
+    if OPTIONAL[name] ~= true or src:int(0, 1) == 1 then
       d.scalars[name] = draw_string(src, ALPHABET, 0)
     end
   end
@@ -172,7 +172,7 @@ local function edit(src: Fuzz.Source, d: Drawn): Drawn
   if kind == 1 then
     -- A scalar drawn again, or one present or not.
     local name = Fuzz.pick(src, SCALARS)
-    if OPTIONAL[name] and src:int(0, 1) == 1 then
+    if OPTIONAL[name] == true and src:int(0, 1) == 1 then
       out.scalars[name] = if out.scalars[name] == nil then "" else nil end
     else
       out.scalars[name] = draw_string(src, ALPHABET, 0)

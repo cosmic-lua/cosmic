@@ -61,21 +61,21 @@ local record Generics
     store: Store
     fn: Fn
     hooks: Hooks
-    lower: {integer: Type}
-    upper: {integer: Type}
-    exact: {integer: Type}
-    lower_at: {integer: integer}
-    upper_at: {integer: integer}
-    exact_at: {integer: integer}
+    lower: mut {integer: Type}
+    upper: mut {integer: Type}
+    exact: mut {integer: Type}
+    lower_at: mut {integer: integer}
+    upper_at: mut {integer: integer}
+    exact_at: mut {integer: integer}
     --- The variables of a pattern whose shape the type found lacked.
-    tainted: {integer: boolean}
-    conflicts: {Conflict}
+    tainted: mut {integer: boolean}
+    mut conflicts: mut {Conflict}
     --- Set when a type found was `invalid`: the mistake is reported already, so nothing it leaves unsolved is.
-    invalid: boolean
+    mut invalid: boolean
     --- What the type expected tells, kept apart: it fills a variable nothing else fixed, and a variable only
     --- arguments below it gave takes the type it requires exactly (`hint`).
-    fallback: {integer: Type}
-    hint: {integer: Type}
+    fallback: mut {integer: Type}
+    hint: mut {integer: Type}
   end
 
   --- A solver for the type parameters of `fn`, a generic function type.
@@ -124,7 +124,7 @@ local function walk(t: Type, level: integer, visit: function(index: integer))
 end
 
 function Generics.names(t: Type): {integer: boolean}
-  local out: {integer: boolean} = {}
+  local out: mut {integer: boolean} = {}
   walk(t, 0, function(index: integer)
     out[index] = true
   end)
@@ -132,7 +132,7 @@ function Generics.names(t: Type): {integer: boolean}
 end
 
 function Generics.unused(f: Fn): {integer}
-  local used: {integer: boolean} = {}
+  local used: mut {integer: boolean} = {}
   local written: mut {Type} = {}
   for _, p in ipairs(f.params) do
     written[#written + 1] = p.type

@@ -366,6 +366,8 @@ local record Ctx
   consts: mut {integer: string}
   --- The name of the function of the string library each local that is given one and never assigned holds, by id.
   library: mut {integer: string}
+  --- The reads of `table.move` not yet taken as the callee of a call, by the id of the node ([`Writes.move_stray`]).
+  moves: mut {integer: Ast.Node}
   --- Whether the type of each node is kept in `types`.
   typed: boolean
   --- The field read last in a chain and the type of the value it was read from, for the hint of a method called with `.`.
@@ -1251,7 +1253,7 @@ local function first_value(ctx: Ctx, node: Ast.Node, alts: {Alt}): Type
   if #alts == 0 then
     return ctx.store.never
   elseif #alts > 1 then
-    report(ctx, "alternatives_as_value", node, subject(ctx, node) .. " answers one of " .. #alts ..
+    report(ctx, "alternatives_as_value", node, subject(ctx, node) .. " answers one of " .. tostring(#alts) ..
         " lists of values, which is no value",
       "match the call: `match " .. text_of(ctx, node) .. " do | (true, v) then ... end`")
     return ctx.invalid
@@ -2199,6 +2201,100 @@ local function key_names(key: Ast.Exp, kt: Type): {string}?
   return nil
 end
 
+--- The rules by which an index write to a `mut` array is no hole ([`Writes.leaves_no_hole`]).
+local record Writes
+end
+
+--- Whether `a` and `b` name the same place: a name, or fields of one.
+function Writes.same_place(a: Ast.Exp, b: Ast.Exp): boolean
+  local x, y = peel(a), peel(b)
+  if (x.kind == "Name") and (y.kind == "Name") then
+    return x.binding ~= nil and x.binding == y.binding
+  elseif (x.kind == "Field") and (y.kind == "Field") then
+    return x.name == y.name and Writes.same_place(x.object, y.object)
+  end
+  return false
+end
+
+--- Whether `key` is `#object`: the key of the last element of the array `object`.
+function Writes.is_length_of(key: Ast.Exp, object: Ast.Exp): boolean
+  local len = peel(key)
+  return (len.kind == "Unary") and len.op == "#" and Writes.same_place(len.operand, object)
+end
+
+--- Whether `e` is `#place` for `array`, or `#array - k` for a literal `k` of 0 or more: at most the length of the array.
+function Writes.at_most_length(e: Ast.Exp, array: Ast.Exp): boolean
+  local x = peel(e)
+  if (x.kind == "Binary") and x.op == "-" then
+    local k = peel(x.right)
+    return (k.kind == "Integer") and k.value >= 0 and Writes.is_length_of(x.left, array)
+  end
+  return Writes.is_length_of(e, array)
+end
+
+--- Whether `e` is a name, or a field of one.
+function Writes.is_place(e: Ast.Exp): boolean
+  local x = peel(e)
+  if (x.kind == "Name") then
+    return true
+  end
+  return (x.kind == "Field") and Writes.is_place(x.object)
+end
+
+--- Whether the call `table.move(a1, f, e, t [, a2])` keeps the array it writes dense and copies only elements that are
+--- there. `a1` and `a2` are arrays with elements 1 to their length, none nil, so the copy
+---   - reads elements `f` to `e` of `a1`, all there when `f` is a literal of 1 or more and `e` is at most `#a1` (the
+---     range is empty where `e` is below `f`), and
+---   - writes them at `t` onward, a contiguous run that leaves no gap when `t` is 1 (it starts the array, and the
+---     elements past the run stay as they were) or `#a2 + 1` (it continues the array).
+--- Every argument is a literal, a place or the length of a place, so nothing runs between reading the lengths and the
+--- copy to change them. `a2` may be a table literal where `t` is 1. A `t` of 0 or less writes keys no array has, and a `t`
+--- above `#a2 + 1` leaves a hole, so neither stands.
+function Writes.move_dense(args: {Ast.Exp}): boolean
+  local a1, f, e, t, a2 = args[1], args[2], args[3], args[4], args[5]
+  if a1 == nil or f == nil or e == nil or t == nil or #args > 5 or not Writes.is_place(a1) then
+    return false
+  end
+  local from = peel(f)
+  if not ((from.kind == "Integer") and from.value >= 1) or not Writes.at_most_length(e, a1) then
+    return false
+  end
+  local to = peel(t)
+  if (to.kind == "Integer") and to.value == 1 then
+    return a2 == nil or Writes.is_place(a2) or peel(a2).kind == "Table"
+  end
+  local into = if a2 == nil then a1 else a2 end
+  if not Writes.is_place(into) or not ((to.kind == "Binary") and to.op == "+") then
+    return false
+  end
+  local one = peel(to.right)
+  return (one.kind == "Integer") and one.value == 1 and Writes.is_length_of(to.left, into)
+end
+
+--- Reports the call `node` of `table.move` that [`Writes.move_dense`] does not accept.
+function Writes.move_refuse(ctx: Ctx, node: Ast.Call)
+  report(ctx, "array_hole", node, "`table.move` here may copy a nil or leave a hole in the array it writes",
+    "copy elements that are there (`table.move(a, 1, #a, 1, b)`, the first element being a literal 1 or more and the last " ..
+      "`#a`) and write them at 1 or at `#b + 1`; or append with `b[#b + 1] = v` or `table.insert`")
+end
+
+--- Reports the reads of `table.move` that are no call: a function value that is called later has no arguments to check.
+function Writes.move_stray(ctx: Ctx)
+  for _, read in pairs(ctx.moves) do
+    report(ctx, "array_hole", read, "`table.move` is read as a value, and a call of it is checked only where it is written",
+      "call it where you name it: `table.move(a, 1, #a, 1, b)`")
+  end
+end
+
+--- Notes the read of the member `name` of `base` at `node`, if it is `table.move` ([`Writes.move_stray`]). Whatever spells
+--- the read (`table.move`, `table["move"]`, a name for the library), the member is the one the declaration of `table` has.
+function Writes.note_move(ctx: Ctx, node: Ast.Node, base: Type, name: string)
+  local library = ctx.program.globals["table"]
+  if name == "move" and library ~= nil and (base.tag == "named") and base.decl == library.decl then
+    ctx.moves[node.id] = node
+  end
+end
+
 -- Operators ------------------------------------------------------------------------------------
 
 --- Reports that the operand `node`, of type `t`, is not what `op` takes.
@@ -2912,8 +3008,8 @@ end
 -- local, whose handler runs when it ends. A function made at the point does not inherit it ([`Flow.enter`]), and an
 -- assignment to the place takes it away like any fact of the place.
 --
--- TODO: refuse `table.move` into a destination past the end of the array, which leaves a hole, once the checker can tell
--- the destination: a read that relies on the fact is then the element it names for every array the program makes.
+-- A `table.move` that may copy a nil or leave a hole is refused (`array_hole`, [`Writes.move_dense`]), so a move keeps the
+-- density this relies on.
 
 function Tests.counted(ctx: Ctx, f: Flow.State, e: Ast.Node): Place?
   local at = peel(e)
@@ -3084,6 +3180,7 @@ local function index_read(ctx: Ctx, node: Ast.Index, object: Type): Type
         field_unknown(ctx, node.key, t, name)
         return ctx.invalid
       end
+      Writes.note_move(ctx, node, t, name)
       types[#types + 1] = put_in(ctx, t, list[1].type)
     end
     return store:union(types)
@@ -3942,7 +4039,7 @@ local function is_literal(e: Ast.Exp): boolean
 end
 
 local function plural(n: integer, word: string): string
-  return n .. " " .. word .. (if n == 1 then "" else "s" end)
+  return tostring(n) .. " " .. word .. (if n == 1 then "" else "s" end)
 end
 
 --- Whether a function literal takes the arguments a call of `g` passes: every count from the required parameters of
@@ -4119,15 +4216,15 @@ local function arity_error(ctx: Ctx, node: Ast.Node, callee: string, f: Fn, off:
     end
   end
   if why == "too many" then
-    report(ctx, "arity", node, callee .. " takes " .. plural(np, "argument") .. ", but " .. n .. " " ..
+    report(ctx, "arity", node, callee .. " takes " .. plural(np, "argument") .. ", but " .. tostring(n) .. " " ..
         (if n == 1 then "is" else "are" end) .. " given",
       "remove the extra " .. (if n - np == 1 then "argument" else "arguments" end) .. ", or declare the parameter in the function " ..
         "type", { Types.display(f, ctx.binders) })
   else
     local missing = f.params[n + off + 1]
-    report(ctx, "arity", node, callee .. " takes " .. (if required < np then required .. " to " .. plural(np, "argument") else
-      plural(required, "argument") end) .. ", but " .. n .. " " .. (if n == 1 then "is" else "are" end) .. " given",
-      "pass the missing argument " .. (n + 1) .. (if missing ~= nil then ", " .. tq(ctx, missing.type) else "" end) ..
+    report(ctx, "arity", node, callee .. " takes " .. (if required < np then tostring(required) .. " to " .. plural(np, "argument") else
+      plural(required, "argument") end) .. ", but " .. tostring(n) .. " " .. (if n == 1 then "is" else "are" end) .. " given",
+      "pass the missing argument " .. tostring((n + 1)) .. (if missing ~= nil then ", " .. tq(ctx, missing.type) else "" end) ..
         ", or declare the parameter `name?: T`", { Types.display(f, ctx.binders) })
   end
 end
@@ -4217,7 +4314,7 @@ end
 function Calls.expect_argument(ctx: Ctx, node: Ast.Node, got: Type, want: Type, callee: string, position: integer,
                                named?: string): boolean
   ctx.argument = { callee = callee, module = ctx.callee_module, position = position }
-  local ok = expect_argument(ctx, node, got, want, " as argument " .. position .. " of " .. quoted(callee), named)
+  local ok = expect_argument(ctx, node, got, want, " as argument " .. tostring(position) .. " of " .. quoted(callee), named)
   ctx.argument = nil
   return ok
 end
@@ -4337,11 +4434,11 @@ local function apply_function(ctx: Ctx, node: Ast.Node, callee: string, f: Fn, a
             "`#t`) and index each value, since " .. quoted(callee) .. " raises on a conversion that has no value, nil or not"
         end
         report(ctx, "nil_not_allowed", last, subject(ctx, last) .. " ends in " .. quoted(show(ctx, tail) .. "...") ..
-            ", so argument " .. pos .. " of " .. quoted(callee) .. " may be missing, where " .. tq(ctx, want) .. " is wanted",
+            ", so argument " .. tostring(pos) .. " of " .. quoted(callee) .. " may be missing, where " .. tq(ctx, want) .. " is wanted",
           fix, { show(ctx, ctx.store:optional(tail)), show(ctx, want) })
       else
         ctx.argument = { callee = callee, module = ctx.callee_module, position = pos }
-        local _ = expect(ctx, last, tail, want, " as argument " .. pos .. " of " .. quoted(callee))
+        local _ = expect(ctx, last, tail, want, " as argument " .. tostring(pos) .. " of " .. quoted(callee))
         ctx.argument = nil
       end
     end
@@ -4393,7 +4490,7 @@ function Calls.source(at: integer): string
   if at == 0 then
     return "the receiver"
   end
-  return "argument " .. at
+  return "argument " .. tostring(at)
 end
 
 --- Whether a function literal gives every parameter a type, so that its type does not depend on the position it stands in.
@@ -4460,7 +4557,7 @@ function Calls.solve(ctx: Ctx, node: Ast.Node, callee: string, c: Fn, args: {Ast
         prep.known[i] = t
         Generics.match(solver, want, t, "into", i)
       elseif failure == "" then
-        failure = "argument " .. i .. " is a literal whose type depends on a type parameter nothing else gives"
+        failure = "argument " .. tostring(i) .. " is a literal whose type depends on a type parameter nothing else gives"
       end
     end
   end
@@ -4550,7 +4647,7 @@ function Calls.solve(ctx: Ctx, node: Ast.Node, callee: string, c: Fn, args: {Ast
   end
   if made == nil then
     if loud then
-      report(ctx, "not_assignable", node, name .. " with these type arguments nests more than " .. Types.max_depth ..
+      report(ctx, "not_assignable", node, name .. " with these type arguments nests more than " .. tostring(Types.max_depth) ..
           " types deep", "name a part of the arguments with a record, which a type does not unfold")
     end
     return { why = "its instance nests too deep" }
@@ -4696,11 +4793,11 @@ local function apply_overloads(ctx: Ctx, node: Ast.Node, callee: string, cands: 
             wanted = quoted(Calls.shown(ctx, declared, original ~= nil and original or want))
           end
           if t ~= nil and (want == nil or not accepts(ctx, t, want)) then
-            failure = "argument " .. i .. " is " .. tq(ctx, t) .. (if want ~= nil then ", where " .. wanted ..
+            failure = "argument " .. tostring(i) .. " is " .. tq(ctx, t) .. (if want ~= nil then ", where " .. wanted ..
                 " is wanted" else ", which it does not take" end)
             break
           elseif pending[i] == true and (want == nil or not literal_fits(ctx, args[i], want)) then
-            failure = "argument " .. i .. " is a literal that is not " .. (if want ~= nil then "a " .. wanted else "taken" end)
+            failure = "argument " .. tostring(i) .. " is a literal that is not " .. (if want ~= nil then "a " .. wanted else "taken" end)
             break
           end
         end
@@ -4708,7 +4805,7 @@ local function apply_overloads(ctx: Ctx, node: Ast.Node, callee: string, cands: 
       if failure == "" and tail ~= nil then
         local pos, want, missing = tail_problem(ctx, c, off, count, tail)
         if pos ~= nil and want ~= nil then
-          failure = "argument " .. pos .. " is filled by " .. quoted(show(ctx, tail) .. "...") .. (if missing then
+          failure = "argument " .. tostring(pos) .. " is filled by " .. quoted(show(ctx, tail) .. "...") .. (if missing then
             ", which may leave it missing, where " else ", where " end) .. tq(ctx, want) .. " is wanted"
         end
       end
@@ -5374,6 +5471,7 @@ local function apply(ctx: Ctx, n: Ast.Exp, t: Type, expected: Type?, wants_lists
       return ctx.invalid, nil
     end
     local read = member_read(ctx, n, base, n.name)
+    Writes.note_move(ctx, n, base, n.name)
     if ctx.flow.paths > 0 and read.tag ~= "invalid" then
       local key = path_key(ctx, n)
       local fact = key ~= nil and ctx.flow.facts[key] or nil
@@ -5394,6 +5492,12 @@ local function apply(ctx: Ctx, n: Ast.Exp, t: Type, expected: Type?, wants_lists
     end
     local alts = apply_call(ctx, n, t, expected)
     ctx.lenient = saved
+    if ctx.moves[n.callee.id] ~= nil then
+      ctx.moves[n.callee.id] = nil
+      if not Writes.move_dense(n.args) then
+        Writes.move_refuse(ctx, n)
+      end
+    end
     after_call(ctx, n, n.callee, alts, n.args, nil)
     if object ~= nil then
       Calls.method_dot(ctx, n, t, object)
@@ -5688,27 +5792,6 @@ local function local_statement(ctx: Ctx, s: Ast.Local)
       Tests.closes(ctx)
     end
   end
-end
-
---- The rules by which an index write to a `mut` array is no hole ([`Writes.leaves_no_hole`]).
-local record Writes
-end
-
---- Whether `a` and `b` name the same place: a name, or fields of one.
-function Writes.same_place(a: Ast.Exp, b: Ast.Exp): boolean
-  local x, y = peel(a), peel(b)
-  if (x.kind == "Name") and (y.kind == "Name") then
-    return x.binding ~= nil and x.binding == y.binding
-  elseif (x.kind == "Field") and (y.kind == "Field") then
-    return x.name == y.name and Writes.same_place(x.object, y.object)
-  end
-  return false
-end
-
---- Whether `key` is `#object`: the key of the last element of the array `object`.
-function Writes.is_length_of(key: Ast.Exp, object: Ast.Exp): boolean
-  local len = peel(key)
-  return (len.kind == "Unary") and len.op == "#" and Writes.same_place(len.operand, object)
 end
 
 --- Whether the key of `target` is `#object + 1`, which appends.
@@ -6210,7 +6293,7 @@ local function check_return(ctx: Ctx, s: Ast.Return)
       local want = alt.items[i] or alt.tail
       local at = s.values[math.min(i, n)]
       if want ~= nil then
-        local _ = expect(ctx, at, t, want, " as return value " .. i)
+        local _ = expect(ctx, at, t, want, " as return value " .. tostring(i))
       end
     end
     local tail = vals.tail
@@ -6220,21 +6303,21 @@ local function check_return(ctx: Ctx, s: Ast.Return)
       local fix = "varargs end in nil: test the first value (`local v = ... if v == nil then ... end`) and return it"
       for i = count + 1, #alt.items do
         if not below(ctx, tail, alt.items[i]) then
-          local _ = expect(ctx, last, tail, alt.items[i], " as return value " .. i)
+          local _ = expect(ctx, last, tail, alt.items[i], " as return value " .. tostring(i))
           return
         elseif not below(ctx, maybe, alt.items[i]) then
           report(ctx, "nil_not_allowed", last, subject(ctx, last) .. " ends in `" .. show(ctx, tail) .. "...`, so return value " ..
-              i .. " may be missing, where " .. tq(ctx, alt.items[i]) .. " is wanted",
+              tostring(i) .. " may be missing, where " .. tq(ctx, alt.items[i]) .. " is wanted",
             fix, { show(ctx, maybe), show(ctx, alt.items[i]) })
           return
         end
       end
       local at = alt.tail
       if at ~= nil then
-        local _ = expect(ctx, last, tail, at, " as the values after return value " .. #alt.items)
+        local _ = expect(ctx, last, tail, at, " as the values after return value " .. tostring(#alt.items))
       elseif count + 1 > #alt.items then
         report(ctx, "return_arity", last, subject(ctx, last) .. " ends in `" .. show(ctx, tail) ..
-            "...`, so this may return more values than the function answers (" .. #alt.items .. ")",
+            "...`, so this may return more values than the function answers (" .. tostring(#alt.items) .. ")",
           "return the values the function answers, one by one")
       end
     end
@@ -6700,7 +6783,7 @@ end
 local function arm_for(alt: Alt): string
   local pats: mut {string} = {}
   for i, item in ipairs(alt.items) do
-    local pat = "v" .. i
+    local pat = "v" .. tostring(i)
     if item.tag == "true" or item.tag == "false" then
       pat = item.tag
     end
@@ -6745,7 +6828,7 @@ local function match_statement(ctx: Ctx, s: Ast.Match)
           taken[k] = true
           local pat = assert(arm.pats[at])
           local item = alt.items[at]
-          report(ctx, "match_pattern", pat, "this pattern tests position " .. at .. " with `" ..
+          report(ctx, "match_pattern", pat, "this pattern tests position " .. tostring(at) .. " with `" ..
               (if (pat.kind == "PatBool") and pat.value then "true" else "" end) .. "`, and the list " .. quoted(lists_text(ctx, { alt })) .. " has " ..
               (item ~= nil and tq(ctx, item) or "no value") .. " there, which `true` and `false` do not tell",
             "test only the positions that are `true` or `false` in the lists the call answers, and name the others",
@@ -6910,7 +6993,7 @@ function Check.check(program: Declarations.Program, input: Declarations.Input, l
       return false
     end, function(_node: Ast.Node, _spelled: string, _found: LoadOrder.Found) end),
     literals = {}, declared = {}, union_fields = {}, spine = {},
-    top = 0, ternaries = {}, invalid = store.invalid, nil_type = store:atom("nil"), flow = Flow.start(), unfixed_now = {}, assigning = {}, quiet = 0, closers = 0, callee_module = "", member_module = "",
+    top = 0, ternaries = {}, invalid = store.invalid, nil_type = store:atom("nil"), flow = Flow.start(), unfixed_now = {}, assigning = {}, quiet = 0, closers = 0, callee_module = "", member_module = "", moves = {},
     loops = {}, keys = {}, edges = {}, guards = {}, reads = {}, unfixed = {}, narrowed = {}, boundaries = {}, types = {}, callees = {}, consts = {}, library = {}, typed = typed ~= false, warnings = {},
     unite = function(a: Type, b: Type): Type
       return store:union({ a, b })
@@ -6985,6 +7068,7 @@ function Check.check(program: Declarations.Program, input: Declarations.Input, l
     narrowed_type = nil,
   }
   block(ctx, input.chunk.body)
+  Writes.move_stray(ctx)
   -- Source order; errors at one place stay in the order they were found.
   local position: mut {Codes.Error: integer} = {}
   for i, e in ipairs(ctx.errors) do

@@ -94,7 +94,7 @@ end
 --- of the signal, leaving no file behind.
 local function test_a_fetch_interrupted_mid_body_leaves_no_file(tmp: string)
   local server <close> = assert(Net.listen(Net.tcp("127.0.0.1", 0), { timeout_ns = Clock.seconds(20) }))
-  local url = "http://127.0.0.1:" .. assert(server.address.port) .. "/big"
+  local url = "http://127.0.0.1:" .. tostring(assert(server.address.port)) .. "/big"
   local started = this_program.program({ "fetch", "-o", tmp .. "/target", url },
     { cwd = tmp, stdout = "null", stderr = "capture" })
   local child <close> = assert(Child.start(started.argv, started.options))

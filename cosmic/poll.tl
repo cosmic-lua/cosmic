@@ -602,7 +602,7 @@ end
 function Poll.checked_ns(value: any, module: string, name: string, level: integer)
   if value == nil then return end
   if not (value is integer and value >= 0 and value <= Poll.MOST_NS) then
-    error(module .. ": " .. name .. " must be nil or an integer from 0 to " .. Poll.MOST_NS,
+    error(module .. ": " .. name .. " must be nil or an integer from 0 to " .. tostring(Poll.MOST_NS),
       level + 1)
   end
 end
@@ -728,8 +728,8 @@ function Poll.ready(fds: {integer}, events: {integer}, timeout_ns?: integer): {i
   local watched, masks, answers: mut {integer}, mut {integer}, mut {integer} = {}, {}, {}
   for i, fd in ipairs(fds) do
     local mask = events[i]
-    checked_fd(fd, "fds[" .. i .. "]", 2)
-    checked_events(mask, "events[" .. i .. "]", 2)
+    checked_fd(fd, "fds[" .. tostring(i) .. "]", 2)
+    checked_events(mask, "events[" .. tostring(i) .. "]", 2)
     watched[i], masks[i], answers[i] = fd, mask, 0
   end
   local ok, why = park(task,
@@ -743,7 +743,7 @@ end
 --- cancelled first.
 function Poll.delay(ns: integer): boolean, string
   local task = current("Poll.delay", 2)
-  if ns == nil then error("poll: ns must be an integer from 0 to " .. Poll.MOST_NS, 2) end
+  if ns == nil then error("poll: ns must be an integer from 0 to " .. tostring(Poll.MOST_NS), 2) end
   Poll.checked_ns(ns, "poll", "ns", 2)
   return park(task, { task = task, expiry_ok = true }, ns)
 end

@@ -113,7 +113,7 @@ local function test_a_tree_without_a_bundle_has_no_roots_but_an_empty_one_fails(
   assert(Fs.mkdirs(tmp .. "/vendor/cacert"))
   assert(Fs.write(tmp .. "/" .. bundle, "## nothing here\n"))
   local ok, trouble = roots.fill(db, tmp, "main.")
-  assert(not ok and trouble:find("holds no certificate", 1, true), trouble)
+  assert(not ok and trouble:find("holds no certificate", 1, true) ~= nil, trouble)
   assert(db:close())
 end
 
@@ -129,7 +129,7 @@ local function test_the_tree_s_bundle_becomes_a_row_per_certificate()
     "SELECT count(*), count(*) FILTER (WHERE label = ''), " ..
       "count(*) FILTER (WHERE sha256 <> sha256(der)) FROM ca_roots"))
   assert(db:close())
-  assert(tonumber(counted[1]:text(1)) == blocks, counted[1]:text(1) .. " rows for " .. blocks)
+  assert(tonumber(counted[1]:text(1)) == blocks, counted[1]:text(1) .. " rows for " .. tostring(blocks))
   assert(counted[1]:text(2) == "0", "every root of the bundle is labelled")
   assert(counted[1]:text(3) == "0", "each row is keyed by its certificate's digest")
 end

@@ -24,5 +24,5 @@ local function test_a_compile_with_no_cache_and_no_choice_is_as_declared(tmp: st
     assert(work.close(handle))
     assert(result ~= nil, trouble)
   end, "build/")
-  assert(#found == 0, #found .. " violations:\n" .. table.concat(found, "\n"))
+  assert(#found == 0, tostring(#found) .. " violations:\n" .. table.concat(found, "\n"))
 end

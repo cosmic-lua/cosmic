@@ -1,7 +1,0 @@
-global G: integer | nil = 1
-local sink: integer = 0
-if G then
-  _G.G = nil
-  sink = sink + G + 1
-end
-return sink

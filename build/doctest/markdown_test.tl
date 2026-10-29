@@ -17,7 +17,7 @@ local function test_finds_a_bare_teal_block()
     "```",
   }))
   assert(blocks ~= nil, "parse failed: " .. tostring(trouble))
-  assert(#blocks == 1, "expected 1 block, got " .. #blocks)
+  assert(#blocks == 1, "expected 1 block, got " .. tostring(#blocks))
   assert(blocks[1].lang == "teal")
   assert(blocks[1].content == 'print("hi")')
   assert(blocks[1].line == 1)
@@ -43,7 +43,7 @@ local function test_reads_a_multi_line_block_and_a_following_output_block()
     "prose after",
   }))
   assert(blocks ~= nil, "parse failed: " .. tostring(trouble))
-  assert(#blocks == 2, "expected 2 blocks, got " .. #blocks)
+  assert(#blocks == 2, "expected 2 blocks, got " .. tostring(#blocks))
   assert(blocks[1].lang == "teal")
   assert(blocks[1].content == "local a = 1\nlocal b = 2\nprint(a + b)")
   assert(blocks[1].line == 3)
@@ -133,7 +133,7 @@ local function test_ignores_prose_with_no_fence_at_all()
     "Just words, no code.",
   }))
   assert(blocks ~= nil, "parse failed: " .. tostring(trouble))
-  assert(#blocks == 0, "expected no blocks, got " .. #blocks)
+  assert(#blocks == 0, "expected no blocks, got " .. tostring(#blocks))
 end
 
 local function test_reads_a_bare_lua_block()
@@ -153,7 +153,7 @@ local function test_finds_a_bare_tilde_teal_block()
     "~~~",
   }))
   assert(blocks ~= nil, "parse failed: " .. tostring(trouble))
-  assert(#blocks == 1, "expected 1 block, got " .. #blocks)
+  assert(#blocks == 1, "expected 1 block, got " .. tostring(#blocks))
   assert(blocks[1].lang == "teal")
   assert(blocks[1].content == 'print("hi")')
   assert(blocks[1].line == 1)
@@ -193,7 +193,7 @@ local function test_a_backtick_fence_is_not_closed_by_a_tilde_line()
     "```",
   }))
   assert(blocks ~= nil, "parse failed: " .. tostring(trouble))
-  assert(#blocks == 1, "expected 1 block, got " .. #blocks)
+  assert(#blocks == 1, "expected 1 block, got " .. tostring(#blocks))
   assert(blocks[1].content == "~~~", "got: " .. blocks[1].content)
 end
 
@@ -207,7 +207,7 @@ local function test_a_tilde_fence_holds_backtick_content()
     "~~~",
   }))
   assert(blocks ~= nil, "parse failed: " .. tostring(trouble))
-  assert(#blocks == 1, "expected 1 block, got " .. #blocks)
+  assert(#blocks == 1, "expected 1 block, got " .. tostring(#blocks))
   assert(blocks[1].content == "-- ```\nprint(1)", "got: " .. blocks[1].content)
 end
 
@@ -273,7 +273,7 @@ local function test_reads_a_policy_line_outside_a_fence()
     "```",
   }))
   assert(blocks ~= nil, "parse failed: " .. tostring(trouble))
-  assert(#blocks == 2, "expected 2 blocks, got " .. #blocks)
+  assert(#blocks == 2, "expected 2 blocks, got " .. tostring(#blocks))
   assert(blocks[1].lang == "policy" and blocks[1].content == "tmp = true",
     blocks[1].lang .. ": " .. blocks[1].content)
   assert(blocks[1].line == 3)

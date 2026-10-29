@@ -43,7 +43,7 @@ local function test_a_syntax_error_exits_2_naming_file_and_line(tmp: string)
   assert(Fs.write(tmp .. "/bad.tl", "local a = 1\nlocal = 2\n"))
   local ran = cosmic(tmp, { "compile", "bad.tl" })
   assert(ran.code == 2, ran.code)
-  assert(ran.out == "" and ran.err:find("bad.tl:2:", 1, true), ran.err)
+  assert(ran.out == "" and ran.err:find("bad.tl:2:", 1, true) ~= nil, ran.err)
   assert(not ran.err:find("compile: FAIL", 1, true), ran.err)
 end
 
@@ -79,7 +79,7 @@ local function test_a_run_from_another_directory_with_root_gives_the_same(tmp: s
   assert(here.err:find("1 type error", 1, true) and there.err:find("1 type error", 1, true), there.err)
   assert(Fs.read(tmp .. "/out/main.lua") == Fs.read(tmp .. "/out2/main.lua"))
   local without = cosmic(tmp .. "/elsewhere", { "compile", "-o", "o3", "../lib.tl" })
-  assert(without.code == 2 and without.err:find("pass --root", 1, true), without.err)
+  assert(without.code == 2 and without.err:find("pass --root", 1, true) ~= nil, without.err)
 end
 
 --- The grammar is the new one, by default and by name; the fork's, which `--grammar teal` names, is refused, naming
@@ -93,6 +93,6 @@ local function test_the_grammar_flag_reads_the_new_grammar(tmp: string)
   assert(default.code == 0 and default.out == new.out, default.err)
   local teal = cosmic(tmp, { "compile", "--grammar", "teal", "n.tl" })
   assert(teal.code == 2 and teal.out == "", teal.err)
-  assert(teal.err:find("--grammar teal: the fork's grammar is gone; `cosmic migrate` rewrites a project to the new one",
+  assert(teal.err:find("--grammar teal: the fork's grammar is gone; rewrite a project to the new grammar by hand, as doc/guides/project.md says",
     1, true) ~= nil, teal.err)
 end

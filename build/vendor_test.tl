@@ -76,10 +76,10 @@ local function test_a_tree_keeps_what_the_pin_names(dir: string)
   local tree = dir .. "/tree"
   assert(Fs.read(tree .. "/src/one.c") == "one")
   assert(Fs.read(tree .. "/include/a/b.h") == "header")
-  assert(not Fs.exists(tree .. "/src/main.c"))
-  assert(not Fs.exists(tree .. "/src/deep"))
-  assert(not Fs.exists(tree .. "/doc"))
-  assert(not Fs.exists(tree .. "/old"), "the stale tree was not pruned")
+  assert(Fs.exists(tree .. "/src/main.c") ~= true)
+  assert(Fs.exists(tree .. "/src/deep") ~= true)
+  assert(Fs.exists(tree .. "/doc") ~= true)
+  assert(Fs.exists(tree .. "/old") ~= true, "the stale tree was not pruned")
   assert(Fs.read(tree .. "/PIN") ~= nil)
   only_the_tree(dir)
 end
@@ -114,7 +114,7 @@ local function test_an_escaping_entry_refuses_the_whole_archive(dir: string)
     ["a.c"] = "a",
     ["../escaped.c"] = "out",
   }) == 1)
-  assert(not Fs.exists(dir .. "/escaped.c"))
+  assert(Fs.exists(dir .. "/escaped.c") ~= true)
   assert(Fs.read(dir .. "/tree/old/gone.c") == "stale", "the tree changed")
   only_the_tree(dir)
 end
@@ -122,7 +122,7 @@ end
 local function test_a_keep_that_matches_nothing_changes_nothing(dir: string)
   assert(run(dir, "keep missing.c\n", { ["a.c"] = "a" }) == 1)
   assert(Fs.read(dir .. "/tree/old/gone.c") == "stale")
-  assert(not Fs.exists(dir .. "/tree/a.c"))
+  assert(Fs.exists(dir .. "/tree/a.c") ~= true)
 end
 
 local function test_a_pin_with_no_keep_at_all_is_refused(dir: string)
@@ -139,7 +139,7 @@ local function test_keeps_from_a_zip_archive_too(dir: string)
   })
   assert(Vendor.run({ dir .. "/tree", archive }, "build/vendor.tl") == 0)
   assert(Fs.read(dir .. "/tree/src/one.c") == "one")
-  assert(not Fs.exists(dir .. "/tree/doc"))
+  assert(Fs.exists(dir .. "/tree/doc") ~= true)
 end
 
 local function test_a_single_file_pin_vendors_the_download_as_its_file(dir: string)
@@ -151,7 +151,7 @@ local function test_a_single_file_pin_vendors_the_download_as_its_file(dir: stri
   assert(Fs.write(download, "cert bytes"))
   assert(Vendor.run({ dir .. "/tree", download }, "build/vendor.tl") == 0)
   assert(Fs.read(dir .. "/tree/cacert.pem") == "cert bytes")
-  assert(not Fs.exists(dir .. "/tree/old"), "the stale tree was not pruned")
+  assert(Fs.exists(dir .. "/tree/old") ~= true, "the stale tree was not pruned")
 end
 
 local function test_a_single_file_pin_whose_keep_misses_its_file_is_refused(dir: string)
@@ -159,7 +159,7 @@ local function test_a_single_file_pin_whose_keep_misses_its_file_is_refused(dir:
   local download = dir .. "/cacert.pem"
   assert(Fs.write(download, "cert bytes"))
   assert(Vendor.run({ dir .. "/tree", download }, "build/vendor.tl") == 1)
-  assert(not Fs.exists(dir .. "/tree/cacert.pem"))
+  assert(Fs.exists(dir .. "/tree/cacert.pem") ~= true)
 end
 
 --- An archive [`cosmic.archive`] cannot read, under a PIN that names no
@@ -174,7 +174,7 @@ local function test_an_unreadable_archive_without_a_file_line_is_an_error(dir: s
   assert(Fs.write(download, "not an archive at all"))
   assert(Vendor.run({ dir .. "/tree", download }, "build/vendor.tl") == 1)
   assert(Fs.read(dir .. "/tree/src/kept.c") == "the tree as it was")
-  assert(not Fs.exists(dir .. "/tree/pkg.tar.gz"))
+  assert(Fs.exists(dir .. "/tree/pkg.tar.gz") ~= true)
 end
 
 local function test_read_pin_takes_the_first_word_and_the_first_line()
@@ -239,7 +239,7 @@ local function test_a_pin_may_name_sha3_256_and_every_digest_must_match(dir: str
     "a right sha256 does not excuse a wrong sha3-256")
   assert(not Vendor.matches(path, {}), "no digest matches nothing")
   local fetched, trouble = Vendor.fetch("https://example.invalid/a.zip", path, {})
-  assert(fetched == nil and trouble:find("no digest", 1, true), trouble)
+  assert(fetched == nil and trouble:find("no digest", 1, true) ~= nil, trouble)
   assert(Fs.read(path) == "hello", "a refused fetch leaves the cache alone")
 end
 
@@ -265,7 +265,7 @@ local function test_the_fetch_step_is_a_cache_hit_when_already_verified(dir: str
   assert(Fs.write(tree .. "/PIN", "strip thing-1/\nkeep src/*.c\n"))
   assert(Vendor.run({ tree, fetched }, "build/vendor.tl") == 0)
   assert(Fs.read(tree .. "/src/one.c") == "one")
-  assert(not Fs.exists(tree .. "/doc"))
+  assert(Fs.exists(tree .. "/doc") ~= true)
 end
 
 local function test_a_word_like_an_option_is_refused_not_read_as_a_name(dir: string)

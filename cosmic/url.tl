@@ -28,21 +28,21 @@ local record Url
     scheme: string
     --- What comes before an `@` in the authority, as written, or nil
     --- when there is no `@`.
-    userinfo?: string
+    mut userinfo?: string
     --- The host, lowercased: a name, an IPv4 address, or an IPv6
     --- address without its brackets ("::1").
-    host: string
+    mut host: string
     --- The port, or nil when the URL names none (or an empty one, as
     --- "http://h:/").
-    port?: integer
+    mut port?: integer
     --- The path, as written: "" when the URL has none, else starting
     --- with "/".
     path: string
     --- What follows the first `?`, up to a `#`, or nil when there is no
     --- `?`.
-    query?: string
+    mut query?: string
     --- What follows the first `#`, or nil when there is no `#`.
-    fragment?: string
+    mut fragment?: string
   end
 
   --- One name and value of a query or form, unescaped.

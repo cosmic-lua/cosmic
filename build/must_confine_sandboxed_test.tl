@@ -63,7 +63,7 @@ local function test_a_must_confined_process_is_confined_or_refused(tmp: string)
   end
   local why = text:match("FAIL  suite%.real_test test_confined: ([^\n]*)")
   assert(why ~= nil and why:find("^must_confine: %S*bin/probe could not start confined: .+ could " ..
-      "not be applied: .+ %(E[A-Z0-9]+%)$"), text)
+      "not be applied: .+ %(E[A-Z0-9]+%)$") ~= nil, text)
   if unsandboxed(text) then return end
   Test.skip("a sandboxed worker could not confine what it started: " .. why)
 end
@@ -76,10 +76,10 @@ local function test_the_sandbox_mode_holds_confine_to_must_confine(tmp: string)
   local root = tmp .. "/root"
   fixture.fallback_suite(tmp, root)
   local text, ok = run(root, tmp .. "/first", environment(nil))
-  assert(ok and text:find("1 ran", 1, true), text)
+  assert(ok and text:find("1 ran", 1, true) ~= nil, text)
   -- It stands on its declared key, which holds the mode below.
   text, ok = run(root, tmp .. "/stood", environment(nil))
-  assert(ok and text:find("0 ran, 1 stood", 1, true), text)
+  assert(ok and text:find("0 ran, 1 stood", 1, true) ~= nil, text)
   text, ok = run(root, tmp .. "/must", environment("must"))
   -- A run held to sandboxing fails where none of its workers can be, as
   -- this one's sandbox may leave them (a root worker that cannot map a user).
@@ -91,7 +91,7 @@ local function test_the_sandbox_mode_holds_confine_to_must_confine(tmp: string)
   assert(text:find("FAIL  suite%.fallback_test test_falls_back: confine %(COSMIC_SANDBOX=must%): " ..
       "%S*bin/probe could not start confined: unveil could not be applied: "), text)
   text, ok = run(root, tmp .. "/misspelt", environment("Must"))
-  assert(not ok and text:find('COSMIC_SANDBOX is "Must"', 1, true), text)
+  assert(not ok and text:find('COSMIC_SANDBOX is "Must"', 1, true) ~= nil, text)
 end
 
 --- A worker a Landlock ruleset holds is refused a root of its own, as the
@@ -105,7 +105,7 @@ local function test_a_sandboxed_worker_is_held_by_a_ruleset_and_refused_a_root_o
   env[confine.held_variable] = nil
   local text, ok = run(root, tmp .. "/sandboxed", env, { "--all" })
   if unsandboxed(text) then return end
-  assert(not ok and text:find("2 of 3 tests failed", 1, true), text)
+  assert(not ok and text:find("2 of 3 tests failed", 1, true) ~= nil, text)
   local refused = fixture.refusal("suite.held_test")
   assert(failure_of(text, "held_test", "test_confined") == refused, text)
   assert(failure_of(text, "held_test", "test_own_sandbox") == refused, text)

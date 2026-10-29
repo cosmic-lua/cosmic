@@ -101,7 +101,7 @@ local function test_symbol_schema_upgrade_discards_old_analysis(tmp: string)
   local columns = assert(Sqlite.text_rows(upgraded.db, "PRAGMA table_info(docs)"))
   local names: mut {string: boolean} = {}
   for _, row in ipairs(columns) do names[row:text(2)] = true end
-  assert(names["source_symbol"] and names["exported"])
+  assert(names["source_symbol"] == true and names["exported"] == true)
   assert(work.close(upgraded))
 end
 
@@ -325,7 +325,7 @@ local function with_change_time(paths: {string}, check: function(function()))
   local tick = { value = 1 }
   Fs.stat = function(path: string): sys.Stat?, string
     local st, trouble = stat(path)
-    if st ~= nil and tracked[path] then
+    if st ~= nil and tracked[path] == true then
       st.ctime = 100
       st.ctime_ns = tick.value
     end
@@ -797,7 +797,7 @@ local function stage_files(root: string, files: {string:string}): work.Staged?, 
   local handle = assert(work.open(root))
   local staged, trouble = work.stage(handle, false)
   assert(work.close(handle))
-  if staged ~= nil then return staged end
+  if staged ~= nil then return staged, "" end
   return nil, trouble
 end
 
@@ -844,7 +844,7 @@ local function test_stage_refuses_an_asset_it_cannot_carry(tmp: string)
     { "static/big.bin", ("x"):rep(16 * 1024 * 1024 + 1), "past the 16 MiB limit" },
   }
   for i, case in ipairs(cases) do
-    local staged, trouble = stage_files(tmp .. "/" .. i, { [case[1]] = case[2] })
+    local staged, trouble = stage_files(tmp .. "/" .. tostring(i), { [case[1]] = case[2] })
     assert(staged == nil, case[1])
     assert(trouble:find(case[1], 1, true) and trouble:find(case[3], 1, true), trouble)
   end
@@ -865,7 +865,7 @@ local function test_stage_refuses_assets_that_differ_only_in_case(tmp: string)
     Test.skip("this file system folds case, so two names that differ only in case are one file")
   end
   local staged, trouble = stage_files(tmp, { ["static/App.css"] = "a", ["static/app.css"] = "b" })
-  assert(staged == nil and trouble:find("only in case", 1, true), tostring(trouble))
+  assert(staged == nil and trouble:find("only in case", 1, true) ~= nil, tostring(trouble))
   assert(trouble:find("static/App.css", 1, true) and trouble:find("static/app.css", 1, true))
 end
 
@@ -881,12 +881,12 @@ local function test_stage_refuses_an_asset_linked_from_outside_the_project(tmp: 
   assert(stage_files(tmp .. "/p", { ["main.tl"] = "return 1\n" }), "a link within the project stages")
   assert(Fs.symlink("../../outside/secret.txt", tmp .. "/p/static/leak.txt"))
   local staged, trouble = stage_files(tmp .. "/p", { ["main.tl"] = "return 1\n" })
-  assert(staged == nil and trouble:find("static/leak.txt: a link to ", 1, true), tostring(trouble))
+  assert(staged == nil and trouble:find("static/leak.txt: a link to ", 1, true) ~= nil, tostring(trouble))
   assert(trouble:find("outside the project", 1, true))
   assert(Fs.remove(tmp .. "/p/static/leak.txt"))
   assert(Fs.symlink("../../outside", tmp .. "/p/static/dir"))
   local through, through_trouble = stage_files(tmp .. "/p", { ["main.tl"] = "return 1\n" })
-  assert(through == nil and through_trouble:find("static/dir/secret.txt", 1, true), tostring(through_trouble))
+  assert(through == nil and through_trouble:find("static/dir/secret.txt", 1, true) ~= nil, tostring(through_trouble))
 end
 
 local function test_identity_knows_a_static_asset_by_its_directory(_tmp: string)

@@ -117,23 +117,23 @@ end
 local function test_a_checked_run_reports_a_false_fact_and_changes_no_verdict(tmp: string)
   local root = project(tmp)
   local plain, plain_text = invoke(root, tmp, { "test", "--all" })
-  assert(plain.ok and plain_text:find("test: 2 tests passed in ", 1, true), plain_text)
+  assert(plain.ok and plain_text:find("test: 2 tests passed in ", 1, true) ~= nil, plain_text)
   assert(not plain_text:find("run-time types", 1, true), "an unchecked run reported types")
 
   local checked, text = invoke(root, tmp, { "test", "--check-types" })
-  assert(checked.ok and text:find("test: 2 tests passed in ", 1, true), text)
+  assert(checked.ok and text:find("test: 2 tests passed in ", 1, true) ~= nil, text)
   assert(text:find("run-time types: 1 violation, 1 distinct, at 1 place", 1, true), text)
   assert(text:find("greet.tl:" .. read_site() .. ": name declared not nil got nil (1 time)", 1, true), text)
   assert(text:find("2 ran, 0 stood", 1, true), "a standing verdict hid a test from the report: " .. text)
 
   local rows = violations(root)
-  assert(#rows == 1, #rows .. " rows")
+  assert(#rows == 1, tostring(#rows) .. " rows")
   assert(table.concat(rows[1]:texts(), " | ") == "fact | greet.tl:" .. read_site() .. " | name | not nil | nil | 1",
     table.concat(rows[1]:texts(), " | "))
 
   -- The same variable asks for the same.
   local variable, variable_text = invoke(root, tmp, { "test" }, { COSMIC_TEST_CHECK_TYPES = "1" })
-  assert(variable.ok and variable_text:find("run-time types: 1 violation", 1, true), variable_text)
+  assert(variable.ok and variable_text:find("run-time types: 1 violation", 1, true) ~= nil, variable_text)
 end
 
 --- Neither a checked run nor the variable that asks for one puts a check

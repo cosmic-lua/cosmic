@@ -26,6 +26,65 @@ local function run(source: string): Programs.Run
   return r
 end
 
+-- table.move ------------------------------------------------------------------------------------------------
+
+local MOVE_HEAD <const> = "local xs: mut {integer} = {}\nlocal ys: mut {integer} = {}\nlocal n: integer = 3\n" ..
+  "local record Box\n  mut items: mut {integer}\nend\nlocal box: Box = { items = {} }\n" ..
+  "local function pick(): mut {integer}\n  return xs\nend\n"
+
+--- Checks that `MOVE_HEAD` and `body` have the codes `want`.
+local function moves(body: string, want: string)
+  local got = Programs.codes(run(MOVE_HEAD .. body))
+  assert(got == want, "got " .. got .. ", wanted " .. want .. " in " .. body)
+end
+
+local function test_a_move_of_elements_the_array_has_to_the_start_or_the_end_of_an_array_stands()
+  -- the whole array, or its tail from a literal, to the start of another array or a table made for it
+  moves("table.move(xs, 1, #xs, 1, ys)\n", "")
+  moves("table.move(xs, 2, #xs, 1, {})\n", "")
+  moves("local zs: mut {integer} = table.move(xs, 1, #xs - 1, 1, {})\n", "")
+  -- onto the end of the array it continues, another array or the same one
+  moves("table.move(xs, 1, #xs, #ys + 1, ys)\n", "")
+  moves("table.move(xs, 1, #xs, #xs + 1)\n", "")
+  -- down within one array, where the ranges overlap
+  moves("table.move(xs, 2, #xs, 1)\n", "")
+  -- fields of a name, and the table library through another name
+  moves("table.move(box.items, 1, #box.items, #xs + 1, xs)\n", "")
+  moves("local t = table\nt.move(xs, 1, #xs, 1, ys)\n", "")
+end
+
+local function test_a_move_that_may_copy_a_nil_or_leave_a_hole_is_refused()
+  -- the range reaches past the end of the source
+  moves("table.move(xs, 1, n, 1, ys)\n", "array_hole")
+  moves("table.move(xs, 1, #xs + 1, 1, ys)\n", "array_hole")
+  moves("table.move(xs, 1, #ys, 1, {})\n", "array_hole")
+  moves("table.move(xs, 1, #xs - n, 1, {})\n", "array_hole")
+  moves("table.move(xs, 1, 2, 1, {})\n", "array_hole")
+  -- it starts below the first element, or where nothing says it does not
+  moves("table.move(xs, 0, #xs, 1, {})\n", "array_hole")
+  moves("table.move(xs, n, #xs, 1, {})\n", "array_hole")
+  -- the destination is past the end of the array, or is not an index of one
+  moves("table.move(xs, 1, #xs, 3, ys)\n", "array_hole")
+  moves("table.move(xs, 1, #xs, #ys + 2, ys)\n", "array_hole")
+  moves("table.move(xs, 1, #xs, #xs + 1, ys)\n", "array_hole")
+  moves("table.move(xs, 1, #xs, n, ys)\n", "array_hole")
+  moves("table.move(xs, 1, #xs, 0, ys)\n", "array_hole")
+  moves("table.move(xs, 1, #xs, 2)\n", "array_hole")
+  -- an argument that runs code may change a length after it is read
+  moves("table.move(pick(), 1, #xs, 1, ys)\n", "array_hole")
+  moves("table.move(xs, 1, #xs, 1, pick())\n", "array_hole")
+  -- the function is read and called elsewhere, with arguments no one checks
+  moves("local mv = table.move\nmv(xs, 1, n, 50, ys)\n", "overload_value array_hole")
+  moves("local t = table\nt.move(xs, 1, n, 1, ys)\n", "array_hole")
+  moves("(table.move)(xs, 1, #xs, 1, ys)\n", "overload_value array_hole")
+  -- the member is the library's however it is spelled
+  moves("table[\"move\"](xs, 1, n, 50)\n", "array_hole")
+  moves("local mv = table[\"move\"]\nmv(xs, 1, n, 50)\n", "array_hole")
+  moves("local mv = table[\"move\"]\nmv(xs, 1, #xs, 1, ys)\n", "array_hole arity")
+  -- a table literal to start is dense only if it is: a hole in it is refused as it is anywhere
+  moves("table.move(xs, 1, #xs, 1, { 1, nil, 3 })\n", "nil_not_allowed")
+end
+
 -- what the declarations say --------------------------------------------------------------------------
 
 --- The display of each declaration of `owner.name` (a library's field) in `r`, in order.

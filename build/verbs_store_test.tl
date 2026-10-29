@@ -144,7 +144,7 @@ local function test_help_is_a_short_index_of_every_verb(tmp: string)
   local all = verbs_fixture.expect(tmp, "help", { "help" }, 0).stdout or ""
   local lines = 0
   for _ in all:gmatch("\n") do lines = lines + 1 end
-  assert(lines < 60, lines .. " lines:\n" .. all)
+  assert(lines < 60, tostring(lines) .. " lines:\n" .. all)
   for _, verb in ipairs(Cli.order) do
     local command = Cli.verbs[verb]
     assert(all:find(assert(command.usage) .. "  ", 1, true), verb .. " is not in the index:\n" .. all)
@@ -240,7 +240,7 @@ local function test_build_takes_paths_to_narrow_it(tmp: string)
   local one = verbs_fixture.expect(tree, "build", { "build", "--host", "./cmd/hi/" }, 0).stdout or ""
   assert(one == build_dir(tree) .. "/bin/hi\n", one)
   assert(Fs.exists(build_dir(tree) .. "/bin/hi"))
-  assert(not Fs.exists(build_dir(tree) .. "/bin/bye"))
+  assert(Fs.exists(build_dir(tree) .. "/bin/bye") ~= true)
   local refused = verbs_fixture.expect(tree, "build", { "build", "--host", "cmd/hi", "lib" }, 1)
   assert((refused.stderr or ""):find("no cmd/<name>/main.tl under lib", 1, true), refused.stderr)
   local _ = verbs_fixture.expect(tree, "build", { "build", "--host", "cmd" }, 0)

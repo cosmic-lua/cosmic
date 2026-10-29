@@ -1244,6 +1244,52 @@ local function test_a_program_cannot_write_the_reserved_form_of_the_virtual_mach
   end
 end
 
+-- metatables ------------------------------------------------------------------------------------------------------
+
+local function test_a_call_of_setmetatable_on_a_table_that_is_no_class_is_written_as_it_is()
+  emits(program(
+    "local mt = { __index = {} }",
+    "local function adopt(t: {string: any}): {string: any}",
+    "  return setmetatable(t, mt)",
+    "end",
+    "local made = setmetatable({}, mt)",
+    "return adopt, made"), [[
+local mt = { __index = {} }
+local function adopt(t)
+   return setmetatable(t, mt)
+end
+local made = setmetatable({}, mt)
+return adopt, made]])
+end
+
+local function test_a_metatable_of_a_class_is_kept_with_the_call_that_sets_it()
+  emits(program(
+    "local class Box",
+    "  n: integer",
+    "",
+    "  function get(self): integer",
+    "    return self.n",
+    "  end",
+    "end",
+    "local box_mt: metatable<Box> = { __index = Box }",
+    "local function adopt(t: {string: any}): Box",
+    "  return setmetatable(t, box_mt)",
+    "end",
+    "return adopt"), [[
+local Box = {}; Box.__index = Box
+
+
+function Box.get(self)
+   return self.n
+end
+
+local box_mt = { __index = Box }
+local function adopt(t)
+   return setmetatable(t, box_mt)
+end
+return adopt]])
+end
+
 local function test_the_generator_is_a_function_of_its_tree()
   local text = "local a = 1\nlocal function f(x: any): boolean\n  return x is string\nend\nreturn f(a)\n"
   assert(generated(text).text == generated(text).text)

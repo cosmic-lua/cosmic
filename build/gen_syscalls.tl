@@ -31,7 +31,7 @@ local record Call
   parameters: mut {Parameter}
   results: mut {Result}
   --- The header line of the macro that names it.
-  line: integer
+  mut line: integer
 end
 
 local record Field
@@ -173,7 +173,13 @@ local function trimmed(lines: {string}): {string}
   while last >= first and lines[last] == "" do
     last = last - 1
   end
-  return table.move(lines, first, last, 1, {})
+  local kept: mut {string} = {}
+  for i, line in ipairs(lines) do
+    if i >= first and i <= last then
+      kept[#kept + 1] = line
+    end
+  end
+  return kept
 end
 
 local function parse_call(name: string, lines: {string}): Call?, string
@@ -254,7 +260,7 @@ local function parse_call(name: string, lines: {string}): Call?, string
         "error code, which must be integer"
     end
   end
-  return call
+  return call, ""
 end
 
 local function parse_class(lines: {string}, at: {integer}): Class?, string
@@ -297,7 +303,7 @@ local function parse_class(lines: {string}, at: {integer}): Class?, string
   if #class.fields == 0 then
     return nil, class.name .. ": the class has no fields"
   end
-  return class
+  return class, ""
 end
 
 local function parse_alias(lines: {string}, at: {integer}): Alias?, string
@@ -344,7 +350,7 @@ local function parse_alias(lines: {string}, at: {integer}): Alias?, string
   if #alias.members == 0 then
     return nil, alias.name .. ": the alias has no members"
   end
-  return alias
+  return alias, ""
 end
 
 --- Whether the `COSMIC_CONSTANT` lines right after a `Constants` class's
@@ -481,7 +487,7 @@ function generator.read(header: string): Declarations?, string
     return nil, "Constants: the header writes " .. plural.count(written, "COSMIC_CONSTANT line") ..
       " for " .. plural.count(declared, "field") .. "; one stands outside the block after `Constants`"
   end
-  return { calls = calls, classes = classes, aliases = aliases }
+  return { calls = calls, classes = classes, aliases = aliases }, ""
 end
 
 --- Appends `lines` to `out` as a doc comment at `indent`, so `cosmic
@@ -673,7 +679,7 @@ function generator.declaration(header: string, target?: Target): string?, string
     out[#out + 1] = "-- line " .. call.name .. " " .. tostring(call.line)
   end
   out[#out + 1] = ""
-  return table.concat(out, "\n")
+  return table.concat(out, "\n"), ""
 end
 
 return generator

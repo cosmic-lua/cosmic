@@ -41,7 +41,7 @@ local function world(files: {string: string}, symbols?: {string: {string}}, memb
     root = "/p",
     kind = function(path: string): string?
       if files[path] ~= nil then return "file" end
-      if dirs[path] then return "dir" end
+      if dirs[path] == true then return "dir" end
       return nil
     end,
     read = function(path: string): string? return files[path] end,
@@ -126,7 +126,7 @@ local function test_the_links_of_a_source_are_checked_and_rewritten()
   local checked = 0
   local linked = 0
   for index, source in ipairs(SOURCES) do
-    local path = "/p/a" .. index .. ".tl"
+    local path = "/p/a" .. tostring(index) .. ".tl"
     local new = SyntaxLinks.check(link_resolve.resolver(linking_world()), path, path, "teal", source)
     checked = checked + #new
     local now = SyntaxLinks.rewrite(link_resolve.resolver(linking_world()), path, path, "teal", source)

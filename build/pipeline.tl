@@ -70,10 +70,10 @@ local record Pipeline
     --- The ceilings that hold the modules: none for a project outside cosmic's tree, whose every error refuses.
     ceilings: Ceilings.Table
     --- Whether the checker keeps the type of each node, which the readers of the type report need.
-    types: boolean
+    mut types: boolean
     --- Answers the `cosmic.*` modules the tree does not hold, each its stub or its source: [`Pipeline.carried`] where
     --- not given.
-    standard: Driver.Provider?
+    mut standard: Driver.Provider?
     --- Whether the tree is a project outside cosmic's own, whose checker is its own. Absent for cosmic's tree.
     project: boolean?
   end
@@ -94,9 +94,9 @@ local record Pipeline
     given: {string: string}
     --- The stub of each standard-library module of the tree that a project's checker would read in its place, as a source that
     --- stands for the module and its aliases, made when the first is judged.
-    stubs: {string: Driver.Source}?
+    mut stubs: {string: Driver.Source}?
     --- The build that reads those stubs where it reads their sources, made when the first stub is judged.
-    stubbed: Driver.Build?
+    mut stubbed: Driver.Build?
   end
 
   --- The options for the tree at `root`: in cosmic's own tree the declarations and the ceilings it holds; in any other
@@ -468,7 +468,7 @@ function Pipeline.coded_of(tool: string, db: Sqlite.Handle): string?, string
   if count == nil or count:text(1) == "0" then
     return nil, "build/pipeline.tl is not parsed yet, so the code that reads the tree in the new mode cannot be named"
   end
-  return Hash.hex_sha256(tool .. "\0" .. identity(staged_code(db)))
+  return Hash.hex_sha256(tool .. "\0" .. identity(staged_code(db))), ""
 end
 
 function Pipeline.pinned(ceilings: Ceilings.Table): {string: string}

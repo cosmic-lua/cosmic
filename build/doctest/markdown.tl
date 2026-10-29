@@ -32,7 +32,7 @@ local record Block
   --- line included and no trailing newline of its own.
   content: string
   --- The 1-based source line of the opening fence, for error messages.
-  line: integer
+  mut line: integer
 end
 
 local record markdown
