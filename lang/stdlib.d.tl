@@ -66,12 +66,14 @@ do
 
     status: function<Y, R, S>(Coroutine<Y, R, S>): Status
 
-    wrap: function<Y, S>(function(Yielder<Y, S>, S)): function(S): Y?
-    wrap: function<Y, R, S>(function(Yielder<Y, S>, S): R): function(S): Y | R
-    wrap: function<Y>(function(Yielder<Y, nil>)): function(): Y?
-    wrap: function<Y, R>(function(Yielder<Y, nil>): R): function(): Y | R
+    -- Fewest parameters first: a body is taken by the first overload it is below, and one that takes fewer
+    -- parameters than an overload names is below it, which would leave the sent value's type to be guessed.
     wrap: function(function()): function()
     wrap: function<R>(function(): R): function(): R
+    wrap: function<Y>(function(Yielder<Y, nil>)): function(): Y?
+    wrap: function<Y, R>(function(Yielder<Y, nil>): R): function(): Y | R
+    wrap: function<Y, S>(function(Yielder<Y, S>, S)): function(S): Y?
+    wrap: function<Y, R, S>(function(Yielder<Y, S>, S): R): function(S): Y | R
   end
 
   global record debug
@@ -486,6 +488,10 @@ do
     -- TODO: accept a function that answers `T...` as an argument of `pcall` and `xpcall`, once the grammar spells a list
     -- with a tail among alternatives (`plist` in doc/plans/new-checker-grammar.md, "types"): `(true, R...) | (false, any)`
     -- cannot be written until then, and a call that passes one is `overload_none`.
+    --
+    -- TODO: refuse the arguments `pcall` and `xpcall` pass past the parameters of the function given, once a declaration
+    -- can say that a callback takes exactly the parameters the arguments name: the overloads name `function(A1, A2)`, and
+    -- a function of fewer parameters is below it, so `pcall(f, 1, 2)` for `f(n: integer)` is taken and Lua drops the 2.
     pcall: function((function())): (true) | (false, any)
     pcall: function<R1>((function(): R1)): (true, R1) | (false, any)
     pcall: function<R1, R2>((function(): (R1, R2))): (true, R1, R2) | (false, any)

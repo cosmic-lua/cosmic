@@ -151,12 +151,12 @@ do
       "dead"
     end
     status: function<Y, R, S>(Coroutine<Y, R, S>): Status
-    wrap: function<Y, S>(function(Yielder<Y, S>, S)): function(S): Y?
-    wrap: function<Y, R, S>(function(Yielder<Y, S>, S): R): function(S): Y | R
-    wrap: function<Y>(function(Yielder<Y, nil>)): function(): Y?
-    wrap: function<Y, R>(function(Yielder<Y, nil>): R): function(): Y | R
     wrap: function(function()): function()
     wrap: function<R>(function(): R): function(): R
+    wrap: function<Y>(function(Yielder<Y, nil>)): function(): Y?
+    wrap: function<Y, R>(function(Yielder<Y, nil>): R): function(): Y | R
+    wrap: function<Y, S>(function(Yielder<Y, S>, S)): function(S): Y?
+    wrap: function<Y, R, S>(function(Yielder<Y, S>, S): R): function(S): Y | R
   end
   global record Yielder<Y, S>
     userdata

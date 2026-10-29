@@ -25,6 +25,18 @@ local function gen_draws(src: Fuzz.Source): string
 end
 
 local type Type = Types.Type
+--- Whether `a` below `b` below `c` is the chain the relation does not close: `b` takes fewer parameters than `c`
+--- passes, which Lua drops, and `a` takes (optionally, or as a rest parameter) what `b` is below only by
+--- leaving it out. `a` is not below `c` there, since `c` passes what `a` takes a type it does not: a function
+--- of optional parameters seen as one of none, and that as one of required parameters, launders the arguments.
+--- This is the one place the relation is not transitive; [`lang.relation`] holds the argument.
+local function drops_what_a_takes(a: Type, b: Type, c: Type): boolean
+  if a.tag == "fn" and b.tag == "fn" and c.tag == "fn" then
+    return #b.params < #c.params and (#a.params > #b.params or a.rest ~= nil)
+  end
+  return false
+end
+
 local type World = Programs.World
 
 -- Weakening and strengthening ---------------------------------------------------------------------
@@ -663,7 +675,7 @@ local function test_the_relation_is_transitive(tmp: string)
           if ab then
             for _, c in ipairs(types) do
               if j:subtype(b, c) then
-                if not j:subtype(a, c) then
+                if not j:subtype(a, c) and not drops_what_a_takes(a, b, c) then
                   return false, Types.display(a) .. " is below " .. Types.display(b) .. ", which is below " ..
                     Types.display(c) .. ", and a is not below c"
                 end
@@ -1131,7 +1143,7 @@ local function test_a_pair_with_variables_is_settled_for_its_binders_and_the_rel
           for _, b in ipairs(types) do
             if answers[a.id][b.id] then
               for _, c in ipairs(types) do
-                if answers[b.id][c.id] and not answers[a.id][c.id] then
+                if answers[b.id][c.id] and not answers[a.id][c.id] and not drops_what_a_takes(a, b, c) then
                   return false, Types.display(a) .. " is below " .. Types.display(b) .. ", which is below " ..
                     Types.display(c) .. " under " .. tostring(count) .. " binders, and a is not below c"
                 end

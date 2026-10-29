@@ -616,7 +616,8 @@ local function test_a_function_may_drop_only_trailing_parameters_of_the_function
   -- the rest parameter of the function wanted is still met by a rest parameter
   refused(w, with(s.string), s:fn({ params = { { type = s.string } }, rest = s.integer }), "arity")
   -- returns are not touched
-  refused(w, func(w, { s.string }, {}), func(w, { s.string, s.integer }, { s.integer }), "return_length")
+  refused(w, func(w, { s.string }, {}), func(w, { s.string, s.integer }, { s.integer }), "return_length",
+    "alternative 1")
 end
 
 local function test_a_rest_parameter_meets_the_arguments_after_the_last_parameter()

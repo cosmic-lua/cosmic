@@ -867,6 +867,9 @@ local function parameters_below(j: Relation.Judge, f: Fn, g: Fn, why: boolean): 
       -- Where `f` takes no parameter, it takes none after either: Lua drops the arguments a caller
       -- passes past the last parameter and `f` never reads them. So only trailing parameters are
       -- dropped, the ones kept are compared here, and the rest parameter of `g` is held below.
+      -- The relation is not transitive across this: a function of optional parameters is below one of
+      -- none, and that is below one of required parameters, which the first is not: a value seen through
+      -- the middle type is held to its steps alone (`drops_what_a_takes` in the fuzz of the relation).
       if ft ~= nil then
         if g_may_omit and not f_may_omit then
           return arity(j, why, f, g, i)

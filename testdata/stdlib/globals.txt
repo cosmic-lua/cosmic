@@ -30,12 +30,12 @@ global coroutine record
   field resume: function<T, U>(Coroutine<T, U, nil>): (true, T | U) | (false, any)
   field resume: function<T, U, V>(Coroutine<T, U, V>, V): (true, T | U) | (false, any)
   field status: function<T, U, V>(Coroutine<T, U, V>): coroutine.Status
-  field wrap: function<T, U>(function(Yielder<T, U>, U)): (function(U): T?)
-  field wrap: function<T, U, V>(function(Yielder<T, V>, V): U): (function(V): T | U)
-  field wrap: function<T>(function(Yielder<T, nil>)): (function(): T?)
-  field wrap: function<T, U>(function(Yielder<T, nil>): U): (function(): T | U)
   field wrap: function(function()): (function())
   field wrap: function<T>(function(): T): (function(): T)
+  field wrap: function<T>(function(Yielder<T, nil>)): (function(): T?)
+  field wrap: function<T, U>(function(Yielder<T, nil>): U): (function(): T | U)
+  field wrap: function<T, U>(function(Yielder<T, U>, U)): (function(U): T?)
+  field wrap: function<T, U, V>(function(Yielder<T, V>, V): U): (function(V): T | U)
 global debug record
   field debug: function()
   field gethook: function<T, U, V>(p1?: Coroutine<T, U, V>): ((function(debug.HookEvent, integer))?, integer)
