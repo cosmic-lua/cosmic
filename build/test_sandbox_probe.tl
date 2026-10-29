@@ -226,7 +226,7 @@ end
 function test_sandbox_probe.resolve_noexec(effective: test_inputs.Effective, sandboxed: boolean,
                                            known: {string:string})
   effective.noexec_ready, effective.noexec_trouble = false, ""
-  if not effective.noexec then return end
+  if effective.noexec ~= true then return end
   if not sandboxed then
     effective.noexec_trouble = "noexec scratch requires a Linux filesystem sandbox"
     return

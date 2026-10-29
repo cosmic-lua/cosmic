@@ -59,7 +59,7 @@ local function comment_of(line: string): Comment?
   -- Teal file's comments from the ones the lexer attaches to its tokens
   -- (lang/lexer.tl), and a C file's from clang's, and scan only those.
   local indent, marker, rest = line:match("^([ \t]*)([-#/*;]+)(.*)$")
-  if indent == nil or not markers[marker] then
+  if indent == nil or markers[marker] ~= true then
     return nil
   end
   if rest ~= "" and not rest:match("^[ \t]") then
@@ -120,8 +120,8 @@ function todo_scan.scan(source: string): {todo_scan.Found}
           (following ~= marker and further.indent == indent .. " ")
         if not aligned or
             (further.marker ~= marker and further.marker ~= following) or
-            further.text == "" or further.text:match("^TODO:") or
-            (parts[#parts]:match("%.$") and further.text:match("^%u")) then
+            further.text == "" or further.text:match("^TODO:") ~= nil or
+            (parts[#parts]:match("%.$") and further.text:match("^%u")) ~= nil then
           break
         end
         parts[#parts + 1] = further.text
@@ -209,7 +209,7 @@ function todo_scan.scan_record(source: string): {todo_scan.Found}?
   for _, each in ipairs(todo_scan.scan(record.replace)) do
     local own = false
     for index = each.line, each.last do
-      own = own or not upstream[replaced[index]]
+      own = own or upstream[replaced[index]] ~= true
     end
     if own then
       found[#found + 1] = {

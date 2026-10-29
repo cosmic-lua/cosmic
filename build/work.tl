@@ -585,7 +585,7 @@ local function begin_waiting(db: Sqlite.Handle, path: string, wait: boolean): To
   db:busy_timeout(notice_ns)
   local begun = db:exec_result("BEGIN IMMEDIATE")
   db:busy_timeout(wait_ns)
-  if begun.cancelled then return nil, "interrupted while waiting for the write lock" end
+  if begun.cancelled == true then return nil, "interrupted while waiting for the write lock" end
   if begun.code == Sqlite.OK then
     return "done", ""
   end
@@ -594,7 +594,7 @@ local function begin_waiting(db: Sqlite.Handle, path: string, wait: boolean): To
   end
   log:complain("another cosmic run holds " .. path .. "; waiting for it")
   local waited = db:exec_result("BEGIN IMMEDIATE")
-  if waited.cancelled then return nil, "interrupted while waiting for the write lock" end
+  if waited.cancelled == true then return nil, "interrupted while waiting for the write lock" end
   if waited.code ~= Sqlite.OK then return nil, waited.reason end
   return "done", ""
 end
@@ -1054,7 +1054,7 @@ end
 --- the projection: the test runner's records, written together.
 function work.begin(handle: work.Handle): boolean, string
   local begun = handle.db:exec_result("BEGIN IMMEDIATE")
-  if begun.cancelled then
+  if begun.cancelled == true then
     return false, "interrupted while waiting for " .. handle.dir .. "/build.db"
   end
   if begun.code ~= Sqlite.OK then return false, begun.reason end
@@ -1363,13 +1363,13 @@ function work.stage(handle: work.Handle, own_tree: boolean): work.Staged?, strin
   local walking: Walking = { ancestors = nil, above = "" }
   local function skip(entry: string, name: string, kind: string): boolean
     local parent = entry:match("^(.*)/[^/]*$")
-    if (parent ~= nil and links_only[parent]) or skip_path(entry, name) then
+    if (parent ~= nil and links_only[parent] == true) or skip_path(entry, name) then
       if not for_links(entry) then
         return true
       end
       links_only[entry] = true
     end
-    if own_tree and not links_only[entry] and
+    if own_tree and links_only[entry] ~= true and
         not identity.is_foreign_tree(identity.first_of(entry)) and
         (kind == "dir" or kind == "link") then
       local st, _ = Fs.stat(root .. "/" .. entry)
@@ -1405,7 +1405,7 @@ function work.stage(handle: work.Handle, own_tree: boolean): work.Staged?, strin
     end
     -- One that leads nowhere is not walked, so it is let be.
     local st, _ = Fs.stat(root .. "/" .. entry)
-    if st ~= nil and known[tostring(st.dev) .. ":" .. tostring(st.ino)] then
+    if st ~= nil and known[tostring(st.dev) .. ":" .. tostring(st.ino)] == true then
       if walking.above == "" then
         local target, _ = Fs.absolute(root .. "/" .. entry)
         walking.above = root .. "/" .. entry .. ": a link to " .. (target or "a directory") ..
@@ -1704,7 +1704,7 @@ local function links_finder(db: Sqlite.Handle): string?, string
   local stack: mut {string} = { "build.link_files" }
   while #stack > 0 do
     local name = table.remove(stack)
-    if not reached[name] then
+    if reached[name] ~= true then
       reached[name] = true
       local required, trouble = Store.requires(name)
       if required == nil then

@@ -80,13 +80,34 @@ const release_configuration = Configuration{ .id = 1, .name = "release", .saniti
 const sanitized_configuration = Configuration{ .id = 2, .name = "sanitized", .sanitize = true };
 
 const targets = [_]Target{
+    // x86-64-v3 (AVX2, FMA, BMI1/2, F16C, LZCNT, MOVBE: Intel Haswell 2013,
+    // AMD Excavator 2015 or newer), not the architecture's baseline, so the
+    // numeric kernels compile to wide vectors and fused multiply-add with
+    // no runtime dispatch. The launcher refuses an older CPU by name
+    // ([`build/launcher.tl`]) instead of letting the core die with SIGILL.
     .{ .id = 1, .name = "x86_64-linux-musl", .uname_os = "Linux", .uname_arch = "x86_64", .query = .{
         .cpu_arch = .x86_64,
+        .cpu_model = .{ .explicit = &std.Target.x86.cpu.x86_64_v3 },
         .os_tag = .linux,
         .abi = .musl,
     } },
+    // The aarch64 Linux core is built for Armv8.2-A with the dot-product
+    // and half-precision float extensions (Arm Cortex-A55 and A75, 2017,
+    // Neoverse N1, AWS Graviton2 or newer; not a Raspberry Pi 4 or an
+    // older core), so the int8 and fp16 kernels can use `sdot` and fp16
+    // vector arithmetic, and atomics are single LSE instructions, with no
+    // runtime dispatch. The launcher refuses an older CPU by name. The
+    // model is the generic one with the features added, not a named core
+    // such as cortex_a76: the code is then not scheduled for one chip.
+    // `v8_2a` brings in v8.1a (LSE atomics, rounding doubling multiply
+    // add, CRC32, PAN, VHE) and the 8.2 cache and RAS hints; `dotprod`
+    // and `fullfp16` are the optional 8.2 extensions this adds. The
+    // cryptographic extensions stay off, since they are optional.
+    // The aarch64 macOS core keeps the baseline, Apple M1.
     .{ .id = 2, .name = "aarch64-linux-musl", .uname_os = "Linux", .uname_arch = "aarch64", .query = .{
         .cpu_arch = .aarch64,
+        .cpu_model = .{ .explicit = &std.Target.aarch64.cpu.generic },
+        .cpu_features_add = std.Target.aarch64.featureSet(&.{ .v8_2a, .dotprod, .fullfp16 }),
         .os_tag = .linux,
         .abi = .musl,
     } },
@@ -2105,17 +2126,26 @@ fn baselineHostTarget(b: *std.Build) std.Build.ResolvedTarget {
     });
 }
 
-/// `query` resolved, refusing a CPU other than its architecture's baseline:
-/// a host tool's bytes key the build's cache, and the checked core runs on
-/// runners other than the one that built it.
+/// `query` resolved, refusing a CPU other than the one it declares: the
+/// architecture's baseline where it names no model, else the explicit model
+/// (the x86-64-v3 of the shipped x86_64 target, which the checked core is
+/// built for) with at least the features it adds (the Armv8.2-A extensions
+/// of the aarch64 Linux target). A host tool's bytes key the build's cache, and the checked
+/// core runs on runners other than the one that built it, so a CPU detected
+/// on this machine (`.native`) must never resolve here.
 fn baselineTarget(b: *std.Build, query: std.Target.Query) std.Build.ResolvedTarget {
     const resolved = b.resolveTargetQuery(query);
-    const expected = std.Target.Cpu.Model.baseline(
-        resolved.result.cpu.arch,
-        resolved.result.os,
-    );
+    const expected = switch (query.cpu_model) {
+        .explicit => |model| model,
+        else => std.Target.Cpu.Model.baseline(
+            resolved.result.cpu.arch,
+            resolved.result.os,
+        ),
+    };
     if (resolved.result.cpu.model != expected)
-        @panic("a host tool or the checked core resolved a CPU other than the baseline");
+        @panic("a host tool or the checked core resolved a CPU other than the one it declares");
+    if (!resolved.result.cpu.features.isSuperSetOf(query.cpu_features_add))
+        @panic("a host tool or the checked core resolved a CPU without the features it declares");
     return resolved;
 }
 

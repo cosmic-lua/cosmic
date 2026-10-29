@@ -135,7 +135,7 @@ function key_parts.reads_compiler(closure: {string}): boolean
   local readers: mut {string:boolean} = {}
   for _, name in ipairs(compiler_readers) do readers[name] = true end
   for _, name in ipairs(closure) do
-    if readers[name] then return true end
+    if readers[name] == true then return true end
   end
   return false
 end

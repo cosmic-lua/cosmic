@@ -1,3 +1,4 @@
+local Cell = require("cosmic.cell")
 local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
 local Test = require("cosmic.test")
@@ -62,7 +63,7 @@ local function test_interleaved_writers_have_distinct_temporary_files(tmp: strin
   local real_open_temporary = sys.open_temporary
   local real_write = sys.write
   local temporaries: mut {string} = {}
-  local nested = { value = false }
+  local nested: Cell<boolean> = { value = false }
   sys.open_temporary = function(destination: string, mode?: integer): sys.TemporaryFile?, string, integer
     local file, trouble, number = real_open_temporary(destination, mode)
     if file ~= nil then
@@ -89,7 +90,7 @@ local function test_write_failure_preserves_destination_and_cleans_its_temp(tmp:
   local path = tmp .. "/target"
   assert(Fs.write(path, "old"))
   local real_write = sys.write
-  local created = { value = "" }
+  local created: Cell<string> = { value = "" }
   local real_open_temporary = sys.open_temporary
   sys.open_temporary = function(destination: string, mode?: integer): sys.TemporaryFile?, string, integer
     local file, trouble, number = real_open_temporary(destination, mode)
@@ -112,8 +113,8 @@ local function test_close_failure_preserves_destination_and_cleans_its_temp(tmp:
   assert(Fs.write(path, "old"))
   local real_close = sys.close
   local real_open_temporary = sys.open_temporary
-  local created = { value = "" }
-  local injected_fd = { value = -1 }
+  local created: Cell<string> = { value = "" }
+  local injected_fd: Cell<integer> = { value = -1 }
   sys.open_temporary = function(destination: string, mode?: integer): sys.TemporaryFile?, string, integer
     local file, trouble, number = real_open_temporary(destination, mode)
     if file ~= nil then
@@ -143,7 +144,7 @@ local function test_rename_failure_preserves_destination_and_cleans_its_temp(tmp
   assert(Fs.write(path, "old"))
   local real_rename = sys.rename
   local real_open_temporary = sys.open_temporary
-  local created = { value = "" }
+  local created: Cell<string> = { value = "" }
   sys.open_temporary = function(destination: string, mode?: integer): sys.TemporaryFile?, string, integer
     local file, trouble, number = real_open_temporary(destination, mode)
     if file ~= nil then created.value = file.path end
@@ -557,7 +558,7 @@ local function test_read_takes_a_file_in_the_one_read_its_size_asks_for(tmp: str
   local data = string.rep("0123456789abcdef", 20000)
   assert(Fs.write(path, data))
   local real_read = sys.read
-  local reads = { value = 0 }
+  local reads: Cell<integer> = { value = 0 }
   sys.read = function(fd: integer, count: integer): string?, string, integer
     reads.value = reads.value + 1
     return real_read(fd, count)
@@ -566,7 +567,7 @@ local function test_read_takes_a_file_in_the_one_read_its_size_asks_for(tmp: str
   local file_reads = reads.value
   sys.read = real_read
   assert(read == data, trouble)
-  assert(file_reads == 2, "one read for the bytes and one for the end, not " .. file_reads)
+  assert(file_reads == 2, "one read for the bytes and one for the end, not " .. tostring(file_reads))
 end
 
 --- A write the kernel takes part of goes on from where it stopped.

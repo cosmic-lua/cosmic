@@ -449,7 +449,6 @@ visit = function(s: Generics.Solver, pattern: Type, actual: Type, dir: Generics.
     end
     if #pattern.rets == 1 and #actual.rets == 1 then
       local p, a = pattern.rets[1], actual.rets[1]
-      assert(p ~= nil and a ~= nil)
       for i, item in ipairs(p.items) do
         local found = a.items[i]
         if found ~= nil then

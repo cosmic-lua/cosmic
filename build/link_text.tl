@@ -273,7 +273,7 @@ local function paragraph_ends(text: string, continues: {integer: boolean}): func
   local stop = #text + 1
   for number = #starts, 1, -1 do
     ends[number] = stop
-    if not continues[number] then
+    if continues[number] ~= true then
       stop = starts[number] - 1
     end
   end
@@ -656,7 +656,7 @@ local function scan(text: string, continues: {integer: boolean}, spans?: mut {li
   local at = text:find("[\\`%[]", 1)
   while at ~= nil and at <= #text do
     local c = text:sub(at, at)
-    if definition_lines[line_of(at)] then
+    if definition_lines[line_of(at)] == true then
       local next_line = text:find("\n", at, true)
       at = if next_line ~= nil then next_line + 1 else #text + 1 end
     elseif c == "\\" then
@@ -839,12 +839,12 @@ function link_text.unlinked(text: string): string
   local number = 0
   for line in String.lines(text) do
     number = number + 1
-    if not dropped[number] then
+    if dropped[number] ~= true then
       local start = starts[number]
       local kept: mut {string} = {}
       local from = 1
       for at = 1, #line do
-        if cut[start + at - 1] then
+        if cut[start + at - 1] == true then
           kept[#kept + 1] = line:sub(from, at - 1)
           from = at + 1
         end

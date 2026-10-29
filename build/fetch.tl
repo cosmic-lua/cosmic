@@ -147,7 +147,7 @@ function verb.redirect_protocols(url: string, allow_downgrade: boolean): {string
 end
 
 function verb.refusal(why: string, protocols: {string}?): string
-  if protocols ~= nil and why:find('Protocol "http" is disabled (in redirect)', 1, true) then
+  if protocols ~= nil and why:find('Protocol "http" is disabled (in redirect)', 1, true) ~= nil then
     return "refused a redirect from https to http (--allow-downgrade follows it)"
   end
   return why
@@ -279,7 +279,7 @@ function verb.run(argv: {string}, io?: verb.Io): integer
   local from: mut {string:string} = {}
   local function want_digest(algorithm: Algorithm, digest: string, source: string, sep: string): string?
     local name = algorithm.name
-    if #digest ~= algorithm.digits or digest:find("[^%x]") then
+    if #digest ~= algorithm.digits or digest:find("[^%x]") ~= nil then
       return source .. " wants " .. plural.count(algorithm.digits, "hex digit") .. ", not " .. digest
     end
     digest = digest:lower()

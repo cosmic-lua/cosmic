@@ -352,7 +352,7 @@ local function run_in(args: {string}, io: sandbox_connect.Io): integer
       return seen.status, seen.consumed, seen.reason
     end)
     if after_auth == nil then return fail(auth_why) end
-    if not auth.accepted then return fail("the relay refused the sandbox's token") end
+    if auth.accepted ~= true then return fail("the relay refused the sandbox's token") end
     if after_auth ~= "" then return fail("the relay answered before it was asked") end
     trace("token accepted")
   end

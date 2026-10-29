@@ -154,7 +154,7 @@ function Lexical.walk(chunk: Ast.Chunk, scoped: Resolved.Scoped,
           end
         end
       end
-    elseif (node.kind == "Field") and not written[Node.base(node).id] then
+    elseif (node.kind == "Field") and written[Node.base(node).id] ~= true then
       local object = node.object
       local line = assert(chunk.tokens.y[Node.base(object).first])
       if (object.kind == "Name") then

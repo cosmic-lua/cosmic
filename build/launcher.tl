@@ -52,10 +52,50 @@ case $0 in
   *) cosmic_artifact=$PWD/$0 ;;
 esac
 
-case "$(uname -sm)" in
+portable_system=$(uname -sm)
+case "$portable_system" in
 @TARGETS@
   *) portable_die 'unsupported target' ;;
 esac
+# The x86_64 Linux core is built for x86-64-v3 and the aarch64 Linux core for
+# Armv8.2-A with dot-product and half-precision floats, and either dies with
+# SIGILL on an older CPU, so refuse before anything is extracted. The kernel
+# lists only the features it has enabled for user space (avx when the OS does
+# not enable YMM state), so the list answers for the OS too. The baseline
+# features that come with these (x86-64-v2, Armv8.0 NEON) are not checked:
+# every CPU with these has them. A host that shows no such line (no /proc) is
+# not refused: the check cannot tell, and the core may well run.
+# $1 is the /proc/cpuinfo key of the list, $2 what the core needs, and the
+# rest the words that must be in the list, as whole words.
+portable_cpuinfo=@CPUINFO@
+portable_require_cpu() {
+  portable_key=$1
+  portable_needs=$2
+  shift 2
+  portable_flags=
+  while IFS= read -r portable_line; do
+    case $portable_line in
+      "$portable_key"*) portable_flags=" ${portable_line#*:} "; break ;;
+    esac
+  done 2>/dev/null < "$portable_cpuinfo"
+  [ -n "$portable_flags" ] || return 0
+  portable_missing=
+  for portable_flag in "$@"; do
+    case $portable_flags in
+      *" $portable_flag "*) ;;
+      *) portable_missing="$portable_missing $portable_flag" ;;
+    esac
+  done
+  [ -z "$portable_missing" ] ||
+    portable_die "this CPU lacks${portable_missing}; $portable_needs"
+}
+# Not a case on $portable_system: a header line opening with an arm's
+# quoted name is the arm the manifest selects.
+if [ "$portable_system" = 'Linux x86_64' ]; then
+  portable_require_cpu flags 'the x86_64 core needs x86-64-v3 (AVX2 and the rest of x86-64-v3: Intel Haswell 2013 or AMD Excavator 2015 or newer)' avx avx2 fma bmi1 bmi2 movbe f16c abm xsave
+elif [ "$portable_system" = 'Linux aarch64' ]; then
+  portable_require_cpu Features 'the aarch64 core needs Armv8.2-A with dot-product and half-precision floats (Cortex-A55 or A75, Neoverse N1, Graviton2, Raspberry Pi 5 or newer)' asimddp asimdhp fphp atomics asimdrdm crc32
+fi
 @SELECT_HOOK@
 
 # Keep this open across extraction and exec: startup adopts this descriptor,
@@ -486,6 +526,8 @@ local shipped = without_comments(template)
 function launcher.render(arms: string, test_hooks: boolean): string
   local rendered = substitute(shipped, "@TARGETS@", arms)
   if test_hooks then
+    rendered = substitute(rendered, "@CPUINFO@",
+      '"${COSMIC_PORTABLE_TEST_CPUINFO-/proc/cpuinfo}"')
     rendered = substitute(rendered, "@SELECT_HOOK@",
       "portable_test_hook after_select")
     rendered = substitute(rendered, "@ADOPT_HOOK@",
@@ -498,6 +540,7 @@ function launcher.render(arms: string, test_hooks: boolean): string
       "  portable_test_hook before_publish")
     rendered = rendered:gsub("portable_die%(%) %{", test_hook_function .. "\nportable_die() {")
   else
+    rendered = substitute(rendered, "@CPUINFO@", "/proc/cpuinfo")
     rendered = substitute(rendered, "@SELECT_HOOK@", "")
     rendered = substitute(rendered, "@ADOPT_HOOK@", "")
     rendered = substitute(rendered, "@REPAIR_HOOK@", "")

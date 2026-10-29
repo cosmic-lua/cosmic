@@ -240,7 +240,7 @@ local function identify_in(known: Graph, name: string, file: string,
   local seen: mut {string:boolean} = {}
   local graph: mut {string} = {}
   local function visit(slot: string, display: string): boolean, string
-    if seen[slot] then
+    if seen[slot] == true then
       return true, ""
     end
     local dependency, resolve_trouble = resolve(slot, display)
@@ -774,7 +774,7 @@ end
 --- Caught here, at compile time, rather than left to fail the moment
 --- the runner indexes a table that `require` handed back as `true`.
 local function missing_example_return(m: Module): boolean
-  return #m.tests > 0 and not m.has_top_level_return
+  return #m.tests > 0 and m.has_top_level_return ~= true
 end
 
 --- Why a cosmic build refuses a global declared at `at` (`file:line:column`).

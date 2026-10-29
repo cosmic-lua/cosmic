@@ -132,7 +132,7 @@ function host_names.parse(name: string): host_names.Spec?, string
       return nil, string.format("%q: `path:` takes a path with no NUL byte", name)
     end
   elseif base == "program" then
-    if argument == "" or argument:find("/", 1, true) or argument:find("\0", 1, true) then
+    if argument == "" or argument:find("/", 1, true) ~= nil or argument:find("\0", 1, true) ~= nil then
       return nil, string.format("%q: `program:` takes the name of a program the PATH finds, with no \"/\" (a file of a known place is `path:`)", name)
     end
   end
@@ -161,7 +161,7 @@ function host_names.read_promises(text: string): {string}?, string
   for name in (text .. ","):gmatch("([^,]*),") do
     local spec, why = host_names.parse(name)
     if spec == nil then return nil, why end
-    if seen[name] then return nil, string.format("%q is promised twice", name) end
+    if seen[name] == true then return nil, string.format("%q is promised twice", name) end
     seen[name] = true
     out[#out + 1] = name
   end
@@ -224,7 +224,9 @@ function host_names.check(declared: {string}, inputs: host_names.Inputs): boolea
   for _, name in ipairs(declared) do
     local spec, why = host_names.parse(name)
     if spec == nil then return false, "requires: " .. why end
-    if seen[name] then return false, string.format("requires: %q is written twice", name) end
+    if seen[name] == true then
+      return false, string.format("requires: %q is written twice", name)
+    end
     seen[name] = true
     if spec.base == "path" then
       local granted = false
@@ -244,7 +246,7 @@ function host_names.check(declared: {string}, inputs: host_names.Inputs): boolea
       for _, variable in ipairs(inputs.env or {}) do
         if variable == "PATH" then path_named = true end
       end
-      if not (inputs.system and path_named) then
+      if not (inputs.system == true and path_named) then
         return false, string.format("requires: %q needs the profile \"system\" and env = { \"PATH\" }, " ..
             "so the worker can find and run what the runner found", name)
       end

@@ -1,5 +1,6 @@
 --- A streamed child's queued bytes precede its terminal I/O failure.
 
+local Cell = require("cosmic.cell")
 local Child = require("cosmic.child")
 local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
@@ -51,8 +52,8 @@ local function test_a_read_failure_follows_queued_stdout_and_stderr()
     local reader = assert(child_fd == 1 and h.stdout_stream or h.stderr_stream)
     local fd = assert(h._streams)[1].fd
     local reason = "read: injected terminal failure"
-    local bytes = { value = 0 }
-    local refused = { value = false }
+    local bytes: Cell<integer> = { value = 0 }
+    local refused: Cell<boolean> = { value = false }
     patched(function()
       local read = sys.read
       sys.read = function(which: integer, count: integer): string?, string, integer
@@ -81,7 +82,7 @@ local function test_a_raw_poll_failure_follows_queued_bytes()
   local pipe = assert(h._streams)[1]
   local fd = pipe.fd
   local reason = "poll: injected terminal failure"
-  local refused = { value = false }
+  local refused: Cell<boolean> = { value = false }
   patched(function()
     local poll = sys.poll
     sys.poll = function(fds: {integer}, events: {integer}, ms: integer): {integer}?, string, integer
@@ -134,7 +135,7 @@ local function test_a_source_failure_does_not_replace_sticky_guard_cancellation(
   local pipe = assert(h._streams)[1]
   local fd = pipe.fd
   local reason = "read: cancelled by signal is only diagnostic text here"
-  local refused = { value = false }
+  local refused: Cell<boolean> = { value = false }
   patched(function()
     local read = sys.read
     sys.read = function(which: integer, count: integer): string?, string, integer
@@ -155,7 +156,7 @@ end
 local function test_transient_read_errors_leave_the_stream_readable()
   local h <close> = output(1)
   local fd = assert(h._streams)[1].fd
-  local transient = { value = 0 }
+  local transient: Cell<integer> = { value = 0 }
   patched(function()
     local read = sys.read
     sys.read = function(which: integer, count: integer): string?, string, integer
@@ -180,7 +181,7 @@ local function test_a_failed_pump_does_not_close_a_reused_descriptor()
   local h <close> = output(1)
   local reader = assert(h.stdout_stream)
   local fd = assert(h._streams)[1].fd
-  local replacement = { value = nil as integer? }
+  local replacement: Cell<integer?> = { value = nil }
   local ok, why: boolean, any = pcall(function()
     patched(function()
       local poll = sys.poll

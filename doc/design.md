@@ -89,6 +89,34 @@ runs the Linux binary under WSL2. Intel Macs are not a target: Apple
 has named macOS 26 the last release for them, and no runner can test
 them without Rosetta.
 
+The x86_64 core is built for x86-64-v3, so the CPU needs AVX2, FMA, BMI1
+and BMI2, F16C, LZCNT and MOVBE, and the kernel must enable AVX state.
+That is Intel Haswell (2013) or AMD Excavator (2015) or newer mainstream
+cores, but not Atom-class or AVX-less Pentium and Celeron parts, which
+are still sold without AVX2. It buys wide vectors and fused multiply-add
+in the numeric kernels (the vector search above all) with no runtime
+dispatch, one core and one set of bytes to verify. The launcher reads
+the CPU's flags before extracting anything and refuses a CPU without
+them by naming what is missing, rather than letting the core die with
+SIGILL.
+
+The aarch64 Linux core is built for Armv8.2-A with the dot-product and
+half-precision floating-point extensions (and what Armv8.1-A brought:
+LSE atomics, rounding doubling multiply-add and CRC32), so the CPU needs
+all of them. That is Arm Cortex-A55 and A75 (2017) or newer, Neoverse N1
+and newer (AWS Graviton2 and later, Ampere Altra, the Arm runners GitHub
+hosts) and the Raspberry Pi 5 (Cortex-A76). It is not Cortex-A53, A57,
+A72 or A73, so not the Raspberry Pi 3 and 4, AWS Graviton1 or other
+boards from before 2017. It buys `sdot` for the integer kernels, native
+half-precision arithmetic and single-instruction atomics with no runtime
+dispatch. The model is the generic Armv8 one with those features added,
+so the code is not scheduled for one chip, and the optional cryptographic
+extensions stay off. The launcher reads the `Features` line of
+`/proc/cpuinfo` and refuses a CPU without them, as it does on x86_64. The
+aarch64 macOS core stays at Apple M1, the oldest Apple silicon Mac.
+The host tools the build runs stay at each architecture's baseline, since
+their bytes key the build's caches across runners.
+
 every cosmic binary carries the raw core for all three targets, so any
 host builds any target offline with nothing fetched. the POSIX launcher selects
 one by `uname`, verifies its exact range and digest, retains the artifact

@@ -241,7 +241,7 @@ function cache_lifetime.prune(own: string, now?: integer, budget?: integer): cac
     end
     if named(name) and name ~= own_name then
       consider(base, name, now, report)
-    elseif named(name:sub(1, 64)) and name:sub(65):find("^" .. aside_infix:gsub("%p", "%%%0") .. "%d+$") then
+    elseif named(name:sub(1, 64)) and name:sub(65):find("^" .. aside_infix:gsub("%p", "%%%0") .. "%d+$") ~= nil then
       sweep(base, name, now, report)
     end
   end

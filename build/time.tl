@@ -233,7 +233,7 @@ local function read_input(text: string, zone: Time.Zone?,
   end
   local year, month, day, hour, minute, tail = text:match(
     "^(%d%d%d%d)%-(%d%d)%-(%d%d)[Tt](%d%d):(%d%d)(.*)$")
-  if tail ~= nil and (tail == "" or tail:match("^:%d%d$") or tail:match("^:%d%d%.%d+$")) then
+  if tail ~= nil and (tail == "" or tail:match("^:%d%d$") ~= nil or tail:match("^:%d%d%.%d+$") ~= nil) then
     local c: Time.CivilFields = {
       year = math.tointeger(tonumber(year)), month = math.tointeger(tonumber(month)),
       day = math.tointeger(tonumber(day)), hour = math.tointeger(tonumber(hour)),
@@ -338,7 +338,7 @@ function verb.run(argv: {string}, io?: verb.Io): integer
   local is_allowed: mut {string:boolean} = {}
   for _, name in ipairs(allowed) do is_allowed[name] = true end
   for _, name in ipairs(parsed.given) do
-    if not is_allowed[name] then return refuse(name .. " is not an option of " .. sub) end
+    if is_allowed[name] ~= true then return refuse(name .. " is not an option of " .. sub) end
   end
   if #parsed.words - 1 ~= arity[sub] then
     return refuse(("%s takes %d word%s, not %d"):format(sub, arity[sub],
@@ -446,7 +446,7 @@ function verb.run(argv: {string}, io?: verb.Io): integer
       return bare.refused
     end
     local moved, moved_why = Time.add_calendar(first.ns, duration, calendar, {
-      overflow = if parsed.set["--clamp"] then "clamp" else "reject" end, disambiguation = disambiguation,
+      overflow = if parsed.set["--clamp"] == true then "clamp" else "reject" end, disambiguation = disambiguation,
     })
     if moved == nil then
       complain((plain(moved_why):gsub('overflow "clamp" takes its last', "--clamp takes its last")))
@@ -459,7 +459,7 @@ function verb.run(argv: {string}, io?: verb.Io): integer
   if second == nil then return bare.refused end
   local modes: mut {string} = {}
   for _, name in ipairs({ "--days", "--months", "--seconds" }) do
-    if parsed.set[name] then modes[#modes + 1] = name end
+    if parsed.set[name] == true then modes[#modes + 1] = name end
   end
   if #modes > 1 then
     return refuse("name one of " .. table.concat(modes, " and ") .. ", not both")

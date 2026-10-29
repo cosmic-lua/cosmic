@@ -310,7 +310,7 @@ end
 --- The type `node` has once every typedef is seen through: the second of
 --- a sugared pair (`'lua_Integer':'long long'`), or the only one.
 function tree.canonical_type(node: tree.Node): string
-  if node.canonical_asked then return node.canonical_cache end
+  if node.canonical_asked == true then return node.canonical_cache end
   local written, canonical = node.text:match("^[^']*'([^']*)':'([^']*)'")
   local answer: string = canonical or written or tree.type_of(node)
   node.canonical_cache = answer
@@ -321,7 +321,7 @@ end
 --- The operator of a unary or binary operator node: the last quoted word
 --- of its text, as `'='` or `'<'`; nil when its text has none.
 function tree.operator(node: tree.Node): string?
-  if node.operator_asked then return node.operator_cache end
+  if node.operator_asked == true then return node.operator_cache end
   local op = node.text:match("'([^']*)'$")
   node.operator_cache = op
   node.operator_asked = true
@@ -331,7 +331,7 @@ end
 --- What a reference refers to, or nil for a node that is not one.
 function tree.referent(node: tree.Node): tree.Referent?
   if node == nil or node.kind ~= "DeclRefExpr" then return nil end
-  if node.referent_asked then return node.referent_cache end
+  if node.referent_asked == true then return node.referent_cache end
   local kind, id, name = node.text:match(" (%a+) (0x%x+) '([^']*)'")
   local found: tree.Referent? = nil
   if kind ~= nil then found = { kind = kind, id = id, name = name } end
@@ -354,7 +354,7 @@ end
 --- through a pointer.
 function tree.callee(call: tree.Node): string?
   if call.kind ~= "CallExpr" or #call.children == 0 then return nil end
-  if call.callee_asked then return call.callee_cache end
+  if call.callee_asked == true then return call.callee_cache end
   local r = tree.referent(tree.bare(call.children[1]))
   local name: string? = nil
   if r ~= nil and r.kind == "Function" then name = r.name end

@@ -41,6 +41,14 @@ conflict with the parent's squash.
    the tree's own tool rebuilds or boots: another cosmic (a release) run
    in a stale tree refuses and exits 3.
 
+   on an x86_64 box the build runs the checked core and the host's
+   shipped core, which are built for x86-64-v3, so the box's CPU needs
+   AVX2, FMA, BMI1 and BMI2, F16C, LZCNT and MOVBE.
+
+   on an aarch64 Linux box the same holds for the Armv8.2-A core: the
+   CPU needs dot-product and half-precision floats (Cortex-A55 or
+   Neoverse N1 and newer, a Raspberry Pi 5; not a Raspberry Pi 4).
+
 ## check before pushing
 
 - the change has a test that fails without it ([`doc/testing.md`]).

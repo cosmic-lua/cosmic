@@ -139,7 +139,6 @@ local function results_of(f: Types.Type?): {Types.Type}?, boolean
     return nil, false
   end
   local alt = f.rets[1]
-  assert(alt ~= nil)
   local out: mut {Types.Type} = {}
   for _, item in ipairs(alt.items) do
     out[#out + 1] = item
@@ -990,7 +989,7 @@ local function check_inspections(run: Run)
   for _, pair in ipairs(reads) do
     local read, via = pair[1], pair[2]
     judged(run, "readings")
-    if (read.kind == "Name") and not flagged[Node.base(via).id] and holds_reason(read.text, Lexer.offset(tokens, Node.base(read).first)) then
+    if (read.kind == "Name") and flagged[Node.base(via).id] ~= true and holds_reason(read.text, Lexer.offset(tokens, Node.base(read).first)) then
       flagged[Node.base(via).id] = true
       report(run, line_of(subject, via), string.format("%s: a failure's reason is read for what it says; a failure with " ..
           "meaning answers it in a shape of its own (a value, a field, a record), not a message to parse", read.text))
@@ -1528,7 +1527,7 @@ local function check_modes(run: Run)
   local function scope_binding(name: string): Ast.Node?
     for i = #stack, 1, -1 do
       local own = binds[Node.base(stack[i]).id]
-      if own ~= nil and own[name] then
+      if own ~= nil and own[name] == true then
         return stack[i]
       end
     end
@@ -1740,8 +1739,8 @@ function SyntaxContracts.check(subject: Subject, given?: Rules.Exemptions): Synt
     if fallible then
       judged(run, "calls")
     end
-    if fallible and not kept[Node.base(n).id] then
-      if statements[Node.base(n).id] then
+    if fallible and kept[Node.base(n).id] ~= true then
+      if statements[Node.base(n).id] == true then
         if not is_quiet(run, n) then
           report(run, line_of(subject, n), string.format("%s: its failure is ignored; handle it, or discard both " ..
               "results on purpose: local _, _ = ...", callee_text(n)))

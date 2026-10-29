@@ -5,6 +5,7 @@
 --- (as a CI runner can start it), where the same write passes whether
 --- the socket's send asks for no signal or not.
 
+local Cell = require("cosmic.cell")
 local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")
 local Net = require("cosmic.net")
@@ -58,7 +59,7 @@ end
 --- A connection's protocol runs a child while the server holds its
 --- signal guard: the run holds one of its own inside the server's.
 local function test_a_protocol_runs_a_child_under_the_server_s_guard()
-  local answer = { value = "" }
+  local answer: Cell<string> = { value = "" }
   assert(Net.serve{
     listeners = { Net.tcp("127.0.0.1", 0) },
     serve = function(conn: Net.Conn)
