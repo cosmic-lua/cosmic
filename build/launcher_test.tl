@@ -134,11 +134,26 @@ local function test_an_aarch64_feature_is_matched_whole(tmp: string)
     tostring(lone.stderr))
 end
 
+-- A launch past the check goes on to the cache, which the stub `uname` has
+-- told to use Linux's tools; those runs need a Linux host.
+local function on_linux(): boolean
+  local names = sys.uname()
+  return names ~= nil and names.sysname == "Linux"
+end
+
 local function test_an_aarch64_cpu_with_armv8_2_is_not_refused(tmp: string)
+  if not on_linux() then
+    Test.skip("past the check, the launcher uses Linux's tools")
+    return
+  end
   assert_passed_the_cpu_check(launch_aarch64(tmp, v82), tmp)
 end
 
 local function test_an_aarch64_missing_features_line_is_not_refused(tmp: string)
+  if not on_linux() then
+    Test.skip("past the check, the launcher uses Linux's tools")
+    return
+  end
   assert_passed_the_cpu_check(launch_aarch64(tmp, nil), tmp)
 end
 
