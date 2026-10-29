@@ -16,10 +16,10 @@ end
 
 local function same_lines(a: {integer: boolean}, b: {integer: boolean}): boolean
   for line in pairs(a) do
-    if not b[line] then return false end
+    if b[line] ~= true then return false end
   end
   for line in pairs(b) do
-    if not a[line] then return false end
+    if a[line] ~= true then return false end
   end
   return true
 end
@@ -103,7 +103,7 @@ local function test_every_executable_line_of_straight_code_is_hit()
   local source = "local function f()\n  return 1\nend\nlocal g = f()\nlocal t = {}\nfunction t.h()\n  return g\nend\n" ..
     "local h = t.h()\n"
   local executable = assert(lines.executable(source, "straight.tl"))
-  assert(not executable[1], "a local function's first line never runs")
+  assert(executable[1] ~= true, "a local function's first line never runs")
   assert(executable[3], "a local function runs on its end line")
   assert(executable[6], "function t.h runs on its first line")
   local name = "coverage.syntax_lines_test.straight"
@@ -111,6 +111,6 @@ local function test_every_executable_line_of_straight_code_is_hit()
   chunk()
   local hit = Hits.snapshot()[name] or {}
   for line in pairs(executable) do
-    assert(hit[line], "executable line " .. line .. " was never hit")
+    assert(hit[line], "executable line " .. tostring(line) .. " was never hit")
   end
 end

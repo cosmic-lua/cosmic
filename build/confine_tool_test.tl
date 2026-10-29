@@ -8,6 +8,8 @@ local Fs = require("cosmic.fs")
 local sys = require("cosmic.sys")
 local Test = require("cosmic.test")
 local confine = require("build.confine")
+local fixture = require("build.must_confine_fixture")
+local test_child = require("build.test_child")
 local stand_in = require("build.stand_in")
 local type raw_process = require("cosmic.internal.process")
 
@@ -218,11 +220,10 @@ end
 --- Where the kernel cannot confine a process it starts as it would have,
 --- in the same directory; so too a process given more paths than a
 --- sandbox holds, which is not tried confined at all. Under
---- COSMIC_SANDBOX=must there is no fallback to see
---- (build/must_confine_test.tl holds that mode to refusing it).
+--- COSMIC_SANDBOX=must there is no fallback to see.
 local function test_an_unconfinable_process_starts_unconfined(tmp: string)
   if sys.getenv("COSMIC_SANDBOX") == "must" then
-    Test.skip("COSMIC_SANDBOX=must leaves no fallback to see (build/must_confine_test.tl holds that mode)")
+    Test.skip("COSMIC_SANDBOX=must leaves no fallback to see")
   end
   local probe = probe_in(tmp)
   local own = tmp .. "/own"
@@ -271,4 +272,75 @@ local function test_a_must_confined_program_exec_cannot_run_fails_as_its_own(tmp
     assert(finished.ok, sandboxes .. ": " .. tostring(finished.produced))
     assert(not reason:find("could not start confined", 1, true), reason)
   end
+end
+
+--- The line of what `ran` ended with, named `name`, as a child prints it for a test to read.
+local function said(name: string, ran: confine.Ran): string
+  if ran.ok then return name .. "=ok" end
+  return name .. "=" .. tostring(ran.produced)
+end
+
+--- The refusals that need the core's raw process table, which this module reads: the sandbox refused outright, as a
+--- kernel with no user namespaces for this user does; a sandbox of its own that is not the one `must_confine` adds; and a
+--- spawn taken while an earlier stand-in ran. They are a child's, since a start `must_confine` refuses fails every running
+--- stand-in, the one that runs a test included. The words are the stand-in program and a directory the child may change.
+test_child.register("raw_refusals", function(args: {string}): integer
+  local probe, tmp = args[1], args[2]
+  if probe == nil or tmp == nil then return 2 end
+  refusing_sandboxes(function()
+    print(said("passed_over", confine.call(function(...: any): any...
+      confine.must_confine({ reads = { probe } })
+      local ran, _ = Child.run({ probe, "write " .. tmp .. "/ran ran" })
+      confine.confine(nil)
+      assert(ran == nil, "an unconfined process ran in its place")
+    end, nil, { tmp })))
+    print(said("raised_too", confine.call(function(...: any): any...
+      confine.must_confine({ reads = { probe } })
+      local _, _ = Child.run({ probe, "exit 0" })
+      confine.confine(nil)
+      error("its own failure")
+    end, nil, { tmp })))
+  end)
+  local pledge: raw_process.Sandbox = { pledge = {} }
+  print(said("pledged_alone", confine.call(function(...: any): any...
+    confine.must_confine({ reads = { probe } })
+    local _, _ = raw_process_table().spawn(probe, { probe, "exit 0" }, nil, nil, nil, nil, nil, false, nil, pledge)
+    confine.confine(nil)
+  end, nil, { tmp })))
+  local grants: raw_process.Sandbox = { grants = {}, promises = {} }
+  print(said("grants_alone", confine.call(function(...: any): any...
+    confine.must_confine({ reads = { probe } })
+    local _, _ = raw_process_table().spawn(probe, { probe, "exit 0" }, nil, nil, nil, nil, nil, false, nil, grants)
+    confine.confine(nil)
+  end, nil, { tmp })))
+  local held = { taken = raw_process_table().spawn }
+  local _ = confine.call(function(...: any): any... held["taken"] = raw_process_table().spawn end, nil, { tmp })
+  local stale = assert(held["taken"])
+  print(said("stale", confine.call(function(...: any): any...
+    confine.must_confine({ reads = { probe } })
+    local _, _ = stale(probe, { probe, "exit 0" }, nil, nil, nil, nil, nil, false)
+    confine.confine(nil)
+  end, nil, { tmp })))
+  return 0
+end)
+
+--- A spawn `must_confine` refuses -- the sandbox refused by the kernel, a sandbox of its own that does not unveil and take
+--- the network, a spawn taken during a stand-in that has since ended -- does not start, and fails the test that made it,
+--- naming the program, the part of the sandbox, why, and the errno's name, whatever the test made of the spawn's answer;
+--- and one that raised besides is told with its own failure after.
+local function test_a_refused_spawn_fails_the_test_whatever_it_made_of_it(tmp: string)
+  local probe = fixture.probe(tmp)
+  local ran = fixture.run_in(tmp, "build.confine_tool_test", "raw_refusals", { probe, tmp })
+  assert(ran.code == 0, ran.text)
+  local refused = "must_confine: " .. probe .. " could not start confined: unveil and offline could not be applied: " ..
+    "Operation not permitted (EPERM)"
+  assert(fixture.field(ran, "passed_over") == refused, ran.text)
+  assert(fixture.field(ran, "raised_too"):find("^" .. refused:gsub("%p", "%%%0") .. "; and then: .*its own failure$") ~= nil,
+    ran.text)
+  local own_sandbox = "^must_confine: .*could not start confined: unveil and offline could not be applied: a sandbox " ..
+    "of its own that does not unveil and take the network, which must_confine does not add to %(EINVAL%)$"
+  assert(fixture.field(ran, "pledged_alone"):find(own_sandbox) ~= nil, ran.text)
+  assert(fixture.field(ran, "grants_alone"):find(own_sandbox) ~= nil, ran.text)
+  assert(fixture.field(ran, "stale"):find("^must_confine: .*could not start confined: unveil and offline could not be " ..
+      "applied: started through a spawn taken while an earlier stand%-in ran %(EINVAL%)$") ~= nil, ran.text)
 end

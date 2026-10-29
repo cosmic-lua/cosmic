@@ -27,7 +27,7 @@ local record link_resolve
     --- The project's root, absolute.
     root: string
     --- "file" or "dir" for what is at the absolute `path`, or nil.
-    kind: function(path: string): string?
+    mut kind: function(path: string): string?
     --- The text of the file at the absolute `path`, or nil.
     read: function(path: string): string?
     --- Each symbol `query` names (step 2). Nil and why when the
@@ -50,12 +50,12 @@ local record link_resolve
     headings: mut {string: {string: boolean}}
     symbols: mut {string: {Symbol}}
     members: mut {string: {Symbol}}
-    trouble?: string
+    mut trouble?: string
     --- The root with its links followed, once asked.
-    real_root?: string
+    mut real_root?: string
     --- How many links named no symbol while `context.unbuilt` said
     --- the symbols were incomplete, and so were not reported.
-    unchecked: integer
+    mut unchecked: integer
   end
 
   --- What one target resolved to, by `kind`:
@@ -376,7 +376,7 @@ function link_resolve.resolve(resolver: link_resolve.Resolver, from: string, tar
       file = fields.file or "" }
   end
   if target:match("^https?://") ~= nil or target:match("^mailto:") ~= nil then
-    return made("url", {})
+    return made("url", {}), ""
   end
   local path, anchor = target:match("^([^#]*)#(.*)$")
   if path == nil then
@@ -390,19 +390,19 @@ function link_resolve.resolve(resolver: link_resolve.Resolver, from: string, tar
     if problem ~= nil then
       return nil, problem
     end
-    return made("anchor", { path = shown(resolver, from), anchor = anchor })
+    return made("anchor", { path = shown(resolver, from), anchor = anchor }), ""
   end
   local file, why = located(resolver, from, unescaped(path))
   local function in_file(at: string): link_resolve.Target?, string
     if anchor == nil or anchor == "" then
-      return made("file", { path = shown(resolver, at) })
+      return made("file", { path = shown(resolver, at) }), ""
     end
     if kind_at(resolver, at) ~= "file" then return nil, "a directory has no headings" end
     local problem = anchor_problem(resolver, at, anchor)
     if problem ~= nil then
       return nil, problem
     end
-    return made("anchor", { path = shown(resolver, at), anchor = anchor })
+    return made("anchor", { path = shown(resolver, at), anchor = anchor }), ""
   end
   if file ~= nil and path_first then
     return in_file(file)
@@ -415,11 +415,11 @@ function link_resolve.resolve(resolver: link_resolve.Resolver, from: string, tar
     local dotted = name:gsub(":", ".")
     local own = declared()
     if own.names[dotted] == true then
-      return made("declared", { name = dotted })
+      return made("declared", { name = dotted }), ""
     end
     -- A global comes before a symbol, so one a later core adds shadows a symbol of its name.
     if standard(dotted) then
-      return made("standard", { name = dotted })
+      return made("standard", { name = dotted }), ""
     end
     local first, rest = dotted:match("^([%a_][%w_]*)%.(.+)$")
     if first ~= nil and own.aliases[first] ~= nil then
@@ -441,7 +441,7 @@ function link_resolve.resolve(resolver: link_resolve.Resolver, from: string, tar
         return nil, problem
       end
       return made("symbol", { module = members[1].module, symbol = members[1].symbol,
-        file = members[1].file })
+        file = members[1].file }), ""
     end
     -- A name alone is its own file's: another module's symbol is
     -- written in full, so a link does not start naming another thing
@@ -480,7 +480,7 @@ function link_resolve.resolve(resolver: link_resolve.Resolver, from: string, tar
     return in_file(file)
   end
   local symbol = symbols[found[1]]
-  return made("symbol", { module = symbol.module, symbol = symbol.symbol, file = symbol.file })
+  return made("symbol", { module = symbol.module, symbol = symbol.symbol, file = symbol.file }), ""
 end
 
 --- What the name or path `content` names as a link's code span would,

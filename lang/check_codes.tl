@@ -263,10 +263,11 @@ Codes.catalog = {
   },
   {
     code = "index_may_be_nil", rule = "an index read may be nil",
-    why = "Lua answers nil for an index out of range, and no refinement answers the element: any other reference " ..
-      "to the collection may change it between a test and the read",
-    fix = "read it into a local and test it (`local row = <xs>[<i>] if row ~= nil then ... end`), or iterate with " ..
-      "`for _, row in ipairs(<xs>)`",
+    why = "Lua answers nil for an index out of range. Only a test of the length against a literal shows an element " ..
+      "(`#<xs> ~= 0` for `<xs>[1]`, until code runs that may shorten an array); no other refinement answers it, since " ..
+      "any other reference to the collection may change it between a test and the read",
+    fix = "read it into a local and test it (`local row = <xs>[<i>] if row ~= nil then ... end`), test the length " ..
+      "(`if #<xs> ~= 0 then ... <xs>[1] ... end`), or iterate with `for _, row in ipairs(<xs>)`",
   },
   {
     code = "view_as_mut", rule = "collections are views unless declared mutable",
@@ -318,9 +319,10 @@ Codes.catalog = {
     why = "`t[#t + 1] = v` and `table.insert` grow an array, `t[#t] = nil` and `table.remove` shorten it, and a value that " ..
       "is not nil written at `1`, or at the index of a `for i = 1, #t do` that leaves the length of `t` alone, overwrites " ..
       "an element or appends to an empty array, so no write makes a hole and `#`, `ipairs` and `table.insert` stay " ..
-      "defined on a sequence",
-    fix = "append with `<t>[#<t> + 1] = <v>` or `table.insert`, remove with `table.remove`, or key a map " ..
-      "`{integer: T}` for sparse data",
+      "defined on a sequence. `table.move(a, f, e, t, b)` is the same write for a range of elements: it copies only " ..
+      "elements `a` has when `f` is a literal of 1 or more and `e` is at most `#a`, and writes them at `1` or `#b + 1`",
+    fix = "append with `<t>[#<t> + 1] = <v>` or `table.insert`, copy with `table.move(<a>, 1, #<a>, 1, <b>)` (or to " ..
+      "`#<b> + 1`), remove with `table.remove`, or key a map `{integer: T}` for sparse data",
   },
   {
     code = "field_unknown", rule = "a record has the fields it declares",

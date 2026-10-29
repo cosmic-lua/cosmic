@@ -225,7 +225,7 @@ local function carried(): {Carried}?, string
       for _, required in ipairs(requires) do pending[#pending + 1] = required end
     end
   end
-  return order
+  return order, ""
 end
 
 --- The database the stand-in carries, as bytes, written through
@@ -292,7 +292,7 @@ local function database(path: string): string?, string
   local bytes, read_trouble = Fs.read(path)
   local _, _ = Fs.remove(path)
   if bytes == nil then return nil, read_trouble end
-  return bytes
+  return bytes, ""
 end
 
 --- Builds a stand-in under `dir`, made if it is not there, and answers

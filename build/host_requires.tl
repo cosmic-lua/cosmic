@@ -439,13 +439,13 @@ local function file_key(path: string): string?, string
   local real, trouble = realpath(path)
   if real == nil then error("host_requires: " .. trouble, 0) end
   for _, virtual in ipairs({ "/proc", "/sys" }) do
-    if real == virtual or real:sub(1, #virtual + 1) == virtual .. "/" then return "present" end
+    if real == virtual or real:sub(1, #virtual + 1) == virtual .. "/" then return "present", "" end
   end
   local opened = slurp(real)
   if opened.kind == "" then error("host_requires: " .. opened.why, 0) end
-  if opened.kind == "dir" then return "dir" end
+  if opened.kind == "dir" then return "dir", "" end
   if opened.why ~= "" then return nil, opened.why end
-  return "sha256:" .. hex_sha256(opened.data)
+  return "sha256:" .. hex_sha256(opened.data), ""
 end
 
 --- Whether `path` is under a path of the "system" profile a worker is given.

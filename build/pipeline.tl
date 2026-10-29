@@ -39,6 +39,7 @@ local Fs = require("cosmic.fs")
 local GrammarMode = require("build.grammar_mode")
 local Hash = require("cosmic.hash")
 local LuaTail = require("build.lua_tail")
+local ProjectRefusals = require("build.project_refusals")
 local Receivers = require("build.syntax_receivers")
 local Report = require("build.syntax_report")
 local Stub = require("build.syntax_stub")
@@ -70,10 +71,10 @@ local record Pipeline
     --- The ceilings that hold the modules: none for a project outside cosmic's tree, whose every error refuses.
     ceilings: Ceilings.Table
     --- Whether the checker keeps the type of each node, which the readers of the type report need.
-    types: boolean
+    mut types: boolean
     --- Answers the `cosmic.*` modules the tree does not hold, each its stub or its source: [`Pipeline.carried`] where
     --- not given.
-    standard: Driver.Provider?
+    mut standard: Driver.Provider?
     --- Whether the tree is a project outside cosmic's own, whose checker is its own. Absent for cosmic's tree.
     project: boolean?
   end
@@ -90,13 +91,16 @@ local record Pipeline
     standard: Driver.Provider
     --- Whether the checker kept the type of each node, which the readers of the type report need.
     types: boolean
+    --- Whether the build is a project's, outside cosmic's tree ([`Pipeline.Options`]'s `project`), whose programs are held to
+    --- what [`build.project_refusals`] says.
+    project: boolean?
     --- The stubs a caller gave ([`Pipeline.over`]), by module: none for a build that makes them of what it reads.
     given: {string: string}
     --- The stub of each standard-library module of the tree that a project's checker would read in its place, as a source that
     --- stands for the module and its aliases, made when the first is judged.
-    stubs: {string: Driver.Source}?
+    mut stubs: {string: Driver.Source}?
     --- The build that reads those stubs where it reads their sources, made when the first stub is judged.
-    stubbed: Driver.Build?
+    mut stubbed: Driver.Build?
   end
 
   --- The options for the tree at `root`: in cosmic's own tree the declarations and the ceilings it holds; in any other
@@ -322,6 +326,7 @@ function Pipeline.over(entries: {{string}}, kinds: {string: string}, options: Pi
   return {
     build = TreeProgram.build(index, options.globals, options.types, nil, standard), ceilings = options.ceilings, index = index,
     globals = options.globals, standard = standard, types = options.types, given = stubs or {}, stubs = nil, stubbed = nil,
+    project = options.project,
   }
 end
 
@@ -468,7 +473,7 @@ function Pipeline.coded_of(tool: string, db: Sqlite.Handle): string?, string
   if count == nil or count:text(1) == "0" then
     return nil, "build/pipeline.tl is not parsed yet, so the code that reads the tree in the new mode cannot be named"
   end
-  return Hash.hex_sha256(tool .. "\0" .. identity(staged_code(db)))
+  return Hash.hex_sha256(tool .. "\0" .. identity(staged_code(db))), ""
 end
 
 function Pipeline.pinned(ceilings: Ceilings.Table): {string: string}
@@ -667,6 +672,11 @@ local function generated_of(m: Module, built: Pipeline.Built, facts?: boolean, j
     for _, w in ipairs(result.warnings) do
       lines[#lines + 1] = ErrorRender.line(m.file, w)
     end
+    if built.project == true then
+      for _, line in ipairs(ProjectRefusals.check(m.file, result.chunk, result.scoped)) do
+        lines[#lines + 1] = line
+      end
+    end
   end
   if hints ~= nil then
     -- A line of the checker's own error carries what the docs answer for it, as the fork's does ([`ErrorRender.lines`]).
@@ -829,6 +839,11 @@ function Pipeline.checked_alone(file: string, text: string, options: Pipeline.Op
     end
     for _, w in ipairs(result.warnings) do
       told[#told + 1] = ErrorRender.line(file, w)
+    end
+    if options.project == true then
+      for _, line in ipairs(ProjectRefusals.check(file, result.chunk, result.scoped)) do
+        told[#told + 1] = line
+      end
     end
   end
   if #told > 0 then

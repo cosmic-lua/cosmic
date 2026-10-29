@@ -305,7 +305,7 @@ function identity.hash_over(db: Sqlite.Handle, where: string): string?, string
   if rows == nil then
     return nil, trouble
   end
-  return rows[1]:text(1)
+  return rows[1]:text(1), ""
 end
 
 --- The files the seed compiles, as [`build/seed.txt`] under `root` lists them, one to a line; none in a tree that has no
@@ -373,7 +373,7 @@ function identity.record_fingerprint(db: Sqlite.Handle, root: string): identity.
       return nil, why
     end
   end
-  return { boot = boot, image = image }
+  return { boot = boot, image = image }, ""
 end
 
 --- The `boot` fingerprint [`identity.record_fingerprint`] wrote into `meta` at
@@ -392,7 +392,7 @@ function identity.recorded_boot_hash(db: Sqlite.Handle): string?, string
   if #rows == 0 then
     return nil, ""
   end
-  return rows[1]:text(1)
+  return rows[1]:text(1), ""
 end
 
 --- The pins and declarations of the compiler's basis, as one text: the pin
@@ -460,7 +460,7 @@ local function hash_of(db: Sqlite.Handle, names: {string}, extra: string): strin
   if rows == nil then
     return nil, trouble
   end
-  return rows[1]:text(1)
+  return rows[1]:text(1), ""
 end
 
 --- Where the compiler's identity starts ([`identity.compiler_modules`]):
@@ -678,7 +678,7 @@ function identity.record_identities(db: Sqlite.Handle): identity.Identities?, st
       return nil, why
     end
   end
-  return identities
+  return identities, ""
 end
 
 return identity

@@ -221,6 +221,13 @@ local record test_state
     --- have no key has none, but for the network, by module path.
     host?: string
     system?: string
+    --- The digest of the rest of the host's identity but its features
+    --- ([`declared_key.host_split`]), the identities of other hosts of
+    --- that rest the shared verdicts name, which `accept_foreign` looks
+    --- a verdict up under (`foreign_hosts`, worked out once a run).
+    mut host_rest?: string
+    mut foreign_hosts?: {string}
+    accept_foreign: boolean
     --- The harness's epoch (build/harness_epoch.tl), which every key
     --- holds in place of the harness's code, and the timeout each worker
     --- runs under ([`Limits.timeout_ns`]), which every key holds too: a

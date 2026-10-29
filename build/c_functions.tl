@@ -24,9 +24,9 @@ local record c_functions
     --- The functions no test entered and none exempts, by [`key_of`], sorted.
     unentered: mut {string}
     --- How many were entered.
-    entered: integer
+    mut entered: integer
     --- How many are exempt and were not entered.
-    exempted: integer
+    mut exempted: integer
     --- How many functions there are.
     total: integer
     --- The exempt functions a test entered after all, by [`key_of`], sorted:

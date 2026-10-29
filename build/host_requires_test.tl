@@ -47,7 +47,7 @@ local function test_a_broken_unix_socket_probe_cannot_become_a_skip()
     error("probe failed")
   end })
   local ok, why = pcall(ask, host, "unix_socket")
-  assert(not ok and tostring(why):find("probe failed", 1, true), tostring(why))
+  assert(not ok and tostring(why):find("probe failed", 1, true) ~= nil, tostring(why))
 end
 
 --- Every name of the table, and each form that takes an argument, is read.
@@ -187,9 +187,9 @@ local function test_sandbox_follows_the_runners_probe()
   local refused = ask(host_with({ ok = false, why = "no userns", broken = false }), "sandbox")
   assert(refused.kind == "skipped" and refused.why == "no userns")
   local ok, trouble = pcall(ask, host_with({ ok = false, why = "defect", broken = true }), "sandbox")
-  assert(not ok and tostring(trouble):find("defect", 1, true), tostring(trouble))
+  assert(not ok and tostring(trouble):find("defect", 1, true) ~= nil, tostring(trouble))
   local no_ok, no_probe = pcall(ask, host_requires.new(), "sandbox")
-  assert(not no_ok and tostring(no_probe):find("sandbox probe", 1, true), tostring(no_probe))
+  assert(not no_ok and tostring(no_probe):find("sandbox probe", 1, true) ~= nil, tostring(no_probe))
 end
 
 --- A probe runs once a host, however many times the name is asked.
@@ -215,11 +215,11 @@ local function test_landlock_is_held_to_the_kernels_abi()
     assert(ask(host, "landlock").kind == "skipped")
     return
   end
-  local at = ask(host, "landlock:" .. abi)
-  assert(at.kind == "present" and at.key == "abi=" .. abi)
+  local at = ask(host, "landlock:" .. tostring(abi))
+  assert(at.kind == "present" and at.key == "abi=" .. tostring(abi))
   assert(ask(host, "landlock").kind == "present")
-  assert(ask(host, "landlock:" .. (abi + 1)).kind == "skipped")
-  assert(ask(host, "landlock:" .. (abi + 1)).why:find("below", 1, true))
+  assert(ask(host, "landlock:" .. tostring((abi + 1))).kind == "skipped")
+  assert(ask(host, "landlock:" .. tostring((abi + 1))).why:find("below", 1, true))
 end
 
 --- `root` follows the run's user, and `proc` the mount.
@@ -246,7 +246,7 @@ local function test_a_path_is_keyed_by_its_contents(tmp: string)
   local file = tmp .. "/needed"
   assert(Fs.write(file, "one"))
   local first = ask(host_requires.new(), "path:" .. file)
-  assert(first.kind == "present" and first.key:match("^sha256:%x+$"), first.key)
+  assert(first.kind == "present" and first.key:match("^sha256:%x+$") ~= nil, first.key)
   assert(Fs.write(file, "two"))
   local second = ask(host_requires.new(), "path:" .. file)
   assert(second.kind == "present" and second.key ~= first.key, "a changed file keeps its key")
@@ -255,7 +255,7 @@ local function test_a_path_is_keyed_by_its_contents(tmp: string)
   local dir = ask(host_requires.new(), "path:" .. tmp)
   assert(dir.kind == "present" and dir.key == "dir")
   local gone = ask(host_requires.new(), "path:" .. tmp .. "/gone")
-  assert(gone.kind == "skipped" and gone.why:find("does not exist", 1, true))
+  assert(gone.kind == "skipped" and gone.why:find("does not exist", 1, true) ~= nil)
 end
 
 --- `program:` is looked up on the search list and keyed by the digest of
@@ -266,7 +266,7 @@ local function test_a_program_is_keyed_by_the_file_it_finds(tmp: string)
   local program = bin .. "/cosmic-tool"
   assert(Fs.write(program, "echo one\n", tonumber("755", 8)))
   local first = ask(host_with({ ok = true, why = "", broken = false }, bin), "program:cosmic-tool")
-  assert(first.kind == "present" and first.key:match("^sha256:%x+$"), first.key)
+  assert(first.kind == "present" and first.key:match("^sha256:%x+$") ~= nil, first.key)
   assert(ask(host_with({ ok = true, why = "", broken = false }, bin), "program:cosmic-tool").key == first.key)
   assert(Fs.write(program, "echo two\n", tonumber("755", 8)))
   local second = ask(host_with({ ok = true, why = "", broken = false }, bin), "program:cosmic-tool")
@@ -285,13 +285,13 @@ local function test_a_path_is_keyed_by_what_it_is(tmp: string)
   local pipe = tmp .. "/pipe"
   assert(sys.mkfifo(pipe, tonumber("600", 8)))
   local fifo = ask(host_requires.new(), "path:" .. pipe)
-  assert(fifo.kind == "skipped" and fifo.why:find("fifo", 1, true) and fifo.why:find("no key can hold", 1, true),
+  assert(fifo.kind == "skipped" and fifo.why:find("fifo", 1, true) ~= nil and fifo.why:find("no key can hold", 1, true) ~= nil,
     fifo.why)
   assert(assert(sys.symlink(pipe, tmp .. "/to-pipe")))
   assert(ask(host_requires.new(), "path:" .. tmp .. "/to-pipe").kind == "skipped", "a link is followed")
   if Fs.exists("/dev/zero") == true then
     local zero = ask(host_requires.new(), "path:/dev/zero")
-    assert(zero.kind == "skipped" and zero.why:find("char", 1, true), zero.why)
+    assert(zero.kind == "skipped" and zero.why:find("char", 1, true) ~= nil, zero.why)
   end
   if assert(sys.uname()).sysname == "Linux" and Fs.exists("/proc/self/status") == true then
     assert(assert(sys.symlink("/proc/self/status", tmp .. "/to-proc")))
@@ -313,7 +313,7 @@ local function test_a_script_is_keyed_with_its_interpreter(tmp: string)
   assert(Fs.write(bin .. "/script", "#!" .. interpreter .. "\n", tonumber("755", 8)))
   local host = host_with({ ok = true, why = "", broken = false }, bin)
   local first = ask(host, "program:script")
-  assert(first.kind == "present" and first.key:find(";interpreter=sha256:", 1, true), first.key)
+  assert(first.kind == "present" and first.key:find(";interpreter=sha256:", 1, true) ~= nil, first.key)
   assert(Fs.write(interpreter, "#!/bin/sh\n# changed\n", tonumber("755", 8)))
   local second = ask(host_with({ ok = true, why = "", broken = false }, bin), "program:script")
   assert(second.key ~= first.key)
@@ -379,18 +379,18 @@ local function test_userns_follows_the_settings()
   assert(ok.kind == "present" and ok.key == "allowed", ok.why)
   assert(userns({ [limit_file] = "7\n", [status_file] = without_admin }).key == "allowed")
   local none = userns({ [limit_file] = "0\n", [status_file] = with_admin })
-  assert(none.kind == "skipped" and none.why:find("is 0", 1, true))
+  assert(none.kind == "skipped" and none.why:find("is 0", 1, true) ~= nil)
   local clone = userns({ [limit_file] = "9", [clone_file] = "0\n", [status_file] = without_admin })
-  assert(clone.kind == "skipped" and clone.why:find("unprivileged_userns_clone", 1, true))
+  assert(clone.kind == "skipped" and clone.why:find("unprivileged_userns_clone", 1, true) ~= nil)
   local apparmor = userns({ [limit_file] = "9", [apparmor_file] = "1\n", [status_file] = without_admin })
-  assert(apparmor.kind == "skipped" and apparmor.why:find("apparmor", 1, true))
+  assert(apparmor.kind == "skipped" and apparmor.why:find("apparmor", 1, true) ~= nil)
   -- A process holding CAP_SYS_ADMIN is bound by neither switch.
   assert(userns({ [limit_file] = "9", [clone_file] = "0", [apparmor_file] = "1",
     [status_file] = with_admin }).kind == "present")
   assert(userns({ [limit_file] = "9", [clone_file] = "1", [apparmor_file] = "0",
     [status_file] = without_admin }).kind == "present")
   local missing = userns({ [status_file] = without_admin })
-  assert(missing.kind == "skipped" and missing.why:find("not built in", 1, true))
+  assert(missing.kind == "skipped" and missing.why:find("not built in", 1, true) ~= nil)
 end
 
 --- A setting that is there and says no number, or a status with no `CapEff`,
@@ -399,15 +399,15 @@ local function test_a_setting_that_cannot_be_read_raises()
   if not (assert(sys.uname()).sysname == "Linux") then Test.skip("only Linux has this probe") end
   if Fs.exists("/proc/self") ~= true then Test.skip("this host has no /proc/self") end
   local garbled, why = pcall(ask, settings({ [limit_file] = "many\n", [status_file] = without_admin }), "userns")
-  assert(not garbled and tostring(why):find("holds no number", 1, true), tostring(why))
+  assert(not garbled and tostring(why):find("holds no number", 1, true) ~= nil, tostring(why))
   local no_caps, caps_why = pcall(ask, settings({ [limit_file] = "9", [status_file] = "Name:\tx\n" }), "userns")
-  assert(not no_caps and tostring(caps_why):find("CapEff", 1, true), tostring(caps_why))
+  assert(not no_caps and tostring(caps_why):find("CapEff", 1, true) ~= nil, tostring(caps_why))
   -- A read that fails for any reason but the file's absence is a defect.
   local denied = host_requires.new({ read = function(path: string): host_requires.Read
     return { data = "", why = path .. ": Permission denied", missing = false }
   end })
   local unreadable, trouble = pcall(ask, denied, "userns")
-  assert(not unreadable and tostring(trouble):find("cannot be read", 1, true), tostring(trouble))
+  assert(not unreadable and tostring(trouble):find("cannot be read", 1, true) ~= nil, tostring(trouble))
 end
 
 --- `check` accepts the Linux-class names, a leg's promises having made them
@@ -465,7 +465,7 @@ local function test_a_program_outside_the_systems_paths_is_absent(tmp: string)
   assert(Fs.chmod(tmp .. "/bin/elsewhere-tool", tonumber("755", 8) as integer))
   local answer = ask(host_with({ ok = true, why = "", broken = false }, tmp .. "/bin", { "/nonexistent-system" }),
     "program:elsewhere-tool")
-  assert(answer.kind == "skipped" and answer.why:find("outside the system's paths", 1, true), answer.why)
+  assert(answer.kind == "skipped" and answer.why:find("outside the system's paths", 1, true) ~= nil, answer.why)
   if Fs.exists("/bin/sh") == true then
     assert(ask(host_with({ ok = true, why = "", broken = false }, "/bin"), "program:sh").kind == "present")
   end

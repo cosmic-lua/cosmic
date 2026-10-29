@@ -51,7 +51,7 @@ local function run(root: string, output: string, env: {string:string},
   local result, trouble = Child.run(started.argv, started.options)
   assert(Fs.close(fd))
   local text = assert(Fs.read(output))
-  assert(result ~= nil and result.ok == not fails, tostring(trouble) .. text)
+  assert(result ~= nil and result.ok == fails ~= true, tostring(trouble) .. text)
   return text
 end
 
@@ -126,7 +126,7 @@ Test.policy { grants = { { path = "]] .. Fs.dirname(root) ..
 
 local function test_reads_outside()
   local f = assert(Env.get("OUTSIDE")) .. "/f"
-  assert(assert(Fs.stat(f)).mtime ~= ]] .. unready .. [[)
+  assert(assert(Fs.stat(f)).mtime ~= ]] .. tostring(unready) .. [[)
   assert(Fs.read(f) == "out\n")
 end
 ]]))
@@ -759,7 +759,7 @@ Test.policy {
 }
 
 local function test_stops_early()
-  assert(assert(Fs.stat(assert(Env.get("OUTSIDE")) .. "/f")).mtime ~= ]] .. unready .. [[)
+  assert(assert(Fs.stat(assert(Env.get("OUTSIDE")) .. "/f")).mtime ~= ]] .. tostring(unready) .. [[)
   assert(Fs.read("suite/c.txt") == "c\n")
 end
 ]]))
@@ -797,4 +797,121 @@ local function test_a_failure_here_runs_again_without_the_cache(tmp: string)
   env.COSMIC_VERDICT_CACHE = "0"
   local alone = run(tmp .. "/second", tmp .. "/alone.out", env, {}, true)
   assert(alone:find("1 of 1 test failed", 1, true), alone)
+end
+
+--- `base`'s variables but for `dropped`, with `added` set.
+local function varied(base: {string:string}, dropped: {string}, added: {string:string}): {string:string}
+  local out: mut {string:string} = {}
+  for name, value in pairs(base) do out[name] = value end
+  for _, name in ipairs(dropped) do out[name] = nil end
+  for name, value in pairs(added) do out[name] = value end
+  return out
+end
+
+--- What the cases below hold: the environment of a run as host b, the
+--- cache it and the cases' first run share, and the root of the cases.
+local record AsAnotherHost
+  env: {string:string}
+  cache: string
+  root: string
+end
+
+--- A cache seeded by a run as host `a` ("host-a" in COSMIC_HOST_ID) of
+--- the checkout `first` under `tmp`, its rows then stamped with the rest
+--- of host b's identity ("host-b"), as rows of a host of other features
+--- (and not of another image) are: the same host in all but the
+--- features, which a test cannot make differ. `extra` is written into
+--- the checkout, beside reads_test.tl, before it runs, and `fails` says
+--- whether the run fails. Nil where the run shared nothing (`shares`).
+local function seeded_as_another_host(tmp: string, extra: {string:string},
+                                      fails: boolean): AsAnotherHost?
+  local root = assert(Fs.absolute(tmp))
+  assert(Fs.mkdirs(root .. "/outside"))
+  assert(Fs.write(root .. "/outside/f", "out\n"))
+  local cache = root .. "/cache/verdicts.db"
+  local as_a = varied(environment(), { "COSMIC_TEST_ALL", "COSMIC_SANDBOX" }, {
+    COSMIC_VERDICT_CACHE = cache, OUTSIDE = root .. "/outside", FLAVOUR = "sweet",
+    COSMIC_HOST_ID = "host-a" })
+  checkout(root .. "/first", "one\n")
+  local words: mut {string} = { "suite/reads_test.tl" }
+  for name, text in pairs(extra) do
+    assert(Fs.write(root .. "/first/suite/" .. name, text))
+    words[#words + 1] = "suite/" .. name
+  end
+  table.sort(words)
+  local first = run(root .. "/first", root .. "/first.out", as_a, words, fails)
+  if not shares(first) then return nil end
+  -- What host b says of itself, on a cache of its own.
+  local probing = varied(as_a, {}, { COSMIC_HOST_ID = "host-b",
+    COSMIC_VERDICT_CACHE = root .. "/cache-b/verdicts.db" })
+  checkout(root .. "/probe", "one\n")
+  local probe = run(root .. "/probe", root .. "/probe.out", probing,
+    { "--census", "suite/reads_test.tl" })
+  local identity, rest = probe:match("host identity (%x+), host rest (%x+)")
+  assert(identity ~= nil and rest ~= nil, probe)
+  local db = assert(Sqlite.open(cache, { writable = true }))
+  local rows = assert(Sqlite.text_rows(db, "SELECT DISTINCT parts FROM declared_v1"))
+  assert(#rows == 1, "one set of parts")
+  local named = shared_verdicts.host_of(assert(rows[1]):text(1))
+  assert(named.identity ~= nil and named.identity ~= identity, "host a is host b")
+  assert(named.rest ~= nil and named.rest ~= rest, "the hosts' ids differ in their rest")
+  assert(Sqlite.run(db, "UPDATE declared_v1 SET parts = replace(parts, ?1, ?2)",
+    { { text = "host rest " .. named.rest }, { text = "host rest " .. rest } }))
+  assert(db:close())
+  return { env = varied(probing, {}, { COSMIC_VERDICT_CACHE = cache }), cache = cache, root = root }
+end
+
+--- A gathering run (COSMIC_TEST_FOREIGN_FEATURES=1) stands on the rows
+--- another host of this host's rest reached, under that host's key;
+--- the same run without it, as every local `cosmic test` is, runs the
+--- tests.
+local function test_a_gathering_run_stands_on_the_rows_of_a_host_of_other_features(tmp: string)
+  local held = seeded_as_another_host(tmp, {}, false)
+  if held == nil then return end
+  local root = held.root
+  checkout(root .. "/local", "one\n")
+  local alone = run(root .. "/local", root .. "/local.out", held.env, { "suite/reads_test.tl" })
+  assert(alone:find("4 ran, 0 stood", 1, true), alone)
+  local gathering = varied(held.env, {}, { COSMIC_TEST_FOREIGN_FEATURES = "1" })
+  checkout(root .. "/gather", "one\n")
+  local gathered = run(root .. "/gather", root .. "/gather.out", gathering, { "suite/reads_test.tl" })
+  assert(gathered:find("0 ran, 4 stood, 4 of them on another checkout's verdict", 1, true), gathered)
+  -- The rows stay under host a's key and the run that ran them here
+  -- under host b's: the gathering run made none of its own.
+  local db = assert(Sqlite.open(held.cache))
+  local rows = assert(Sqlite.text_rows(db, "SELECT COUNT(*) FROM declared_v1"))
+  assert(db:close())
+  assert(assert(rows[1]):text(1) == "8", "the gathering run made rows of this host's key")
+end
+
+--- The near misses of a gathering run: a file its module declares
+--- differs (what the key holds apart from the host), a test that
+--- failed on the other host and left no row, and a test no run there
+--- reached.
+local function test_a_gathering_run_runs_what_the_other_hosts_rows_do_not_answer_for(tmp: string)
+  local held = seeded_as_another_host(tmp, {
+    ["extra_test.tl"] = "local function test_extra() assert(1 == 1) end\n",
+    ["fails_test.tl"] = "local function test_fails() assert(false) end\n",
+  }, true)
+  if held == nil then return end
+  local root = held.root
+  local gathering = varied(held.env, {}, { COSMIC_TEST_FOREIGN_FEATURES = "1" })
+  checkout(root .. "/gather", "one\n")
+  assert(Fs.write(root .. "/gather/suite/extra_test.tl", "local function test_extra() assert(1 == 1) end\n"))
+  assert(Fs.write(root .. "/gather/suite/fails_test.tl", "local function test_fails() assert(false) end\n"))
+  local failed = run(root .. "/gather", root .. "/gather.out", gathering,
+    { "suite/extra_test.tl", "suite/fails_test.tl", "suite/reads_test.tl" }, true)
+  -- Only that test ran, and failed (a failing summary does not count
+  -- the tests that stood): the run found verdicts for the others.
+  assert(failed:find("1 of 6 tests failed", 1, true) ~= nil, failed)
+  assert(failed:find("shared verdicts: none of", 1, true) == nil, failed)
+  assert(failed:find("test: FAIL  suite.fails_test", 1, true) ~= nil, failed)
+  assert(select(2, failed:gsub("test: FAIL ", "")) == 1, failed)
+  checkout(root .. "/edited", "two\n")
+  local edited = run(root .. "/edited", root .. "/edited.out", gathering, { "suite/reads_test.tl" })
+  assert(edited:find("4 ran, 0 stood", 1, true), edited)
+  assert(Fs.write(root .. "/gather/suite/more_test.tl", "local function test_more() assert(2 == 2) end\n"))
+  local more = run(root .. "/gather", root .. "/more.out", gathering,
+    { "suite/more_test.tl", "suite/extra_test.tl" })
+  assert(more:find("1 ran, 1 stood", 1, true), more)
 end

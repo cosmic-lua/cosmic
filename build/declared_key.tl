@@ -286,6 +286,12 @@ local record declared_key
     tree?: string
   end
 
+  --- A host's identity and the digest of the rest of it but its features
+  --- ([`host_split`]).
+  record Split
+    identity: string
+    rest: string
+  end
   --- Where [`host_identity`] and [`system_identity`] look, for a test: each
   --- a path, but `sysname`, `machine`, `own_proc`, whether a sandbox gets
   --- a /proc of its own, `host_id`, the value of `host_variable`,
@@ -682,7 +688,7 @@ local function entry(digests: declared_key.Digests, path: string, follow: boolea
   if st.kind == "file" then
     local runnable = st.mode & 73 ~= 0 -- 0o111
     return "file", (if runnable then "file+x " else "file " end) ..
-      (if programs == true then ("program " .. program(digests, path, st)) else contents(digests, path, st) end)
+      (if programs then ("program " .. program(digests, path, st)) else contents(digests, path, st) end)
   elseif st.kind == "link" then
     local target, _ = sys.readlink(path)
     return "link", "link " .. (target or "unreadable")
@@ -745,7 +751,7 @@ end
 --- `bounds` ([`leads_out`]), the tree where nil.
 local function tree(digests: declared_key.Digests, path: string, programs?: boolean,
                     bounds?: {string}): string
-  local tag = (if programs == true then "p\0" elseif bounds ~= nil then "v\0" else "t\0" end) .. path
+  local tag = (if programs then "p\0" elseif bounds ~= nil then "v\0" else "t\0" end) .. path
   return once(digests, tag, function(): string
     local kind, answer = entry(digests, path, true, programs)
     if kind ~= "dir" then return answer end
@@ -829,7 +835,9 @@ function declared_key.compute(digests: declared_key.Digests,
   local started = monotonic_ns()
   -- All but the test's name is its module's, and the same for each of
   -- its tests: digested once, while a snapshot holds.
-  local inputs = once(digests, "m\0" .. spec.group, function(): string
+  -- Per host too: a lookup under another host's key (build/test_key.tl's
+  -- `lookup`) asks for the same module's inputs under it.
+  local inputs = once(digests, "m\0" .. spec.group .. "\0" .. spec.host, function(): string
     return inputs_of(digests, spec)
   end)
   digests.spent_ns = digests.spent_ns + (monotonic_ns() - started)
@@ -878,8 +886,8 @@ function declared_key.preimage(digests: declared_key.Digests,
   for _, name in ipairs(required) do
     lines[#lines + 1] = part("requires", name, answers[name])
   end
-  if effective.noexec == true then
-    lines[#lines + 1] = part("noexec", if effective.noexec_ready == true then "granted" else "unavailable" end, "")
+  if effective.noexec then
+    lines[#lines + 1] = part("noexec", if effective.noexec_ready then "granted" else "unavailable" end, "")
   end
   local launcher = spec.launcher
   if launcher ~= nil then lines[#lines + 1] = part("launcher", launcher, "") end
@@ -898,7 +906,7 @@ function declared_key.preimage(digests: declared_key.Digests,
   end
   local reads: mut {string} = {}
   for _, read in ipairs(effective.reads) do reads[#reads + 1] = read end
-  if effective.tool or spec.runs_tool == true then
+  if effective.tool or spec.runs_tool then
     -- o/bin, as its sandbox gives it, each program in it by what it
     -- runs as rather than its bytes (`program`): a rebuild that moved
     -- only what the whole tree's edits move leaves it.
@@ -927,7 +935,7 @@ function declared_key.preimage(digests: declared_key.Digests,
   local seen: mut {string:boolean} = {}
   for _, read in ipairs(reads) do
     local plain, path = of_tree(digests, read)
-    if seen[plain] ~= true then
+    if not seen[plain] then
       seen[plain] = true
       local answer = path ~= "" and tree(digests, path) or "outside"
       if answer:sub(1, 8) == "refused " then return nil, answer:sub(9) end
@@ -941,12 +949,12 @@ function declared_key.preimage(digests: declared_key.Digests,
   -- the package database stands for what they hold.
   local installed = effective.system
   for _, path in ipairs(hosts) do
-    if seen[path] ~= true then
+    if not seen[path] then
       seen[path] = true
       lines[#lines + 1] = part("h", path, host(digests, path))
     end
   end
-  if installed == true then lines[#lines + 1] = part("system", spec.system or "", "") end
+  if installed then lines[#lines + 1] = part("system", spec.system or "", "") end
   -- Each file above the project by its relative path and contents, never
   -- by where the project is.
   local parents: mut {string} = {}
@@ -1016,7 +1024,7 @@ local function features(listed?: {string}, machine?: string): {string}
   local kept = machine ~= nil and dispatched[machine] or nil
   local sorted: mut {string} = {}
   for flag in pairs(seen) do
-    if kept == nil or kept[flag] == true then sorted[#sorted + 1] = flag end
+    if kept == nil or kept[flag] then sorted[#sorted + 1] = flag end
   end
   table.sort(sorted)
   return sorted
@@ -1090,6 +1098,98 @@ local host_variable <const> = "COSMIC_HOST_ID"
 --- only a module given the system's paths is keyed by it.
 local system_variable <const> = "COSMIC_SYSTEM_ID"
 
+--- [`host_identity`] and, beside it, the digest of every line of it
+--- but the features ([`host_features`]: the kernel's release and
+--- version, and the processor's features a core dispatches on), in
+--- order. Two hosts of one rest differ in those features alone, which
+--- is what a CI gathering run asks of the hosts whose verdicts it takes
+--- (build/shared_verdicts.tl's `hosts_like`).
+function declared_key.host_split(digests: declared_key.Digests,
+                                 sources?: declared_key.HostSources): declared_key.Split
+  local started = monotonic_ns()
+  local from: declared_key.HostSources = sources or {}
+  local lines: mut {string} = {}
+  -- Whether each line is one of the features ([`host_features`]) alone.
+  local featured: mut {integer:boolean} = {}
+  local system = system_of(from)
+  for i = 2, 3 do
+    -- None ("", macOS's version) is read as nothing, not as the
+    -- working directory "" would open.
+    if system[i] ~= "" then
+      local text, _ = Fs.read(system[i] or "")
+      lines[#lines + 1] = tostring(system[i]) .. " " .. (text or "missing")
+      featured[#lines] = true
+    end
+  end
+  local names, _ = sys.uname()
+  if names ~= nil then lines[#lines + 1] = "uname " .. names.sysname .. " " .. names.machine end
+  -- Each distinct feature once, sorted. Only those the code a test
+  -- runs chooses code by (`dispatched`), which an audit of the vendored
+  -- C and the disassembled cores found:
+  -- mbedtls's aesni.c (`aes`, `pclmulqdq`) and aesce.c (`asimd`, `aes`,
+  -- `pmull`); xz's crc_x86_clmul.h (`pclmulqdq`, `ssse3`, `sse4_1`) and
+  -- crc32_arm64.h (`crc32`). No Linux core links a libm that
+  -- dispatches: every one, the checked core too, is static musl, and
+  -- the libm zig and musl carry chooses no code by the processor. (A
+  -- glibc host's libm would choose the variants of pow, asin, acos and
+  -- atan2 by `fma`, `avx2` and `fma4`; no verdict of such a core could
+  -- stand for another, since every key holds the core's digest
+  -- (`runtime`).) Nothing else the core carries dispatches, nor does
+  -- its build, so the processor's model and microcode, which choose no
+  -- code, are not keyed either. The whole list would split GitHub's
+  -- hosted runners of one leg on flags nothing reads (avx512*, a
+  -- hypervisor's bits, md_clear), and each split is a verdict not
+  -- shared. A vendored library that comes to dispatch on another
+  -- feature adds it to `dispatched`, to what [`sys.cpu_features`]
+  -- answers (core/syscalls.c) and to ci/cosmic_ci/host_id.tl
+  -- alike.
+  lines[#lines + 1] = "cpu " .. table.concat(features(from.cpu_features, from.machine), " ")
+  featured[#lines] = true
+  lines[#lines + 1] = "uid " .. tostring(from.uid or sys.getuid())
+  local status, _ = Fs.read(from.status or "/proc/self/status")
+  for line in (status or ""):gmatch("[^\n]+") do
+    local name = line:match("^(%a+):")
+    if name == "Uid" or name == "Gid" or name == "Groups" or (name ~= nil and
+        name:sub(1, 3) == "Cap") or name == "NoNewPrivs" or name == "Seccomp" then
+      lines[#lines + 1] = line
+    end
+  end
+  if status == nil then
+    -- No /proc/self/status (macOS): the bindings answer its Gid and
+    -- Groups, each group once, sorted, since the system lists them in
+    -- an order of its own. A list that cannot be read keys apart from
+    -- every one that can.
+    local groups: {integer} = from.groups
+    local trouble: string?
+    if groups == nil then groups, trouble = sys.getgroups() end
+    lines[#lines + 1] = "gid " .. tostring(from.gid or sys.getgid())
+    if groups == nil then
+      lines[#lines + 1] = "groups unread: " .. tostring(trouble)
+    else
+      local seen: mut {integer:boolean} = {}
+      local sorted: mut {integer} = {}
+      for _, group in ipairs(groups) do
+        if not seen[group] then seen[group], sorted[#sorted + 1] = true, group end
+      end
+      table.sort(sorted)
+      local named: mut {string} = {}
+      for i, group in ipairs(sorted) do named[i] = tostring(group) end
+      lines[#lines + 1] = "groups " .. table.concat(named, " ")
+    end
+  end
+  local own = from.own_proc
+  if own == nil then own = confine.own_proc_given() end
+  lines[#lines + 1] = "own proc " .. tostring(own)
+  local host_id = from.host_id or sys.getenv(host_variable) or ""
+  lines[#lines + 1] = "host " .. host_id
+  local rest: mut {string} = {}
+  for i, line in ipairs(lines) do
+    if featured[i] ~= true then rest[#rest + 1] = line end
+  end
+  digests.spent_ns = digests.spent_ns + (monotonic_ns() - started)
+  return { identity = hex_sha256(table.concat(lines, "\n")), rest = hex_sha256(table.concat(rest, "\n")) }
+end
+
 --- What of this host every sandboxed worker runs on, whatever its
 --- module declares, as every key holds it -- each part because it
 --- decides what the core does, or what a sandbox lets a worker do:
@@ -1138,80 +1238,7 @@ local system_variable <const> = "COSMIC_SYSTEM_ID"
 -- every verdict, though almost none turns on it.
 function declared_key.host_identity(digests: declared_key.Digests,
                                     sources?: declared_key.HostSources): string
-  local started = monotonic_ns()
-  local from: declared_key.HostSources = sources or {}
-  local lines: mut {string} = {}
-  local system = system_of(from)
-  for i = 2, 3 do
-    -- None ("", macOS's version) is read as nothing, not as the
-    -- working directory "" would open.
-    if system[i] ~= "" then
-      local text, _ = Fs.read(system[i] or "")
-      lines[#lines + 1] = tostring(system[i]) .. " " .. (text or "missing")
-    end
-  end
-  local names, _ = sys.uname()
-  if names ~= nil then lines[#lines + 1] = "uname " .. names.sysname .. " " .. names.machine end
-  -- Each distinct feature once, sorted. Only those the code a test
-  -- runs chooses code by (`dispatched`), which an audit of the vendored
-  -- C and the disassembled cores found:
-  -- mbedtls's aesni.c (`aes`, `pclmulqdq`) and aesce.c (`asimd`, `aes`,
-  -- `pmull`); xz's crc_x86_clmul.h (`pclmulqdq`, `ssse3`, `sse4_1`) and
-  -- crc32_arm64.h (`crc32`). No Linux core links a libm that
-  -- dispatches: every one, the checked core too, is static musl, and
-  -- the libm zig and musl carry chooses no code by the processor. (A
-  -- glibc host's libm would choose the variants of pow, asin, acos and
-  -- atan2 by `fma`, `avx2` and `fma4`; no verdict of such a core could
-  -- stand for another, since every key holds the core's digest
-  -- (`runtime`).) Nothing else the core carries dispatches, nor does
-  -- its build, so the processor's model and microcode, which choose no
-  -- code, are not keyed either. The whole list would split GitHub's
-  -- hosted runners of one leg on flags nothing reads (avx512*, a
-  -- hypervisor's bits, md_clear), and each split is a verdict not
-  -- shared. A vendored library that comes to dispatch on another
-  -- feature adds it to `dispatched`, to what [`sys.cpu_features`]
-  -- answers (core/syscalls.c) and to ci/cosmic_ci/host_id.tl
-  -- alike.
-  lines[#lines + 1] = "cpu " .. table.concat(features(from.cpu_features, from.machine), " ")
-  lines[#lines + 1] = "uid " .. tostring(from.uid or sys.getuid())
-  local status, _ = Fs.read(from.status or "/proc/self/status")
-  for line in (status or ""):gmatch("[^\n]+") do
-    local name = line:match("^(%a+):")
-    if name == "Uid" or name == "Gid" or name == "Groups" or (name ~= nil and
-        name:sub(1, 3) == "Cap") or name == "NoNewPrivs" or name == "Seccomp" then
-      lines[#lines + 1] = line
-    end
-  end
-  if status == nil then
-    -- No /proc/self/status (macOS): the bindings answer its Gid and
-    -- Groups, each group once, sorted, since the system lists them in
-    -- an order of its own. A list that cannot be read keys apart from
-    -- every one that can.
-    local groups: {integer} = from.groups
-    local trouble: string?
-    if groups == nil then groups, trouble = sys.getgroups() end
-    lines[#lines + 1] = "gid " .. tostring(from.gid or sys.getgid())
-    if groups == nil then
-      lines[#lines + 1] = "groups unread: " .. tostring(trouble)
-    else
-      local seen: mut {integer:boolean} = {}
-      local sorted: mut {integer} = {}
-      for _, group in ipairs(groups) do
-        if seen[group] ~= true then seen[group], sorted[#sorted + 1] = true, group end
-      end
-      table.sort(sorted)
-      local named: mut {string} = {}
-      for i, group in ipairs(sorted) do named[i] = tostring(group) end
-      lines[#lines + 1] = "groups " .. table.concat(named, " ")
-    end
-  end
-  local own = from.own_proc
-  if own == nil then own = confine.own_proc_given() end
-  lines[#lines + 1] = "own proc " .. tostring(own)
-  local host_id = from.host_id or sys.getenv(host_variable) or ""
-  lines[#lines + 1] = "host " .. host_id
-  digests.spent_ns = digests.spent_ns + (monotonic_ns() - started)
-  return hex_sha256(table.concat(lines, "\n"))
+  return declared_key.host_split(digests, sources).identity
 end
 
 --- The system's paths the walk of what is installed covers: `paths`,
@@ -1385,7 +1412,7 @@ function declared_key.system_identity(digests: declared_key.Digests,
   end
   local system_id = from.system_id or sys.getenv(system_variable) or ""
   lines[#lines + 1] = "system " .. system_id
-  if walk == true then
+  if walk then
     lines[#lines + 1] = "walked " .. remembered_walk(digests, walked_paths(from.walked or confine.system_paths),
       packages)
   end
@@ -1432,7 +1459,7 @@ function declared_key.harness(names: {string}, sources: {string:string}): string
   local seen: mut {string:boolean} = {}
   local lines: mut {string} = {}
   for _, name in ipairs(names) do
-    if sources[name] ~= nil and seen[name] ~= true then
+    if sources[name] ~= nil and not seen[name] then
       seen[name] = true
       lines[#lines + 1] = name .. " " .. sources[name]
     end

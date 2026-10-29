@@ -321,7 +321,7 @@ local function rewrite(
   if t.open <= level then
     return t
   end
-  local key = tostring(t.id) .. ":" .. level
+  local key = tostring(t.id) .. ":" .. tostring(level)
   local held = memo[key]
   if held ~= nil then
     return held
@@ -858,24 +858,31 @@ local function arity(j: Relation.Judge, why: boolean, f: Fn, g: Fn, i: integer):
 end
 
 --- Whether `f` accepts every argument list that callers of `g` pass, parameter by parameter.
-local function parameters_below(j: Relation.Judge, f: Fn, g: Fn, why: boolean): Relation.Refusal?
+---
+--- With `drop`, `f` may take fewer parameters than `g` passes: Lua drops the arguments past the last parameter, and
+--- `f` never reads them. Only trailing parameters are dropped, the ones kept are compared here, and the rest
+--- parameter of `g` is held below. It is allowed only for a function whose own parameter list is known (see
+--- [`Relation.subtype_known`]).
+local function parameters_below(j: Relation.Judge, f: Fn, g: Fn, why: boolean, drop?: boolean): Relation.Refusal?
   local widest = math.max(#f.params, #g.params)
   for i = 1, widest do
     local gt, g_may_omit, g_is_rest = slot(g, i)
     local ft, f_may_omit = slot(f, i)
     if gt ~= nil then
-      if ft == nil then
+      if ft == nil and drop ~= true then
         return arity(j, why, f, g, i)
       end
-      if g_may_omit and not f_may_omit then
-        return arity(j, why, f, g, i)
-      end
-      local r = rel(j, gt, ft, why)
-      if r ~= nil then
-        if g_is_rest then
-          return through(why, "rest", i, r)
+      if ft ~= nil then
+        if g_may_omit and not f_may_omit then
+          return arity(j, why, f, g, i)
         end
-        return through(why, "parameter", i, r)
+        local r = rel(j, gt, ft, why)
+        if r ~= nil then
+          if g_is_rest then
+            return through(why, "rest", i, r)
+          end
+          return through(why, "parameter", i, r)
+        end
       end
     elseif not f_may_omit then
       return arity(j, why, f, g, i)
@@ -1171,6 +1178,46 @@ Relation.Judge.refuse = function(self: Relation.Judge, a: Type, b: Type): Relati
   return r
 end
 
+--- Whether the function `a` is below the function `b` with trailing parameters dropped.
+local function known_below(j: Relation.Judge, a: Type, b: Type): boolean
+  if a.tag ~= "fn" or #a.tparams > 0 then
+    return false
+  end
+  local targets: {Type} = { b }
+  if b.tag == "union" then
+    targets = b.members
+  end
+  for _, m in ipairs(targets) do
+    if m.tag == "fn" and #m.tparams == 0 and parameters_below(j, a, m, false, true) == nil and
+        returns_below(j, a, m, false) == nil then
+      return true
+    end
+  end
+  return false
+end
+
+--- Whether `a` is below `b` for a function `a` whose own parameter list is known (a function literal or a declared function
+--- that is never assigned): it may take fewer trailing parameters than the function type `b`, or a member of the union `b`,
+--- passes, and only at this top level. A function-typed variable, field, parameter or return has the type it was declared,
+--- which may leave out parameters the value takes, so it never drops one: `function(x?: integer)` is below `function()`,
+--- and that below `function(x: string)` would otherwise put a string in `x`.
+function Relation.subtype_known(self: Relation.Judge, a: Type, b: Type): boolean
+  owned(self, a)
+  owned(self, b)
+  return rel(self, a, b, false) == nil or known_below(self, a, b)
+end
+
+--- Nil where [`Relation.subtype_known`] holds, else why not (the reason of the strict relation).
+function Relation.refuse_known(self: Relation.Judge, a: Type, b: Type): Relation.Refusal?
+  owned(self, a)
+  owned(self, b)
+  local r = self:refuse(a, b)
+  if r ~= nil and known_below(self, a, b) then
+    return nil
+  end
+  return r
+end
+
 Relation.Judge.accepts = function(self: Relation.Judge, argument: Type, param: Type): boolean
   owned(self, argument)
   owned(self, param)
@@ -1269,7 +1316,7 @@ function Relation.trace(r: Relation.Refusal): string
   local parts: mut {string} = {}
   for _, step in ipairs(r.path) do
     local index = step.index
-    parts[#parts + 1] = if index ~= nil then step.kind .. " " .. index else step.kind end
+    parts[#parts + 1] = if index ~= nil then step.kind .. " " .. tostring(index) else step.kind end
   end
   local where = #parts > 0 and table.concat(parts, " > ") or "here"
   return r.code .. " at " .. where .. ": " .. Types.display(r.sub) .. " is not below " .. Types.display(r.super)

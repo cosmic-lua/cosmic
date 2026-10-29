@@ -69,7 +69,7 @@ local record cache_lifetime
     --- touched.
     troubles: mut {string}
     --- Whether it began: not when the base was pruned in the day before.
-    ran: boolean
+    mut ran: boolean
   end
 end
 

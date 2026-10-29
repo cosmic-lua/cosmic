@@ -139,7 +139,6 @@ local function results_of(f: Types.Type?): {Types.Type}?, boolean
     return nil, false
   end
   local alt = f.rets[1]
-  assert(alt ~= nil)
   local out: mut {Types.Type} = {}
   for _, item in ipairs(alt.items) do
     out[#out + 1] = item

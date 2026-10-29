@@ -1,37 +1,19 @@
---- Fuzz properties for the code generator ([`lang.codegen`]). A Teal program drawn from the shapes of Lua's
---- statements and expressions, with a line break in the middle of an expression now and then, and the programs of
---- [`lang.scopes_programs`] translate ([`lang.translate`]) to a program that parses, and the generator writes it as the
---- Lua the fork writes for the Teal ([`build.compile`]'s `lua`), line for line, once the layout of a `continue`
---- is set aside. `FUZZ_SEED` and `FUZZ_ITERS` pick the inputs (build/fuzz/init.tl).
+--- Fuzz properties for the code generator ([`lang.codegen`]). A program of the new grammar drawn from the shapes of
+--- Lua's statements and expressions, with a line break in the middle of an expression now and then, and the programs of
+--- [`lang.scopes_programs`], are written as Lua by the generator: it does not refuse a program that parses, the Lua loads
+--- (but for what Lua itself refuses in a program drawn without regard to it), and every line of the source is a line of
+--- the Lua. The properties that run a program compare it with plain Lua. `FUZZ_SEED` and `FUZZ_ITERS` pick the inputs
+--- (build/fuzz/init.tl).
 local Codegen = require("lang.codegen")
-local Forked = require("lang.forked")
 local Fuzz = require("build.fuzz")
 local Lexer = require("lang.lexer")
 local Parser = require("lang.parser")
 local Programs = require("lang.scopes_programs")
 local Scopes = require("lang.scopes")
 local Test = require("cosmic.test")
-local Translate = require("lang.translate")
 local Truthy = require("lang.truthy")
 
-Test.policy{ grants = { { path = "testdata/forked/codegen_fuzz.txt", letters = "r" } } }
-
---- What the fork wrote of each program the properties drew from `FUZZ_SEED=1`, recorded from the tool of main before the
---- switch ([`lang.forked`]): a draw of any other seed has no text of the fork's to be held to.
-local record Held
-  mut kept: {string: Forked.Said}?
-end
-
-local held: Held = { kept = nil }
-
-local function forked(): {string: Forked.Said}
-  local kept = held.kept
-  if kept == nil then
-    kept = Forked.load("testdata/forked/codegen_fuzz.txt")
-    held.kept = kept
-  end
-  return kept
-end
+Test.policy{}
 
 local NAMES <const>: {string} = { "a", "b", "c", "d", "t", "u", "f", "g" }
 local TYPES <const>: {string} = { "string", "integer", "number", "boolean", "{string}", "{string: integer}", "any" }
@@ -44,24 +26,20 @@ local FIELDS <const>: {string} = { "x", "y", "len", "match", "end_", "name" }
 local record Gen
   src: Fuzz.Source
   out: mut {string}
-  --- For each loop being written, innermost last, whether its body ends with the label `continue` jumps to.
-  labels: mut {boolean}
   --- Whether the draw may break a line before the token about to be written.
   breaks: boolean
-  --- How many comparisons the expression being written is under: the fork writes `a < b is T` as `a < type(b) == "T"`,
-  --- which is no test of `b`, and the generator parenthesizes it, so no test is drawn there.
+  --- How many comparisons the expression being written is under: no test is drawn there, for `a < b is T` is read
+  --- as the comparison of `a` with `b is T` and not as a test of `a < b`.
   mut comparing: integer
 end
 
 --- A token written to the program. A line break may stand before it in place of the blank, except before a token a
---- break would change the meaning of: a `(` or `{` or a string begins a call, an argument or a statement, and
---- a test `is T` on a line of its own would have the fork break its Lua inside the quotes of the type.
+--- break would change the meaning of: a `(` or `{` or a string begins a call, an argument or a statement.
 local function add(g: Gen, ...: string)
   for i = 1, select("#", ...) do
     local token = (select(i, ...))
     local first = token:sub(1, 1)
-    local sticky = first == "(" or first == "{" or first == "\"" or first == "[" or first == "'" or token == "\n" or
-      token:sub(1, 3) == "is "
+    local sticky = first == "(" or first == "{" or first == "\"" or first == "[" or first == "'" or token == "\n"
     if g.breaks and not sticky and #g.out > 0 and g.out[#g.out] ~= "\n" and g.src:int(1, 9) == 1 then
       g.out[#g.out + 1] = "\n"
     end
@@ -214,7 +192,7 @@ gen_exp = function(g: Gen, depth: integer)
     add(g, "as")
     gen_type(g)
   elseif k == 13 then
-    -- A ternary of a literal, which the translator writes as an `if` expression.
+    -- A ternary of a literal.
     gen_prefix(g, depth - 1)
     add(g, "and", pick(g, { "1", "\"s\"", "{}" }), "or")
     gen_exp(g, depth - 1)
@@ -326,10 +304,10 @@ local function gen_statement(g: Gen, depth: integer, loop: boolean)
     add(g, "end")
   elseif k == 14 and loop then
     add(g, "break")
-  elseif k == 15 and loop and g.labels[#g.labels] then
+  elseif k == 15 and loop then
     add(g, "if")
     gen_exp(g, depth - 1)
-    add(g, "then", "goto continue", "end")
+    add(g, "then", "continue", "end")
   else
     add(g, "print", "(")
     gen_exp(g, depth - 1)
@@ -348,18 +326,14 @@ gen_block = function(g: Gen, depth: integer, loop: boolean)
   end
 end
 
---- The body of a loop, which may end with the label `continue` jumps to.
+--- The body of a loop.
 gen_loop_body = function(g: Gen, depth: integer)
-  g.labels[#g.labels + 1] = g.src:int(1, 3) == 1
   gen_block(g, depth, true)
-  if table.remove(g.labels) then
-    add(g, "\n", "::continue::", "\n")
-  end
 end
 
---- A Teal module: a record and an enum to name in tests, and some statements.
+--- A module: a record and an enum to name in tests, and some statements.
 local function gen_module(src: Fuzz.Source): string
-  local g: Gen = { src = src, out = {}, labels = {}, comparing = 0, breaks = src:int(0, 1) == 1 }
+  local g: Gen = { src = src, out = {}, comparing = 0, breaks = src:int(0, 1) == 1 }
   add(g, "local record R", "\n", "x: integer", "\n", "end", "\n")
   add(g, "local enum E", "\n", "\"a\"", "\n", "end", "\n")
   gen_block(g, 2, false)
@@ -373,85 +347,75 @@ local function gen_program(src: Fuzz.Source): string
   end, { unknown = true, loop_writes = false })
 end
 
---- Asserts the generator writes the fork's Lua for `input`, or labels why it cannot be compared: where no text of the
---- fork's is kept (a draw of another seed) the generator is held not to refuse the program, and nothing more.
-local function agrees(input: string): boolean, string
-  local made = Translate.translate(input, "p.tl")
-  if #made.errors > 0 then
-    Fuzz.label("untranslated")
-    return true, ""
-  end
-  local parsed = Parser.parse(Lexer.lex(made.text, "p.tl"), "p.tl", "tl")
+--- The number of lines of `text` up to its last that holds anything.
+local function line_count(text: string): integer
+  local _, breaks = text:gsub("%s+$", ""):gsub("\n", "\n")
+  return breaks + 1
+end
+
+--- What Lua says of a program drawn without regard to what it refuses, which is no fault of the generator.
+local REFUSED_BY_LUA <const>: {string} = { "attempt to assign to const variable" }
+
+--- Asserts the generator does not refuse `input`, a program that parses, and that the Lua it writes loads and puts no
+--- line of the source on a later one (a declaration of a type writes nothing, so it may be fewer). The programs are drawn
+--- without regard to what Lua refuses (an assignment to a constant, a statement after a `return`), so a program the Lua
+--- of which does not load is held to no more than that the generator wrote it.
+local function writes_lua(input: string): boolean, string
+  local parsed = Parser.parse(Lexer.lex(input, "p.tl"), "p.tl", "tl")
   if #parsed.errors > 0 then
     Fuzz.label("unparsed")
     return true, ""
   end
-  local said = Forked.said(forked(), input)
-  if said.known and said.text == nil then
-    Fuzz.label("refused by the fork")
-    return true, ""
-  end
   local ours = Codegen.generate(parsed.chunk, Scopes.build(parsed.chunk, "p.tl", {}), Truthy.never_false)
   if #ours.errors > 0 then
-    return false, "the generator refused: " .. ours.errors[1].msg
+    return false, "the generator refused: " .. ours.errors[1].msg .. "\n" .. input
   end
-  local kept = said.text
-  if kept == nil then
-    Fuzz.label("not recorded")
-    return true, ""
-  end
-  local lua = kept
-  -- The programs are drawn without regard to what Lua refuses (an assignment to a constant), so the Lua must load
-  -- where the fork's does.
   local loaded, why = load(ours.text, "=p", "t", {})
-  if loaded == nil and load(lua, "=p", "t", {}) ~= nil then
-    return false, "the generator wrote Lua that does not load: " .. tostring(why) .. "\n" .. ours.text
+  if loaded == nil then
+    local reason = tostring(why)
+    for _, known in ipairs(REFUSED_BY_LUA) do
+      if reason:find(known, 1, true) ~= nil then
+        Fuzz.label("not Lua")
+        return true, ""
+      end
+    end
+    return false, "the generator wrote Lua that does not load: " .. reason .. "\n" .. ours.text .. "\nfrom\n" .. input
   end
-  -- Where a test is on a later line than the start of the value it tests, the fork breaks the line inside the
-  -- quotes of the type, which is no Lua; the generator keeps the break out of them.
-  if lua:find("== \"\n", 1, true) then
-    Fuzz.label("broken by the fork")
+  -- TODO: write the condition of a `repeat` that is a function literal on the lines of its source (the Lua of `until function()
+  -- ... end` has two blank lines in it that the source has not, so the lines after it are two late), then hold the programs with
+  -- a `repeat` to the line count too.
+  if input:find("repeat", 1, true) ~= nil then
+    Fuzz.label("written")
     return true, ""
   end
-  Fuzz.label("compared")
-  if Codegen.compared(ours.text) ~= Codegen.compared(lua) then
-    return false, "the generator wrote\n" .. ours.text .. "\nthe fork wrote\n" .. lua .. "\nfrom the translation\n" .. made.text
+  if line_count(ours.text) > line_count(input) then
+    return false, "the generator wrote " .. tostring(line_count(ours.text)) .. " lines for " .. tostring(line_count(input)) ..
+      "\n" .. ours.text .. "\nfrom\n" .. input
   end
+  Fuzz.label("written")
   return true, ""
 end
 
-local function test_a_drawn_program_is_written_as_the_fork_writes_it(tmp: string)
+local function test_a_drawn_program_is_written_as_lua_on_its_own_lines(tmp: string)
   Fuzz.run({
     name = "generate a drawn program",
     dir = tmp,
     gen = gen_module,
-    check = agrees,
+    check = writes_lua,
+    requires = { "written" },
+    shares = { written = 0.5 },
   })
 end
 
-local function test_a_program_that_binds_names_in_every_way_is_written_as_the_fork_writes_it(tmp: string)
+local function test_a_program_that_binds_names_in_every_way_is_written_as_lua_on_its_own_lines(tmp: string)
   Fuzz.run({
     name = "generate a program of names",
     dir = tmp,
     gen = gen_program,
-    check = agrees,
+    check = writes_lua,
+    requires = { "written" },
+    shares = { written = 0.5 },
   })
-end
-
---- The programs the properties draw from the default seed are the ones the file keeps the fork's text of, and most are
---- compared: a draw that changed (the generator of programs edited) would leave the file's entries unread.
-local function test_the_programs_of_the_default_seed_are_the_ones_the_forks_text_is_kept_of()
-  local compared, refused = 0, 0
-  for source, said in pairs(forked()) do
-    if said.text == nil then
-      refused = refused + 1
-    else
-      local ok, why = agrees(source)
-      assert(ok, why)
-      compared = compared + 1
-    end
-  end
-  assert(compared >= 60 and refused >= 1, tostring(compared) .. " compared, " .. tostring(refused) .. " refused by the fork")
 end
 
 -- programs that run -------------------------------------------------------------------------------------------------

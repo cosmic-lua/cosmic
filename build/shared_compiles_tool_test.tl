@@ -93,7 +93,7 @@ local function build(root: string, env: {string:string}, fails?: boolean): strin
   local result, trouble = Child.run(started.argv, started.options)
   assert(Fs.close(fd))
   local text = assert(Fs.read(output))
-  assert(result ~= nil and result.ok == not fails, tostring(trouble) .. text)
+  assert(result ~= nil and result.ok == fails ~= true, tostring(trouble) .. text)
   return text
 end
 
@@ -214,7 +214,7 @@ local function test_a_broken_cache_never_fails_a_build(tmp: string)
     checkout(tmp .. "/" .. name)
     local output = built(tmp .. "/" .. name, env, "(3 compiled, 0 cached;")
     local _, complaints = output:gsub("shared compiles: ", "")
-    assert(complaints == 1 and output:find("building without them", 1, true), output)
+    assert(complaints == 1 and output:find("building without them", 1, true) ~= nil, output)
     assert(not output:find("moved aside", 1, true), output)
     local after = assert(Fs.stat(path))
     assert(after.ino == before.ino and after.dev == before.dev)

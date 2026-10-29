@@ -12,6 +12,8 @@ end
 --- `build/` both exist, and `build/` holds the importer itself rather
 --- than just a directory of that name. `cosmic.*` is reserved to this
 --- one tree; nothing else may claim it, by directory or by import path.
+--- The same structure is the trust root of [`build.project_refusals`]: a root that has it is treated as the tree and is
+--- not held to what a project may not say, so a fixture that needs the tree's rights is a tree by these three names.
 function tree.is_own(root: string): boolean?, string
   local core, trouble = Fs.is_dir(root .. "/core")
   if core == nil then return nil, trouble end

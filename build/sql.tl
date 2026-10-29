@@ -132,7 +132,7 @@ function sql.source(root: string, parsed: Flags.Parsed): sql.Source?, string
     if chosen == "" then
       return nil, "--db needs a path, not an empty one"
     end
-    return { name = chosen, path = chosen }
+    return { name = chosen, path = chosen }, ""
   end
   local within = "; the build directory is the working directory's, " ..
     "never a project's above it"
@@ -140,15 +140,15 @@ function sql.source(root: string, parsed: Flags.Parsed): sql.Source?, string
     local directory, trouble = build_paths.directory(root)
     if directory == nil then return nil, trouble end
     local working = build_paths.under(directory).working
-    return { name = working, path = working, hint = working .. within }
+    return { name = working, path = working, hint = working .. within }, ""
   end
   if parsed.set["--store"] == true then
-    return { name = "the binary's own database" }
+    return { name = "the binary's own database" }, ""
   end
   local directory, directory_trouble = build_paths.optional(root)
   if directory == nil then
     if directory_trouble ~= "" then return nil, directory_trouble end
-    return { name = "the binary's own database" }
+    return { name = "the binary's own database" }, ""
   end
   local project = build_paths.under(directory).projection
   local present, trouble = Fs.exists(project)
@@ -156,9 +156,9 @@ function sql.source(root: string, parsed: Flags.Parsed): sql.Source?, string
     return nil, trouble
   end
   if present then
-    return { name = project, path = project }
+    return { name = project, path = project }, ""
   end
-  return { name = "the binary's own database" }
+  return { name = "the binary's own database" }, ""
 end
 
 --- A handle on the source's database that SQLite will not let write.
@@ -176,7 +176,7 @@ function sql.open(source: sql.Source, between?: function()): sql.Opened?, string
     if db == nil then
       return nil, "this binary carries no database"
     end
-    return { db = db, owned = false }
+    return { db = db, owned = false }, ""
   end
   local path: string = named
   local present, trouble = Fs.exists(path)
@@ -256,7 +256,7 @@ function sql.open(source: sql.Source, between?: function()): sql.Opened?, string
     local _, _ = db:close()
     return nil, pragma_trouble
   end
-  return { db = db, owned = true }
+  return { db = db, owned = true }, ""
 end
 
 --- The shortest `%g` form that reads back as `x`, marked as a real

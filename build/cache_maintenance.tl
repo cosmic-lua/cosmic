@@ -24,13 +24,13 @@ local record maintenance
   end
   record File
     path: string
-    state: string
-    reason: string
-    kept?: integer
-    removed?: integer
-    before_bytes?: integer
-    after_bytes?: integer
-    reached?: boolean
+    mut state: string
+    mut reason: string
+    mut kept?: integer
+    mut removed?: integer
+    mut before_bytes?: integer
+    mut after_bytes?: integer
+    mut reached?: boolean
     unknown_tables: mut {string}
     unstamped_tables: mut {string}
     removed_set_aside: mut {string}
@@ -42,8 +42,8 @@ local record maintenance
   record Report
     version: integer
     files: mut {File}
-    digest?: string
-    fresh?: integer
+    mut digest?: string
+    mut fresh?: integer
     warnings: mut {string}
   end
 end
@@ -51,7 +51,7 @@ end
 local record Database
   --- Nil once closed, and for a database [`owned`] has none yet.
   mut db?: Sqlite.Handle
-  transaction: boolean
+  mut transaction: boolean
   __close: function(Database)
 end
 

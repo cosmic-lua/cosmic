@@ -147,13 +147,13 @@ local function test_a_carriage_return_is_escaped_and_gnus_own_bytes_are_read(tmp
   local checked = run({ "--md5", "--check", gnu }, nil)
   -- The names are relative to `tmp`, which this run is not in: each
   -- fails to open, named as the list escapes it.
-  assert(checked.code == 1 and checked.out:find("\\a\\rb: FAILED open or read", 1, true), checked.out)
+  assert(checked.code == 1 and checked.out:find("\\a\\rb: FAILED open or read", 1, true) ~= nil, checked.out)
   local absolute = file(tmp, "abs", "\\" .. ABC["md5"] .. "  " .. prefix .. "/a\\rb\n")
   local found = run({ "--md5", "--check", absolute })
   assert(found.code == 0 and found.out == "\\" .. prefix .. "/a\\rb: OK\n", found.out .. found.err)
   -- Any other escape is refused.
   local bad = run({ "--md5", "--check", file(tmp, "bad", "\\" .. ABC["md5"] .. "  a\\tb\n") })
-  assert(bad.code == 2 and bad.err:find("bad escape", 1, true), bad.err)
+  assert(bad.code == 2 and bad.err:find("bad escape", 1, true) ~= nil, bad.err)
 end
 
 local function test_json_refuses_a_path_it_cannot_write_and_exits_2(tmp: string)
@@ -190,7 +190,7 @@ end
 
 local function test_a_key_file_ending_in_a_newline_warns_and_keeps_it(tmp: string)
   local ran = run({ "--hmac-file", file(tmp, "k", "secret\n") }, "abc")
-  assert(ran.code == 0 and ran.err:find("ends in a newline", 1, true), ran.err)
+  assert(ran.code == 0 and ran.err:find("ends in a newline", 1, true) ~= nil, ran.err)
   assert(ran.out == Codec.hex(Hash.hmac("sha256", "secret\n", "abc")) .. "  -\n", ran.out)
   assert(run({ "--hmac-file", file(tmp, "k2", "secret") }, "abc").err == "")
 end
@@ -264,7 +264,7 @@ local function test_a_malformed_line_is_reported_and_exits_2(tmp: string)
   assert(ran.err:find(sums .. ":2: improperly formatted", 1, true), ran.err)
   assert(ran.err:find(sums .. ":3: improperly formatted", 1, true), ran.err)
   local none = run({ "--check", file(tmp, "empty", "") })
-  assert(none.code == 2 and none.err:find("no checksum lines found", 1, true), none.err)
+  assert(none.code == 2 and none.err:find("no checksum lines found", 1, true) ~= nil, none.err)
   assert(run({ "--check", tmp .. "/absent" }).code == 2)
 end
 
@@ -303,7 +303,7 @@ local function test_hmac_of_every_algorithm_agrees_with_hash_hmac(tmp: string)
       for _, message in ipairs(messages) do
         local ran = run({ "--" .. algorithm, "--hmac-file", key_file }, message)
         local want = Codec.hex(Hash.hmac(algorithm, key, message))
-        assert(ran.out == want .. "  -\n", algorithm .. " key " .. #key .. " message " .. #message)
+        assert(ran.out == want .. "  -\n", algorithm .. " key " .. tostring(#key) .. " message " .. tostring(#message))
       end
     end
   end
@@ -324,7 +324,7 @@ local function test_hmac_key_file_keeps_its_bytes_exactly(tmp: string)
   assert(with_newline.out ~= without.out)
   assert(without.out == Codec.hex(Hash.hmac("sha256", "secret", "abc")) .. "  -\n")
   local missing = run({ "--hmac-file", tmp .. "/nokey" }, "abc")
-  assert(missing.code == 2 and missing.err:find("--hmac-file", 1, true), missing.err)
+  assert(missing.code == 2 and missing.err:find("--hmac-file", 1, true) ~= nil, missing.err)
 end
 
 local function test_a_bad_command_line_exits_2_and_prints_nothing(tmp: string)
@@ -348,7 +348,7 @@ local function test_a_failed_write_exits_2_in_every_mode(tmp: string)
   local function full(_: string): boolean, string return false, "No space left on device" end
   for _, words in ipairs({ { a }, { "--json", a }, { "--check", sums }, { "--check", "-" } } as {{string}}) do
     local ran = run(words, ABC["sha256"] .. "  " .. a .. "\n", full)
-    assert(ran.code == 2, table.concat(words, " ") .. ": " .. ran.code)
+    assert(ran.code == 2, table.concat(words, " ") .. ": " .. tostring(ran.code))
     assert(ran.err == "cosmic: hash: standard output: No space left on device\n", ran.err)
   end
   -- A `--quiet` check that has nothing to say has nothing to lose.
@@ -387,5 +387,5 @@ local function test_a_large_input_streams_in_bounded_memory()
   -- 96 MiB went through; Lua held a few chunks of it at a time, never
   -- the whole.
   local grew = peak() - before
-  assert(grew < 8 * 1024, "Lua memory grew by " .. grew .. " KiB while hashing 96 MiB")
+  assert(grew < 8 * 1024, "Lua memory grew by " .. tostring(grew) .. " KiB while hashing 96 MiB")
 end

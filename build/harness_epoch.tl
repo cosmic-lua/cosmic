@@ -83,7 +83,7 @@ end
 harness_epoch.epoch = "58-692cdf96" -- on a conflict keep neither side: set it to the bare count and run build/harness_epoch_test.tl, which prints a fresh value
 harness_epoch.acknowledged = {
 
-  ["build.artifact"] = "27e17846dc1036ab9ef0d94249a6e1e8d2140e916a821a6de6686ea667f6d2dc",
+  ["build.artifact"] = "38a8cfff7234e89aac9fdcdacbdc2148b35a282d73f0ff59952aa360d9d74033",
 
   ["build.assertions"] = "493581fd2868cf0ec99a12baaf108fb28c9106398d2df35a8e5d3d925ad6bfd3",
 
@@ -95,17 +95,17 @@ harness_epoch.acknowledged = {
 
   ["build.caches"] = "18fc193d825a960a4716cb62fae40d37e1c0d35d61c9acb91025dc0b60b570ee",
 
-  ["build.confine"] = "a4232c0fd37ae8b5a481cf91642b1c584c9b8f9113816ee8eba9e43b1de84845",
+  ["build.confine"] = "697080792d126b2a4e5fbd2be7e47cb22fddfeade305fa3c4dfa62e80da39246",
 
   ["build.core_image"] = "18daf88c3c58f62a222472eaa52b99218cd1e5b7ccafde6a0beded46c8f3382b",
 
-  ["build.declared_key"] = "c17bf86cb48212db268b651c611eeebbdb30c1c8a078747677ab55280479cc8c",
+  ["build.declared_key"] = "a6f28a4b73c378b20ce377f1adfa01d0d04e11e23edec7750f45b4c5aab05d6e",
 
   ["build.digest"] = "63588bce17aabb935b044ae8a4af8cea78d1dca19822a36e72efe62d4a877355",
 
-  ["build.host_names"] = "d1867ab177c20544e0843e05bd749f0bb3752f5f690fea96dd968a7223a93217",
+  ["build.host_names"] = "be77323ab570346a02b67f7b8122cf30503dcb0642adb23f1f1c3d9b6da61547",
 
-  ["build.host_requires"] = "64162c71692b9de06bf1ed268c55a1525aa1f5cd5d69c37546ec769b4a40c775",
+  ["build.host_requires"] = "9356c9adfc65e4cf1415b145a63d27be272b6cd8aa050e952ad1bfd7d0af3028",
 
   ["build.key_parts"] = "8d6552f9b67824ad5158996a1806062870f2e0a7f8eac6d42f27b3fa26337fc2",
 
@@ -119,11 +119,11 @@ harness_epoch.acknowledged = {
 
   ["build.shared_sqlite"] = "a1f438f3ab7ff5eb92e8db6235d80bd75b6dc8db51833f27aa78cc6965daca90",
 
-  ["build.shared_verdicts"] = "6357888658ecfbdaf63562bbc94fc23be19140dc160ec2a1d77e173ebed3abd2",
+  ["build.shared_verdicts"] = "4c24d7d643a460ca52731f5549be2e0f567576f5ea6e0c2b3382a7e6ef223f10",
 
   ["build.test_inputs"] = "21e25a0a87b750ee1427bcb4ecec9b027cf49653ca930f2cd67a9ebab18d3f82",
 
-  ["build.test_key"] = "ac6f4de15471f64b76ec2326cec6ffed32b36c662ace030c636f619ed0ff1b86",
+  ["build.test_key"] = "9f8b6b4a7e4ce80186ea0ce875c9ff96321b94e49733aab8e909e722b26b9350",
 
   ["build.test_policy"] = "b1eda91fc78d4da9c2216a5a78b3394c64e7bcf51cacb3d4469bc053ade829ea",
 
@@ -131,13 +131,13 @@ harness_epoch.acknowledged = {
 
   ["build.test_worker"] = "7e2e3285d50bea488187e3c78796c901e8245424501c093633b7daac73dde192",
 
-  ["build.this_program"] = "c79ad35c8fcf69c5cea96d9e432cb231f74cdb734d65f0374e9935b5e6cafa0c",
+  ["build.this_program"] = "345b0565401a0f96cd0dcc4165281806148315424265bca17841eaf72d32fd42",
 
   ["build.zig_caches"] = "3dd89e9f3b612891419f3178cfb211d59ff80da1e42515f77e33b4a9366f2853",
 
   ["cmd.cosmic.main"] = "4199a34c391ac393c2cff8404cced9e3e593309f7ec58fb1af37f26e3fead347",
 
-  ["cosmic.child"] = "5297b7ea3f6fdee6041e2a5b6c9a405c19bf20bc3d0bd4a8d4543f0ea7e3db9c",
+  ["cosmic.child"] = "3281527827a4071e580a20df6860f02c8cd20ac2d4566b5f3f211356e79a3c17",
 
   ["cosmic.codec"] = "52572ec5f66817018bb20d585ebc0e5ea2ed14b2d15af6eaeb61a8dc13e5624b",
 
@@ -153,15 +153,15 @@ harness_epoch.acknowledged = {
 
   ["cosmic.project"] = "7109f1a1bfb3400ba57174beca48225a345b8388ea0766a1eab33929545fb8ec",
 
-  ["cosmic.sandbox"] = "8cc16ab570c7eb1b849341f9dc77fc6ff31bc3fb59d19e75b8f42940a5b2e6fc",
+  ["cosmic.sandbox"] = "af793da9a6007fddb8f8598d2b944824b040d696bdaea3ff11f8f3a197aa8861",
 
-  ["cosmic.sandbox.policy"] = "1c0f9e7449ea2f75608a9f51697ae6fbeaf25e71f79014fc24ef72b3984c962f",
+  ["cosmic.sandbox.policy"] = "7f30052b7487116c920e76b1018472ac4b094e00d1e327e82454e5bbffa31053",
 
-  ["cosmic.sqlite"] = "acaf8e4c6d9c978bca8291420b8d192f5cec8665fa94a09ce5a12ee283cebdaa",
+  ["cosmic.sqlite"] = "c67a21b9a378de5186e5df69fad615bdb75517b9f62f070a8622478777dea2e7",
 
-  ["cosmic.string"] = "00360e77fa2fb890be0cb2f3a2388975a45dff636aae22cfc9c28b04d84eb2a9",
+  ["cosmic.string"] = "a889f0069658de54a0058cdad50f546327beb450433cec88350222c3d5d9d420",
 
-  ["cosmic.test"] = "9d8f3523683e99099650e36e084ef4ace4a415611ded747a0b8a8a43863c5998",
+  ["cosmic.test"] = "ac99b87faffa544557defef50b02dc1b483f0d629d57e3e15bd914dfc0beef01",
 
 }
 

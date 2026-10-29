@@ -95,6 +95,8 @@ allowed["build.memprobe.sink"] = "where a mark writes its line, which a test tak
 allowed["build.dataset.load"] = "the loader load_text composes and falls back on, tested directly " ..
   "over rows a test builds, whose keys no file need hold"
 
+allowed["cosmic.cell.value"] = "the one field of a record that is the module: a program reads and assigns it through the Cell it holds, not through the module"
+
 allowed["cosmic.http.public_key_pin"] = "public API: how a program makes the pin `opts.pin` holds a " ..
   "server's key to; cosmic's own fetches choose roots, not pins"
 
@@ -232,6 +234,10 @@ allowed["build.declared_key.dispatched"] = "what build/dispatched_features_test.
   "holds the tree's CPU dispatch sites to: the features a key holds are the ones they read"
 allowed["build.declared_key.system_sources"] = "what build/host_features_test.tl " ..
   "holds ci/testdata/host_features to: a key names each recorded host as ci/cosmic_ci/host_id.tl does"
+allowed["build.declared_key.host_identity"] = "what build/declared_key_test.tl " ..
+  "holds the host's identity to, the first of the `host_split` the harness keys by"
+allowed["build.shared_verdicts.host_of"] = "what build/shared_verdicts_test.tl " ..
+  "holds the parts a row names its host by to"
 allowed["build.confine.confine"] = "a test's own declaration: " ..
   "what the processes a test starts need, which only a test makes"
 allowed["build.confine.must_confine"] = "a test's own declaration: " ..
@@ -385,7 +391,7 @@ local function unearned(db: Sqlite.Handle): {string}?, string
   for _, row in ipairs(rows) do
     out[#out + 1] = row:text(1)
   end
-  return out
+  return out, ""
 end
 
 --- Every export of `db` that nothing earns (see `unearned`) and
@@ -995,9 +1001,9 @@ local requirers: {string: Restriction} = {
   },
   ["cosmic.internal.globals"] = {
     files = { "build.fuzz", "build.load_module",
-      "build.raw_tables_test", "build.sandbox", "build.sandboxed_verdicts_test", "build.sealed_worker_test", "build.standalone",
+      "build.raw_tables_test", "build.sandbox", "build.sealed_worker_test", "build.standalone",
       "build.test_closure_diagnostic_test", "build.test_closure_test", "build.type_watch", "core.load_env_test", "core.surface_test",
-      "cosmic.coverage_test", "cosmic.flags_test", "cosmic.test_tool_test", "test.coverage_cache_test" },
+      "cosmic.coverage_test", "cosmic.flags_test", "test.coverage_cache_test" },
     why = "only the modules that run a program or a hook as a chunk of Lua text take the globals whole, as its " ..
       "environment: it holds `require`, which a chunk loads modules the build does not see by; any other module " ..
       "passes the chunk the few names it needs",
@@ -1074,7 +1080,7 @@ function tree_checks.requirements(build: Sqlite.Handle): {string:{string}}?, str
     end
     names[#names + 1] = row:text(2)
   end
-  return out
+  return out, ""
 end
 
 --- The test modules that run a program the portable launcher starts, or
@@ -1091,7 +1097,7 @@ function tree_checks.unsealed(build: Sqlite.Handle): {string:boolean}?, string
   if rows == nil then return nil, "reading the unsealed modules: " .. trouble end
   local out: mut {string:boolean} = {}
   for _, row in ipairs(rows) do out[row:text(1)] = true end
-  return out
+  return out, ""
 end
 
 --- The sealed test modules that name the portable launcher's contract
@@ -1189,7 +1195,7 @@ function tree_checks.legs(root: string): {string:{string}}?, string
   if text == nil then return nil, read_trouble end
   local capabilities, shape_trouble: Capabilities?, string = Shape.decode_into(text, CAPABILITIES_SPEC)
   if capabilities == nil then return nil, path .. ": " .. shape_trouble end
-  return capabilities.legs
+  return capabilities.legs, ""
 end
 
 -- TODO: hold the requirements ci/'s own tests and fixtures declare to the
@@ -1212,8 +1218,8 @@ function tree_checks.promises(declared: {string:{string}}, legs: {string:{string
   local all: mut {string} = {}
   for _, leg in ipairs(leg_names) do
     for _, name in ipairs(legs[leg]) do
-      local _, why = host_names.parse(name)
-      if why ~= nil then
+      local spec, why = host_names.parse(name)
+      if spec == nil then
         out[#out + 1] = string.format("leg %s promises %q, which is refused: %s", leg, name, why)
       else
         all[#all + 1] = name
@@ -1975,7 +1981,7 @@ local function sources_of(root: string): {{string}}?, string
       out[#out + 1] = { file, text }
     end
   end
-  return out
+  return out, ""
 end
 
 --- What scoping one file found.
@@ -2560,7 +2566,6 @@ local packagers: {string: string} = {
   ["build/test_worker.tl"] = "holds `require` to a test's closure through the searchers and `package.loaded`",
   ["build/udp_fixture.tl"] = "reads the core's raw table through the searchers",
   ["build/unix_socket.tl"] = "reads the core's raw table through the searchers",
-  ["cosmic/removed_example.tl"] = "shows that `package.loaded` holds a module once required",
   ["cosmic/store.tl"] = "reads the store's searcher",
 }
 
@@ -2609,8 +2614,6 @@ local loaders: {string: string} = {
   ["build/fuzz/init.tl"] = "the constant chunk `return __cosmic_tc`, the hook a checked run defines",
   ["build/load_module.tl"] = "the named loader: the constant chunk `return require((...))`",
   ["build/lua_tail.tl"] = "the Lua the compiler wrote, loaded in an environment of its own to dump its bytecode",
-  ["build/must_confine_fixture.tl"] = "constant chunks of the test support that probe the confinement of a worker, " ..
-    "which no typed file may do",
   ["build/sandbox.tl"] = "the script the checker compiled ([`build.standalone`]'s `code`), as the main of a sealed program",
   ["build/standalone.tl"] = "the Lua the checker compiled from a file or a `-e` chunk, or kept from such a compile",
   ["build/test_worker.tl"] = "the constant chunk that reads a value's metatable in the form the compiler writes",

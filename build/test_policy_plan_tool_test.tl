@@ -221,7 +221,7 @@ local function test_a_plan_for_a_nesting_worker_grants_the_artifact_only_with_st
   local with = test_sandbox.plan(root, scratch, storing, {})
   assert(with.trouble == "", with.trouble)
   assert(holds(assert(with.sandbox.unveil).reads, artifact), table.concat(assert(with.sandbox.unveil).reads, " "))
-  assert(not with.runs[artifact], "the artifact is read, not run")
+  assert(with.runs[artifact] ~= true, "the artifact is read, not run")
   assert(not holds(assert(plain.sandbox.unveil).reads, artifact),
     table.concat(assert(plain.sandbox.unveil).reads, " "))
   assert(test_policy.worker(plain, bare) ~= nil)
@@ -272,7 +272,7 @@ local function test_a_plan_gives_a_scratch_of_its_own_only_where_no_host_directo
     local inputs = effective({})
     change(inputs)
     local made = planned(inputs)
-    assert(not made.own_scratch and made.why_shared:find(word, 1, true), word .. ": " .. made.why_shared)
+    assert(not made.own_scratch and made.why_shared:find(word, 1, true) ~= nil, word .. ": " .. made.why_shared)
     assert((assert(made.sandbox.unveil).writes or {})[1] == scratch)
     local held = assert(test_policy.worker(made, inputs))
     assert(held.tmp == nil, word)

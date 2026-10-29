@@ -498,7 +498,7 @@ local function test_a_modules_member_in_full_is_exact(dir: string)
   for _, query in ipairs({ "cosmic.thing.order", "Thing.order", "thing.order" }) do
     local found = assert(docs.lookup(view({ db }), query))
     assert(found.exact and #found == 1 and found[1].source_symbol == "Module.order",
-      query .. ": " .. #found)
+      query .. ": " .. tostring(#found))
   end
   -- `Result` is exported, as `run` hands it out, but the value is not one.
   local ok = table.concat(exact("cosmic.thing.ok"), ", ")
@@ -541,7 +541,7 @@ local function test_uses_of_a_typed_values_member_are_that_modules(dir: string)
   for _, query in ipairs({ "cosmic.thing.order", "Thing.order" }) do
     local listed: mut {string} = {}
     for _, use in ipairs((assert(docs.uses(view({ db }), query)))) do
-      listed[#listed + 1] = use.module .. " " .. use.from_file .. ":" .. use.line ..
+      listed[#listed + 1] = use.module .. " " .. use.from_file .. ":" .. tostring(use.line) ..
         (if use.link then " link" else "" end)
     end
     local got = table.concat(listed, ", ")
@@ -820,7 +820,7 @@ end
 --- a colon-ended paragraph introduces; a text with no blank line gets it last.
 local function test_the_listing_keeps_a_colon_and_its_example_together(dir: string)
   local function listing_at(text: {string}): {string}
-    local sub = dir .. "/" .. #text
+    local sub = dir .. "/" .. tostring(#text)
     assert(Fs.mkdirs(sub))
     local db = built(sub, { ["cosmic/fs.tl"] = table.concat(text, "\n") .. "\n" .. source(
       "",
@@ -909,7 +909,7 @@ local function test_a_search_stems_and_offers_the_closest_when_none_has_every_wo
   assert(some[1].source_symbol == "Fs.write", some[1].source_symbol)
   local seen: mut {string:boolean} = {}
   for _, entry in ipairs(some) do
-    assert(not seen[entry.source_symbol], "repeated " .. entry.source_symbol)
+    assert(seen[entry.source_symbol] ~= true, "repeated " .. entry.source_symbol)
     seen[entry.source_symbol] = true
   end
   assert(seen["Fs.read"] == nil, "one word of four is not enough")
@@ -980,9 +980,9 @@ end
 local function test_a_search_shows_five_whole_and_lists_the_rest(dir: string)
   local lines: mut {string} = { "--- Many things.", "local record Many", "end", "" }
   for at = 1, 8 do
-    lines[#lines + 1] = "--- Sentinel number " .. at .. ". Then more words."
-    lines[#lines + 1] = "function Many.f" .. at .. "(): integer"
-    lines[#lines + 1] = "  return " .. at
+    lines[#lines + 1] = "--- Sentinel number " .. tostring(at) .. ". Then more words."
+    lines[#lines + 1] = "function Many.f" .. tostring(at) .. "(): integer"
+    lines[#lines + 1] = "  return " .. tostring(at)
     lines[#lines + 1] = "end"
     lines[#lines + 1] = ""
   end
@@ -999,7 +999,7 @@ local function test_a_search_shows_five_whole_and_lists_the_rest(dir: string)
       listed = listed + 1
     end
   end
-  assert(whole == 5 and listed == 3, whole .. " whole, " .. listed .. " listed:\n" .. text)
+  assert(whole == 5 and listed == 3, tostring(whole) .. " whole, " .. tostring(listed) .. " listed:\n" .. text)
   assert(text:find("3 more; narrow the search", 1, true), text)
   local near = assert(docs.answer(view({ db }), { "sentinel", "number", "unheard" }))
   assert(answered(near):find("No entry has every word of 'sentinel number unheard'; closest matches:",
@@ -1665,7 +1665,7 @@ local function test_uses_merge_active_calling_modules(dir: string)
   local found = assert(docs.uses(view({ project, binary }), "Api.call"))
   assert(#found == 2, tostring(#found))
   assert(found[1].from_file == "app/main.tl" and found[1].line == 9,
-    found[1].from_file .. ":" .. found[1].line)
+    found[1].from_file .. ":" .. tostring(found[1].line))
   assert(found[2].from_file == "lib/helper.tl", found[2].from_file)
   local entry = assert(docs.lookup(view({ project, binary }), "Api.call"))[1]
   assert(entry ~= nil and entry.uses == 2, tostring(entry and entry.uses))
@@ -1740,7 +1740,7 @@ local function test_a_public_source_answers_only_for_the_standard_library(dir: s
   local public = assert(docs.view({ db }, { true }))
   local found = assert(docs.lookup(public, "read"))
   assert(#found == 1 and found[1].module == "cosmic.fs", tostring(#found))
-  assert(found[1].uses == 1, "only the standard library's own use counts: " .. found[1].uses)
+  assert(found[1].uses == 1, "only the standard library's own use counts: " .. tostring(found[1].uses))
   assert(#assert(docs.lookup(public, "build.importer")) == 0, "the build is not a public module")
   local searched = assert(docs.lookup(public, "whole file"))
   assert(#searched == 1 and searched[1].module == "cosmic.fs", tostring(#searched))
@@ -2492,7 +2492,7 @@ local function test_a_lookup_answers_alike_with_the_indexes_or_without(dir: stri
     "SELECT name FROM sqlite_schema WHERE type = 'index' AND tbl_name = 'docs' AND sql IS NOT NULL"))
   local present: mut {string: boolean} = {}
   for _, row in ipairs(names) do present[row:text(1)] = true end
-  assert(present["docs_by_last_name"] and present[schema.local_index], table.concat(
+  assert(present["docs_by_last_name"] == true and present[schema.local_index] == true, table.concat(
     (function(): {string}
       local all: mut {string} = {}
       for name in pairs(present) do all[#all + 1] = name end

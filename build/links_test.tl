@@ -22,7 +22,7 @@ end
 local function parsed(text: string): {string}
   local out: mut {string} = {}
   for _, link in ipairs(link_text.parse(text)) do
-    out[#out + 1] = link.line .. " " .. link.form .. " " .. link.target
+    out[#out + 1] = tostring(link.line) .. " " .. link.form .. " " .. link.target
   end
   return out
 end
@@ -269,7 +269,7 @@ local function world(files: {string: string}, symbols?: {string: {string}},
     root = "/p",
     kind = function(path: string): string?
       if files[path] ~= nil then return "file" end
-      if dirs[path] then return "dir" end
+      if dirs[path] == true then return "dir" end
       return nil
     end,
     read = function(path: string): string? return files[path] end,
@@ -495,7 +495,7 @@ local function test_a_link_is_recorded_by_the_scope_it_is_in()
   local chunk = assert(Node.parse(source, "a.tl"))
   local got: mut {string} = {}
   for _, found in ipairs(SyntaxLinkText.found(chunk, Node.scope(chunk, "a.tl"), source)) do
-    got[#got + 1] = found.link.line .. " " .. found.link.target .. " " .. tostring(found.own) ..
+    got[#got + 1] = tostring(found.link.line) .. " " .. found.link.target .. " " .. tostring(found.own) ..
       " " .. found.alias
   end
   same(got, {

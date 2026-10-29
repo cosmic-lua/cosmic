@@ -116,7 +116,7 @@ local function test_uses_lists_links_to_a_symbol_and_a_file(dir: string)
   local function listed(query: string): {string}
     local out: mut {string} = {}
     for _, use in ipairs((assert(docs.uses(view, query)))) do
-      out[#out + 1] = use.from_file .. ":" .. use.line .. (if use.link then " link " else " " end) ..
+      out[#out + 1] = use.from_file .. ":" .. tostring(use.line) .. (if use.link then " link " else " " end) ..
         use.module .. " " .. use.symbol .. " " .. use.path .. "#" .. use.anchor
     end
     return out
@@ -152,7 +152,7 @@ local function test_a_page_counts_the_links_to_its_symbol(dir: string)
   local view = assert(docs.view({ db }))
   local function page(query: string): string
     local found = assert(docs.lookup(view, query))
-    assert(#found == 1, query .. ": " .. #found)
+    assert(#found == 1, query .. ": " .. tostring(#found))
     return table.concat(assert(docs.render(view, found[1])), "\n")
   end
   -- Two links on one line count once, as `cosmic uses` lists them.
@@ -357,7 +357,7 @@ local function places(out: string, query: string): {string}
   local db = assert(Sqlite.open(out))
   local found: mut {string} = {}
   for _, use in ipairs((assert(docs.uses(assert(docs.view({ db })), query)))) do
-    found[#found + 1] = use.from_file .. ":" .. use.line .. (if use.link then " link" else "" end)
+    found[#found + 1] = use.from_file .. ":" .. tostring(use.line) .. (if use.link then " link" else "" end)
   end
   assert(db:close())
   return found
@@ -695,7 +695,7 @@ local function library(dir: string, identity: string, with_write: boolean): link
       "--- Opens.", "function raw.open(): integer", "  return 0", "end", "", "return raw"),
   })
   return { identity = identity,
-    databases = function(): {Sqlite.Handle}?, string return { db } end }
+    databases = function(): {Sqlite.Handle}?, string return { db }, "" end }
 end
 
 --- A project whose module and README link to the standard library.
@@ -738,11 +738,11 @@ local function test_a_projects_links_to_the_standard_library_are_rows(tmp: strin
         "greet.tl 1 24 greet cosmic.fs read",
         "greet.tl 1 47 greet cosmic.fs write",
       })
-  local handles = assert(stdlib.databases())
+  local handles = assert(assert(stdlib.databases)())
   local view = assert(docs.view({ db, handles[1] }, { false, true }))
   local listed: mut {string} = {}
   for _, use in ipairs((assert(docs.uses(view, "cosmic.fs.read")))) do
-    listed[#listed + 1] = use.from_file .. ":" .. use.line .. (if use.link then " link" else "" end)
+    listed[#listed + 1] = use.from_file .. ":" .. tostring(use.line) .. (if use.link then " link" else "" end)
   end
   same(listed, { "README.md:1 link", "cosmic/fs.tl:5 link", "greet.tl:1 link" })
   local found = assert(docs.lookup(view, "cosmic.fs.read"))
@@ -780,7 +780,7 @@ local function test_a_projects_links_through_required_modules_are_rows(tmp: stri
       "return Archive"),
   })
   local streams: link_index.Library = { identity = "docs streams",
-    databases = function(): {Sqlite.Handle}?, string return { stdlib } end }
+    databases = function(): {Sqlite.Handle}?, string return { stdlib }, "" end }
   local root = assert(Fs.absolute(tmp)) .. "/project"
   assert(Fs.mkdirs(root))
   assert(Fs.write(root .. "/greet.tl", source(

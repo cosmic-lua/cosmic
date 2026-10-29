@@ -57,8 +57,8 @@ executable and make its first line `#!/usr/bin/env cosmic`. The language
 skips that line, as Lua does, so the lines after it keep their numbers in
 errors and tracebacks. Only the first line of the file, from its first
 byte, is skipped, and only when it begins `#!`; a `#!` anywhere else is a
-syntax error. `cosmic migrate` and the language
-server leave the line as it is.
+syntax error. The language
+server leaves the line as it is.
 
 The file is Teal, in a file that ends in `.tl`. A `.lua` file is not run,
 and no `require` finds one: `cosmic hello.lua` says that cosmic runs

@@ -52,7 +52,7 @@ function Speed.within(base: function(), scaled: function(), limit: integer, atte
     if large <= limit * small then
       return true, ""
     end
-    why = "took " .. large // 1000 .. " us against " .. small // 1000 .. " us, over " .. limit .. " times"
+    why = "took " .. tostring(large // 1000) .. " us against " .. tostring(small // 1000) .. " us, over " .. tostring(limit) .. " times"
   end
   return false, why
 end

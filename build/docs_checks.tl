@@ -45,7 +45,7 @@ function docs_checks.carried(whole: string, scratch: string): Sqlite.Handle?, st
     local _, _ = db:close()
     return nil, remove_trouble
   end
-  return db
+  return db, ""
 end
 
 --- The kinds whose page lists other symbols, which only the renderer

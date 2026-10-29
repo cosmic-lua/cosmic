@@ -85,7 +85,7 @@ local function staged(root: string, path: string): boolean?, string
       "substr(path, 1, length(?2)) = ?2 LIMIT 1", { { text = path }, { text = path .. "/" } })
   local _, _ = db:close()
   if rows == nil then return nil, file .. ": " .. trouble end
-  return #rows > 0
+  return #rows > 0, ""
 end
 
 --- The nearest ancestor of `dir`, absolute, that a build established and

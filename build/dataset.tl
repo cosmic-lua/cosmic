@@ -98,7 +98,7 @@ local record dataset
   --- has one (a CSV's header): `load` puts the columns in it.
   record Rows is {dataset.Row}
     --- The column names, in the order the format gives them.
-    columns?: {string}
+    mut columns?: {string}
   end
 
   --- What a reader may be told.
@@ -338,21 +338,21 @@ end
 --- One value as a bound parameter, or nil and why.
 local function bound(value: any): Sqlite.Value?, string
   if value == Json.null or value == nil then
-    return {}
+    return {}, ""
   elseif value is string then
-    return { text = value }
+    return { text = value }, ""
   elseif value is boolean then
-    return { integer = if value then 1 else 0 end }
+    return { integer = if value then 1 else 0 end }, ""
   elseif value is integer then
-    return { integer = value }
+    return { integer = value }, ""
   elseif value is number then
-    return { number = value }
+    return { number = value }, ""
   elseif value is table then
     local text, trouble = Json.encode_any(value)
     if text == nil then
       return nil, trouble
     end
-    return { text = text }
+    return { text = text }, ""
   end
   return nil, "a " .. type(value) .. " has no SQLite value"
 end

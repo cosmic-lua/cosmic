@@ -31,7 +31,7 @@ local function test_bare_success_usage_and_help_ignore_broken_project(tmp: strin
   assert((result.stdout or ""):find('"state":"missing"', 1, true), result.stdout)
   for _, words in ipairs({ { "cache", "--help" }, { "help", "cache" } }) do
     local help = run(tmp, words)
-    assert(help.code == 0 and (help.stdout or ""):find("--since-ns", 1, true), help.stderr)
+    assert(help.code == 0 and (help.stdout or ""):find("--since-ns", 1, true) ~= nil, help.stderr)
   end
   local usage = run(tmp, { "cache", "trim", "verdicts", "relative", "--whole" })
   assert(usage.code == 2 and not (usage.stderr or ""):find("stale", 1, true), usage.stderr)
@@ -113,7 +113,7 @@ local function test_signal_exits_cooperatively_with_an_incomplete_json_report(tm
   local elapsed = Clock.monotonic_ns() - before
   local report = assert(Stream.read_all(output))
   assert(result.code == 1 and not result.timed_out and elapsed < Clock.seconds(2), result.stderr)
-  assert(Json.decode(report) ~= nil and report:find('"state":"failed"', 1, true), report)
+  assert(Json.decode(report) ~= nil and report:find('"state":"failed"', 1, true) ~= nil, report)
   assert(not report:find('"digest"', 1, true) and not report:find('"fresh"', 1, true), report)
   assert(db:exec("ROLLBACK"))
   assert(db:close())

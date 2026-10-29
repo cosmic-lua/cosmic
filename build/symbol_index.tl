@@ -18,9 +18,9 @@ local record symbol_index
   --- One row of `docs` ([`build.schema`]), from the database `database`
   --- (an index into the caller's) at its row `id`.
   record Row is alias_members.Declared
-    module: string
-    symbol: string
-    source_symbol: string
+    mut module: string
+    mut symbol: string
+    mut source_symbol: string
     kind: string
     signature: string
     exported: boolean
@@ -45,7 +45,7 @@ local record symbol_index
   --- it is declared under (`under`); and the module each module binds
   --- each name to, by module and name (`bound`, [`symbol_index.add_bound`]).
   record Index
-    modules: {string: boolean}
+    modules: mut {string: boolean}
     exact: {string: {Row}}
     named: {string: {Row}}
     members: {string: {Row}}
@@ -201,16 +201,16 @@ end
 local function source_of(index: symbol_index.Index): alias_members.Source<symbol_index.Row>
   return {
     declared = function(module: string, name: string): symbol_index.Row?, string
-      return index.types[module .. "\n" .. name]
+      return index.types[module .. "\n" .. name], ""
     end,
     exported = function(module: string, name: string): symbol_index.Row?, string
-      return index.exported[module .. "\n" .. name]
+      return index.exported[module .. "\n" .. name], ""
     end,
     bound = function(module: string, name: string): string?, string
-      return index.bound[module .. "\n" .. name]
+      return index.bound[module .. "\n" .. name], ""
     end,
     under = function(target: symbol_index.Row): {symbol_index.Row}?, string
-      return members_under(index, target)
+      return members_under(index, target), ""
     end,
     as_member = function(owner: symbol_index.Row, member: symbol_index.Row,
                          name: string): symbol_index.Row

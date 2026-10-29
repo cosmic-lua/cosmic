@@ -857,7 +857,7 @@ local function prepare_cache(handle: work.Handle, tool: string): Cache?, string
     return nil, plan_trouble
   end
   return { run = handle.run, tool = tool, look = look, touch = touch,
-    put = put, plan = plan }
+    put = put, plan = plan }, ""
 end
 
 local function finish_cache(cache: Cache)
@@ -1331,7 +1331,7 @@ local function compile_derived(handle: work.Handle, tool: string,
   if progress.failure ~= "" then
     return nil, progress.failure
   end
-  return result
+  return result, ""
 end
 
 --- The compiler a self-build runs, chosen once the tree's identities are

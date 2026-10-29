@@ -143,7 +143,7 @@ local function test_the_carried_database_holds_what_a_program_needs(tmp: string)
     "SELECT group_concat(name || ' ' || version || ' ' || sha256, ',' ORDER BY name) FROM web_assets"))
   local web = rows_of(path,
     "SELECT group_concat(name || ' ' || version || ' ' || sha256, ',' ORDER BY name) FROM web_assets")
-  assert(web[1]:text(1) ~= nil and web[1]:text(1) == assets[1]:text(1) and web[1]:text(1):find("htmx.min.js", 1, true),
+  assert(web[1]:text(1) ~= nil and web[1]:text(1) == assets[1]:text(1) and web[1]:text(1):find("htmx.min.js", 1, true) ~= nil,
     "every web asset the binary carries is in")
   local materials = rows_of(path,
     "SELECT (SELECT count(*) FROM components WHERE name = 'lua'), " ..
@@ -244,7 +244,7 @@ local function test_a_test_or_example_the_program_requires_is_carried(tmp: strin
     "SELECT path FROM modules WHERE path IN ('shared_example', 'fixture_test') " ..
       "ORDER BY path")
   assert(#modules == 2, "a required example and test are carried, and " ..
-      "only " .. #modules .. " were")
+      "only " .. tostring(#modules) .. " were")
   local imports = rows_of(path,
     "SELECT count(*) FROM imports WHERE path = 'shared_example' " ..
       "AND requires = 'fixture_test'")
@@ -491,7 +491,7 @@ end
   -- Linux refuses a host program; macOS's policy refuses a database it has no
   -- prepared core for. Either way no program starts on the database.
   assert(String.starts_with(printed, "true\t") and (printed:find("host program", 1, true) or
-    printed:find("database needs a prepared core", 1, true)), printed)
+    printed:find("database needs a prepared core", 1, true)) ~= nil, printed)
 end
 
 local static_main = [[
@@ -537,9 +537,9 @@ local function test_a_program_serves_the_static_files_it_carries(tmp: string)
     cwd = elsewhere, stdout = "capture", stderr = "capture", timeout_ns = Time.seconds(30) }))
   assert(r.ok, "exit " .. tostring(r.code) .. ": " .. tostring(r.stderr))
   local out = assert(r.stdout)
-  assert(out:find("payload\tcss/app.css\ttext/css; charset=utf-8\t" .. #css .. "\t1\n" ..
+  assert(out:find("payload\tcss/app.css\ttext/css; charset=utf-8\t" .. tostring(#css) .. "\t1\n" ..
       "payload\tlogo.png\timage/png\t6\t0\n", 1, true), out)
-  assert(out:find("false\t2\t" .. #css .. "\ttext/css; charset=utf-8\ttrue\t6\tnil\n", 1, true), out)
+  assert(out:find("false\t2\t" .. tostring(#css) .. "\ttext/css; charset=utf-8\ttrue\t6\tnil\n", 1, true), out)
 end
 
 --- `cosmic build` with the new checker (`COSMIC_GRAMMAR=new`, `grammar` here) compiles the project with it: a project written in

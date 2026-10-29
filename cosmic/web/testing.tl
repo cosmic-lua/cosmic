@@ -25,7 +25,7 @@ local record Testing
     secure: boolean
     --- When it lapses in ns since the epoch (`Max-Age` first, else
     --- `Expires`); nil for a session cookie, kept as long as the client.
-    expires_ns?: integer
+    mut expires_ns?: integer
   end
 
   --- An app driven in-process: see [`Testing.test_client`].
@@ -43,11 +43,11 @@ local record Testing
     --- on an https page. A `Secure` cookie is sent only when it is "https",
     --- which also adds `X-Forwarded-Proto: https` for an app with
     --- `trusted_proxy`.
-    scheme: string
+    mut scheme: string
     --- Whether the app's lifespan has run.
-    started: boolean
+    mut started: boolean
     --- The cleanup the lifespan returned, nil once run or when it returned none.
-    shutdown?: Types.Shutdown
+    mut shutdown?: Types.Shutdown
 
     --- One request, answered by the app's handler. `path` may hold a query.
     --- A reply the server would refuse raises, with the server's reason.
@@ -74,14 +74,14 @@ local record Testing
   --- A client of an app served on the loopback: see [`Testing.with_server`].
   record Loopback
     --- The connection, kept alive between requests.
-    conn: Net.Conn
+    mut conn: Net.Conn
     --- Bytes read from it and not yet taken.
-    buf: string
+    mut buf: string
     --- The `Host` the requests name.
     host: string
     --- How long a read or a write of the connection waits, as [`set_timeout`]
     --- last set it (nil: no limit).
-    timeout_ns?: integer
+    mut timeout_ns?: integer
 
     --- Sets how long a read or a write of the connection waits (nil: no
     --- limit). A request sending a large body sets the connection's own
@@ -661,7 +661,7 @@ local function loopback_request(self: Testing.Loopback, method: string, path: st
   return loopback_raw(self, table.concat(head, "\r\n") .. "\r\n\r\n" .. prepared.body, method)
 end
 
-local function loopback_verb(method: string): function(Testing.Loopback, string, Options?): Response?, string
+local function loopback_verb(method: string): function(Testing.Loopback, string, p3?: Options): Response?, string
   return function(self: Testing.Loopback, path: string, opts?: Options): Response?, string
     return self:request(method, path, opts)
   end
@@ -671,12 +671,6 @@ local function loopback_set_timeout(self: Testing.Loopback, wait_ns: integer?)
   self.conn:set_timeout(wait_ns)
   self.timeout_ns = wait_ns
 end
-
-local loopback_methods = {
-  set_timeout = loopback_set_timeout, request = loopback_request, raw = loopback_raw, get = loopback_verb("GET"),
-  post = loopback_verb("POST"), head = loopback_verb("HEAD"),
-}
-local loopback_mt: metatable<Testing.Loopback> = { __index = loopback_methods }
 
 --- Serves `app` through [`Web.serve`] on 127.0.0.1 at a port the kernel
 --- chooses, calls `fn` with a client of it over one kept-alive connection,
@@ -701,8 +695,11 @@ function Testing.with_server(app: Types.App, fn: function(client: Testing.Loopba
         return
       end
       conn:set_timeout(IO_TIMEOUT_NS)
-      local client: Testing.Loopback = setmetatable({ conn = conn, buf = "", timeout_ns = IO_TIMEOUT_NS,
-        host = "127.0.0.1:" .. assert(addresses[1].port) }, loopback_mt)
+      local client: Testing.Loopback = {
+        conn = conn, buf = "", timeout_ns = IO_TIMEOUT_NS, host = "127.0.0.1:" .. tostring(assert(addresses[1].port)),
+        set_timeout = loopback_set_timeout, request = loopback_request, raw = loopback_raw,
+        get = loopback_verb("GET"), post = loopback_verb("POST"), head = loopback_verb("HEAD"),
+      }
       local ran, raised = pcall(function() fn(client) end)
       if not ran then failures[1] = tostring(raised) end
       local _, _ = conn:close()

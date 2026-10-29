@@ -152,7 +152,7 @@ local function test_an_internal_module_is_absent_from_the_public_docs(dir: strin
   local public = assert(Sqlite.text_rows(db, "SELECT DISTINCT module FROM docs WHERE " ..
       symbols.public_only("module", true) .. " ORDER BY module"))
   assert(#all == 2 and all[1]:text(1) == "cosmic.fs" and all[2]:text(1) == "cosmic.internal.shared",
-    #all .. " modules")
+    tostring(#all) .. " modules")
   assert(#public == 1 and public[1]:text(1) == "cosmic.fs")
   assert(symbols.is_public_module("cosmic.fs"))
   assert(not symbols.is_public_module("cosmic.internal.shared"))
@@ -663,7 +663,7 @@ local function test_a_requirement_no_leg_promises_is_refused()
   assert(#tree_checks.promises({ ["a_test"] = { "nest" } }, legs) == 0)
   assert(#tree_checks.promises({}, legs) == 0)
   local refused = tree_checks.promises({}, { linux = { "nope" } })
-  assert(#refused == 1 and refused[1]:find("leg linux promises \"nope\", which is refused", 1, true), refused[1])
+  assert(#refused == 1 and refused[1]:find("leg linux promises \"nope\", which is refused", 1, true) ~= nil, refused[1])
 end
 
 --- The legs are read out of ci/cosmic_ci/capabilities.json, and a file
@@ -708,8 +708,8 @@ local function test_the_unsealed_modules_are_those_declaring_a_launcher_reader()
   assert(db:exec("INSERT INTO test_inputs VALUES ('h1', 1, 'tool', 'true'), ('h2', 1, 'store', 'true'), " ..
       "('h3', 1, 'requires', 'portable'), ('h4', 1, 'requires', 'proc'), ('h5', 1, 'nests', 'true')"))
   local found = assert(tree_checks.unsealed(db))
-  assert(found["m.a_test"] and found["m.b_test"] and found["m.c_test"])
-  assert(not found["m.d_test"] and not found["m.e_test"])
+  assert(found["m.a_test"] == true and found["m.b_test"] == true and found["m.c_test"] == true)
+  assert(found["m.d_test"] ~= true and found["m.e_test"] ~= true)
   local _, _ = db:close()
 end
 
@@ -1222,7 +1222,7 @@ local function test_a_memo_answers_the_body_check_until_a_module_a_file_requires
   local plain = table.concat(tree_checks.checked(root, {}, memo), "\n")
   assert(plain:find("build/top.tl:2:", 1, true) and plain:find("build/alone.tl:1:", 1, true), plain)
   local count = assert(Sqlite.rows(memo, "SELECT count(*) FROM check_memo WHERE kind = 'checked'"))
-  assert(count[1]:integer(1) == 3, "the three files: " .. count[1]:integer(1))
+  assert(count[1]:integer(1) == 3, "the three files: " .. tostring(count[1]:integer(1)))
   assert(Sqlite.run(memo, "UPDATE check_memo SET value = ?1 WHERE kind = 'checked'", { { text = "N\nE\tnil_not_allowed\t7\t9\tplanted\tdo it" } }))
   local hit = table.concat(tree_checks.checked(root, {}, memo), "\n")
   assert(hit:find("build/top.tl:7:9: planted (nil_not_allowed): do it", 1, true) and not hit:find("not_assignable", 1, true), hit)

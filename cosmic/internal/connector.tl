@@ -148,7 +148,7 @@ local record Pending
   port: integer
   -- What a refusal by the connector's lists says.
   refusal: string
-  given_up: boolean
+  mut given_up: boolean
   mut done: boolean
   mut socket?: raw_socket.Socket
   mut why?: string
@@ -250,7 +250,7 @@ local function refused_why(status: integer, pending: Pending): string
   if status == raw.ETIMEDOUT then return Poll.TIMEOUT end
   if status == raw.CONNECTOR_DENIED and pending.refusal ~= "" then return pending.refusal end
   if status == raw.CONNECTOR_BUSY then
-    return "net: the connector is busy: it makes at most " .. CONNECTOR_FLIGHT .. " connections at once"
+    return string.format("net: the connector is busy: its limit of simultaneous connections is %d", CONNECTOR_FLIGHT)
   end
   return sys.errno_message(status)
 end
@@ -343,7 +343,7 @@ local function read_replies(channel: Channel)
           channel.header = ""
           local pending = channel.pending[tag]
           if pending == nil then
-            lose(channel, "net: the connector replied to a request it was not asked (tag " .. tag .. ")")
+            lose(channel, "net: the connector replied to a request it was not asked (tag " .. tostring(tag) .. ")")
             return
           end
           if status ~= 0 then
@@ -628,7 +628,7 @@ local class Served is Connection.Connector
       if self.accepts_public then kind = "table" end
     else
       if not self.accepts_public then
-        return nil, "net: " .. target .. ":" .. port .. " is not in the connector's table"
+        return nil, "net: " .. target .. ":" .. tostring(port) .. " is not in the connector's table"
       end
       local bytes = Address.parse(target)
       if bytes == nil then return nil, "net: " .. target .. " is not a numeric address" end
@@ -729,15 +729,14 @@ end
 function Leaf.checked_endpoints(endpoints: any, empty: boolean, level: integer): {raw_process.ConnectorEndpoint}
   local least = if empty then 0 else 1 end
   if not endpoints is {any} or #endpoints < least or #endpoints > Leaf.MAX_ENDPOINTS then
-    error("net: endpoints must be from " .. least .. " to " .. Leaf.MAX_ENDPOINTS ..
-        " numeric endpoints", level + 1)
+    error(string.format("net: endpoints must be from %d to %d, all numeric", least, Leaf.MAX_ENDPOINTS), level + 1)
   end
   local kept: mut {raw_process.ConnectorEndpoint} = {}
   for i, entry in ipairs(endpoints) do
     local host, port: any, any
     if entry is {string: any} then host, port = entry.host, entry.port end
     if not host is string or not port is integer or port < 0 or port > 65535 then
-      error("net: endpoints[" .. i .. "] must be a host and a port from 0 to 65535", level + 1)
+      error("net: endpoints[" .. tostring(i) .. "] must be a host and a port from 0 to 65535", level + 1)
     end
     kept[i] = { host = host, port = port }
   end

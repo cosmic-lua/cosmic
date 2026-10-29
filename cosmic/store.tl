@@ -314,7 +314,7 @@ local function copy_rows(from: Handle, into: Handle, table_name: string,
   end
   local slots: mut {string} = {}
   for index = 1, #columns do
-    slots[index] = "?" .. index
+    slots[index] = "?" .. tostring(index)
   end
   local insert = "INSERT OR IGNORE INTO " .. table_name .. " (" ..
     table.concat(columns, ", ") .. ") VALUES (" .. table.concat(slots, ", ") .. ")"

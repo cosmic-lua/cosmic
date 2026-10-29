@@ -63,7 +63,7 @@ local function test_candidates_are_checked_once_per_shrink()
     local checks = { value = 0 }
     local function fails(values: {integer}): boolean, {Shrink.Draw}
       local name = values[1] and tostring(values[1]) or "empty"
-      assert(not seen[name], "duplicate check: " .. name)
+      assert(seen[name] ~= true, "duplicate check: " .. name)
       seen[name] = true
       checks.value = checks.value + 1
       local value = values[1] or 0

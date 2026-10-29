@@ -364,7 +364,7 @@ local function place_of(token: integer): Scopes.Place
 end
 
 local function shown(token: integer): string
-  return Lexer.y(S.tokens, token) .. ":" .. Lexer.x(S.tokens, token)
+  return tostring(Lexer.y(S.tokens, token)) .. ":" .. tostring(Lexer.x(S.tokens, token))
 end
 
 local function report(code: Scopes.Code, token: integer, msg: string, fix: string, other?: Scopes.Place)
@@ -1118,7 +1118,7 @@ local function required(e: Ast.Exp?): string
     local args = e.args
     if (callee.kind == "Name") and callee.text == "require" and callee.binding == nil and #args == 1 then
       local first = args[1]
-      if first ~= nil and (first.kind == "String") then
+      if (first.kind == "String") then
         return first.value
       end
     end
@@ -1466,7 +1466,7 @@ local function unknown_errors()
     local hint = ""
     if u.guess ~= "" then
       local at = u.guess_at
-      hint = "if you meant " .. quoted(u.guess) .. (if at ~= nil then " (declared at " .. at.y .. ":" .. at.x .. ")" else
+      hint = "if you meant " .. quoted(u.guess) .. (if at ~= nil then " (declared at " .. tostring(at.y) .. ":" .. tostring(at.x) .. ")" else
         ", which is declared for every program" end) .. ", write that; otherwise "
     end
     local msg: string
