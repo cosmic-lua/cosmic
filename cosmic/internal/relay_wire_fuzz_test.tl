@@ -447,8 +447,10 @@ local function test_a_socks_request_built_from_an_answer_reads_back_the_same(tmp
         address = string.char(#host) .. host
       elseif first_kind == "ipv4" then
         local a, b, c, d = host:match("^(%d+)%.(%d+)%.(%d+)%.(%d+)$")
-        address = string.char(math.tointeger(tonumber(a)), math.tointeger(tonumber(b)), math.tointeger(tonumber(c)),
-          math.tointeger(tonumber(d)))
+        local oa, ob, oc, od = math.tointeger(tonumber(a)), math.tointeger(tonumber(b)),
+          math.tointeger(tonumber(c)), math.tointeger(tonumber(d))
+        assert(oa and ob and oc and od, "an ipv4 host is four numbers")
+        address = string.char(oa, ob, oc, od)
       else
         address = Fixture.ipv6_bytes(host)
       end
@@ -528,16 +530,18 @@ local function test_a_refusal_reply_is_one_status_line_of_visible_text(tmp: stri
     check = function(input: string): boolean, string
       local fields = Fuzz.unpack(input)
       local status = math.tointeger(tonumber(fields[1]))
-      local reply = Wire.connect_refusal(status, fields[2])
-      local phrase = reply:match("^HTTP/1%.1 " .. status .. " ([^\r\n]*)\r\n")
-      if phrase == nil or phrase == "" or #phrase > 200 or phrase:find("[^\32-\126]") then
-        return false, ("%q gave the status line of %q"):format(fields[2], reply)
+      local reason = fields[2]
+      assert(status and reason, "the generator packs a status and a reason")
+      local reply = Wire.connect_refusal(status, reason)
+      local phrase = reply:match("^HTTP/1%.1 " .. tostring(status) .. " ([^\r\n]*)\r\n")
+      if phrase == nil or phrase == "" or #phrase > 200 or phrase:find("[^\32-\126]") ~= nil then
+        return false, ("%q gave the status line of %q"):format(reason, reply)
       end
       local rest = reply:sub(#phrase + #tostring(status) + 13)
       if rest ~= (if status == 405 then "Allow: CONNECT\r\n" else "" end) .. "Connection: close\r\nContent-Length: 0\r\n\r\n" then
-        return false, ("%q gave more than a status line: %q"):format(fields[2], reply)
+        return false, ("%q gave more than a status line: %q"):format(reason, reply)
       end
-      Fuzz.label(if fields[2]:find("[^\32-\126]") then "controls" else "visible" end)
+      Fuzz.label(if reason:find("[^\32-\126]") ~= nil then "controls" else "visible" end)
       return true, ""
     end,
   })
@@ -565,10 +569,17 @@ local function test_a_hello_with_an_encrypted_server_name_is_never_named(tmp: st
     check = function(input: string): boolean, string
       local fields = Fuzz.unpack(input)
       local sizes: mut {integer} = {}
-      for size in fields[5]:gmatch("%d+") do
-        sizes[#sizes + 1] = math.tointeger(tonumber(size))
+      local sizes_text = fields[5]
+      assert(sizes_text, "the generator packs the record sizes")
+      for size in sizes_text:gmatch("%d+") do
+        local number = math.tointeger(tonumber(size))
+        assert(number, "the record sizes are digits")
+        sizes[#sizes + 1] = number
       end
-      local encrypted = Fixture.extension(math.tointeger(tonumber(fields[2])), fields[3])
+      local extension_kind = math.tointeger(tonumber(fields[2]))
+      local extension_body = fields[3]
+      assert(extension_kind and extension_body, "the generator packs an extension")
+      local encrypted = Fixture.extension(extension_kind, extension_body)
       local extras = if fields[4] == "before" then { encrypted, Fixture.extension(21, "") } else { Fixture.extension(21, ""), encrypted } end
       local hello = Fixture.hello({ name = fields[1], extra = extras })
       local r = Wire.hello_reader():feed(Fixture.records(hello, sizes))

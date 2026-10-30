@@ -56,12 +56,12 @@ local function test_handed_connector_asks_its_table_before_its_public_lists()
     assert(conn ~= nil, "the table's address is reached: " .. why)
     assert(conn:close())
     local refused, refusal = connect("127.0.0.1", port + 1, Clock.seconds(1))
-    assert(refused == nil and refusal:find("refused by the connector's deny list", 1, true), refusal)
+    assert(refused == nil and refusal:find("refused by the connector's deny list", 1, true) ~= nil, refusal)
     local other, other_why = connect("127.0.0.2", port, Clock.seconds(1))
-    assert(other == nil and other_why:find("refused by the connector's deny list", 1, true), other_why)
+    assert(other == nil and other_why:find("refused by the connector's deny list", 1, true) ~= nil, other_why)
     local alone = Relay.handed({ connector = assert(Net.connector(table_rows)) })
     local none, none_why = alone("127.0.0.1", port + 1, Clock.seconds(1))
-    assert(none == nil and none_why:find("is not in the connector's table", 1, true), none_why)
+    assert(none == nil and none_why:find("is not in the connector's table", 1, true) ~= nil, none_why)
     assert(mixed:close())
     accepting:cancel()
     assert(listener:close())
@@ -84,7 +84,9 @@ local function stuck_port(held: mut {function()}): integer
     end
   end
   assert(taken >= 1 and taken < 4, tostring(taken) .. " connections were taken")
-  return stuck.address.port
+  local port = stuck.address.port
+  assert(port, "the listener is bound")
+  return port
 end
 
 --- A connect that hangs holds up no other through the same public
