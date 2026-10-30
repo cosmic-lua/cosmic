@@ -48,9 +48,13 @@ local FORMS <const>: {string: function(n: integer)} = {
     local store = Types.new()
     local members = populate(store, n * 10)
     local all: mut {Types.Type} = {}
-    for i, m in ipairs(members) do
-      all[i] = store:optional(m)
-      all[#all + 1] = m
+    for _, m in ipairs(members) do
+      local optional = store:optional(m)
+      all[#all + 1] = optional
+    end
+    local last = members[#members]
+    if last ~= nil then
+      all[#all + 1] = last
     end
     local _ = store:union(all)
   end,

@@ -985,7 +985,7 @@ local function show_fn(f: Fn, names: Names): string
     local declared: mut {string} = {}
     for i, tp in ipairs(f.tparams) do
       local bound = tp.bound
-      declared[i] = own[i] .. (if bound ~= nil then " is " .. show(bound, names, false) else "" end)
+      declared[i] = assert(own[i]) .. (if bound ~= nil then " is " .. show(bound, names, false) else "" end)
     end
     header = header .. "<" .. table.concat(declared, ", ") .. ">"
   end
@@ -1003,11 +1003,11 @@ local function show_fn(f: Fn, names: Names): string
   for i, p in ipairs(f.params) do
     local last = rest == nil and i == #f.params
     if p.omittable == true then
-      params[i] = "p" .. tostring(i) .. "?: " .. show_without_nil(p.type, names, last)
+      params[#params + 1] = "p" .. tostring(i) .. "?: " .. show_without_nil(p.type, names, last)
     elseif named[i] == true then
-      params[i] = "p" .. tostring(i) .. ": " .. show_element(p.type, names, last)
+      params[#params + 1] = "p" .. tostring(i) .. ": " .. show_element(p.type, names, last)
     else
-      params[i] = show_element(p.type, names, last)
+      params[#params + 1] = show_element(p.type, names, last)
     end
   end
   if rest ~= nil then
@@ -1069,8 +1069,8 @@ end
 
 function Types.display(t: Type, binders?: {{string}}): string
   local names: Names = { binders = {}, budget = DISPLAY_BUDGET, root = t }
-  for i, b in ipairs(binders or {}) do
-    names.binders[i] = b
+  for _, b in ipairs(binders or {}) do
+    names.binders[#names.binders + 1] = b
   end
   return show(t, names, false)
 end
@@ -1122,7 +1122,7 @@ local function intern(store: Store, candidate: Type): Type
   end
   store.count = store.count + 1
   set_id(candidate, store.count)
-  store.types[store.count] = candidate
+  store.types[#store.types + 1] = candidate
   store.interned[key] = candidate
   return candidate
 end
@@ -1617,7 +1617,7 @@ local function normal_body(store: Store, decl: Decl, body: Body): Body
   end
   local made: Body = { tparams = {}, supers = {}, fields = {}, methods = {}, values = {} }
   local roots: mut {Type} = {}
-  for i, tp in ipairs(body.tparams) do
+  for _, tp in ipairs(body.tparams) do
     local bound = tp.bound
     if bound ~= nil then
       bound_ok(store, bound)
@@ -1627,14 +1627,14 @@ local function normal_body(store: Store, decl: Decl, body: Body): Body
       error("types: a type parameter's name is a name the lexer reads and does not reserve, not " ..
           string.format("%q", tp.name), 3)
     end
-    made.tparams[i] = { name = tp.name, bound = bound }
+    made.tparams[#made.tparams + 1] = { name = tp.name, bound = bound }
   end
-  for i, super in ipairs(body.supers) do
+  for _, super in ipairs(body.supers) do
     owned(store, super)
     if super.tag ~= "named" then
       error("types: a declaration lists named types after `is`", 3)
     end
-    made.supers[i] = super
+    made.supers[#made.supers + 1] = super
     roots[#roots + 1] = super
   end
   local through = Types.listing_cycle(decl, made.supers)
@@ -1642,11 +1642,11 @@ local function normal_body(store: Store, decl: Decl, body: Body): Body
     error("types: " .. decl.name .. " lists itself" ..
         (if through ~= decl then ", through " .. through.name else "" end), 3)
   end
-  for i, field in ipairs(body.fields) do
+  for _, field in ipairs(body.fields) do
     owned(store, field.type)
     local omittable = field.omittable or false
     local t = omittable and store:optional(field.type) or field.type
-    made.fields[i] = { name = field.name, type = t, mut = field.mut or false, omittable = omittable }
+    made.fields[#made.fields + 1] = { name = field.name, type = t, mut = field.mut or false, omittable = omittable }
     roots[#roots + 1] = t
   end
   local array = body.array
@@ -1655,7 +1655,7 @@ local function normal_body(store: Store, decl: Decl, body: Body): Body
     made.array = array
     roots[#roots + 1] = array
   end
-  for i, method in ipairs(body.methods) do
+  for _, method in ipairs(body.methods) do
     owned(store, method.type)
     if method.type.tag ~= "fn" then
       error("types: a method is a function", 3)
@@ -1663,7 +1663,7 @@ local function normal_body(store: Store, decl: Decl, body: Body): Body
     if not is_name(method.name) then
       error("types: a method's name is a name the lexer reads, not " .. string.format("%q", method.name), 3)
     end
-    made.methods[i] = { name = method.name, type = method.type }
+    made.methods[#made.methods + 1] = { name = method.name, type = method.type }
     roots[#roots + 1] = method.type
   end
   local named = body.alias
@@ -1673,12 +1673,12 @@ local function normal_body(store: Store, decl: Decl, body: Body): Body
     roots[#roots + 1] = named
   end
   local seen: mut {string: boolean} = {}
-  for i, v in ipairs(body.values) do
+  for _, v in ipairs(body.values) do
     if seen[v] == true then
       error("types: the enum " .. decl.name .. " lists " .. v .. " twice", 3)
     end
     seen[v] = true
-    made.values[i] = v
+    made.values[#made.values + 1] = v
   end
   -- The only binder a variable of the body may name is the declaration's own.
   local checked: {string: boolean} = {}
@@ -2194,7 +2194,7 @@ local function roll_back(store: Store, mark: Mark)
     elseif undo.what == "pending" and key ~= nil then
       store.pending[key] = undo.list
     end
-    store.journal[i] = nil
+    store.journal[#store.journal] = nil
   end
   -- What is taken back is dead: a loader that kept a type or a declaration made in a refused
   -- decode finds the store refusing it, and not the type that next takes its id.
@@ -2202,19 +2202,19 @@ local function roll_back(store: Store, mark: Mark)
     local decl = store.list[i]
     store.declared[path_key(decl.module, decl.name)] = nil
     decl.owner = 0
-    store.list[i] = nil
+    store.list[#store.list] = nil
   end
   for id = store.count, mark.count + 1, -1 do
     local t = store.types[id]
     assert(t ~= nil)
     store.interned[render(t, id_text)] = nil
     set_owner(t, 0)
-    store.types[id] = nil
+    store.types[#store.types] = nil
   end
   store.count = mark.count
   for i = #store.building_order, mark.building + 1, -1 do
     store.building[store.building_order[i]] = nil
-    store.building_order[i] = nil
+    store.building_order[#store.building_order] = nil
   end
   store.depth = mark.depth
 end

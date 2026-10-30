@@ -330,9 +330,9 @@ local function reads_unassigned(code: string): boolean
     for at = #o.choices + 1, math.min(o.made, MOST_CHOICES) do
       local longer: mut {boolean} = {}
       for i = 1, at - 1 do
-        longer[i] = o.choices[i] == true
+        longer[#longer + 1] = o.choices[i] == true
       end
-      longer[at] = true
+      longer[#longer + 1] = true
       pending[#pending + 1] = longer
     end
   end

@@ -242,8 +242,8 @@ local function gen_statement(g: Gen, depth: integer, indent: string)
     add(g, indent .. "if " .. gen_expr(g, "boolean", 2) .. " then")
     local saved = #g.vars
     gen_statements(g, g.src:int(1, 2), depth - 1, indent .. "  ")
-    for i = #g.vars, saved + 1, -1 do
-      g.vars[i] = nil
+    for _ = #g.vars, saved + 1, -1 do
+      g.vars[#g.vars] = nil
     end
     add(g, indent .. "end")
   elseif k == 9 then
@@ -252,8 +252,8 @@ local function gen_statement(g: Gen, depth: integer, indent: string)
     local saved = #g.vars
     g.vars[#g.vars + 1] = { name = i, type = "integer", readonly = true }
     gen_statements(g, g.src:int(1, 2), depth - 1, indent .. "  ")
-    for j = #g.vars, saved + 1, -1 do
-      g.vars[j] = nil
+    for _ = #g.vars, saved + 1, -1 do
+      g.vars[#g.vars] = nil
     end
     add(g, indent .. "end")
   else
@@ -268,8 +268,8 @@ local function gen_statement(g: Gen, depth: integer, indent: string)
     g.vars[#g.vars + 1] = { name = "a", type = params[1] }
     g.vars[#g.vars + 1] = { name = "b", type = params[2] }
     add(g, "  return " .. gen_expr(g, ret, 3))
-    for j = #g.vars, saved + 1, -1 do
-      g.vars[j] = nil
+    for _ = #g.vars, saved + 1, -1 do
+      g.vars[#g.vars] = nil
     end
     add(g, "end")
     g.vars[#g.vars + 1] = { name = name, type = ret, params = params }
@@ -339,7 +339,9 @@ local function gen_mistaken(src: Fuzz.Source): string
     local at, t = init[1], init[2]
     if at is integer and t is string then
       local name = lines[at]:match("^local ([%w_]+):")
-      lines[at] = "local " .. tostring(name) .. ": " .. t .. " = " .. wrong(t)
+      local replaced = "local " .. tostring(name) .. ": " .. t .. " = " .. wrong(t)
+      table.remove(lines, at)
+      table.insert(lines, at, replaced)
     end
   else
     local appended = assert(MISTAKES[math.min(choice, #MISTAKES)])
