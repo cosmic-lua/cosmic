@@ -1,11 +1,18 @@
 local Sqlite = require("cosmic.sqlite")
 
+--- The first of `rows`, which the statement is known to yield.
+local function first_row(rows: Sqlite.Rows): Sqlite.Row
+  local found = rows[1]
+  assert(found, "the statement yields a row")
+  return found
+end
+
 local function test_rows_preserve_sqlite_values()
   local db = assert(Sqlite.memory())
   local rows = assert(Sqlite.rows(db,
     "SELECT NULL, '', CAST('' AS BLOB), 9007199254740993, 1.25, " ..
       "CAST(x'610062' AS TEXT), x'610062'"))
-  local row = rows[1]
+  local row = first_row(rows)
   assert(row:count() == 7)
   assert(row:kind(1) == "null")
   assert(row:kind(2) == "text" and row:text(2) == "")
@@ -40,7 +47,7 @@ local function test_mismatched_parameters_do_not_execute()
     assert(rows == nil and failure == case.says, tostring(failure))
   end
   local rows = assert(Sqlite.text_rows(db, "SELECT count(*) FROM items"))
-  assert(rows[1]:text(1) == "0")
+  assert(first_row(rows):text(1) == "0")
   assert(db:close())
 end
 
@@ -79,7 +86,7 @@ local function test_malformed_values_raise_and_do_not_execute()
     end
   end
   local rows = assert(Sqlite.text_rows(db, "SELECT count(*) FROM items"))
-  assert(rows[1]:text(1) == "0")
+  assert(first_row(rows):text(1) == "0")
   assert(db:close())
 end
 
@@ -88,11 +95,11 @@ local function test_complete_parameters_and_explicit_null()
   assert(db:exec("CREATE TABLE items (a, b)"))
   assert(Sqlite.run(db, "INSERT INTO items VALUES (?, ?)", { { integer = 7 }, {} }))
   local rows = assert(Sqlite.text_rows(db, "SELECT a, b IS NULL FROM items"))
-  assert(rows[1]:text(1) == "7" and rows[1]:text(2) == "1")
+  assert(first_row(rows):text(1) == "7" and first_row(rows):text(2) == "1")
   rows = assert(Sqlite.text_rows(db, "SELECT :value, :value, ?3", { { text = "twice" }, {}, { blob = "bytes" } }))
-  assert(rows[1]:text(1) == "twice" and rows[1]:text(2) == "twice" and rows[1]:text(3) == "bytes")
+  assert(first_row(rows):text(1) == "twice" and first_row(rows):text(2) == "twice" and first_row(rows):text(3) == "bytes")
   rows = assert(Sqlite.text_rows(db, "SELECT :value, :value", { { number = 1.5 } }))
-  assert(rows[1]:text(1) == "1.5" and rows[1]:text(2) == "1.5")
+  assert(first_row(rows):text(1) == "1.5" and first_row(rows):text(2) == "1.5")
   assert(Sqlite.text_rows(db, "SELECT ?3", { { integer = 3 } }) == nil)
   assert(Sqlite.text_rows(db, "SELECT 1", { {} }) == nil)
   assert(db:close())
@@ -121,7 +128,7 @@ local function test_lists_bind_as_arrays_for_carray()
   end
   local rows = assert(Sqlite.text_rows(db, "SELECT 2 IN carray(?1), 5 IN carray(?1), quote(?1)",
     { { integers = { 1, 2, 3 } } }))
-  assert(table.concat(rows[1]:texts(), " ") == "1 0 NULL", table.concat(rows[1]:texts(), " "))
+  assert(table.concat(first_row(rows):texts(), " ") == "1 0 NULL", table.concat(first_row(rows):texts(), " "))
   local result = Sqlite.text_rows_result(db, "SELECT value FROM carray(?1)", { { texts = { "x", "y" } } })
   local result_rows = result.rows
   assert(result.code == Sqlite.OK and result_rows ~= nil and #result_rows == 2, result.reason)
@@ -138,7 +145,7 @@ local function test_carray_reads_no_array_sql_names()
   local values: {Sqlite.Value} = { { integer = 4096 }, { integers = { 1 } } }
   for _, value in ipairs(values) do
     local rows = assert(Sqlite.text_rows(db, "SELECT count(*) FROM carray(?1, 3, 'int64')", { value }))
-    assert(rows[1]:text(1) == "0", rows[1]:text(1))
+    assert(first_row(rows):text(1) == "0", first_row(rows):text(1))
   end
   assert(db:close())
 end
