@@ -292,7 +292,7 @@ cosmic/http/wire.tl 1
 
 cosmic/internal/connector.tl 6
 
-cosmic/internal/relay_config.tl 11
+cosmic/internal/relay_config.tl 9
 
 cosmic/internal/relay_server.tl 1
 
@@ -1208,7 +1208,6 @@ cosmic/net_serve_test.tl nil_not_allowed 7
 
 cosmic/net_test.tl nil_not_allowed 2
 
-cosmic/policy.tl nil_not_allowed 1
 
 cosmic/policy_test.tl nil_not_allowed 3
 
