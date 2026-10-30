@@ -1329,25 +1329,25 @@ cosmic/zip_test.tl nil_not_allowed 16
 
 
 
-eval/arena_test.tl nil_not_allowed 2
+
 
 eval/check/grade.tl nil_not_allowed 65
 
-eval/check/grade_test.tl nil_not_allowed 1
-
-
-
-eval/result_test.tl nil_not_allowed 1
-
-
-
-eval/round_test.tl nil_not_allowed 17
 
 
 
 
 
-eval/summarize_test.tl nil_not_allowed 2
+
+
+
+
+
+
+
+
+
+
 
 lang/ast_dump.tl nil_not_allowed 4
 
@@ -3331,7 +3331,7 @@ eval/check/grade.tl map_field 16
 eval/result_test.tl map_field 37
 
 
-eval/round_test.tl map_field 11
+eval/round_test.tl map_field 10
 
 eval/solve.tl map_field 5
 
@@ -5458,20 +5458,20 @@ cosmic/url_test.tl or_mix 3
 
 cosmic/zip_test.tl or_mix 4
 
-eval/arena_test.tl or_mix 4
+
 
 eval/check/grade.tl or_mix 2
 
-eval/check/grade_test.tl or_mix 2
-
-eval/check/testdata_test.tl or_mix 1
 
 
 
-eval/round_test.tl or_mix 1
 
 
-eval/solve_test.tl or_mix 1
+
+
+
+
+
 
 
 
@@ -5929,7 +5929,6 @@ eval/result.tl and_ternary 8
 
 eval/round.tl and_ternary 9
 
-eval/round_test.tl and_ternary 1
 
 eval/summarize.tl and_ternary 11
 
