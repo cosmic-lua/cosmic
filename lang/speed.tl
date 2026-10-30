@@ -32,7 +32,6 @@ local FEWEST_PAIRS <const> = 3
 local MOST_RUNS <const> = 2000
 
 local function elapsed(work: function(), runs: integer): integer
-  collectgarbage()
   local started = Clock.monotonic_ns()
   for _ = 1, runs do
     work()
