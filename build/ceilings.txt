@@ -3354,7 +3354,7 @@ cosmic/zip_test.tl map_field 1
 
 eval/check/grade.tl map_field 16
 
-eval/check/grade_test.tl map_field 15
+
 
 eval/result_test.tl map_field 37
 
@@ -4423,7 +4423,7 @@ cosmic/zip_fuzz_test.tl cast_refused 1
 
 cosmic/zip_test.tl cast_refused 7
 
-eval/check/grade_test.tl cast_refused 1
+
 
 eval/result_test.tl cast_refused 4
 

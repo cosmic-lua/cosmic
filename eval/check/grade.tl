@@ -583,6 +583,13 @@ local function is_executable(path: string): boolean
   return st ~= nil and st.kind == "file" and st.mode & 0x49 ~= 0
 end
 
+-- TODO: once ci/cosmic-driver.pin names a release whose cosmic.json has
+-- Json.to_value, Json.to_object and Json.to_array, type the JSON this
+-- file decodes as Json.Value instead of `any` (`field`, `shown`, `same`,
+-- [`jobs_report`], [`each_job`] and the jobs and listing checks), and lower
+-- this file's key_type, map_field, any_use, is_on_record and arms_differ
+-- pins in build/ceilings.txt. The grader runs on the pinned bootstrap
+-- cosmic, which lacks them.
 local function field(value: any, key: string): any
   if value is {string: any} then
     return value[key]
