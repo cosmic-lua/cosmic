@@ -5462,7 +5462,7 @@ build/syntax_rewrite.tl and_ternary 2
 
 build/syntax_scopes.tl and_ternary 3
 
-build/syntax_shape_specs.tl and_ternary 6
+build/syntax_shape_specs.tl and_ternary 5
 
 build/syntax_stub.tl and_ternary 1
 
