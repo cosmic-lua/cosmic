@@ -254,7 +254,7 @@ local function scan(text: string, comments: mut {string}): {string}
     elseif c == "," then
       i = i + 1
     elseif c:match("[%w_$+.%-]") then
-      local word = text:match("^[%w_$+.%-]+", i)
+      local word = assert(text:match("^[%w_$+.%-]+", i), "the character at i begins a word")
       i = i + #word
       token_line = line
       if text:match("^ *:", i) then
@@ -268,8 +268,9 @@ local function scan(text: string, comments: mut {string}): {string}
         say("the bare value " .. word .. ": quote it, or write a decimal integer of at most 15 digits")
       end
     else
+      local code = String.byte_at(c, 1)
       say(("the character %s outside a string, which the two read differently"):format(
-        c:byte() < 0x80 and ("%q"):format(c) or ("\\x%02X"):format(c:byte())))
+        code < 0x80 and ("%q"):format(c) or ("\\x%02X"):format(code)))
       i = i + 1
     end
   end
@@ -295,7 +296,8 @@ local function quote(s: string): string
   local out = (assert(Json.encode(s)))
   for _, pattern in ipairs(RAW_REFUSED) do
     out = out:gsub(pattern, function(char: string): string
-      return ("\\u%04x"):format(utf8.codepoint(char))
+      local code = assert(utf8.codepoint(char), "the pattern matches one encoded character")
+      return ("\\u%04x"):format(code)
     end)
   end
   return out
@@ -550,7 +552,7 @@ local function members(node: flow.Node): {flow.Item}
 end
 
 local function inline_text(node: flow.Node): string
-  if node.kind == "scalar" then return node.text end
+  if node.kind == "scalar" then return (assert(node.text, "flow: a scalar has its text")) end
   local parts: mut {string} = {}
   for _, item in ipairs(members(node)) do
     local value = inline_text(item.value)
@@ -597,7 +599,7 @@ end
 --- is its line's indentation, and `after` how many bytes follow it on
 --- its last line (a member's comma).
 local function write(out: mut {string}, node: flow.Node, pad: string, after: integer)
-  if one_line(node, #out[#out], after) then
+  if one_line(node, #assert(out[#out], "flow: write continues a line"), after) then
     continue_last(out, inline_text(node))
     return
   end
@@ -849,6 +851,18 @@ local function identity(value: any): string?
   return nil
 end
 
+--- The item at `position` of `items`, a position `paired` took from the bounds of `items`.
+local function item_at(items: {flow.Item}, position: integer): flow.Item
+  return (assert(items[position], "a position is within the items"))
+end
+
+--- The longest common run from `(i, j)` on, as `paired` laid it in `lcs`: every
+--- row and cell it reads is laid before the read.
+local function run_from(lcs: {integer: {integer: integer}}, i: integer, j: integer): integer
+  local row = assert(lcs[i], "the table holds every row it reads")
+  return (assert(row[j], "the table holds every cell it reads"))
+end
+
 --- Pairs the members of `old` with the values of `new` as a diff does.
 --- Members equal in both anchor the pairing: the common start and end
 --- first, then the longest common runs in order. Between two anchors, a
@@ -870,12 +884,12 @@ local function paired(old: {flow.Item}, new: {any}): {integer: flow.Item}
   -- The common start and end, which most changes leave most of.
   local lo = 1
   while lo <= #a and lo <= #b and a[lo] == b[lo] do
-    out[lo] = old[lo]
+    out[lo] = item_at(old, lo)
     lo = lo + 1
   end
   local hi_a, hi_b = #a, #b
   while hi_a >= lo and hi_b >= lo and a[hi_a] == b[hi_b] do
-    out[hi_b] = old[hi_a]
+    out[hi_b] = item_at(old, hi_a)
     hi_a, hi_b = hi_a - 1, hi_b - 1
   end
   -- The table of longest common runs from each (i, j) to the middle's end, for i and j from `lo` up to one past it:
@@ -888,15 +902,15 @@ local function paired(old: {flow.Item}, new: {any}): {integer: flow.Item}
       if i > hi_a or j > hi_b then
         row[j] = 0
       elseif a[i] == b[j] then
-        row[j] = lcs[i + 1][j + 1] + 1
+        row[j] = run_from(lcs, i + 1, j + 1) + 1
       else
-        row[j] = math.max(lcs[i + 1][j], row[j + 1])
+        row[j] = math.max(run_from(lcs, i + 1, j), row[j + 1])
       end
     end
   end
   local function between(i1: integer, i2: integer, j1: integer, j2: integer)
     if i2 - i1 == j2 - j1 then
-      for k = 0, i2 - i1 - 1 do out[j1 + k] = old[i1 + k] end
+      for k = 0, i2 - i1 - 1 do out[j1 + k] = item_at(old, i1 + k) end
       return
     end
     local next_old = i1
@@ -905,7 +919,7 @@ local function paired(old: {flow.Item}, new: {any}): {integer: flow.Item}
       if want ~= nil then
         for i = next_old, i2 - 1 do
           if identity(old_values[i]) == want then
-            out[j] = old[i]
+            out[j] = item_at(old, i)
             next_old = i + 1
             break
           end
@@ -918,10 +932,10 @@ local function paired(old: {flow.Item}, new: {any}): {integer: flow.Item}
   while i <= hi_a and j <= hi_b do
     if a[i] == b[j] then
       between(gi, i, gj, j)
-      out[j] = old[i]
+      out[j] = item_at(old, i)
       i, j = i + 1, j + 1
       gi, gj = i, j
-    elseif lcs[i + 1][j] >= lcs[i][j + 1] then
+    elseif run_from(lcs, i + 1, j) >= run_from(lcs, i, j + 1) then
       i = i + 1
     else
       j = j + 1
@@ -961,10 +975,11 @@ local function update(node: flow.Node, value: any, o: flow.Options, depth: integ
   elseif value is {string: any} then
     local seen: mut {string: boolean} = {}
     for _, item in ipairs(members(node)) do
-      if value[item.key] ~= nil then
-        item.value = update(item.value, value[item.key], o, depth + 1)
+      local member_key = item.key
+      if member_key ~= nil and value[member_key] ~= nil then
+        item.value = update(item.value, value[member_key], o, depth + 1)
         kept[#kept + 1] = item
-        seen[item.key] = true
+        seen[member_key] = true
       end
     end
     for _, key in ipairs(ordered(value, o)) do

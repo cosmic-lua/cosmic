@@ -152,6 +152,7 @@ local CLOSED_CODES <const>: {string} = {
   "match_redundant",
   "metamethod_signature",
   "metamethod_unknown",
+  "narrowing_dropped",
   "narrows_unproved",
   "not_a_type",
   "not_a_value",

@@ -5,7 +5,7 @@ to a query under any filter, and blend that with keyword search, in one
 binary with nothing else running. This plan is the outcome of a design
 discussion ([#3218]) and the record of what is decided, what is built,
 and what comes next. All five phases are in the tree; the guide that
-ends them is [`doc/guides/semantic-search.md`].
+ends them is [`doc/guides/semantic-search.md`]. Phase 6 adds packed rows.
 
 ## Goal and scope
 
@@ -87,7 +87,9 @@ rows to a page. Two things follow:
 
 - the guide puts bit vectors in a table of their own;
 - phase 2's in-memory corpus, which holds the floats contiguously and
-  reads them once, is where the next tenfold comes from.
+  reads them once, is where the next tenfold comes from;
+- [phase 6](#phase-6-packed-rows-built) packs many vectors to a row, so
+  the scan itself reads a row for dozens.
 
 ## Phase 1: SQL functions (built)
 
@@ -349,6 +351,79 @@ behavior; [`cosmic/vector_fuzz_test.tl`] holds the search to a reference
 over each storage's stored numbers; [`core/allocation_test.tl`] walks
 the new allocations.
 
+## Phase 6: packed rows (built)
+
+Many vectors to a SQLite row, so a search straight from the database has
+no load step and costs a few times the in-memory scan instead of a
+dozen, and a corpus fills from the rows in a fraction of [`Vector.load`]'s
+time. It attacks the problem the measurements above state: a scan pays
+SQLite's per-row cost, and for a 3 KB vector that is a page a row.
+
+- **`vector_block(id, vector [, storage])`** is an aggregate: the rows
+  of a `GROUP BY` as one blob, a block, in `'f32'`, `'f16'` or `'int8'`.
+  A block is a corpus serialized (the ids, the inverse lengths, the int8
+  scales, the vectors, each section 8-aligned, behind a 16-byte header
+  that holds the storage, dimensions and count), so the corpus's own
+  buffers, quantizer and kernels are reused and nothing is written twice.
+  No pgvector function does this, so the names are `vector_`-prefixed
+  after the module they belong to. The layout is in
+  [`doc/guides/sql.md`] and is checked exactly: a length that does not
+  follow from the header, a header the writer does not write, and a
+  length or scale that is not a number are each refused by name.
+- **`vector_block_search(block, query, k [, metric])`** is a
+  table-valued function joined to the table of blocks. It answers each
+  block's k nearest as `(id, distance)`, so `ORDER BY distance LIMIT k`
+  is the global answer, and a `WHERE` on the block table drops whole
+  blocks. The distance is lower for nearer rows (pgvector's `<#>` for the
+  inner product), and the scores are the corpus's, so the answers agree
+  with a corpus in the same storage to the bit, but for a cosine that
+  rounds past 1, which the distance clamps and the ranking follows. Like the other vector
+  functions it is innocuous. A statement it scans ends with the error
+  `interrupted` once a [`Signal.guard`] has caught a signal, within a few
+  hundred vectors; the other SQL functions do not look, since one row's
+  arithmetic is short, but a block's is not.
+- **`Vector.load_blocks(db, sql, values?, opts?)`** and
+  **`corpus:add_block(block)`** copy a block into a corpus: the buffers
+  whole when the storage agrees, converted row by row when not. The bit
+  vectors of a quantized corpus are made from its stored numbers, since a
+  block has no f32.
+- **Maintenance** is the guide's: the blocks are a copy that can be made
+  again from the table of record, an update or a delete remakes the one
+  block of the changed id range, and the rows not yet packed are searched
+  with the per-row functions in a `UNION ALL`. There is no incremental
+  index.
+- **Not done**, each a `TODO:` in [`core/vector.c`]: `candidates` has
+  no packed form (a block scan reads every vector it holds), and the
+  query is read and, for int8, quantized again for every block (keeping
+  the prepared query between blocks measured about 5%, within the noise
+  of the VM).
+
+**Status:** built, with the measurements below from 100,000 x 768
+clustered vectors on the development VM, in memory (a warm page cache),
+best of five. The step that decided to build it measured first. A block
+a read of which SQLite copies out of an overflow chain costs most of a
+scan: the copy of 300 MB of f32 alone takes 45 ms, so f32 blocks cannot
+beat the per-row scan, and f16 and int8 are what packing is for.
+
+| storage | block, 4 KB / 64 KB pages | per-row SQL | packed SQL | corpus | `load` | `load_blocks` |
+| ------- | ------------------------- | ----------- | ---------- | ------ | ------ | ------------- |
+| f32     | 8 / 16 vectors            | 87 ms       | 93 / 75 ms | 72 ms  | 3.3 s  | 0.75 s        |
+| f16     | 16 / 32 vectors           | -           | 46 / 34 ms | 21 ms  | 1.4 s  | 0.32 s        |
+| int8    | 32 / 64 vectors           | -           | 26 / 19 ms | 9 ms   | 1.2 s  | 0.17 s        |
+
+Per-row SQL is `ORDER BY inner_product(...) DESC LIMIT 10` (77 ms on
+64 KB pages; `cosine_distance` 122 ms). A block over about 30 KB in 4 KB
+pages scanned two to three times slower than one of 12 to 25 KB: SQLite
+allocates a fresh buffer for each value on overflow pages, while a value
+that fits its page is copied into a buffer the statement reuses, which
+is why 64 KB pages suit blocks of 50 KB. The packed scan is 3.3 to 4
+times the per-row scan for int8, 1.9 to 2.3 for f16 and 1 for f32.
+[`cosmic/vector_block_test.tl`] holds the behavior,
+[`cosmic/vector_fuzz_test.tl`] holds the search over blocks to a corpus
+built row by row and hostile blocks to a read inside bounds, and
+[`core/allocation_test.tl`] walks the allocations of the aggregate, the
+function and `add_block`.
+
 ## Later
 
 Each waits on a caller who needs it:
@@ -403,6 +478,7 @@ A separate track, pulled by its own callers. From the same discussion:
 [`cosmic.json`]: ../../cosmic/json.tl
 [`cosmic/sqlite_example.tl`]: ../../cosmic/sqlite_example.tl
 [`cosmic/vector_fuzz_test.tl`]: ../../cosmic/vector_fuzz_test.tl
+[`cosmic/vector_block_test.tl`]: ../../cosmic/vector_block_test.tl
 [`cosmic/vector_ivf_test.tl`]: ../../cosmic/vector_ivf_test.tl
 [`cosmic/vector_sql_test.tl`]: ../../cosmic/vector_sql_test.tl
 [`cosmic/vector_test.tl`]: ../../cosmic/vector_test.tl

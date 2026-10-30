@@ -1383,6 +1383,262 @@ local function test_search_matches_a_brute_force_reference(tmp: string)
 end
 
 --------------------------------------------------------------------------
+-- Packed blocks against the corpus
+--------------------------------------------------------------------------
+
+--- The distance a corpus's score stands for in `vector_block_search`, or
+--- nil where the search answers NULL.
+local function block_distance(metric: string, score: number): number?
+  if metric == "inner_product" then return 0.0 - score end
+  if metric == "l2" then return score end
+  if score == -math.huge then return nil end
+  return 1.0 - math.max(-1.0, math.min(1.0, score))
+end
+
+--- Rows packed into blocks of a few, searched in SQL and loaded into a
+--- corpus, answer what a corpus built row by row does, in the same
+--- storage: the same ids, in the same order, at the same distances.
+local function check_blocks(input: string): boolean, string
+  local fields = Fuzz.unpack(input)
+  local storage = assert(fields[1])
+  local dims = to_int(assert(fields[3]))
+  local k = to_int(assert(fields[4]))
+  local metric = assert(fields[5])
+  local query = numbers_of(assert(fields[8]))
+  local corpus = Vector.corpus(dims, { storage = storage_of(storage) })
+  local db = assert(held["db"])
+  assert(db:exec("DROP TABLE IF EXISTS r; DROP TABLE IF EXISTS b; CREATE TABLE r (seq INTEGER PRIMARY KEY, id INTEGER, v BLOB)"))
+  local kept = 0
+  for at = 9, #fields do
+    local id_text, numbers_text = assert(fields[at]):match("^(.-)|(.*)$")
+    local id, numbers = to_int(assert(id_text)), numbers_of(assert(numbers_text))
+    local added, _ = pcall(corpus.add, corpus, id, Vector.pack(numbers))
+    local packed = ask(("SELECT vector_block(?1, ?2, '%s')"):format(storage),
+      { { integer = id }, { blob = Vector.pack(numbers) } })
+    -- The aggregate refuses what a corpus refuses.
+    if added == (packed.kind == "error") then
+      return false, ("add %s but vector_block %s %s of %s"):format(tostring(added), packed.kind, packed.why, csv(numbers))
+    end
+    if added then
+      kept = kept + 1
+      assert(Sqlite.run(db, "INSERT INTO r VALUES (?1, ?2, ?3)",
+        { { integer = kept }, { integer = id }, { blob = Vector.pack(numbers) } }))
+    else
+      Fuzz.label("f16 refused")
+    end
+  end
+  local size = 1 + k % 5
+  assert(db:exec(("CREATE TABLE b AS SELECT vector_block(id, v, '%s') AS blk FROM r GROUP BY (seq - 1) / %d")
+      :format(storage, size)))
+  local asked = Vector.pack(query)
+  local rows, why = Sqlite.rows(db, [[
+    SELECT h.id, h.distance FROM b, vector_block_search(b.blk, ?1, ?2, ?3) AS h
+    ORDER BY h.distance NULLS LAST, h.id LIMIT ?2
+  ]], { { blob = asked }, { integer = k }, { text = metric } })
+  if rows == nil then return false, "the search over blocks failed: " .. why end
+  local hits = assert(corpus:search(asked, k, { metric = metric_of(metric) }))
+  local who = ("%s %s k=%d size %d of %d rows, query %s"):format(storage, metric, k, size, kept, csv(query))
+  -- What the search over blocks answers is the corpus's answer by the
+  -- distance it reports, then the id: a cosine that rounds past 1 is
+  -- clamped to distance 0, where the corpus's score keeps the rounding.
+  local everything = assert(corpus:search(asked, math.max(kept, 1), { metric = metric_of(metric) }))
+  local ranked_hits: mut {Scored} = {}
+  for i, id in ipairs(everything.ids) do
+    local distance = block_distance(metric, assert(everything.scores[i]))
+    ranked_hits[#ranked_hits + 1] = { id = id, key = if distance == nil then math.huge else distance end,
+      row = i }
+  end
+  table.sort(ranked_hits, function(a: Scored, b: Scored): boolean
+    if a.key ~= b.key then return a.key < b.key end
+    return a.id < b.id
+  end)
+  local want_count = math.min(k, #ranked_hits)
+  if #rows ~= want_count then
+    return false, ("%s: %d hits over blocks, not %d: %s"):format(who, #rows, want_count,
+      shown(hits.ids, hits.scores))
+  end
+  for i, row in ipairs(rows) do
+    local expected = assert(ranked_hits[i])
+    local want = block_distance(metric, assert(everything.scores[expected.row]))
+    local got: number? = nil
+    if row:kind(2) ~= "null" then got = row:number(2) end
+    if row:integer(1) ~= expected.id or got ~= want then
+      return false, ("%s: hit %d is %d at %s, not %d at %s"):format(who, i, row:integer(1), tostring(got),
+        expected.id, tostring(want))
+    end
+  end
+  -- The same blocks loaded into a corpus search as the corpus does.
+  local loaded, loaded_why = Vector.load_blocks(db, "SELECT blk FROM b")
+  if kept == 0 then
+    if loaded ~= nil then return false, "load_blocks made a corpus of no blocks" end
+    Fuzz.label("no blocks")
+  else
+    if loaded == nil then return false, who .. ": load_blocks refused: " .. loaded_why end
+    if loaded:count() ~= kept or loaded.storage ~= storage_of(storage) then
+      return false, who .. ": load_blocks made " .. tostring(loaded:count()) .. " " .. loaded.storage
+    end
+    local again = assert(loaded:search(asked, k, { metric = metric_of(metric) }))
+    if table.concat(again.ids, ",") ~= table.concat(hits.ids, ",") then
+      return false, who .. ": the loaded corpus answered " .. shown(again.ids, again.scores)
+    end
+    for i, score in ipairs(again.scores) do
+      if score ~= hits.scores[i] and not (score ~= score and assert(hits.scores[i]) ~= hits.scores[i]) then
+        return false, who .. ": the loaded corpus scored " .. shown(again.ids, again.scores)
+      end
+    end
+    Fuzz.label("blocks loaded")
+  end
+  Fuzz.label("blocks " .. metric)
+  Fuzz.label("blocks " .. storage)
+  return true, ""
+end
+
+local function test_blocks_answer_what_a_corpus_does(tmp: string)
+  open_database()
+  Fuzz.run({
+    name = "packed blocks",
+    dir = tmp,
+    gen = gen_search_input,
+    check = check_blocks,
+    requires = { "blocks inner_product", "blocks cosine", "blocks l2", "blocks f32", "blocks f16",
+      "blocks int8", "blocks loaded", "f16 refused" },
+    shares = { ["blocks inner_product"] = 0.1, ["blocks cosine"] = 0.1, ["blocks l2"] = 0.1,
+      ["blocks f16"] = 0.1, ["blocks int8"] = 0.2 },
+  })
+  close_database()
+end
+
+--------------------------------------------------------------------------
+-- Hostile blocks
+--------------------------------------------------------------------------
+
+--- A block with bytes changed, cut short or extended is refused or is
+--- another block, and either way read inside its bounds: `load_blocks`,
+--- `vector_block_search` and `add_block` agree on whether it is a block,
+--- and a block that is one searches, and loads or is refused for a number.
+local function gen_hostile_input(src: Fuzz.Source): string
+  local storage = Fuzz.pick(src, { "f32", "f16", "int8" })
+  local dims = Fuzz.pick(src, { 1, 2, 3, 9, 17 })
+  local fields: mut {string} = { storage, tostring(dims), tostring(src:int(0, 6)) }
+  local rows = 0
+  while Fuzz.more(src, rows, 6) do
+    rows = rows + 1
+    fields[#fields + 1] = csv(gen_numbers(src, alphabet(2), dims))
+  end
+  local edits = 0
+  while Fuzz.more(src, edits, 4) do
+    edits = edits + 1
+    local at = if src:int(0, 2) == 0 then src:int(0, 15) else src:int(0, 160) end
+    fields[#fields + 1] = ("%d:%d"):format(at, Fuzz.pick(src, { 0, 1, 2, 3, 7, 127, 128, 255, src:int(0, 255) }))
+  end
+  return Fuzz.pack(fields)
+end
+
+local function check_hostile(input: string): boolean, string
+  local fields = Fuzz.unpack(input)
+  local storage = assert(fields[1])
+  local dims, cut = to_int(assert(fields[2])), to_int(assert(fields[3]))
+  local db = assert(held["db"])
+  assert(db:exec("DROP TABLE IF EXISTS r; CREATE TABLE r (id INTEGER, v BLOB)"))
+  local edits: mut {{integer}} = {}
+  local rows = 0
+  for at = 4, #fields do
+    local field = assert(fields[at])
+    local place, byte = field:match("^(%d+):(%d+)$")
+    if place ~= nil then
+      edits[#edits + 1] = { to_int(place), to_int(assert(byte)) }
+    else
+      rows = rows + 1
+      assert(Sqlite.run(db, "INSERT INTO r VALUES (?1, ?2)",
+        { { integer = rows }, { blob = Vector.pack(numbers_of(field)) } }))
+    end
+  end
+  if rows == 0 then return true, "" end
+  local made = assert(Sqlite.rows(db, ("SELECT vector_block(id, v, '%s') FROM r"):format(storage)))
+  local block = assert(made[1]):blob(1)
+  for _, edit in ipairs(edits) do
+    local at = assert(edit[1]) % #block
+    block = block:sub(1, at) .. string.char(assert(edit[2])) .. block:sub(at + 2)
+  end
+  if cut == 1 then block = block:sub(1, #block - 1) end
+  if cut == 2 then block = block:sub(1, #block // 2) end
+  if cut == 3 then block = block .. "\0" end
+  if cut == 4 then block = block .. block end
+  if cut == 5 then block = block:sub(1, 16) end
+  -- A block load_blocks reads, or refuses only for a number in it, has a
+  -- header the core accepted: its dimensions and count are the header's.
+  local loaded, loaded_why = Vector.load_blocks(db, "SELECT ?1", { { blob = block } })
+  -- A refusal for what is in the block's rows leaves the header good.
+  local is_block = loaded ~= nil or loaded_why:find("finite numbers", 1, true) ~= nil or
+    loaded_why:find("code sums", 1, true) ~= nil
+  local block_dims, block_count = dims, 0
+  if is_block then
+    block_dims, block_count = string.unpack("<I4I4", block, 9)
+  end
+  local query = Vector.pack(numbers_of(string.rep("1,", block_dims - 1) .. "1"))
+  local found, why = Sqlite.rows(db, "SELECT id, distance FROM vector_block_search(?1, ?2, 3, 'cosine')",
+    { { blob = block }, { blob = query } })
+  -- In the block's own storage, as load_blocks makes it: another widens
+  -- an int8 block, which reads no sums.
+  local block_storage: Vector.Storage = "f32"
+  if is_block and block:byte(5) == 1 then block_storage = "f16" end
+  if is_block and block:byte(5) == 2 then block_storage = "int8" end
+  local target = Vector.corpus(block_dims, { storage = block_storage })
+  local added, trouble = pcall(target.add_block, target, block)
+  if not is_block then
+    if found ~= nil then return false, "a search read a block that load_blocks refused" end
+    if why:find("vector block", 1, true) == nil and why:find("is a blob", 1, true) == nil then
+      return false, "a refusal that names no block: " .. why
+    end
+    if added then return false, "add_block took a block that load_blocks refused" end
+    Fuzz.label("not a block")
+    return true, ""
+  end
+  if found == nil then return false, "a search refused a block load_blocks read: " .. why end
+  if #found > math.min(3, block_count) then return false, "more hits than rows" end
+  local before: number? = nil
+  for _, row in ipairs(found) do
+    if row:kind(2) == "null" then
+      before = math.huge
+    else
+      local distance = row:number(2)
+      if distance ~= distance then return false, "a distance is not a number" end
+      if before ~= nil and distance < before then return false, "distances out of order" end
+      before = distance
+    end
+  end
+  if added then
+    if loaded == nil or target:count() ~= block_count or loaded:count() ~= block_count then
+      return false, "add_block added " .. tostring(target:count())
+    end
+    Fuzz.label("block added")
+  else
+    if target:count() ~= 0 then return false, "a refused add_block changed the corpus" end
+    local words = tostring(trouble)
+    if loaded ~= nil or (words:find("finite numbers", 1, true) == nil and
+        words:find("code sums", 1, true) == nil) then
+      return false, "add_block refused a block that reads: " .. words
+    end
+    Fuzz.label("block refused for its rows")
+  end
+  Fuzz.label("block read")
+  return true, ""
+end
+
+local function test_hostile_blocks_are_refused_or_read_in_bounds(tmp: string)
+  open_database()
+  Fuzz.run({
+    name = "hostile blocks",
+    dir = tmp,
+    gen = gen_hostile_input,
+    check = check_hostile,
+    requires = { "not a block", "block read", "block added" },
+    shares = { ["not a block"] = 0.1, ["block read"] = 0.1 },
+  })
+  close_database()
+end
+
+--------------------------------------------------------------------------
 -- What a corpus refuses
 --------------------------------------------------------------------------
 

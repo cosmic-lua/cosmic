@@ -170,10 +170,20 @@ local function result_count(f: Types.Type?): integer
   return if members ~= nil then #members else 0 end
 end
 
+--- Element `position` of `list`, a position taken from its bounds or from a walk that visited it.
+local function nth<T>(list: {T}, position: integer): T
+  return (assert(list[position], "a position is within the list"))
+end
+
+--- The value kept under `key` in `map`, a key set before it is read.
+local function known<K, V>(map: {K: V}, key: K): V
+  return (assert(map[key], "the key was set before it is read"))
+end
+
 --- The count of parameters a call must give: those up to the last that is not omittable.
 local function required(f: Types.Fn): integer
   local n = #f.params
-  while n > 0 and f.params[n].omittable == true do
+  while n > 0 and nth(f.params, n).omittable == true do
     n = n - 1
   end
   return n
@@ -259,11 +269,11 @@ local function index_of(subject: Subject): Index
   local tokens = subject.chunk.tokens
   local last_start: mut {integer: integer} = {}
   for i = #order, 1, -1 do
-    local n = order[i]
+    local n = nth(order, i)
     local id = Node.base(n).id
-    local last = tokens.offset[Node.base(n).first]
-    for _, child in ipairs(kids[id]) do
-      local later = last_start[Node.base(child).id]
+    local last = nth(tokens.offset, Node.base(n).first)
+    for _, child in ipairs(known(kids, id)) do
+      local later = known(last_start, Node.base(child).id)
       if later > last then
         last = later
       end
@@ -361,9 +371,10 @@ local function scope_names(index: Index, bound: {integer: string}): {integer: st
     local above = index.parent[Node.base(n).id]
     local within = ""
     if above ~= nil then
-      within = out[Node.base(above).id]
+      within = known(out, Node.base(above).id)
     end
     local name = within
+    local bound_name = bound[Node.base(n).id]
     if is_named(n) then
       local own = function_name(index, n)
       if within == "" then
@@ -371,8 +382,8 @@ local function scope_names(index: Index, bound: {integer: string}): {integer: st
       else
         name = within .. "." .. own
       end
-    elseif bound[Node.base(n).id] ~= nil then
-      name = bound[Node.base(n).id]
+    elseif bound_name ~= nil then
+      name = bound_name
     end
     out[Node.base(n).id] = name
   end
@@ -496,7 +507,7 @@ local function returns_of(run: Run, body: Ast.Block): {Ast.Return}
     if (n.kind == "Return") then
       out[#out + 1] = n
     end
-    for _, child in ipairs(run.index.kids[Node.base(n).id]) do
+    for _, child in ipairs(known(run.index.kids, Node.base(n).id)) do
       if not is_function(child) then
         go(child)
       end
@@ -539,7 +550,7 @@ local function check_function(run: Run, fn: Ast.Node, parts: Parts, stand_in: bo
   judged(run, "functions")
   local file = run.subject.file
   local name = function_name(run.index, fn)
-  local scope = run.scopes[Node.base(fn).id]
+  local scope = known(run.scopes, Node.base(fn).id)
   -- TODO: mark an exemption used only where a rule 2 to 5 would have refused the function, so an entry for a function that
   -- keeps the discipline is reported stale too; that wants the rules run whole and their problems dropped, rather than
   -- skipped at this lookup (carried over from build/contracts.tl).
@@ -569,13 +580,14 @@ local function check_function(run: Run, fn: Ast.Node, parts: Parts, stand_in: bo
     local exps = r.values
     -- A stand-in hands a binding's answer on as three names it bound.
     local e1, e2, e3 = exps[1], exps[2], exps[3]
-    local handed_on = stand_in and #exps == 3 and (e1.kind == "Name") and (e2.kind == "Name") and (e3.kind == "Name")
-    if #exps >= 2 and not handed_on and not is_empty_string(exps[2]) and not is_failure(exps[1], effect) then
+    local handed_on = stand_in and e1 ~= nil and e2 ~= nil and e3 ~= nil and #exps == 3 and
+      (e1.kind == "Name") and (e2.kind == "Name") and (e3.kind == "Name")
+    if e1 ~= nil and e2 ~= nil and not handed_on and not is_empty_string(e2) and not is_failure(e1, effect) then
       report(run, line_at(run.subject, Node.base(r).first), string.format(
         "%s: a failure answers %s beside its reason, never a value; a success's reason is \"\"", name,
         if effect then "false" else "nil" end))
     end
-    if #exps ~= 2 or not is_empty_string(exps[2]) or not never_nil(run.subject, exps[1]) then
+    if #exps ~= 2 or e1 == nil or e2 == nil or not is_empty_string(e2) or not never_nil(run.subject, e1) then
       all_values = false
     end
   end
@@ -643,8 +655,9 @@ local function keeping(run: Run): {integer: boolean}
       end
     elseif is_call(n) then
       local args = arguments_of(n)
-      if #args > 0 and takes_reason(run, n, #args) then
-        kept[Node.base(args[#args]).id] = true
+      local final = args[#args]
+      if final ~= nil and takes_reason(run, n, #args) then
+        kept[Node.base(final).id] = true
       end
     end
   end
@@ -826,6 +839,12 @@ end
 -- `holds_reason` guessing which local it stored into from where the declarations before it end; resolve it exactly with the
 -- scope builder's binding of the name (carried over from build/contracts.tl).
 
+--- A name an inspection of a failure's reason reads, and the call or index that inspects it.
+local record Reading
+  read: Ast.Node
+  via: Ast.Node
+end
+
 --- One place a name is bound, in source order: rule 6 follows a reason from where a fallible call binds it to where
 --- another binding of the name takes over.
 local record Binding
@@ -872,7 +891,7 @@ local function check_inspections(run: Run)
   local index = run.index
   local tokens = subject.chunk.tokens
   local bindings: mut {string: mut {Binding}} = {}
-  local reads: mut {{Ast.Node}} = {}
+  local reads: mut {Reading} = {}
   --- Binds the name `name` from `at` on. A `local` or an assignment binds after its own right-hand side, which reads the
   --- binding before it.
   local function bind(name: string, at: integer, ends: integer, declared: boolean, reason: boolean, alias?: Ast.Name)
@@ -889,7 +908,7 @@ local function check_inspections(run: Run)
     local above = index.parent[id]
     local ends = math.maxinteger
     if above ~= nil then
-      ends = ending[Node.base(above).id]
+      ends = known(ending, Node.base(above).id)
     end
     if (n.kind == "Block") then
       ends = block_end(subject, n)
@@ -897,13 +916,13 @@ local function check_inspections(run: Run)
     ending[id] = ends
     if (n.kind == "Local") then
       local slot = reason_slot(run, n.values, #n.bindings)
-      local after = index.last_start[id] + 1
+      local after = known(index.last_start, id) + 1
       for i, b in ipairs(n.bindings) do
         bind(b.name, after, ends, true, i == slot, unwrapped(n.values[i]))
       end
     elseif (n.kind == "Assign") then
       local slot = reason_slot(run, n.values, #n.targets)
-      local after = index.last_start[id] + 1
+      local after = known(index.last_start, id) + 1
       for i, target in ipairs(n.targets) do
         if (target.kind == "Name") then
           bind(target.text, after, ends, false, i == slot, unwrapped(n.values[i]))
@@ -928,11 +947,11 @@ local function check_inspections(run: Run)
     end
     local reading = inspected(n)
     if #reading > 0 then
-      local scope = run.scopes[id]
+      local scope = known(run.scopes, id)
       local key = subject.file .. ":" .. scope
       if run.exemptions.parsing[key] == nil then
         for _, read in ipairs(reading) do
-          reads[#reads + 1] = { read, n }
+          reads[#reads + 1] = { read = read, via = n }
         end
       else
         run.used.parsing[key] = true
@@ -947,9 +966,9 @@ local function check_inspections(run: Run)
   --- Whether the assignment `list[i]` stored into a local whose scope has closed before `at`: a declaration before it whose
   --- scope holds the assignment's block and ends before `at`. Such a store is not what `at` reads.
   local function into_closed(list: {Binding}, i: integer, at: integer): boolean
-    local b = list[i]
+    local b = nth(list, i)
     for j = i - 1, 1, -1 do
-      local d = list[j]
+      local d = nth(list, j)
       if d.declared and d.ends >= b.ends and d.ends < at then
         return true
       end
@@ -961,7 +980,7 @@ local function check_inspections(run: Run)
   local function holds_reason(name: string, at: integer): boolean
     local list = bindings[name] or {}
     for i = #list, 1, -1 do
-      local b = list[i]
+      local b = nth(list, i)
       -- A declaration whose scope has closed stood in an inner block: the one before it is what this reads.
       if b.at <= at and (not b.declared or b.ends >= at) then
         -- An assignment in an inner block that has closed may not have run: what it stored is read only when it stored a
@@ -978,7 +997,7 @@ local function check_inspections(run: Run)
           if alias == nil then
             return false
           end
-          local from = tokens.offset[Node.base(alias).first]
+          local from = nth(tokens.offset, Node.base(alias).first)
           return from < b.at and holds_reason(alias.text, from)
         end
       end
@@ -987,7 +1006,7 @@ local function check_inspections(run: Run)
   end
   local flagged: mut {integer: boolean} = {}
   for _, pair in ipairs(reads) do
-    local read, via = pair[1], pair[2]
+    local read, via = pair.read, pair.via
     judged(run, "readings")
     if (read.kind == "Name") and flagged[Node.base(via).id] ~= true and holds_reason(read.text, Lexer.offset(tokens, Node.base(read).first)) then
       flagged[Node.base(via).id] = true
@@ -1031,7 +1050,7 @@ local function check_casts(run: Run)
   for _, n in ipairs(run.index.order) do
     if (n.kind == "Cast") then
       judged(run, "casts")
-      local scope = run.scopes[Node.base(n).id]
+      local scope = known(run.scopes, Node.base(n).id)
       local operand: Ast.Exp = n.value
       while (operand.kind == "Paren") do
         operand = operand.inner
@@ -1095,6 +1114,9 @@ local function exported_functions(run: Run): {Exported}
   local last = statements[#statements]
   local first = if last ~= nil and (last.kind == "Return") then last.values[1] else nil end
   local spelling = root.names[1]
+  if spelling == nil then
+    return out
+  end
   if first ~= nil and (first.kind == "Name") then
     spelling = first.text
   end
@@ -1114,7 +1136,7 @@ local function exported_functions(run: Run): {Exported}
       end
       table.sort(static_names)
       for _, static in ipairs(static_names) do
-        local f = statics[static].type
+        local f = known(statics, static).type
         if (f.tag == "fn") then
           out[#out + 1] = { name = joined(prefix, static, false), type = f, line = run.static_lines[prefix .. "." .. static] or 0 }
         end
@@ -1300,7 +1322,7 @@ local function binding_call_in(run: Run, body: Ast.Block): string?
         return module .. "." .. name
       end
     end
-    for _, child in ipairs(run.index.kids[Node.base(n).id]) do
+    for _, child in ipairs(known(run.index.kids, Node.base(n).id)) do
       if not is_function(child) then
         local found = go(child)
         if found ~= nil then
@@ -1483,7 +1505,7 @@ local function string_fields(run: Run): {Types.Decl: {string: Declared}}
   end
   table.sort(names)
   for _, name in ipairs(names) do
-    visit(name, records[name])
+    visit(name, known(records, name))
   end
   return out
 end
@@ -1526,9 +1548,10 @@ local function check_modes(run: Run)
   local stack: mut {Ast.Node} = { subject.chunk }
   local function scope_binding(name: string): Ast.Node?
     for i = #stack, 1, -1 do
-      local own = binds[Node.base(stack[i]).id]
+      local scoped = nth(stack, i)
+      local own = binds[Node.base(scoped).id]
       if own ~= nil and own[name] == true then
-        return stack[i]
+        return scoped
       end
     end
     return nil
@@ -1575,7 +1598,7 @@ local function check_modes(run: Run)
   local function visit(n: Ast.Node)
     if (n.kind == "LocalFunction") then
       functions[n.name.name] = n
-      bind(stack[#stack], n.name.name, nil)
+      bind(nth(stack, #stack), n.name.name, nil)
     end
     local parts = parts_of(n)
     if parts ~= nil then
@@ -1586,7 +1609,7 @@ local function check_modes(run: Run)
         end
       end
       stack[#stack + 1] = n
-      for _, child in ipairs(index.kids[Node.base(n).id]) do
+      for _, child in ipairs(known(index.kids, Node.base(n).id)) do
         visit(child)
       end
       stack[#stack] = nil
@@ -1595,9 +1618,9 @@ local function check_modes(run: Run)
     if (n.kind == "Local") then
       for i, b in ipairs(n.bindings) do
         local field = field_of(n.values[i])
-        bind(stack[#stack], b.name, field)
+        bind(nth(stack, #stack), b.name, field)
         -- A name bound again to anything else holds no field from here.
-        local held = holding[Node.base(stack[#stack]).id]
+        local held = holding[Node.base(nth(stack, #stack)).id]
         if field == nil and held ~= nil then
           held[b.name] = nil
         end
@@ -1642,7 +1665,7 @@ local function check_modes(run: Run)
         note(right, n.left)
       end
     end
-    for _, child in ipairs(index.kids[Node.base(n).id]) do
+    for _, child in ipairs(known(index.kids, Node.base(n).id)) do
       visit(child)
     end
   end
@@ -1658,7 +1681,7 @@ local function check_modes(run: Run)
   end)
   for _, field in ipairs(fields) do
     local spelled_set: mut {string} = {}
-    for literal in pairs(literals[field]) do
+    for literal in pairs(known(literals, field)) do
       spelled_set[#spelled_set + 1] = string.format("%q", literal)
     end
     table.sort(spelled_set)

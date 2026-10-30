@@ -37,7 +37,8 @@ local function scope(source: string, dialect?: Ast.Dialect): Case
 end
 
 local function at(case: Case, token: integer): string
-  return case.tokens.y[token] .. ":" .. tostring(Lexer.x(case.tokens, token))
+  local line = assert(case.tokens.y[token], "the token is one of the case")
+  return tostring(line) .. ":" .. tostring(Lexer.x(case.tokens, token))
 end
 
 --- Each name of the source that is used, in order, as `name y:x -> y:x` of where its variable is
@@ -53,12 +54,16 @@ local function binds(source: string): string
     if (node.kind == "Name") then
       names[#names + 1] = node
     end
-    local children: {Ast.Node} = {}
+    local children: mut {Ast.Node} = {}
     Ast.children(node, function(child: Ast.Node)
       children[#children + 1] = child
     end)
-    for i = #children, 1, -1 do
-      stack[#stack + 1] = children[i]
+    while true do
+      local child = table.remove(children)
+      if child == nil then
+        break
+      end
+      stack[#stack + 1] = child
     end
   end
   for _, n in ipairs(names) do
@@ -89,8 +94,9 @@ end
 --- The one error of the source.
 local function one_error(source: string): Scopes.Error
   local list = scope(source).scoped.errors
-  assert(#list == 1, "expected one error, got " .. tostring(#list) .. ": " .. errors(source))
-  return list[1]
+  local only = list[1]
+  assert(#list == 1 and only ~= nil, "expected one error, got " .. tostring(#list) .. ": " .. errors(source))
+  return only
 end
 
 --- The variable of the source declared as `name`, the `nth` of that name.
@@ -105,6 +111,13 @@ local function var(case: Case, name: string, nth?: integer): Scopes.Var
     end
   end
   error("no variable " .. name .. " " .. tostring(nth or 1))
+end
+
+--- The `nth` capture of the variable `name` of `case`.
+local function capture(case: Case, name: string, nth: integer): Scopes.Capture
+  local found = var(case, name).captures[nth]
+  assert(found ~= nil, "the variable " .. name .. " has a capture " .. tostring(nth))
+  return found
 end
 
 local function test_a_local_is_visible_after_its_statement_and_its_value_sees_the_outer_name()
@@ -245,9 +258,9 @@ local function test_a_narrowing_return_names_a_parameter_of_its_function()
   local source = "local function is_text(v: any): v is string return true end"
   local case = scope(source)
   assert(case.scoped.errors[1] == nil)
-  local narrows: Ast.Narrows = nil
+  local narrows: Ast.Narrows? = nil
   local stat = case.parsed.chunk.body.stats[1]
-  if (stat.kind == "LocalFunction") then
+  if stat ~= nil and stat.kind == "LocalFunction" then
     local rets = stat.fn.rets
     local first = assert(assert(assert(rets).lists[1])[1])
     if (first.kind == "Narrows") then
@@ -266,7 +279,8 @@ end
 local function test_a_global_is_recorded_where_it_is_declared_and_refused_where_it_is_not()
   local case = scope("print(string.upper(\"a\"))\nlocal x: thread = nil")
   assert(case.scoped.errors[1] == nil)
-  assert(#case.scoped.globals["print"] == 1 and #case.scoped.globals["string"] == 1 and case.scoped.globals["thread"] == nil)
+  local printed, stringed = case.scoped.globals["print"], case.scoped.globals["string"]
+  assert(printed ~= nil and #printed == 1 and stringed ~= nil and #stringed == 1 and case.scoped.globals["thread"] == nil)
   local e = one_error("print(nothing)")
   assert(e.code == "unknown_variable" and e.y == 1 and e.x == 7)
   assert(e.msg == "`nothing` is not declared")
@@ -300,7 +314,8 @@ local function test_an_assignment_to_a_name_nothing_declares_is_told_to_declare_
   assert(e.code == "unknown_variable" and e.y == 1 and e.x == 1 and e.msg == "`fresh` is assigned but declared nowhere")
   assert(e.fix == "declare it with `local fresh = ...` above this assignment; a program has no globals except the ones a " ..
       "declaration file declares")
-  assert(#scope("fresh = 1").scoped.global_writes["fresh"] == 1)
+  local writes = scope("fresh = 1").scoped.global_writes["fresh"]
+  assert(writes ~= nil and #writes == 1)
   local const = one_error("print = 1")
   assert(const.code == "const_assigned" and const.msg == "the global `print` is declared `<const>` and cannot be assigned")
   assert(const.fix == "keep the new value in a local of your own: `local print_new = ...`")
@@ -412,24 +427,24 @@ end
 
 local function test_a_capture_says_whether_an_assignment_may_follow_the_function()
   local before = scope("local x = 1\nx = 2\nlocal function f() return x end\nprint(f)")
-  assert(var(before, "x").assigned and #var(before, "x").captures == 1 and not var(before, "x").captures[1].after)
+  assert(var(before, "x").assigned and #var(before, "x").captures == 1 and not capture(before, "x", 1).after)
   local after = scope("local x = 1\nlocal function f() return x end\nx = 2\nprint(f)")
-  assert(var(after, "x").captures[1].after)
+  assert(capture(after, "x", 1).after)
   local same = scope("local x, f = 1, nil\nx, f = 2, function() return x end\nprint(f)")
-  assert(var(same, "x").captures[1].after)
+  assert(capture(same, "x", 1).after)
   local none = scope("local x = 1\nlocal function f() return x end\nprint(f)")
-  assert(#var(none, "x").captures == 1 and not var(none, "x").assigned and not var(none, "x").captures[1].after)
+  assert(#var(none, "x").captures == 1 and not var(none, "x").assigned and not capture(none, "x", 1).after)
 end
 
 local function test_an_assignment_earlier_in_a_loop_follows_a_function_made_later_in_it()
   local looped = scope("local x = 1\nfor i = 1, 3 do\n  x = i\n  local f = function() return x end\n  print(f)\nend")
-  assert(looped.scoped.errors[1] == nil and var(looped, "x").captures[1].after)
+  assert(looped.scoped.errors[1] == nil and capture(looped, "x", 1).after)
   local fresh = scope("for i = 1, 3 do\n  local x = 1\n  x = i\n  local f = function() return x end\n  print(f)\nend")
-  assert(not var(fresh, "x").captures[1].after, "each iteration has a variable of its own")
+  assert(not capture(fresh, "x", 1).after, "each iteration has a variable of its own")
   local inner = scope("local x = 1\nx = 2\nfor i = 1, 3 do\n  local f = function() return x end\n  print(f)\nend")
-  assert(not var(inner, "x").captures[1].after, "the assignment is outside the loop")
+  assert(not capture(inner, "x", 1).after, "the assignment is outside the loop")
   local repeated = scope("local x = 1\nrepeat\n  x = 2\n  local f = function() return x end\n  print(f)\nuntil x")
-  assert(var(repeated, "x").captures[1].after)
+  assert(capture(repeated, "x", 1).after)
 end
 
 local function test_a_function_inside_a_function_captures_through_the_outer_one()
@@ -437,13 +452,14 @@ local function test_a_function_inside_a_function_captures_through_the_outer_one(
   local x = var(case, "x")
   assert(#x.captures == 1 and #x.captures[1].uses == 2 and x.captures[1].after)
   local two = scope("local x = 1\nlocal function f() return x end\nlocal function g() return x end\nprint(f, g)")
-  assert(#var(two, "x").captures == 2 and var(two, "x").captures[1].fn ~= var(two, "x").captures[2].fn)
+  assert(#var(two, "x").captures == 2 and capture(two, "x", 1).fn ~= capture(two, "x", 2).fn)
 end
 
 local function test_a_copy_of_a_name_is_recorded()
   local case = scope("local x = 1\nlocal x = x\nlocal y = x\nprint(y)")
   assert(var(case, "x", 2).copies == var(case, "x", 1).id and var(case, "y").copies == nil)
-  assert(scope("local print = print").scoped.list[1].copies == nil)
+  local printed = scope("local print = print").scoped.list[1]
+  assert(printed ~= nil and printed.copies == nil)
 end
 
 local function test_the_refused_colon_form_has_a_self()
@@ -456,8 +472,9 @@ local function test_a_declaration_file_declares_its_globals_including_those_in_a
     "global arg: string"
   local parsed = Parser.parse(Lexer.lex(source, "d.d.tl"), "d.d.tl", "decl")
   local declared = Scopes.declared(parsed.chunk)
-  assert(declared["io"] ~= nil and declared["io"].space == "both" and not declared["io"].const)
-  assert(declared["print"] ~= nil and declared["print"].const and declared["arg"] ~= nil)
+  local io, printed = declared["io"], declared["print"]
+  assert(io ~= nil and io.space == "both" and not io.const)
+  assert(printed ~= nil and printed.const and declared["arg"] ~= nil)
   assert(declared["Hidden"] == nil)
 end
 
@@ -523,7 +540,7 @@ local function test_a_function_in_an_assignment_target_does_not_hide_the_assignm
   local source = "local x = 0\nlocal t = {}\nt[function() local y = 1 y = 2 end], x, t[2] = 1, 2, function() return x end"
   local case = scope(source)
   assert(case.scoped.errors[1] == nil)
-  assert(#var(case, "x").captures == 1 and var(case, "x").captures[1].after)
+  assert(#var(case, "x").captures == 1 and capture(case, "x", 1).after)
 end
 
 local function test_a_type_of_a_signature_is_declared_outside_the_function_not_among_its_locals()

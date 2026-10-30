@@ -17,8 +17,24 @@ local function world(): World
   return { store = store, fixture = Programs.fixture(store) }
 end
 
+--- The declaration the fixture makes under `name`.
+local function declared(w: World, name: string): Types.Decl
+  local decl = assert(w.fixture.decls[name], "the fixture declares " .. name)
+  return decl
+end
+
 local function named(w: World, name: string, args?: {Types.Type}): Types.Type
-  return w.store:named(w.fixture.decls[name], args)
+  return w.store:named(declared(w, name), args)
+end
+
+--- `list` back to front.
+local function reversed_copy(list: {Types.Type}): {Types.Type}
+  local out: mut {Types.Type} = {}
+  for i = #list, 1, -1 do
+    local item = assert(list[i], "`i` is within the list")
+    out[#out + 1] = item
+  end
+  return out
 end
 
 local function shown(t: Types.Type): string
@@ -110,10 +126,7 @@ local function test_a_union_displays_in_the_order_that_reads_best_whatever_the_o
   local s = w.store
   local members = { named(w, "Node"), s.string, s:array(s.integer), s.integer, s:atom("true") }
   same(shown(s:union(members)), "integer | string | true | Node | {integer}")
-  local reversed: mut {Types.Type} = {}
-  for i = #members, 1, -1 do
-    reversed[#reversed + 1] = members[i]
-  end
+  local reversed = reversed_copy(members)
   same(shown(s:union(reversed)), "integer | string | true | Node | {integer}")
 end
 
@@ -403,11 +416,7 @@ local function test_a_union_is_the_same_whatever_the_order_it_is_made_in_and_the
       s:atom("nil"), s:map(s.string, s.number), named(w, "Color") }
   end
   local first = Types.encode(a.store:union(members(a)))
-  local reversed = members(b)
-  local flipped: mut {Types.Type} = {}
-  for i = #reversed, 1, -1 do
-    flipped[#flipped + 1] = reversed[i]
-  end
+  local flipped = reversed_copy(members(b))
   same(Types.encode(b.store:union(flipped)), first)
 end
 
@@ -430,14 +439,16 @@ local function test_an_alternative_with_never_in_it_is_no_list()
   assert(s:fn({ rets = { { items = { s.never } }, { items = { s.string } } } }) == s:fn({ rets = { { items = { s.string } } } }))
   assert(s:fn({ rets = { { items = { s.string }, tail = s.never } } }) == s:fn({ rets = { { items = { s.string } } } }))
   assert(s:fn({}) ~= never_returns, "a function with no return annotation answers nothing and does return")
-  assert(#a_fn(s:fn({})).rets == 1 and #a_fn(s:fn({})).rets[1].items == 0)
+  local answers = a_fn(s:fn({})).rets
+  local only = answers[1]
+  assert(#answers == 1 and only ~= nil and #only.items == 0)
 end
 
 local function test_an_omittable_parameter_is_typed_optional_inside()
   local s = Types.new()
   local f = s:fn({ params = { { type = s.string, omittable = true } } })
   local param = a_fn(f).params[1]
-  assert(param.omittable and param.type == s:optional(s.string))
+  assert(param ~= nil and param.omittable == true and param.type == s:optional(s.string))
   assert(f == s:fn({ params = { { type = s:optional(s.string), omittable = true } } }))
   assert(f ~= s:fn({ params = { { type = s:optional(s.string) } } }), "string? is required, name?: string is not")
 end
@@ -446,9 +457,10 @@ local function test_a_narrowing_declaration_answers_a_boolean_or_nothing()
   local s = Types.new()
   local is_string = s:fn({ params = { { type = s.any } }, rets = { { items = { s.integer }, narrows = { param = 1, to = s.string, asserts = false } } } })
   local alt = a_fn(is_string).rets[1]
-  assert(#alt.items == 1 and alt.items[1] == s.boolean, "the store fills the value list in")
+  assert(alt ~= nil and #alt.items == 1 and alt.items[1] == s.boolean, "the store fills the value list in")
   local asserts_string = s:fn({ params = { { type = s.any } }, rets = { { items = {}, narrows = { param = 1, to = s.string, asserts = true } } } })
-  assert(#a_fn(asserts_string).rets[1].items == 0)
+  local asserting = a_fn(asserts_string).rets[1]
+  assert(asserting ~= nil and #asserting.items == 0)
   assert(is_string ~= asserts_string)
   assert(raises(function()
     local _ = s:fn({ rets = { { items = {}, narrows = { param = 0, to = s.string, asserts = true } } } })
@@ -514,12 +526,15 @@ local function test_a_recursive_declaration_is_a_type_like_any_other()
   local w = world()
   local s = w.store
   local node = named(w, "Node")
-  local body = w.fixture.decls["Node"].body
+  local body = declared(w, "Node").body
   assert(body ~= nil and body.array == node)
-  assert(body.fields[2].type == s:optional(node) and body.fields[2].omittable)
+  local next_field = body.fields[2]
+  assert(next_field ~= nil and next_field.type == s:optional(node) and next_field.omittable == true)
   assert(s:array(node) == s:array(named(w, "Node")))
-  local tree, forest = w.fixture.decls["Tree"].body, w.fixture.decls["Forest"].body
-  assert(tree ~= nil and forest ~= nil and tree.fields[1].type == named(w, "Forest") and forest.array == named(w, "Tree"))
+  local tree, forest = declared(w, "Tree").body, declared(w, "Forest").body
+  assert(tree ~= nil and forest ~= nil, "Tree and Forest are defined")
+  local kids = tree.fields[1]
+  assert(kids ~= nil and kids.type == named(w, "Forest") and forest.array == named(w, "Tree"))
 end
 
 -- text --------------------------------------------------------------------------------------
@@ -610,7 +625,7 @@ local function test_a_declaration_used_as_a_value_is_a_type_of_its_own_in_text_a
   local w = world()
   local s = w.store
   local second = Types.new(loading_from(s))
-  local decl = w.fixture.decls["File"]
+  local decl = declared(w, "File")
   local instance, value = s:named(decl), s:named(decl, {}, true)
   assert(instance ~= value and (value.tag == "named") and value.value and (instance.tag == "named") and not instance.value)
   assert(s:named(decl, {}, true) == value and s:named(decl, nil, false) == instance, "each is interned")
@@ -676,20 +691,20 @@ local function test_a_declaration_has_text_that_decodes_to_the_same_declaration(
   local w = world()
   local second = Types.new(loading_from(w.store))
   for _, name in ipairs({ "Node", "Tree", "Forest", "List", "Pair", "Stream.Reader", "File", "Color", "Handle" }) do
-    local decl = w.fixture.decls[name]
+    local decl = declared(w, name)
     local text = Types.encode_declaration(decl)
     local there, why = second:decode_declaration(text)
     assert(there ~= nil, name .. ": " .. why)
     same(Types.encode_declaration(there), text)
     assert(second:decode_declaration(text) == there, "a declaration the store has is returned as it is")
   end
-  same(Types.encode_declaration(w.fixture.decls["Color"]),
+  same(Types.encode_declaration(declared(w, "Color")),
     '(decl enum "m" "Color" (tparams) (supers) (fields) (elements) (methods) (values "red" "green" "blue"))')
-  local node = Types.encode_declaration(w.fixture.decls["Node"])
+  local node = Types.encode_declaration(declared(w, "Node"))
   assert(node:find('(field "next" (opt (union (ref "m" "Node") nil)))', 1, true) ~= nil, node)
   assert(node:find('(elements (ref "m" "Node"))', 1, true) ~= nil, node)
-  assert(Types.encode_declaration(w.fixture.decls["List"]):find('(tparam "T")', 1, true) ~= nil)
-  assert(Types.encode_declaration(w.fixture.decls["File"]):find('(field "open" mut boolean)', 1, true) ~= nil)
+  assert(Types.encode_declaration(declared(w, "List")):find('(tparam "T")', 1, true) ~= nil)
+  assert(Types.encode_declaration(declared(w, "File")):find('(field "open" mut boolean)', 1, true) ~= nil)
 end
 
 local function test_a_declaration_without_a_body_has_no_text()
@@ -813,12 +828,12 @@ end
 local function test_a_declaration_text_for_a_declaration_the_store_has_must_be_its_body()
   local w = world()
   local s = w.store
-  local color = Types.encode_declaration(w.fixture.decls["Color"])
-  assert(s:decode_declaration(color) == w.fixture.decls["Color"])
+  local color = Types.encode_declaration(declared(w, "Color"))
+  assert(s:decode_declaration(color) == declared(w, "Color"))
   local changed = color:gsub('"blue"', '"violet"')
   local d, why = s:decode_declaration(changed)
   assert(d == nil and why:find("differs", 1, true) ~= nil, why)
-  local held = w.fixture.decls["Color"].body
+  local held = declared(w, "Color").body
   assert(held ~= nil and held.values[3] == "blue", "the declaration is as it was")
   local trailing, reason = s:decode_declaration(color .. " (x)")
   assert(trailing == nil and reason:find("follows", 1, true) ~= nil, reason)
@@ -917,7 +932,8 @@ local function test_a_body_of_strings_that_are_not_utf_8_has_text_that_decodes_t
     if decl == e then
       assert(body.values[1] == "\255" and body.values[3] == "\xc3\x28" and body.values[4] == 'a"b')
     else
-      assert(body.fields[1].name == "\255" and body.fields[2].name == "foo-bar")
+      local first, last = body.fields[1], body.fields[2]
+      assert(first ~= nil and last ~= nil and first.name == "\255" and last.name == "foo-bar")
     end
   end
 end
@@ -1067,17 +1083,20 @@ local function test_a_refused_decode_gives_back_the_uses_a_loader_settled()
   local wide: mut {Types.Decl} = {}
   local s = Types.new(function(_module: string, _name: string): string?
     -- The loader re-enters the store, and the decode it serves is refused after it.
-    holder[1]:define(wide[1], { tparams = { { name = "T" } }, supers = {}, fields = {}, methods = {}, values = {} })
+    local inside, outer = holder[1], wide[1]
+    assert(inside ~= nil and outer ~= nil, "the loader runs once the store and the declaration are held")
+    inside:define(outer, { tparams = { { name = "T" } }, supers = {}, fields = {}, methods = {}, values = {} })
     return nil
   end)
   holder[1] = s
-  wide[1] = s:declare("record", "m", { "Wide" })
-  local _ = s:named(wide[1], { s.integer })
+  local made = s:declare("record", "m", { "Wide" })
+  wide[1] = made
+  local _ = s:named(made, { s.integer })
   local t, why = s:decode('(ref "m" "Gone")')
   assert(t == nil and why:find("no declaration", 1, true) ~= nil, why)
-  assert(wide[1].body == nil and wide[1].arity == nil, "the declaration is as it was")
+  assert(made.body == nil and made.arity == nil, "the declaration is as it was")
   assert(raises(function()
-    s:define(wide[1], { tparams = { { name = "A" }, { name = "B" } }, supers = {}, fields = {}, methods = {}, values = {} })
+    s:define(made, { tparams = { { name = "A" }, { name = "B" } }, supers = {}, fields = {}, methods = {}, values = {} })
   end, "takes 2 type arguments, not 1"), "and its use is still checked")
 end
 
@@ -1087,6 +1106,7 @@ local function test_what_a_loader_made_in_a_refused_decode_is_dead_and_its_id_is
   local decls: mut {Types.Decl} = {}
   local s = Types.new(function(_module: string, _name: string): string?
     local inside = holder[1]
+    assert(inside ~= nil, "the loader runs once the store is held")
     kept[1] = inside:map(inside.string, inside.integer)
     decls[1] = inside:declare("record", "m", { "Kept" })
     return nil
@@ -1096,11 +1116,13 @@ local function test_what_a_loader_made_in_a_refused_decode_is_dead_and_its_id_is
   assert(s:decode('(ref "m" "Gone")') == nil)
   assert(s:size() == size)
   local fresh = s:array(s.number)
-  assert(fresh.id == kept[1].id and fresh ~= kept[1], "the id is the next type's")
-  assert(raises(function() local _ = s:optional(kept[1]) end, "took back"))
-  assert(raises(function() local _ = s:named(decls[1]) end, "another store"))
+  local kept_type, kept_decl = kept[1], decls[1]
+  assert(kept_type ~= nil and kept_decl ~= nil, "the loader made a type and a declaration")
+  assert(fresh.id == kept_type.id and fresh ~= kept_type, "the id is the next type's")
+  assert(raises(function() local _ = s:optional(kept_type) end, "took back"))
+  assert(raises(function() local _ = s:named(kept_decl) end, "another store"))
   assert(s:find("m", "Kept") == nil)
-  assert(s:map(s.string, s.integer) ~= kept[1], "and the type is made again")
+  assert(s:map(s.string, s.integer) ~= kept_type, "and the type is made again")
 end
 
 local function test_a_type_parameter_does_not_take_the_first_name_of_a_dotted_declaration()
