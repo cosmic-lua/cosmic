@@ -1587,11 +1587,10 @@ local function declare_all(ctx: Ctx)
   local places: mut {Place} = { { names = {}, module = ctx.module, top = true } }
   local top = 1
   local kids = ctx.kids
-  -- TODO: hold this in a `Cell<integer>` once ci/cosmic-driver.pin names a release whose store holds cosmic.cell: the boot compiler loads this module from the pinned seed, which lacks it, and `bin/zig build boot` fails with "module 'cosmic.cell' not found".
-  local held = { count = 0 }
+  local held = 0
   local function collect(child: Ast.Node)
-    held.count = held.count + 1
-    kids[held.count] = child
+    held = held + 1
+    kids[held] = child
   end
   while top > 0 do
     local node, place = assert(nodes[top]), assert(places[top])
@@ -1618,9 +1617,9 @@ local function declare_all(ctx: Ctx)
       if not transparent then
         below = { names = {}, module = "", top = false }
       end
-      held.count = 0
+      held = 0
       Ast.children(node, collect)
-      for i = held.count, 1, -1 do
+      for i = held, 1, -1 do
         top = top + 1
         nodes[top], places[top] = kids[i], below
       end
@@ -2889,11 +2888,10 @@ local function walk(ctx: Ctx)
   local leaves: mut {boolean} = { false }
   local top = 1
   local kids = ctx.kids
-  -- TODO: hold this in a `Cell<integer>` once ci/cosmic-driver.pin names a release whose store holds cosmic.cell: the boot compiler loads this module from the pinned seed, which lacks it, and `bin/zig build boot` fails with "module 'cosmic.cell' not found".
-  local held = { count = 0 }
+  local held = 0
   local function collect(child: Ast.Node)
-    held.count = held.count + 1
-    kids[held.count] = child
+    held = held + 1
+    kids[held] = child
   end
   while top > 0 do
     local node, leaving = nodes[top], leaves[top]
@@ -2913,9 +2911,9 @@ local function walk(ctx: Ctx)
           nodes[top], leaves[top] = given[i], false
         end
       else
-        held.count = 0
+        held = 0
         Ast.children(node, collect)
-        for i = held.count, 1, -1 do
+        for i = held, 1, -1 do
           top = top + 1
           nodes[top], leaves[top] = kids[i], false
         end
