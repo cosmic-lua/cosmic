@@ -566,14 +566,12 @@ local function resolve_and_write(db: Sqlite.Handle, pending: link_index.Pending,
   local index: symbol_index.Index = indexed
   -- The library is read the first time a link the projection's own
   -- symbols do not settle asks for one.
-  local waiting: mut {link_index.Library} = {}
-  waiting[1] = pending.library
+  local waiting: mut {link_index.Library} = { pending.library }
   local function ready(): boolean, string
-    local adding = waiting[1]
+    local adding = table.remove(waiting)
     if adding == nil then
       return true, ""
     end
-    waiting[1] = nil
     return add_library(index, held, adding)
   end
   -- A member of a module the projection holds is one of its own rows

@@ -23,7 +23,7 @@ end
 --- standard input.
 local function run(words: {string}, stdin?: string): Ran
   local argv: mut {string} = { "codec" }
-  for index, word in ipairs(words) do argv[index + 1] = word end
+  for _, word in ipairs(words) do argv[#argv + 1] = word end
   local ran: Ran = { code = -1, out = "", err = "" }
   ran.code = codec.run(argv, {
     out = function(text: string): boolean, string
@@ -171,7 +171,7 @@ local function test_a_failed_write_exits_2_and_says_so()
   for _, words in ipairs({ { "hex" }, { "base64", "-d" } } as {{string}}) do
     local complaints = { value = "" }
     local argv: mut {string} = { "codec" }
-    for index, word in ipairs(words) do argv[index + 1] = word end
+    for _, word in ipairs(words) do argv[#argv + 1] = word end
     local code = codec.run(argv, {
       out = function(_: string): boolean, string return false, "No space left on device" end,
       err = function(line: string) complaints.value = complaints.value .. line .. "\n" end,
@@ -210,7 +210,7 @@ local function stream(words: {string}, chunk: string, rounds: integer, expect: s
   local same = { value = true }
   local repeated = expect:rep(2)
   local argv: mut {string} = { "codec" }
-  for index, word in ipairs(words) do argv[index + 1] = word end
+  for _, word in ipairs(words) do argv[#argv + 1] = word end
   local code = codec.run(argv, {
     input = function(): Stream.Reader?, string return input, "" end,
     out = function(text: string): boolean, string
@@ -289,7 +289,7 @@ end
 
 local function run_trickled(words: {string}, text: string): Ran
   local argv: mut {string} = { "codec" }
-  for index, word in ipairs(words) do argv[index + 1] = word end
+  for _, word in ipairs(words) do argv[#argv + 1] = word end
   local ran: Ran = { code = -1, out = "", err = "" }
   ran.code = codec.run(argv, {
     input = function(): Stream.Reader?, string return trickle(text), "" end,

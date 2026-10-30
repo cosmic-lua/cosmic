@@ -692,7 +692,7 @@ build/fix/near_test.tl nil_not_allowed 3
 
 build/fix/notes_test.tl nil_not_allowed 1
 
-build/flow.tl nil_not_allowed 29
+build/flow.tl nil_not_allowed 21
 
 build/flow_test.tl nil_not_allowed 2
 
@@ -746,11 +746,11 @@ build/key_parts_test.tl nil_not_allowed 1
 
 build/link_files.tl nil_not_allowed 7
 
-build/link_index.tl nil_not_allowed 7
+build/link_index.tl nil_not_allowed 6
 
 build/link_resolve.tl nil_not_allowed 17
 
-build/link_text.tl nil_not_allowed 16
+build/link_text.tl nil_not_allowed 14
 
 build/link_text_fuzz_test.tl nil_not_allowed 2
 
@@ -876,7 +876,7 @@ build/syntax_match.tl nil_not_allowed 5
 
 build/syntax_match_test.tl nil_not_allowed 4
 
-build/syntax_node.tl nil_not_allowed 6
+build/syntax_node.tl nil_not_allowed 3
 
 build/syntax_node_test.tl nil_not_allowed 3
 
@@ -930,7 +930,7 @@ build/test_skip_tool_test.tl nil_not_allowed 1
 
 build/test_test.tl nil_not_allowed 9
 
-build/test_worker.tl nil_not_allowed 28
+build/test_worker.tl nil_not_allowed 27
 
 build/test_worker_test.tl nil_not_allowed 12
 
@@ -1820,7 +1820,7 @@ build/todos.tl index_may_be_nil 3
 
 build/todos_git_test.tl index_may_be_nil 3
 
-build/todos_test.tl index_may_be_nil 2
+build/todos_test.tl index_may_be_nil 1
 
 build/tree_checks.tl index_may_be_nil 11
 
@@ -2143,7 +2143,7 @@ build/fix/init.tl view_written 6
 
 build/fix/near.tl view_written 2
 
-build/flow.tl view_written 7
+build/flow.tl view_written 4
 
 build/flow_test.tl view_written 2
 
@@ -7039,19 +7039,12 @@ lang/check_flow_fuzz_test.tl array_of_optional 1
 lang/declarations.tl array_of_optional 1
 
 # an index write that is not an append
-build/docs.tl array_hole 5
 
-build/flow.tl array_hole 6
 
-build/json_query_test.tl array_hole 1
 
-build/link_text.tl array_hole 6
 
-build/sandbox.tl array_hole 1
 
-build/test_worker.tl array_hole 7
 
-build/tree_checks.tl array_hole 1
 
 cosmic/child.tl array_hole 8
 
@@ -7464,115 +7457,69 @@ lang/recursive_alias_fuzz_test.tl index_may_be_nil 1
 lang/recursive_alias_test.tl alternatives_as_value 3
 
 
-build/archive_test.tl array_hole 1
 
-build/cache_test.tl array_hole 1
 
 build/ceilings.tl not_assignable 1
 
-build/closure_store.tl array_hole 1
 
-build/codec_test.tl array_hole 4
 
-build/compile_grammar_test.tl array_hole 3
 
-build/compile_test.tl array_hole 3
 
-build/confine.tl array_hole 1
 
-build/confine_tool_test.tl array_hole 1
 
-build/dataset.tl array_hole 5
 
-build/dataset_test.tl array_hole 5
 
-build/declared_key.tl array_hole 1
 
 build/declared_key.tl view_as_mut 1
 
-build/declared_key_test.tl array_hole 1
 
-build/dispatch.tl array_hole 3
 
-build/dispatched_features_test.tl array_hole 1
 
 build/docs.tl view_as_mut 3
 
-build/fix/near.tl array_hole 1
 
-build/fuzz/shrink_test.tl array_hole 1
 
-build/hash_test.tl array_hole 1
 
-build/host_features_test.tl array_hole 1
 
 build/host_features_test.tl view_as_mut 1
 
-build/invoke.tl array_hole 1
 
 build/json_query.tl view_as_mut 1
 
-build/json_test.tl array_hole 1
 
-build/link_files.tl array_hole 2
 
 build/link_files.tl view_as_mut 1
 
-build/link_index.tl array_hole 2
 
 build/lsp/graph.tl nil_not_allowed 1
 
-build/lsp/protocol.tl array_hole 1
 
 build/lsp/syntax_read.tl view_as_mut 1
 
-build/pipeline.tl array_hole 1
 
-build/rand.tl array_hole 1
 
-build/rand_test.tl array_hole 1
 
-build/release_test.tl array_hole 5
 
-build/sandbox_test.tl array_hole 3
 
-build/shared_compiles.tl array_hole 1
 
-build/sql.tl array_hole 6
 
-build/sql_store_test.tl array_hole 1
 
-build/sql_test.tl array_hole 1
 
 build/stand_in.tl nil_not_allowed 7
 
-build/stand_in_probe.tl array_hole 1
 
-build/standalone.tl array_hole 1
 
-build/symbols.tl array_hole 1
 
-build/syntax_analyzer.tl array_hole 2
 
-build/syntax_node.tl array_hole 2
 
-build/term_relay.tl array_hole 1
 
-build/test.tl array_hole 3
 
-build/test_sandbox.tl array_hole 1
 
-build/time.tl array_hole 1
 
-build/time_test.tl array_hole 1
 
-build/todos_test.tl array_hole 1
 
-build/tree_root.tl array_hole 1
 
-build/workflows_test.tl array_hole 1
 
-build/zig_test.tl array_hole 2
 
 core/artifact_fd_test.tl array_hole 2
 

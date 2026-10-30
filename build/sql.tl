@@ -321,7 +321,8 @@ local row_lines: Writer = {
   row = function(statement: Sqlite.Statement, width: integer): string?, string
     local cells: mut {string} = {}
     for index = 0, width - 1 do
-      cells[index + 1] = cell_text(statement, index)
+      local text = cell_text(statement, index)
+      cells[#cells + 1] = text
     end
     return table.concat(cells, "\t"), ""
   end,
@@ -352,11 +353,13 @@ local csv_writer: Writer = {
     for index = 0, width - 1 do
       local kind = statement:kind(index)
       if kind == "null" then
-        fields[index + 1] = ""
+        fields[#fields + 1] = ""
       elseif kind == "integer" or kind == "number" then
-        fields[index + 1] = cell_text(statement, index)
+        local text = cell_text(statement, index)
+        fields[#fields + 1] = text
       else
-        fields[index + 1] = csv_field(statement:bytes(index))
+        local text = csv_field(statement:bytes(index))
+        fields[#fields + 1] = text
       end
     end
     return table.concat(fields, ","), ""
@@ -432,7 +435,7 @@ local function ndjson_writer(): Writer
         if encoded == nil then
           return nil, "column " .. tostring((index + 1)) .. ": " .. trouble
         end
-        members[index + 1] = keys[index + 1] .. ":" .. encoded
+        members[#members + 1] = keys[index + 1] .. ":" .. encoded
       end
       return "{" .. table.concat(members, ",") .. "}", ""
     end,
@@ -472,7 +475,8 @@ local function stream(db: Sqlite.Handle, statement: string,
   local width = prepared:columns()
   local names: mut {string} = {}
   for index = 0, width - 1 do
-    names[index + 1] = prepared:name(index)
+    local name = prepared:name(index)
+    names[#names + 1] = name
   end
   if width > 0 then
     local header = write.header(names)

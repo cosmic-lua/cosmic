@@ -331,9 +331,11 @@ local record Check
   mut name: string
   mut n: integer
   labels: mut {string}
-  declared: mut {string}
-  kinds: mut {{string:boolean}}
-  integral: mut {boolean}
+  --- The declared kinds, the kinds as a set and whether the declaration names `integer` alone, by position: a position
+  --- declared `-` has none, so these are sparse.
+  declared: mut {integer: string}
+  kinds: mut {integer: {string:boolean}}
+  integral: mut {integer: boolean}
   -- The violations met at each position, by the value's kind and then the
   -- place that sent it, so a repeated one is found without building a key.
   memo: mut {{string:{string:worker.Violation}}}
@@ -409,8 +411,8 @@ local function parse_check(text: string): Check
       label = check.name
     end
     check.n = index
-    check.memo[index] = {}
-    check.labels[index] = label
+    check.memo[#check.memo + 1] = {}
+    check.labels[#check.labels + 1] = label
     if declared ~= "-" then
       local kinds: mut {string:boolean} = {}
       local integer, number = false, false
@@ -1090,12 +1092,13 @@ end
 --- `run_jobs`).
 function worker.invocation(given: worker.Invocation): worker.Command
   local argv: mut {string} = {}
-  for i, value in ipairs(given.start.argv) do argv[i] = value end
+  for _, value in ipairs(given.start.argv) do argv[#argv + 1] = value end
   local program = given.program
   -- A relaunch's argv is the core, `--artifact` and the artifact's path,
   -- which the worker's startup takes as it is given.
   if program ~= nil and argv[2] == "--artifact" and argv[3] ~= nil then
-    argv[3] = program
+    table.remove(argv, 3)
+    table.insert(argv, 3, program)
   end
   for _, value in ipairs({ "test", hold_flag[given.hold] or "--worker",
       given.root, given.module_path, given.name, given.scratch .. "/tmp",
@@ -1349,8 +1352,9 @@ function worker.run(argv: {string}): integer
         complain("test --worker: --runs needs a count")
         return 2
       end
-      runs = {}
-      for i = 1, count do runs[i] = argv[first + 1 + i] or "" end
+      local given: mut {string} = {}
+      for i = 1, count do given[#given + 1] = argv[first + 1 + i] or "" end
+      runs = given
       first = first + 2 + count
     end
   end

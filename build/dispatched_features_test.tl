@@ -192,7 +192,7 @@ local function asking(text: string): {string}
   for j in pairs(kept) do numbers[#numbers + 1] = j end
   table.sort(numbers)
   local found: mut {string} = {}
-  for i, j in ipairs(numbers) do found[i] = kept[j] end
+  for _, j in ipairs(numbers) do found[#found + 1] = kept[j] end
   return found
 end
 

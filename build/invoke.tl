@@ -97,7 +97,7 @@ function invoke.run(args: {string}, opts: invoke.Options): invoke.Result
         "modules into the process: start the binary instead", 2)
   end
   local argv: mut {string} = {}
-  for i, word in ipairs(args) do argv[i] = word end
+  for _, word in ipairs(args) do argv[#argv + 1] = word end
 
   local dir = assert(Fs.mkdtemp("cosmic-invoke-"))
   local held: mut {integer} = {}

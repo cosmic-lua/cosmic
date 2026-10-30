@@ -294,7 +294,7 @@ function TermRelay.run(argv: {string}, opts: Child.Options, terminal?: Terminal)
   -- every process beside it: its mode is put back as found (`restoring`),
   -- and only a descriptor found blocking is touched.
   local outputs: mut {integer} = { shown }
-  if notes ~= nil and errors ~= shown then outputs[2] = errors end
+  if notes ~= nil and errors ~= shown then outputs[#outputs + 1] = errors end
   local found: mut {boolean} = {}
   for number, fd in ipairs(outputs) do
     local status, status_why = sys.fd_status(fd)

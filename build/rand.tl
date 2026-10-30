@@ -110,20 +110,22 @@ local NEGATIVE <const> = "\1"
 --- reads it as a word, not an option: `cosmic rand int -5 5` works
 --- without a `--`. An option's value is left alone.
 local function marked(argv: {string}): {string}
-  local out: mut {string} = {}
-  for key, word in ipairs(argv) do out[key] = word end
-  if argv[2] ~= "int" then return out end
-  local slot = 3
-  while argv[slot] ~= nil do
-    local word = argv[slot]
-    if word == "--" then break end
-    if word == "-n" or word == "--seed" then
+  local marked_at: mut {integer: string} = {}
+  if argv[2] == "int" then
+    local slot = 3
+    while argv[slot] ~= nil do
+      local word = argv[slot]
+      if word == "--" then break end
+      if word == "-n" or word == "--seed" then
+        slot = slot + 1
+      elseif word:match("^%-%d+$") then
+        marked_at[slot] = NEGATIVE .. word
+      end
       slot = slot + 1
-    elseif word:match("^%-%d+$") then
-      out[slot] = NEGATIVE .. word
     end
-    slot = slot + 1
   end
+  local out: mut {string} = {}
+  for key, word in ipairs(argv) do out[#out + 1] = marked_at[key] or word end
   return out
 end
 

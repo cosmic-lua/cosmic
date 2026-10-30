@@ -295,7 +295,7 @@ local function read_basis(whole: string): closure_store.Basis?, string
       if group[3] == "links" then linked = digests end
       if group[3] == "bound" then bound = digests end
       if group[3] == "decl_imports" then edges = digests end
-      by_file[#carried] = group[1] == "file"
+      by_file[#by_file + 1] = group[1] == "file"
     end
     local shared, shared_trouble = Sqlite.text_rows(db,
       "SELECT coalesce((SELECT group_concat(key || ' ' || lower(hex(value)), char(10) " ..

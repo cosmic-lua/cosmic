@@ -269,10 +269,11 @@ local function paragraph_ends(text: string, continues: {integer: boolean}): func
   for at in text:gmatch("()\n") do
     starts[#starts + 1] = at + 1
   end
-  local ends: mut {integer} = {}
+  -- The ends are laid from the last line back: `back[k]` is the end of line `#starts + 1 - k`.
+  local back: mut {integer} = {}
   local stop = #text + 1
   for number = #starts, 1, -1 do
-    ends[number] = stop
+    back[#back + 1] = stop
     if continues[number] ~= true then
       stop = starts[number] - 1
     end
@@ -283,7 +284,7 @@ local function paragraph_ends(text: string, continues: {integer: boolean}): func
       local mid = (low + high + 1) // 2
       if starts[mid] <= at then low = mid else high = mid - 1 end
     end
-    return ends[low]
+    return back[#starts + 1 - low]
   end
 end
 
@@ -443,8 +444,8 @@ local function visible_of(text: string): string, {integer: boolean}
       end
       continues[number] = continued and paragraph
       if not continued then
-        for index = #items, open + 1, -1 do
-          items[index] = nil
+        for _ = #items, open + 1, -1 do
+          items[#items] = nil
         end
         paragraph = false
         if column - base >= 4 then
@@ -749,11 +750,13 @@ function link_text.blocks_of(comments: {link_text.Comment}): {link_text.Block}
     local at = comment.starts or {}
     if #open.lines > 0 and comment.line == next_line - 1 then
       -- A second comment on the line the one before it ended on.
-      open.lines[#open.lines] = open.lines[#open.lines] .. " " .. lines[1]
-      open.starts[#open.lines] = 0
+      local last = assert(table.remove(open.lines))
+      open.lines[#open.lines + 1] = last .. " " .. lines[1]
+      table.remove(open.starts)
+      open.starts[#open.starts + 1] = 0
       for index = 2, #lines do
         open.lines[#open.lines + 1] = lines[index]
-        open.starts[#open.lines] = at[index] or 0
+        open.starts[#open.starts + 1] = at[index] or 0
       end
     else
       if comment.line ~= next_line then
@@ -762,7 +765,7 @@ function link_text.blocks_of(comments: {link_text.Comment}): {link_text.Block}
       end
       for index, line in ipairs(lines) do
         open.lines[#open.lines + 1] = line
-        open.starts[#open.lines] = at[index] or 0
+        open.starts[#open.starts + 1] = at[index] or 0
       end
     end
     next_line = comment.line + #lines
