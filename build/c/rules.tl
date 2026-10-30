@@ -262,8 +262,12 @@ local narrow: {string: boolean} = {
   ["unsigned char"] = true,
 }
 
+--- The name `decl` declares: the whole word right before its type's quote,
+--- so `f$` and `$g` are read as written. A function may be called `used`,
+--- the word clang prints before a name too, so the word is taken as it is.
+--- Nil when no word comes before the quote.
 local function name_of(decl: Node): string?
-  return decl.text:match("([%w_]+) '")
+  return decl.text:match("^(%S+) '") or decl.text:match("%s(%S+) '")
 end
 
 --- Visits `node` and everything under it, children first: the order an
@@ -955,8 +959,10 @@ local function functions(decls: {Node}): {Function}
         if child.kind == "ParmVarDecl" then params[#params + 1] = child end
         if child.kind == "CompoundStmt" then body = child end
       end
-      local name = name_of(decl)
-      if body ~= nil and name ~= nil then
+      -- A body whose name is not read is refused by [`rules.unreadable`],
+      -- never skipped; its rules still run under a placeholder.
+      local name = name_of(decl) or "<unnamed>"
+      if body ~= nil then
         local static, inline = storage(decl)
         local prototype: Node? = prototypes[name]
         if prototype == decl then prototype = nil end
@@ -1447,6 +1453,31 @@ function rules.single_file(units: {rules.Unit}): {rules.Finding}
     return a.line < b.line
   end)
   return out
+end
+
+--- Why `decls` cannot be checked: a function it defines whose name is not
+--- read from clang's dump, named by the declaration's place. Nil when every
+--- defined function has one.
+function rules.unreadable(decls: {Node}): string?
+  for _, decl in ipairs(decls) do
+    if decl.kind == "FunctionDecl" and name_of(decl) == nil then
+      for _, child in ipairs(decl.children) do
+        if child.kind == "CompoundStmt" then
+          local at = tree.placed(decl)
+          local where = "?"
+          local line = 0
+          if at ~= nil then
+            where = at.file or "?"
+            line = at.line or 0
+          end
+          return "a function is defined at " .. where .. ":" ..
+            tostring(line) .. " whose name is not read from clang's dump: " ..
+            decl.text
+        end
+      end
+    end
+  end
+  return nil
 end
 
 --- Every finding in `decls`, a translation unit's own declarations, that

@@ -387,6 +387,8 @@ local function outcome(root: string, file: string, result: Child.Result?, troubl
         ", the most that is read of one" }, nil
   end
   local decls = tree.parse(tostring(result.stdout or ""), root)
+  local unreadable = rules.unreadable(decls)
+  if unreadable ~= nil then return { file = file, trouble = unreadable }, nil end
   return { file = file, findings = rules.check(decls, file, declared) },
     rules.unit(decls, file, declared)
 end
