@@ -61,7 +61,7 @@ local function test_a_program_of_the_grammar_parses_with_no_error_and_the_same_t
         local alone = parse(input:sub(Lexer.offset(tokens, from), Lexer.stop(tokens, to) - 1), "tl")
         local one = alone.chunk.body.stats[1]
         if #alone.errors > 0 or #alone.chunk.body.stats ~= 1 or one == nil or Dump.dump(one) ~= Dump.dump(stat) then
-          return false, "the statement at " .. tokens.y[from] .. ":" .. tostring(Lexer.x(tokens, from)) .. " differs when parsed alone"
+          return false, "the statement at " .. tostring(assert(tokens.y[from])) .. ":" .. tostring(Lexer.x(tokens, from)) .. " differs when parsed alone"
         end
       end
       local second = parse("local z = 1", "tl")

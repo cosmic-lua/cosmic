@@ -59,14 +59,14 @@ local function walk(node: Ast.Node, parent: Ast.Node, state: Walk)
     state.problem = at .. " is not within its parent, " .. parent.kind .. " at tokens " .. tostring(parent.first) .. " to " .. tostring(parent.last)
     return
   end
-  local previous: {integer} = { parent.first - 1 }
+  local previous_end = parent.first - 1
   Ast.children(node, function(child: Ast.Node)
     local c = base_of(child)
-    if c.first <= previous[1] and state.problem == "" then
+    if c.first <= previous_end and state.problem == "" then
       state.problem = at .. " has a child, " .. child.kind .. " at tokens " .. tostring(c.first) .. " to " .. tostring(c.last) .. ", that begins before its elder sibling ends"
     end
     walk(child, node, state)
-    previous[1] = math.max(previous[1], c.last)
+    previous_end = math.max(previous_end, c.last)
   end)
   if (node.kind == "Block") then
     local expected = node.first
