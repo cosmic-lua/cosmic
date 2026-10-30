@@ -1044,7 +1044,7 @@ cosmic/archive_test.tl nil_not_allowed 28
 
 cosmic/channel.tl nil_not_allowed 1
 
-cosmic/child.tl nil_not_allowed 67
+cosmic/child.tl nil_not_allowed 66
 
 cosmic/child_drain_test.tl nil_not_allowed 1
 
@@ -1104,7 +1104,7 @@ cosmic/fs_append_tool_test.tl nil_not_allowed 1
 
 cosmic/fs_test.tl nil_not_allowed 2
 
-cosmic/hash_test.tl nil_not_allowed 16
+cosmic/hash_test.tl nil_not_allowed 15
 
 cosmic/html_fuzz_test.tl nil_not_allowed 1
 
@@ -1164,7 +1164,7 @@ cosmic/internal/relay_server_test.tl nil_not_allowed 13
 
 cosmic/internal/relay_start.tl nil_not_allowed 7
 
-cosmic/internal/relay_start_test.tl nil_not_allowed 3
+cosmic/internal/relay_start_test.tl nil_not_allowed 2
 
 cosmic/internal/relay_token_fuzz_test.tl nil_not_allowed 1
 
@@ -1212,7 +1212,7 @@ cosmic/policy.tl nil_not_allowed 1
 
 cosmic/policy_test.tl nil_not_allowed 3
 
-cosmic/poll.tl nil_not_allowed 34
+cosmic/poll.tl nil_not_allowed 33
 
 cosmic/poll_test.tl nil_not_allowed 18
 
@@ -1254,7 +1254,7 @@ cosmic/shape_test.tl nil_not_allowed 1
 
 cosmic/sqlite.tl nil_not_allowed 6
 
-cosmic/store.tl nil_not_allowed 14
+cosmic/store.tl nil_not_allowed 13
 
 cosmic/store_handles_test.tl nil_not_allowed 4
 
@@ -1901,13 +1901,11 @@ core/syscalls_relay_test.tl index_may_be_nil 8
 
 core/syscalls_test.tl index_may_be_nil 4
 
-cosmic/archive.tl index_may_be_nil 1
-
 cosmic/archive_fuzz_test.tl index_may_be_nil 7
 
 cosmic/archive_test.tl index_may_be_nil 1
 
-cosmic/child.tl index_may_be_nil 23
+cosmic/child.tl index_may_be_nil 21
 
 cosmic/child_lua_strays_test.tl index_may_be_nil 1
 
@@ -1917,13 +1915,11 @@ cosmic/child_relay_seatbelt_test.tl index_may_be_nil 2
 
 cosmic/child_seatbelt_database_test.tl index_may_be_nil 1
 
-cosmic/codec.tl index_may_be_nil 5
-
 cosmic/codec_test.tl index_may_be_nil 9
 
 cosmic/compress_test.tl index_may_be_nil 1
 
-cosmic/csv.tl index_may_be_nil 7
+cosmic/csv.tl index_may_be_nil 6
 
 cosmic/csv_fuzz_test.tl index_may_be_nil 6
 
@@ -1934,8 +1930,6 @@ cosmic/flags.tl index_may_be_nil 2
 cosmic/fs_test.tl index_may_be_nil 4
 
 cosmic/hash_test.tl index_may_be_nil 5
-
-cosmic/html_fuzz_test.tl index_may_be_nil 1
 
 cosmic/html_test.tl index_may_be_nil 1
 
@@ -1971,13 +1965,11 @@ cosmic/internal/relay_wire_test.tl index_may_be_nil 5
 
 cosmic/json.tl index_may_be_nil 2
 
-cosmic/json_fuzz_test.tl index_may_be_nil 6
+cosmic/json_fuzz_test.tl index_may_be_nil 5
 
 cosmic/json_path_test.tl index_may_be_nil 2
 
 cosmic/json_reader_test.tl index_may_be_nil 2
-
-cosmic/json_test.tl index_may_be_nil 1
 
 cosmic/net_connector_test.tl index_may_be_nil 4
 
@@ -2045,7 +2037,7 @@ cosmic/template_test.tl index_may_be_nil 12
 
 cosmic/test_policy_test.tl index_may_be_nil 7
 
-cosmic/time.tl index_may_be_nil 7
+cosmic/time.tl index_may_be_nil 6
 
 cosmic/time_tzif_fuzz_test.tl index_may_be_nil 4
 
@@ -2332,7 +2324,7 @@ cosmic/net_connector_test.tl view_written 1
 
 cosmic/net_serve_test.tl view_written 2
 
-cosmic/poll.tl view_written 19
+cosmic/poll.tl view_written 16
 
 cosmic/poll_test.tl view_written 1
 
@@ -2472,8 +2464,6 @@ cosmic/internal/relay_server_test.tl view_as_mut 2
 cosmic/json_path_fuzz_test.tl view_as_mut 2
 
 cosmic/net_resolve_through_test.tl view_as_mut 3
-
-cosmic/poll.tl view_as_mut 4
 
 cosmic/poll_test.tl view_as_mut 3
 
@@ -5989,7 +5979,7 @@ cosmic/template_html5lib_tree_test.tl and_ternary 2
 
 cosmic/test.tl and_ternary 2
 
-cosmic/time.tl and_ternary 14
+cosmic/time.tl and_ternary 13
 
 cosmic/time_posix_fuzz_test.tl and_ternary 1
 
