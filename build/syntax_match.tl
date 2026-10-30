@@ -246,8 +246,8 @@ local function match_list(st: State, pl: {any}, nl: {any}, depth: integer): bool
     end
     local first, last = 0, -1
     if #taken > 0 then
-      first = Node.base(assert(taken[1], "taken is not empty")).first
-      last = Node.base(assert(taken[#taken], "taken is not empty")).last
+      first = Node.base((assert(taken[1], "taken is not empty"))).first
+      last = Node.base((assert(taken[#taken], "taken is not empty"))).last
     end
     local held = st.caps[rest]
     if held ~= nil then
