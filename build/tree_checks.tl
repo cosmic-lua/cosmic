@@ -105,7 +105,7 @@ allowed["cosmic.http.minimal_roots"] = "public API: the roots `opts.roots = \"mi
   "program to read or start a list of its own from"
 
 allowed["cosmic.json.to_array"] = "public API: a decoded array as typed data, as `Json.to_object` is for an object, for a " ..
-  "program that reads a list from decoded JSON; the tree's own readers arrive with the typed producers"
+  "program that reads a list from decoded JSON"
 
 local function allow(names: {string}, why: string)
   for _, name in ipairs(names) do

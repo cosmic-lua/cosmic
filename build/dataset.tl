@@ -157,6 +157,9 @@ local function row_of(element: any): dataset.Row?, string
   return { value = value }, ""
 end
 
+--- The elements of an array, as [`Json.select`] finds them.
+local ELEMENTS <const> = assert(Json.query("$[*]"))
+
 --- The rows of a JSON value: each element of an array is a row as
 --- [`row_of`] makes it; a value that is not an array is one row. Each
 --- element is copied once, and the array not at all. When one is none JSON
@@ -165,22 +168,20 @@ end
 local function rows_of(value: any): dataset.Rows?, string
   local rows: dataset.Rows = {}
   if Json.is_array(value) then
-    -- A decoded array, with its `null`s kept as [`Json.null`], has no holes: the first
-    -- missing position is its end.
-    local index = 1
-    while true do
-      local element, _ = Json.get(value, { index })
-      if element == nil then
-        return rows, ""
-      end
-      local row, _ = row_of(element)
-      if row == nil then
-        local _, why = Json.to_value(value)
-        return nil, why
+    local found, why = Json.select(value, ELEMENTS)
+    if found == nil then
+      return nil, why
+    end
+    for index, hit in ipairs(found) do
+      local row, _ = row_of(hit.value)
+      -- A step that is not the position counted is a hole before it.
+      if row == nil or hit.steps[1] ~= index then
+        local _, trouble = Json.to_array(value)
+        return nil, trouble
       end
       rows[index] = row
-      index = index + 1
     end
+    return rows, ""
   end
   local row, why = row_of(value)
   if row == nil then

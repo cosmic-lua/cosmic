@@ -777,36 +777,48 @@ end
 local record Check
 end
 
+--- How many levels of tables `v` holds, as `heights` has it: 0 for what is no table.
+local function height_of(v: any, heights: {string: integer}): integer
+  if type(v) ~= "table" then return 0 end
+  return heights[("%p"):format(v)] or 0
+end
+
 --- The elements of the array `v`, whose members are `m`, checked, and "".
 function Check.items(v: any, m: Json.Members, pointer: string, depth: integer, active: mut {string: boolean},
-                     done: mut {string: Json.Value}, depths: mut {string: integer}): {Json.Value}?, string
+                     done: mut {string: Json.Value}, heights: mut {string: integer}): {Json.Value}?, string
   local t = table_of(v)
   if t == nil then return refuse("the value at " .. at_pointer(pointer) .. " is not a table") end
   local items: mut {Json.Value} = {}
+  local below = 0
   for i = 1, m.extent do
-    local item, why = Check.value(t[i], pointer .. "/" .. tostring(i - 1), depth + 1, active, done, depths)
+    local item, why = Check.value(t[i], pointer .. "/" .. tostring(i - 1), depth + 1, active, done, heights)
     if item == nil then return nil, why end
     items[i] = item
+    below = math.max(below, height_of(t[i], heights))
   end
+  heights[("%p"):format(t)] = below + 1
   return Json.array(items), ""
 end
 
 --- The object `v`, whose members are `m`, checked, and "".
 function Check.members(v: any, m: Json.Members, pointer: string, depth: integer, active: mut {string: boolean},
-                       done: mut {string: Json.Value}, depths: mut {string: integer}): {string: Json.Value}?, string
+                       done: mut {string: Json.Value}, heights: mut {string: integer}): {string: Json.Value}?, string
   local t = table_of(v)
   if t == nil then return refuse("the value at " .. at_pointer(pointer) .. " is not a table") end
   local members: mut {string: Json.Value} = {}
+  local below = 0
   for _, key in ipairs(m.keys) do
     if key is string then
       if utf8.len(key) == nil then
         return refuse("a name at " .. at_pointer(pointer) .. " is not UTF-8")
       end
-      local member, why = Check.value(t[key], pointer .. "/" .. pointer_segment(key), depth + 1, active, done, depths)
+      local member, why = Check.value(t[key], pointer .. "/" .. pointer_segment(key), depth + 1, active, done, heights)
       if member == nil then return nil, why end
       members[key] = member
+      below = math.max(below, height_of(t[key], heights))
     end
   end
+  heights[("%p"):format(t)] = below + 1
   return members, ""
 end
 
@@ -828,7 +840,7 @@ end
 --- `v` as a [`Json.Value`] with its parts checked, and "". nil and a
 --- message naming the first part that is none, by its JSON Pointer.
 function Check.value(v: any, pointer: string, depth: integer, active: mut {string: boolean},
-                     done: mut {string: Json.Value}, depths: mut {string: integer}): Json.Value?, string
+                     done: mut {string: Json.Value}, heights: mut {string: integer}): Json.Value?, string
   if v is string then
     if utf8.len(v) == nil then
       return refuse("the string at " .. at_pointer(pointer) .. " is not UTF-8")
@@ -850,11 +862,15 @@ function Check.value(v: any, pointer: string, depth: integer, active: mut {strin
   end
   -- A table is told apart by its address: a map cannot be keyed by a table.
   local id = ("%p"):format(t)
-  -- A copy made at `depth` or deeper stands at this one too: its parts nest no deeper than they did.
-  -- One made shallower is copied again from here, so nothing nests past the limit.
   local converted = done[id]
-  local made_at = depths[id]
-  if converted ~= nil and made_at ~= nil and made_at >= depth then return converted, "" end
+  if converted ~= nil then
+    -- A copy already made stands wherever the tables below it still nest within the limit from here.
+    local height = heights[id] or 1
+    if depth + height - 1 > Json.depth_limit then
+      return refuse(("nesting at %s is deeper than %d"):format(at_pointer(pointer), Json.depth_limit))
+    end
+    return converted, ""
+  end
   if active[id] == true then
     return refuse("the table at " .. at_pointer(pointer) .. " contains itself")
   end
@@ -864,14 +880,13 @@ function Check.value(v: any, pointer: string, depth: integer, active: mut {strin
   active[id] = true
   local result: Json.Value?
   if m.layout == "array" then
-    result, why = Check.items(v, m, pointer, depth, active, done, depths)
+    result, why = Check.items(v, m, pointer, depth, active, done, heights)
   else
-    result, why = Check.members(v, m, pointer, depth, active, done, depths)
+    result, why = Check.members(v, m, pointer, depth, active, done, heights)
   end
   if result == nil then return nil, why end
   active[id] = nil
   done[id] = result
-  depths[id] = depth
   return result, ""
 end
 
@@ -886,9 +901,10 @@ end
 --- a hole, a string that is not UTF-8, or nesting past [`Json.depth_limit`].
 --- A table that holds itself, however deep, is refused, naming the place it
 --- came back to; a table reached by two ways is copied once and the copy is
---- shared (unless it is reached again deeper than it was copied, when it is
---- copied again from there, so no copy nests past the limit), so a value of 40
---- levels that holds the one below it twice takes 40 steps, not 2^40. It copies the value; a Value read from it never changes `value`. A
+--- shared, so a value of 40 levels that holds the one below it twice takes 40
+--- steps, not 2^40; each place it is reached is held to the limit by the
+--- height of the table there, so one reached again deeper is refused naming that
+--- place. It copies the value; a Value read from it never changes `value`. A
 --- `null` that `decode` dropped from the end of an array is already gone from
 --- `value`, so it is not found here; one inside an array is a hole and is
 --- refused. The result may nest as deep as [`Json.depth_limit`], deeper than

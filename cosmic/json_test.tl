@@ -962,17 +962,17 @@ local function test_to_value_refuses_a_table_that_holds_itself()
 end
 
 local function test_to_value_copies_a_shared_table_once()
+  local pair: {Json.Value} = { 1 }
+  local twice = assert(Json.to_value({ pair, pair }))
+  assert(encoded(twice) == "[[1],[1]]")
+  local copies = assert(Json.to_array(twice))
+  assert(rawequal(copies[1], copies[2]), "the shared table is copied once")
   local node: {Json.Value} = { 1 }
   for _ = 1, 40 do
     node = { node, node }
   end
   local value = assert(Json.to_value(node))
   assert(value ~= node)
-  local pair: {Json.Value} = { 1 }
-  local twice = assert(Json.to_value({ pair, pair }))
-  assert(encoded(twice) == "[[1],[1]]")
-  local copies = assert(Json.to_array(twice))
-  assert(rawequal(copies[1], copies[2]), "the shared table is copied once")
   local top = assert(Json.to_array(value))
   assert(rawequal(top[1], top[2]), "the shared table below the top is copied once")
 end
