@@ -24,6 +24,7 @@ Test.policy{
     { path = "ci/darwin-tests.txt", letters = "r" },
     { path = "ci/strict-files.txt", letters = "r" },
     { path = "ci/bootstrap-files.txt", letters = "r" },
+    { path = "ci/run_local_proof.tl", letters = "r" },
     { path = "ci/cosmic_ci/runtime_setup.tl", letters = "r" },
     { path = "ci/testdata/portable/", letters = "r" },
   },
