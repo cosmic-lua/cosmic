@@ -3427,13 +3427,13 @@ cosmic/web/cookies_test.tl map_field 17
 
 cosmic/web/cors_test.tl map_field 8
 
-cosmic/web/csrf_test.tl map_field 11
+cosmic/web/csrf_test.tl map_field 2
 
 cosmic/web/dev.tl map_field 2
 
 cosmic/web/htmx.tl map_field 2
 
-cosmic/web/htmx_test.tl map_field 17
+cosmic/web/htmx_test.tl map_field 13
 
 cosmic/web/input_multipart_fuzz_test.tl map_field 5
 
@@ -3457,7 +3457,7 @@ cosmic/web/session/cookie_test.tl map_field 3
 
 cosmic/web/session/init.tl map_field 2
 
-cosmic/web/session/session_test.tl map_field 67
+cosmic/web/session/session_test.tl map_field 60
 
 cosmic/web/session/sqlite_test.tl map_field 16
 
@@ -6869,7 +6869,7 @@ cosmic/web/cors_example.tl literal_needs_type 1
 
 cosmic/web/csp_example.tl literal_needs_type 1
 
-cosmic/web/csrf_test.tl literal_needs_type 2
+cosmic/web/csrf_test.tl literal_needs_type 1
 
 cosmic/web/dev_supervise_test.tl literal_needs_type 1
 

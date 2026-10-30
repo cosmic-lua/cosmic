@@ -5,7 +5,6 @@
 --- interop check -- `tar_test.tl` and `zip_test.tl` already cover
 --- reading what other tools wrote.
 
-local Cell = require("cosmic.cell")
 local Codec = require("cosmic.codec")
 local Fs = require("cosmic.fs")
 local Stream = require("cosmic.stream")
@@ -83,12 +82,12 @@ local function test_open_stream_reads_a_plain_tar_from_a_stream_one_byte_at_a_ti
   make_tar(path)
   local bytes = assert(Fs.read(path))
   -- A source that answers a byte per read splits the peek across reads.
-  local at: Cell<integer> = { value = 1 }
+  local at: integer = 1
   local source: Stream.Reader = {}
   source.read = function(_self: Stream.Reader, _max_bytes?: integer): string?, string
-    if at.value > #bytes then return nil, "" end
-    at.value = at.value + 1
-    return bytes:sub(at.value - 1, at.value - 1), ""
+    if at > #bytes then return nil, "" end
+    at = at + 1
+    return bytes:sub(at - 1, at - 1), ""
   end
   source.close = function(_self: Stream.Reader): boolean, string return true, "" end
   local by = walked((assert(Archive.open_stream(source))))
@@ -713,11 +712,11 @@ local function reader_of_one_file(path: string, size: integer,
       return r, ""
     end,
   }
-  local given: Cell<boolean> = { value = false }
+  local given: boolean = false
   return {
     next = function(_self: Archive.Reader): Archive.Entry?, string
-      if given.value then return nil, "" end
-      given.value = true
+      if given then return nil, "" end
+      given = true
       return entry, ""
     end,
     close = function(_self: Archive.Reader): boolean, string return true, "" end,
@@ -725,9 +724,9 @@ local function reader_of_one_file(path: string, size: integer,
 end
 
 local function test_extract_counts_the_bytes_it_writes_not_the_size_a_header_records(tmp: string)
-  local sent: Cell<integer> = { value = 0 }
+  local sent: integer = 0
   local reader = reader_of_one_file("grows", 1, function(asked: integer): string?, string
-    sent.value = sent.value + asked
+    sent = sent + asked
     return string.rep("x", asked), ""
   end)
   local written, why = Archive.extract_reader(reader, tmp .. "/out", { max_entry_bytes = 1000 })
@@ -735,7 +734,7 @@ local function test_extract_counts_the_bytes_it_writes_not_the_size_a_header_rec
   assert(why:find("grows is larger than max_entry_bytes (1000 bytes)", 1, true), why)
   -- A body that answers whatever it is asked is never asked for more than
   -- one byte past the limit.
-  assert(sent.value <= 1001, "asked for " .. tostring(sent.value) .. " bytes")
+  assert(sent <= 1001, "asked for " .. tostring(sent) .. " bytes")
   holds_only(tmp .. "/out", {})
 end
 
@@ -760,15 +759,15 @@ local function test_extract_refusing_a_file_keeps_the_one_already_at_its_path(tm
 end
 
 local function test_extract_a_body_that_fails_to_read_leaves_no_file(tmp: string)
-  local reads: Cell<integer> = { value = 0 }
+  local reads: integer = 0
   local reader = reader_of_one_file("half", 10, function(_asked: integer): string?, string
-    reads.value = reads.value + 1
-    if reads.value == 1 then return "12345", "" end
+    reads = reads + 1
+    if reads == 1 then return "12345", "" end
     return nil, "disk on fire"
   end)
   local written, why = Archive.extract_reader(reader, tmp .. "/out", {})
   assert(written == nil and why == "disk on fire", tostring(why))
-  assert(reads.value == 2)
+  assert(reads == 2)
   -- Neither the file nor the temporary it was staged in.
   holds_only(tmp .. "/out", {})
 end
@@ -995,17 +994,17 @@ local function test_extract_reader_closes_the_reader_when_it_refuses(tmp: string
   assert(tw:add_file("../out", "2"))
   assert(tw:close())
   local inner = assert(Archive.open_stream(Stream.from_string(sink:result())))
-  local closes: Cell<integer> = { value = 0 }
+  local closes: integer = 0
   local counting: Archive.Reader = {
     next = function(_self: Archive.Reader): Archive.Entry?, string return inner:next() end,
     close = function(_self: Archive.Reader): boolean, string
-      closes.value = closes.value + 1
+      closes = closes + 1
       return inner:close()
     end,
   }
   local written, why = Archive.extract_reader(counting, tmp .. "/dest")
   assert(written == nil and why:find("unsafe entry path", 1, true), why)
-  assert(closes.value == 1, "closed " .. tostring(closes.value) .. " times")
+  assert(closes == 1, "closed " .. tostring(closes) .. " times")
   assert(not pcall(Archive.extract_reader, counting, tmp .. "/dest", { max_entries = -1 }))
 end
 

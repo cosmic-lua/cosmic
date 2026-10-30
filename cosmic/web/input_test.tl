@@ -1,4 +1,3 @@
-local Cell = require("cosmic.cell")
 local Input = require("cosmic.web.input")
 local Json = require("cosmic.json")
 local Poll = require("cosmic.poll")
@@ -336,14 +335,14 @@ end
 
 local function test_media_type_parses_parameters()
   local function of(content_type: string?): Input.MediaType
-    local got: Cell<Input.MediaType?> = { value = nil }
+    local got: Input.MediaType? = nil
     local headers: mut {string:string} = {}
     local opts: Web.TestOptions = { headers = headers }
     if content_type ~= nil then headers["content-type"] = content_type end
     with_request("GET", opts, function(req: Web.Request)
-      got.value = Input.media_type(req)
+      got = Input.media_type(req)
     end)
-    local read = assert(got.value, "the handler never ran")
+    local read = assert(got, "the handler never ran")
     return read
   end
   local m = of('Multipart/Form-Data; Boundary="a b\\"c"; charset=UTF-8')
@@ -379,17 +378,17 @@ end
 
 local function test_a_wrong_content_type_is_415()
   local function status_of(content_type: string?, body: string, kind: string): integer
-    local got: Cell<integer> = { value = 0 }
+    local got: integer = 0
     local opts: Web.TestOptions = { body = body, content_type = content_type }
     with_request("POST", opts, function(req: Web.Request)
       local bad: Types.Invalid
       if kind == "form" then bad = Input.form(req).invalid else bad = Input.json(req).invalid end
-      got.value = bad and bad.status or 0
+      got = bad and bad.status or 0
       if bad then
         assert(bad.errors[1].code == "content_type" and bad.errors[1].source == "body")
       end
     end)
-    return got.value
+    return got
   end
   assert(status_of("text/plain", "a=1", "form") == 415, "a cross-site form can send text/plain")
   assert(status_of(nil, "a=1", "form") == 415, "a body with no type")
@@ -424,28 +423,28 @@ local function test_a_body_over_the_limit_is_413()
 end
 
 local function test_a_chunked_body_over_the_limit_is_413_without_reading_it_all()
-  local pulled: Cell<integer> = { value = 0 }
+  local pulled: integer = 0
   local reader: Stream.Reader = {
     read = function(_self: Stream.Reader, max_bytes?: integer): string?, string
-      pulled.value = pulled.value + 1
-      if pulled.value > 100 then return nil, "" end
+      pulled = pulled + 1
+      if pulled > 100 then return nil, "" end
       return ("y"):rep(math.min(max_bytes or 10, 10)), ""
     end,
     close = function(_self: Stream.Reader): boolean, string
       return true, ""
     end,
   }
-  local status: Cell<integer> = { value = 0 }
+  local status: integer = 0
   local app = Web.app{ routes = { Web.post("/x", function(req: Web.Request): Web.Response
     local bad = Input.form(req, { max_bytes = 25 }).invalid
-    status.value = bad and bad.status or 0
+    status = bad and bad.status or 0
     return Web.text("ok")
   end) } }
   local raw: Server.Request = { method = "POST", target = "/x", path = "/x", query = "", version = "HTTP/1.1",
     headers = { host = "x", ["content-type"] = "application/x-www-form-urlencoded" }, body = reader }
   assert(app.handle(raw).status == 200)
-  assert(status.value == 413)
-  assert(pulled.value < 10, "the read stopped one byte past the limit")
+  assert(status == 413)
+  assert(pulled < 10, "the read stopped one byte past the limit")
 end
 
 --- The status [`Input.form`] answers for a chunked request whose body reader
@@ -460,19 +459,19 @@ local function failing_body(why: string): integer, integer
       return true, ""
     end,
   }
-  local first: Cell<integer> = { value = 0 }
-  local second: Cell<integer> = { value = 0 }
+  local first: integer = 0
+  local second: integer = 0
   local app = Web.app{ routes = { Web.post("/x", function(req: Web.Request): Web.Response
     local bad = Input.form(req).invalid
-    first.value = bad and bad.status or 0
+    first = bad and bad.status or 0
     bad = Input.form(req, { max_bytes = 1 << 20 }).invalid
-    second.value = bad and bad.status or 0
+    second = bad and bad.status or 0
     return Web.text("ok")
   end) } }
   local raw: Server.Request = { method = "POST", target = "/x", path = "/x", query = "", version = "HTTP/1.1",
     headers = { host = "x", ["content-type"] = "application/x-www-form-urlencoded" }, body = reader }
   assert(app.handle(raw).status == 200)
-  return first.value, second.value
+  return first, second
 end
 
 local function test_the_servers_over_limit_failure_is_413()
@@ -486,11 +485,11 @@ local function test_a_body_read_that_times_out_is_408()
 end
 
 local function test_a_body_read_over_the_limit_stays_failed_for_a_later_reader()
-  local pulled: Cell<integer> = { value = 0 }
+  local pulled: integer = 0
   local reader: Stream.Reader = {
     read = function(_self: Stream.Reader, max_bytes?: integer): string?, string
-      pulled.value = pulled.value + 1
-      if pulled.value > 100 then return nil, "" end
+      pulled = pulled + 1
+      if pulled > 100 then return nil, "" end
       return ("y"):rep(math.min(max_bytes or 10, 10)), ""
     end,
     close = function(_self: Stream.Reader): boolean, string
@@ -498,20 +497,20 @@ local function test_a_body_read_over_the_limit_stays_failed_for_a_later_reader()
     end,
   }
   local statuses: {integer} = {}
-  local bytes_status: Cell<string> = { value = "" }
+  local bytes_status: string = ""
   local app = Web.app{ routes = { Web.post("/x", function(req: Web.Request): Web.Response
     statuses[1] = assert(Input.form(req, { max_bytes = 25 }).invalid).status
     local larger = Input.form(req, { max_bytes = 1 << 20 }).invalid
     statuses[2] = larger and larger.status or 0
     local data = req:bytes()
-    bytes_status.value = if data == nil then "failed" else "truncated" end
+    bytes_status = if data == nil then "failed" else "truncated" end
     return Web.text("ok")
   end) } }
   local raw: Server.Request = { method = "POST", target = "/x", path = "/x", query = "", version = "HTTP/1.1",
     headers = { host = "x", ["content-type"] = "application/x-www-form-urlencoded" }, body = reader }
   assert(app.handle(raw).status == 200)
   assert(statuses[1] == 413 and statuses[2] == 413, "a larger limit later is still 413")
-  assert(bytes_status.value == "failed", "req:bytes() does not hand out the truncated body")
+  assert(bytes_status == "failed", "req:bytes() does not hand out the truncated body")
 end
 
 local function test_a_wrong_charset_names_the_charset()
@@ -572,15 +571,15 @@ end
 local ITEM <const> = Shape.record_of("Item")
 
 local function json_error(text: string): Types.FieldError
-  local got: Cell<Types.FieldError?> = { value = nil }
+  local got: Types.FieldError? = nil
   with_request("POST", { body = text, content_type = "application/json" }, function(req: Web.Request)
     local read = Input.json_into(req, ITEM)
     local invalid = read.invalid
     assert(invalid ~= nil and invalid.status == 422, text)
     assert(#invalid.errors == 1 and invalid.submitted == nil)
-    got.value = invalid.errors[1]
+    got = invalid.errors[1]
   end)
-  local read = assert(got.value, "the handler never ran")
+  local read = assert(got, "the handler never ran")
   return read
 end
 
