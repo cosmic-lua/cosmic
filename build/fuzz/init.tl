@@ -37,6 +37,8 @@
 --- names a label fails when too few did, so one whose inputs mostly
 --- stop there is found out too.
 
+-- TODO: make this `local type Cell = require("cosmic.cell")` once the store keeps a module that only a `local type` require names; today that drops cosmic.cell from the binary and build/link_index_test fails.
+local Cell = require("cosmic.cell")
 local Codec = require("cosmic.codec")
 local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
@@ -165,14 +167,14 @@ local type Draw = shrink.Draw
 --- a draw past the end of `values` is its lower end, so any list of
 --- integers replays to some input.
 local function replaying(values: {integer}, draws: mut {Draw}): Fuzz.Source
-  local replay = { at = 0 }
+  local replayed: Cell<integer> = { value = 0 }
   return {
     int = function(_self: Fuzz.Source, min: integer, max: integer): integer
       if min > max then
         error(("fuzz: int(%d, %d): min is greater than max"):format(min, max), 2)
       end
-      replay.at = replay.at + 1
-      local v = values[replay.at]
+      replayed.value = replayed.value + 1
+      local v = values[replayed.value]
       if v == nil or v < min or v > max then v = min end
       draws[#draws + 1] = { min = min, max = max, value = v }
       return v

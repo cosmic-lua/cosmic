@@ -321,6 +321,7 @@ end
 local function real_system(): Round.System
   local handles: mut {integer: Child.Handle} = {}
   local streams: mut {integer: integer} = {}
+  -- TODO: hold this in a `Cell<integer>` once ci/cosmic-driver.pin names a release whose store holds cosmic.cell: this module runs on the bootstrap cosmic, which lacks it.
   local started = { issued = 0 }
   return {
     run = function(argv: {string}): Round.Output

@@ -1285,6 +1285,7 @@ end
 local function walk_system(paths: {string}): string, {string}, integer
   local lines: mut {string} = {}
   local directories: mut {string} = {}
+  -- TODO: hold this in a `Cell<integer>` once a change to the harness that bumps the epoch for another reason can add cosmic.cell to [`worker.loads`] and `library` in build/harness_epoch.tl: a harness module may not require it before, and a bump for this alone reruns every test.
   local newest = { mtime_ns = 0 }
   local function walk(path: string, dev: integer?)
     local st, trouble = sys.lstat(path)

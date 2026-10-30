@@ -294,7 +294,7 @@ cosmic/internal/connector.tl 6
 
 cosmic/internal/relay_config.tl 11
 
-cosmic/internal/relay_server.tl 3
+cosmic/internal/relay_server.tl 1
 
 cosmic/json.tl 2
 
@@ -3069,8 +3069,6 @@ build/cache_tool_test.tl map_field 1
 
 build/caches.tl map_field 3
 
-build/child_policy_database_fixture.tl map_field 2
-
 build/codec.tl map_field 1
 
 build/codec_test.tl map_field 52
@@ -3101,8 +3099,6 @@ build/declared_unenforced_test.tl map_field 2
 
 build/dispatch.tl map_field 1
 
-build/docs_fixture.tl map_field 3
-
 build/doctest_test.tl map_field 3
 
 build/embed.tl map_field 1
@@ -3118,8 +3114,6 @@ build/flow.tl map_field 1
 build/flow_test.tl map_field 1
 
 build/fuzz/fuzz_test.tl map_field 11
-
-build/fuzz/init.tl map_field 3
 
 build/fuzz/shrink_test.tl map_field 8
 
@@ -3137,8 +3131,6 @@ build/json_query_test.tl map_field 3
 
 build/json_test.tl map_field 4
 
-build/link_index.tl map_field 4
-
 build/link_resolve.tl map_field 6
 
 build/patch_test.tl map_field 18
@@ -3147,7 +3139,7 @@ build/paths_test.tl map_field 3
 
 build/policy_rules.tl map_field 8
 
-build/rand.tl map_field 4
+build/rand.tl map_field 1
 
 build/rand_test.tl map_field 7
 
@@ -3177,8 +3169,6 @@ build/runtime_checks_tool_test.tl map_field 2
 
 build/sandbox.tl map_field 9
 
-build/sandbox_connect.tl map_field 6
-
 build/sandbox_connect_test.tl map_field 25
 
 build/sandbox_connect_tool_test.tl map_field 14
@@ -3197,7 +3187,7 @@ build/shared_parses_tool_test.tl map_field 5
 
 build/shared_verdicts_tool_test.tl map_field 55
 
-build/sql.tl map_field 3
+build/sql.tl map_field 1
 
 build/sql_test.tl map_field 3
 
@@ -3366,8 +3356,6 @@ cosmic/internal/relay_config.tl map_field 27
 cosmic/internal/relay_config_test.tl map_field 13
 
 cosmic/internal/relay_handed_lost_test.tl map_field 3
-
-cosmic/internal/relay_server.tl map_field 2
 
 cosmic/json_path_test.tl map_field 2
 
@@ -7058,11 +7046,7 @@ build/json_query_test.tl arms_differ 2
 
 build/perf_validation.tl arms_differ 1
 
-build/sandbox_connect.tl arms_differ 1
-
 build/shared_compiles.tl arms_differ 1
-
-build/sql.tl arms_differ 1
 
 build/test_worker.tl arms_differ 1
 
@@ -7132,8 +7116,6 @@ cosmic/internal/connector_test.tl arms_differ 4
 cosmic/internal/relay_config.tl arms_differ 2
 
 cosmic/internal/relay_handed_lost_test.tl arms_differ 1
-
-cosmic/internal/relay_server.tl arms_differ 1
 
 cosmic/internal/relay_server_native_test.tl arms_differ 1
 
@@ -7224,8 +7206,6 @@ core/artifact_fd_tool_test.tl array_of_optional 1
 cosmic/child.tl array_of_optional 2
 
 cosmic/http/multipart.tl array_of_optional 1
-
-cosmic/internal/relay_server.tl array_of_optional 2
 
 cosmic/json_test.tl array_of_optional 1
 
