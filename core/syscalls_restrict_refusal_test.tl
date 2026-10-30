@@ -51,7 +51,7 @@ end
 local function test_an_execute_restriction_refuses_a_path_that_is_not_a_string()
   local apply = raw_table().landlock_restrict_execute
   local ok, why = pcall(apply, { false } as {string}) -- cast: a deliberately degenerate argument
-  assert(not ok and tostring(why):find("path must be a string", 1, true), tostring(why))
+  assert(not ok and tostring(why):find("path must be a string", 1, true) ~= nil, tostring(why))
 end
 
 --- No user namespace is needed for a filter on a child that does not

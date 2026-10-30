@@ -73,32 +73,38 @@ local function finished(tmp: string, pid: integer): string, integer
   return (Fs.read(tmp .. "/said")) or "", status.code
 end
 
---- A stream socketpair, which the relay's channel is one end of.
-local function channel(): {integer}
-  return (assert(process.connector_pair()))
+--- A stream socketpair, which the relay's channel is one end of: the
+--- end the relay is given, then the one that receives its listeners.
+local function channel(): integer, integer
+  local pair = assert(process.connector_pair())
+  local given, receiving = pair[1], pair[2]
+  assert(given and receiving, "a socketpair holds two descriptors")
+  return given, receiving
 end
 
 --- A start that gave the relay its listeners: the program connects to both
 --- ports and says so, and this accepts both connections on the listeners
 --- the channel carried, adopted as the listeners they are.
 local function relays(tmp: string, probe: string, sandbox: raw_process.Sandbox, ports: {integer})
-  local pair = channel()
-  sandbox.relay = { fd = pair[1], ports = ports }
+  local given, receiving = channel()
+  local first_port, second_port = ports[1], ports[2]
+  assert(first_port and second_port, "the relay is given two ports")
+  sandbox.relay = { fd = given, ports = ports }
   -- The program holds no socket of the relay's (the listeners and the channel
   -- are close-on-exec or closed), so it binds a listener's port: in use, in the
   -- network the parent's listeners are in.
-  local script = "sockets-open; bind-tcp 127.0.0.1 " .. ports[1] .. "; connect-tcp 127.0.0.1 " ..
-    ports[1] .. "; connect-tcp 127.0.0.1 " .. ports[2]
+  local script = "sockets-open; bind-tcp 127.0.0.1 " .. tostring(first_port) .. "; connect-tcp 127.0.0.1 " ..
+    tostring(first_port) .. "; connect-tcp 127.0.0.1 " .. tostring(second_port)
   local pid, why = start(tmp, probe, script, sandbox)
   if pid == nil then
-    sys.close(pair[1])
-    sys.close(pair[2])
+    sys.close(given)
+    sys.close(receiving)
     assert(unsandboxable(why), "the start was refused: " .. why)
     Test.skip("this host gives no such sandbox: " .. why)
     return
   end
   -- The start waited for the child's exec, so both descriptors are sent.
-  local received = assert(socket.recvfds(pair[2], 2))
+  local received = assert(socket.recvfds(receiving, 2))
   local said, code = finished(tmp, pid)
   local held, bind, first, second = said:match("^(sockets %d+)\n([^\n]*)\n([^\n]*)\n([^\n]*)\n$")
   assert(held == "sockets 0", "the program holds no listener or channel: " .. said)
@@ -120,10 +126,10 @@ local function relays(tmp: string, probe: string, sandbox: raw_process.Sandbox, 
   end)
   for index = 1, 2 do assert(received[index]:close()) end
   -- The child's copy of the channel is closed: the other end reads its end.
-  assert(sys.close(pair[1]))
-  local more, _ = socket.recvfds(pair[2], 1)
+  assert(sys.close(given))
+  local more, _ = socket.recvfds(receiving, 1)
   assert(more == nil, "the channel holds nothing more")
-  assert(sys.close(pair[2]))
+  assert(sys.close(receiving))
 end
 
 local function test_a_child_in_its_own_network_hands_out_listeners_at_the_ports_given(tmp: string)
@@ -133,22 +139,22 @@ end
 
 local function test_the_relay_ports_default_to_http_connect_and_socks(tmp: string)
   local probe = assert(stand_in.build(tmp .. "/stand-in"))
-  local pair = channel()
+  local given, receiving = channel()
   local pid, why = start(tmp, probe, "sleep 1", { offline = true, promises = {},
-    relay = { fd = pair[1] } })
+    relay = { fd = given } })
   if pid == nil then
     assert(unsandboxable(why), "the start was refused: " .. why)
     Test.skip("this host gives no such sandbox: " .. why)
     return
   end
-  local received = assert(socket.recvfds(pair[2], 2))
+  local received = assert(socket.recvfds(receiving, 2))
   local first = assert(socket.bound(received[1]:fd()))
   local second = assert(socket.bound(received[2]:fd()))
   assert(first.port == 3128 and second.port == 1080,
     "the defaults are " .. tostring(first.port) .. " and " .. tostring(second.port))
   for index = 1, 2 do assert(received[index]:close()) end
   finished(tmp, pid)
-  assert(sys.close(pair[1]) and sys.close(pair[2]))
+  assert(sys.close(given) and sys.close(receiving))
 end
 
 local function test_an_unveiled_child_hands_out_listeners_too(tmp: string)

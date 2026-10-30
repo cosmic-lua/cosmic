@@ -569,8 +569,9 @@ local function test_a_child_s_descriptors_are_its_own(tmp: string)
   local held: mut {integer} = {}
   local target = 0
   for i = 1, 4 do
-    held[i] = create(tmp .. "/held" .. tostring(i))
-    if held[i] > target then target = held[i] end
+    local fd = create(tmp .. "/held" .. tostring(i))
+    held[i] = fd
+    if fd > target then target = fd end
   end
   -- Handed above all of them, so the child closes every one on its way.
   target = target + 2
@@ -644,14 +645,17 @@ local function test_descriptors_handed_crosswise_are_each_where_asked(tmp: strin
   local files: mut {integer: integer} = {}
   for _, fd in ipairs({ first, second }) do
     failed_with(sys.EBADF, sys.fd_flags(fd))
-    files[fd] = create(tmp .. "/" .. tostring(fd))
-    assert(sys.dup2(files[fd], fd))
+    local file = create(tmp .. "/" .. tostring(fd))
+    files[fd] = file
+    assert(sys.dup2(file, fd))
   end
   local pid = assert(process.spawn(probe, { probe, "write-fd " .. tostring(first) .. " first; write-fd " ..
       tostring(second) .. " second" }, nil, nil, nil, nil, nil, false, { [first] = second, [second] = first }))
   assert(assert(process.waitpid(pid, false)).code == 0)
-  assert(assert(sys.pread(files[first], 64, 0)) == "second\n")
-  assert(assert(sys.pread(files[second], 64, 0)) == "first\n")
+  local first_file, second_file = files[first], files[second]
+  assert(first_file and second_file, "both descriptors were made")
+  assert(assert(sys.pread(first_file, 64, 0)) == "second\n")
+  assert(assert(sys.pread(second_file, 64, 0)) == "first\n")
   for fd, file in pairs(files) do
     sys.close(fd)
     sys.close(file)
@@ -728,7 +732,8 @@ local function test_cpu_features_are_named_as_proc_cpuinfo_names_them()
   local features = sys.cpu_features()
   for i, name in ipairs(features) do
     assert(known[name], names.machine .. " answers " .. name)
-    assert(i == 1 or features[i - 1] < name, "not in byte order, or twice: " .. name)
+    local before = features[i - 1]
+    assert(i == 1 or (before ~= nil and before < name), "not in byte order, or twice: " .. name)
   end
   local cpuinfo = read_file("/proc/cpuinfo")
   if cpuinfo == "" then return end
@@ -954,9 +959,16 @@ local function test_isatty_is_false_for_a_file_and_a_bad_descriptor(tmp: string)
   assert(sys.isatty(fd) == false)
 end
 
+--- Entry `i` of the answers of a poll.
+local function revent(revents: {integer}, i: integer): integer
+  local answer = revents[i]
+  assert(answer, "the poll answers for descriptor " .. tostring(i))
+  return answer
+end
+
 local function hex(bytes: string): string
   return (bytes:gsub(".", function(c: string): string
-    return string.format("%02x", c:byte())
+    return string.format("%02x", (assert(c:byte(), "a matched byte")))
   end))
 end
 
@@ -972,8 +984,10 @@ local function test_digest_sha256_known_answers()
       "cdc76e5c9914fb9281a1c7e284d73e67f1809a48a497200e046d39ccc7112cd0" },
   }
   for _, case in ipairs(cases) do
-    local digest = hash.digest("sha256", case[1])
-    assert(hex(digest) == case[2], #case[1] .. " bytes hashed to " .. hex(digest))
+    local input, want = case[1], case[2]
+    assert(input and want, "a case is an input and its digest")
+    local digest = hash.digest("sha256", input)
+    assert(hex(digest) == want, tostring(#input) .. " bytes hashed to " .. hex(digest))
   end
   for _, len in ipairs({ 55, 56, 63, 64, 65 }) do
     assert(#hash.digest("sha256", string.rep("x", len)) == 32)
@@ -1210,8 +1224,8 @@ local function test_poll_answers_a_hangup_and_a_closed_descriptor_in_every_entry
     { sys.POLLIN, sys.POLLOUT, sys.POLLIN, sys.POLLOUT }, 0))
   sys.close(ends.reader)
   local said = table.concat(revents as {number}, " ") -- cast: an integer is a number
-  assert(revents[1] & sys.POLLHUP ~= 0 and revents[2] & sys.POLLHUP ~= 0, said)
-  assert(revents[3] & sys.POLLNVAL ~= 0 and revents[4] & sys.POLLNVAL ~= 0, said)
+  assert(revent(revents, 1) & sys.POLLHUP ~= 0 and revent(revents, 2) & sys.POLLHUP ~= 0, said)
+  assert(revent(revents, 3) & sys.POLLNVAL ~= 0 and revent(revents, 4) & sys.POLLNVAL ~= 0, said)
 end
 
 --- `poll` watches as many descriptors as the kernel lets a process
@@ -1250,7 +1264,7 @@ local function test_poll_watches_past_a_thousand_descriptors()
   local events: mut {integer} = {}
   local trouble: string?
   while #fds < wanted do
-    local copy: integer
+    local copy: integer?
     copy, trouble = sys.dup(ends.reader)
     if copy == nil then break end
     fds[#fds + 1] = copy
@@ -1266,9 +1280,9 @@ local function test_poll_watches_past_a_thousand_descriptors()
   assert(revents ~= nil, failure)
   assert(#revents == wanted + 1, "one answer per descriptor, not " .. tostring(#revents))
   for i = 1, wanted do
-    assert(revents[i] & sys.POLLIN ~= 0, "descriptor " .. tostring(i) .. " answered " .. revents[i])
+    assert(revent(revents, i) & sys.POLLIN ~= 0, "descriptor " .. tostring(i) .. " answered " .. tostring(revent(revents, i)))
   end
-  assert(revents[wanted + 1] == 0, "an unwatched descriptor answered " .. revents[wanted + 1])
+  assert(revents[wanted + 1] == 0, "an unwatched descriptor answered " .. tostring(revent(revents, wanted + 1)))
 end
 
 --- A descriptor past what an int holds is refused, not truncated: 2^32
@@ -1481,7 +1495,7 @@ local function test_flock_kind_says_whether_a_flock_excludes_an_fcntl_lock(tmp: 
   local path = tmp .. "/lock.db"
   local fd = assert(sys.open(path, sys.O_RDWR | sys.O_CREAT, 0x180))
   local kind, trouble = sys.flock_kind(fd)
-  assert(kind == "apart" or kind == "shared", trouble)
+  assert(kind ~= nil and (kind == "apart" or kind == "shared"), trouble)
   assert(sys.flock(fd, "exclusive"))
   local db = assert(Sqlite.open(path, { writable = true }))
   -- Asked once: a connection waits a minute for a lock by default.
@@ -1498,7 +1512,7 @@ end
 --- Whether the wake pipe of the open guards has a byte to read.
 local function woken(fd: integer): boolean
   local revents = assert(sys.poll({ fd }, { sys.POLLIN }, 0))
-  return revents[1] & sys.POLLIN ~= 0
+  return revent(revents, 1) & sys.POLLIN ~= 0
 end
 
 --- Guards nest. A signal moves the stamp every guard reads and wakes
@@ -1707,11 +1721,11 @@ local function test_spawn_credentials_reject_incomplete_and_reserved_ids()
   } as {raw_process.Credentials}) do
     local ok, why = pcall(process.spawn, "/never-started", { "/never-started" },
       nil, nil, nil, nil, nil, false, nil, nil, credentials)
-    assert(not ok and tostring(why):find("credentials", 1, true), tostring(index) .. ": " .. tostring(why))
+    assert(not ok and tostring(why):find("credentials", 1, true) ~= nil, tostring(index) .. ": " .. tostring(why))
   end
   local ok, why = pcall(process.spawn, "/never-started", { "/never-started" },
     nil, nil, nil, nil, nil, false, nil, { offline = true }, { user = 1, group = 1 })
-  assert(not ok and tostring(why):find("credentials exclude", 1, true), tostring(why))
+  assert(not ok and tostring(why):find("credentials exclude", 1, true) ~= nil, tostring(why))
 end
 
 --- Even when the platform or caller cannot set credentials, refusal
@@ -1789,12 +1803,12 @@ local function test_noexec_scratch_requires_a_boolean_and_unveiling()
     fields.noexec_scratch = value
     local ok, trouble = pcall(process.spawn, "/missing", { "/missing" }, nil, nil,
       nil, nil, nil, false, nil, sandbox)
-    assert(not ok and tostring(trouble):find("noexec_scratch must be a boolean", 1, true),
+    assert(not ok and tostring(trouble):find("noexec_scratch must be a boolean", 1, true) ~= nil,
       tostring(trouble))
   end
   local ok, trouble = pcall(process.spawn, "/missing", { "/missing" }, nil, nil,
     nil, nil, nil, false, nil, { noexec_scratch = true })
-  assert(not ok and tostring(trouble):find("noexec_scratch requires unveil", 1, true),
+  assert(not ok and tostring(trouble):find("noexec_scratch requires unveil", 1, true) ~= nil,
     tostring(trouble))
 end
 

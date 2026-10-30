@@ -18,13 +18,27 @@ local Sqlite = require("cosmic.sqlite")
 
 local handle = assert(Sqlite.memory())
 
+--- Field `i` of an unpacked input, which the generators pack whole.
+local function unpacked(fields: {string}, i: integer): string
+  local field = fields[i]
+  assert(field, "the generator packs field " .. tostring(i))
+  return field
+end
+
+--- The first of `rows`, which the statement is known to yield.
+local function first_row(rows: Sqlite.Rows): Sqlite.Row
+  local found = rows[1]
+  assert(found, "the statement yields a row")
+  return found
+end
+
 --- The one value `sql` yields over `values`, as SQLite's text, or nil
 --- and the statement's error.
 local function value(sql: string, values: {Sqlite.Value}): string?, string
   local rows, trouble = Sqlite.text_rows(handle, sql, values)
   if rows == nil then return nil, trouble end
   assert(#rows == 1, sql .. ": " .. tostring(#rows) .. " rows")
-  return rows[1]:text(1), ""
+  return first_row(rows):text(1), ""
 end
 
 --- A varint length as compress.c writes one: seven bits a byte, most
@@ -126,8 +140,9 @@ local function test_decimal_is_total_and_canonical(tmp: string)
     end,
     check = function(input: string): boolean, string
       local fields = Fuzz.unpack(input)
-      local values: {Sqlite.Value} = { { text = fields[1] }, { text = fields[2] } }
-      local one: {Sqlite.Value} = { values[1] }
+      local number, other = unpacked(fields, 1), unpacked(fields, 2)
+      local values: {Sqlite.Value} = { { text = number }, { text = other } }
+      local one: {Sqlite.Value} = { { text = number } }
       local read = value("SELECT decimal(?1)", one)
       if read == nil then
         Fuzz.label("failed its statement")
@@ -138,10 +153,11 @@ local function test_decimal_is_total_and_canonical(tmp: string)
         local rows, trouble = Sqlite.text_rows(handle,
           "SELECT decimal(decimal(?1)), decimal_cmp(?1, ?1)", one)
         if rows == nil then
-          return false, "decimal read " .. fields[1] .. " once only: " .. trouble
+          return false, "decimal read " .. number .. " once only: " .. trouble
         end
-        if rows[1]:text(1) ~= read or rows[1]:text(2) ~= "0" then
-          return false, "decimal(" .. fields[1] .. ") = " .. tostring(read) .. " does not read back as itself"
+        local again = first_row(rows)
+        if again:text(1) ~= read or again:text(2) ~= "0" then
+          return false, "decimal(" .. number .. ") = " .. tostring(read) .. " does not read back as itself"
         end
       end
       for _, sql in ipairs({ "SELECT decimal_add(?1, ?2)", "SELECT decimal_mul(?1, ?2)" }) do
@@ -187,7 +203,7 @@ local function test_text_decoders_are_total_and_round_trip(tmp: string)
     end,
     check = function(input: string): boolean, string
       local fields = Fuzz.unpack(input)
-      local blob, text, uuid = fields[1], fields[2], fields[3]
+      local blob, text, uuid = unpacked(fields, 1), unpacked(fields, 2), unpacked(fields, 3)
       for _, name in ipairs({ "base64", "base85" }) do
         local back, trouble = value("SELECT hex(" .. name .. "(" .. name .. "(?1))) = hex(?1)",
           { { blob = blob } })
@@ -201,9 +217,10 @@ local function test_text_decoders_are_total_and_round_trip(tmp: string)
       local rows, trouble = Sqlite.text_rows(handle, "SELECT uuid_blob(?1) IS NULL, " ..
           "hex(uuid_blob(uuid_str(?1))) = hex(uuid_blob(?1))", { { text = uuid } })
       if rows == nil then return false, "uuid_blob failed its statement: " .. trouble end
-      if rows[1]:text(1) == "1" then
+      local decoded = first_row(rows)
+      if decoded:text(1) == "1" then
         Fuzz.label("uuid refused")
-      elseif rows[1]:text(2) == "1" then
+      elseif decoded:text(2) == "1" then
         Fuzz.label("uuid decoded")
       else
         return false, "uuid_str did not round-trip " .. uuid
@@ -228,8 +245,9 @@ local function test_ieee754_is_total_and_round_trips(tmp: string)
       for i = 1, 8 do eight[i] = string.char(src:int(0, 255)) end
       local edges = { 0, 1, -1, 52, 53, 1023, 1024, 1074, 1075, 2000, -1074, -1075, -2000, 10001 }
       local e = src:int(0, 1) == 0 and Fuzz.pick(src, edges) or src:int(-3000, 3000)
-      local m = src:int(0, 2) == 0 and src:int(-8, 8) or src:int(0, 7) == 0 and math.mininteger or
-        src:int(math.mininteger, math.maxinteger)
+      local m = if src:int(0, 2) == 0 then src:int(-8, 8)
+        elseif src:int(0, 7) == 0 then math.mininteger
+        else src:int(math.mininteger, math.maxinteger) end
       return Fuzz.pack({ table.concat(eight), tostring(m), tostring(e) })
     end,
     check = function(input: string): boolean, string
@@ -243,7 +261,7 @@ local function test_ieee754_is_total_and_round_trips(tmp: string)
         { { blob = fields[1] }, { integer = math.tointeger(fields[2]) },
           { integer = math.tointeger(fields[3]) } })
       if rows == nil then return false, "ieee754 failed its statement: " .. trouble end
-      local row = rows[1]
+      local row = first_row(rows)
       local least = math.tointeger(fields[2]) == math.mininteger
       if row:text(5) ~= (if least then "null" else "real" end) then
         return false, "ieee754(M, E) answered " .. row:text(5)
@@ -332,14 +350,14 @@ local function test_totype_reads_text_exactly(tmp: string)
     gen = gen_number,
     check = function(input: string): boolean, string
       local fields = Fuzz.unpack(input)
-      local shape, text = fields[1], fields[2]
+      local shape, text = unpacked(fields, 1), unpacked(fields, 2)
       local rows, trouble = Sqlite.text_rows(handle,
         "SELECT typeof(toreal(?1)), toreal(?1) = CAST(?1 AS REAL), toreal(?1) - toreal(?1) = 0.0, " ..
           "typeof(tointeger(?1)), tointeger(?1), " ..
           "typeof(tointeger(?2)), typeof(toreal(?2))",
         { { text = text }, { blob = text } })
       if rows == nil then return false, "totype failed its statement: " .. trouble end
-      local row = rows[1]
+      local row = first_row(rows)
       if row:text(1) == "real" then
         Fuzz.label("read as a real")
         if row:text(2) ~= "1" then return false, "toreal(" .. text .. ") is not CAST's" end
@@ -367,10 +385,10 @@ local function test_totype_reads_text_exactly(tmp: string)
         end
       end
       if row:text(6) ~= (if #text == 8 then "integer" else "null" end) then
-        return false, "tointeger of a " .. #text .. "-byte blob answered " .. row:text(6)
+        return false, "tointeger of a " .. tostring(#text) .. "-byte blob answered " .. row:text(6)
       end
       if #text ~= 8 and row:text(7) ~= "null" then
-        return false, "toreal of a " .. #text .. "-byte blob answered " .. row:text(7)
+        return false, "toreal of a " .. tostring(#text) .. "-byte blob answered " .. row:text(7)
       end
       return true, ""
     end,
@@ -397,14 +415,15 @@ local function test_uint_orders_consistently(tmp: string)
     end,
     check = function(input: string): boolean, string
       local fields = Fuzz.unpack(input)
-      local a, b, c = fields[1], fields[2], fields[3]
+      local a, b, c = unpacked(fields, 1), unpacked(fields, 2), unpacked(fields, 3)
       -- Leading zeros on each run of digits leave a word equal to itself.
       local padded = (a:gsub("(%d+)", "00%1"))
       local function cmp(x: string, y: string): integer
         local rows = assert(Sqlite.text_rows(handle,
           "SELECT ?1 < ?2 COLLATE uint, ?1 = ?2 COLLATE uint, ?2 < ?1 COLLATE uint",
           { { text = x }, { text = y } }))
-        local less, equal, more = rows[1]:text(1) == "1", rows[1]:text(2) == "1", rows[1]:text(3) == "1"
+        local answer = first_row(rows)
+        local less, equal, more = answer:text(1) == "1", answer:text(2) == "1", answer:text(3) == "1"
         local held = (if less then 1 else 0 end) + (if equal then 1 else 0 end) + (if more then 1 else 0 end)
         assert(held == 1, "exactly one of <, = and > holds, not " .. tostring(held))
         return if less then -1 elseif equal then 0 else 1 end
@@ -452,8 +471,8 @@ local function test_rtree_survives_damaged_trees(tmp: string)
     end,
     check = function(input: string): boolean, string
       local fields = Fuzz.unpack(input)
-      local rows_n, damage = assert(math.tointeger(fields[1])), fields[2]
-      local pick, bytes = assert(math.tointeger(fields[3])), fields[4]
+      local rows_n, damage = assert(math.tointeger(unpacked(fields, 1))), unpacked(fields, 2)
+      local pick, bytes = assert(math.tointeger(unpacked(fields, 3))), unpacked(fields, 4)
       Fs.remove(path)
       local db = assert(Sqlite.open(path, { writable = true, create = true }))
       assert(db:exec("CREATE VIRTUAL TABLE b USING rtree_i32(id, x0, x1, y0, y1); BEGIN"))
@@ -464,9 +483,10 @@ local function test_rtree_survives_damaged_trees(tmp: string)
       end
       assert(db:exec("COMMIT"))
       local nodes = assert(Sqlite.rows(db, "SELECT nodeno, data FROM b_node ORDER BY nodeno"))
-      local root = nodes[1]:blob(2)
+      local root = first_row(nodes):blob(2)
       if string.unpack(">I2", root) > 0 then Fuzz.label("a tree of more than one level") end
       local at = nodes[pick % #nodes + 1]
+      assert(at, "pick selects one of the nodes")
       local nodeno, blob = at:integer(1), at:blob(2)
       local n = #blob
       local sql: string
@@ -480,7 +500,9 @@ local function test_rtree_survives_damaged_trees(tmp: string)
         local cell = 5 + (pick % cells) * 24
         -- The root, the node itself, a node that does not exist, or none.
         local targets = { 1, nodeno, #nodes + 5, -1, 0 }
-        local child = string.pack(">i8", targets[pick % #targets + 1])
+        local target = targets[pick % #targets + 1]
+        assert(target, "pick selects one of the targets")
+        local child = string.pack(">i8", target)
         sql, values = "UPDATE b_node SET data = ?1 WHERE nodeno = ?2",
           { { blob = blob:sub(1, cell - 1) .. child .. blob:sub(cell + 8) }, { integer = nodeno } }
       elseif damage == "bytes" then
@@ -502,7 +524,7 @@ local function test_rtree_survives_damaged_trees(tmp: string)
         -- The root's cells point at itself, or each at its own row: node
         -- numbers 2^32 apart, or multiples of the inverse of the golden
         -- ratio multiplier mod 2^64, which that hash sends to one slot.
-        local spread = if #bytes > 0 then bytes:byte(1) % 3 else 0 end
+        local spread = if #bytes > 0 then (assert(bytes:byte(1), "bytes is not empty")) % 3 else 0 end
         local apart = spread > 0
         local parts: mut {string} = {}
         assert(db:exec("BEGIN"))
@@ -552,7 +574,7 @@ local function test_rtree_survives_damaged_trees(tmp: string)
         if rows == nil then
           refused = true
           if trouble == "" then return false, q .. " failed without saying why" end
-        elseif q == "SELECT rtreecheck('b')" and rows[1]:text(1) ~= "ok" then
+        elseif q == "SELECT rtreecheck('b')" and first_row(rows):text(1) ~= "ok" then
           reported = true
         end
       end
@@ -604,18 +626,18 @@ local function test_carray_reads_back_a_bound_list(tmp: string)
     gen = gen_list,
     check = function(input: string): boolean, string
       local fields = Fuzz.unpack(input)
-      local kind = fields[1]
+      local kind = unpacked(fields, 1)
       local list: Sqlite.Value
       local integers: mut {integer} = {}
       local numbers: mut {number} = {}
       local strings: mut {string} = {}
       for i = 2, #fields do
         if kind == "integers" then
-          integers[#integers + 1] = (string.unpack("<i8", fields[i]))
+          integers[#integers + 1] = (string.unpack("<i8", unpacked(fields, i)))
         elseif kind == "numbers" then
-          numbers[#numbers + 1] = (string.unpack("<d", fields[i]))
+          numbers[#numbers + 1] = (string.unpack("<d", unpacked(fields, i)))
         else
-          strings[#strings + 1] = fields[i]
+          strings[#strings + 1] = unpacked(fields, i)
         end
       end
       if kind == "integers" then
@@ -629,21 +651,17 @@ local function test_carray_reads_back_a_bound_list(tmp: string)
       end
       -- The plain and the captured helpers bind through different paths
       -- (cosmic/sqlite.tl's bind, core/sqlite.c's bind_values_result).
-      local rows: Sqlite.Rows
+      local rows: Sqlite.Rows?
+      local trouble = ""
       if #input % 2 == 0 then
-        local trouble: string
         rows, trouble = Sqlite.rows(handle, "SELECT value FROM carray(?1)", { list })
-        if rows == nil then return false, "carray failed its statement: " .. trouble end
-        Fuzz.label("bound in Lua")
+        if rows ~= nil then Fuzz.label("bound in Lua") end
       else
         local result = Sqlite.rows_result(handle, "SELECT value FROM carray(?1)", { list })
-        local result_rows = result.rows
-        if result_rows == nil then
-          return false, "carray failed its statement: " .. result.reason
-        end
-        rows = result_rows
-        Fuzz.label("bound in C")
+        rows, trouble = result.rows, result.reason
+        if rows ~= nil then Fuzz.label("bound in C") end
       end
+      if rows == nil then return false, "carray failed its statement: " .. trouble end
       if #rows ~= #fields - 1 then
         return false, "carray read " .. tostring(#rows) .. " of " .. tostring((#fields - 1)) .. " " .. kind
       end
@@ -653,8 +671,10 @@ local function test_carray_reads_back_a_bound_list(tmp: string)
         if kind == "integers" then
           same = held == "integer" and row:integer(1) == integers[i]
         elseif kind == "numbers" then
-          same = held == "number" and row:number(1) == numbers[i] and
-            (1 / row:number(1)) == (1 / numbers[i])
+          local expected = numbers[i]
+          assert(expected, "the list holds element " .. tostring(i))
+          same = held == "number" and row:number(1) == expected and
+            (1 / row:number(1)) == (1 / expected)
         elseif kind == "texts" then
           same = held == "text" and row:text(1) == strings[i]
         else

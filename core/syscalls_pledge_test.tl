@@ -77,7 +77,7 @@ local function test_a_pledge_holds_a_child_and_what_it_starts(tmp: string)
     return (said:gsub("%s+", " "))
   end
   local status_file = assert(sys.open("/proc/self/status", sys.O_RDONLY))
-  local own = assert(sys.read(status_file, 65536)):match("Seccomp:%s*(%d)")
+  local own = assert(assert(sys.read(status_file, 65536)):match("Seccomp:%s*(%d)"), "the status names the filter mode")
   sys.close(status_file)
   local plain = filtered(nil)
   assert(plain == "Seccomp: " .. own .. " Seccomp: " .. own .. " ", plain)

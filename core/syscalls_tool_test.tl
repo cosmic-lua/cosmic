@@ -395,7 +395,7 @@ local function test_an_unveiled_child_runs_as_the_user_given(tmp: string)
   local mountinfo = assert(said:match("\nmountinfo\n(.-)\nsetuid\n"), said)
   for line in mountinfo:gmatch("[^\n]+") do
     local options = line:match("^%S+ %S+ %S+ %S+ %S+ (%S+)")
-    assert(options ~= nil and ("," .. options .. ","):find(",nosuid,", 1, true),
+    assert(options ~= nil and ("," .. options .. ","):find(",nosuid,", 1, true) ~= nil,
       "a mount of its root is not nosuid: " .. line)
   end
   assert(said:match("\nsetuid\nUid:%s+" .. ids), "a setuid-root program ran as root: " .. said)
@@ -603,7 +603,8 @@ local function test_an_unveiled_child_sees_and_signals_only_its_own_processes(tm
   assert(alive, "the confined child killed a process outside it: " .. said)
   local lines: mut {string} = {}
   for line in said:gmatch("[^\n]+") do lines[#lines + 1] = line end
-  assert(lines[1]:match("^Pid:%s*2$") and lines[2] == "spared", said)
+  local pid_line = assert(lines[1], "the child printed its status")
+  assert(pid_line:match("^Pid:%s*2$") ~= nil and lines[2] == "spared", said)
   if lines[4] ~= "cosmic-init" then
     assert(not confine.own_proc_given(), "no procfs of its own: " .. said)
     return -- the host's /proc
@@ -693,7 +694,9 @@ local function test_an_unveiled_child_s_status_is_its_program_s(tmp: string)
   if confine.own_proc_given() then
     local processes: mut {string} = {}
     for line in said:gmatch("[^\n]+") do
-      if line:match("^%d+$") or line == "cosmic-init" then processes[#processes + 1] = line end
+      if line:match("^%d+$") ~= nil or line == "cosmic-init" then
+        processes[#processes + 1] = line
+      end
     end
     table.sort(processes)
     assert(table.concat(processes, " ") == "1 2 cosmic-init", said)
@@ -816,6 +819,7 @@ local function test_a_confined_child_is_started_and_waited_for_quickly(tmp: stri
     times[#times + 1] = took
   end
   table.sort(times)
-  assert(times[3] < Clock.ms(500), "the middle of five confined starts and waits took " ..
-      tostring(times[3] // Clock.ms(1)) .. " ms")
+  local middle = assert(times[3], "five confined starts were timed")
+  assert(middle < Clock.ms(500), "the middle of five confined starts and waits took " ..
+      tostring(middle // Clock.ms(1)) .. " ms")
 end

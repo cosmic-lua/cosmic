@@ -114,7 +114,7 @@ local SITES <const>: {string:Site} = {
   -- to: no feature.
   ["core/syscalls.c"] = { lines = "73996c52b47965b2", reads = {} },
   ["core/syscalls.h"] = { lines = "f23c54e6e2b7ac0d", reads = {} },
-  ["core/syscalls_test.tl"] = { lines = "8e89471955981f9c", reads = {} },
+  ["core/syscalls_test.tl"] = { lines = "b7dcc2df755b9cbc", reads = {} },
   -- The int8 dot product of [`Vector.corpus`]: VNNI in its AVX-512 (256-bit
   -- forms) and AVX encodings, by cpuid leaf 7. It also asks cpuid leaf 1
   -- for OSXSAVE and xgetbv for the state the system saves, which are the

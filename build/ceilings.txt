@@ -998,25 +998,16 @@ build/zig_tool_test.tl nil_not_allowed 1
 
 
 
-core/sqlite_functions_fuzz_test.tl nil_not_allowed 68
-
-core/sqlite_functions_test.tl nil_not_allowed 35
-
-core/sqlite_test.tl nil_not_allowed 4
-
-core/sqlite_wait_lua_test.tl nil_not_allowed 3
 
 
 
-core/syscalls_pledge_test.tl nil_not_allowed 2
 
-core/syscalls_relay_test.tl nil_not_allowed 3
 
-core/syscalls_test.tl nil_not_allowed 14
 
-core/syscalls_tool_test.tl nil_not_allowed 3
 
-core/syscalls_tool_unsandboxed_test.tl nil_not_allowed 1
+
+
+
 
 cosmic/archive.tl nil_not_allowed 11
 
@@ -1829,12 +1820,9 @@ build/zig_fetch_test.tl index_may_be_nil 1
 
 
 
-core/sqlite_functions_fuzz_test.tl index_may_be_nil 5
 
 
-core/syscalls_relay_test.tl index_may_be_nil 8
 
-core/syscalls_test.tl index_may_be_nil 4
 
 cosmic/archive.tl index_may_be_nil 1
 
@@ -5236,23 +5224,14 @@ build/workflows_test.tl or_mix 1
 
 
 
-core/sqlite_functions_fuzz_test.tl or_mix 1
 
-core/sqlite_store_test.tl or_mix 1
 
-core/sqlite_test.tl or_mix 1
 
-core/sqlite_wait_lua_test.tl or_mix 4
 
-core/syscalls_restrict_refusal_test.tl or_mix 1
 
-core/syscalls_session_test.tl or_mix 1
 
-core/syscalls_test.tl or_mix 4
 
-core/syscalls_tool_test.tl or_mix 2
 
-core/syscalls_tool_unsandboxed_test.tl or_mix 2
 
 cosmic/archive_fuzz_test.tl or_mix 1
 
@@ -5728,7 +5707,7 @@ core/socket_test.tl and_ternary 2
 
 core/sqlite_documented_test.tl and_ternary 1
 
-core/sqlite_functions_fuzz_test.tl and_ternary 8
+core/sqlite_functions_fuzz_test.tl and_ternary 7
 
 core/syscalls_test.tl and_ternary 1
 
@@ -6199,13 +6178,12 @@ core/allocation_test.tl compare_disjoint 5
 core/artifact_fd_test.tl compare_disjoint 1
 
 
-core/sqlite_functions_fuzz_test.tl compare_disjoint 1
 
 core/sqlite_functions_test.tl compare_disjoint 1
 
 core/surface_test.tl compare_disjoint 4
 
-core/syscalls_test.tl compare_disjoint 4
+core/syscalls_test.tl compare_disjoint 3
 
 cosmic/archive.tl compare_disjoint 1
 
