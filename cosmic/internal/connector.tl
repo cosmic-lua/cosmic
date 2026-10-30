@@ -110,6 +110,14 @@ local process_mt: metatable<Process> = {
   end,
 }
 
+--- A [`Process`] over the descriptor `fd`: of the connector `pid`, which it
+--- reaps, or with no pid, one it only disconnects; `borrowed` leaves `fd`
+--- open on close.
+local function process_over(fd: integer, pid: integer?, borrowed: boolean): Process
+  local made: Process = setmetatable({ fd = fd, pid = pid, open = true, borrowed = borrowed }, process_mt)
+  return made
+end
+
 --- Waits for `fd` to be readable, or writable, at most `timeout_ns`, which
 --- the caller has held to what a wait can last: in a
 --- task of a run, through it; anywhere else, in the raw wait, which
@@ -272,6 +280,10 @@ local function take_socket(channel: Channel, tag: integer): boolean
   channel.passing = nil
   local pending = assert(waiting)
   local socket = received[1]
+  if socket == nil then
+    lose(channel, "net: the connector sent a reply with no descriptor")
+    return false
+  end
   local peer, peer_why, peer_errno = raw.peer(socket:fd())
   local wanted = named(pending.host, pending.port)
   if peer == nil then
@@ -441,8 +453,9 @@ local function ask(channel: Channel, body: string, host: string, port: integer, 
   local sent, wrote = raw.send(channel.process.fd, request)
   if sent ~= #request then
     -- A request half sent leaves the stream out of step.
-    lose(channel, "net: could not ask the connector: " .. tostring(wrote))
-    return nil, channel.lost
+    local message = "net: could not ask the connector: " .. tostring(wrote)
+    lose(channel, message)
+    return nil, channel.lost or message
   end
   local pending: Pending = { host = host, port = port, refusal = refusal,
     given_up = false, done = false, kind = kind }
@@ -458,7 +471,11 @@ local function ask(channel: Channel, body: string, host: string, port: integer, 
   local answered, why = await(channel, deadline, true, function(): boolean return pending.done end)
   if not answered then return nil, why end
   local socket = pending.socket
-  if socket == nil then return nil, pending.why end
+  if socket == nil then
+    local refused = pending.why
+    assert(refused, "connector: a request answered without a socket says why")
+    return nil, refused
+  end
   pending.taken = true
   return socket, ""
 end
@@ -532,28 +549,40 @@ local function start(endpoints: {raw_process.ConnectorEndpoint}, timeout_ms: int
                      public?: raw_process.ConnectorPublic): Process?, string
   local pair, why = process_raw.connector_pair()
   if pair == nil then return nil, "child: " .. why end
-  local called, pid, trouble, errno = pcall(process_raw.connector_start, endpoints, pair[2], timeout_ms, public)
-  local _, _ = sys.close(pair[2])
+  local mine, theirs = pair[1], pair[2]
+  if mine == nil or theirs == nil then
+    return nil, "child: the connector's socket pair holds fewer than two descriptors"
+  end
+  local pid: integer? = nil
+  local trouble: string? = nil
+  local errno: integer? = nil
+  local called, raised = pcall(function()
+    pid, trouble, errno = process_raw.connector_start(endpoints, theirs, timeout_ms, public)
+  end)
+  local _, _ = sys.close(theirs)
   if not called then
     -- A table or a timeout the core refuses: the pair is not leaked by it.
-    local _, _ = sys.close(pair[1])
-    error(pid, 0)
+    local _, _ = sys.close(mine)
+    error(raised, 0)
   end
-  if pid == nil then
-    local _, _ = sys.close(pair[1])
-    if errno == sys.ENOSYS or errno == sys.EOPNOTSUPP then
-      return nil, "child: the native connector is Linux only (x86_64 and aarch64): " .. trouble
+  -- Copies, which the checker narrows: it does not narrow a variable a closure assigns.
+  local started_pid, start_trouble, start_errno = pid, trouble, errno
+  if started_pid == nil then
+    assert(start_trouble, "connector: connector_start answers why it did not start")
+    local _, _ = sys.close(mine)
+    if start_errno == sys.ENOSYS or start_errno == sys.EOPNOTSUPP then
+      return nil, "child: the native connector is Linux only (x86_64 and aarch64): " .. start_trouble
     end
-    return nil, "child: could not start the connector: " .. trouble
+    return nil, "child: could not start the connector: " .. start_trouble
   end
-  local ok, nonblocking = sys.set_nonblocking(pair[1], true)
+  local ok, nonblocking = sys.set_nonblocking(mine, true)
   if not ok then
-    local _, _ = sys.kill(pid, sys.SIGKILL)
-    local _, _ = process_raw.waitpid(pid, false)
-    local _, _ = sys.close(pair[1])
+    local _, _ = sys.kill(started_pid, sys.SIGKILL)
+    local _, _ = process_raw.waitpid(started_pid, false)
+    local _, _ = sys.close(mine)
     return nil, "child: " .. nonblocking
   end
-  local started: Process = setmetatable({ fd = pair[1], pid = pid, open = true }, process_mt)
+  local started = process_over(mine, started_pid, false)
   return started, ""
 end
 
@@ -623,7 +652,9 @@ local class Served is Connection.Connector
     local kind = ""
     local index = self:find(target, port)
     if index ~= nil then
-      host = self.endpoints[index].host
+      local entry = self.endpoints[index]
+      assert(entry, "connector: find answers an index of the table")
+      host = entry.host
       body = request_body(index, port, wait_ns)
       if self.accepts_public then kind = "table" end
     else
@@ -652,7 +683,11 @@ local class Served is Connection.Connector
     if channel == nil then return nil, why end
     -- The lookup gives each connect until its deadline; one given up on is
     -- still answered, its socket closed, so the stream stays in step.
-    return ask(channel, own_wait_body(index, port), self.endpoints[index].host, port,
+    local entry = self.endpoints[index]
+    if entry == nil then
+      return nil, "net: the connector's table has no entry " .. tostring(index)
+    end
+    return ask(channel, own_wait_body(index, port), entry.host, port,
       deadline or Clock.monotonic_ns() + Clock.ms(self.timeout_ms) + CONNECTOR_GRACE_NS, "", "")
   end
 
@@ -800,7 +835,7 @@ function Leaf.adopted(fd: integer, held?: {raw_process.ConnectorEndpoint}, publi
   local timeout_ms = Leaf.checked_timeout_ms(timeout_ns, 2)
   local ok, nonblocking = sys.set_nonblocking(fd, true)
   if not ok then return nil, "child: " .. nonblocking end
-  local adopted: Process = setmetatable({ fd = fd, open = true }, process_mt)
+  local adopted = process_over(fd, nil, false)
   local connector: Served = {
     timeout_ms = timeout_ms, open = true, public = nil, endpoints = kept,
     channel = channel_of(adopted), inherited = true, accepts_public = public == true,
@@ -828,12 +863,16 @@ end
 --- @return function The connect a lookup takes
 function Leaf.connects(fd: integer, servers: {raw_socket.ThroughServer}, reply_ns: integer):
     function(index: integer, port: integer, deadline: integer?): Resolv.Connection?, string
-  local borrowed: Process = setmetatable({ fd = fd, open = true, borrowed = true }, process_mt)
+  local borrowed = process_over(fd, nil, true)
   local channel = channel_of(borrowed)
   return function(index: integer, port: integer, deadline: integer?): Resolv.Connection?, string
     local until_ns = Clock.monotonic_ns() + reply_ns
     if deadline ~= nil and deadline > until_ns then until_ns = deadline end
-    local socket, why = ask(channel, own_wait_body(index, port), servers[index].host, port, until_ns, "", "")
+    local server = servers[index]
+    if server == nil then
+      return nil, "net: the connector's table has no entry " .. tostring(index)
+    end
+    local socket, why = ask(channel, own_wait_body(index, port), server.host, port, until_ns, "", "")
     if socket == nil then return nil, why end
     return { fd = socket:fd(), release = function() local _, _ = socket:close() end }, ""
   end

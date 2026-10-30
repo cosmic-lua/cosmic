@@ -290,7 +290,7 @@ cosmic/http/init.tl 1
 
 cosmic/http/wire.tl 1
 
-cosmic/internal/connector.tl 6
+cosmic/internal/connector.tl 3
 
 cosmic/internal/relay_config.tl 11
 
@@ -437,7 +437,7 @@ cosmic/http/wire_test.tl setmetatable_call 1
 
 cosmic/http_test.tl setmetatable_call 1
 
-cosmic/internal/connector.tl setmetatable_call 5
+cosmic/internal/connector.tl setmetatable_call 3
 
 cosmic/json_test.tl setmetatable_call 2
 
@@ -1110,15 +1110,12 @@ cosmic/html_fuzz_test.tl nil_not_allowed 1
 
 cosmic/html_test.tl nil_not_allowed 9
 
-cosmic/http/init.tl nil_not_allowed 1
 
-cosmic/http/multipart.tl nil_not_allowed 10
 
 cosmic/http/multipart_fuzz_test.tl nil_not_allowed 23
 
 cosmic/http/multipart_test.tl nil_not_allowed 4
 
-cosmic/http/server.tl nil_not_allowed 2
 
 cosmic/http/server_range_fuzz_test.tl nil_not_allowed 15
 
@@ -1128,7 +1125,6 @@ cosmic/http/server_test.tl nil_not_allowed 17
 
 cosmic/http/server_tool_test.tl nil_not_allowed 2
 
-cosmic/http/wire.tl nil_not_allowed 13
 
 cosmic/http/wire_fuzz_test.tl nil_not_allowed 33
 
@@ -1142,33 +1138,26 @@ cosmic/http_tool_test.tl nil_not_allowed 2
 
 cosmic/http_unix_test.tl nil_not_allowed 1
 
-cosmic/internal/connector.tl nil_not_allowed 8
 
 cosmic/internal/connector_test.tl nil_not_allowed 5
 
-cosmic/internal/relay_config.tl nil_not_allowed 1
 
 cosmic/internal/relay_config_test.tl nil_not_allowed 2
 
 cosmic/internal/relay_handed_test.tl nil_not_allowed 1
 
-cosmic/internal/relay_main.tl nil_not_allowed 7
 
-cosmic/internal/relay_resolv.tl nil_not_allowed 13
 
-cosmic/internal/relay_server.tl nil_not_allowed 11
 
 cosmic/internal/relay_server_native_test.tl nil_not_allowed 1
 
 cosmic/internal/relay_server_test.tl nil_not_allowed 13
 
-cosmic/internal/relay_start.tl nil_not_allowed 7
 
 cosmic/internal/relay_start_test.tl nil_not_allowed 3
 
 cosmic/internal/relay_token_fuzz_test.tl nil_not_allowed 1
 
-cosmic/internal/relay_wire.tl nil_not_allowed 2
 
 cosmic/internal/relay_wire_client_fuzz_test.tl nil_not_allowed 20
 
@@ -1939,7 +1928,6 @@ cosmic/html_fuzz_test.tl index_may_be_nil 1
 
 cosmic/html_test.tl index_may_be_nil 1
 
-cosmic/http/multipart.tl index_may_be_nil 1
 
 cosmic/http/multipart_fuzz_test.tl index_may_be_nil 5
 
@@ -1949,19 +1937,16 @@ cosmic/http/server_declared_types_test.tl index_may_be_nil 1
 
 cosmic/http/server_test.tl index_may_be_nil 3
 
-cosmic/http/wire.tl index_may_be_nil 3
 
 cosmic/http/wire_fuzz_test.tl index_may_be_nil 1
 
 cosmic/http_store_test.tl index_may_be_nil 2
 
-cosmic/internal/connector.tl index_may_be_nil 5
 
 cosmic/internal/connector_test.tl index_may_be_nil 47
 
 cosmic/internal/relay_server_test.tl index_may_be_nil 2
 
-cosmic/internal/relay_wire.tl index_may_be_nil 4
 
 cosmic/internal/relay_wire_client_test.tl index_may_be_nil 3
 
@@ -3607,7 +3592,6 @@ cosmic/csv_test.tl overload_none 1
 
 cosmic/http/multipart_fuzz_test.tl overload_none 1
 
-cosmic/internal/connector.tl overload_none 1
 
 cosmic/internal/connector_test.tl overload_none 1
 
@@ -5454,7 +5438,6 @@ cosmic/internal/relay_start_test.tl or_mix 5
 
 cosmic/internal/relay_token_fuzz_test.tl or_mix 1
 
-cosmic/internal/relay_wire.tl or_mix 1
 
 cosmic/internal/relay_wire_client_test.tl or_mix 4
 
@@ -6364,7 +6347,6 @@ cosmic/http/server.tl compare_disjoint 4
 
 cosmic/http/server_test.tl compare_disjoint 1
 
-cosmic/http/wire.tl compare_disjoint 1
 
 cosmic/http_timeout_test.tl compare_disjoint 3
 
@@ -6372,9 +6354,7 @@ cosmic/internal/connector.tl compare_disjoint 1
 
 cosmic/internal/relay_config.tl compare_disjoint 1
 
-cosmic/internal/relay_resolv.tl compare_disjoint 4
 
-cosmic/internal/relay_server.tl compare_disjoint 2
 
 cosmic/internal/relay_server_test.tl compare_disjoint 1
 
@@ -7016,7 +6996,7 @@ cosmic/http/wire_test.tl arms_differ 23
 
 cosmic/http_test.tl arms_differ 7
 
-cosmic/internal/connector.tl arms_differ 2
+cosmic/internal/connector.tl arms_differ 1
 
 cosmic/internal/connector_test.tl arms_differ 4
 

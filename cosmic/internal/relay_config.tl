@@ -328,7 +328,9 @@ end
 
 local function percent_decoded(text: string): string
   return (text:gsub("%%(%x%x)", function(hex: string): string
-    return string.char(tonumber(hex, 16))
+    local byte = tonumber(hex, 16)
+    if byte == nil then return "%" .. hex end
+    return string.char(byte)
   end))
 end
 

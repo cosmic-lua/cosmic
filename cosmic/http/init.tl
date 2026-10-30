@@ -682,6 +682,7 @@ local function sendable(url: string): string?, string
   local at = url:sub(1, rest - 1):find("[\0-\32\127]")
   if at ~= nil then
     local byte = url:byte(at)
+    if byte == nil then return nil, "http: the URL holds a control byte" end
     local what = if byte == 32 then "a space" elseif byte == 0 then "a NUL" else ("control byte 0x%02x"):format(byte) end
     local user_end = url:find("@", at, true)
     if user_end ~= nil and user_end < rest then

@@ -192,29 +192,35 @@ local function serve(config: Config.Config): integer
     local http, socks: Net.Listener?, Net.Listener?
     local mixed: mut {Net.Listener}?
     if config.direct == true then
-      mixed = {}
+      local gathered: mut {Net.Listener} = {}
       for i = 1, config.listeners or 0 do
         local listener, adopt_why = Net.listener_from(CHANNEL_FD + i - 1)
         if listener == nil then
           run.status = failed(adopt_why)
           return
         end
-        if listener.address.port ~= (mixed[1] or listener).address.port then
+        if listener.address.port ~= (gathered[1] or listener).address.port then
           run.status = failed("the loopback listeners are at two ports")
           return
         end
-        mixed[#mixed + 1] = listener
+        gathered[#gathered + 1] = listener
       end
+      mixed = gathered
     else
       local listeners, listeners_why = Net.receive_listeners(CHANNEL_FD)
       if listeners == nil then
         run.status = failed(listeners_why)
         return
       end
-      http, socks = listeners[1], listeners[2]
-      if http.address.port ~= Config.http_port or socks.address.port ~= Config.socks_port then
-        run.status = failed("the listeners are at ports " .. tostring(http.address.port) .. " and " ..
-            tostring(socks.address.port) .. ", not " .. tostring(Config.http_port) .. " and " .. tostring(Config.socks_port))
+      local first, second = listeners[1], listeners[2]
+      if first == nil or second == nil then
+        run.status = failed("the relay was handed fewer than its two listeners")
+        return
+      end
+      http, socks = first, second
+      if first.address.port ~= Config.http_port or second.address.port ~= Config.socks_port then
+        run.status = failed("the listeners are at ports " .. tostring(first.address.port) .. " and " ..
+            tostring(second.address.port) .. ", not " .. tostring(Config.http_port) .. " and " .. tostring(Config.socks_port))
         return
       end
     end

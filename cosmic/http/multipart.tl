@@ -238,7 +238,9 @@ end
 --- as UTF-8; nil and why for another charset or a bad escape.
 local function ext_value(text: string): string?, string
   local charset, escaped = text:match("^([%w-]+)'[%w-]*'(.*)$")
-  if charset == nil then return nil, "multipart: filename* is not charset'language'value" end
+  if charset == nil or escaped == nil then
+    return nil, "multipart: filename* is not charset'language'value"
+  end
   local bad_escape: boolean = false
   local raw = escaped:gsub("%%(%x?%x?)", function(hex: string): string
     if #hex ~= 2 then
@@ -251,7 +253,11 @@ local function ext_value(text: string): string?, string
   local lower = charset:lower()
   if lower == "utf-8" then return raw, "" end
   if lower == "iso-8859-1" then
-    return (raw:gsub("[\128-\255]", function(c: string): string return utf8.char(c:byte()) end)), ""
+    return (raw:gsub("[\128-\255]", function(c: string): string
+      local b = c:byte()
+      if b == nil then return "" end
+      return utf8.char(b)
+    end)), ""
   end
   return nil, "multipart: filename* is in a charset other than UTF-8 and ISO-8859-1"
 end
@@ -261,7 +267,7 @@ end
 local function disposition_params(value: string): {string:string}?, string
   local params: mut {string:string} = {}
   local _, head, kind = value:find("^[ \t]*(" .. TOKEN .. ")[ \t]*")
-  if kind == nil or kind:lower() ~= "form-data" then
+  if head == nil or kind == nil or kind:lower() ~= "form-data" then
     return nil, "multipart: a part's Content-Disposition is not form-data"
   end
   local pos = head + 1
@@ -270,7 +276,9 @@ local function disposition_params(value: string): {string:string}?, string
       return nil, "multipart: a Content-Disposition parameter is malformed"
     end
     local _, equals, name = value:find("^;[ \t]*(" .. TOKEN .. ")[ \t]*=[ \t]*", pos)
-    if name == nil then return nil, "multipart: a Content-Disposition parameter is malformed" end
+    if name == nil or equals == nil then
+      return nil, "multipart: a Content-Disposition parameter is malformed"
+    end
     local after = equals + 1
     local text: string
     if value:sub(after, after) == '"' then
@@ -278,9 +286,13 @@ local function disposition_params(value: string): {string:string}?, string
       if close == nil then return nil, "multipart: a Content-Disposition quote is not closed" end
       text = value:sub(after + 1, close - 1)
       local _, blanks = value:find("^[ \t]*", close + 1)
+      if blanks == nil then
+        return nil, "multipart: a Content-Disposition parameter is malformed"
+      end
       pos = blanks + 1
     else
       local token = value:match("^[^;]*", after)
+      if token == nil then return nil, "multipart: a Content-Disposition parameter is malformed" end
       text = trim_end(token)
       pos = after + #token
     end
@@ -318,6 +330,7 @@ local function parse_headers(p: Parser, block: string, body: Stream.Reader): Mul
   local text = block .. "\r\n"
   while pos <= #text do
     local stop = text:find("\r\n", pos, true)
+    if stop == nil then return nil, "multipart: a part header is malformed" end
     local line = text:sub(pos, stop - 1)
     pos = stop + 2
     lines = lines + 1
@@ -328,7 +341,7 @@ local function parse_headers(p: Parser, block: string, body: Stream.Reader): Mul
       return nil, "multipart: a part header holds a control byte"
     end
     local name, value = line:match("^(" .. TOKEN .. "):[ \t]*(.*)$")
-    if name == nil then return nil, "multipart: a part header is malformed" end
+    if name == nil or value == nil then return nil, "multipart: a part header is malformed" end
     value = trim_end(value)
     local key = name:lower()
     if headers[key] ~= nil then
@@ -348,12 +361,13 @@ local function parse_headers(p: Parser, block: string, body: Stream.Reader): Mul
   end
   local filename: string? = nil
   local claimed = params["filename"]
+  local starred = params["filename*"]
   if claimed ~= nil then
     local clean, trouble = clean_filename(unescape(claimed))
     if clean == nil then return nil, trouble end
     filename = clean
-  elseif params["filename*"] ~= nil then
-    local decoded, trouble = ext_value(params["filename*"])
+  elseif starred ~= nil then
+    local decoded, trouble = ext_value(starred)
     if decoded == nil then return nil, trouble end
     local clean, bad = clean_filename(decoded)
     if clean == nil then return nil, bad end
