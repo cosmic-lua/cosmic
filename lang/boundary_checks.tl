@@ -15,9 +15,9 @@
 ---
 --- where `<line>` is the line the function begins on and `<kinds>` the kinds of Lua value its parameter's type admits,
 --- joined by "|" ([`lang.boundaries`]'s `spec`). The hook ([`build.test_worker`]'s `install_checks` defines one for a checked
---- run) answers nothing and fails nothing: it records a value of another kind as a violation that names the caller's line,
---- and the function runs on. A statement of its own, not a wrapper, so that the body is as it was written: a tail call
---- stays a tail call and the values a `return` gives are the body's own. Where no hook is defined (a process a test
+--- run) answers nothing: it records a value of another kind as a violation that names the caller's line, and the function
+--- runs on, except for a parameter declared under "cosmic/", where it raises there. A statement of its own, not a
+--- wrapper, so that the body is as it was written: a tail call stays a tail call and the values a `return` gives are the body's own. Where no hook is defined (a process a test
 --- starts, a library the worker loads before it installs its own) the test of `__cosmic_tc` skips the call.
 ---
 --- A parameter is left out where its type says nothing of its value (`any`, a type variable), and so are the variadic

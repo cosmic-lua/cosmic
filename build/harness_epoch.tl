@@ -80,7 +80,7 @@ local record harness_epoch
   library: {string:string}
 end
 
-harness_epoch.epoch = "59-c5141a87" -- on a conflict keep neither side: set it to the bare count and run build/harness_epoch_test.tl, which prints a fresh value
+harness_epoch.epoch = "60-4a96df9f" -- on a conflict keep neither side: set it to the bare count and run build/harness_epoch_test.tl, which prints a fresh value
 harness_epoch.acknowledged = {
 
   ["build.artifact"] = "38a8cfff7234e89aac9fdcdacbdc2148b35a282d73f0ff59952aa360d9d74033",
@@ -129,7 +129,7 @@ harness_epoch.acknowledged = {
 
   ["build.test_sandbox"] = "1913cda9e0b5d20dc8950673ac5b7b1aea1be02a09e2a819392e850fa0e9d0f0",
 
-  ["build.test_worker"] = "5216d87fdb52b32d21d01ed159775fe0632618e247632cd5d179bd86f5638e5d",
+  ["build.test_worker"] = "d209f24f32b03304af99899391bfc373efe058df035e5d09d4cec3389cba2c58",
 
   ["build.this_program"] = "345b0565401a0f96cd0dcc4165281806148315424265bca17841eaf72d32fd42",
 
@@ -265,6 +265,7 @@ harness_epoch.retired = {
   "70cb7bca",
   "69753f80",
   "692cdf96",
+  "c5141a87",
 }
 
 return harness_epoch
