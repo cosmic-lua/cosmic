@@ -30,8 +30,9 @@ local record Cursor
   mut start: integer
 end
 
---- Whether byte `b` is the whitespace trim markers and actions skip.
-local function blank(b: integer): boolean
+--- Whether byte `b` is the whitespace trim markers and actions skip; nil, a
+--- read past either end of the text, is not.
+local function blank(b: integer?): boolean
   return b == 32 or b == 9 or b == 10 or b == 13 or b == 12
 end
 

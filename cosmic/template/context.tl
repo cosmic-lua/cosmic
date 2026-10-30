@@ -31,7 +31,7 @@ local type Marks = {types.Node: types.Slot}
 --- What a walk of a block from one place found: the place after it, or the
 --- refusal, and the place it last gave each interpolation inside it.
 local record Outcome
-  after: markup.Place
+  after?: markup.Place
   why: string
   marks: Marks
 end
@@ -53,7 +53,11 @@ local walk: function(w: Walk, body: {types.Node}, from: markup.Place, marks: Mar
 
 --- The place after the `range` `node`, which begins at `from`.
 local function range_after(w: Walk, node: types.Node, from: markup.Place, marks: Marks): markup.Place?, string
-  local body = node.branches[1].body
+  local first = node.branches[1]
+  if first == nil then
+    return nil, refuse(w.name, node.line, node.col, "this {{range}} has no body")
+  end
+  local body = first.body
   local walked, why = walk(w, body, from, marks)
   if walked == nil then
     return nil, why
@@ -109,14 +113,18 @@ local function arms_after(w: Walk, node: types.Node, from: markup.Place, marks: 
   if not closed then
     ends[#ends + 1] = from
   end
-  for _, place in ipairs(ends) do
-    if not markup.same(place, ends[1]) then
-      return nil, refuse(w.name, node.line, node.col, "the arms of this {{" .. node.kind ..
-          "}} end in different places in the HTML" .. difference(place, ends[1]))
-    end
-    markup.join(ends[1], place)
+  local settled = ends[1]
+  if settled == nil then
+    return nil, refuse(w.name, node.line, node.col, "this {{" .. node.kind .. "}} has no arm")
   end
-  return ends[1], ""
+  for _, place in ipairs(ends) do
+    if not markup.same(place, settled) then
+      return nil, refuse(w.name, node.line, node.col, "the arms of this {{" .. node.kind ..
+          "}} end in different places in the HTML" .. difference(place, settled))
+    end
+    markup.join(settled, place)
+  end
+  return settled, ""
 end
 
 --- The place after the block `node`, which begins at `from`. A block is
@@ -137,7 +145,7 @@ local function block(w: Walk, node: types.Node, from: markup.Place, marks: Marks
   local outcome = outcomes[at]
   if outcome == nil then
     local own: Marks = {}
-    local after, why: markup.Place, string
+    local after, why: markup.Place?, string
     if node.kind == "range" then
       after, why = range_after(w, node, from, own)
     else

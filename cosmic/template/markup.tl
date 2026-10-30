@@ -500,7 +500,14 @@ end
 local function as_alt(p: Place, k: string): Place
   local q = copy(p)
   local phase, attr = k:match("^([^:]*):(.*)$")
-  q.phase = BOUNDARY[phase]
+  if phase == nil or attr == nil then
+    error("cosmic.template: an alternative's key is a phase, a colon and an attribute: " .. k)
+  end
+  local boundary = BOUNDARY[phase]
+  if boundary == nil then
+    error("cosmic.template: an alternative is kept only at a boundary, not in the phase " .. phase)
+  end
+  q.phase = boundary
   q.attr = attr
   q.alts = ""
   return q
@@ -775,14 +782,14 @@ local function join(a: Place, b: Place)
   a.alts = alts_of(a, set)
 end
 
---- Whether byte `b` is an HTML space.
-local function space(b: integer): boolean
+--- Whether byte `b` is an HTML space; nil, a read past the end, is not.
+local function space(b: integer?): boolean
   return b == 32 or b == 9 or b == 10 or b == 13 or b == 12
 end
 
---- Whether byte `b` is an ASCII letter.
-local function letter(b: integer): boolean
-  return (b >= 65 and b <= 90) or (b >= 97 and b <= 122)
+--- Whether byte `b` is an ASCII letter; nil, a read past the end, is not.
+local function letter(b: integer?): boolean
+  return b ~= nil and ((b >= 65 and b <= 90) or (b >= 97 and b <= 122))
 end
 
 --- Whether the byte at `i` ends a tag name: a space, `/` or `>`.
@@ -1153,7 +1160,7 @@ local function scan(p: Place, text: string)
       end
       if p.bare then
         local first = text:match("^[\t\n\r]*()", i)
-        if first <= last then
+        if first ~= nil and first <= last then
           p.bare = false
           p.rooted = text:find("^[/\\]", first) ~= nil
         end
@@ -1375,7 +1382,8 @@ local function locate(text: string, i: integer, line: integer, col: integer): in
   if lines == 0 then
     return line, col + i - 1
   end
-  return line + lines, i - before:match(".*()\n")
+  local last_newline = assert(before:match(".*()\n"), "the lines counted a newline in the text before")
+  return line + lines, i - last_newline
 end
 
 --- Reads `text` a byte at a time in each place `p` may be, until they are
@@ -1573,10 +1581,14 @@ local function wrote(p: Place, ctx: types.Slot, line: integer, col: integer)
 end
 
 local function ending(p: Place): string
+  local innermost = p.stack:match("%S+")
   if p.murky then
     return "in markup in <svg>, <math>, <noscript>, <select> or <frameset> that the tracker could not follow"
   elseif p.stack ~= "" then
-    return "inside <" .. p.stack:match("%S+") .. ">"
+    if innermost == nil then
+      error("cosmic.template: the tracker's stack holds no tag: \"" .. p.stack .. "\"")
+    end
+    return "inside <" .. innermost .. ">"
   elseif p.select then
     return "inside <select>"
   elseif p.frameset then

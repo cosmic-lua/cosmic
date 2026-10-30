@@ -169,8 +169,11 @@ function Dialect.resolve(names: {string}, registry: {string: types.Def}): Dialec
       -- The always-on dialect is the one a named dialect may override, so
       -- that `hx-vals` is refused until a template says `{{use htmx}}`.
       local prior = exact[attr]
-      if prior ~= nil and owner[attr] ~= base.name and not same(prior, rule) then
-        return nil, "dialects '" .. owner[attr] .. "' and '" .. def.name .. "' give '" .. attr .. "' different rules"
+      if prior ~= nil then
+        local holder = assert(owner[attr], "a rule is set with its owner")
+        if holder ~= base.name and not same(prior, rule) then
+          return nil, "dialects '" .. holder .. "' and '" .. def.name .. "' give '" .. attr .. "' different rules"
+        end
       end
       exact[attr] = rule
       owner[attr] = def.name
@@ -190,7 +193,9 @@ function Dialect.resolve(names: {string}, registry: {string: types.Def}): Dialec
     if #a.prefix ~= #b.prefix then
       return #a.prefix > #b.prefix
     end
-    return order[a] > order[b]
+    local rank_a = assert(order[a], "every prefix was ranked as it was gathered")
+    local rank_b = assert(order[b], "every prefix was ranked as it was gathered")
+    return rank_a > rank_b
   end)
   local merged: Dialect.Table = { classify = classify, exact = exact, prefixes = prefixes, families = families,
     known = {}, plain = {} }
