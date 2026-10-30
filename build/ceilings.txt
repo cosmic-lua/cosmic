@@ -1645,7 +1645,7 @@ cosmic/json_path_test.tl index_may_be_nil 2
 cosmic/json_reader_test.tl index_may_be_nil 2
 
 
-cosmic/net_connector_test.tl index_may_be_nil 4
+cosmic/net_connector_test.tl index_may_be_nil 2
 
 cosmic/net_resolve_test.tl index_may_be_nil 1
 
@@ -3914,13 +3914,12 @@ cosmic/http_test.tl cast_refused 19
 
 cosmic/internal/connector.tl cast_refused 2
 
-cosmic/internal/connector_test.tl cast_refused 6
+cosmic/internal/connector_test.tl cast_refused 3
 
 cosmic/internal/relay_handed_lost_test.tl cast_refused 6
 
 cosmic/internal/relay_resolv.tl cast_refused 1
 
-cosmic/internal/relay_server_native_test.tl cast_refused 2
 
 cosmic/internal/relay_server_test.tl cast_refused 10
 
@@ -3952,10 +3951,10 @@ cosmic/json_test.tl cast_refused 66
 
 cosmic/net.tl cast_refused 1
 
-cosmic/net_connector_test.tl cast_refused 5
+cosmic/net_connector_test.tl cast_refused 2
 
 
-cosmic/net_resolve_through_test.tl cast_refused 5
+cosmic/net_resolve_through_test.tl cast_refused 2
 
 cosmic/net_serve_test.tl cast_refused 7
 
@@ -6522,12 +6521,10 @@ cosmic/http_test.tl arms_differ 7
 
 cosmic/internal/connector.tl arms_differ 1
 
-cosmic/internal/connector_test.tl arms_differ 4
 
 
 cosmic/internal/relay_handed_lost_test.tl arms_differ 1
 
-cosmic/internal/relay_server_native_test.tl arms_differ 1
 
 cosmic/internal/relay_server_test.tl arms_differ 1
 
@@ -6539,9 +6536,8 @@ cosmic/json_test.tl arms_differ 2
 
 cosmic/net.tl arms_differ 2
 
-cosmic/net_connector_test.tl arms_differ 10
+cosmic/net_connector_test.tl arms_differ 4
 
-cosmic/net_resolve_through_test.tl arms_differ 4
 
 cosmic/net_serve_test.tl arms_differ 17
 
