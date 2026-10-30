@@ -229,7 +229,8 @@ local function elf_interpreter(fd: integer, head: string): string?
   local offset = wide and unsigned(head, 33, 8, little) or unsigned(head, 29, 4, little)
   local size = unsigned(head, if wide then 55 else 43 end, 2, little)
   local count = unsigned(head, if wide then 57 else 45 end, 2, little)
-  if size < 32 or count > 256 then return nil end
+  -- An entry too small for its class would be read past its end below.
+  if size < (if wide then 56 else 32 end) or count > 256 then return nil end
   for i = 0, count - 1 do
     local entry, _ = sys.pread(fd, size, offset + i * size)
     if entry == nil or #entry < size then return nil end

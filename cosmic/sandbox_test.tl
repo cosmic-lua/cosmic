@@ -281,8 +281,9 @@ end
 
 --- An ELF header of `class` (1 or 2) and `data` (1 little, 2 big endian)
 --- whose one program header is a PT_INTERP naming `interpreter`, or a
---- PT_LOAD where it is nil.
-local function elf(class: integer, data: integer, interpreter: string?): string
+--- PT_LOAD where it is nil. `claimed` is the program header size the
+--- header states, the entry's own size when nil.
+local function elf(class: integer, data: integer, interpreter: string?, claimed?: integer): string
   local e = if data == 1 then "<" else ">" end
   local wide = class == 2
   local header_size = if wide then 64 else 52 end
@@ -295,11 +296,11 @@ local function elf(class: integer, data: integer, interpreter: string?): string
   local entry: string
   if wide then
     header = ident .. string.pack(e .. "I2I2I4I8I8I8I4I2I2I2I2I2I2", 2, 62, 1, 0, header_size, 0, 0,
-      header_size, entry_size, 1, 0, 0, 0)
+      header_size, claimed or entry_size, 1, 0, 0, 0)
     entry = string.pack(e .. "I4I4I8I8I8I8I8I8", kind, 4, at, 0, 0, #name, #name, 1)
   else
     header = ident .. string.pack(e .. "I2I2I4I4I4I4I4I2I2I2I2I2I2", 2, 3, 1, 0, header_size, 0, 0,
-      header_size, entry_size, 1, 0, 0, 0)
+      header_size, claimed or entry_size, 1, 0, 0, 0)
     entry = string.pack(e .. "I4I4I4I4I4I4I4I4", kind, at, 0, 0, #name, #name, 4, 1)
   end
   return header .. entry .. name
@@ -328,6 +329,44 @@ local function test_loaders_reads_an_elf_interpreter_of_every_layout(tmp: string
   assert(Fs.write(tmp .. "/lost", elf(2, 1, tmp .. "/no-loader"), 493))
   local none, why = Sandbox.loaders(tmp .. "/lost")
   assert(none == nil and why:find("no-loader", 1, true), why)
+end
+
+--- A header whose stated program header size is too small for its class
+--- (a 64-bit entry holds its filesz at byte 33, a 32-bit one at 17) is not
+--- read past the entry: the file stands alone, as any unreadable ELF does.
+local function test_loaders_refuses_an_elf_whose_program_header_size_is_too_small_for_its_class(tmp: string)
+  local probe = assert(stand_in.build(tmp .. "/ld"))
+  local record Small
+    class: integer
+    claimed: integer
+  end
+  local cases: {Small} = {
+    { class = 2, claimed = 32 }, { class = 2, claimed = 55 }, { class = 1, claimed = 31 },
+    { class = 1, claimed = 16 }, { class = 2, claimed = 0 },
+  }
+  local n = 0
+  for _, case in ipairs(cases) do
+    for _, data in ipairs({ 1, 2 }) do
+      n = n + 1
+      local path = tmp .. "/small" .. tostring(n)
+      assert(Fs.write(path, elf(case.class, data, probe, case.claimed), 493))
+      assert(#assert(Sandbox.loaders(path)) == 1, path)
+    end
+  end
+  -- The sizes at the bound read: 56 and 32.
+  assert(Fs.write(tmp .. "/exact", elf(2, 1, probe, 56), 493))
+  assert(#assert(Sandbox.loaders(tmp .. "/exact")) == 2)
+end
+
+--- A PT_INTERP whose name is cut off by the end of the file raises nothing.
+local function test_loaders_does_not_raise_on_an_interpreter_name_cut_short(tmp: string)
+  local whole = elf(2, 1, tmp .. "/some-loader")
+  assert(Fs.write(tmp .. "/cut", whole:sub(1, #whole - 6), 493))
+  -- Raising would fail the test; either answer is a refusal or a list.
+  local _ = Sandbox.loaders(tmp .. "/cut")
+  assert(Fs.write(tmp .. "/gone", whole:sub(1, 64 + 56), 493))
+  local files = assert(Sandbox.loaders(tmp .. "/gone"))
+  assert(#files == 1)
 end
 
 local function test_merge_writes_a_path_once_and_joins_its_spellings()
