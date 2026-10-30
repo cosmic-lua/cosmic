@@ -65,10 +65,10 @@ local function test_a_miss_passes_through_the_middleware_around_where_it_happene
   local client = Web.test_client(app)
   assert(client:get("/api/missing").status == 404)
   assert(table.concat(trace, " ") == "A M /M /A", "a 404 inside a mount passes through its middleware")
-  for i = #trace, 1, -1 do trace[i] = nil end
+  for _ = #trace, 1, -1 do trace[#trace] = nil end
   assert(client:get("/missing").status == 404)
   assert(table.concat(trace, " ") == "A /A", "a 404 beside the mount does not")
-  for i = #trace, 1, -1 do trace[i] = nil end
+  for _ = #trace, 1, -1 do trace[#trace] = nil end
   assert(client:post("/api/x").status == 405)
   assert(table.concat(trace, " ") == "A M /M /A", "nor does a 405 inside it")
 end

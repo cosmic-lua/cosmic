@@ -952,11 +952,11 @@ local function parse_tzif(data: string): Rules?, string
 
   local transitions: mut {integer} = {}
   for i = 1, times do
-    local t = size == 8 and i64(data, at) or i32(data, at)
+    local t = if size == 8 then i64(data, at) else i32(data, at) end
     if i > 1 and t <= transitions[i - 1] then
       return nil, ("transition %d at byte %d is not after the one before it"):format(i, at)
     end
-    transitions[i] = t
+    transitions[#transitions + 1] = t
     at = at + size
   end
   local indices: mut {integer} = {}
@@ -1016,7 +1016,10 @@ local function parse_tzif(data: string): Rules?, string
     at = at + 1
   end
   local rules: Rules = { transitions = transitions, kinds = {}, first = kinds[1] }
-  for i = 1, times do rules.kinds[i] = kinds[indices[i]] end
+  for i = 1, times do
+    local kind = assert(kinds[indices[i]])
+    rules.kinds[#rules.kinds + 1] = kind
+  end
 
   if version ~= 0 then
     if data:sub(at, at) ~= "\n" then
@@ -1956,7 +1959,7 @@ function Time.parse_duration(text: string): Time.Duration?, string
   if at > #text then return refuse("expected a duration such as 1y2mo3d4h5m6s, not nothing") end
   local units = { "y", "mo", "d", "h", "m", "s" }
   local seen = 0
-  local values: mut {integer} = { 0, 0, 0, 0, 0, 0 }
+  local values: mut {integer: integer} = { [1] = 0, [2] = 0, [3] = 0, [4] = 0, [5] = 0, [6] = 0 }
   local fraction = 0
   while at <= #text do
     local digits = text:match("^%d+", at)
@@ -1994,7 +1997,7 @@ function Time.parse_duration(text: string): Time.Duration?, string
         units[unit], at))
     end
     seen = unit
-    values[unit] = number
+    values[unit] = assert(number)
     at = at + #units[unit]
   end
   local seconds = values[4] * 3600 + values[5] * 60 + values[6]

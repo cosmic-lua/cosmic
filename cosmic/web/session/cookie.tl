@@ -65,7 +65,7 @@ function SessionCookie.store(opts: SessionCookie.Options): Session.Store
     end
     local ok, why = Secret.check(key)
     if not ok then error(("session: key %d: %s"):format(i, why), 2) end
-    keys[i] = key
+    keys[#keys + 1] = key
   end
   local max_bytes = opts.max_bytes or 3800
   local context = opts.context or "cosmic.web.session"

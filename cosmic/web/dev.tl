@@ -357,7 +357,7 @@ local function event_for(paths: {string}): Sse.Event
     if not path:find("%.css$") then css = false end
   end
   local shown: mut {string} = {}
-  for i = 1, math.min(#paths, LISTED) do shown[i] = paths[i] end
+  for i = 1, math.min(#paths, LISTED) do shown[#shown + 1] = assert(paths[i]) end
   return Sse.text(if css then "css" else "reload" end, table.concat(shown, "\n"))
 end
 
@@ -600,7 +600,7 @@ function Dev.supervise(opts?: Dev.SuperviseOptions): boolean, string
     ignore = given_ignore
   else
     ignore = {}
-    for i, glob in ipairs(DEFAULT_IGNORE) do ignore[i] = glob end
+    for _, glob in ipairs(DEFAULT_IGNORE) do ignore[#ignore + 1] = glob end
     ignore[#ignore + 1] = "/" .. (given.static or "static")
   end
   local ignored = ignorer(ignore)

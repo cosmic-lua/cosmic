@@ -8,8 +8,9 @@ local Json = require("cosmic.json")
 
 local function steps_text(steps: Json.Steps): string
   local parts: mut {string} = {}
-  for i, step in ipairs(steps) do
-    parts[i] = step is string and Json.quote(step) or tostring(step)
+  for _, step in ipairs(steps) do
+    local text = step is string and Json.quote(step) or tostring(step)
+    parts[#parts + 1] = text
   end
   return "{" .. table.concat(parts, ", ") .. "}"
 end

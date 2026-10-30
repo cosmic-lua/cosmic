@@ -215,7 +215,7 @@ local function test_the_lifespan_runs_at_the_first_request_and_cleans_up_on_clos
     assert(#events == 3)
   end
   assert(table.concat(events, " ") == "start request request stop", table.concat(events, " "))
-  for i = #events, 1, -1 do events[i] = nil end
+  for _ = #events, 1, -1 do events[#events] = nil end
   Web.with_client(make(), function(client: Web.TestClient)
     assert(#events == 1)
     client:get("/")

@@ -263,10 +263,10 @@ local function option_lines(spec: {string:boolean | Flags.Option}): {string}
     local entry = spec[name]
     local about = entry is Flags.Option and entry.about or nil
     if about ~= nil and about ~= "" then
-      lines[index] = "  " .. heads[index] .. string.rep(" ", width - columns(heads[index])) ..
+      lines[#lines + 1] = "  " .. heads[index] .. string.rep(" ", width - columns(heads[index])) ..
         "  " .. about
     else
-      lines[index] = "  " .. heads[index]
+      lines[#lines + 1] = "  " .. heads[index]
     end
   end
   return lines

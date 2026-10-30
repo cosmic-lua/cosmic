@@ -27,17 +27,18 @@ end
 --- Five fields, each present or not, and a retry.
 local function gen_event(src: Fuzz.Source): string
   local present = ""
-  local fields: mut {string} = {}
+  local texts: mut {string} = {}
   for i = 1, 4 do
     local has = src:int(0, 2) ~= 0
     present = present .. (if has then "1" else "0" end)
     local text = has and gen_text(src) or ""
     -- The event and the id are mostly drawn to be valid, so most inputs reach the formatter.
     if (i == 2 or i == 3) and src:int(0, 4) ~= 0 then text = text:gsub("[%c]", "") end
-    fields[i + 1] = text
+    texts[#texts + 1] = text
   end
-  fields[1] = present
-  fields[6] = tostring(Fuzz.pick(src, { 0, 1, 3000, 7, 7, 0, 5000, -1 }))
+  local fields: mut {string} = { present }
+  for _, text in ipairs(texts) do fields[#fields + 1] = text end
+  fields[#fields + 1] = tostring(Fuzz.pick(src, { 0, 1, 3000, 7, 7, 0, 5000, -1 }))
   return Fuzz.pack(fields)
 end
 

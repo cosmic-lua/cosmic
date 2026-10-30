@@ -433,14 +433,23 @@ local function strings_of(field: string, value: any): {string}?, string
   local out: mut {string} = {}
   if value is {any:any} then
     local count = 0
+    local held: mut {integer:string} = {}
     for i, item in pairs(value) do
       if not (i is integer and item is string) then
         return nil, field .. " takes a list of strings"
       end
       count = count + 1
-      out[i] = item
+      held[i] = item
     end
-    if count == #out then return out, "" end
+    -- A list holds the keys 1 to its count and no others.
+    for i = 1, count do
+      local item = held[i]
+      if item == nil then
+        return nil, field .. " takes a list of strings"
+      end
+      out[#out + 1] = item
+    end
+    return out, ""
   end
   return nil, field .. " takes a list of strings"
 end

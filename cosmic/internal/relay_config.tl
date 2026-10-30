@@ -407,7 +407,7 @@ function relay_config.encode(config: relay_config.Config): string
   local function endpoints(list: {relay_config.Endpoint}?): any
     if list == nil then return nil end
     local out: mut {any} = {}
-    for i, entry in ipairs(list) do out[i] = { host = entry.host, port = entry.port } end
+    for _, entry in ipairs(list) do out[#out + 1] = { host = entry.host, port = entry.port } end
     return Json.array(out)
   end
   local encoded, why = Json.encode_any({

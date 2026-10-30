@@ -644,11 +644,11 @@ local function classify(t: {any:any}, members: boolean, gaps: boolean): Json.Tab
     local k: any = key
     if k is string then
       strings = strings + 1
-      if members then keys[strings + numbers] = k end
+      if members then keys[#keys + 1] = k end
     elseif k is integer and k >= 1 then
       numbers = numbers + 1
       if k > top then top = k end
-      if members then keys[strings + numbers] = k end
+      if members then keys[#keys + 1] = k end
     else
       return "mixed", {}, 0
     end
@@ -763,11 +763,11 @@ end
 --- The JSON Pointer for steps that all count from 1, as a match's do.
 local function pointer_of(steps: Json.Steps): string
   local parts: mut {string} = {}
-  for i, step in ipairs(steps) do
+  for _, step in ipairs(steps) do
     if step is string then
-      parts[i] = "/" .. pointer_segment(step)
+      parts[#parts + 1] = "/" .. pointer_segment(step)
     else
-      parts[i] = "/" .. tostring(step - 1)
+      parts[#parts + 1] = "/" .. tostring(step - 1)
     end
   end
   return table.concat(parts)
@@ -895,9 +895,9 @@ function Json.pointer(steps: Json.Steps): string?, string
     local bad = bad_step(i, step)
     if bad ~= nil then return refuse(bad) end
     if step is string then
-      parts[i] = "/" .. pointer_segment(step)
+      parts[#parts + 1] = "/" .. pointer_segment(step)
     elseif step >= 1 then
-      parts[i] = "/" .. tostring(step - 1)
+      parts[#parts + 1] = "/" .. tostring(step - 1)
     else
       return refuse(("step %d is %d, from the end, which a JSON Pointer cannot say"):format(i, step))
     end
