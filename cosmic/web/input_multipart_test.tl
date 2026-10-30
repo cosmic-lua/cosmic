@@ -2,7 +2,6 @@
 --- fields do, file parts are spooled under random names and removed when
 --- the request ends, and each limit and each malformed body has its status.
 
-local Cell = require("cosmic.cell")
 local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
 local Input = require("cosmic.web.input")
@@ -58,7 +57,7 @@ end
 
 --- The refusal reading `body` with `opts` gives, failing where it is read.
 local function refusal(body: string, opts?: Types.InputOptions, content_type?: string, chunked?: boolean): Types.Invalid
-  -- TODO: hold the `nil as T?` cells of this file (Types.Invalid?, Input.Multipart?, Signup?, {string}?, Types.Parsed<Url.Query>?) in Cell<T?> once the reads they type assert what they index (`files[name][1]`, `errors[1]`, `by_name[name][1]`): typed, they add 19 nil_not_allowed to a file pinned at 25.
+  -- TODO: hold the `nil as T?` boxes of this file (Types.Invalid?, Input.Multipart?, Signup?, {string}?, Types.Parsed<Url.Query>?) in plain `T?` locals once the reads they type assert what they index (`files[name][1]`, `errors[1]`, `by_name[name][1]`): typed, they add 19 nil_not_allowed to a file pinned at 25.
   local got = { value = nil as Types.Invalid? }
   local reply = post(body, function(req: Web.Request): Web.Response
     local read = Input.multipart(req, opts)
@@ -73,9 +72,9 @@ end
 
 local function test_text_and_file_parts_are_read_and_the_file_is_spooled(tmp: string)
   local seen = { value = nil as Input.Multipart? }
-  local contents: Cell<string?> = { value = nil }
+  local contents: string? = nil
   local listing = { value = nil as {string}? }
-  local stat_mode: Cell<integer?> = { value = nil }
+  local stat_mode: integer? = nil
   local reply = post(body_of(
     field("email", "a@b.test"), field("tags", "x"), field("tags", "y"),
     file("avatar", "../../etc/passwd", "PNG\0\r\n--data", "image/png")), function(req: Web.Request): Web.Response
@@ -84,9 +83,9 @@ local function test_text_and_file_parts_are_read_and_the_file_is_spooled(tmp: st
       local value = assert(read.value)
       seen.value = value
       local up = value.files["avatar"][1]
-      contents.value = assert(Fs.read(up.path))
+      contents = assert(Fs.read(up.path))
       listing.value = assert(Fs.list(tmp))
-      stat_mode.value = assert(Fs.stat(up.path)).mode & 0x1ff
+      stat_mode = assert(Fs.stat(up.path)).mode & 0x1ff
       return Web.empty()
     end)
   assert(reply.status == 204)
@@ -95,25 +94,25 @@ local function test_text_and_file_parts_are_read_and_the_file_is_spooled(tmp: st
   assert(read.fields.by_name["email"][1] == "a@b.test" and #read.fields.by_name["tags"] == 2)
   local up = read.files["avatar"][1]
   assert(up.filename == "passwd" and up.content_type == "image/png" and up.size == 12 and up.field == "avatar")
-  assert(contents.value == "PNG\0\r\n--data")
+  assert(contents == "PNG\0\r\n--data")
   assert(#files_listed == 1 and files_listed[1]:find("^%x+$") and #files_listed[1] == 32,
     "a random name: " .. tostring(files_listed[1]))
   assert(up.path == tmp .. "/" .. files_listed[1], "the client's name is no part of the path")
-  assert(stat_mode.value == 384, "mode 0600")
+  assert(stat_mode == 384, "mode 0600")
   assert(read.size > 100)
   assert(#assert(Fs.list(tmp)) == 0, "removed when the request ended")
   assert(Fs.exists(up.path) == false)
 end
 
 local function test_without_a_dir_a_private_directory_is_made_and_removed()
-  local where: Cell<string?> = { value = nil }
+  local where: string? = nil
   post(body_of(file("f", "a.txt", "hello")), function(req: Web.Request): Web.Response
     local up = assert(Input.multipart(req).value).files["f"][1]
-    where.value = up.path
+    where = up.path
     assert(Fs.exists(up.path) == true)
     return Web.empty()
   end)
-  local made = assert(where.value, "the handler never ran")
+  local made = assert(where, "the handler never ran")
   assert(made:find("cosmic%-upload%-") ~= nil, made)
   assert(Fs.exists(made) == false)
   local dir = assert(made:match("^(.*)/[^/]+$"))
@@ -199,12 +198,12 @@ end
 
 local function test_a_typed_multipart_route_binds_and_answers_problems(tmp: string)
   local got = { value = nil as Signup? }
-  local files: Cell<integer> = { value = 0 }
+  local files: integer = 0
   local app = Web.app{ routes = {
     Web.post_typed("/up", Web.input(Web.NONE, Web.NONE, Web.multipart_body(SIGNUP)),
       function(req: Web.Request, _p: Web.None, _q: Web.None, b: Signup): Web.Response
         got.value = b
-        files.value = #assert(Input.multipart(req).value).files["pic"]
+        files = #assert(Input.multipart(req).value).files["pic"]
         return Web.empty()
       end, { input_options = { dir = tmp, max_file_bytes = 10 } }),
   }, sink = { line = function(_self: Web.Sink, _text: string) end } }
@@ -212,7 +211,7 @@ local function test_a_typed_multipart_route_binds_and_answers_problems(tmp: stri
   local ok_body = body_of(field("email", "e"), field("news", "0"), file("pic", "p.png", "0123456789"))
   local reply = client:post("/up", { body = ok_body, headers = { ["Content-Type"] = FORM_TYPE } })
   local got_value = got.value
-  assert(reply.status == 204 and got_value ~= nil and got_value.email == "e" and files.value == 1, reply.status)
+  assert(reply.status == 204 and got_value ~= nil and got_value.email == "e" and files == 1, reply.status)
   assert(#assert(Fs.list(tmp)) == 0)
   reply = client:post("/up", { body = body_of(field("age", "x")), headers = { ["Content-Type"] = FORM_TYPE,
     Accept = "application/json" } })
@@ -240,12 +239,12 @@ end
 
 local function test_a_form_route_takes_multipart_within_its_own_small_limit(tmp: string)
   local text = body_of(field("email", "e"), file("f", "a", ("x"):rep(70000)))
-  local status: Cell<integer> = { value = 0 }
+  local status: integer = 0
   post(text, function(req: Web.Request): Web.Response
-    status.value = assert(Input.form(req, { dir = tmp }).invalid).status
+    status = assert(Input.form(req, { dir = tmp }).invalid).status
     return Web.empty()
   end)
-  assert(status.value == 413, "a form's 64 KiB default is not the upload's")
+  assert(status == 413, "a form's 64 KiB default is not the upload's")
   local fields = { value = nil as Types.Parsed<Url.Query>? }
   post(text, function(req: Web.Request): Web.Response
     fields.value = Input.form(req, { dir = tmp, max_bytes = 100000 })
@@ -298,10 +297,10 @@ local function test_the_total_is_capped_by_length_and_when_chunked(tmp: string)
 end
 
 local function test_a_body_not_read_by_length_is_not_pulled_past_the_limit()
-  local pulled: Cell<integer> = { value = 0 }
+  local pulled: integer = 0
   local body: Stream.Reader = {
     read = function(_self: Stream.Reader, max?: integer): string?, string
-      pulled.value = pulled.value + (max or 0)
+      pulled = pulled + (max or 0)
       return ("a"):rep(math.min(max or 100, 100)), ""
     end,
     close = function(_self: Stream.Reader): boolean, string return true, "" end,
@@ -314,7 +313,7 @@ local function test_a_body_not_read_by_length_is_not_pulled_past_the_limit()
   local raw: Server.Request = { method = "POST", target = "/x", path = "/x", query = "", version = "HTTP/1.1",
     headers = { host = "x", ["content-type"] = FORM_TYPE }, body = body }
   assert(app.handle(raw).status == 204)
-  assert(pulled.value <= 20000, pulled.value)
+  assert(pulled <= 20000, pulled)
 end
 
 local function test_the_content_type_decides_415_and_a_bad_boundary_400()
@@ -397,11 +396,11 @@ end
 
 local function test_a_slow_or_failing_source_is_408_or_400(tmp: string)
   local function with_source(why: string): Types.Invalid
-    local sent: Cell<boolean> = { value = false }
+    local sent: boolean = false
     local body: Stream.Reader = {
       read = function(_self: Stream.Reader, _max?: integer): string?, string
-        if sent.value then return nil, why end
-        sent.value = true
+        if sent then return nil, why end
+        sent = true
         return "--" .. B .. '\r\nContent-Disposition: form-data; name="f"; filename="a"\r\n\r\npartial', ""
       end,
       close = function(_self: Stream.Reader): boolean, string return true, "" end,
@@ -498,13 +497,13 @@ local function test_trailing_blanks_in_parameters_cost_time_linear_in_their_run(
     parts[i] = "--" .. B .. '\r\nContent-Disposition: form-data; name="n' .. tostring(i) .. '"; x=a' .. spaces .. "y\r\n\r\nv\r\n"
   end
   local start = Clock.monotonic_ns()
-  local count: Cell<integer> = { value = 0 }
+  local count: integer = 0
   post(body_of(table.concat(parts)), function(req: Web.Request): Web.Response
-    count.value = #assert(Input.multipart(req).value).fields.pairs
+    count = #assert(Input.multipart(req).value).fields.pairs
     return Web.empty()
   end)
   local took = Clock.monotonic_ns() - start
-  assert(count.value == 100)
+  assert(count == 100)
   assert(took < Clock.seconds(2), "took " .. tostring(took // 1000000) .. " ms")
   start = Clock.monotonic_ns()
   local type_header = "application/x-www-form-urlencoded; x=a" .. (" "):rep(60000) .. "y"
@@ -523,11 +522,11 @@ local function killed_while_waiting(fn: function(req: Web.Request), first: strin
     local _, _ = Poll.delay(Clock.seconds(30))
     return Web.empty()
   end) } }
-  local at: Cell<integer> = { value = 0 }
+  local at: integer = 0
   local body: Stream.Reader = {
     read = function(_self: Stream.Reader, _max?: integer): string?, string
-      at.value = at.value + 1
-      if at.value == 1 then return first, "" end
+      at = at + 1
+      if at == 1 then return first, "" end
       local _, _ = Poll.delay(Clock.seconds(30))
       return nil, "gone"
     end,

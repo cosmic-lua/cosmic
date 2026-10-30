@@ -2,7 +2,6 @@
 --- `Net.connector`: a public-only connector, whose process connects the
 --- numeric endpoint the relay has checked and returns the socket over
 --- the control stream.
-local Cell = require("cosmic.cell")
 local Clock = require("cosmic.clock")
 local Fixture = require("build.relay_wire_fixture")
 local Net = require("cosmic.net")
@@ -81,13 +80,13 @@ local function test_the_relay_connects_through_the_native_connector()
     local free = assert(Net.listen(Net.tcp("127.0.0.1", 0)))
     local closed = assert(free.address.port)
     local _, _ = free:close()
-    local asked: Cell<integer> = { value = 0 }
+    local asked: integer = 0
     local connector = assert(Net.connector({}, { public = { deny = {} } }))
     local log: mut {string} = {}
     local relay = Relay.start({
       http = front, grants = { "127.0.0.1:" .. tostring(port), "127.0.0.1:" .. tostring(closed) },
       connector = function(address: string, to: integer, timeout_ns: integer): Net.Conn?, string
-        asked.value = asked.value + 1
+        asked = asked + 1
         return connector:connect(Net.tcp(address, to), { timeout_ns = timeout_ns })
       end,
       log = function(line: string)
@@ -108,7 +107,7 @@ local function test_the_relay_connects_through_the_native_connector()
     assert(head:find("^HTTP/1.1 200 "), head)
     assert(conn:write("through the connector"))
     assert(read_exact(conn, 21) == "through the connector")
-    assert(asked.value == 1)
+    assert(asked == 1)
     local _, _ = conn:close()
     -- A port nothing listens at: the connector's errno is the reason.
     local refused = dial()

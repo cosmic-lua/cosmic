@@ -1,4 +1,3 @@
-local Cell = require("cosmic.cell")
 local Codec = require("cosmic.codec")
 local Fs = require("cosmic.fs")
 local Hash = require("cosmic.hash")
@@ -33,46 +32,45 @@ local function header(res: Web.Response, name: string): string?
 end
 
 local function test_request_reads_the_hx_headers()
-  local seen: Cell<Htmx.Request?> = { value = nil }
+  local seen: Htmx.Request? = nil
   through(function(req: Web.Request): Web.Response
-    seen.value = Htmx.request(req)
+    seen = Htmx.request(req)
     return Web.text("")
   end, { ["HX-Request"] = "true", ["HX-Target"] = "list", ["HX-Trigger"] = "btn",
     ["HX-Trigger-Name"] = "save", ["HX-Current-URL"] = "http://x.test/items", ["HX-Prompt"] = "yes" })
-  local first = assert(seen.value, "the handler never ran")
+  local first = assert(seen, "the handler never ran")
   assert(first.active and not first.boosted and not first.history_restore)
   assert(first.target == "list" and first.trigger == "btn" and first.trigger_name == "save")
   assert(first.current_url == "http://x.test/items" and first.prompt == "yes")
   through(function(req: Web.Request): Web.Response
-    seen.value = Htmx.request(req)
+    seen = Htmx.request(req)
     return Web.text("")
   end)
-  local second = assert(seen.value, "the handler never ran")
+  local second = assert(seen, "the handler never ran")
   assert(not second.active and second.target == nil and second.prompt == nil)
   assert(second.trigger == nil and second.trigger_name == nil and second.current_url == nil)
 end
 
 local function test_an_htmx_request_without_the_optional_headers_leaves_them_nil()
-  local seen: Cell<Htmx.Request?> = { value = nil }
+  local seen: Htmx.Request? = nil
   through(function(req: Web.Request): Web.Response
-    seen.value = Htmx.request(req)
+    seen = Htmx.request(req)
     return Web.text("")
   end, { ["HX-Request"] = "true" })
-  local only = assert(seen.value, "the handler never ran")
+  local only = assert(seen, "the handler never ran")
   assert(only.active)
   assert(only.target == nil and only.prompt == nil and only.trigger == nil)
   assert(only.trigger_name == nil and only.current_url == nil)
 end
 
 local function test_only_the_literal_true_sets_a_flag()
-  -- TODO: hold this list in Cell<mut {boolean}> once its read tests each flag (`flags.value[1] == true`): typed, `not flags.value[1]` is a condition_type error.
-  local flags = { value = {} as {boolean} }
+  local flags = {} as {boolean}
   through(function(req: Web.Request): Web.Response
     local seen = Htmx.request(req)
-    flags.value = { seen.active, seen.boosted, seen.history_restore }
+    flags = { seen.active, seen.boosted, seen.history_restore }
     return Web.text("")
   end, { ["HX-Request"] = "TRUE", ["HX-Boosted"] = "1", ["HX-History-Restore-Request"] = "yes" })
-  assert(not flags.value[1] and not flags.value[2] and not flags.value[3])
+  assert(not flags[1] and not flags[2] and not flags[3])
 end
 
 local function test_a_fragment_is_wanted_only_by_a_plain_htmx_request()

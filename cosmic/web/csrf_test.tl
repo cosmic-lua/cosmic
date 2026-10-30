@@ -1,4 +1,3 @@
-local Cell = require("cosmic.cell")
 local Csrf = require("cosmic.web.csrf")
 local Cors = require("cosmic.web.cors")
 local Html = require("cosmic.html")
@@ -12,7 +11,7 @@ local SELF <const> = "http://testserver"
 --- A revocable store that keeps sessions in a table, under ids.
 local function memory_store(): Session.Store
   local rows: mut {string:Session.Data} = {}
-  local count: Cell<integer> = { value = 0 }
+  local count: integer = 0
   local store: Session.Store = {
     revocable = true,
     load = function(_self: Session.Store, token: string, now: integer, _cookie: string): Session.Data?, string
@@ -26,8 +25,8 @@ local function memory_store(): Session.Store
                     _now: integer, _cookie: string): string?, string
       local id = previous
       if id == "" or changes.regenerated then
-        count.value = count.value + 1
-        id = "id" .. tostring(count.value)
+        count = count + 1
+        id = "id" .. tostring(count)
         rows[previous] = nil
       end
       local values: mut {string:any} = {}
@@ -44,15 +43,14 @@ local function memory_store(): Session.Store
 end
 
 --- The lines the app's sink received.
--- TODO: hold this list in Cell<mut {string}> once its reads (`lines.value[1]:find`) test the element they index: typed, they add index_may_be_nil errors.
-local lines = { value = {} as {string} }
+local lines = {} as {string}
 
 --- An app with a form page, state-changing routes and a login, behind the
 --- session and `Csrf.middleware(opts)`.
 local function make_app(opts?: Csrf.Options, spec?: Web.AppSpec): Web.App
   local made: Web.AppSpec = spec or {}
   made.sink = { line = function(_self: Web.Sink, text: string)
-    lines.value[#lines.value + 1] = text
+    lines[#lines + 1] = text
   end }
   made.middleware = {
     Session.middleware{ store = memory_store() },
@@ -352,7 +350,7 @@ local function test_a_session_cookie_planted_before_login_carries_no_token_acros
 end
 
 local function test_the_refusal_is_a_403_that_says_why_without_the_token()
-  lines.value = {}
+  lines = {}
   local client, token = session_with_token(make_app())
   local res = client:post("/do", { headers = { Origin = "https://evil.example\1" } })
   assert(res.status == 403)
@@ -361,12 +359,12 @@ local function test_the_refusal_is_a_403_that_says_why_without_the_token()
   assert(missing.status == 403 and missing.body:find("security token", 1, true), missing.body)
   local htmx = client:post("/do", { headers = { ["HX-Request"] = "true" } })
   assert(htmx.status == 403 and htmx.body:find("reload the page", 1, true), htmx.body)
-  assert(#lines.value >= 3 and lines.value[1]:find("csrf: refused POST /do (origin)", 1, true), lines.value[1])
-  assert(not lines.value[1]:find("\1", 1, true), "a control byte of the client's is not written")
-  for _, line in ipairs(lines.value) do assert(not line:find(token, 1, true)) end
+  assert(#lines >= 3 and lines[1]:find("csrf: refused POST /do (origin)", 1, true), lines[1])
+  assert(not lines[1]:find("\1", 1, true), "a control byte of the client's is not written")
+  for _, line in ipairs(lines) do assert(not line:find(token, 1, true)) end
   local with = client:post("/do", { headers = { ["X-CSRF-Token"] = token .. "x" } })
   assert(with.status == 403)
-  for _, line in ipairs(lines.value) do
+  for _, line in ipairs(lines) do
     assert(not line:find(token, 1, true), "the token is not logged")
   end
 end
@@ -440,11 +438,11 @@ local function test_a_multipart_token_anywhere_but_first_is_refused_and_a_header
 end
 
 local function test_a_cookieless_post_is_refused_before_its_body_is_read()
-  local read: Cell<integer> = { value = 0 }
+  local read: integer = 0
   local app = make_app({ exempt = function(req: Web.Request): boolean
     local inner = req.raw.body
     req.raw.body = { read = function(_self: Stream.Reader, max_bytes?: integer): string?, string
-      read.value = read.value + 1
+      read = read + 1
       return inner:read(max_bytes)
     end, close = function(_self: Stream.Reader): boolean, string
       return inner:close()
@@ -458,7 +456,7 @@ local function test_a_cookieless_post_is_refused_before_its_body_is_read()
   local form = Web.test_client(app):post("/form", { body = "csrf_token=" .. token,
     content_type = "application/x-www-form-urlencoded" })
   assert(form.status == 403)
-  assert(read.value == 0, "no secret, no read: " .. tostring(read.value))
+  assert(read == 0, "no secret, no read: " .. tostring(read))
 end
 
 local function test_a_big_urlencoded_form_carries_its_token_within_the_peek()
