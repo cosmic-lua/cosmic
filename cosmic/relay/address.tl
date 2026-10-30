@@ -196,9 +196,15 @@ end
 local PREFIXES <const>: {Prefix} = (function(): {Prefix}
   local out: mut {Prefix} = {}
   for _, entry in ipairs(DENY) do
-    local address, bits = entry.cidr:match("^(.-)/(%d+)$")
-    out[#out + 1] = { bytes = assert(relay_address.parse(address)), bits = math.tointeger(tonumber(bits)),
-      class = entry.class }
+    local address, bits_text = entry.cidr:match("^(.-)/(%d+)$")
+    if address == nil or bits_text == nil then
+      error("relay: the refused prefix " .. entry.cidr .. " is not address/bits")
+    end
+    local bits = math.tointeger(tonumber(bits_text))
+    if bits == nil then
+      error("relay: the refused prefix " .. entry.cidr .. " has no whole number of bits")
+    end
+    out[#out + 1] = { bytes = assert(relay_address.parse(address)), bits = bits, class = entry.class }
   end
   return out
 end)()
@@ -213,7 +219,13 @@ local function within(b: {integer}, prefix: Prefix): boolean
   local rest = prefix.bits % 8
   if rest == 0 then return true end
   local mask = (0xff << (8 - rest)) & 0xff
-  return b[whole + 1] & mask == prefix.bytes[whole + 1] & mask
+  -- The lengths are equal and a prefix with bits left over is shorter than its
+  -- address, so both hold the byte. A refusal that missed it would allow the address.
+  local mine, theirs = b[whole + 1], prefix.bytes[whole + 1]
+  if mine == nil or theirs == nil then
+    error("relay: the refused prefix of " .. prefix.class .. " runs past the end of its address")
+  end
+  return mine & mask == theirs & mask
 end
 
 --- The class an address is refused as, or nil. `own` holds the host's
@@ -280,7 +292,7 @@ function relay_address.own_addresses(own: {string}): {{integer}}
     local bytes = relay_address.parse(text)
     if bytes == nil then error("own address \"" .. tostring(text) .. "\" is not numeric", 2) end
     if #bytes == 16 and begins(bytes, { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xff, 0xff }) then
-      bytes = { bytes[13], bytes[14], bytes[15], bytes[16] }
+      bytes = { table.unpack(bytes, 13, 16) }
     end
     out[#out + 1] = bytes
   end
@@ -314,7 +326,9 @@ function relay_address.check(address: string, port: integer, grants: {string},
   if granted(bytes, port, grants) then return true, "" end
   local class = classify(bytes, own)
   if class then
-    return false, address .. " is " .. PHRASES[class] .. ": grant it literally with --connect " ..
+    local phrase = PHRASES[class]
+    if phrase == nil then error("relay: no phrase names the class " .. class) end
+    return false, address .. " is " .. phrase .. ": grant it literally with --connect " ..
       target(address, port)
   end
   return true, ""
