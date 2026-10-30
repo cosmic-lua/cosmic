@@ -6,6 +6,12 @@ local Sqlite = require("cosmic.sqlite")
 local String = require("cosmic.string")
 local bind = require("build.bind")
 
+--- A row of the `meta` table the identity is recorded in.
+local record MetaRow
+  key: string
+  value: string
+end
+
 local record identity
   --- What the tool is made of, as two hashes: everything (`boot`), and
   --- the part the C core is built from (`image`). A binary carries both.
@@ -305,7 +311,11 @@ function identity.hash_over(db: Sqlite.Handle, where: string): string?, string
   if rows == nil then
     return nil, trouble
   end
-  return rows[1]:text(1), ""
+  local row = rows[1]
+  if row == nil then
+    return nil, "the hash query answered no row"
+  end
+  return row:text(1), ""
 end
 
 --- The files the seed compiles, as [`build/seed.txt`] under `root` lists them, one to a line; none in a tree that has no
@@ -365,10 +375,11 @@ function identity.record_fingerprint(db: Sqlite.Handle, root: string): identity.
   if image == nil then
     return nil, image_trouble
   end
-  for _, pair in ipairs({ { "boot_hash", boot }, { "image_hash", image } }) do
+  local fingerprints: {MetaRow} = { { key = "boot_hash", value = boot }, { key = "image_hash", value = image } }
+  for _, pair in ipairs(fingerprints) do
     local ok, why = Sqlite.run(db,
       "INSERT OR REPLACE INTO meta (key, value) VALUES (?1, ?2)",
-      { text(pair[1]), text(pair[2]) })
+      { text(pair.key), text(pair.value) })
     if not ok then
       return nil, why
     end
@@ -460,7 +471,11 @@ local function hash_of(db: Sqlite.Handle, names: {string}, extra: string): strin
   if rows == nil then
     return nil, trouble
   end
-  return rows[1]:text(1), ""
+  local row = rows[1]
+  if row == nil then
+    return nil, "the hash of the names answered no row"
+  end
+  return row:text(1), ""
 end
 
 --- Where the compiler's identity starts ([`identity.compiler_modules`]):
@@ -490,7 +505,7 @@ function identity.compiler_modules(requires: function(string): {string}?, string
   for _, name in ipairs(compiler_roots) do stack[#stack + 1] = name end
   while #stack > 0 do
     local name = table.remove(stack)
-    if reached[name] ~= true then
+    if name ~= nil and reached[name] ~= true then
       reached[name] = true
       local required, trouble = requires(name)
       if required == nil then return nil, trouble end
@@ -601,7 +616,7 @@ function identity.writer_modules(requires: function(string): {string}?, string):
   for _, name in ipairs(writer_roots) do stack[#stack + 1] = name end
   while #stack > 0 do
     local name = table.remove(stack)
-    if reached[name] ~= true then
+    if name ~= nil and reached[name] ~= true then
       reached[name] = true
       local required, trouble = requires(name)
       if required == nil then return nil, trouble end
@@ -663,17 +678,24 @@ function identity.record_identities(db: Sqlite.Handle): identity.Identities?, st
   if bases == nil then
     return nil, basis_trouble
   end
+  local basis = bases[1]
+  if basis == nil then
+    return nil, "the runtime basis query answered no row"
+  end
   local identities: identity.Identities = {
     compiler = compiler,
-    runtime_basis = bases[1]:text(1),
+    runtime_basis = basis:text(1),
     writer = writer,
   }
-  for _, pair in ipairs({ { "compiler", identities.compiler },
-      { "runtime_basis", identities.runtime_basis },
-      { "writer", identities.writer } }) do
+  local recorded: {MetaRow} = {
+    { key = "compiler", value = identities.compiler },
+    { key = "runtime_basis", value = identities.runtime_basis },
+    { key = "writer", value = identities.writer },
+  }
+  for _, pair in ipairs(recorded) do
     local ok, why = Sqlite.run(db,
       "INSERT OR REPLACE INTO meta (key, value) VALUES (?1, ?2)",
-      { text(pair[1]), text(pair[2]) })
+      { text(pair.key), text(pair.value) })
     if not ok then
       return nil, why
     end

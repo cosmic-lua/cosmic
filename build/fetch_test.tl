@@ -246,6 +246,14 @@ local function test_an_https_start_limits_redirects_to_https_unless_allowed()
   assert(fetch.redirect_protocols("http://example.test/a", false) == nil)
 end
 
+--- A URL that names no scheme is held to https, the narrower choice,
+--- not trusted to be a plain http one.
+local function test_a_start_without_a_scheme_limits_redirects_to_https()
+  local limited = assert(fetch.redirect_protocols("example.test/a", false))
+  assert(#limited == 1 and limited[1] == "https")
+  assert(fetch.redirect_protocols("example.test/a", true) == nil)
+end
+
 local function test_a_refused_downgrade_is_named_plainly()
   local curl = 'Protocol "http" is disabled (in redirect)'
   local said = fetch.refusal(curl, { "https" })

@@ -353,8 +353,9 @@ function TermRelay.run(argv: {string}, opts: Child.Options, terminal?: Terminal)
   --- program's output and not an echo.
   local function flush_queue(): integer
     local written = 0
-    while relay.queue[1] ~= nil do
+    while true do
       local item = relay.queue[1]
+      if item == nil then break end
       local count, why, errno = sys.write(item.fd, item.data)
       if count ~= nil then
         written = written + count
@@ -487,18 +488,24 @@ function TermRelay.run(argv: {string}, opts: Child.Options, terminal?: Terminal)
     local master_events = (relay.master_open and reading_output and sys.POLLIN or 0) | (#relay.pending > 0 and sys.POLLOUT or 0)
     local master_fd = master_events ~= 0 and master or -1
     local notes_fd = relay.notes_open and room and notes or -1
-    local out_fd = relay.queue[1] ~= nil and relay.queue[1].fd or -1
+    local head = relay.queue[1]
+    local out_fd = head ~= nil and head.fd or -1
     local ready, poll_why = sys.poll({ keys_fd, master_fd, notes_fd, out_fd },
       { sys.POLLIN, master_events, sys.POLLIN, sys.POLLOUT }, TICK_MS)
     if ready == nil then
       relay.failure = "terminal: waiting: " .. poll_why
       break
     end
-    if ready[2] ~= 0 then
-      if ready[2] & sys.POLLOUT ~= 0 and #relay.pending > 0 then
+    local master_ready = ready[2]
+    if master_ready == nil then
+      relay.failure = "terminal: waiting: poll answered no master slot"
+      break
+    end
+    if master_ready ~= 0 then
+      if master_ready & sys.POLLOUT ~= 0 and #relay.pending > 0 then
         local _ = flush_pending()
       end
-      if relay.master_open and reading_output and ready[2] & (sys.POLLIN | sys.POLLHUP | sys.POLLERR) ~= 0 then
+      if relay.master_open and reading_output and master_ready & (sys.POLLIN | sys.POLLHUP | sys.POLLERR) ~= 0 then
         local _ = relay_output()
       end
     end
@@ -544,11 +551,13 @@ function TermRelay.run(argv: {string}, opts: Child.Options, terminal?: Terminal)
       local reading = out_budget > 0 or notes_budget > 0
       if relay.queue[1] == nil and not reading then break end
       if relay.failure ~= nil and relay.queue[1] == nil then break end
-      if flush_queue() > 0 then
+      local flushed = flush_queue()
+      local queued_head = relay.queue[1]
+      if flushed > 0 then
         stalled = 0
-      elseif relay.queue[1] ~= nil and (relay.queued >= MOST_QUEUED or not reading) then
+      elseif queued_head ~= nil and (relay.queued >= MOST_QUEUED or not reading) then
         if stalled >= STALL_MS then break end
-        local _, _ = sys.poll({ relay.queue[1].fd }, { sys.POLLOUT }, TICK_MS)
+        local _, _ = sys.poll({ queued_head.fd }, { sys.POLLOUT }, TICK_MS)
         stalled = stalled + TICK_MS
       end
     end

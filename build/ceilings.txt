@@ -523,7 +523,6 @@ cosmic/template_go_test.tl unchecked_binding 1
 # local or of a fixed field narrowed: a test of a `mut` field, a global or an index, and the nil results the
 # standard library now answers and the tree uses as values; the rewrite uses `assert`, `or` or an early return
 
-build/archive.tl nil_not_allowed 10
 
 build/archive_test.tl nil_not_allowed 18
 
@@ -580,7 +579,6 @@ build/check_draws.tl nil_not_allowed 1
 
 build/child_policy_database_fixture.tl nil_not_allowed 1
 
-build/closure_store.tl nil_not_allowed 8
 
 build/closure_store_test.tl nil_not_allowed 10
 
@@ -667,7 +665,6 @@ build/example_checks.tl nil_not_allowed 1
 
 build/example_checks_test.tl nil_not_allowed 1
 
-build/fetch.tl nil_not_allowed 17
 
 build/fetch_test.tl nil_not_allowed 1
 
@@ -677,7 +674,6 @@ build/fix/fix_test.tl nil_not_allowed 7
 
 build/fix/init.tl nil_not_allowed 1
 
-build/fix/near.tl nil_not_allowed 10
 
 build/fix/near_test.tl nil_not_allowed 3
 
@@ -694,7 +690,6 @@ build/fuzz/shrink.tl nil_not_allowed 11
 
 build/fuzz/shrink_test.tl nil_not_allowed 11
 
-build/gen_syscalls.tl nil_not_allowed 16
 
 build/gen_syscalls_test.tl nil_not_allowed 7
 
@@ -709,7 +704,6 @@ build/host_requires.tl nil_not_allowed 5
 
 build/host_requires_test.tl nil_not_allowed 9
 
-build/identity.tl nil_not_allowed 10
 
 build/importer.tl nil_not_allowed 9
 
@@ -748,7 +742,6 @@ build/patch_test.tl nil_not_allowed 1
 
 build/perf_test.tl nil_not_allowed 10
 
-build/perf_validation.tl nil_not_allowed 9
 
 build/plural_sites.tl nil_not_allowed 5
 
@@ -756,7 +749,6 @@ build/policy_rules.tl nil_not_allowed 1
 
 build/positions.tl nil_not_allowed 1
 
-build/rand.tl nil_not_allowed 8
 
 build/rand_test.tl nil_not_allowed 9
 
@@ -820,7 +812,6 @@ build/shared_verdicts_test.tl nil_not_allowed 3
 
 build/shared_verdicts_tool_test.tl nil_not_allowed 4
 
-build/sql.tl nil_not_allowed 15
 
 build/sql_store_test.tl nil_not_allowed 1
 
@@ -875,11 +866,9 @@ build/syntax_stub_test.tl nil_not_allowed 6
 
 build/syntax_typed_fixture.tl nil_not_allowed 2
 
-build/term_filter.tl nil_not_allowed 3
 
 build/term_filter_fuzz_test.tl nil_not_allowed 5
 
-build/term_relay.tl nil_not_allowed 11
 
 build/test.tl nil_not_allowed 31
 
@@ -919,15 +908,12 @@ build/this_program.tl nil_not_allowed 2
 
 build/this_program_test.tl nil_not_allowed 2
 
-build/time.tl nil_not_allowed 12
 
 build/time_input_fuzz_test.tl nil_not_allowed 3
 
 build/time_tool_test.tl nil_not_allowed 1
 
-build/todo_scan.tl nil_not_allowed 6
 
-build/todos.tl nil_not_allowed 13
 
 build/todos_git_test.tl nil_not_allowed 22
 
@@ -1495,7 +1481,6 @@ core/syscalls_tool_test.tl missing_return 1
 # an index read used where its element is wanted: an index is no place, so a test of it narrows nothing; the rewrite
 # reads it into a local and tests that, or iterates with `ipairs`
 
-build/archive.tl index_may_be_nil 3
 
 build/archive_test.tl index_may_be_nil 7
 
@@ -1518,7 +1503,6 @@ build/cache_maintenance.tl index_may_be_nil 1
 
 build/check_draws.tl index_may_be_nil 2
 
-build/closure_store.tl index_may_be_nil 6
 
 build/codec.tl index_may_be_nil 1
 
@@ -1568,18 +1552,15 @@ build/embed.tl index_may_be_nil 2
 
 build/embed_tool_test.tl index_may_be_nil 2
 
-build/fetch.tl index_may_be_nil 1
 
 build/fix/fix_test.tl index_may_be_nil 2
 
-build/fix/near.tl index_may_be_nil 2
 
 
 build/fuzz/init.tl index_may_be_nil 2
 
 build/fuzz/shrink.tl index_may_be_nil 4
 
-build/gen_syscalls.tl index_may_be_nil 3
 
 build/harness_epoch_test.tl index_may_be_nil 2
 
@@ -1593,7 +1574,6 @@ build/host_requires.tl index_may_be_nil 1
 
 build/host_requires_test.tl index_may_be_nil 4
 
-build/identity.tl index_may_be_nil 4
 
 build/importer_store_test.tl index_may_be_nil 2
 
@@ -1619,13 +1599,11 @@ build/locator_fuzz_test.tl index_may_be_nil 8
 
 build/patch_test.tl index_may_be_nil 2
 
-build/perf_validation.tl index_may_be_nil 2
 
 build/pipeline.tl index_may_be_nil 1
 
 build/positions_test.tl index_may_be_nil 2
 
-build/rand.tl index_may_be_nil 5
 
 build/rand_test.tl index_may_be_nil 1
 
@@ -1651,7 +1629,6 @@ build/shared_compiles_tool_test.tl index_may_be_nil 4
 
 build/shared_verdicts.tl index_may_be_nil 1
 
-build/sql.tl index_may_be_nil 2
 
 
 build/stand_in.tl index_may_be_nil 2
@@ -1683,7 +1660,6 @@ build/syntax_stub.tl index_may_be_nil 10
 
 build/syntax_typed_fixture.tl index_may_be_nil 2
 
-build/term_filter.tl index_may_be_nil 1
 
 build/test.tl index_may_be_nil 12
 
@@ -1711,15 +1687,12 @@ build/test_worker_loads_test.tl index_may_be_nil 2
 
 build/test_worker_test.tl index_may_be_nil 3
 
-build/time.tl index_may_be_nil 6
 
 build/time_input_fuzz_test.tl index_may_be_nil 1
 
 build/time_test.tl index_may_be_nil 1
 
-build/todo_scan.tl index_may_be_nil 5
 
-build/todos.tl index_may_be_nil 3
 
 build/todos_git_test.tl index_may_be_nil 3
 
@@ -4685,7 +4658,6 @@ build/stand_in_probe.tl condition_type 4
 
 
 
-build/term_filter.tl condition_type 1
 
 build/term_filter_fuzz_test.tl condition_type 1
 
@@ -5018,7 +4990,6 @@ build/declared_key.tl or_mix 1
 
 
 
-build/fetch.tl or_mix 1
 
 
 
@@ -5072,7 +5043,6 @@ build/patch_test.tl or_mix 1
 
 
 
-build/sql.tl or_mix 1
 
 
 
@@ -5560,7 +5530,7 @@ build/time.tl and_ternary 3
 
 build/todo_scan.tl and_ternary 2
 
-build/todos.tl and_ternary 7
+build/todos.tl and_ternary 4
 
 build/tree_checks.tl and_ternary 10
 
@@ -6059,7 +6029,6 @@ build/test_sandbox_probe.tl compare_disjoint 1
 
 build/test_worker.tl compare_disjoint 2
 
-build/todos.tl compare_disjoint 1
 
 
 build/work.tl compare_disjoint 4
