@@ -11,6 +11,8 @@
 --- build runs -- and projected by [`build.writer.write_result`], the
 --- function that writes `cosmic.db`.
 
+-- TODO: make this `local type Cell = require("cosmic.cell")` once the store keeps a module that only a `local type` require names; today that drops cosmic.cell from the binary and build/link_index_test fails.
+local Cell = require("cosmic.cell")
 local Sqlite = require("cosmic.sqlite")
 local build_paths = require("build.paths")
 local importer = require("build.importer")
@@ -24,7 +26,7 @@ end
 
 --- How many databases this process has written, so each has a file of
 --- its own under a directory one test shares.
-local written = { value = 0 }
+local written: Cell<integer> = { value = 0 }
 
 --- The shipped database the tree `files` would build to, written as a
 --- file of its own under `dir` and opened read-only. `files` maps each file's path
@@ -65,7 +67,7 @@ function docs_fixture.database(dir: string, files: {string: string}): Sqlite.Han
     "INSERT INTO compiled (key, tool, lua, bytecode, seen) " ..
       "SELECT key, '', '', '', 0 FROM plan"))
   written.value = written.value + 1
-  local path = dir .. "/cosmic-" .. written.value .. ".db"
+  local path = dir .. "/cosmic-" .. tostring(written.value) .. ".db"
   -- A fixture's tree stands in for cosmic's own, whose links name its
   -- own standard library and not the binary's. Its result names the
   -- compiler a build in this process names, though nothing was compiled,

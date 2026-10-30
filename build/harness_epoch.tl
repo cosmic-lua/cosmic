@@ -99,7 +99,7 @@ harness_epoch.acknowledged = {
 
   ["build.core_image"] = "18daf88c3c58f62a222472eaa52b99218cd1e5b7ccafde6a0beded46c8f3382b",
 
-  ["build.declared_key"] = "1f2e1623ea22586ea983b21601b74dc8c5607959faf3d06b98409f172d08c37c",
+  ["build.declared_key"] = "74f3f1fe3334a3f3add575d9853284dbf4753279407e3ba9413f421ef3098301",
 
   ["build.digest"] = "63588bce17aabb935b044ae8a4af8cea78d1dca19822a36e72efe62d4a877355",
 
@@ -129,13 +129,15 @@ harness_epoch.acknowledged = {
 
   ["build.test_sandbox"] = "1913cda9e0b5d20dc8950673ac5b7b1aea1be02a09e2a819392e850fa0e9d0f0",
 
-  ["build.test_worker"] = "d209f24f32b03304af99899391bfc373efe058df035e5d09d4cec3389cba2c58",
+  ["build.test_worker"] = "3ff609d19f465fe18a22e8fd152a38e57fd52bdde9467b1a65ed86c25a71c43f",
 
   ["build.this_program"] = "345b0565401a0f96cd0dcc4165281806148315424265bca17841eaf72d32fd42",
 
   ["build.zig_caches"] = "3dd89e9f3b612891419f3178cfb211d59ff80da1e42515f77e33b4a9366f2853",
 
   ["cmd.cosmic.main"] = "4199a34c391ac393c2cff8404cced9e3e593309f7ec58fb1af37f26e3fead347",
+
+  ["cosmic.cell"] = "6cdb2258e07333b1086f41f2ba8679b6a8d0ab1a828ab65f00c30615fd758309",
 
   ["cosmic.child"] = "bb268c6b896e97c59bfe5101d867bdbf6de11d5336e4e8fc0a072ae95d285d47",
 
@@ -168,6 +170,8 @@ harness_epoch.acknowledged = {
 harness_epoch.library = {
   ["cosmic.child"] = "its `start` turns a worker's plan into the unveils, binds and " ..
     "offline spawn holds it to; held alone, what it requires is not walked",
+  ["cosmic.cell"] = "holds a counter or flag that a closure of `build.test_worker` or " ..
+    "`build.declared_key` updates, in place of an untyped table",
   ["cosmic.codec"] = "cosmic.hash's hex encoding of the digest `build.paths` names a " ..
     "project's build directory by",
   ["cosmic.coverage"] = "the worker starts and stops the coverage a test's lines are " ..

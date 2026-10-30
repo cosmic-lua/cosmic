@@ -15,6 +15,8 @@
 
 local type Child = require("cosmic.child")
 local type Sandbox = require("cosmic.sandbox")
+-- TODO: make this `local type Cell = require("cosmic.cell")` once the store keeps a module that only a `local type` require names; today that drops cosmic.cell from the binary and build/link_index_test fails.
+local Cell = require("cosmic.cell")
 local Coverage = require("cosmic.coverage")
 local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
@@ -267,7 +269,7 @@ local SECOND_NS <const> = 1000 * 1000 * 1000
 worker.loads = {
   "build.assertions", "build.cache_names", "build.confine", "build.key_parts", "build.load_module",
   "build.test_inputs",
-  "build.test_worker", "build.this_program", "cmd.cosmic.main", "cosmic.coverage",
+  "build.test_worker", "build.this_program", "cmd.cosmic.main", "cosmic.cell", "cosmic.coverage",
   "cosmic.env", "cosmic.fs", "cosmic.proc", "cosmic.test",
 }
 
@@ -379,7 +381,7 @@ local checks: mut {string:Check} = {}
 local facts: mut {string:Fact} = {}
 local malformed: mut {string:boolean} = {}
 local found: mut {worker.Violation} = {}
-local tally = { dropped = 0 }
+local dropped_violations: Cell<integer> = { value = 0 }
 -- The place that sent a value is asked of the stack for every violation of
 -- a parameter, in constant time, so the report names it however often a
 -- boundary is violated; what is bounded is how many distinct violations one
@@ -453,7 +455,7 @@ end
 -- the worker keeps as many as it may: then it is only counted.
 local function keep(sites: mut {string:worker.Violation}, at: string, met: worker.Violation)
   if #found >= worker.most_kept then
-    tally.dropped = tally.dropped + 1
+    dropped_violations.value = dropped_violations.value + 1
     return
   end
   sites[at] = met
@@ -752,7 +754,7 @@ end
 --- How many kinds of violation this process met past the number it keeps
 --- a record of.
 function worker.dropped_violations(): integer
-  return tally.dropped
+  return dropped_violations.value
 end
 
 --- The monotonic clock, in nanoseconds, straight from the binding.
