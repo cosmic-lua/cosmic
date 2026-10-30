@@ -438,6 +438,16 @@ local function escape_fix(bad: string): string
     " `\\xNN`, `\\ddd` up to 255, `\\u{NNN}` and a backslash before a line break"
 end
 
+--- The last byte of the run that `pattern` (anchored, and one a run of nothing satisfies) matches at `init` of `source`:
+--- `init - 1` for no byte at all, which is also where a match of nothing ends.
+local function run_end(source: string, pattern: string, init: integer): integer
+  local _, e = find(source, pattern, init)
+  if e == nil then
+    return init - 1
+  end
+  return e
+end
+
 --- Where the escape that begins at the backslash `s` of `source` ends, and
 --- what is wrong with it: "" for a good escape, else the fix for it.
 local function check_escape(source: string, s: integer): integer, string
@@ -450,23 +460,21 @@ local function check_escape(source: string, s: integer): integer, string
   elseif c == NEWLINE or c == CARRIAGE_RETURN then
     return s + break_at(source, s + 1), ""
   elseif c == byte("z") then
-    local _, e = find(source, "^[ \t\r\n\v\f]*", s + 2)
-    return e, ""
+    return run_end(source, "^[ \t\r\n\v\f]*", s + 2), ""
   elseif c == byte("x") then
     if find(source, "^%x%x", s + 2) then
       return s + 3, ""
     end
-    local _, e = find(source, "^%x?", s + 2)
-    return e, "`\\x` takes exactly two hexadecimal digits: write `\\x41` for `A`"
+    return run_end(source, "^%x?", s + 2), "`\\x` takes exactly two hexadecimal digits: write `\\x41` for `A`"
   elseif c >= 48 and c <= 57 then
-    local _, e = find(source, "^%d%d?%d?", s + 1)
+    local e = run_end(source, "^%d%d?%d?", s + 1)
     if assert(tonumber(sub(source, s + 1, e))) > 255 then
       return e, "a decimal escape is at most `\\255`: write a character past 255 as `\\u{...}`, as `\\u{100}`"
     end
     return e, ""
   elseif c == byte("u") then
     local _, e, digits = find(source, "^{(%x+)}", s + 2)
-    if e then
+    if e ~= nil and digits ~= nil then
       local significant = digits:gsub("^0+", "")
       if #significant <= 8 and (significant == "" or assert(tonumber(significant, 16)) <= 0x7FFFFFFF) then
         return e, ""
@@ -530,24 +538,25 @@ local function decode(inner: string): string
     local c = byte(inner, s + 1)
     local text: string
     local e = s + 1
-    if simple_escape[c] then
-      text = simple_escape[c]
+    local plain = simple_escape[c]
+    if plain ~= nil then
+      text = plain
     elseif c == NEWLINE or c == CARRIAGE_RETURN then
       text = "\n"
       e = s + break_at(inner, s + 1)
     elseif c == byte("z") then
-      local _, ze = find(inner, "^[ \t\r\n\v\f]*", s + 2)
       text = ""
-      e = ze
+      e = run_end(inner, "^[ \t\r\n\v\f]*", s + 2)
     elseif c == byte("x") then
       text = string.char(assert(math.tointeger(assert(tonumber(sub(inner, s + 2, s + 3), 16)))))
       e = s + 3
     elseif c == byte("u") then
       local _, ue, digits = find(inner, "^{(%x+)}", s + 2)
+      assert(ue ~= nil and digits ~= nil, "a good `\\u` escape has braces")
       text = utf8.char(assert(math.tointeger(assert(tonumber(digits, 16)))))
       e = ue
     else
-      local _, de = find(inner, "^%d%d?%d?", s + 1)
+      local de = run_end(inner, "^%d%d?%d?", s + 1)
       text = string.char(assert(math.tointeger(assert(tonumber(sub(inner, s + 1, de))))))
       e = de
     end
@@ -580,8 +589,7 @@ local function numeral_end(source: string, pos: integer): integer
       break
     end
   end
-  local _, e = find(source, "^[%w_]*", i)
-  return e
+  return run_end(source, "^[%w_]*", i)
 end
 
 --- The fix for a hexadecimal float of this finite or infinite `value`: it
@@ -647,7 +655,9 @@ function Lexer.lex(source: string, name: string): Lexer.Lexed
     local text = ""
     local e = pos
     if c == 1 then
-      text = capture(source, "^[%a_][%w_]*", pos)
+      local word = capture(source, "^[%a_][%w_]*", pos)
+      assert(word ~= nil, "an identifier begins at a byte of class 1")
+      text = word
       e = pos + #text - 1
       kind = if words[text] == true then "keyword" else "identifier" end
     elseif c == 2 then
@@ -657,7 +667,10 @@ function Lexer.lex(source: string, name: string): Lexer.Lexed
       end
     elseif c == 4 then
       kind = one_kind[b]
-      text = one_text[b]
+      local fixed = one_text[b]
+      if fixed ~= nil then
+        text = fixed
+      end
     elseif c == 3 then
       line = line + 1
       pos = pos + break_at(source, pos)
@@ -665,11 +678,15 @@ function Lexer.lex(source: string, name: string): Lexer.Lexed
       line_offsets[#line_offsets + 1] = pos
     elseif c == 7 then
       kind = "op"
-      if second[b][byte(source, pos + 1)] == true then
+      local follows = second[b]
+      if follows ~= nil and follows[byte(source, pos + 1)] == true then
         e = pos + 1
         text = sub(source, pos, e)
       else
-        text = one_text[b]
+        local fixed = one_text[b]
+        if fixed ~= nil then
+          text = fixed
+        end
       end
     elseif c == 8 and byte(source, pos + 1) ~= 45 then
       kind = "op"
@@ -678,10 +695,10 @@ function Lexer.lex(source: string, name: string): Lexer.Lexed
       -- `--`: a line comment, or a long one the grammar cuts.
       local x = pos - line_start + 1
       local _, open_end, level = find(source, "^%[(=*)%[", pos + 2)
-      if open_end then
+      if open_end ~= nil and level ~= nil then
         local close = "]" .. level .. "]"
         local cs, ce = find(source, close, open_end + 1, true)
-        if not cs then
+        if cs == nil or ce == nil then
           local text_to_end = sub(source, pos)
           local yend, yend_start, end_y, end_x = span_end(tokens, text_to_end, pos, line, line_start)
           kind = "$ERR$"
@@ -822,7 +839,7 @@ function Lexer.lex(source: string, name: string): Lexer.Lexed
       end
     elseif c == 11 then
       local _, open_end, level = find(source, "^%[(=*)%[", pos)
-      if not open_end then
+      if open_end == nil or level == nil then
         kind = "["
         text = "["
       else
@@ -855,8 +872,7 @@ function Lexer.lex(source: string, name: string): Lexer.Lexed
     else
       -- A cut `;`, or a byte that begins no token.
       if b >= 128 then
-        local _, he = find(source, "^[\128-\255]+", pos)
-        e = he
+        e = run_end(source, "^[\128-\255]+", pos)
       end
       kind = "$ERR$"
       text = sub(source, pos, e)
