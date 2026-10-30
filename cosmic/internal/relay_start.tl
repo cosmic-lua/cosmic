@@ -268,12 +268,17 @@ function relay.loopback_listeners(): relay.Loopback?, string
       local _, _ = v4:close()
       return nil, "127.0.0.1: " .. bound_why
     end
-    local v6, v6_why, errno = raw.listen({ kind = "tcp", host = "::1", port = bound.port }, LOOPBACK_BACKLOG)
-    if v6 ~= nil then return { sockets = { v4, v6 }, port = bound.port }, "" end
+    local port = bound.port
+    if port == nil then
+      local _, _ = v4:close()
+      return nil, "127.0.0.1: the kernel bound no port"
+    end
+    local v6, v6_why, errno = raw.listen({ kind = "tcp", host = "::1", port = port }, LOOPBACK_BACKLOG)
+    if v6 ~= nil then return { sockets = { v4, v6 }, port = port }, "" end
     if errno ~= raw.EADDRINUSE then
       -- Another port of ::1 says whether this one is refused or ::1 is not there.
       local probe, _ = raw.listen({ kind = "tcp", host = "::1", port = 0 }, 1)
-      if probe == nil then return { sockets = { v4 }, port = bound.port }, "" end
+      if probe == nil then return { sockets = { v4 }, port = port }, "" end
       local _, _ = probe:close()
     end
     local _, _ = v4:close()
@@ -320,7 +325,11 @@ end
 local function numeric(bytes: {integer}): string
   if #bytes == 4 then return table.concat(bytes, ".") end
   local groups: mut {string} = {}
-  for i = 1, 16, 2 do groups[#groups + 1] = ("%x"):format(bytes[i] << 8 | bytes[i + 1]) end
+  assert(#bytes == 16, "relay: an address is four bytes or sixteen")
+  for i = 1, #bytes - 1, 2 do
+    local high, low = bytes[i], bytes[i + 1]
+    if high ~= nil and low ~= nil then groups[#groups + 1] = ("%x"):format(high << 8 | low) end
+  end
   return table.concat(groups, ":")
 end
 
@@ -463,7 +472,7 @@ local function relay_connector(endpoints: {Connector.Endpoint}, wait_ns: integer
                                public?: Connector.Public): Connector.Process?, string
   local called, process, why = pcall(Connector.start, endpoints, (wait_ns + 999999) // 1000000, public)
   if not called then return nil, (tostring(process):gsub("^.-:%d+: ", "")) end
-  if process == nil then return nil, why end
+  if process == nil then return nil, why or "child: could not start the connector" end
   return process, ""
 end
 
@@ -487,7 +496,8 @@ end
 function relay.handover(connect: {string}, own: {string}): Config.Handover?, string
   local env: mut {string: string} = {}
   for _, name in ipairs({ "https_proxy", "HTTPS_PROXY", "no_proxy", "NO_PROXY" }) do
-    env[name] = sys.getenv(name)
+    local value = sys.getenv(name)
+    if value ~= nil then env[name] = value end
   end
   local planned, plan_why = relay.plan(connect, env)
   if planned == nil then return nil, plan_why end
@@ -565,7 +575,8 @@ end
 function relay.direct_handover(connect: {string}, own: {string}): Config.Handover?, string
   local env: mut {string: string} = {}
   for _, name in ipairs({ "https_proxy", "HTTPS_PROXY", "no_proxy", "NO_PROXY" }) do
-    env[name] = sys.getenv(name)
+    local value = sys.getenv(name)
+    if value ~= nil then env[name] = value end
   end
   local up, up_why = Config.upstream(env)
   if up == nil and up_why ~= "" then return nil, up_why end
