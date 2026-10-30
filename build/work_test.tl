@@ -13,6 +13,13 @@ local identity = require("build.identity")
 local work = require("build.work")
 local build_paths = require("build.paths")
 
+--- The element of `list` at `index`, which the case knows is there.
+local function nth<T>(list: {T}, index: integer): T
+  local found = list[index]
+  assert(found ~= nil, "the list has an element at " .. tostring(index))
+  return found
+end
+
 --- `root`'s build directory ([`build.paths`]), made, with `root` made
 --- first where it is not there yet.
 local function build_dir(root: string): string
@@ -22,7 +29,7 @@ end
 
 local function count(db: Sqlite.Handle, table_name: string): integer
   local rows = assert(Sqlite.text_rows(db, "SELECT count(*) FROM " .. table_name))
-  return math.tointeger(tonumber(rows[1]:text(1))) as integer
+  return math.tointeger(tonumber(nth(rows, 1):text(1))) as integer
 end
 
 local function test_recording_error_rolls_back_every_table(tmp: string)
@@ -52,6 +59,8 @@ end
 local function test_a_fresh_schema_is_made_in_one_transaction(tmp: string)
   work.schema[#work.schema + 1] = "CREATE TABLE fails ("
   local ran, handle, trouble = pcall(work.open, tmp)
+  -- TODO: drop the planted statement without assigning nil, and take the pin
+  -- off this line, once build.work declares `schema` as `mut {string}`.
   work.schema[#work.schema] = nil
   assert(ran and handle == nil and trouble ~= "", "the planted statement fails the open")
   local db = assert(Sqlite.open(build_dir(tmp) .. "/build.db"))
@@ -304,7 +313,7 @@ end
 local function staged_bytes(db: Sqlite.Handle, path: string): string
   local rows = assert(Sqlite.text_rows(db,
     "SELECT CAST(data AS TEXT) FROM files WHERE path = ?1", { { text = path } }))
-  return rows[1]:text(1)
+  return nth(rows, 1):text(1)
 end
 
 --- Stage after the timestamp tick has settled, without waiting on the host clock.
@@ -353,7 +362,7 @@ local function test_an_unsettled_row_is_read_again_at_the_epoch(tmp: string)
   assert(staged_bytes(handle.db, "probe.tl") == "return 1\n")
   local unsettled = assert(Sqlite.text_rows(handle.db,
     "SELECT mtime_ns IS NULL FROM files WHERE path = 'probe.tl'"))
-  assert(unsettled[1]:text(1) == "1", "the first stage must leave the row unsettled")
+  assert(nth(unsettled, 1):text(1) == "1", "the first stage must leave the row unsettled")
   local before = assert(Fs.stat(path))
 
   local fd = assert(Fs.open_write(path))
@@ -411,7 +420,7 @@ local function test_stage_takes_a_link_for_what_it_leads_to(tmp: string)
   assert(staged_bytes(handle.db, "linked_test.tl") ~= nil, "the linked test is staged")
   local looped = assert(Sqlite.text_rows(handle.db,
     "SELECT count(*) FROM files WHERE path LIKE 'loop/%'"))
-  assert(looped[1]:text(1) == "0", "nothing is staged through the loop")
+  assert(nth(looped, 1):text(1) == "0", "nothing is staged through the loop")
   assert(work.close(handle))
 end
 
@@ -421,14 +430,14 @@ local function refused_above(project: string, target: string, link: string)
   local handle = assert(work.open(project))
   assert(work.stage(handle, false))
   local before = assert(Sqlite.text_rows(handle.db, "SELECT count(*) FROM files"))
-  assert(before[1]:text(1) ~= "0")
+  assert(nth(before, 1):text(1) ~= "0")
   assert(Fs.symlink(target, project .. "/" .. link))
   local staged, trouble = work.stage(handle, false)
   assert(staged == nil, "a link above the root is refused")
   assert(trouble:find(link .. ": a link to ", 1, true), trouble)
   assert(trouble:find("above the root", 1, true), trouble)
   local after = assert(Sqlite.text_rows(handle.db, "SELECT count(*) FROM files"))
-  assert(after[1]:text(1) == before[1]:text(1), "the refusal leaves the rows staged before")
+  assert(nth(after, 1):text(1) == nth(before, 1):text(1), "the refusal leaves the rows staged before")
   assert(work.close(handle))
 end
 
@@ -473,7 +482,7 @@ local function test_zoneinfo_is_replaced_whole_and_read_back(tmp: string)
   assert(back["Europe/Paris"] == "TZif\0paris" and back["UTC"] == "TZif utc")
   local rows = assert(Sqlite.text_rows(handle.db,
     "SELECT group_concat(name || ' ' || typeof(data), ',' ORDER BY rowid) FROM zoneinfo"))
-  assert(rows[1]:text(1) == "Europe/Paris blob,UTC blob", rows[1]:text(1))
+  assert(nth(rows, 1):text(1) == "Europe/Paris blob,UTC blob", nth(rows, 1):text(1))
   assert(work.close(handle))
 
   local older = assert(Sqlite.memory())
@@ -488,9 +497,9 @@ end
 local function test_web_assets_are_hashed_replaced_whole_and_read_back(tmp: string)
   for _, tree in ipairs({ { "htmx", "dist/htmx.min.js", "1.2.3", "js one" },
       { "htmx-ext-sse", "dist/sse.min.js", "4.5.6", "js two" } }) do
-    assert(Fs.mkdirs(tmp .. "/vendor/" .. tree[1] .. "/dist"))
-    assert(Fs.write(tmp .. "/vendor/" .. tree[1] .. "/PIN", "version " .. tree[3] .. "\nurl x\n"))
-    assert(Fs.write(tmp .. "/vendor/" .. tree[1] .. "/" .. tree[2], tree[4]))
+    assert(Fs.mkdirs(tmp .. "/vendor/" .. nth(tree, 1) .. "/dist"))
+    assert(Fs.write(tmp .. "/vendor/" .. nth(tree, 1) .. "/PIN", "version " .. nth(tree, 3) .. "\nurl x\n"))
+    assert(Fs.write(tmp .. "/vendor/" .. nth(tree, 1) .. "/" .. nth(tree, 2), nth(tree, 4)))
   end
   local assets = assert(work.read_web_assets(tmp .. "/vendor"))
   assert(#assets == 2 and assets[1].name == "htmx-ext-sse.min.js" and assets[2].name == "htmx.min.js")
@@ -541,7 +550,7 @@ local function test_a_carried_module_outside_the_tool_trees_moves_boot_hash(tmp:
     ["eval/testdata/page.tmpl"] = "{{broken",
   }
   for path, data in pairs(files) do
-    assert(Fs.mkdirs(root .. "/" .. path:match("^(.*)/")))
+    assert(Fs.mkdirs(root .. "/" .. assert(path:match("^(.*)/"), path .. " is in a directory")))
     assert(Fs.write(root .. "/" .. path, data))
   end
   local before = boot_of(root)
@@ -674,7 +683,7 @@ local function test_new_tool_inputs_invalidate_read_only_freshness(tmp: string)
     assert(stage_settled(handle, true))
     assert(work.tool_moved(handle) == false)
     local before = assert(identity.record_fingerprint(handle.db, handle.root)).boot
-    assert(Fs.mkdirs(tmp .. "/" .. path:match("^(.*)/")))
+    assert(Fs.mkdirs(tmp .. "/" .. assert(path:match("^(.*)/"), path .. " is in a directory")))
     assert(Fs.write(tmp .. "/" .. path, "new\n"))
     assert(work.tool_moved(handle), path .. " must be discovered before a read-only command")
     assert(stage_settled(handle, true))
@@ -828,7 +837,7 @@ local function test_stage_notes_a_module_shaped_asset(tmp: string)
     ["static/a.css"] = "a{}", ["main.tl"] = "return 1\n" }))
   table.sort(staged.notes)
   assert(#staged.notes == 2, table.concat(staged.notes, "\n"))
-  assert(staged.notes[1]:find("^static/notes%.tl: ") and staged.notes[2]:find("^static/p%.tmpl: "))
+  assert(nth(staged.notes, 1):find("^static/notes%.tl: ") and nth(staged.notes, 2):find("^static/p%.tmpl: "))
 end
 
 --- Each rule the build refuses an asset by, named by the file.
@@ -844,9 +853,9 @@ local function test_stage_refuses_an_asset_it_cannot_carry(tmp: string)
     { "static/big.bin", ("x"):rep(16 * 1024 * 1024 + 1), "past the 16 MiB limit" },
   }
   for i, case in ipairs(cases) do
-    local staged, trouble = stage_files(tmp .. "/" .. tostring(i), { [case[1]] = case[2] })
+    local staged, trouble = stage_files(tmp .. "/" .. tostring(i), { [nth(case, 1)] = nth(case, 2) })
     assert(staged == nil, case[1])
-    assert(trouble:find(case[1], 1, true) and trouble:find(case[3], 1, true), trouble)
+    assert(trouble:find(nth(case, 1), 1, true) and trouble:find(nth(case, 3), 1, true), trouble)
   end
   local fine = stage_files(tmp .. "/fine", { ["static/" .. ("n"):rep(100) .. "/" .. ("n"):rep(100) .. "/" .. ("n"):rep(53)] = "x",
     ["static/16.bin"] = ("x"):rep(16 * 1024 * 1024) })

@@ -13,6 +13,13 @@ local Test = require("cosmic.test")
 local RelayWire = require("cosmic.internal.relay_wire")
 local connect = require("build.sandbox_connect")
 
+--- The element of `list` at `index`, which the case knows is there.
+local function nth<T>(list: {T}, index: integer): T
+  local found = list[index]
+  assert(found ~= nil, "the list has an element at " .. tostring(index))
+  return found
+end
+
 Test.policy{
   loopback = { "127.0.0.1" },
 }
@@ -94,6 +101,13 @@ local function bytes(conn: Net.Conn, count: integer): string
   return data
 end
 
+--- The first byte of `data`, which the case read and so knows is there.
+local function first_byte(data: string): integer
+  local byte = data:byte(1)
+  assert(byte ~= nil, "a byte was read")
+  return byte
+end
+
 --- Runs `body(relay, send, finish)` in a run beside a client for `args`
 --- with the variable `variable` (`ALL_PROXY` when nil) set to the relay's
 --- listener: `relay` is the
@@ -159,7 +173,7 @@ local function asked(relay: Net.Conn): string
   else
     local length = bytes(relay, 1)
     head = head .. length
-    rest = length:byte(1) + 2
+    rest = first_byte(length) + 2
   end
   return head .. bytes(relay, rest)
 end
@@ -238,10 +252,10 @@ local function test_a_refusal_exits_1_with_one_line_naming_what_the_reply_means(
       asked(relay)
       assert(relay:write(RelayWire.socks_reply(case[1] as RelayWire.SocksReply)))
     end)
-    assert(ran.code == 1, case[1] .. ": " .. tostring(ran.code))
+    assert(ran.code == 1, nth(case, 1) .. ": " .. tostring(ran.code))
     assert(#ran.complaints == 1, table.concat(ran.complaints, "\n"))
-    local line = ran.complaints[1]
-    assert(line:find("^cosmic: sandbox connect: host.example:443: " .. case[2] .. " %(SOCKS reply " .. case[3] .. "%)"),
+    local line = nth(ran.complaints, 1)
+    assert(line:find("^cosmic: sandbox connect: host.example:443: " .. nth(case, 2) .. " %(SOCKS reply " .. nth(case, 3) .. "%)"),
       line)
     assert(ran.out == "", "nothing is written to standard output")
   end
@@ -249,7 +263,7 @@ local function test_a_refusal_exits_1_with_one_line_naming_what_the_reply_means(
     asked(relay)
     assert(relay:write("\5\200\0\1\0\0\0\0\0\0"))
   end)
-  assert(unknown.code == 1 and unknown.complaints[1]:find("unknown reply code 200", 1, true) ~= nil, unknown.complaints[1])
+  assert(unknown.code == 1 and nth(unknown.complaints, 1):find("unknown reply code 200", 1, true) ~= nil, unknown.complaints[1])
 end
 
 local function test_a_relay_that_breaks_the_protocol_or_goes_away_is_a_failure()
@@ -257,17 +271,17 @@ local function test_a_relay_that_breaks_the_protocol_or_goes_away_is_a_failure()
     asked(relay)
     assert(relay:write("\4\90\0\0\0\0\0\0"))
   end)
-  assert(version.code == 1 and version.complaints[1]:find("SOCKS version 4", 1, true) ~= nil, version.complaints[1])
+  assert(version.code == 1 and nth(version.complaints, 1):find("SOCKS version 4", 1, true) ~= nil, version.complaints[1])
   local silent = against({ "h", "1" }, function(relay: Net.Conn)
     asked(relay)
   end)
-  assert(silent.code == 1 and silent.complaints[1]:find("closed the connection before it answered", 1, true) ~= nil,
+  assert(silent.code == 1 and nth(silent.complaints, 1):find("closed the connection before it answered", 1, true) ~= nil,
     silent.complaints[1])
   local method = against({ "h", "1" }, function(relay: Net.Conn)
     assert(bytes(relay, 3) == "\5\1\0")
     assert(relay:write(RelayWire.socks_method_reply(255)))
   end)
-  assert(method.code == 1 and method.complaints[1]:find("no authentication method", 1, true) ~= nil, method.complaints[1])
+  assert(method.code == 1 and nth(method.complaints, 1):find("no authentication method", 1, true) ~= nil, method.complaints[1])
 end
 
 local function test_it_refuses_a_command_line_or_environment_that_is_not_a_sandboxs()
@@ -281,8 +295,8 @@ local function test_it_refuses_a_command_line_or_environment_that_is_not_a_sandb
       finish = function(): boolean, string return true, "" end,
     })
     assert(code == 2 and #complaints == 1, tostring(args[1]) .. " " .. tostring(args[2]) .. ": " .. tostring(code))
-    assert(complaints[1]:find("^cosmic: sandbox connect: "), complaints[1])
-    assert(complaints[1]:find(why, 1, true), complaints[1])
+    assert(nth(complaints, 1):find("^cosmic: sandbox connect: "), complaints[1])
+    assert(nth(complaints, 1):find(why, 1, true), complaints[1])
   end
   -- No relay listens in the worker's network but the one a run starts: all
   -- of these are refused before a connection is tried.
@@ -331,7 +345,7 @@ local function test_nothing_listening_is_a_failure_naming_the_relay(_: string)
     write = function(): boolean, string return true, "" end,
     finish = function(): boolean, string return true, "" end,
   })
-  assert(code == 1 and complaints[1]:find("the relay at " .. proxy_at(closed), 1, true) ~= nil, tostring(complaints[1]))
+  assert(code == 1 and nth(complaints, 1):find("the relay at " .. proxy_at(closed), 1, true) ~= nil, tostring(complaints[1]))
 end
 
 local function test_a_relay_that_never_answers_is_a_failure_after_the_timeout_naming_the_relay()
@@ -342,8 +356,8 @@ local function test_a_relay_that_never_answers_is_a_failure_after_the_timeout_na
     local _, _ = relay:read(1)
   end, nil, Clock.seconds(1))
   assert(ran.code == 1 and #ran.complaints == 1, tostring(ran.code) .. table.concat(ran.complaints))
-  assert(ran.complaints[1]:find("host.example:22: the relay at socks5h://127.0.0.1:", 1, true) and
-      ran.complaints[1]:find("did not answer in time", 1, true), ran.complaints[1])
+  assert(nth(ran.complaints, 1):find("host.example:22: the relay at socks5h://127.0.0.1:", 1, true) and
+      nth(ran.complaints, 1):find("did not answer in time", 1, true), ran.complaints[1])
   assert(Clock.monotonic_ns() - started < Clock.seconds(15), "it gave up in time")
 end
 
@@ -355,13 +369,13 @@ local function asked_with_login(relay: Net.Conn, verdict: string): string, strin
   assert(bytes(relay, 3) == "\5\1\2", "the greeting offers a password alone")
   assert(relay:write(RelayWire.socks_method_reply(2)))
   assert(bytes(relay, 1) == "\1", "RFC 1929's version")
-  local user = bytes(relay, bytes(relay, 1):byte(1))
-  local password = bytes(relay, bytes(relay, 1):byte(1))
+  local user = bytes(relay, first_byte(bytes(relay, 1)))
+  local password = bytes(relay, first_byte(bytes(relay, 1)))
   assert(relay:write(verdict))
   if verdict ~= "\1\0" then return user, password, nil end
   local head = bytes(relay, 4)
   local length = bytes(relay, 1)
-  return user, password, head .. length .. bytes(relay, length:byte(1) + 2)
+  return user, password, head .. length .. bytes(relay, first_byte(length) + 2)
 end
 
 local function test_a_userinfo_is_sent_as_the_username_and_password_percent_decoded()
@@ -408,24 +422,24 @@ local function test_a_relay_that_answers_a_password_otherwise_is_a_failure()
     assert(bytes(relay, 3) == "\5\1\2")
     assert(relay:write(RelayWire.socks_method_reply(255)))
   end, nil, nil, "u:tok")
-  assert(none.code == 1 and none.complaints[1]:find("no authentication method", 1, true) ~= nil, none.complaints[1])
+  assert(none.code == 1 and nth(none.complaints, 1):find("no authentication method", 1, true) ~= nil, none.complaints[1])
   -- A relay that takes no token selects "no authentication", which was not offered.
   local open = against({ "h", "1" }, function(relay: Net.Conn)
     assert(bytes(relay, 3) == "\5\1\2")
     assert(relay:write(RelayWire.socks_method_reply(0)))
   end, nil, nil, "u:tok")
-  assert(open.code == 1 and open.complaints[1]:find("the method 0 chosen is not one offered (only 2)", 1, true) ~= nil,
+  assert(open.code == 1 and nth(open.complaints, 1):find("the method 0 chosen is not one offered (only 2)", 1, true) ~= nil,
     open.complaints[1])
   local version = against({ "h", "1" }, function(relay: Net.Conn)
     asked_with_login(relay, "\5\0")
   end, nil, nil, "u:tok")
-  assert(version.code == 1 and version.complaints[1]:find("username/password version 5", 1, true) ~= nil,
+  assert(version.code == 1 and nth(version.complaints, 1):find("username/password version 5", 1, true) ~= nil,
     version.complaints[1])
   local early = against({ "h", "1" }, function(relay: Net.Conn)
     assert(bytes(relay, 3) == "\5\1\2")
     assert(relay:write(RelayWire.socks_method_reply(2) .. "\1\0"))
   end, nil, nil, "u:tok")
-  assert(early.code == 1 and early.complaints[1]:find("answered before it was asked", 1, true) ~= nil, early.complaints[1])
+  assert(early.code == 1 and nth(early.complaints, 1):find("answered before it was asked", 1, true) ~= nil, early.complaints[1])
 end
 
 local function test_a_userinfo_that_cannot_be_used_is_refused_and_never_echoed()
@@ -443,8 +457,8 @@ local function test_a_userinfo_that_cannot_be_used_is_refused_and_never_echoed()
       finish = function(): boolean, string return true, "" end,
     })
     assert(code == 2 and #complaints == 1, value:gsub(secret, "<secret>") .. ": " .. tostring(code))
-    assert(complaints[1]:find(why, 1, true), complaints[1])
-    assert(not complaints[1]:find(secret, 1, true), "the password is echoed: " .. complaints[1])
+    assert(nth(complaints, 1):find(why, 1, true), complaints[1])
+    assert(not nth(complaints, 1):find(secret, 1, true), "the password is echoed: " .. nth(complaints, 1))
   end
   -- The host is exactly 127.0.0.1, whatever the userinfo.
   refused("socks5h://u:" .. secret .. "@10.0.0.1:1080", "no other proxy is served")
