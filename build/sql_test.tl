@@ -4,6 +4,13 @@ local Sqlite = require("cosmic.sqlite")
 local sql = require("build.sql")
 local build_paths = require("build.paths")
 
+--- The element of `list` at `index`, which the case knows is there.
+local function nth<T>(list: {T}, index: integer): T
+  local found = list[index]
+  assert(found ~= nil, "the list has an element at " .. tostring(index))
+  return found
+end
+
 --- `root`'s build directory ([`build.paths`]), made, with `root` made
 --- first where it is not there yet.
 local function build_dir(root: string): string
@@ -98,7 +105,7 @@ local function test_rows_come_back_one_line_each_with_cells_escaped()
       "the statement takes 1 parameter; cosmic sql binds none", unbound_trouble)
   code, written = run(root, { "SELECT ?1, ?2" })
   assert(code == 1 and #written.out == 0)
-  assert(written.err[1]:find("takes 2 parameters", 1, true) ~= nil, written.err[1])
+  assert(nth(written.err, 1):find("takes 2 parameters", 1, true) ~= nil, written.err[1])
   -- A statement with no columns prints no header, and counts no row.
   code, written = run(root, { "PRAGMA query_only = 1" })
   assert(code == 0 and #written.out == 0, table.concat(written.out, "|"))
@@ -178,7 +185,7 @@ local function test_a_query_sees_commits_that_live_only_in_the_wal()
   assert(wal.size > 0, "the commit is not in the -wal")
   local opened = assert(sql.open({ name = path, path = path }))
   local lines = assert(sql.query(opened.db, "SELECT count(*) FROM t"))
-  assert(lines[2] == "2", "a query missed a commit that lives in the -wal: " .. lines[2])
+  assert(lines[2] == "2", "a query missed a commit that lives in the -wal: " .. nth(lines, 2))
   assert(opened.db:close())
   assert(writer:close())
   assert(Fs.remove_tree(root))
@@ -199,7 +206,7 @@ local function test_a_commit_that_reaches_the_wal_during_the_open_is_seen()
     assert(writer:exec("INSERT INTO t VALUES (2)"))
   end))
   local lines = assert(sql.query(opened.db, "SELECT count(*) FROM t"))
-  assert(lines[2] == "2", "a commit that reached the -wal during the open was missed: " .. lines[2])
+  assert(lines[2] == "2", "a commit that reached the -wal during the open was missed: " .. nth(lines, 2))
   assert(opened.db:close())
   assert(writer:close())
   assert(Fs.remove_tree(root))
@@ -307,7 +314,7 @@ local function test_a_command_line_it_cannot_read_is_a_usage_error()
   assert(run(root, { "--db=a.db", "--db", "b.db", "SELECT 1" }) == 2)
   local code, written = run(root, { "--build", "--build", "SELECT 1" })
   assert(code == 2 and #written.out == 0)
-  assert(written.err[1]:find("name one database, not --build and --build", 1, true) ~= nil,
+  assert(nth(written.err, 1):find("name one database, not --build and --build", 1, true) ~= nil,
     written.err[1])
   -- A refused command line gets its complaint and no summary.
   assert(written.summary == "", written.summary)
@@ -358,8 +365,8 @@ local function test_several_files_join_and_a_name_can_be_given()
   assert(code == 0 and written.out[2] == "2", table.concat(written.err, "|"))
   -- Two files with one stem are refused, naming the fix.
   code, written = run(dir, { "--from", dir .. "/accounts.json", "--from", "accounts=" .. dir .. "/owners.jsonl", "SELECT 1" })
-  assert(code == 2 and written.err[1]:find("two tables are named accounts", 1, true) ~= nil, written.err[1])
-  assert(written.err[1]:find("--from <name>=<file>", 1, true))
+  assert(code == 2 and nth(written.err, 1):find("two tables are named accounts", 1, true) ~= nil, written.err[1])
+  assert(nth(written.err, 1):find("--from <name>=<file>", 1, true))
   assert(written.summary == "", written.summary)
   -- A stem that is no identifier is made one.
   assert(Fs.write(dir .. "/my-data 2024.json", '[{"x": 1}]'))
@@ -369,7 +376,7 @@ local function test_several_files_join_and_a_name_can_be_given()
   code, written = run(dir, { "--from", dir .. "/2024.json", "SELECT x FROM _2024" })
   assert(code == 0, table.concat(written.err, "|"))
   code, written = run(dir, { "--from", "1x=" .. dir .. "/2024.json", "SELECT 1" })
-  assert(code == 2 and written.err[1]:find("begins with a letter", 1, true) ~= nil, written.err[1])
+  assert(code == 2 and nth(written.err, 1):find("begins with a letter", 1, true) ~= nil, written.err[1])
   assert(Fs.remove_tree(dir))
 end
 
@@ -385,18 +392,18 @@ local function test_as_and_at_belong_to_the_from_before_them()
   assert(code == 0 and written.out[2] == "3", table.concat(written.err, "|"))
   -- One given before any --from belongs to none.
   code, written = run(dir, { "--at", "$.a", "--from", dir .. "/nested.json", "SELECT 1" })
-  assert(code == 2 and written.err[1]:find("--at belongs to the --from before it", 1, true) ~= nil, written.err[1])
+  assert(code == 2 and nth(written.err, 1):find("--at belongs to the --from before it", 1, true) ~= nil, written.err[1])
   code, written = run(dir, { "--as", "json", "SELECT 1" })
-  assert(code == 2 and written.err[1]:find("--as belongs to the --from before it", 1, true) ~= nil, written.err[1])
+  assert(code == 2 and nth(written.err, 1):find("--as belongs to the --from before it", 1, true) ~= nil, written.err[1])
   -- A path that does not read, a path that is not there, a format that is not one.
   code, written = run(dir, { "--from", dir .. "/nested.json", "--at", "$.a[", "SELECT 1" })
-  assert(code == 2 and written.err[1]:find("--at $.a[:", 1, true) ~= nil, written.err[1])
+  assert(code == 2 and nth(written.err, 1):find("--at $.a[:", 1, true) ~= nil, written.err[1])
   code, written = run(dir, { "--from", dir .. "/nested.json", "--at", "$.zz", "SELECT 1" })
-  assert(code == 1 and written.err[1]:find('no value at pointer "/zz"', 1, true) ~= nil, written.err[1])
+  assert(code == 1 and nth(written.err, 1):find('no value at pointer "/zz"', 1, true) ~= nil, written.err[1])
   code, written = run(dir, { "--from", dir .. "/nested.json", "--as", "xml", "SELECT 1" })
-  assert(code == 2 and written.err[1]:find("dataset: no format xml (known: csv, json, ndjson, tsv)", 1, true) ~= nil, written.err[1])
+  assert(code == 2 and nth(written.err, 1):find("dataset: no format xml (known: csv, json, ndjson, tsv)", 1, true) ~= nil, written.err[1])
   code, written = run(dir, { "--from", dir .. "/lines.dat", "--as", "ndjson", "--at", "$.a", "SELECT 1" })
-  assert(code == 1 and written.err[1]:find("takes no path", 1, true) ~= nil, written.err[1])
+  assert(code == 1 and nth(written.err, 1):find("takes no path", 1, true) ~= nil, written.err[1])
   assert(Fs.remove_tree(dir))
 end
 
@@ -415,9 +422,9 @@ local function test_at_is_a_singular_jsonpath_query()
       { "$.a.rows[?@.n]", "filters (`?`) are not in the subset cosmic reads" },
       { "$.a.rows[*]", "--at names one value, and `*` and `..` can match many" },
   }) do
-    code, written = run(dir, { "--from", nested, "--at", case[1], "SELECT 1" })
-    assert(code == 2 and written.err[1]:find("--at " .. case[1] .. ": ", 1, true) ~= nil and
-        written.err[1]:find(case[2], 1, true) ~= nil and not written.err[1]:find("json: ", 1, true), written.err[1])
+    code, written = run(dir, { "--from", nested, "--at", nth(case, 1), "SELECT 1" })
+    assert(code == 2 and nth(written.err, 1):find("--at " .. nth(case, 1) .. ": ", 1, true) ~= nil and
+        nth(written.err, 1):find(nth(case, 2), 1, true) ~= nil and not nth(written.err, 1):find("json: ", 1, true), written.err[1])
   end
   assert(Fs.remove_tree(dir))
 end
@@ -430,10 +437,10 @@ local function test_standard_input_needs_as()
   code, written = run(dir, { "--from", "t=-", "--as", "json", "SELECT sum(a) FROM t" }, '[{"a": 2}]')
   assert(code == 0 and written.out[2] == "2", table.concat(written.err, "|"))
   code, written = run(dir, { "--from", "-", "SELECT 1" }, "[]")
-  assert(code == 2 and written.err[1]:find("standard input has no extension", 1, true) ~= nil, written.err[1])
-  assert(written.err[1]:find("--as", 1, true))
+  assert(code == 2 and nth(written.err, 1):find("standard input has no extension", 1, true) ~= nil, written.err[1])
+  assert(nth(written.err, 1):find("--as", 1, true))
   code, written = run(dir, { "--from", "-", "--as", "json", "SELECT 1" })
-  assert(code == 1 and written.err[1]:find("standard input: no standard input given", 1, true) ~= nil, written.err[1])
+  assert(code == 1 and nth(written.err, 1):find("standard input: no standard input given", 1, true) ~= nil, written.err[1])
   assert(Fs.remove_tree(dir))
 end
 
@@ -468,14 +475,14 @@ local function test_a_missing_name_is_answered_with_the_names_there_are()
       "columns: active, balance, id, note, tags, type, _json", written.err[1])
   assert(written.summary == "", written.summary)
   code, written = run(dir, { "--from", dir .. "/accounts.json", "SELECT * FROM account" })
-  assert(code == 1 and written.err[1]:find("no such table: account; tables: accounts$") ~= nil, written.err[1])
+  assert(code == 1 and nth(written.err, 1):find("no such table: account; tables: accounts$") ~= nil, written.err[1])
   code, written = run(dir, { "--from", dir .. "/accounts.json", "--from", dir .. "/owners.jsonl",
     "SELECT nope FROM accounts, owners" })
-  assert(code == 1 and written.err[1]:find("no such column: nope; columns: accounts: active, " ..
+  assert(code == 1 and nth(written.err, 1):find("no such column: nope; columns: accounts: active, " ..
       "balance, id, note, tags, type, _json; owners: id, who, _json$") ~= nil, written.err[1])
   -- Another failure gets no hint.
   code, written = run(dir, { "--from", dir .. "/accounts.json", "SELECT FROM" })
-  assert(code == 1 and not written.err[1]:find("columns:", 1, true), written.err[1])
+  assert(code == 1 and not nth(written.err, 1):find("columns:", 1, true), written.err[1])
   assert(Fs.remove_tree(dir))
 end
 
@@ -511,27 +518,27 @@ end
 local function test_from_refuses_an_unknown_extension_invalid_json_and_a_missing_file()
   local dir = data()
   local code, written = run(dir, { "--from", dir .. "/notes.txt", "SELECT 1" })
-  assert(code == 2 and written.err[1]:find("unknown extension .txt (known: .csv, .json, .jsonl, .ndjson, .tab, .tsv)", 1, true) ~= nil,
+  assert(code == 2 and nth(written.err, 1):find("unknown extension .txt (known: .csv, .json, .jsonl, .ndjson, .tab, .tsv)", 1, true) ~= nil,
     written.err[1])
-  assert(written.err[1]:find("give --as", 1, true))
+  assert(nth(written.err, 1):find("give --as", 1, true))
   code, written = run(dir, { "--from", dir .. "/notes.txt", "--as", "json", "SELECT 1" })
-  assert(code == 1 and written.err[1]:find("notes.txt: json: invalid JSON", 1, true) ~= nil, written.err[1])
+  assert(code == 1 and nth(written.err, 1):find("notes.txt: json: invalid JSON", 1, true) ~= nil, written.err[1])
   code, written = run(dir, { "--from", dir .. "/bad.json", "SELECT 1" })
-  assert(code == 1 and written.err[1]:find("bad.json: json: invalid JSON at line 1", 1, true) ~= nil, written.err[1])
+  assert(code == 1 and nth(written.err, 1):find("bad.json: json: invalid JSON at line 1", 1, true) ~= nil, written.err[1])
   assert(#written.out == 0 and written.summary == "", written.summary)
   code, written = run(dir, { "--from", dir .. "/none.json", "SELECT 1" })
-  assert(code == 1 and written.err[1]:find("none.json", 1, true) ~= nil, written.err[1])
+  assert(code == 1 and nth(written.err, 1):find("none.json", 1, true) ~= nil, written.err[1])
   assert(Fs.remove_tree(dir))
 end
 
 local function test_from_is_not_a_database_option_and_takes_one_statement()
   local dir = data()
   local code, written = run(dir, { "--from", dir .. "/accounts.json", "--db", dir .. "/x.db", "SELECT 1" })
-  assert(code == 2 and written.err[1]:find("not to be given with --db", 1, true) ~= nil, written.err[1])
+  assert(code == 2 and nth(written.err, 1):find("not to be given with --db", 1, true) ~= nil, written.err[1])
   code, written = run(dir, { "--from", dir .. "/accounts.json", "SELECT 1", "SELECT 2" })
-  assert(code == 2 and written.err[1]:find("one statement", 1, true) ~= nil, written.err[1])
+  assert(code == 2 and nth(written.err, 1):find("one statement", 1, true) ~= nil, written.err[1])
   code, written = run(dir, { "--from", "", "SELECT 1" })
-  assert(code == 2 and written.err[1]:find("--from needs a file", 1, true) ~= nil, written.err[1])
+  assert(code == 2 and nth(written.err, 1):find("--from needs a file", 1, true) ~= nil, written.err[1])
   -- Without --from the statement is still required, and runs against a database.
   code, written = run(dir, {})
   assert(code == 2, table.concat(written.err, "|"))
@@ -542,11 +549,11 @@ local function test_from_refuses_a_second_standard_input_and_a_repeated_as_or_at
   local dir = data()
   local code, written = run(dir, { "--from", "x=-", "--as", "ndjson", "--from", "y=-", "--as", "ndjson",
     "SELECT 1" }, '{"a": 1}\n')
-  assert(code == 2 and written.err[1]:find("standard input can be read once", 1, true) ~= nil, written.err[1])
+  assert(code == 2 and nth(written.err, 1):find("standard input can be read once", 1, true) ~= nil, written.err[1])
   code, written = run(dir, { "--from", dir .. "/lines.dat", "--as", "json", "--as", "ndjson", "SELECT 1" })
-  assert(code == 2 and written.err[1]:find("--as is given twice for", 1, true) ~= nil, written.err[1])
+  assert(code == 2 and nth(written.err, 1):find("--as is given twice for", 1, true) ~= nil, written.err[1])
   code, written = run(dir, { "--from", dir .. "/nested.json", "--at", "$.a", "--at", "$.a.rows", "SELECT 1" })
-  assert(code == 2 and written.err[1]:find("--at is given twice for", 1, true) ~= nil, written.err[1])
+  assert(code == 2 and nth(written.err, 1):find("--at is given twice for", 1, true) ~= nil, written.err[1])
   assert(Fs.remove_tree(dir))
 end
 
@@ -557,19 +564,19 @@ local function test_a_column_with_no_types_and_a_control_byte_in_a_name()
   assert(code == 0 and written.out[2] == "  _json  -", table.concat(written.out, "|"))
   assert(Fs.write(dir .. "/ctl.json", '[{"a\\u001bb": 1}]'))
   code, written = run(dir, { "--from", dir .. "/ctl.json", "SELECT nope FROM ctl" })
-  assert(code == 1 and written.err[1]:find("columns: a\\x1Bb, _json", 1, true) ~= nil, written.err[1])
-  assert(not written.err[1]:find("\27", 1, true))
+  assert(code == 1 and nth(written.err, 1):find("columns: a\\x1Bb, _json", 1, true) ~= nil, written.err[1])
+  assert(not nth(written.err, 1):find("\27", 1, true))
   assert(Fs.remove_tree(dir))
 end
 
 local function test_a_missing_file_names_its_path_once_and_usage_shows_as_and_at()
   local dir = data()
   local code, written = run(dir, { "--from", dir .. "/none.json", "SELECT 1" })
-  local _, count = written.err[1]:gsub("none.json", "")
+  local _, count = nth(written.err, 1):gsub("none.json", "")
   assert(code == 1 and count == 1, written.err[1])
   code, written = run(dir, { "--from" })
-  assert(code == 2 and written.err[1]:find("--from needs a value", 1, true) ~= nil, written.err[1])
-  assert(written.err[1]:find("[--as json|ndjson|csv|tsv] [--at '<path>'] [--raw]", 1, true), written.err[1])
+  assert(code == 2 and nth(written.err, 1):find("--from needs a value", 1, true) ~= nil, written.err[1])
+  assert(nth(written.err, 1):find("[--as json|ndjson|csv|tsv] [--at '<path>'] [--raw]", 1, true), written.err[1])
   assert(Fs.remove_tree(dir))
 end
 
@@ -601,11 +608,11 @@ local function test_raw_belongs_to_the_from_before_it_and_keeps_text()
   assert(code == 0, table.concat(written.err, "|"))
   assert(written.out[2] == "text\t1\tinteger", table.concat(written.out, "|"))
   code, written = run(dir, { "--raw", "--from", dir .. "/people.csv", "SELECT 1" })
-  assert(code == 2 and written.err[1]:find("--raw belongs to the --from before it", 1, true) ~= nil, written.err[1])
+  assert(code == 2 and nth(written.err, 1):find("--raw belongs to the --from before it", 1, true) ~= nil, written.err[1])
   code, written = run(dir, { "--from", dir .. "/people.csv", "--raw", "--raw", "SELECT 1" })
-  assert(code == 2 and written.err[1]:find("--raw is given twice", 1, true) ~= nil, written.err[1])
+  assert(code == 2 and nth(written.err, 1):find("--raw is given twice", 1, true) ~= nil, written.err[1])
   code, written = run(dir, { "--from", dir .. "/accounts.json", "--raw", "SELECT 1" })
-  assert(code == 1 and written.err[1]:find("no raw cells", 1, true) ~= nil, written.err[1])
+  assert(code == 1 and nth(written.err, 1):find("no raw cells", 1, true) ~= nil, written.err[1])
   assert(Fs.remove_tree(dir))
 end
 
@@ -633,7 +640,7 @@ local function test_standard_input_reads_csv_with_as()
   code, written = run(dir, { "--from", "-", "--as", "tsv", "SELECT b FROM stdin" }, "a\tb\n1\tx\n")
   assert(code == 0 and written.out[2] == "x", table.concat(written.err, "|"))
   code, written = run(dir, { "--from", "-", "SELECT 1" }, "a\n1\n")
-  assert(code == 2 and written.err[1]:find("csv, json, ndjson, tsv", 1, true) ~= nil, written.err[1])
+  assert(code == 2 and nth(written.err, 1):find("csv, json, ndjson, tsv", 1, true) ~= nil, written.err[1])
   assert(Fs.remove_tree(dir))
 end
 
@@ -642,14 +649,14 @@ local function test_csv_faults_name_the_file_and_the_place_and_at_is_refused()
   assert(Fs.write(dir .. "/ragged.csv", "a,b\n1,2\n3\n"))
   assert(Fs.write(dir .. "/open.csv", 'a,b\n1,"2\n'))
   local code, written = run(dir, { "--from", dir .. "/ragged.csv", "SELECT 1" })
-  assert(code == 1 and written.err[1]:find("ragged.csv: csv: line 3, column 1: the record has 1 field, the header 2", 1, true) ~= nil,
+  assert(code == 1 and nth(written.err, 1):find("ragged.csv: csv: line 3, column 1: the record has 1 field, the header 2", 1, true) ~= nil,
     written.err[1])
   code, written = run(dir, { "--from", dir .. "/open.csv", "SELECT 1" })
-  assert(code == 1 and written.err[1]:find("unclosed quote opened at line 2, column 3", 1, true) ~= nil, written.err[1])
+  assert(code == 1 and nth(written.err, 1):find("unclosed quote opened at line 2, column 3", 1, true) ~= nil, written.err[1])
   code, written = run(dir, { "--from", dir .. "/people.csv", "--at", "$.a", "SELECT 1" })
-  assert(code == 1 and written.err[1]:find("the csv format takes no path", 1, true) ~= nil, written.err[1])
+  assert(code == 1 and nth(written.err, 1):find("the csv format takes no path", 1, true) ~= nil, written.err[1])
   code, written = run(dir, { "--from", dir .. "/scores.tsv", "--at", "$.a", "SELECT 1" })
-  assert(code == 1 and written.err[1]:find("the tsv format takes no path", 1, true) ~= nil, written.err[1])
+  assert(code == 1 and nth(written.err, 1):find("the tsv format takes no path", 1, true) ~= nil, written.err[1])
   assert(Fs.remove_tree(dir))
 end
 
@@ -657,7 +664,7 @@ local function test_a_csv_keeps_its_header_order_and_a_one_column_blank_line()
   local dir = data()
   assert(Fs.write(dir .. "/wide.csv", "z,a,m\n1,2,3\n"))
   local code, written = run(dir, { "--from", dir .. "/wide.csv", "SELECT * FROM wide" })
-  assert(code == 0 and written.out[1] == "z\ta\tm\t_json", table.concat(written.err, "|") .. written.out[1])
+  assert(code == 0 and written.out[1] == "z\ta\tm\t_json", table.concat(written.err, "|") .. nth(written.out, 1))
   code, written = run(dir, { "--from", dir .. "/wide.csv" })
   assert(written.out[2] == "  z      integer" and written.out[3] == "  a      integer", table.concat(written.out, "|"))
   assert(Fs.write(dir .. "/one.csv", "a\n1\n\n3\n\n"))
@@ -711,14 +718,14 @@ local function test_to_refuses_what_it_cannot_write()
       { "SELECT 5 AS _json", "row 1: _json is not a JSON object's text on one line" },
       { "SELECT '{\"a\":' || char(10) || '1}' AS _json", "row 1: _json is not a JSON object's text on one line" },
   }) do
-    local code, written = run(dir, { "--from", "-", "--as", "csv", "--to", "ndjson", case[1] }, "a\n1\n")
-    assert(code == 1 and written.err[1]:find(case[2], 1, true) ~= nil, tostring(written.err[1]))
+    local code, written = run(dir, { "--from", "-", "--as", "csv", "--to", "ndjson", nth(case, 1) }, "a\n1\n")
+    assert(code == 1 and nth(written.err, 1):find(nth(case, 2), 1, true) ~= nil, tostring(written.err[1]))
     assert(written.summary == "", written.summary)
   end
   local code, written = run(dir, { "--from", "-", "--as", "csv", "--to", "xml", "SELECT 1" }, "a\n1\n")
-  assert(code == 2 and written.err[1]:find("--to writes csv or ndjson, not xml", 1, true) ~= nil, written.err[1])
+  assert(code == 2 and nth(written.err, 1):find("--to writes csv or ndjson, not xml", 1, true) ~= nil, written.err[1])
   code, written = run(dir, { "--from", "-", "--as", "csv", "--to", "csv" }, "a\n1\n")
-  assert(code == 2 and written.err[1]:find("--to writes a statement's rows", 1, true) ~= nil, written.err[1])
+  assert(code == 2 and nth(written.err, 1):find("--to writes a statement's rows", 1, true) ~= nil, written.err[1])
   local root = project()
   code, written = run(root, { "--db", build_dir(root) .. "/cosmic.db", "--to", "csv", "SELECT 1 AS one" })
   assert(code == 0 and table.concat(written.out, "\n") == "one\n1", table.concat(written.err, "|"))

@@ -653,7 +653,6 @@ build/docs_removed_test.tl nil_not_allowed 16
 
 build/docs_search_test.tl nil_not_allowed 2
 
-build/docs_test.tl nil_not_allowed 97
 
 build/doctest/generate.tl nil_not_allowed 1
 
@@ -831,7 +830,6 @@ build/sql.tl nil_not_allowed 15
 
 build/sql_store_test.tl nil_not_allowed 1
 
-build/sql_test.tl nil_not_allowed 51
 
 build/sql_tool_test.tl nil_not_allowed 1
 
@@ -940,7 +938,6 @@ build/todos.tl nil_not_allowed 13
 
 build/todos_git_test.tl nil_not_allowed 22
 
-build/todos_test.tl nil_not_allowed 49
 
 build/tree_checks.tl nil_not_allowed 71
 
@@ -964,7 +961,6 @@ build/workflows_test.tl nil_not_allowed 48
 
 build/writer.tl nil_not_allowed 1
 
-build/writer_test.tl nil_not_allowed 59
 
 build/zig_fetch_test.tl nil_not_allowed 12
 
@@ -1584,7 +1580,6 @@ build/docs_checks_test.tl index_may_be_nil 1
 
 build/docs_search_test.tl index_may_be_nil 3
 
-build/docs_test.tl index_may_be_nil 52
 
 build/doctest/generate_test.tl index_may_be_nil 1
 
@@ -1681,7 +1676,6 @@ build/shared_verdicts.tl index_may_be_nil 1
 
 build/sql.tl index_may_be_nil 2
 
-build/sql_test.tl index_may_be_nil 4
 
 build/stand_in.tl index_may_be_nil 2
 
@@ -1753,7 +1747,6 @@ build/todos.tl index_may_be_nil 3
 
 build/todos_git_test.tl index_may_be_nil 3
 
-build/todos_test.tl index_may_be_nil 1
 
 build/tree_checks.tl index_may_be_nil 11
 
