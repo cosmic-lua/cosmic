@@ -1353,6 +1353,9 @@ local function test_a_call_that_may_run_code_of_the_program_ends_the_length_fact
     "index_may_be_nil")
   reads(EATER .. "local u: Eater | integer = e\nif #zs > 0 then\n  local t = tostring(u)\n  n = zs[1]\nend\n",
     "index_may_be_nil")
+  -- the library tables are not the program's to extend, so a name of them is always the library's
+  reads("function string.trim(s: string): string\n  table.remove(zs)\n  return s\nend\nif #zs > 0 then\n  local t = string.trim(\"x\")\n  n = zs[1]\nend\n",
+    "field_unknown field_unknown index_may_be_nil")
   reads(EATER .. "assert(#zs > 0, tostring(e))\nn = zs[1]\n", "index_may_be_nil")
   -- a function given a callback, a function that writes an array, and one that calls
   reads_after("  local t = (\"a\"):gsub(\"a\", function(c: string): string\n    table.remove(zs)\n    return c\n  end)\n",

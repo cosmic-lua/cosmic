@@ -2707,8 +2707,8 @@ local record Tests
   --- program only through a value or a function it is given: `tostring`, `tonumber`, `select`, `rawlen`, `string.*`,
   --- `math.*`, `utf8.*`, `table.concat` and `table.unpack`. A name a program declares is never one.
   inert_callee: function(callee: Ast.Exp?): boolean
-  --- Whether the code of `node` holds a call that is not inert (the `inert` of the context, set where the call is checked). It reads the tree
-  --- with a list, so that a chain of any depth is read without recursion.
+  --- Whether the code of `node` holds a call that is not inert (the `inert` of the context, set where the call is checked).
+  --- It reads the tree with a list, so that a chain of any depth is read without recursion.
   has_call: function(ctx: Ctx, node: Ast.Node): boolean
   --- A `<close>` local is declared: nothing is known of the length of an array until its scope ends.
   closes: function(ctx: Ctx)
@@ -3075,8 +3075,8 @@ end
 -- indexes ([`Flow.know_length`]) of a place that holds an array: a local, or fixed fields from one. The fact stands until
 -- code runs that may shorten an array: a call (but `assert`, `type` and an inert call [`Tests.inert_callee`], which run no
 -- code of the program), a write of a literal nil to an index (the array may be under another name), the iterator of a
--- generic `for` and the scope of a `<close>` local, whose handler runs when it ends. A function made at the point does not inherit it ([`Flow.enter`]), and an
--- assignment to the place takes it away like any fact of the place.
+-- generic `for` and the scope of a `<close>` local, whose handler runs when it ends. A function made at the point does not
+-- inherit it ([`Flow.enter`]), and an assignment to the place takes it away like any fact of the place.
 --
 -- A `table.move` that may copy a nil or leave a hole is refused (`array_hole`, [`Writes.move_dense`]), so a move keeps the
 -- density this relies on.
@@ -3189,7 +3189,8 @@ function Tests.plain(ctx: Ctx, t: Type): boolean
           if m.decl.kind ~= "enum" or m.value then
             return false
           end
-        elseif m.tag == "any" or m.tag == "invalid" or m.tag == "fn" or m.tag == "var" then
+        elseif not m.atom or m.tag == "any" or m.tag == "invalid" then
+          -- A function or a type variable, and any form not listed here, is not trusted.
           return false
         end
       end
@@ -5362,11 +5363,12 @@ end
 local function after_call(ctx: Ctx, node: Ast.Node, callee: Ast.Exp?, alts: {Alt}, args: {Ast.Exp},
                           receiver: Ast.Exp?)
   ctx.guards[base_of(node).id] = nil
+  local id = base_of(node).id
   if #alts == 0 then
+    ctx.inert[id] = nil
     ctx.flow = Flow.dead(ctx.flow)
     return
   end
-  local id = base_of(node).id
   if Tests.quiet_callee(callee) or (ctx.inert[id] == true and Tests.inert_callee(callee)) then
     ctx.inert[id] = true
   else

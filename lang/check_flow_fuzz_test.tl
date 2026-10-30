@@ -619,10 +619,23 @@ function Arrays.test(g: Gen, s: string): string, integer
   local n = g.src:int(1, 6)
   local k, below = tostring(n), tostring(n - 1)
   local len = "#" .. s
-  return Fuzz.pick(g.src, {
-    len .. " >= " .. k, len .. " > " .. below, len .. " == " .. k, k .. " <= " .. len, len .. " >= " .. k .. " and " .. len .. " < 9",
-    len .. " >= " .. k .. " and #tostring(eater) > 0", len .. " ~= 0", len .. " >= " .. k .. " and #tostring(total) > 0",
-  }), n
+  local form = g.src:int(0, 7)
+  if form == 0 then
+    return len .. " >= " .. k, n
+  elseif form == 1 then
+    return len .. " > " .. below, n
+  elseif form == 2 then
+    return len .. " == " .. k, n
+  elseif form == 3 then
+    return k .. " <= " .. len, n
+  elseif form == 4 then
+    return len .. " >= " .. k .. " and " .. len .. " < 9", n
+  elseif form == 5 then
+    return len .. " >= " .. k .. " and #tostring(eater) > 0", n
+  elseif form == 6 then
+    return len .. " ~= 0", 1
+  end
+  return len .. " >= " .. k .. " and #tostring(total) > 0", n
 end
 
 --- The read of an element of `s`: of `at` if given, of `loop` (or the next or last one) where a numeric `for` has one. A
@@ -671,7 +684,7 @@ function Arrays.nested(g: Gen, s: string, loop: string?, head: string, n: intege
 end
 
 function Arrays.statement(g: Gen, s: string, loop: string?)
-  local k = g.src:int(0, if g.depth >= 2 then 6 else 11 end)
+  local k = g.src:int(0, if g.depth >= 2 then 5 else 11 end)
   local len = "#" .. s
   if k <= 1 then
     add(g, "total = total + #tostring(" .. Arrays.read(g, s, loop) .. ")")
