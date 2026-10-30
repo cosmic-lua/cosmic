@@ -47,6 +47,20 @@ local ALPHABET <const> = { "a", "b", "0", "f", " ", "\n", ":", "\0" }
 --- ([`test_inputs.plain`]), so "a/./b" and "a/b" are one path.
 local PATH_ALPHABET <const> = { "a", "b", "0", "f", " ", "\n", ":" }
 
+--- The element of `list` at `index`, which the draw knows is there.
+local function nth<T>(list: {T}, index: integer): T
+  local found = list[index]
+  assert(found ~= nil, "the list has an element at " .. tostring(index))
+  return found
+end
+
+--- The list `d` holds under `name`: a drawn spec holds every one of [`LISTS`].
+local function list_of(d: Drawn, name: string): {string}
+  local list = d.lists[name]
+  assert(list, name .. " is a list a drawn spec holds")
+  return list
+end
+
 local function draw_string(src: Fuzz.Source, alphabet: {string}, least: integer): string
   local out: mut {string} = {}
   while #out < least or Fuzz.more(src, #out, 6) do out[#out + 1] = Fuzz.pick(src, alphabet) end
@@ -61,7 +75,7 @@ local function canonical(d: Drawn): Drawn
   for _, name in ipairs({ "files", "reads", "hosts" }) do
     local seen: mut {string:boolean} = {}
     local set: mut {string} = {}
-    for _, entry in ipairs(d.lists[name]) do
+    for _, entry in ipairs(list_of(d, name)) do
       if entry ~= "" and seen[entry] ~= true then
         seen[entry] = true
         set[#set + 1] = entry
@@ -72,18 +86,21 @@ local function canonical(d: Drawn): Drawn
   end
   for _, map in ipairs({ "environment", "requires" }) do
     local values: mut {string:string} = {}
-    local env = d.lists[map]
+    local env = list_of(d, map)
     for i = 1, #env - 1, 2 do
       -- The last value of a name given twice, as [`spec_of`] gives it.
-      if env[i] ~= "" then values[env[i]] = env[i + 1] end
+      local name, value = nth(env, i), nth(env, i + 1)
+      if name ~= "" then values[name] = value end
     end
     local names: mut {string} = {}
     for name in pairs(values) do names[#names + 1] = name end
     table.sort(names)
     local pairs_out: mut {string} = {}
     for _, name in ipairs(names) do
+      local value = values[name]
+      assert(value, name .. " is a name collected above")
       pairs_out[#pairs_out + 1] = name
-      pairs_out[#pairs_out + 1] = values[name]
+      pairs_out[#pairs_out + 1] = value
     end
     out.lists[map] = pairs_out
   end
@@ -98,7 +115,7 @@ local function pack(d: Drawn): string
     local value = c.scalars[name]
     fields[#fields + 1] = if value == nil then "-" else ("+" .. value) end
   end
-  for _, name in ipairs(LISTS) do fields[#fields + 1] = Fuzz.pack(c.lists[name]) end
+  for _, name in ipairs(LISTS) do fields[#fields + 1] = Fuzz.pack(list_of(c, name)) end
   return Fuzz.pack(fields)
 end
 
@@ -106,10 +123,10 @@ local function unpack(packed: string): Drawn
   local fields = Fuzz.unpack(packed)
   local d: Drawn = { scalars = {}, lists = {} }
   for i, name in ipairs(SCALARS) do
-    local value = fields[i]
+    local value = nth(fields, i)
     if value:sub(1, 1) == "+" then d.scalars[name] = value:sub(2) end
   end
-  for i, name in ipairs(LISTS) do d.lists[name] = Fuzz.unpack(fields[#SCALARS + i]) end
+  for i, name in ipairs(LISTS) do d.lists[name] = Fuzz.unpack(nth(fields, #SCALARS + i)) end
   return d
 end
 
@@ -149,17 +166,17 @@ local function shift(src: Fuzz.Source, d: Drawn): Drawn
   local out = copy(d)
   if src:int(0, 1) == 0 then
     local at = src:int(1, #SCALARS - 1)
-    local a, b = SCALARS[at], SCALARS[at + 1]
+    local a, b = nth(SCALARS, at), nth(SCALARS, at + 1)
     local left, right = out.scalars[a] or "", out.scalars[b] or ""
     if left ~= "" then
       out.scalars[a], out.scalars[b] = left:sub(1, -2), left:sub(-1) .. right
     end
   else
-    local list = out.lists[Fuzz.pick(src, LISTS)]
+    local list = list_of(out, Fuzz.pick(src, LISTS))
     if #list >= 2 then
       local at = src:int(1, #list - 1)
-      local left = list[at]
-      if left ~= "" then list[at], list[at + 1] = left:sub(1, -2), left:sub(-1) .. list[at + 1] end
+      local left, right = nth(list, at), nth(list, at + 1)
+      if left ~= "" then list[at], list[at + 1] = left:sub(1, -2), left:sub(-1) .. right end
     end
   end
   return out
@@ -173,23 +190,24 @@ local function edit(src: Fuzz.Source, d: Drawn): Drawn
     -- A scalar drawn again, or one present or not.
     local name = Fuzz.pick(src, SCALARS)
     if OPTIONAL[name] == true and src:int(0, 1) == 1 then
-      out.scalars[name] = if out.scalars[name] == nil then "" else nil end
+      if out.scalars[name] == nil then out.scalars[name] = "" else out.scalars[name] = nil end
     else
       out.scalars[name] = draw_string(src, ALPHABET, 0)
     end
   else
     local name = Fuzz.pick(src, LISTS)
-    local list = out.lists[name]
+    local list = list_of(out, name)
     local step = if is_map(name) then 2 else 1 end
     if kind == 2 and #list > 0 then
       -- An entry split in two, or two joined.
       local at = src:int(1, #list)
-      if src:int(0, 1) == 0 and #list[at] >= 2 then
-        local cut = src:int(1, #list[at] - 1)
-        table.insert(list, at + 1, list[at]:sub(cut + 1))
-        list[at] = list[at]:sub(1, cut)
+      local entry = nth(list, at)
+      if src:int(0, 1) == 0 and #entry >= 2 then
+        local cut = src:int(1, #entry - 1)
+        table.insert(list, at + 1, entry:sub(cut + 1))
+        list[at] = entry:sub(1, cut)
       elseif at < #list then
-        list[at] = list[at] .. table.remove(list, at + 1)
+        list[at] = entry .. table.remove(list, at + 1)
       end
     elseif kind == 3 and #list >= step then
       -- One dropped.
@@ -268,8 +286,8 @@ local function test_distinct_specs_spell_distinct_preimages(tmp: string)
         return true, ""
       end
       Fuzz.label(if parts[1] == "shift" then "shifted" else "edited" end)
-      local one = spelled(root, spec_of(unpack(parts[2]), host))
-      local other = spelled(root, spec_of(unpack(parts[3]), host))
+      local one = spelled(root, spec_of(unpack(nth(parts, 2)), host))
+      local other = spelled(root, spec_of(unpack(nth(parts, 3)), host))
       if one == other then return false, "two specs spell one preimage" end
       return true, ""
     end,
