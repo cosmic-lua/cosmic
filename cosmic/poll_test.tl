@@ -1,21 +1,10 @@
-local _ = require("cosmic.child") -- in the closure: [`raw_behind`] searches for it by hand
+local RawTables = require("build.raw_tables")
+local _ = require("cosmic.child") -- in the closure: [`RawTables`] searches for it by hand
 local Poll = require("cosmic.poll")
 local sys = require("cosmic.sys")
-local type raw_process = require("cosmic.internal.process")
 local Clock = require("cosmic.clock")
 
-local type Searcher = function(string): any, any
-
---- The raw table `require` hands `wrapper`'s loader.
-local function raw_behind(wrapper: string): any
-  for _, searcher in ipairs(package.searchers as {Searcher}) do -- cast: searchers' loaders take an extra
-    local loader, extra = searcher(wrapper)
-    if type(loader) == "function" and type(extra) == "table" then return extra end
-  end
-  error(wrapper .. " is handed no raw table")
-end
-
-local process = raw_behind("cosmic.child") as raw_process -- cast: the table core/process.h declares
+local process = RawTables.process()
 
 --- The two ends of a named pipe in `dir`, neither waiting: the reading
 --- end open first, as a pipe with no reader refuses a nonblocking writer.

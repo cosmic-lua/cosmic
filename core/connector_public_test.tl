@@ -4,23 +4,15 @@
 --- held to what [`cosmic.relay.address`]'s `check` says of the same
 --- address. The vectors are written out here, not computed from the list
 --- under test.
-local type raw_process = require("cosmic.internal.process")
 local type _ = require("cosmic.child")
 local type _net = require("cosmic.net")
+local RawTables = require("build.raw_tables")
 local Test = require("cosmic.test")
 local Address = require("cosmic.relay.address")
 local sys = require("cosmic.sys")
 local DENIED <const> = 65536 -- a refusal by the lists, past any errno
 Test.policy{ promises = { "fork" } }
-local type Searcher = function(string): any, any
-local function process_table(): raw_process
-  for _, searcher in ipairs(package.searchers as {Searcher}) do -- cast: a loader's extra is the raw table
-    local loader, extra = searcher("cosmic.child")
-    if type(loader) == "function" and type(extra) == "table" then return extra as raw_process end -- cast: core/process.h's table
-  end
-  error("no raw table")
-end
-local process = process_table()
+local process = RawTables.process()
 
 --- The controller's end of a connector pair, which asks and is answered.
 local function controller_end(pair: {integer}): integer

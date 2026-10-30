@@ -4,6 +4,7 @@
 --- is refused before it changes anything. Its own module, since a
 --- `tool` test runs again on every edit to the tree.
 
+local RawTables = require("build.raw_tables")
 local sys = require("cosmic.sys")
 local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")
@@ -22,19 +23,7 @@ local type raw_socket = require("cosmic.internal.socket")
 Test.policy{ profiles = { "cosmic" }, loopback = { "127.0.0.1" },
   grants = { { path = "o/bin", letters = "rx" } } }
 
-local type SocketSearcher = function(string): any, any
-
-local function socket_table(): raw_socket
-  for _, searcher in ipairs(package.searchers as {SocketSearcher}) do -- cast: searchers' loaders take an extra
-    local loader, extra = searcher("cosmic.net")
-    if type(loader) == "function" and type(extra) == "table" then
-      return extra as raw_socket -- cast: the table core/socket.h declares
-    end
-  end
-  error("cosmic.net is handed no raw table")
-end
-
-local socket = socket_table()
+local socket = RawTables.socket()
 
 --- The program a relaunch starts again.
 local function program_of(relaunch: Proc.Relaunch): string

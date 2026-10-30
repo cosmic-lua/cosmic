@@ -26,7 +26,8 @@
 --- The children-list walk is core/allocation_children_test.tl's: it
 --- also requires the children file in this process's mounted /proc.
 
-local _ = require("cosmic.child") -- in the closure: [`process_table`] searches for it by hand
+local RawTables = require("build.raw_tables")
+local _ = require("cosmic.child") -- in the closure: [`RawTables`] searches for it by hand
 local Codec = require("cosmic.codec")
 local Compress = require("cosmic.compress")
 local Fs = require("cosmic.fs")
@@ -51,33 +52,9 @@ local Vector = require("cosmic.vector")
 --- The socket cases listen on the worker's own loopback.
 Test.policy{ requires = { "checked" }, loopback = { "127.0.0.1" } }
 
-local type Searcher = function(string): any, any
+local process = RawTables.process()
 
---- The raw process table, as the store's searcher hands it to
---- [`cosmic.child`]'s loader.
-local function process_table(): raw_process
-  for _, searcher in ipairs(package.searchers as {Searcher}) do -- cast: searchers' loaders take an extra
-    local loader, extra = searcher("cosmic.child")
-    if type(loader) == "function" and type(extra) == "table" then
-      return extra as raw_process -- cast: the table core/process.h declares
-    end
-  end
-  error("cosmic.child is handed no raw table")
-end
-
-local process = process_table()
-
-local function socket_table(): raw_socket
-  for _, searcher in ipairs(package.searchers as {Searcher}) do -- cast: searchers' loaders take an extra
-    local loader, extra = searcher("cosmic.net")
-    if type(loader) == "function" and type(extra) == "table" then
-      return extra as raw_socket -- cast: the table core/socket.h declares
-    end
-  end
-  error("cosmic.net is handed no raw table")
-end
-
-local socket = socket_table()
+local socket = RawTables.socket()
 
 --- Runs `work` once per allocation it makes, refusing that allocation,
 --- and a last time with none refused; answers how many runs a refusal

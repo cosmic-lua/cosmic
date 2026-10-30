@@ -10,6 +10,7 @@
 --- (cosmic/child_relay_test.tl is Linux's). A failure says what the program
 --- saw, the relay's decision lines and what Seatbelt denied.
 
+local RawTables = require("build.raw_tables")
 local Child = require("cosmic.child")
 local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
@@ -413,19 +414,6 @@ local function test_the_relay_ends_with_its_program(tmp: string)
   end)
 end
 
-local type Searcher = function(string): any, any
-
---- The process table cosmic.child starts a child through.
-local function process_table(): raw_process
-  for _, searcher in ipairs(package.searchers as {Searcher}) do -- cast: searchers' loaders take an extra
-    local loader, extra = searcher("cosmic.child")
-    if type(loader) == "function" and type(extra) == "table" then
-      return extra as raw_process -- cast: the table core/process.h declares
-    end
-  end
-  error("cosmic.child has no process table")
-end
-
 --- How a program started under a profile ended.
 local record Ran
   --- Why the start failed, or "" where it ran.
@@ -440,7 +428,7 @@ local function run_under(held: raw_process.Seatbelt, argv: {string}, tmp: string
   local out_path = tmp .. "/run.out"
   local out = assert(sys.open(out_path, sys.O_WRONLY | sys.O_CREAT | sys.O_TRUNC, 384))
   local null = assert(sys.open("/dev/null", sys.O_RDONLY))
-  local process = process_table()
+  local process = RawTables.process()
   local pid, why = process.spawn(argv[1], argv, { COSMIC_STANDALONE = "1" }, "/", null, out, out, false, nil,
     { seatbelt = held })
   assert(sys.close(out))

@@ -2,6 +2,7 @@
 --- would otherwise write a shell script, each of its verbs, and what it
 --- reads its script and words from.
 
+local RawTables = require("build.raw_tables")
 local Child = require("cosmic.child")
 local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
@@ -11,20 +12,6 @@ local unix_socket = require("build.unix_socket")
 local sys = require("cosmic.sys")
 local stand_in = require("build.stand_in")
 local artifact = require("build.artifact")
-local type raw_socket = require("cosmic.internal.socket")
-
-local type Searcher = function(string): any, any
-
---- The raw table the store's searcher hands cosmic.net's loader.
-local function raw_net(): raw_socket
-  for _, searcher in ipairs(package.searchers as {Searcher}) do -- cast: searchers' loaders take an extra
-    local loader, extra = searcher("cosmic.net")
-    if type(loader) == "function" and type(extra) == "table" then
-      return extra as raw_socket -- cast: the table core/socket.h declares
-    end
-  end
-  error("cosmic.net is handed no raw table")
-end
 
 --- The loopback is for the stand-in's `connect-tcp`, whose connection to a
 --- port nothing listens on is refused.
@@ -242,7 +229,7 @@ local function test_the_process_verbs(tmp: string)
   -- `sockets-open` counts the sockets it holds from descriptor 3, as it has them.
   local none = run({ probe, "sockets-open" })
   assert(none.ok and none.stdout == "sockets 0\n", tostring(none.stdout))
-  local raw = raw_net()
+  local raw = RawTables.socket()
   local held = assert(raw.listen({ kind = "tcp", host = "127.0.0.1", port = 0 }, 8))
   local counted = assert(Child.run({ probe, "sockets-open" },
     { env = {}, fds = { [3] = held:fd() }, stdout = "capture", stderr = "capture",

@@ -1,17 +1,8 @@
 --- The actual endpoint-connector filter on both Linux architectures.
+local RawTables = require("build.raw_tables")
 local type raw_process = require("cosmic.internal.process")
 local type _ = require("cosmic.child")
-local type Searcher = function(string): any, any
-local function process_table(): raw_process
-  for _, searcher in ipairs(package.searchers as {Searcher}) do -- cast: the raw table is the loader's extra
-    local loader, extra = searcher("cosmic.child")
-    if type(loader) == "function" and type(extra) == "table" then
-      return extra as raw_process -- cast: core/process.h declares the handed table
-    end
-  end
-  error("no process table")
-end
-local process = process_table()
+local process = RawTables.process()
 local ALLOW <const> = 0x7fff0000
 local REFUSE <const> = 0x50001
 local KILL <const> = 0x80000000

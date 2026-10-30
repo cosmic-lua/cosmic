@@ -5,7 +5,8 @@
 --- (core/testing.h), and CI runs this suite on it; on any other the
 --- walk returns at once.
 
-local _ = require("cosmic.child") -- in the closure: [`process_table`] searches for it by hand
+local RawTables = require("build.raw_tables")
+local _ = require("cosmic.child") -- in the closure: [`RawTables`] searches for it by hand
 local Proc = require("cosmic.proc")
 local sys = require("cosmic.sys")
 local testing = require("cosmic.internal.testing")
@@ -17,21 +18,7 @@ local Test = require("cosmic.test")
 --- spawn refusal names it, and never starts it).
 Test.policy{ requires = { "checked" }, profiles = { "cosmic" } }
 
-local type Searcher = function(string): any, any
-
---- The raw process table, as the store's searcher hands it to
---- [`cosmic.child`]'s loader.
-local function process_table(): raw_process
-  for _, searcher in ipairs(package.searchers as {Searcher}) do -- cast: searchers' loaders take an extra
-    local loader, extra = searcher("cosmic.child")
-    if type(loader) == "function" and type(extra) == "table" then
-      return extra as raw_process -- cast: the table core/process.h declares
-    end
-  end
-  error("cosmic.child is handed no raw table")
-end
-
-local process = process_table()
+local process = RawTables.process()
 
 --- Runs `work` once per allocation it makes, refusing that allocation,
 --- and a last time with none refused; answers how many runs a refusal

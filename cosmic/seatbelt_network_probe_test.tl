@@ -16,6 +16,7 @@
 --- the design. Every test calls [`Test.skip`] on any other host, where Landlock
 --- and seccomp hold a child, so the whole module skips there.
 
+local RawTables = require("build.raw_tables")
 local Child = require("cosmic.child")
 local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
@@ -23,7 +24,6 @@ local Net = require("cosmic.net")
 local Test = require("cosmic.test")
 local Udp = require("build.udp_fixture")
 local sys = require("cosmic.sys")
-local type raw_process = require("cosmic.internal.process")
 
 --- Nothing a profile here reads is the tree's: it is the host's, which the
 --- children run from.
@@ -32,19 +32,6 @@ Test.policy{ env = { "TMPDIR" }, profiles = { "system" } }
 --- Whether a test ends by failing with everything it saw, so that one run's
 --- log shows it whether or not the assertions held.
 local DUMP <const> = false
-
-local type Searcher = function(string): any, any
-
---- The process table cosmic.child starts a child through.
-local function process_table(): raw_process
-  for _, searcher in ipairs(package.searchers as {Searcher}) do -- cast: searchers' loaders take an extra
-    local loader, extra = searcher("cosmic.child")
-    if type(loader) == "function" and type(extra) == "table" then
-      return extra as raw_process -- cast: the table core/process.h declares
-    end
-  end
-  error("cosmic.child has no process table")
-end
 
 --- Ends the test where Seatbelt does not hold a child.
 local function macos_only()
@@ -101,7 +88,7 @@ local function start(tmp: string, text: string, parameters: {string:string}, arg
   local path = tmp .. "/out-" .. tostring(counter)
   local out = assert(sys.open(path, sys.O_WRONLY | sys.O_CREAT | sys.O_TRUNC, 420))
   local null = assert(sys.open("/dev/null", sys.O_RDONLY))
-  local pid, why = process_table().spawn(argv[1], argv, nil, nil, null, out, out, false, nil,
+  local pid, why = RawTables.process().spawn(argv[1], argv, nil, nil, null, out, out, false, nil,
     { seatbelt = { profile = text, parameters = parameters } })
   local _, _ = sys.close(out)
   local _, _ = sys.close(null)
@@ -123,7 +110,7 @@ local function reap(running: Running, seconds: number): Ended
   if running.pid == nil then
     return { started = false, why = running.why or "", code = -1, signal = -1, timed_out = false, text = "" }
   end
-  local process = process_table()
+  local process = RawTables.process()
   local deadline = Clock.monotonic_ns() + Clock.seconds(seconds)
   local timed_out = false
   local status = assert(process.waitpid(running.pid, true))

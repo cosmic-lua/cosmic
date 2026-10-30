@@ -6,6 +6,7 @@
 --- Linux host refuses it the tests are not run (`requires`) or, where only
 --- the call can tell, skipped (Test.skip).
 
+local RawTables = require("build.raw_tables")
 local sys = require("cosmic.sys")
 local Test = require("cosmic.test")
 local unix_socket = require("build.unix_socket")
@@ -25,19 +26,7 @@ Test.policy{
   requires = { "sandbox" },
 }
 
-local type Searcher = function(string): any, any
-
---- The raw table the store's searcher hands `wrapper`'s loader, as
---- `require` would hand it.
-local function raw_behind(wrapper: string): any
-  for _, searcher in ipairs(package.searchers as {Searcher}) do -- cast: searchers' loaders take an extra
-    local loader, extra = searcher(wrapper)
-    if type(loader) == "function" and type(extra) == "table" then return extra end
-  end
-  error(wrapper .. " is handed no raw table")
-end
-
-local process = raw_behind("cosmic.child") as raw_process -- cast: the table core/process.h declares
+local process = RawTables.process()
 
 --- A stand-in program built under `tmp` (build/stand_in.tl), which runs
 --- the script its first argument holds: a static executable that reads

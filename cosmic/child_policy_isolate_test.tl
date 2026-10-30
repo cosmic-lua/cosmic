@@ -10,6 +10,7 @@
 --- refusals that come before a child, which hold on every platform, are in
 --- cosmic/child_policy_anywhere_test.tl.
 
+local RawTables = require("build.raw_tables")
 local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")
 local Net = require("cosmic.net")
@@ -21,7 +22,6 @@ local searchable = require("build.searchable")
 local confine = require("build.confine")
 local stand_in = require("build.stand_in")
 local unix_socket = require("build.unix_socket")
-local type raw_process = require("cosmic.internal.process")
 
 --- The temporary directory, and a loopback address for the host's own
 --- listener the child must not reach. `nests`: a policy's isolation makes
@@ -426,20 +426,6 @@ local function test_a_u_grant_beside_files_alone_is_met(tmp: string)
   assert(result.code == 0 and result.said == "connected\n", result.said)
 end
 
-local type Searcher = function(string): any, any
-
---- The Landlock ABI of this kernel, nil where there is none: from the raw
---- table the store's searcher hands [`cosmic.child`]'s loader.
-local function landlock_abi(): integer?, string, integer
-  for _, searcher in ipairs(package.searchers as {Searcher}) do -- cast: searchers' loaders take an extra
-    local loader, extra = searcher("cosmic.child")
-    if type(loader) == "function" and type(extra) == "table" then
-      return (extra as raw_process).landlock_abi() -- cast: the table core/process.h declares
-    end
-  end
-  error("cosmic.child is handed no raw table")
-end
-
 --- A root of files and its own /tmp alone shows no socket of the host's, so
 --- the program makes one there with no `u` grant, at any ABI; a directory of
 --- the host beside it takes that below ABI 9, and its own network namespace
@@ -455,7 +441,7 @@ local function test_a_root_of_files_and_its_own_tmp_makes_unix_sockets_without_u
   local isolated = under(at.probe, { isolate = { "file" }, tmp = true, grants = at.bare }, at.home, script)
   assert(isolated ~= nil and isolated.said:find("not permitted", 1, true), "no network of its own: " ..
       tostring(isolated and isolated.said))
-  local abi, _ = landlock_abi()
+  local abi, _ = RawTables.process().landlock_abi()
   local shown = under(at.probe, { isolate = { "file" }, tmp = true, loopback = { "127.0.0.1" },
     grants = at.grants }, at.work, script)
   assert(shown ~= nil, "started")

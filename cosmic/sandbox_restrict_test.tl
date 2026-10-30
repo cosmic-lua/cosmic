@@ -7,6 +7,7 @@
 --- they are not applicable, and where this host's kernel refuses Landlock
 --- or seccomp a child that reports it skips its case (Test.skip).
 
+local RawTables = require("build.raw_tables")
 local Child = require("cosmic.child")
 local Clock = require("cosmic.clock")
 -- The child loads these from the store, which holds this test's closure alone.
@@ -19,7 +20,6 @@ local build_paths = require("build.paths")
 local Test = require("cosmic.test")
 local stand_in = require("build.stand_in")
 local this_program = require("build.this_program")
-local type raw_process = require("cosmic.internal.process")
 
 --- The program is this one, which a test starts only with `tool`; its
 --- temporary directory is the test's own.
@@ -31,17 +31,6 @@ Test.policy{
 }
 
 local DENIED <const> = "Permission denied"
-
-local type Searcher = function(string): any, any
-
---- The raw table the store's searcher hands `wrapper`'s loader.
-local function raw_behind(wrapper: string): any
-  for _, searcher in ipairs(package.searchers as {Searcher}) do -- cast: searchers' loaders take an extra
-    local loader, extra = searcher(wrapper)
-    if type(loader) == "function" and type(extra) == "table" then return extra end
-  end
-  error(wrapper .. " is handed no raw table")
-end
 
 --- What the child runs first: the modules it uses, loaded before it is
 --- restricted since it may read nothing after, and the helpers that
@@ -192,7 +181,7 @@ end
 --- forked, and nothing outside the sandbox. Below ABI 6 the filter keeps
 --- the calls to the pid it was built for.
 local function test_the_signal_scope_lets_a_forked_process_signal_what_is_inside(tmp: string)
-  local abi, _ = (raw_behind("cosmic.child") as raw_process).landlock_abi() -- cast: the table core/process.h declares
+  local abi, _ = RawTables.process().landlock_abi()
   local probe = assert(stand_in.build(tmp .. "/stand-in"))
   local sibling = assert(Child.start({ probe, "sleep-forever" }, { process_group = false }))
   local said = in_child(restricted(
