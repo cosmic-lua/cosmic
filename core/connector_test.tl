@@ -1,4 +1,5 @@
 --- The connector's actual kernel filter and repeated TCP handoffs.
+local RawTables = require("build.raw_tables")
 local type raw_process = require("cosmic.internal.process")
 local type raw_socket = require("cosmic.internal.socket")
 local type _ = require("cosmic.child")
@@ -9,16 +10,8 @@ local Address = require("cosmic.relay.address")
 local sys = require("cosmic.sys")
 local DENIED <const> = 65536 -- a refusal by the lists, past any errno
 Test.policy{ loopback = { "127.0.0.1" }, promises = { "fork" } }
-local type Searcher = function(string): any, any
-local function table_for(wrapper: string): any
-  for _, searcher in ipairs(package.searchers as {Searcher}) do -- cast: a loader's extra is the raw table
-    local loader, extra = searcher(wrapper)
-    if type(loader) == "function" and type(extra) == "table" then return extra end
-  end
-  error("no raw table")
-end
-local process = table_for("cosmic.child") as raw_process -- cast: core/process.h's table
-local socket = table_for("cosmic.net") as raw_socket -- cast: core/socket.h's table
+local process = RawTables.process()
+local socket = RawTables.socket()
 
 --- The controller's end of a connector pair, which asks and is answered.
 local function controller_end(pair: {integer}): integer
@@ -33,12 +26,25 @@ local function connector_end(pair: {integer}): integer
   assert(fd, "a connector pair holds two descriptors")
   return fd
 end
+
+--- The endpoint index and the port of a table request.
+local record Ask
+  index: integer
+  port: integer
+end
+
+--- The port the kernel gave `bound`, a socket that listens or was accepted.
+local function port_of(bound: raw_socket.Socket): integer
+  local address = assert(socket.bound(bound:fd()))
+  local port = assert(address.port, "a bound TCP socket has a port")
+  return port
+end
 local function require_native_connector()
   local result, why, number = process.connector_probe({ host = "127.0.0.1", port = 9 }, "pointer")
   if result == nil and (number == sys.ENOSYS or number == sys.EOPNOTSUPP) then
     Test.skip("this host has no native connector confinement: " .. why)
   end
-  assert(result == sys.EPERM, "native connector setup failed: " .. (why or ""))
+  assert(result == sys.EPERM, "native connector setup failed: " .. tostring(why))
 end
 local function read_whole(fd: integer, count: integer): string
   local out = ""
@@ -75,7 +81,7 @@ local function test_live_filter_refuses_mutation_other_destinations_and_ipc_repl
   for _, operation in ipairs({ "pointer", "length", "mprotect", "remap", "dup", "recvmsg",
       "sendto", "sendmsg", "udp", "open", "exec", "fork" }) do
     local result, why = process.connector_probe(endpoint, operation)
-    assert(result == 1, operation .. ": " .. tostring(result) .. " " .. (why or ""))
+    assert(result == 1, operation .. ": " .. tostring(result) .. " " .. tostring(why))
   end
   assert(process.connector_probe(endpoint, "mutation") == -11, "a read-only address table must fault")
   assert(process.connector_probe(endpoint, "close_control") == -31, "closing protected IPC must kill the broker")
@@ -83,31 +89,31 @@ end
 local function test_repeated_connections_use_only_the_granted_address_and_port()
   require_native_connector()
   local listener <close> = assert(socket.listen({ kind = "tcp", host = "127.0.0.1", port = 0 }, 8))
-  local bound = assert(socket.bound(listener:fd()))
+  local bound_port = port_of(listener)
   local pair = assert(process.connector_pair())
-  local child, why = process.connector_start({ { host = "127.0.0.1", port = bound.port } }, connector_end(pair), 500, nil)
+  local child, why = process.connector_start({ { host = "127.0.0.1", port = bound_port } }, connector_end(pair), 500, nil)
   assert(sys.close(connector_end(pair)))
   assert(child, why)
   local ok, failure = pcall(function()
     greeted(controller_end(pair))
-    local port = assert(bound.port)
-    for tag, request in ipairs({ { 0, port }, { 2, port }, { 1, 0 }, { 1, 65536 },
-        { 1, if port == 65535 then 1 else port + 1 end } }) do
-      assert(asked(controller_end(pair), table_request(tag, request[1], request[2])) == sys.EPERM)
+    local asks: {Ask} = { { index = 0, port = bound_port }, { index = 2, port = bound_port },
+      { index = 1, port = 0 }, { index = 1, port = 65536 },
+      { index = 1, port = if bound_port == 65535 then 1 else bound_port + 1 end } }
+    for tag, ask in ipairs(asks) do
+      assert(asked(controller_end(pair), table_request(tag, ask.index, ask.port)) == sys.EPERM)
     end
     -- A table request that carries a family or an address is malformed.
-    assert(asked(controller_end(pair), string.pack(">I4I4I4I4I4", 9, 1, bound.port, 0, 4) .. string.rep("\0", 16)) == sys.EINVAL)
-    assert(asked(controller_end(pair), table_request(10, 1, assert(bound.port)):sub(1, 35) .. "\1") == sys.EINVAL)
+    assert(asked(controller_end(pair), string.pack(">I4I4I4I4I4", 9, 1, bound_port, 0, 4) .. string.rep("\0", 16)) == sys.EINVAL)
+    assert(asked(controller_end(pair), table_request(10, 1, bound_port):sub(1, 35) .. "\1") == sys.EINVAL)
     for tag = 1, 3 do
-      assert(asked(controller_end(pair), table_request(tag, 1, assert(bound.port))) == 0)
+      assert(asked(controller_end(pair), table_request(tag, 1, bound_port)) == 0)
       -- Reading the marker rather than recvmsg makes the kernel discard
       -- its passed descriptor; the accepted connection still proves the
       -- broker reached the origin. Descriptor ownership is fdpass's test.
       assert(read_whole(controller_end(pair), 1) == "\0")
       assert(socket.wait(listener:fd(), false, 500))
       local accepted <close> = assert(socket.accept(listener:fd()))
-      local seen = assert(socket.bound(accepted:fd()))
-      assert(seen.port == bound.port)
+      assert(port_of(accepted) == bound_port)
     end
   end)
   assert(sys.close(controller_end(pair)))
@@ -118,12 +124,12 @@ end
 local function test_wildcard_ports_remain_fixed_to_the_granted_numeric_address()
   require_native_connector()
   local listener <close> = assert(socket.listen({ kind = "tcp", host = "127.0.0.1", port = 0 }, 1))
-  local bound = assert(socket.bound(listener:fd()))
+  local bound_port = port_of(listener)
   local pair = assert(process.connector_pair())
   local child = assert(process.connector_start({ { host = "127.0.0.1", port = 0 } }, connector_end(pair), 500, nil))
   assert(sys.close(connector_end(pair)))
   greeted(controller_end(pair))
-  assert(asked(controller_end(pair), table_request(1, 1, assert(bound.port))) == 0)
+  assert(asked(controller_end(pair), table_request(1, 1, bound_port)) == 0)
   assert(read_whole(controller_end(pair), 1) == "\0")
   assert(socket.wait(listener:fd(), false, 500))
   local accepted <close> = assert(socket.accept(listener:fd()))
@@ -163,22 +169,22 @@ end
 local function test_mixed_tables_keep_each_range_at_its_own_stride()
   require_native_connector()
   local listener <close> = assert(socket.listen({ kind = "tcp", host = "127.0.0.1", port = 0 }, 1))
-  local bound = assert(socket.bound(listener:fd()))
+  local bound_port = port_of(listener)
   local pair = assert(process.connector_pair())
   -- An IPv4 range, an IPv6 one that needs a wider alignment, a single IPv4 slot, and a wildcard after it.
   local child = assert(process.connector_start({ { host = "127.0.0.2", port = 9 },
-    { host = "2001:db8::1", port = 0 }, { host = "127.0.0.1", port = bound.port },
+    { host = "2001:db8::1", port = 0 }, { host = "127.0.0.1", port = bound_port },
     { host = "127.0.0.3", port = 0 } }, connector_end(pair), 500, nil))
   assert(sys.close(connector_end(pair)))
   greeted(controller_end(pair))
-  assert(asked(controller_end(pair), table_request(1, 3, assert(bound.port))) == 0)
+  assert(asked(controller_end(pair), table_request(1, 3, bound_port)) == 0)
   assert(read_whole(controller_end(pair), 1) == "\0")
   assert(socket.wait(listener:fd(), false, 500))
   local accepted <close> = assert(socket.accept(listener:fd()))
   assert(accepted:fd() >= 0)
   -- A port the single slot does not hold (any but its own) is refused, not read from the next slot.
-  local other = assert(bound.port) % 65535 + 1
-  assert(other ~= bound.port)
+  local other = bound_port % 65535 + 1
+  assert(other ~= bound_port)
   assert(asked(controller_end(pair), table_request(2, 3, other)) == sys.EPERM)
   assert(sys.close(controller_end(pair)))
   local ended = assert(process.waitpid(child, false))
@@ -237,16 +243,15 @@ end
 local function test_a_public_connector_connects_to_an_address_its_table_lacks()
   require_native_connector()
   local listener <close> = assert(socket.listen({ kind = "tcp", host = "127.0.0.1", port = 0 }, 8))
-  local bound = assert(socket.bound(listener:fd()))
+  local bound_port = port_of(listener)
   -- No test reaches a public host: the deny list is empty, so loopback is allowed.
   local pair, child = start_public({ deny = {} }, 500)
   for _ = 1, 3 do
-    assert(public_ask(controller_end(pair), "127.0.0.1", assert(bound.port)) == 0)
+    assert(public_ask(controller_end(pair), "127.0.0.1", bound_port) == 0)
     assert(read_whole(controller_end(pair), 1) == "\0")
     assert(socket.wait(listener:fd(), false, 500))
     local accepted <close> = assert(socket.accept(listener:fd()))
-    local seen = assert(socket.bound(accepted:fd()))
-    assert(seen.port == bound.port)
+    assert(port_of(accepted) == bound_port)
   end
   finish(pair, child)
 end
@@ -254,12 +259,12 @@ end
 local function test_a_public_connector_refuses_what_its_lists_hold_without_connecting()
   require_native_connector()
   local listener <close> = assert(socket.listen({ kind = "tcp", host = "127.0.0.1", port = 0 }, 8))
-  local bound = assert(socket.bound(listener:fd()))
+  local bound_port = port_of(listener)
   local lists: {raw_process.ConnectorPublic} = { { deny = { "127.0.0.0/8" } }, { deny = {}, own = { "127.0.0.1" } },
     { deny = {}, own = { "::ffff:127.0.0.1" } }, { deny = { "127.0.0.1/32" } }, { deny = { "126.0.0.0/7" } } }
   for _, public in ipairs(lists) do
     local pair, child = start_public(public, 500)
-    assert(public_ask(controller_end(pair), "127.0.0.1", assert(bound.port)) == DENIED)
+    assert(public_ask(controller_end(pair), "127.0.0.1", bound_port) == DENIED)
     assert(not socket.wait(listener:fd(), false, 20), "a refused address was connected to")
     -- A neighbour of an address is refused only by a prefix that holds it,
     -- and the stream is in step.
@@ -292,14 +297,14 @@ end
 local function test_a_connector_that_is_not_public_refuses_a_public_request_and_stays_in_step()
   require_native_connector()
   local listener <close> = assert(socket.listen({ kind = "tcp", host = "127.0.0.1", port = 0 }, 1))
-  local bound = assert(socket.bound(listener:fd()))
+  local bound_port = port_of(listener)
   local pair = assert(process.connector_pair())
-  local child = assert(process.connector_start({ { host = "127.0.0.1", port = bound.port } }, connector_end(pair), 500, nil))
+  local child = assert(process.connector_start({ { host = "127.0.0.1", port = bound_port } }, connector_end(pair), 500, nil))
   assert(sys.close(connector_end(pair)))
   greeted(controller_end(pair))
-  assert(public_ask(controller_end(pair), "127.0.0.1", assert(bound.port)) == sys.EPERM)
+  assert(public_ask(controller_end(pair), "127.0.0.1", bound_port) == sys.EPERM)
   assert(public_ask(controller_end(pair), "8.8.8.8", 0) == sys.EPERM)
-  assert(asked(controller_end(pair), table_request(1, 1, assert(bound.port))) == 0)
+  assert(asked(controller_end(pair), table_request(1, 1, bound_port)) == 0)
   assert(read_whole(controller_end(pair), 1) == "\0")
   assert(socket.wait(listener:fd(), false, 500))
   finish(pair, child)
@@ -351,7 +356,7 @@ end
 --- port, and what holds it full. Skips where this kernel answers anyway.
 local function hung_port(): integer, {raw_socket.Socket}
   local listener = assert(socket.listen({ kind = "tcp", host = "127.0.0.1", port = 0 }, 1))
-  local port = assert(socket.bound(listener:fd())).port
+  local port = port_of(listener)
   local held: mut {raw_socket.Socket} = { listener }
   for _ = 1, 6 do
     held[#held + 1] = assert(socket.start({ kind = "tcp", host = "127.0.0.1", port = port }))
@@ -385,7 +390,7 @@ local function test_a_hung_connect_holds_up_no_other_and_replies_come_as_connect
   require_native_connector()
   local hung, held = hung_port()
   local listener <close> = assert(socket.listen({ kind = "tcp", host = "127.0.0.1", port = 0 }, 8))
-  local open = assert(assert(socket.bound(listener:fd())).port)
+  local open = port_of(listener)
   local pair = assert(process.connector_pair())
   local child = assert(process.connector_start({ { host = "127.0.0.1", port = 0 } }, connector_end(pair), 10000, nil))
   assert(sys.close(connector_end(pair)))
@@ -420,7 +425,7 @@ local function test_a_request_in_pieces_holds_up_no_connect()
   require_native_connector()
   local hung, held = hung_port()
   local listener <close> = assert(socket.listen({ kind = "tcp", host = "127.0.0.1", port = 0 }, 8))
-  local open = assert(assert(socket.bound(listener:fd())).port)
+  local open = port_of(listener)
   local pair = assert(process.connector_pair())
   local child = assert(process.connector_start({ { host = "127.0.0.1", port = 0 } }, connector_end(pair), 10000, nil))
   assert(sys.close(connector_end(pair)))
@@ -446,7 +451,7 @@ local function test_a_connect_past_the_flight_is_answered_busy()
   require_native_connector()
   local hung, held = hung_port()
   local listener <close> = assert(socket.listen({ kind = "tcp", host = "127.0.0.1", port = 0 }, 8))
-  local open = assert(assert(socket.bound(listener:fd())).port)
+  local open = port_of(listener)
   local pair, child = start_public({ deny = {} }, 10000)
   local flight = socket.CONNECTOR_FLIGHT
   assert(flight == 64)

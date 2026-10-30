@@ -4,6 +4,7 @@
 local RawTables = require("build.raw_tables")
 local Test = require("cosmic.test")
 local _child = require("cosmic.child")
+local _hash = require("cosmic.hash")
 local _net = require("cosmic.net")
 
 Test.policy{}
@@ -18,12 +19,14 @@ end
 local function test_each_accessor_hands_the_table_of_its_wrapper_by_default()
   assert(type(RawTables.process().spawn) == "function")
   assert(type(RawTables.socket().listen) == "function")
+  assert(type(RawTables.hash().digest) == "function")
 end
 
 local function test_the_table_is_the_core_s_own_and_not_a_copy()
   assert(rawequal(RawTables.process(), RawTables.process()))
   assert(rawequal(RawTables.process(), RawTables.fields("cosmic.child")))
   assert(rawequal(RawTables.socket("cosmic.net"), RawTables.socket()))
+  assert(rawequal(RawTables.hash(), RawTables.fields("cosmic.hash")))
 end
 
 local function test_a_wrapper_with_no_raw_table_is_refused_saying_how_to_get_one()
@@ -37,6 +40,8 @@ local function test_a_table_of_another_wrapper_is_refused_naming_the_member_it_l
   assert(why:find("cosmic.child is handed a raw table with no function `listen`", 1, true) ~= nil, why)
   why = refused(function() local _ = RawTables.process("cosmic.net") end)
   assert(why:find("cosmic.net is handed a raw table with no function `spawn`", 1, true) ~= nil, why)
+  why = refused(function() local _ = RawTables.hash("cosmic.child") end)
+  assert(why:find("cosmic.child is handed a raw table with no function `digest`", 1, true) ~= nil, why)
 end
 
 --- What a searcher in front of the store's hands the wrapper "test.offered" as its extra value, as `offer` makes it: a

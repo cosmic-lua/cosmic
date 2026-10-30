@@ -123,6 +123,9 @@ end
 allowed["build.raw_tables.fields"] = "test support: a test of which members the core's tables hold reads them by name, " ..
   "the tables of wrappers whose declarations are no type of them"
 
+allowed["build.raw_tables.hash"] = "test support: a test of the C hash functions' refusals calls them raw, as the wrapper's " ..
+  "declared kinds would stop it"
+
 allow({
   "build.syntax_analyzer.analyze",
   "build.syntax_derivation.rows_of", "build.syntax_match.matches", "build.syntax_match.text",

@@ -15,11 +15,10 @@ local Fs = require("cosmic.fs")
 local Proc = require("cosmic.proc")
 local Sqlite = require("cosmic.sqlite")
 local Test = require("cosmic.test")
+local RawTables = require("build.raw_tables")
 local gen_syscalls = require("build.gen_syscalls")
 local _child = require("cosmic.child")
 local _net = require("cosmic.net")
-local type raw_process = require("cosmic.internal.process")
-local type raw_socket = require("cosmic.internal.socket")
 
 --- The binding headers, read for which of their bindings take a
 --- descriptor.
@@ -35,20 +34,8 @@ Test.policy{
   },
 }
 
-local type Searcher = function(string): any, any
-
---- The raw table the store's searcher hands `wrapper`'s loader, as
---- `require` would hand it.
-local function raw_behind(wrapper: string): any
-  for _, searcher in ipairs(package.searchers as {Searcher}) do -- cast: searchers' loaders take an extra
-    local loader, extra = searcher(wrapper)
-    if type(loader) == "function" and type(extra) == "table" then return extra end
-  end
-  error(wrapper .. " is handed no raw table")
-end
-
-local process = raw_behind("cosmic.child") as raw_process -- cast: the table core/process.h declares
-local socket = raw_behind("cosmic.net") as raw_socket -- cast: the table core/socket.h declares
+local process = RawTables.process()
+local socket = RawTables.socket()
 
 --- The descriptor this process retains on its artifact, or nil for a
 --- start from none: the one [`Proc.relaunch`] hands a child as its own.
@@ -206,7 +193,8 @@ local function test_a_lookup_refuses_the_retained_artifact_as_a_supplied_socket(
     { { host = "127.0.0.1", port = 53, index = 1 } }))
   local _, _, _, _, wants = lookup:step(nil, nil)
   assert(#wants == 1)
-  refused("Lookup:supply", lookup.supply, lookup, wants[1].id, fd, nil)
+  local want = assert(wants[1], "the lookup wants one socket")
+  refused("Lookup:supply", lookup.supply, lookup, want.id, fd, nil)
 end
 
 local function test_a_descriptor_batch_refuses_the_retained_artifact_as_payload()

@@ -26,6 +26,7 @@
 --- A module that needs the table of a wrapper not named here names it:
 --- `process("build.confine")`.
 local Shape = require("cosmic.shape")
+local type raw_hash = require("cosmic.internal.hash")
 local type raw_process = require("cosmic.internal.process")
 local type raw_socket = require("cosmic.internal.socket")
 
@@ -35,6 +36,9 @@ local record raw_tables
   --- it. Raises where `wrapper` is handed no table or one with a key that
   --- is no name.
   fields: function(wrapper: string): {string: any}
+  --- The hash table (cosmic/internal/hash.d.tl) handed `wrapper`, [`cosmic.hash`]'s
+  --- by default.
+  hash: function(wrapper?: string): raw_hash
   --- The process table (core/process.h) handed `wrapper`, [`cosmic.child`]'s
   --- by default.
   process: function(wrapper?: string): raw_process
@@ -73,6 +77,10 @@ end
 
 function raw_tables.fields(wrapper: string): {string: any}
   return table_behind(wrapper, {})
+end
+
+function raw_tables.hash(wrapper?: string): raw_hash
+  return table_behind(wrapper or "cosmic.hash", { "digest", "hmac", "equal" })
 end
 
 function raw_tables.process(wrapper?: string): raw_process
