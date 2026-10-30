@@ -8,7 +8,11 @@ local Server = require("cosmic.http.server")
 --- "unsatisfiable", or the span's "first-last".
 local function ranged(header: string?, size: integer): string
   local r = Server.range(header, size)
-  if r.kind == "span" then return ("%d-%d"):format(r.first, r.last) end
+  if r.kind == "span" then
+    local first, last = r.first, r.last
+    assert(first and last, "a span has both bounds")
+    return ("%d-%d"):format(first, last)
+  end
   assert(r.first == nil and r.last == nil, "a bound set for " .. r.kind)
   return r.kind
 end
@@ -91,7 +95,7 @@ end
 
 local function test_a_negative_size_raises()
   local ok, why = pcall(Server.range, "bytes=0-1", -1)
-  assert(not ok and tostring(why):find("size", 1, true), tostring(why))
+  assert(not ok and tostring(why):find("size", 1, true) ~= nil, tostring(why))
 end
 
 local function test_none_match_compares_weakly()
@@ -141,6 +145,6 @@ end
 local function test_an_etag_that_is_no_entity_tag_raises()
   for _, etag in ipairs({ "v1", "", '"v1', 'W/v1', '"v 1"', '"v1" ' }) do
     local ok, why = pcall(Server.none_match, '"v1"', etag)
-    assert(not ok and tostring(why):find("entity tag", 1, true), etag)
+    assert(not ok and tostring(why):find("entity tag", 1, true) ~= nil, etag)
   end
 end
