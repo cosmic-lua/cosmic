@@ -239,7 +239,7 @@ function test.nearest(name: string, names: {string}): {string}
     return a < b
   end)
   local out: mut {string} = {}
-  for i = 1, math.min(#ranked, shown_names) do out[i] = ranked[i] end
+  for i = 1, math.min(#ranked, shown_names) do out[#out + 1] = ranked[i] end
   return out
 end
 
@@ -638,12 +638,12 @@ local function write_coverage(handle: Sqlite.Handle, modules: {Module},
       local lines = sorted_lines(per_line)
       if #lines > 0 then
         local flags: mut {string} = {}
-        for i, line in ipairs(lines) do
+        for _, line in ipairs(lines) do
           if per_line[line] == true then
-            flags[i] = "1"
+            flags[#flags + 1] = "1"
             totals.hit = totals.hit + 1
           else
-            flags[i] = "0"
+            flags[#flags + 1] = "0"
           end
         end
         totals.lines = totals.lines + #lines

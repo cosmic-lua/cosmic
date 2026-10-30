@@ -452,12 +452,14 @@ function dataset.load(handle: Sqlite.Handle, name: string, rows: dataset.Rows): 
   local declared: mut {string} = {}
   local marks: mut {string} = {}
   for index, column in ipairs(names) do
-    declared[index] = quoted(column)
-    marks[index] = "?" .. tostring(index)
+    local spelled = quoted(column)
+    declared[#declared + 1] = spelled
+    marks[#marks + 1] = "?" .. tostring(index)
   end
   local width = #names
-  declared[width + 1] = quoted("_json")
-  marks[width + 1] = "?" .. tostring((width + 1))
+  local json_column = quoted("_json")
+  declared[#declared + 1] = json_column
+  marks[#marks + 1] = "?" .. tostring((width + 1))
   local insert = "INSERT INTO " .. quoted(name) .. " VALUES (" .. table.concat(marks, ", ") .. ")"
   local ok, trouble = Sqlite.transact(handle, function(): boolean, string
     local created, why = handle:exec("CREATE TABLE " .. quoted(name) ..
@@ -478,7 +480,7 @@ function dataset.load(handle: Sqlite.Handle, name: string, rows: dataset.Rows): 
       if text == nil then
         return false, "row " .. tostring(number) .. ": " .. bad
       end
-      values[width + 1] = { text = text }
+      values[#values + 1] = { text = text }
       local inserted, insert_bad = Sqlite.run(handle, insert, values)
       if not inserted then
         return false, "row " .. tostring(number) .. ": " .. insert_bad
@@ -490,10 +492,10 @@ function dataset.load(handle: Sqlite.Handle, name: string, rows: dataset.Rows): 
     return refuse(trouble)
   end
   local columns: mut {string} = {}
-  for index, column in ipairs(names) do
-    columns[index] = column
+  for _, column in ipairs(names) do
+    columns[#columns + 1] = column
   end
-  columns[width + 1] = "_json"
+  columns[#columns + 1] = "_json"
   return { name = name, count = #rows, columns = columns, renamed = renamed }, ""
 end
 

@@ -1032,8 +1032,8 @@ local function preamble_text(scoped: Scopes.Scoped, pre: Preamble, body_node: As
   end
   -- Helpers the body names, and those they name in turn, until no more is asked for. One too long to carry is left
   -- out, and so is what only it names.
-  local carried: mut {boolean} = {}
-  local refused: mut {boolean} = {}
+  local carried: mut {integer: boolean} = {}
+  local refused: mut {integer: boolean} = {}
   local total = 0
   local changed = true
   while changed do

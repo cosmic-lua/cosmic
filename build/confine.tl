@@ -1003,7 +1003,7 @@ local function enter(own?: {string}, sandboxed?: boolean): Leave, {string}
   -- The call the stand-in wraps: what `spawn` was as it began.
   local spawn = process.spawn
   local owned: mut {string} = {}
-  for i, directory in ipairs(own or {}) do owned[i] = directory end
+  for _, directory in ipairs(own or {}) do owned[#owned + 1] = directory end
   local entry: Entry = { own = owned, sandboxed = sandboxed == true, unseen = {}, ended = false }
   process.spawn = function(path: string, argv: {string}, environment: {string:string}?,
                            cwd: string?, stdin: integer?, stdout: integer?,

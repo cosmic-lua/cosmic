@@ -91,7 +91,7 @@ end
 
 local function run(words: {string}, script: {string}, env?: {string:string}, api?: string): Ran
   local argv: mut {string} = { "release" }
-  for i, word in ipairs(words) do argv[i + 1] = word end
+  for _, word in ipairs(words) do argv[#argv + 1] = word end
   local scripts: mut {{string}} = {}
   for i, one in ipairs(script) do scripts[i] = { one } end
   local out: mut {string} = {}
@@ -173,7 +173,7 @@ local function test_a_prefix_naming_too_many_tags_is_refused()
   failed(run({ "--commit", "1234567" }, { refs(table.unpack(many)) }), "11 tags start with next-1234567")
   -- Ten are each asked for, none with a release.
   local ten: mut {string} = { refs(table.unpack(many, 1, 10)) }
-  for i = 2, 11 do ten[i] = reply("404 Not Found", "{}") end
+  for _ = 2, 11 do ten[#ten + 1] = reply("404 Not Found", "{}") end
   failed(run({ "--commit", "1234567" }, ten), "no release matches, among the tags")
 end
 
@@ -230,7 +230,7 @@ end
 local function test_history_is_read_past_a_page_without_a_tag()
   local untagged: mut {string} = {}
   for i = 1, 99 do untagged[i] = string.format("%040x", i) end
-  untagged[100] = older
+  untagged[#untagged + 1] = older
   local blank: mut {string} = {}
   for i = 1, 100 do blank[i] = string.format("%040x", 1000 + i) end
   local ran = run({ "--list" }, {
@@ -250,7 +250,7 @@ end
 --- the script holds no next page. With no tags it reads no history.
 local function test_history_ends_once_every_tag_is_passed()
   local page: mut {string} = { older }
-  for i = 2, 100 do page[i] = string.format("%040x", i) end
+  for i = 2, 100 do page[#page + 1] = string.format("%040x", i) end
   local ran = run({ "--list" }, { refs(older), history(table.unpack(page)), ok(entry(older, "2026-10-17T10:00:00Z")) })
   assert(ran.code == 0, ran.err)
   assert(ran.out == "2026-10-17T10:00:00Z  " .. older .. "\n", ran.out)
@@ -265,7 +265,10 @@ local function test_history_past_100_pages_fails()
   local blank: mut {string} = {}
   for i = 1, 100 do blank[i] = string.format("%040x", i) end
   local script: mut {string} = { refs(newest) }
-  for i = 2, 101 do script[i] = history(table.unpack(blank)) end
+  for _ = 2, 101 do
+    local page = history(table.unpack(blank))
+    script[#script + 1] = page
+  end
   failed(run({}, script), "main's history runs past 100 pages")
 end
 

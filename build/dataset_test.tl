@@ -16,13 +16,16 @@ local function grid(db: Sqlite.Handle, sql: string): {string}
     for index = 1, row:count() do
       local kind = row:kind(index)
       if kind == "null" then
-        cells[index] = "NULL"
+        cells[#cells + 1] = "NULL"
       elseif kind == "integer" then
-        cells[index] = "i" .. tostring(row:integer(index))
+        local whole = row:integer(index)
+        cells[#cells + 1] = "i" .. tostring(whole)
       elseif kind == "number" then
-        cells[index] = "r" .. tostring(row:number(index))
+        local real = row:number(index)
+        cells[#cells + 1] = "r" .. tostring(real)
       else
-        cells[index] = row:text(index)
+        local text = row:text(index)
+        cells[#cells + 1] = text
       end
     end
     out[#out + 1] = table.concat(cells, "|")
@@ -208,7 +211,7 @@ local function csv_cells(text: string, raw?: boolean): string
   local made = assert(dataset.load(db, "t", rows))
   local picks: mut {string} = {}
   for index = 1, #made.columns - 1 do
-    picks[index] = 'typeof("' .. made.columns[index] .. '") || \':\' || coalesce("' .. made.columns[index] .. '", \'NULL\')'
+    picks[#picks + 1] = 'typeof("' .. made.columns[index] .. '") || \':\' || coalesce("' .. made.columns[index] .. '", \'NULL\')'
   end
   return grid(db, "SELECT " .. table.concat(picks, " || '|' || ") .. " FROM t")[1]
 end

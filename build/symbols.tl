@@ -304,7 +304,7 @@ function symbols.has_example_query(databases: {Sqlite.Handle}, public: {boolean}
     }) do
       -- A query that fails is no match.
       local binds: mut {Sqlite.Value} = { { text = lookup[2] } }
-      if lookup[3] ~= nil then binds[2] = { text = lookup[3] } end
+      if lookup[3] ~= nil then binds[#binds + 1] = { text = lookup[3] } end
       local rows, _ = Sqlite.text_rows(db, lookup[1], binds)
       if rows ~= nil then
         for _, row in ipairs(rows) do

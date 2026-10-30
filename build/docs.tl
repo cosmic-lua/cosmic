@@ -274,7 +274,7 @@ end
 local function calls_of(code: string, symbol: string): integer, integer
   local spellings = { symbol }
   local colon = symbol:gsub("%.([%w_]+)$", ":%1")
-  if colon ~= symbol then spellings[2] = colon end
+  if colon ~= symbol then spellings[#spellings + 1] = colon end
   local last = symbol:match("([%w_]+)$")
   local _, dots = symbol:gsub("%.", "")
   if last ~= nil and (symbol:find(":", 1, true) ~= nil or dots >= 2) then
@@ -778,8 +778,10 @@ local function searched_docs(db: Sqlite.Handle, public: boolean,
   local binds = { text(fts_query(query)) }
   if #words == 1 then
     stands_in = STANDS_IN_SQL .. " DESC, "
-    binds[2] = text(spelled_as_code(lead))
-    binds[3] = text(lead:lower())
+    local as_code = text(spelled_as_code(lead))
+    local lowered = text(lead:lower())
+    binds[#binds + 1] = as_code
+    binds[#binds + 1] = lowered
   end
   -- A member named for one of the words comes before any that only
   -- carries it: [`Fs.read`] before `Unveil.reads` for "read a file".
@@ -1098,7 +1100,7 @@ function docs.databases(store?: {Sqlite.Handle}, at?: string, known?: docs.Known
         local _, _ = own:close()
       else
         out[#out + 1] = own
-        public[#out] = false
+        public[#public + 1] = false
         opened[#opened + 1] = own
       end
     end
@@ -1109,7 +1111,7 @@ function docs.databases(store?: {Sqlite.Handle}, at?: string, known?: docs.Known
   local outside = not own_tree
   for _, db in ipairs(store or Store.databases()) do
     out[#out + 1] = db
-    public[#out] = outside
+    public[#public + 1] = outside
   end
   return { handles = out, public = public, opened = opened }
 end

@@ -100,7 +100,7 @@ end
 
 local function test_repetitive_replays_bound_proposals_too()
   local draws: mut {Shrink.Draw} = {}
-  for i = 1, 128 do draws[i] = { min = 0, max = 0, value = 0 } end
+  for _ = 1, 128 do draws[#draws + 1] = { min = 0, max = 0, value = 0 } end
   local function fails(_values: {integer}): boolean, {Shrink.Draw}
     return true, draws
   end

@@ -280,7 +280,8 @@ local function test_cli_usage_and_json_empty_arrays(tmp: string)
   local argv: mut {string} = { "cache", "trim", "compiles", tmp .. "/missing", "--since-ns", "0", "--json" }
   assert(cache.run(argv, io) == 0 and trouble.value == "", trouble.value)
   assert(Json.decode(output.value) ~= nil and output.value:find('"warnings":[]', 1, true) ~= nil, output.value)
-  argv[6] = "-1"
+  table.remove(argv, 6)
+  table.insert(argv, 6, "-1")
   assert(cache.run(argv, io) == 2)
 end
 

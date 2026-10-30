@@ -273,7 +273,7 @@ local function request_of(argv: {string}): Request?, string
   local at = verb.program_slot(argv)
   local last = if at ~= nil then at - 1 else last_slot(argv) end
   local words: mut {string} = {}
-  for slot = 2, last do words[slot - 1] = argv[slot] end
+  for slot = 2, last do words[#words + 1] = argv[slot] end
   local parsed, trouble = Flags.parse(words, 1, spec)
   if parsed == nil then return nil, trouble end
   local policy, why = table_of(parsed)

@@ -93,7 +93,7 @@ end
 --- `program`, with `argument` its one where there is one.
 local function argv_of(program: string, argument: string): {string}
   local argv: mut {string} = { program }
-  if argument ~= "" then argv[2] = argument end
+  if argument ~= "" then argv[#argv + 1] = argument end
   return argv
 end
 

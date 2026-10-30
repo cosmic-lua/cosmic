@@ -46,7 +46,7 @@ end
 --- whole), and `out_ok` false for a standard output that fails.
 local function run(words: {string}, stdin?: string | Stream.Reader, out_ok?: boolean): Ran
   local argv: mut {string} = { "archive" }
-  for index, word in ipairs(words) do argv[index + 1] = word end
+  for _, word in ipairs(words) do argv[#argv + 1] = word end
   local ran: Ran = { code = -1, out = "", err = "" }
   ran.code = archive.run(argv, {
     out = function(text: string): boolean, string

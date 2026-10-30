@@ -2308,9 +2308,9 @@ local function tree_of(given: {{string}}, salt: string, bindings?: {{string}}, w
     end
     table.sort(names)
     local parts: mut {string} = {}
-    for i, m in ipairs(names) do
+    for _, m in ipairs(names) do
       -- The file itself is read in full; the modules it requires as the checks of it read them.
-      parts[i] = m .. "=" .. (m == row.module and hashes[m] or read[m])
+      parts[#parts + 1] = m .. "=" .. (m == row.module and hashes[m] or read[m])
     end
     -- The files of a cycle of requires reach the same modules: the file itself tells their keys apart.
     row.key = check_memo.key(salt, row.dialect, row.module .. "\n" .. table.concat(parts, "\n"))
