@@ -988,7 +988,8 @@ end
 --- A machine not named here, whose cores no audit has read, keys its
 --- whole list.
 local dispatched: {string:{string:boolean}} = {
-  x86_64 = { aes = true, pclmulqdq = true, ssse3 = true, sse4_1 = true },
+  x86_64 = { aes = true, avx512_vnni = true, avx512f = true, avx512vl = true, avx_vnni = true,
+    pclmulqdq = true, ssse3 = true, sse4_1 = true },
   aarch64 = { asimd = true, aes = true, pmull = true, crc32 = true },
 }
 
@@ -1128,7 +1129,9 @@ function declared_key.host_split(digests: declared_key.Digests,
   -- C and the disassembled cores found:
   -- mbedtls's aesni.c (`aes`, `pclmulqdq`) and aesce.c (`asimd`, `aes`,
   -- `pmull`); xz's crc_x86_clmul.h (`pclmulqdq`, `ssse3`, `sse4_1`) and
-  -- crc32_arm64.h (`crc32`). No Linux core links a libm that
+  -- crc32_arm64.h (`crc32`), and the core's own int8 dot product in
+  -- core/vector.c, which takes VNNI where the CPU has it (`avx512f`,
+  -- `avx512vl`, `avx512_vnni`, `avx_vnni`). No Linux core links a libm that
   -- dispatches: every one, the checked core too, is static musl, and
   -- the libm zig and musl carry chooses no code by the processor. (A
   -- glibc host's libm would choose the variants of pow, asin, acos and
@@ -1137,8 +1140,8 @@ function declared_key.host_split(digests: declared_key.Digests,
   -- (`runtime`).) Nothing else the core carries dispatches, nor does
   -- its build, so the processor's model and microcode, which choose no
   -- code, are not keyed either. The whole list would split GitHub's
-  -- hosted runners of one leg on flags nothing reads (avx512*, a
-  -- hypervisor's bits, md_clear), and each split is a verdict not
+  -- hosted runners of one leg on flags nothing reads (the other
+  -- avx512* bits, a hypervisor's bits, md_clear), and each split is a verdict not
   -- shared. A vendored library that comes to dispatch on another
   -- feature adds it to `dispatched`, to what [`sys.cpu_features`]
   -- answers (core/syscalls.c) and to ci/cosmic_ci/host_id.tl

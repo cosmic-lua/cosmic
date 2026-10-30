@@ -85,16 +85,20 @@ local function test_a_host_is_named_by_what_it_keys(tmp: string)
 end
 
 --- On x86_64, only the features a core chooses code by are keyed --
---- mbedtls's AES-NI and xz's carry-less CRCs -- so hosted runners that
---- differ in any other split neither the verdicts nor their cache, and
---- a host lacking one of them keys apart. The FMA features are not
---- among them.
+--- mbedtls's AES-NI, xz's carry-less CRCs and the int8 kernels' VNNI --
+--- so hosted runners that differ in any other split neither the
+--- verdicts nor their cache, and a host lacking one of them keys apart.
+--- The FMA features are not among them.
 local function test_an_x86_64_host_keys_only_what_a_core_dispatches_on(tmp: string)
   local base = "fpu sse sse2 ssse3 sse4_1 sse4_2 pclmulqdq aes avx fma avx2 bmi2 erms"
   local write, both = host(tmp, "x86_64", "processor : 0\nflags : " .. base .. "\n")
   both("the start", true)
-  write("cpuinfo", "flags : " .. base .. " avx512f avx512bw\n")
+  write("cpuinfo", "flags : " .. base .. " avx512bw avx512dq\n")
   both("avx512 more", false)
+  write("cpuinfo", "flags : " .. base .. " avx512f avx512vl avx512_vnni\n")
+  both("avx512 vnni", true)
+  write("cpuinfo", "flags : " .. base .. " avx_vnni\n")
+  both("avx vnni", true)
   write("cpuinfo", "flags : " .. base .. " hypervisor md_clear\n")
   both("a hypervisor's bits more", false)
   write("cpuinfo", "flags : " .. (base:gsub(" bmi2 erms", "")) .. "\n")
