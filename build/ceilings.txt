@@ -4254,17 +4254,14 @@ build/udp_fixture_test.tl close_not_closable 4
 
 build/zig_lock_test.tl close_not_closable 2
 
-core/allocation_test.tl close_not_closable 22
+core/allocation_test.tl close_not_closable 12
 
-core/artifact_fd_tool_test.tl close_not_closable 3
 
 core/grants_child_test.tl close_not_closable 1
 
-core/lookup_test.tl close_not_closable 6
+core/lookup_test.tl close_not_closable 2
 
-core/socket_sigpipe_checked_test.tl close_not_closable 8
 
-core/socket_test.tl close_not_closable 26
 
 core/sqlite_lua_test.tl close_not_closable 2
 
@@ -4282,7 +4279,6 @@ cosmic/child_stream_failure_test.tl close_not_closable 6
 
 cosmic/child_task_tool_test.tl close_not_closable 13
 
-cosmic/compress_test.tl close_not_closable 3
 
 cosmic/declared_types_test.tl close_not_closable 1
 
@@ -4294,7 +4290,6 @@ cosmic/fs_example.tl close_not_closable 1
 
 cosmic/fs_test.tl close_not_closable 4
 
-cosmic/hash_test.tl close_not_closable 5
 
 cosmic/http/init.tl close_not_closable 1
 
@@ -4318,7 +4313,6 @@ cosmic/internal/relay_direct_test.tl close_not_closable 2
 
 cosmic/internal/relay_handed_test.tl close_not_closable 1
 
-cosmic/internal/relay_resolv.tl close_not_closable 1
 
 cosmic/net.tl close_not_closable 1
 

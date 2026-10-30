@@ -35,8 +35,8 @@
 --- every field, `?` ones as `name = nil` ([`Check.Checked.literals`] tells the code generator which literals make
 --- one); there is no other way to make one, so a declaration used as a value is a type of its own, no `setmetatable`
 --- call is typed (`setmetatable_call`), and a literal or an `is` of a class is allowed only where the class's table
---- is in reach (`class_scope`). A `<close>` local holds nil or a class that declares `__close`
---- (`close_not_closable`).
+--- is in reach (`class_scope`). A `<close>` local holds nil or a class or userdata record that declares
+--- `__close` (`close_not_closable`).
 ---
 --- **Flow.** The walk keeps what is known at the point it has reached ([`lang.flow`]): a place a test narrowed, a local
 --- not yet assigned, and whether control reaches the point. A place is a local, or a path of fixed fields (not `mut`) of
@@ -5749,19 +5749,22 @@ local function check_counts(ctx: Ctx, node: Ast.Node, n: integer, vals: Values, 
   return true
 end
 
---- Whether a value of type `t` is nil or a value of a class that declares `__close`, which is what a `<close>` local
---- holds ("compiler-written classes" in doc/plans/strict-teal.md). `invalid` and `never` stand for a mistake already
---- reported.
+--- Whether a value of type `t` is nil or a value of a class or userdata record that declares `__close`, which is what a
+--- `<close>` local holds ("compiler-written classes" in doc/plans/strict-teal.md). A userdata record is made by the
+--- core and no Teal literal, so its declared `__close` is the metamethod the core's userdata has, which
+--- core/declarations_test.tl holds the declaration to; a record or interface is made by a table literal and may lack
+--- it. `invalid` and `never` stand for a mistake already reported.
 local function closable(t: Type): boolean
   local tag = t.tag
   if tag == "nil" or tag == "invalid" or tag == "never" then
     return true
   elseif (t.tag == "named") then
     local body = t.decl.body
-    if t.value or t.decl.kind ~= "class" then
+    local kind = t.decl.kind
+    if t.value or (kind ~= "class" and kind ~= "userdata") then
       return false
     elseif body == nil then
-      return true
+      return kind == "class"
     end
     for _, m in ipairs(body.methods) do
       if m.name == "__close" then
@@ -5785,7 +5788,9 @@ local function check_closable(ctx: Ctx, b: Ast.Binding, t: Type)
   if closable(t) then
     return
   end
-  local what = if (t.tag == "named") and not t.value and t.decl.kind == "class" then "the class " .. tq(ctx, t) .. " declares no `__close`" else
+  local what = if (t.tag == "named") and not t.value and t.decl.kind == "class" then "the class " .. tq(ctx, t) .. " declares no `__close`"
+    elseif (t.tag == "named") and not t.value and t.decl.kind == "userdata" then
+    "the userdata record " .. tq(ctx, t) .. " declares no `__close`" else
     tq(ctx, t) .. " is not a class" end
   report(ctx, "close_not_closable", b, quoted(b.name) .. " is a `<close>` local of " .. tq(ctx, t) .. ", and " .. what ..
       ": Lua would raise at the declaration, since the value has no `__close` to call at the end of the block",

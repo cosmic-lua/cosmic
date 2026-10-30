@@ -10,8 +10,8 @@ Test.policy{}
 
 --- Checks that `source` has exactly the errors `codes` (space separated) after the declarations, and that the first
 --- says `msg`.
-local function refused(source: string, codes: string, msg?: string, modules?: {string: string})
-  local r = Programs.run(source, modules)
+local function refused(source: string, codes: string, msg?: string, modules?: {string: string}, declared?: {string: string})
+  local r = Programs.run(source, modules, declared)
   assert(#r.before == 0, table.concat(r.before, " ") .. " in\n" .. source)
   assert(Programs.codes(r) == codes, "wanted " .. codes .. ", got " .. Programs.codes(r) .. " in\n" .. source .. "\n" ..
       (r.errors[1] ~= nil and r.errors[1].msg or ""))
@@ -21,8 +21,8 @@ local function refused(source: string, codes: string, msg?: string, modules?: {s
 end
 
 --- Checks that `source` has no error.
-local function accepted(source: string, modules?: {string: string})
-  local r = Programs.run(source, modules)
+local function accepted(source: string, modules?: {string: string}, declared?: {string: string})
+  local r = Programs.run(source, modules, declared)
   assert(#r.before == 0 and #r.errors == 0, table.concat(r.before, " ") .. (r.errors[1] ~= nil and r.errors[1].msg or "") ..
       " in\n" .. source)
 end
@@ -304,6 +304,22 @@ local function test_a_close_local_holds_nil_or_a_class_that_declares_close()
   refused(head .. "local both <close>: Guard | Plain\n", "close_not_closable")
   -- the declaration of a class with `__close`, used as a value, is no class value
   refused(head .. "local d <close> = Guard\n", "close_not_closable", "`Guard (declaration)`")
+end
+
+local function test_a_close_local_holds_a_userdata_record_that_declares_close()
+  local declared = { dev = "local record dev\n" ..
+      "  record Handle\n    userdata\n    __close: function(self: Handle)\n    fd: function(self: Handle): integer\n  end\n" ..
+      "  record Bare\n    userdata\n    fd: function(self: Bare): integer\n  end\n" ..
+      "  open: function(): Handle?\n  bare: function(): Bare\nend\nreturn dev\n" }
+  local head = "local dev = require(\"dev\")\nlocal record Table\n  __close: function(self: Table)\nend\n"
+  accepted(head .. "local h <close> = dev.open()\nlocal function f(g: dev.Handle)\n  local x <close> = g\nend\n", nil, declared)
+  -- the near misses: a userdata record with no `__close`, a record that is no userdata whose literal could lack it, and
+  -- a union with one that is not closable
+  refused(head .. "local b <close> = dev.bare()\n", "close_not_closable",
+    "the userdata record `dev.Bare` declares no `__close`", nil, declared)
+  refused(head .. "local function f(t: Table)\n  local x <close> = t\nend\n", "close_not_closable", "`Table` is not a class", nil,
+    declared)
+  refused(head .. "local function f(h: dev.Handle | dev.Bare)\n  local x <close> = h\nend\n", "close_not_closable", nil, nil, declared)
 end
 
 -- `is` --------------------------------------------------------------------------------------------------------
