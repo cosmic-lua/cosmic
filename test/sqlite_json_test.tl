@@ -5,17 +5,24 @@
 local Json = require("cosmic.json")
 local Sqlite = require("cosmic.sqlite")
 
+--- The first of `rows`, which the statement is known to yield.
+local function first_row(rows: Sqlite.Rows): Sqlite.Row
+  local found = rows[1]
+  assert(found, "the statement yields a row")
+  return found
+end
+
 --- SQLite's `json(text)`, or nil and its failure.
 local function minified(db: Sqlite.Handle, text: string): string?, string
   local rows, failure = Sqlite.text_rows(db, "SELECT json(?1)", { { text = text } })
   if rows == nil then return nil, failure end
-  return rows[1]:text(1), ""
+  return first_row(rows):text(1), ""
 end
 
 local function valid(db: Sqlite.Handle, text: string, flags: integer): boolean
   local rows = assert(Sqlite.text_rows(db, "SELECT json_valid(?1, ?2)",
     { { text = text }, { integer = flags } }))
-  return rows[1]:text(1) == "1"
+  return first_row(rows):text(1) == "1"
 end
 
 local function test_hash_comments_read_as_whitespace()
@@ -29,8 +36,10 @@ local function test_hash_comments_read_as_whitespace()
     { '["a # b"]', '["a # b"]' },
   }
   for _, case in ipairs(cases) do
-    local got, failure = minified(db, case[1])
-    assert(got == case[2], string.format("%q: %s", case[1], tostring(got or failure)))
+    local text, want = case[1], case[2]
+    assert(text and want, "a case is a text and what it minifies to")
+    local got, failure = minified(db, text)
+    assert(got == want, string.format("%q: %s", text, tostring(got or failure)))
   end
   assert(minified(db, "[1 # ]") == nil, "a comment runs to the line's end")
   assert(db:close())

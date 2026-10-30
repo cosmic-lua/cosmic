@@ -1,5 +1,19 @@
 local Sqlite = require("cosmic.sqlite")
 
+--- The first of `rows`, which the statement is known to yield.
+local function first_row(rows: Sqlite.Rows): Sqlite.Row
+  local found = rows[1]
+  assert(found, "the statement yields a row")
+  return found
+end
+
+--- The `i`th of the values `bound`, which the loop above filled.
+local function bound_at(bound: {Sqlite.Value}, i: integer): Sqlite.Value
+  local found = bound[i]
+  assert(found, "the loop bound column " .. tostring(i))
+  return found
+end
+
 --- One typed row with a column of every kind: an integer, a number, text,
 --- a blob that holds a NUL, and NULL.
 local function typed(): Sqlite.Row
@@ -7,7 +21,7 @@ local function typed(): Sqlite.Row
   local rows = assert(Sqlite.rows(db, "SELECT 7, 1.5, 'seven', x'6100ff', NULL"))
   assert(db:close())
   assert(#rows == 1)
-  return rows[1]
+  return first_row(rows)
 end
 
 --- The message `work` raises with.
@@ -75,7 +89,7 @@ local function test_a_column_the_row_lacks_raises_with_its_width()
     local seen = raises(function(): any return row:text(at) end)
     assert(seen:find("the row has 5 columns", 1, true), seen)
   end
-  local one = assert(Sqlite.rows(assert(Sqlite.memory()), "SELECT 1"))[1]
+  local one = first_row((assert(Sqlite.rows(assert(Sqlite.memory()), "SELECT 1"))))
   assert(raises(function(): any return one:integer(2) end):find("the row has 1 column", 1, true))
   assert(raises(function(): any return row:kind(6) end):find("row:kind(6)", 1, true))
   assert(raises(function(): any return row:is_null(0) end):find("row:is_null(0)", 1, true))
@@ -83,7 +97,7 @@ end
 
 local function test_number_keeps_the_sign_of_a_negative_zero()
   local db = assert(Sqlite.memory())
-  local row = assert(Sqlite.rows(db, "SELECT -0.0, 9007199254740993"))[1]
+  local row = first_row((assert(Sqlite.rows(db, "SELECT -0.0, 9007199254740993"))))
   assert(row:number(1) == 0 and 1 / row:number(1) < 0)
   assert(row:number(2) == 9007199254740992.0)
   assert(db:close())
@@ -111,10 +125,10 @@ local function test_value_binds_a_column_back_as_it_was_read()
   local row = typed()
   local bound: mut {Sqlite.Value} = {}
   for index = 1, row:count() do bound[index] = row:value(index) end
-  assert(bound[1].integer == 7 and bound[2].number == 1.5 and bound[3].text == "seven")
-  assert(bound[4].blob == "a\0\255" and bound[5].integer == nil and bound[5].text == nil and bound[5].blob == nil)
+  assert(bound_at(bound, 1).integer == 7 and bound_at(bound, 2).number == 1.5 and bound_at(bound, 3).text == "seven")
+  assert(bound_at(bound, 4).blob == "a\0\255" and bound_at(bound, 5).integer == nil and bound_at(bound, 5).text == nil and bound_at(bound, 5).blob == nil)
   assert(Sqlite.run(db, "INSERT INTO copy VALUES (?1, ?2, ?3, ?4, ?5)", bound))
-  local back = assert(Sqlite.rows(db, "SELECT * FROM copy"))[1]
+  local back = first_row((assert(Sqlite.rows(db, "SELECT * FROM copy"))))
   for index = 1, 5 do assert(back:kind(index) == row:kind(index)) end
   assert(back:blob(4) == "a\0\255" and back:text(3) == "seven")
   assert(db:close())
@@ -122,7 +136,7 @@ end
 
 local function test_texts_lists_the_columns_of_a_row_of_text()
   local db = assert(Sqlite.memory())
-  local texts = assert(Sqlite.text_rows(db, "SELECT 'a', 'b'"))[1]:texts()
+  local texts = first_row((assert(Sqlite.text_rows(db, "SELECT 'a', 'b'")))):texts()
   assert(#texts == 2 and texts[1] == "a" and texts[2] == "b")
   local row = typed()
   assert(raises(function(): any return row:texts() end):find("column 1 is an integer, not text", 1, true))
@@ -133,7 +147,7 @@ end
 --- for every column, NULL as "" and numbers as SQLite spells them.
 local function test_text_rows_answer_text_for_every_column()
   local db = assert(Sqlite.memory())
-  local row = assert(Sqlite.text_rows(db, "SELECT 7, 1.5, 'seven', x'6100ff', NULL, ''"))[1]
+  local row = first_row((assert(Sqlite.text_rows(db, "SELECT 7, 1.5, 'seven', x'6100ff', NULL, ''"))))
   assert(row:count() == 6)
   assert(row:text(1) == "7" and row:text(2) == "1.5" and row:text(3) == "seven")
   assert(row:text(4) == "a\0\255" and row:text(5) == "" and row:text(6) == "")
@@ -205,7 +219,7 @@ local function test_map_answers_nil_and_why_when_the_statement_fails()
     return r:integer(1)
   end
   local found, trouble = Sqlite.map(db, "SELECT * FROM missing", nil, project)
-  assert(found == nil and trouble:find("missing", 1, true), trouble)
+  assert(found == nil and trouble:find("missing", 1, true) ~= nil, trouble)
   -- A step that fails after a row was read gives no rows at all.
   found, trouble = Sqlite.map(db, "SELECT abs(n) FROM (SELECT 1 AS n UNION ALL " ..
       "SELECT -9223372036854775807 - 1)", nil, project)

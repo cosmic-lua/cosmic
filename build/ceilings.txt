@@ -1457,19 +1457,12 @@ lang/types_test.tl nil_not_allowed 28
 
 lang/warnings_test.tl nil_not_allowed 1
 
-test/context_typing_test.tl nil_not_allowed 6
 
-test/coverage_cache_test.tl nil_not_allowed 7
 
-test/coverage_children_test.tl nil_not_allowed 2
 
-test/sqlite_json_test.tl nil_not_allowed 2
 
-test/sqlite_parameter_test.tl nil_not_allowed 27
 
-test/sqlite_result_test.tl nil_not_allowed 7
 
-test/sqlite_row_test.tl nil_not_allowed 32
 
 # a value that may be nil because an assignment dropped what a test showed: the assignment is of a value that is itself
 # optional (`owner, why = find()` after `if owner == nil`), so it narrows nothing; the rewrite tests again after the assignment
@@ -2090,7 +2083,6 @@ lang/types_programs.tl index_may_be_nil 16
 
 lang/types_test.tl index_may_be_nil 13
 
-test/sqlite_json_test.tl index_may_be_nil 1
 
 # an index write through a collection that is a view: `mut` is written on the parameters a function
 # changes and not yet on the locals, which are declared `{T}`
@@ -5545,9 +5537,7 @@ lang/types_fuzz_test.tl or_mix 1
 
 lang/types_test.tl or_mix 1
 
-test/sqlite_prepare_test.tl or_mix 4
 
-test/sqlite_row_test.tl or_mix 1
 
 # a ternary `c and x or y`, which is written as an `if` expression where it can
 build/alias_members.tl and_ternary 1

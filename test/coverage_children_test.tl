@@ -191,7 +191,7 @@ local function test_a_process_of_another_build_does_not_report(tmp: string)
   end
   for index, value in ipairs({ "0000000000000000:" .. tmp .. "/foreign",
       tmp .. "/unsigned" }) do
-    local dir = value:match("[^:]*$")
+    local dir = assert(value:match("[^:]*$"), "a value ends in a path")
     assert(Fs.mkdirs(dir))
     local env = this_program.environment()
     env.COSMIC_COVERAGE_CHILDREN = value

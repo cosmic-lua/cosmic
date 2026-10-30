@@ -128,9 +128,11 @@ end]] },
 
 local function test_an_ending_block_or_endless_loop_needs_no_return(tmp: string)
   for _, case in ipairs(endless_bodies) do
-    local ok, trouble = compiles(tmp, "ends-" .. case[1], each_prelude ..
-        "print(each(function(k)\n" .. case[2] .. "\nend))\n")
-    assert(ok, case[1] .. ": a body ending in a do block that ends, or a loop no " ..
+    local name, body = case[1], case[2]
+    assert(name and body, "a case is a name and a body")
+    local ok, trouble = compiles(tmp, "ends-" .. name, each_prelude ..
+        "print(each(function(k)\n" .. body .. "\nend))\n")
+    assert(ok, name .. ": a body ending in a do block that ends, or a loop no " ..
         "break leaves, cannot reach its end, but: " .. tostring(trouble))
   end
 end
@@ -154,10 +156,12 @@ local falling_bodies: {{string}} = {
 
 local function test_a_loop_or_block_that_can_end_still_needs_a_return(tmp: string)
   for _, case in ipairs(falling_bodies) do
-    local ok, trouble = compiles(tmp, "falls-" .. case[1], each_prelude ..
-        "print(each(function(k)\n" .. case[2] .. "\nend))\n")
+    local name, body = case[1], case[2]
+    assert(name and body, "a case is a name and a body")
+    local ok, trouble = compiles(tmp, "falls-" .. name, each_prelude ..
+        "print(each(function(k)\n" .. body .. "\nend))\n")
     assert(refused_by(ok, trouble, "missing_return"),
-      case[1] .. ": this body can reach its end, so it needs a return, but: " ..
+      name .. ": this body can reach its end, so it needs a return, but: " ..
         tostring(trouble))
   end
 end
