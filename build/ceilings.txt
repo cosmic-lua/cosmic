@@ -3318,7 +3318,7 @@ cosmic/http_test.tl map_field 1
 
 cosmic/internal/connector.tl map_field 2
 
-cosmic/internal/relay_config.tl map_field 27
+cosmic/internal/relay_config.tl map_field 4
 
 cosmic/internal/relay_config_test.tl map_field 13
 
@@ -3332,7 +3332,6 @@ cosmic/net.tl map_field 1
 
 cosmic/net_tcp_test.tl map_field 15
 
-cosmic/policy.tl map_field 6
 
 cosmic/policy_fuzz_test.tl map_field 12
 
@@ -3881,7 +3880,6 @@ cosmic/http/wire_test.tl any_use 36
 
 cosmic/internal/connector.tl any_use 2
 
-cosmic/internal/relay_config.tl any_use 4
 
 cosmic/internal/relay_handed_lost_test.tl any_use 3
 
@@ -3920,7 +3918,6 @@ cosmic/net_tcp_test.tl any_use 1
 
 cosmic/net_test.tl any_use 1
 
-cosmic/policy.tl any_use 7
 
 cosmic/proc.tl any_use 1
 
@@ -4567,7 +4564,6 @@ cosmic/http/wire.tl is_on_record 1
 
 cosmic/internal/connector.tl is_on_record 2
 
-cosmic/internal/relay_config.tl is_on_record 4
 
 cosmic/json.tl is_on_record 3
 
@@ -5935,7 +5931,7 @@ cosmic/http_test.tl and_ternary 1
 
 cosmic/internal/connector.tl and_ternary 5
 
-cosmic/internal/relay_config.tl and_ternary 2
+cosmic/internal/relay_config.tl and_ternary 1
 
 cosmic/internal/relay_handed_test.tl and_ternary 1
 
@@ -7066,7 +7062,6 @@ cosmic/internal/connector.tl arms_differ 2
 
 cosmic/internal/connector_test.tl arms_differ 4
 
-cosmic/internal/relay_config.tl arms_differ 2
 
 cosmic/internal/relay_handed_lost_test.tl arms_differ 1
 
@@ -7419,7 +7414,6 @@ cosmic/html_test.tl not_assignable 2
 cosmic/http/server.tl not_assignable 4
 
 
-cosmic/internal/relay_config.tl not_assignable 1
 
 
 
@@ -7749,7 +7743,6 @@ cosmic/fs.tl compare_disjoint 1
 
 cosmic/html_fuzz_test.tl array_hole 4
 
-cosmic/internal/relay_config.tl array_hole 1
 
 cosmic/internal/relay_start_test.tl array_hole 5
 

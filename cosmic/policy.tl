@@ -138,44 +138,56 @@ function PolicyJson.encode(p: Sandbox.Policy): string
   local digests: mut {string:string} = {}
   for name, digest in pairs(merged.set_env_digests or {}) do digests[name] = digest end
   for name, value in pairs(merged.set_env or {}) do digests[name] = digest_of(value) end
-  local fields: mut {string:any} = {}
-  local function put(name: string, list: {any})
-    if #list > 0 then fields[name] = list end
+  local fields: mut {string: Json.Value} = {}
+  local function put(name: string, list: {string})
+    if #list > 0 then fields[name] = Json.array(list) end
   end
   put("isolate", merged.isolate or {})
   put("promises", merged.promises or {})
   put("connect", merged.connect or {})
   put("loopback", merged.loopback or {})
   put("env", merged.env or {})
-  local grants: mut {{string:string}} = {}
+  local grants: mut {Json.Value} = {}
   for _, grant in ipairs(merged.grants or {}) do
-    grants[#grants + 1] = { path = grant.path, letters = grant.letters, from = grant.from }
+    local written: mut {string: Json.Value} = { path = grant.path, letters = grant.letters }
+    local from = grant.from
+    if from ~= nil then written["from"] = from end
+    grants[#grants + 1] = written
   end
-  put("grants", grants)
-  if next(digests) ~= nil then fields.set_env_digests = digests end
-  if merged.tmp == true then fields.tmp = true end
-  fields.user, fields.group = merged.user, merged.group
+  if #grants > 0 then fields["grants"] = Json.array(grants) end
+  if next(digests) ~= nil then fields["set_env_digests"] = digests end
+  if merged.tmp == true then fields["tmp"] = true end
+  local user, group = merged.user, merged.group
+  if user ~= nil then fields["user"] = user end
+  if group ~= nil then fields["group"] = group end
   local database = merged.database
   if database ~= nil then
-    if database.sha256 == nil then
+    local digest = database.sha256
+    if digest == nil then
       error("sandbox: encode: database " .. database.path .. " names no digest: give it one " ..
           "with Sandbox.database(path), which hashes the file now", 2)
     end
     local bytes, trouble = Fs.read(database.path)
     if bytes == nil then error("sandbox: encode: database " .. trouble, 2) end
-    local digest = Hash.hex_sha256(bytes)
-    if database.sha256 ~= digest then
+    if digest ~= Hash.hex_sha256(bytes) then
       error("sandbox: encode: database " .. database.path .. " is not the one the policy " ..
           "names: its SHA-256 has changed since", 2)
     end
-    fields.database = { path = database.path, sha256 = database.sha256 }
+    fields["database"] = { path = database.path, sha256 = digest }
   end
   local limits = merged.limits or {}
   if limits.open_files ~= nil or limits.file_bytes ~= nil or limits.cpu_seconds ~= nil or
       limits.processes ~= nil then
-    fields.limits = limits
+    local written: mut {string: Json.Value} = {}
+    local open_files, file_bytes = limits.open_files, limits.file_bytes
+    local cpu_seconds, processes = limits.cpu_seconds, limits.processes
+    if open_files ~= nil then written["open_files"] = open_files end
+    if file_bytes ~= nil then written["file_bytes"] = file_bytes end
+    if cpu_seconds ~= nil then written["cpu_seconds"] = cpu_seconds end
+    if processes ~= nil then written["processes"] = processes end
+    fields["limits"] = written
   end
-  return (assert(Json.encode_any(fields)))
+  return (assert(Json.encode(fields)))
 end
 
 return PolicyJson

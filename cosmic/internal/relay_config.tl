@@ -386,17 +386,21 @@ function relay_config.upstream(env: {string:string}): relay_config.Upstream?, st
   return upstream, ""
 end
 
---- `up` as the record [`decode`] reads, or nil for none.
-local function upstream_record(up: relay_config.Upstream?): any
-  if up == nil then return nil end
+--- `up` as the record [`decode`] reads.
+local function upstream_record(up: relay_config.Upstream): {string: Json.Value}
+  local record: mut {string: Json.Value} = { host = up.host, port = up.port, no_proxy = Json.array(up.no_proxy) }
+  local authorization = up.authorization
+  if authorization ~= nil then record["authorization"] = authorization end
   local addresses = up.addresses
-  return {
-    host = up.host,
-    port = up.port,
-    authorization = up.authorization,
-    no_proxy = Json.array(up.no_proxy),
-    addresses = addresses ~= nil and Json.array(addresses) or nil,
-  }
+  if addresses ~= nil then record["addresses"] = Json.array(addresses) end
+  return record
+end
+
+--- `list` as the array of records [`decode`] reads.
+local function endpoint_records(list: {relay_config.Endpoint}): {Json.Value}
+  local out: mut {Json.Value} = {}
+  for i, entry in ipairs(list) do out[i] = { host = entry.host, port = entry.port } end
+  return Json.array(out)
 end
 
 --- `config` as one line of JSON, the text the relay reads from its
@@ -404,35 +408,40 @@ end
 --- @param config Config What the relay is told
 --- @return string The line, with no newline
 function relay_config.encode(config: relay_config.Config): string
-  local function endpoints(list: {relay_config.Endpoint}?): any
-    if list == nil then return nil end
-    local out: mut {any} = {}
-    for i, entry in ipairs(list) do out[i] = { host = entry.host, port = entry.port } end
-    return Json.array(out)
-  end
-  local encoded, why = Json.encode_any({
+  local fields: mut {string: Json.Value} = {
     grants = Json.array(config.grants),
     own_addresses = Json.array(config.own_addresses),
     log = config.log,
-    upstream = upstream_record(config.upstream),
-    table = endpoints(config.table),
-    public = config.public,
-    name_servers = endpoints(config.name_servers),
-    name_server_wait_ns = config.name_server_wait_ns,
-    unresolved = config.unresolved,
-    direct = config.direct,
-    listeners = config.listeners,
-    token = config.token,
-  })
+  }
+  local upstream = config.upstream
+  if upstream ~= nil then fields["upstream"] = upstream_record(upstream) end
+  local entries = config.table
+  if entries ~= nil then fields["table"] = endpoint_records(entries) end
+  local public = config.public
+  if public ~= nil then fields["public"] = public end
+  local name_servers = config.name_servers
+  if name_servers ~= nil then fields["name_servers"] = endpoint_records(name_servers) end
+  local wait = config.name_server_wait_ns
+  if wait ~= nil then fields["name_server_wait_ns"] = wait end
+  local unresolved = config.unresolved
+  if unresolved ~= nil then fields["unresolved"] = unresolved end
+  local direct = config.direct
+  if direct ~= nil then fields["direct"] = direct end
+  local listeners = config.listeners
+  if listeners ~= nil then fields["listeners"] = listeners end
+  local token = config.token
+  if token ~= nil then fields["token"] = token end
+  local encoded, why = Json.encode(fields)
   if encoded == nil then error("relay_config: " .. tostring(why), 2) end
   return encoded
 end
 
 --- The strings of `value`, a list, or nil and why.
-local function strings(value: any, name: string): {string}?, string
-  if not value is {any} then return nil, name .. " is not a list" end
+local function strings(value: Json.Value?, name: string): {string}?, string
+  local list, _ = Json.to_array(value)
+  if list == nil then return nil, name .. " is not a list" end
   local out: mut {string} = {}
-  for i, entry in ipairs(value) do
+  for i, entry in ipairs(list) do
     if not entry is string then return nil, name .. "[" .. tostring(i) .. "] is not a string" end
     out[i] = entry
   end
@@ -440,15 +449,17 @@ local function strings(value: any, name: string): {string}?, string
 end
 
 --- The endpoints of `value`, a list of at most 128, or nil and why.
-local function endpoints_of(value: any, name: string): {relay_config.Endpoint}?, string
-  if not value is {any} then return nil, name .. " is not a list" end
-  if #value > 128 then return nil, name .. " holds more than 128 endpoints" end
+local function endpoints_of(value: Json.Value?, name: string): {relay_config.Endpoint}?, string
+  local list, _ = Json.to_array(value)
+  if list == nil then return nil, name .. " is not a list" end
+  if #list > 128 then return nil, name .. " holds more than 128 endpoints" end
   local out: mut {relay_config.Endpoint} = {}
-  for i, entry in ipairs(value) do
-    if not entry is {string: any} then
+  for i, element in ipairs(list) do
+    local entry, _ = Json.to_object(element)
+    if entry == nil then
       return nil, name .. "[" .. tostring(i) .. "] is not an endpoint"
     end
-    local host, port = entry.host, entry.port
+    local host, port = entry["host"], entry["port"]
     if not host is string or not port is integer or port < 0 or port > 65535 then
       return nil, name .. "[" .. tostring(i) .. "] is not a host and a port from 0 to 65535"
     end
@@ -459,9 +470,10 @@ end
 
 --- The [`Upstream`] `value` holds, or nil and why. No reason repeats a
 --- value: `authorization` is a credential.
-local function upstream_of(value: any): relay_config.Upstream?, string
-  if not value is {string: any} then return nil, "upstream is not an object" end
-  local host, port, authorization = value.host, value.port, value.authorization
+local function upstream_of(raw: Json.Value?): relay_config.Upstream?, string
+  local value, _ = Json.to_object(raw)
+  if value == nil then return nil, "upstream is not an object" end
+  local host, port, authorization = value["host"], value["port"], value["authorization"]
   if not host is string or host == "" or host:find("[%c%s]") ~= nil then
     return nil, "upstream.host is not a host name or address"
   end
@@ -471,11 +483,11 @@ local function upstream_of(value: any): relay_config.Upstream?, string
   if authorization ~= nil and (not authorization is string or authorization:find("%c") ~= nil) then
     return nil, "upstream.authorization is not a header value with no control bytes"
   end
-  local skipped, skipped_why = strings(value.no_proxy, "upstream.no_proxy")
+  local skipped, skipped_why = strings(value["no_proxy"], "upstream.no_proxy")
   if skipped == nil then return nil, skipped_why end
-  local addresses, addresses_why = strings(value.addresses, "upstream.addresses")
+  local addresses, addresses_why = strings(value["addresses"], "upstream.addresses")
   if addresses == nil then
-    if value.addresses == nil then return nil, "upstream.addresses is not given" end
+    if value["addresses"] == nil then return nil, "upstream.addresses is not given" end
     return nil, addresses_why
   end
   if #addresses == 0 then return nil, "upstream.addresses holds no address" end
@@ -494,51 +506,53 @@ end
 --- @return Config|nil What it holds
 --- @return string Why it is no config, "" otherwise
 function relay_config.decode(text: string): relay_config.Config?, string
-  local value, why = Json.decode_object(text)
-  if value == nil then return nil, why end
-  local grants, grants_why = strings(value.grants, "grants")
+  local decoded, why = Json.decode_object(text)
+  if decoded == nil then return nil, why end
+  local value, invalid = Json.to_object(decoded)
+  if value == nil then return nil, invalid end
+  local grants, grants_why = strings(value["grants"], "grants")
   if grants == nil then return nil, grants_why end
-  local own, own_why = strings(value.own_addresses, "own_addresses")
+  local own, own_why = strings(value["own_addresses"], "own_addresses")
   if own == nil then return nil, own_why end
-  local log = value.log
+  local log = value["log"]
   if not log is string or (log ~= "stderr" and log ~= "null") then
     return nil, "log is not \"stderr\" or \"null\""
   end
   local config: relay_config.Config = { grants = grants, own_addresses = own, log = log }
-  if value.upstream ~= nil then
-    local up, up_why = upstream_of(value.upstream)
+  if value["upstream"] ~= nil then
+    local up, up_why = upstream_of(value["upstream"])
     if up == nil then return nil, up_why end
     config.upstream = up
   end
-  if value.table ~= nil then
-    local listed, why_table = endpoints_of(value.table, "table")
+  if value["table"] ~= nil then
+    local listed, why_table = endpoints_of(value["table"], "table")
     if listed == nil then return nil, why_table end
     config.table = listed
   end
-  local public = value.public
+  local public = value["public"]
   if public ~= nil and not public is boolean then return nil, "public is not a boolean" end
   config.public = public == true
-  if value.name_servers ~= nil then
-    local servers, why_servers = endpoints_of(value.name_servers, "name_servers")
+  if value["name_servers"] ~= nil then
+    local servers, why_servers = endpoints_of(value["name_servers"], "name_servers")
     if servers == nil then return nil, why_servers end
-    local wait = value.name_server_wait_ns
+    local wait = value["name_server_wait_ns"]
     if not wait is integer or wait < 1 then
       return nil, "name_server_wait_ns is not a positive integer"
     end
     config.name_servers, config.name_server_wait_ns = servers, wait
   end
-  local unresolved = value.unresolved
+  local unresolved = value["unresolved"]
   if unresolved ~= nil and not unresolved is string then
     return nil, "unresolved is not a string"
   end
   if unresolved is string then config.unresolved = unresolved end
-  local direct = value.direct
+  local direct = value["direct"]
   if direct ~= nil and not direct is boolean then return nil, "direct is not a boolean" end
   config.direct = direct == true
-  local token = value.token
+  local token = value["token"]
   if token ~= nil and not token is string then return nil, "token is not a string" end
   if token is string then config.token = token end
-  local listeners = value.listeners
+  local listeners = value["listeners"]
   if listeners ~= nil and (not listeners is integer or listeners < 1 or listeners > 2) then
     return nil, "listeners is not 1 or 2"
   end
