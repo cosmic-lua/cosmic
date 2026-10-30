@@ -832,7 +832,7 @@ end
 --- way to read what [`Json.decode`] answered as typed data without a cast.
 --- Every part is checked as it is copied -- a string is UTF-8, a number is
 --- finite, a table is an array or an object by [`Json.layout`] -- so what comes
---- back is what [`Json.encode`] accepts, an array marked as one. nil and
+--- back is what [`Json.encode`] writes (an array marked as one). nil and
 --- a message naming the first part that is none, by its JSON Pointer, when
 --- `value` is a nil (a decoded `null`, unless `null_value` kept it), a
 --- function, userdata other than [`Json.null`], a table with mixed keys or
