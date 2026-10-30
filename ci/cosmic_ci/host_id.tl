@@ -96,8 +96,9 @@ end
 -- says which code reads each: a feature added there is added here. A
 -- machine no audit has read keeps every feature (nil).
 local keep: {string:{string}} = {
-  x86_64 = { "aes", "avx512_vnni", "avx512f", "avx512vl", "avx_vnni", "pclmulqdq", "sse4_1", "ssse3" },
-  aarch64 = { "aes", "asimd", "crc32", "pmull" },
+  x86_64 = { "aes", "avx512_vnni", "avx512f", "avx512vl", "avx_vnni", "pclmulqdq", "sha_ni", "sse4_1",
+    "ssse3" },
+  aarch64 = { "aes", "asimd", "crc32", "pmull", "sha2", "sha512" },
 }
 
 -- Each sysctl name core/syscalls.c's `cpu_features` asks on macOS, by
@@ -112,6 +113,8 @@ local darwin_features: {DarwinFeature} = {
   { name = "asimd", sysctl = "hw.optional.AdvSIMD" },
   { name = "crc32", sysctl = "hw.optional.armv8_crc32" },
   { name = "pmull", sysctl = "hw.optional.arm.FEAT_PMULL" },
+  { name = "sha2", sysctl = "hw.optional.arm.FEAT_SHA256" },
+  { name = "sha512", sysctl = "hw.optional.armv8_2_sha512" },
 }
 
 local darwin_system <const> = "/System/Library/CoreServices/SystemVersion.plist"

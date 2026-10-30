@@ -1,5 +1,12 @@
 local Shrink = require("build.fuzz.shrink")
 
+--- The element of `list` at `index`, which the case knows is there.
+local function nth<T>(list: {T}, index: integer): T
+  local found = list[index]
+  assert(found ~= nil, "the list has an element at " .. tostring(index))
+  return found
+end
+
 local function scalar(value: integer, least: integer, most: integer): {Shrink.Draw}
   return { { min = least, max = most, value = value } }
 end
@@ -12,7 +19,7 @@ local function test_threshold_search_is_logarithmic()
     return value >= 600000000, scalar(value, 0, 1000000000)
   end
   local result = Shrink.shrink(scalar(1000000000, 0, 1000000000), fails, 2000)
-  assert(result.draws[1].value == 600000000)
+  assert(nth(result.draws, 1).value == 600000000)
   assert(checks.value == result.tries and checks.value < 200, tostring(checks.value))
   assert(result.reason == "exhausted")
   assert(result.cached > 0 and result.improvements > 0)
@@ -25,7 +32,7 @@ local function test_signed_integer_extremes_are_exact()
       return value >= threshold, scalar(value, math.mininteger, math.maxinteger)
     end
     local result = Shrink.shrink(scalar(math.maxinteger, math.mininteger, math.maxinteger), fails, 2000)
-    assert(result.draws[1].value == threshold, tostring(result.draws[1].value))
+    assert(nth(result.draws, 1).value == threshold, tostring(nth(result.draws, 1).value))
     assert(result.tries < 300, tostring(result.tries))
     assert(result.reason == "exhausted")
   end
@@ -37,7 +44,7 @@ local function test_nonmonotonic_failure_survives_a_passing_midpoint()
     return value == 3 or value >= 90, scalar(value, 0, 100)
   end
   local result = Shrink.shrink(scalar(100, 0, 100), fails, 2000)
-  assert(result.draws[1].value == 3)
+  assert(nth(result.draws, 1).value == 3)
   assert(result.reason == "exhausted")
 end
 
@@ -70,7 +77,7 @@ local function test_candidates_are_checked_once_per_shrink()
       return value >= 70, scalar(value, 0, 100)
     end
     local result = Shrink.shrink(scalar(100, 0, 100), fails, 2000)
-    assert(result.draws[1].value == 70)
+    assert(nth(result.draws, 1).value == 70)
     assert(checks.value == result.tries and result.cached > 0)
   end
 end
@@ -83,7 +90,7 @@ local function test_budget_and_completion_are_distinct()
   for _, budget in ipairs({ 0, 1, 3 }) do
     local result = Shrink.shrink(scalar(100, 0, 100), fails, budget)
     assert(result.reason == "budget" and result.tries + result.cached == budget)
-    assert(result.draws[1].value > 0)
+    assert(nth(result.draws, 1).value > 0)
   end
   local empty = Shrink.shrink({}, fails, 3)
   assert(empty.reason == "exhausted" and empty.tries == 0 and empty.improvements == 0)
@@ -116,18 +123,18 @@ local function test_revisit_halves_after_the_interval_changes()
     return value == 4 or value == 68 or value == 75 or value == 100, scalar(value, 0, 100)
   end
   local result = Shrink.shrink(scalar(100, 0, 100), fails, 2000)
-  assert(result.draws[1].value == 4 and result.reason == "exhausted")
+  assert(nth(result.draws, 1).value == 4 and result.reason == "exhausted")
 end
 
 local function test_duplicate_deletions_cannot_starve_integer_reduction()
   local function fails(values: {integer}): boolean, {Shrink.Draw}
     local used: mut {Shrink.Draw} = {}
     for i = 1, 1024 do used[i] = { min = 0, max = 100, value = values[i] or 0 } end
-    return used[1].value >= 60, used
+    return nth(used, 1).value >= 60, used
   end
   local _, draws = fails({ 100 })
   local result = Shrink.shrink(draws, fails, 2000)
-  assert(result.draws[1].value == 60)
+  assert(nth(result.draws, 1).value == 60)
   assert(result.tries + result.cached <= 2000)
 end
 
@@ -137,7 +144,7 @@ local function test_revisit_interval_even_when_half_probes_pass()
     return value == 90 or value == 96 or value == 100, scalar(value, 0, 100)
   end
   local result = Shrink.shrink(scalar(100, 0, 100), fails, 2000)
-  assert(result.draws[1].value == 90 and result.reason == "exhausted")
+  assert(nth(result.draws, 1).value == 90 and result.reason == "exhausted")
 end
 
 local function test_full_width_halves_find_a_small_failure_island()
@@ -146,5 +153,5 @@ local function test_full_width_halves_find_a_small_failure_island()
     return value == 3 or value >= 600000000, scalar(value, 0, 1000000000)
   end
   local result = Shrink.shrink(scalar(1000000000, 0, 1000000000), fails, 2000)
-  assert(result.draws[1].value == 3 and result.reason == "exhausted")
+  assert(nth(result.draws, 1).value == 3 and result.reason == "exhausted")
 end

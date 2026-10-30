@@ -17,6 +17,13 @@ local Test = require("cosmic.test")
 local Clock = require("cosmic.clock")
 local build_paths = require("build.paths")
 
+--- The element of `list` at `index`, which the case knows is there.
+local function nth<T>(list: {T}, index: integer): T
+  local found = list[index]
+  assert(found ~= nil, "the list has an element at " .. tostring(index))
+  return found
+end
+
 --- The program itself, which its tests start.
 Test.policy{ profiles = { "cosmic" }, grants = { { path = "o/bin", letters = "rx" } } }
 
@@ -68,6 +75,13 @@ end
 return a
 ]],
 }
+
+--- The source of the project's file `name`, which the case knows is there.
+local function project_source(name: string): string
+  local source = project[name]
+  assert(source ~= nil, name .. " is a file of the project")
+  return source
+end
 
 --- A checkout of the project at `root`, with `changed` written over it
 --- (a file to "" is left out).
@@ -151,9 +165,9 @@ local function test_a_second_checkout_compiles_nothing_the_first_compiled(tmp: s
         "ORDER BY key, ordinal" },
   }
   for _, query in ipairs(queries) do
-    local first = dump(build_dir(tmp .. "/first") .. "/" .. query[1], query[2])
-    local second = dump(build_dir(tmp .. "/second") .. "/" .. query[1], query[2])
-    assert(first ~= "" and first == second, query[2] .. "\n" .. first .. "\n--\n" .. second)
+    local first = dump(build_dir(tmp .. "/first") .. "/" .. nth(query, 1), nth(query, 2))
+    local second = dump(build_dir(tmp .. "/second") .. "/" .. nth(query, 1), nth(query, 2))
+    assert(first ~= "" and first == second, nth(query, 2) .. "\n" .. first .. "\n--\n" .. second)
   end
   local uses = dump(build_dir(tmp .. "/second") .. "/cosmic.db", "SELECT symbol FROM uses WHERE module = 'c'")
   assert(uses:find("Box.value", 1, true), uses)
@@ -170,7 +184,7 @@ local function test_an_edit_compiles_only_what_it_reaches(tmp: string)
   built(tmp .. "/first", env, "(4 compiled, 0 cached;")
   -- `c` edited: `a`, `b` and `c` reach it, `d` does not.
   checkout(tmp .. "/edited_c", { ["d.tl"] = alone,
-    ["c.tl"] = project["c.tl"] .. "-- edited\n" })
+    ["c.tl"] = project_source("c.tl") .. "-- edited\n" })
   built(tmp .. "/edited_c", env, "(3 compiled, 1 cached, 1 of them taken from another checkout;")
   -- `d` edited: only `d`.
   checkout(tmp .. "/edited_d", { ["d.tl"] = alone .. "-- edited\n" })
@@ -251,7 +265,8 @@ local function test_a_damaged_row_is_compiled_again_and_replaced(tmp: string)
   assert(not second:find("shared compiles: ", 1, true), second)
   local opened = assert(shared_compiles.open(path))
   for _, name in ipairs({ "b", "c" }) do
-    local found, trouble = shared_compiles.look(opened, keys[name])
+    local key = assert(keys[name], name .. " has a key")
+    local found, trouble = shared_compiles.look(opened, key)
     assert(found ~= nil, name .. " was not replaced: " .. trouble)
   end
   shared_compiles.close(opened)
@@ -311,8 +326,8 @@ local function test_two_builds_writing_at_once_keep_both(tmp: string)
   tmp = assert(Fs.absolute(tmp))
   local env, path = environment(tmp)
   -- Content of their own, so each writes three compiles.
-  checkout(tmp .. "/one", { ["c.tl"] = project["c.tl"] .. "-- one\n" })
-  checkout(tmp .. "/two", { ["c.tl"] = project["c.tl"] .. "-- two\n" })
+  checkout(tmp .. "/one", { ["c.tl"] = project_source("c.tl") .. "-- one\n" })
+  checkout(tmp .. "/two", { ["c.tl"] = project_source("c.tl") .. "-- two\n" })
   local handles: mut {Child.Handle} = {}
   local outputs: mut {integer} = {}
   for index, name in ipairs({ "one", "two" }) do
@@ -325,7 +340,7 @@ local function test_two_builds_writing_at_once_keep_both(tmp: string)
   end
   for index, handle in ipairs(handles) do
     local result, trouble = handle:wait(Clock.seconds(60))
-    assert(Fs.close(outputs[index]))
+    assert(Fs.close(nth(outputs, index)))
     local text = assert(Fs.read(tmp .. "/" .. (if index == 1 then "one" else "two" end) .. ".out"))
     assert(result ~= nil and result.ok, tostring(trouble) .. text)
     assert(text:find("(3 compiled, 0 cached;", 1, true), text)
@@ -335,7 +350,7 @@ local function test_two_builds_writing_at_once_keep_both(tmp: string)
   -- `a` and `b` reach `c`, so no key of one is the other's.
   assert(rows_in(path) == 6, dump(path, "SELECT key FROM compiled_v2"))
   for _, name in ipairs({ "one", "two" }) do
-    checkout(tmp .. "/" .. name .. "_again", { ["c.tl"] = project["c.tl"] .. "-- " .. name .. "\n" })
+    checkout(tmp .. "/" .. name .. "_again", { ["c.tl"] = project_source("c.tl") .. "-- " .. name .. "\n" })
     built(tmp .. "/" .. name .. "_again", env,
       "(0 compiled, 3 cached, 3 of them taken from another checkout;")
   end
@@ -377,7 +392,7 @@ return 0
   local cache, trouble = shared_compiles.open(path)
   assert(cache ~= nil, trouble)
   local rows = assert(Sqlite.text_rows(cache.db, "PRAGMA journal_mode"))
-  assert(rows[1]:text(1) == "wal", rows[1]:text(1))
+  assert(nth(rows, 1):text(1) == "wal", nth(rows, 1):text(1))
   shared_compiles.close(cache)
   local result, wait_trouble = handle:wait(Clock.seconds(10))
   assert(result ~= nil and result.ok, tostring(wait_trouble))

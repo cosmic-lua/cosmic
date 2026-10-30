@@ -989,8 +989,8 @@ end
 --- whole list.
 local dispatched: {string:{string:boolean}} = {
   x86_64 = { aes = true, avx512_vnni = true, avx512f = true, avx512vl = true, avx_vnni = true,
-    pclmulqdq = true, ssse3 = true, sse4_1 = true },
-  aarch64 = { asimd = true, aes = true, pmull = true, crc32 = true },
+    pclmulqdq = true, sha_ni = true, ssse3 = true, sse4_1 = true },
+  aarch64 = { asimd = true, aes = true, pmull = true, crc32 = true, sha2 = true, sha512 = true },
 }
 
 --- The features a core on `machine` chooses code by (`dispatched`), in
@@ -1128,7 +1128,9 @@ function declared_key.host_split(digests: declared_key.Digests,
   -- runs chooses code by (`dispatched`), which an audit of the vendored
   -- C and the disassembled cores found:
   -- mbedtls's aesni.c (`aes`, `pclmulqdq`) and aesce.c (`asimd`, `aes`,
-  -- `pmull`); xz's crc_x86_clmul.h (`pclmulqdq`, `ssse3`, `sse4_1`) and
+  -- `pmull`), its SHA-256 and SHA-512 (`sha2` and `sha512` on aarch64,
+  -- and on x86_64 patch/mbedtls's SHA-NI, `sha_ni` with `sse4_1` and
+  -- `ssse3`); xz's crc_x86_clmul.h (`pclmulqdq`, `ssse3`, `sse4_1`) and
   -- crc32_arm64.h (`crc32`), and the core's own int8 dot product in
   -- core/vector.c, which takes VNNI where the CPU has it (`avx512f`,
   -- `avx512vl`, `avx512_vnni`, `avx_vnni`). No Linux core links a libm that

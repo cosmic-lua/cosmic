@@ -92,10 +92,18 @@ local SITES <const>: {string:Site} = {
   -- mbedtls's AES instructions: HWCAP_ASIMD and HWCAP_AES, and it runs
   -- pmull, which the kernel lists with aes.
   [AESCE] = { lines = "bb97ae0e43fe952e", reads = { aarch64 = { "asimd", "aes", "pmull" } } },
-  -- mbedtls's SHA-2 instructions, compiled out: no
-  -- MBEDTLS_SHA*_USE_* is set ([`test_the_sha_instructions_are_compiled_out`]).
-  [SHA256] = { lines = "348fc7a6aafc5db0", reads = {} },
-  [SHA512] = { lines = "08b640331951aadd", reads = {} },
+  -- mbedtls's Armv8 SHA-2 instructions, chosen at run time
+  -- ([`test_the_sha_instructions_are_chosen_at_run_time`]): HWCAP_SHA2 and
+  -- HWCAP_SHA512, and on Apple sysctl (hw.optional.armv8_2_sha512; SHA-256
+  -- is assumed there).
+  [SHA256] = { lines = "348fc7a6aafc5db0", reads = { aarch64 = { "sha2" } } },
+  [SHA512] = { lines = "08b640331951aadd", reads = { aarch64 = { "sha512" } } },
+  -- patch/mbedtls's SHA-NI SHA-256: cpuid leaf 7 EBX bit 29, with the
+  -- SSSE3 and SSE4.1 bits of leaf 1 its shuffles and blends need ...
+  ["patch/mbedtls/04-sha256-ni.txt"] = { lines = "a2bc2eeb6868491a",
+    reads = { x86_64 = { "sha_ni", "sse4_1", "ssse3" } } },
+  -- ... and the header that declares __get_cpuid_count.
+  ["patch/mbedtls/03-sha256-ni-select.txt"] = { lines = "bfdef8b0c7ebba67", reads = {} },
   -- xz's CRC32 and CRC64 by carry-less multiply: cpuid leaf 1, ECX
   -- bits 1, 9 and 19.
   ["vendor/xz/src/liblzma/check/crc_x86_clmul.h"] = { lines = "3df82a3bd7e3826c",
@@ -112,8 +120,8 @@ local SITES <const>: {string:Site} = {
   -- none chooses code by it. syscalls.c asks Apple's
   -- kern.maxfilesperproc too, for the descriptor limit a start raises
   -- to: no feature.
-  ["core/syscalls.c"] = { lines = "73996c52b47965b2", reads = {} },
-  ["core/syscalls.h"] = { lines = "f23c54e6e2b7ac0d", reads = {} },
+  ["core/syscalls.c"] = { lines = "6d6f8c1e9f60c406", reads = {} },
+  ["core/syscalls.h"] = { lines = "297b223c6bbcbc65", reads = {} },
   ["core/syscalls_test.tl"] = { lines = "b7dcc2df755b9cbc", reads = {} },
   -- The int8 dot product of [`Vector.corpus`]: VNNI in its AVX-512 (256-bit
   -- forms) and AVX encodings, by cpuid leaf 7. It also asks cpuid leaf 1
@@ -322,17 +330,23 @@ local function test_every_feature_a_site_reads_is_keyed()
   end
 end
 
---- mbedtls's SHA-2 instruction paths are compiled only for a
---- MBEDTLS_SHA*_USE_* definition, which neither the configuration the
---- build names, build.zig nor a patch makes.
-local function test_the_sha_instructions_are_compiled_out()
+--- mbedtls's Armv8 SHA-2 instruction paths are chosen at run time
+--- (`_IF_PRESENT`) by the configuration the build names, and no
+--- definition makes one the only path (`_ONLY`), which a processor
+--- without the instructions would fault on.
+local function test_the_sha_instructions_are_chosen_at_run_time()
+  local config = assert(Fs.read("core/mbedtls_cosmic_config.h"))
+  for _, name in ipairs({ "MBEDTLS_SHA256_USE_ARMV8_A_CRYPTO_IF_PRESENT",
+      "MBEDTLS_SHA512_USE_A64_CRYPTO_IF_PRESENT" }) do
+    assert(config:find("#define " .. name .. "\n", 1, true) ~= nil, "the configuration lacks " .. name)
+  end
   local paths: mut {string} = { "core/mbedtls_cosmic_config.h", "build.zig" }
   for _, relative in ipairs((assert(Fs.walk("patch")))) do
     paths[#paths + 1] = "patch/" .. relative
   end
   for _, path in ipairs(paths) do
     local text = assert(Fs.read(path))
-    assert(text:find("MBEDTLS_SHA%d+_USE_") == nil, path .. " enables a SHA-2 instruction path")
+    assert(text:find("MBEDTLS_SHA%d+_USE_[%w_]*ONLY") == nil, path .. " makes an SHA-2 instruction path the only one")
   end
   for _, path in ipairs({ SHA256, SHA512 }) do
     local text = assert(Fs.read(path))

@@ -1,0 +1,17 @@
+file: tf-psa-crypto/drivers/builtin/src/sha512.c
+note: on macOS the Armv8 SHA-512 detection includes <sys/sysctl.h>, which
+  uses BSD types (u_int, u_char) that Darwin's headers hide under the
+  strict -std=c11 the library builds with. Asking for them as the
+  core's own C files do (_DARWIN_C_SOURCE) must come before the first
+  system header, which tf_psa_crypto_common.h includes.
+--- find
+ *  http://csrc.nist.gov/publications/fips/fips180-2/fips180-2.pdf
+ */
+--- replace
+ *  http://csrc.nist.gov/publications/fips/fips180-2/fips180-2.pdf
+ */
+
+#if defined(__APPLE__) && !defined(_DARWIN_C_SOURCE)
+#define _DARWIN_C_SOURCE
+#endif
+--- end

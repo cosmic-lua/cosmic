@@ -11,6 +11,13 @@ local Format = require("build.fix.format")
 local laid = require("build.fix.laid")
 local SyntaxNode = require("build.syntax_node")
 
+--- The element of `list` at `index`, which the case knows is there.
+local function nth<T>(list: {T}, index: integer): T
+  local found = list[index]
+  assert(found ~= nil, "the list has an element at " .. tostring(index))
+  return found
+end
+
 --- A named path the verb will not take is a refusal among the files the
 --- run covers, not an end to the run: it comes back in `refused` with
 --- the others still listed, so the verb can report it and still end in
@@ -35,13 +42,13 @@ local function test_a_path_that_is_not_there_is_missing_before_it_is_judged(tmp:
     "the real source should still be listed")
   assert(#picked.refused == 3, "expected three refusals, got " .. tostring(#picked.refused))
   for i, what in ipairs({ "nope", "nosuchdir/" }) do
-    assert(picked.refused[i]:find("No such file", 1, true) ~= nil,
+    assert(nth(picked.refused, i):find("No such file", 1, true) ~= nil,
       what .. " should be reported as missing, not judged on its suffix: " ..
-        picked.refused[i])
+        nth(picked.refused, i))
   end
-  assert(picked.refused[3]:find("not a Teal, C or template source, YAML, Markdown or Zig", 1, true) ~= nil,
+  assert(nth(picked.refused, 3):find("not a Teal, C or template source, YAML, Markdown or Zig", 1, true) ~= nil,
     "a file that is there but is not Teal should be said so: " ..
-      picked.refused[3])
+      nth(picked.refused, 3))
 end
 
 --- A template is parsed and never rewritten: it is chosen apart from the
@@ -65,7 +72,7 @@ local function test_c_is_taken_only_in_cosmics_own_tree(tmp: string)
   assert(Fs.write(tmp .. "/a.c", "int a;\n"))
   local picked = assert(fix.chosen(tmp, { tmp .. "/a.c", tmp }))
   assert(#picked.c_files == 0, "a tree of another's has no C checked")
-  assert(picked.refused[1]:find("only in cosmic's own tree", 1, true) ~= nil,
+  assert(nth(picked.refused, 1):find("only in cosmic's own tree", 1, true) ~= nil,
     picked.refused[1])
 
   assert(Fs.mkdirs(tmp .. "/own/core"))
@@ -173,11 +180,11 @@ local function test_changed_lays_out_only_the_paths_named(tmp: string)
       { "build/patch.tl", "patched" }, { "ci/cosmic-driver.pin", "clang" },
       { ".", "the whole tree" }, { "/elsewhere/x.tl", "outside the tree" },
   }) do
-    local widened = fix.narrowed(own, every, { "ci/a.tl", case[1] }, { db })
+    local widened = fix.narrowed(own, every, { "ci/a.tl", nth(case, 1) }, { db })
     local widened_widened = widened.widened
-    assert(widened_widened ~= nil and widened_widened:find(case[2], 1, true) ~= nil and
+    assert(widened_widened ~= nil and widened_widened:find(nth(case, 2), 1, true) ~= nil and
         #widened.files == #every.files and widened.noted == nil,
-      case[1] .. ": " .. tostring(widened_widened))
+      nth(case, 1) .. ": " .. tostring(widened_widened))
   end
   -- A test of the core is not what the program runs on; its links are
   -- checked with every other file's, and it is not laid out.
@@ -217,7 +224,7 @@ local function test_yaml_in_flow_style_is_taken(tmp: string)
     picked = assert(fix.chosen(tmp .. "/own", { dir }))
     assert(#picked.flow_files == 1 and picked.flow_files[1]:match("/%.github/actions/x/action%.yml$") ~= nil,
       dir .. ": " .. table.concat(picked.flow_files, " "))
-    assert(not picked.flow_files[1]:find("//", 1, true), picked.flow_files[1])
+    assert(not nth(picked.flow_files, 1):find("//", 1, true), picked.flow_files[1])
   end
   -- Whether a directory lies under `.github/` is read off its path in
   -- the tree, not above it; and `vendor/` is never covered.

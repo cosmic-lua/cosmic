@@ -5813,6 +5813,7 @@ struct cpu_feature {
 static const struct cpu_feature cpu_features[] = {
   { "aes", "hw.optional.arm.FEAT_AES" }, { "asimd", "hw.optional.AdvSIMD" },
   { "crc32", "hw.optional.armv8_crc32" }, { "pmull", "hw.optional.arm.FEAT_PMULL" },
+  { "sha2", "hw.optional.arm.FEAT_SHA256" }, { "sha512", "hw.optional.armv8_2_sha512" },
 };
 #elif defined(__x86_64__)
 struct cpu_feature {
@@ -5827,11 +5828,12 @@ struct cpu_feature {
  * by the operating system's saved vector state, which cpuid does not say:
  * a kernel that saves none lists fewer in /proc/cpuinfo than cpuid does,
  * and the kernels answer alike, so a key that holds the cpuid bits is
- * enough). */
+ * enough). patch/mbedtls's SHA-256 takes `sha_ni` with `sse4_1` and
+ * `ssse3`. */
 static const struct cpu_feature cpu_features[] = {
   { "aes", 1, 0, 2, 25 }, { "avx512_vnni", 7, 0, 2, 11 }, { "avx512f", 7, 0, 1, 16 },
   { "avx512vl", 7, 0, 1, 31 }, { "avx_vnni", 7, 1, 0, 4 }, { "pclmulqdq", 1, 0, 2, 1 },
-  { "sse4_1", 1, 0, 2, 19 }, { "ssse3", 1, 0, 2, 9 },
+  { "sha_ni", 7, 0, 1, 29 }, { "sse4_1", 1, 0, 2, 19 }, { "ssse3", 1, 0, 2, 9 },
 };
 #elif defined(__aarch64__) && defined(__linux__)
 struct cpu_feature {
@@ -5840,7 +5842,7 @@ struct cpu_feature {
 };
 
 static const struct cpu_feature cpu_features[] = {
-  { "aes", 3 }, { "asimd", 1 }, { "crc32", 7 }, { "pmull", 4 },
+  { "aes", 3 }, { "asimd", 1 }, { "crc32", 7 }, { "pmull", 4 }, { "sha2", 6 }, { "sha512", 21 },
 };
 #endif
 

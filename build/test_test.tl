@@ -10,6 +10,13 @@ local test_key = require("build.test_key")
 local work = require("build.work")
 local worker = require("build.test_worker")
 
+--- The element of `list` at `index`, which the case knows is there.
+local function nth<T>(list: {T}, index: integer): T
+  local found = list[index]
+  assert(found ~= nil, "the list has an element at " .. tostring(index))
+  return found
+end
+
 local function test_a_run_that_names_tests_is_failed_by_the_refusals_of_the_files_it_names_alone()
   local lines = {
     "cosmic/removed_example.tl:279:3: `function Friendly:greet` is not in the grammar (method_in_record): declare it",
@@ -49,11 +56,13 @@ local function test_a_modules_load_and_test_hits_are_two_lines_of_its_row()
   local row = test.take_hits(hits, { ["core"] = {} }, folded, spelled,
     { ["build.a"] = loaded, ["core"] = { [9] = true } }, { ["build.a"] = { [7] = true } })
   assert(row == "build.a\t1,3\nbuild.a\t7\n", row)
-  assert(hits["build.a"][1] == true and hits["build.a"][3] == true and hits["build.a"][7] == true)
+  local taken = assert(hits["build.a"], "build.a is taken")
+  assert(taken[1] == true and taken[3] == true and taken[7] == true)
   assert(hits["core"] == nil)
-  hits["build.a"][1] = nil
+  taken[1] = nil
   row = test.take_hits(hits, {}, folded, spelled, { ["build.a"] = loaded }, {})
-  assert(row == "build.a\t1,3\n" and hits["build.a"][1] == nil, "a taken table is folded once")
+  local retaken = hits["build.a"]
+  assert(row == "build.a\t1,3\n" and retaken ~= nil and retaken[1] == nil, "a taken table is folded once")
   local again = test.take_hits({}, {}, {}, {}, { ["build.a"] = loaded }, {})
   assert(again == row)
 end
@@ -82,7 +91,7 @@ local function test_the_shares_deal_each_test_once()
     end
   end
   local reversed: mut {string} = {}
-  for i = #ids, 1, -1 do reversed[#reversed + 1] = ids[i] end
+  for i = #ids, 1, -1 do reversed[#reversed + 1] = nth(ids, i) end
   for count = 1, 4 do
     local held: mut {string:integer} = {}
     local sizes: mut {integer} = {}
@@ -95,7 +104,7 @@ local function test_the_shares_deal_each_test_once()
         assert(again[id], id .. " is dealt by the order the ids came in")
         held[id] = (held[id] or 0) + 1
         size = size + 1
-        modules[id:match("^(%S+)")] = true
+        modules[assert(id:match("^(%S+)"), id .. " names a module")] = true
       end
       for id in pairs(again) do assert(dealt[id], id) end
       sizes[#sizes + 1] = size
@@ -106,7 +115,7 @@ local function test_the_shares_deal_each_test_once()
       assert(held[id] == 1, id .. " is in " .. tostring(held[id]) .. " of " .. tostring(count) .. " shares")
     end
     table.sort(sizes)
-    assert(sizes[#sizes] - sizes[1] <= 1, "shares of " .. tostring(count) .. " differ by more than one")
+    assert(nth(sizes, #sizes) - nth(sizes, 1) <= 1, "shares of " .. tostring(count) .. " differ by more than one")
   end
 end
 
@@ -214,7 +223,7 @@ local function test_the_harness_holds_what_a_worker_runs_and_what_keys_it()
   -- value leaves the name among its constants ([`test_key.value_imports`]).
   local named_in: mut {string:string} = {}
   for _, row in ipairs(imports) do
-    named_in[row[1]] = (named_in[row[1]] or "") .. " " .. row[2]
+    named_in[nth(row, 1)] = (named_in[nth(row, 1)] or "") .. " " .. nth(row, 2)
   end
   local function set(name: string, source: string, bytecode: string)
     assert(Sqlite.run(db, "DELETE FROM modules WHERE path = ?", { { text = name } }))

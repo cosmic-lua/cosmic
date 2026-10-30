@@ -19,6 +19,13 @@ local type positions = require("build.positions")
 local Clock = require("cosmic.clock")
 local build_paths = require("build.paths")
 
+--- The element of `list` at `index`, which the case knows is there.
+local function nth<T>(list: {T}, index: integer): T
+  local found = list[index]
+  assert(found ~= nil, "the list has an element at " .. tostring(index))
+  return found
+end
+
 --- What the host's identity reads ([`declared_key.host_identity`]), on
 --- whichever system this is, what the host says of itself, and a file a
 --- link leads out of the tree to. The package databases are a copy of
@@ -172,7 +179,7 @@ local function test_a_chunk_module_is_keyed_with_what_dash_e_loads(tmp: string)
   for _, list in ipairs({ test_inputs.lua_loads, test_inputs.standalone_loads }) do
     for _, name in ipairs(list) do
       local file = name:gsub("%.", "/") .. ".tl"
-      assert(Fs.mkdirs(tmp .. "/" .. file:match("^(.*)/")))
+      assert(Fs.mkdirs(tmp .. "/" .. assert(file:match("^(.*)/"), file .. " is in a directory")))
       assert(Fs.write(tmp .. "/" .. file, "return {} -- " .. name .. "\n"))
       by_path[name] = { path = name, file = file, kind = "lib", source = "", source_hash = "",
         requires = {}, tests = {} }
@@ -778,8 +785,9 @@ local function test_a_named_module_moves_the_digest()
   sources["build.docs"] = "d2 db2"
   assert(declared_key.harness(names, sources) == before, "a module it does not name")
   for _, name in ipairs(names) do
-    local was = sources[name]
+    local was = assert(sources[name], name .. " has a source")
     local source, bytecode = was:match("^(%S+) (%S+)$")
+    assert(source ~= nil and bytecode ~= nil, name .. "'s source and bytecode: " .. was)
     sources[name] = source .. "2 " .. bytecode
     assert(declared_key.harness(names, sources) ~= before, name .. "'s source")
     sources[name] = source .. " " .. bytecode .. "2"
@@ -796,7 +804,7 @@ end
 --- none, under compilers of two identities that made the same bytecode
 --- -- the same store, the same harness -- share a key.
 local function test_only_a_closure_that_reads_the_compiler_is_keyed_by_it(tmp: string)
-  local reader = declared_key.compiler_readers[1]
+  local reader = nth(declared_key.compiler_readers, 1)
   assert(declared_key.reads_compiler({ "suite.lib", reader, "suite.t_test" }))
   assert(not declared_key.reads_compiler({ "suite.lib", "suite.t_test" }))
   assert(not declared_key.reads_compiler({}))
@@ -1124,8 +1132,9 @@ local function test_a_program_is_keyed_by_what_it_runs_as(tmp: string)
   local s = spec()
   s.effective.tool = true
   local function keys(): string, string
-    s.program = declared_key.program_identity(declared_key.digests(root), { tool })
-    return s.program, key_of(root, s)
+    local program = declared_key.program_identity(declared_key.digests(root), { tool })
+    s.program = program
+    return program, key_of(root, s)
   end
   local meta: {string:string} = { boot_hash = "one", projected = "one", writer = "w", compiler = "c" }
   program_at(tool, "core one", meta, "bytecode one")

@@ -1861,8 +1861,7 @@ fn vendorLibraries(
     });
     // The files that read <arm_neon.h>: the NEON and Armv8 crypto
     // intrinsics (aesce.c and chacha20_neon.c, and the Armv8 SHA paths
-    // of sha256.c and sha512.c, which this configuration leaves off but
-    // a change to it could turn on), aes.c, which calls aesce.c's, and
+    // of sha256.c and sha512.c), aes.c, which calls aesce.c's, and
     // the callers of mbedtls_xor(), whose NEON path is the fast one.
     mbedtls_part.addCSourceFiles(.{
         .root = crypto,
