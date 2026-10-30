@@ -142,8 +142,9 @@ local record dataset
 end
 
 --- A row for one JSON value: an object is the row; anything else (a
---- number, a string, a nested array) is a row of one column, `value`. nil
---- and why when a part of the value is none JSON can say.
+--- number, a string, a nested array) is a row of one column, `value`. The
+--- value is copied once. nil and why when a part of it is none JSON can
+--- say.
 local function row_of(element: any): dataset.Row?, string
   local row, _ = Json.to_object(element)
   if row ~= nil then
@@ -158,25 +159,34 @@ end
 
 --- The rows of a JSON value: each element of an array is a row as
 --- [`row_of`] makes it; a value that is not an array is one row. Each
---- element is checked as an element and again as a row.
+--- element is copied once, and the array not at all. When one is none JSON
+--- can say, the whole value is checked for the message, so it names the
+--- place from the top.
 local function rows_of(value: any): dataset.Rows?, string
   local rows: dataset.Rows = {}
-  local elements, _ = Json.to_array(value)
-  if elements == nil then
-    local row, why = row_of(value)
-    if row == nil then
-      return nil, why
+  if Json.is_array(value) then
+    -- A decoded array, with its `null`s kept as [`Json.null`], has no holes: the first
+    -- missing position is its end.
+    local index = 1
+    while true do
+      local element, _ = Json.get(value, { index })
+      if element == nil then
+        return rows, ""
+      end
+      local row, _ = row_of(element)
+      if row == nil then
+        local _, why = Json.to_value(value)
+        return nil, why
+      end
+      rows[index] = row
+      index = index + 1
     end
-    rows[1] = row
-    return rows, ""
   end
-  for index, element in ipairs(elements) do
-    local row, why = row_of(element)
-    if row == nil then
-      return nil, why
-    end
-    rows[index] = row
+  local row, why = row_of(value)
+  if row == nil then
+    return nil, why
   end
+  rows[1] = row
   return rows, ""
 end
 

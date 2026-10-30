@@ -971,6 +971,42 @@ local function test_to_value_copies_a_shared_table_once()
   local pair: {Json.Value} = { 1 }
   local twice = assert(Json.to_value({ pair, pair }))
   assert(encoded(twice) == "[[1],[1]]")
+  local copies = assert(Json.to_array(twice))
+  assert(rawequal(copies[1], copies[2]), "the shared table is copied once")
+  local top = assert(Json.to_array(value))
+  assert(rawequal(top[1], top[2]), "the shared table below the top is copied once")
+end
+
+--- `leaf` inside `levels` arrays.
+local function wrapped(leaf: Json.Value, levels: integer): Json.Value
+  local out = leaf
+  for _ = 1, levels do
+    out = { out }
+  end
+  return out
+end
+
+local function test_to_value_refuses_a_shared_table_reached_again_past_the_depth_limit()
+  local shared: {Json.Value} = { 1 }
+  -- Seen at depth 2, then again at depth 1001 (the root is depth 1): the copy made
+  -- at 2 cannot stand there.
+  local _, why = Json.to_value({ shared, wrapped(shared, 999) })
+  assert(why:match("^json: nesting at pointer ending \"[%d/]+\" is deeper than 1000$"), why)
+  local _, from_object = Json.to_object({ a = shared, b = wrapped(shared, 999) })
+  assert(from_object:match("is deeper than 1000"), from_object)
+end
+
+local function test_to_value_reuses_a_shared_table_copied_as_deep_or_deeper()
+  local shared: {Json.Value} = { 1 }
+  -- Copied at depth 1000 first, then met at depth 2: it stands.
+  local value = assert(Json.to_value({ wrapped(shared, 998), shared }))
+  local down: mut {integer | string} = {}
+  for i = 1, 999 do down[i] = 1 end
+  local deep = Json.get(value, down)
+  local shallow = Json.get(value, { 2 })
+  assert(rawequal(deep, shallow))
+  -- Exactly at the limit is accepted from either side.
+  assert(Json.to_value({ shared, wrapped(shared, 998) }))
 end
 
 local function test_to_object_and_to_array_refuse_a_table_that_holds_itself()
