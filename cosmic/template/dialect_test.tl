@@ -118,7 +118,7 @@ local function test_a_name_is_checked_and_two_dialects_must_agree_on_an_attribut
   end
   local registry: {string: Def} = { one = def("one", "json"), two = def("two", "selector"), same = def("same", "json") }
   local clash, clash_why = dialect.resolve({ "one", "two" }, registry)
-  assert(clash == nil and clash_why:find("dialects 'one' and 'two' give 'z-a' different rules", 1, true), tostring(clash_why))
+  assert(clash == nil and clash_why:find("dialects 'one' and 'two' give 'z-a' different rules", 1, true) ~= nil, tostring(clash_why))
   assert(dialect.resolve({ "one", "same" }, registry) ~= nil)
   -- The always-on dialect is the one a named dialect may override.
   assert(class_of(assert(dialect.resolve({ "htmx" }, dialect.registry)), "hx-headers") == "json")
@@ -134,13 +134,14 @@ local function test_no_dialect_takes_off_a_refusal_that_is_always_on()
       "data-hx-trigger" }) do
     for _, class in ipairs(classes) do
       local table_, why = dialect.resolve({ "mine" }, { mine = lock_def({ [attr] = { class = class, why = "" } }, {}) })
-      assert(table_ == nil and why:find("no dialect may change", 1, true) and why:find("'" .. attr .. "'", 1, true),
+      assert(table_ == nil and why:find("no dialect may change", 1, true) ~= nil and
+          why:find("'" .. attr .. "'", 1, true) ~= nil,
         attr .. " " .. class .. ": " .. tostring(why))
     end
   end
   for _, prefix in ipairs({ "hx-on", "hx-on:", "hx-on-click", "hx-onx" }) do
     local table_, why = dialect.resolve({ "mine" }, { mine = lock_def({}, { { prefix = prefix, rule = { class = "url", why = "" } } }) })
-    assert(table_ == nil and why:find("the prefix '" .. prefix .. "'", 1, true), prefix .. ": " .. tostring(why))
+    assert(table_ == nil and why:find("the prefix '" .. prefix .. "'", 1, true) ~= nil, prefix .. ": " .. tostring(why))
   end
   -- A shorter prefix is beaten by the longer, and a refusal stays one.
   local ok = assert(dialect.resolve({ "mine" }, { mine = lock_def({ ["hx-vars"] = { class = "refused", why = "x" } },
@@ -153,9 +154,9 @@ local function test_a_dialect_may_give_the_json_attributes_the_json_class_and_no
   for _, attr in ipairs({ "hx-vals", "hx-headers", "hx-request", "data-hx-vals" }) do
     local table_ = assert(dialect.resolve({ "mine" }, { mine = lock_def({ [attr] = { class = "json", why = "" } }, {}) }))
     -- A `data-` name in a table is never looked up: the form is stripped first.
-    assert(attr:find("^data%-") or class_of(table_, attr) == "json", attr)
+    assert(attr:find("^data%-") ~= nil or class_of(table_, attr) == "json", attr)
     local other, why = dialect.resolve({ "mine" }, { mine = lock_def({ [attr] = { class = "selector", why = "" } }, {}) })
-    assert(other == nil and why:find("no dialect may change", 1, true), attr .. ": " .. tostring(why))
+    assert(other == nil and why:find("no dialect may change", 1, true) ~= nil, attr .. ": " .. tostring(why))
   end
   local other, why = dialect.resolve({ "mine" }, { mine = lock_def({}, { { prefix = "hx-vals", rule = { class = "json", why = "" } } }) })
   assert(other ~= nil, tostring(why))

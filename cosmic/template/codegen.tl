@@ -140,7 +140,7 @@ local function quote(text: string): string
   local escapes: {string: string} = { ["\\"] = "\\\\", ['"'] = '\\"', ["\n"] = "\\n", ["\r"] = "\\r",
     ["\t"] = "\\t" }
   return '"' .. text:gsub('[%c\\"]', function(c: string): string
-    return escapes[c] or string.format("\\%03d", c:byte())
+    return escapes[c] or string.format("\\%03d", (assert(c:byte(), "the pattern matches one byte")))
   end) .. '"'
 end
 
@@ -189,10 +189,11 @@ local function value(g: Gen, pipe: types.Pipeline, dot: Dot, raw?: boolean): str
   if pipe.head == "root" then
     head = g.root
   elseif pipe.head == "variable" then
-    head = g.vars[pipe.name]
-    if head == nil then
+    local variable = g.vars[pipe.name]
+    if variable == nil then
       error("cosmic.template: codegen met $" .. pipe.name .. ", which the parser let through unbound")
     end
+    head = variable
   end
   head.used = true
   -- The path as the source writes it, which `g.bound` is keyed by, beside
@@ -232,6 +233,16 @@ local function put(g: Gen, code: string): integer
   g.pieces[#g.pieces + 1] = (if g.started then " " else "" end) .. code
   g.started = true
   return #g.pieces
+end
+
+--- The first arm of a range or with `node`, which the parser gives every
+--- block.
+local function first_branch(node: types.Node): types.Branch
+  local arm = node.branches[1]
+  if arm == nil then
+    error("cosmic.template: codegen met a {{" .. node.kind .. "}} with no arm, which the parser let through")
+  end
+  return arm
 end
 
 --- Writes the node list `body`, whose dot is `dot`.
@@ -298,7 +309,7 @@ local function block(g: Gen, node: types.Node, dot: Dot)
     -- template's line ("too many local variables"). That stays: no template
     -- nests so deep, and a function per body, which would lift the limit,
     -- costs a closure each time a range runs.
-    local arm = node.branches[1]
+    local arm = first_branch(node)
     local other = node.branches[2]
     local inner = new_dot(g)
     local index: Dot = { name = "_", used = false }
@@ -325,7 +336,8 @@ local function block(g: Gen, node: types.Node, dot: Dot)
     emit(g, arm.body, inner)
     g.vars[arm.index] = nil
     g.vars[arm.element] = nil
-    g.pieces[head] = g.pieces[head] .. opening .. "for " .. (index.used and index.name or "_") .. ", " ..
+    local held = assert(g.pieces[head], "put made the piece at this place")
+    g.pieces[head] = held .. opening .. "for " .. (index.used and index.name or "_") .. ", " ..
       (inner.used and inner.name or "_") .. " in ipairs(" .. source .. ") do"
     if other ~= nil then
       to_line(g, other.line)
@@ -338,7 +350,7 @@ local function block(g: Gen, node: types.Node, dot: Dot)
       put(g, "end")
     end
   elseif node.kind == "with" then
-    local arm = node.branches[1]
+    local arm = first_branch(node)
     local inner = new_dot(g)
     put(g, "do local " .. inner.name .. " = " .. value(g, assert(arm.pipeline), dot) .. " if " .. inner.name ..
         " then")
@@ -490,7 +502,8 @@ function Codegen.generate(template: types.Template): string
 
   local head: mut {string} = {}
   for _, path in ipairs(g.imports.order) do
-    head[#head + 1] = (if g.imports.as_value[path] == true then "local " else "local type " end) .. g.imports.alias_of[path] ..
+    local alias = assert(g.imports.alias_of[path], "alias_for names every path it orders")
+    head[#head + 1] = (if g.imports.as_value[path] == true then "local " else "local type " end) .. alias ..
       " = require(\"" .. path .. "\")"
   end
   if g.staged then
