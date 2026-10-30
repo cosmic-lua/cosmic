@@ -346,7 +346,6 @@ lang/check_programs.tl 4
 
 lang/declarations.tl 1
 
-lang/parser_cover.tl 1
 
 lang/relation.tl 1
 
@@ -524,7 +523,6 @@ cosmic/template_go_test.tl unchecked_binding 1
 # standard library now answers and the tree uses as values; the rewrite uses `assert`, `or` or an early return
 
 
-build/archive_test.tl nil_not_allowed 18
 
 build/archive_tool_test.tl nil_not_allowed 1
 
@@ -536,7 +534,6 @@ build/bare.tl nil_not_allowed 5
 
 build/bom.tl nil_not_allowed 25
 
-build/bom_test.tl nil_not_allowed 15
 
 build/boot.tl nil_not_allowed 2
 
@@ -622,9 +619,7 @@ build/databases.tl nil_not_allowed 6
 
 build/dataset.tl nil_not_allowed 1
 
-build/dataset_fuzz_test.tl nil_not_allowed 15
 
-build/dataset_test.tl nil_not_allowed 16
 
 build/declared_key.tl nil_not_allowed 12
 
@@ -644,7 +639,6 @@ build/dispatched_features_test.tl nil_not_allowed 1
 
 build/docs_checks_test.tl nil_not_allowed 5
 
-build/docs_removed_test.tl nil_not_allowed 16
 
 build/docs_search_test.tl nil_not_allowed 2
 
@@ -655,11 +649,9 @@ build/doctest/generate_test.tl nil_not_allowed 3
 
 
 
-build/driver_test.tl nil_not_allowed 18
 
 build/embed.tl nil_not_allowed 2
 
-build/embed_tool_test.tl nil_not_allowed 23
 
 build/example_checks.tl nil_not_allowed 1
 
@@ -711,7 +703,6 @@ build/importer_boot_test.tl nil_not_allowed 4
 
 build/importer_store_test.tl nil_not_allowed 1
 
-build/importer_test.tl nil_not_allowed 28
 
 build/json.tl nil_not_allowed 5
 
@@ -764,7 +755,6 @@ build/refresh.tl nil_not_allowed 9
 
 build/refresh_fuzz_test.tl nil_not_allowed 1
 
-build/refresh_store_test.tl nil_not_allowed 19
 
 build/relay_wire_fixture.tl nil_not_allowed 2
 
@@ -776,7 +766,6 @@ build/sandbox.tl nil_not_allowed 21
 
 build/sandbox_connect.tl nil_not_allowed 2
 
-build/sandbox_connect_test.tl nil_not_allowed 24
 
 build/sandbox_probe.tl nil_not_allowed 1
 
@@ -834,7 +823,6 @@ build/symbol_index.tl nil_not_allowed 4
 
 build/syntax_analyzer.tl nil_not_allowed 4
 
-build/syntax_analyzer_test.tl nil_not_allowed 23
 
 
 build/syntax_contracts_test.tl nil_not_allowed 1
@@ -915,7 +903,6 @@ build/time_tool_test.tl nil_not_allowed 1
 
 
 
-build/todos_git_test.tl nil_not_allowed 22
 
 
 
@@ -930,7 +917,7 @@ build/verbs_store_test.tl nil_not_allowed 2
 
 build/work.tl nil_not_allowed 11
 
-build/work_test.tl nil_not_allowed 19
+build/work_test.tl nil_not_allowed 1
 
 build/work_tool_test.tl nil_not_allowed 1
 
@@ -1337,14 +1324,10 @@ lang/declarations_test.tl nil_not_allowed 30
 
 lang/parser.tl nil_not_allowed 57
 
-lang/parser_cover.tl nil_not_allowed 1
 
 
-lang/parser_fuzz_test.tl nil_not_allowed 1
 
-lang/parser_recovery_test.tl nil_not_allowed 57
 
-lang/parser_test.tl nil_not_allowed 19
 
 
 lang/relation_fuzz_test.tl nil_not_allowed 6
@@ -1482,7 +1465,6 @@ core/syscalls_tool_test.tl missing_return 1
 # reads it into a local and tests that, or iterates with `ipairs`
 
 
-build/archive_test.tl index_may_be_nil 7
 
 build/artifact.tl index_may_be_nil 3
 
@@ -1524,9 +1506,7 @@ build/databases.tl index_may_be_nil 1
 
 build/dataset.tl index_may_be_nil 4
 
-build/dataset_fuzz_test.tl index_may_be_nil 1
 
-build/dataset_test.tl index_may_be_nil 1
 
 build/declared_key.tl index_may_be_nil 4
 
@@ -1546,11 +1526,9 @@ build/docs_search_test.tl index_may_be_nil 3
 build/doctest/generate_test.tl index_may_be_nil 1
 
 
-build/driver_test.tl index_may_be_nil 1
 
 build/embed.tl index_may_be_nil 2
 
-build/embed_tool_test.tl index_may_be_nil 2
 
 
 build/fix/fix_test.tl index_may_be_nil 2
@@ -1577,7 +1555,6 @@ build/host_requires_test.tl index_may_be_nil 4
 
 build/importer_store_test.tl index_may_be_nil 2
 
-build/importer_test.tl index_may_be_nil 4
 
 build/json.tl index_may_be_nil 1
 
@@ -1611,7 +1588,6 @@ build/reboot.tl index_may_be_nil 3
 
 build/refresh_fuzz_test.tl index_may_be_nil 1
 
-build/refresh_store_test.tl index_may_be_nil 1
 
 build/refresh_tool_test.tl index_may_be_nil 1
 
@@ -1638,7 +1614,6 @@ build/stand_in_probe.tl index_may_be_nil 6
 build/symbol_index.tl index_may_be_nil 1
 
 
-build/syntax_analyzer_test.tl index_may_be_nil 1
 
 
 build/syntax_derivation.tl index_may_be_nil 2
@@ -1694,7 +1669,6 @@ build/time_test.tl index_may_be_nil 1
 
 
 
-build/todos_git_test.tl index_may_be_nil 3
 
 
 
@@ -1706,7 +1680,6 @@ build/verb_list_test.tl index_may_be_nil 2
 
 build/work.tl index_may_be_nil 8
 
-build/work_test.tl index_may_be_nil 5
 
 build/workflows_test.tl index_may_be_nil 8
 
@@ -1910,9 +1883,7 @@ lang/generics.tl index_may_be_nil 9
 
 lang/parser.tl index_may_be_nil 15
 
-lang/parser_recovery_test.tl index_may_be_nil 2
 
-lang/parser_test.tl index_may_be_nil 9
 
 
 lang/relation_fuzz_test.tl index_may_be_nil 17
@@ -2178,7 +2149,6 @@ lang/load_order.tl view_written 8
 
 lang/parser.tl view_written 4
 
-lang/parser_cover.tl view_written 1
 
 lang/relation.tl view_written 8
 
@@ -3424,7 +3394,6 @@ lang/check_programs.tl overload_none 2
 
 lang/literals_test.tl overload_none 3
 
-lang/parser_cover.tl overload_none 1
 
 lang/scopes.tl overload_none 3
 
@@ -5344,7 +5313,6 @@ lang/flow.tl or_mix 1
 
 
 
-lang/parser_recovery_test.tl or_mix 1
 
 lang/scopes.tl or_mix 1
 
