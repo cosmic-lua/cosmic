@@ -994,7 +994,16 @@ local function test_with_holes_marks_the_table_it_is_given_so_its_length_follows
   items[3] = nil
   assert(encoded(list) == '["a","b"]', "shrinking it shortens what it encodes as")
   items[5] = "e"
-  assert(encoded(list) == '["a","b",null,null,"e"]', "a key added past the end lengthens it")
+  assert(encode_failure(list):find("array with a hole", 1, true), "a hole made after it was marked is still refused")
+end
+
+local function test_with_holes_marks_a_table_with_no_hole_as_a_plain_array()
+  local dense = holed({ [1] = "a", [2] = "b" })
+  assert(Json.is_array(dense) and encoded(dense) == '["a","b"]')
+  local grown, why = lua_of("local t = assert(Json.with_holes({ 'a', 'b' })); t[4] = 'd'; return Json.encode_any(t)")
+  assert(grown == nil and why == "json: cannot encode an array with a hole (index 3 is nil)", "as any array refuses a hole")
+  local holey = lua_of("local t = assert(Json.with_holes({ [1] = 'a', [3] = 'c' })); t[5] = 'e'; return Json.encode_any(t)")
+  assert(holey == '["a",null,"c",null,"e"]', "one that had a hole when marked still writes null")
 end
 
 local function test_with_holes_refuses_a_key_below_1_naming_it()

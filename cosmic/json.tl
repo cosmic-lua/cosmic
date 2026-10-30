@@ -607,34 +607,40 @@ function Json.is_array(v: any): boolean
   return raw.is_array(v)
 end
 
---- Marks `items` itself, not a copy, as an array that may have holes,
---- and answers it. [`Json.encode`] and [`Json.encode_any`] write it as
---- long as its highest key, and each position it holds nothing at as
---- `null`, at any depth; so a later change to `items` changes what it
---- encodes as. `{ [1] = "a", [3] = "c" }` marked encodes as
---- `["a",null,"c"]`, and with its last item removed as `["a"]`. Any
---- other table with a hole is still an error to encode, and
---- [`Json.decode`] never answers a marked array.
+--- Marks `items` itself, not a copy, as an array, and answers it. When
+--- `items` has a hole, a position below its highest key that it holds
+--- nothing at, the array may have holes: [`Json.encode`] and
+--- [`Json.encode_any`] write it as long as its highest key, and each
+--- position it holds nothing at as `null`, at any depth, so a later
+--- change to `items` changes what it encodes as. `{ [1] = "a", [3] = "c" }`
+--- marked encodes as `["a",null,"c"]`, and with its last item removed as
+--- `["a"]`. When `items` has no hole it is marked as [`Json.array`]
+--- marks it, so a hole made later is still an error to encode, as it is
+--- for any other table. [`Json.decode`] never answers an array that may
+--- have holes.
 ---
 --- Answers nil and a message when `items` has a key below 1, naming it,
---- or has a metatable already. Encoding
---- refuses an array with more than 1048576 holes, since its highest key
---- is no cost to make; use an object for a table that sparse.
---- [`Json.to_value`] and [`Json.to_array`] refuse it while it has a
---- hole, naming where; fill each with [`Json.null`] first.
+--- or has a metatable already. Encoding refuses an array with more than
+--- 1048576 holes, since its highest key is no cost to make; use an
+--- object for data that sparse. [`Json.to_value`] and [`Json.to_array`]
+--- refuse an array that has a hole, naming where; fill each with
+--- [`Json.null`] first.
 ---
 ---     local row = assert(Json.with_holes({ [1] = "a", [3] = "c" }))
 ---     assert(Json.encode_any(row) == '["a",null,"c"]')
 function Json.with_holes<T>(items: {integer: T}): {integer: T}?, string
+  local count, top = 0, 0
   for key in pairs(items) do
     if key < 1 then
       return refuse(("an array with holes has keys from 1 up, not %d"):format(key))
     end
+    count = count + 1
+    if key > top then top = key end
   end
   if getmetatable(items) ~= nil then
     return refuse("a table that has a metatable already cannot be marked as an array with holes")
   end
-  return raw.with_holes(items), ""
+  return raw.with_holes(items, top > count), ""
 end
 
 --- Classifies `t` as [`Json.layout`] says and, when `members` is true,

@@ -1759,12 +1759,14 @@ static int json_array (lua_State *L) {
   return 1;
 }
 
-/* with_holes(t): marks `t`, which has no metatable, as an array that
- * may have holes and answers it. */
+/* with_holes(t, holey): marks `t`, which has no metatable, as an array
+ * that may have holes when `holey` is true and as an array otherwise,
+ * and answers it. */
 static int json_with_holes (lua_State *L) {
   luaL_checktype(L, 1, LUA_TTABLE);
+  int holey = lua_toboolean(L, 2);
   lua_settop(L, 1);
-  luaL_setmetatable(L, HOLES_TYPE);
+  luaL_setmetatable(L, holey ? HOLES_TYPE : ARRAY_TYPE);
   return 1;
 }
 

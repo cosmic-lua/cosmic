@@ -61,8 +61,8 @@ local record json
   -- when `t` has another metatable.
   array: function(t?: {any}): {any}
   -- Marks `t`, a table with no metatable, as an array that may have
-  -- holes and answers it.
-  with_holes: function<T>(t: {integer: T}): {integer: T}
+  -- holes when `holey` is true, else as an array, and answers it.
+  with_holes: function<T>(t: {integer: T}, holey: boolean): {integer: T}
   -- Whether `v` is a table carrying either array mark.
   is_array: function(v: any): boolean
   -- The stand-in for JSON `null`: a userdata that encodes as `null`.
