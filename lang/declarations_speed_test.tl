@@ -14,14 +14,16 @@ Test.policy{}
 --- `source` parsed and scoped, to lower again and again.
 local function prepare(source: string): Declarations.Input
   local parsed = Parser.parse(Lexer.lex(source, "t.tl"), "t.tl", "tl")
-  assert(#parsed.errors == 0, parsed.errors[1] and parsed.errors[1].msg or "")
+  local first = parsed.errors[1]
+  assert(#parsed.errors == 0, if first ~= nil then first.msg else "" end)
   local scoped = Scopes.build(parsed.chunk, "t.tl", {})
   return { module = "t", filename = "t.tl", chunk = parsed.chunk, scoped = scoped, dialect = "tl" }
 end
 
 local function lower(input: Declarations.Input)
   local result = Declarations.new():lower(input)
-  assert(#result.errors == 0, result.errors[1] and result.errors[1].msg or "")
+  local first = result.errors[1]
+  assert(#result.errors == 0, if first ~= nil then first.msg else "" end)
 end
 
 local FORMS <const>: {string: function(n: integer): string} = {

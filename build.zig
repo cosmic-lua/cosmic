@@ -1580,7 +1580,11 @@ fn vendorLibraries(
     // patch/sqlite/ bounds the check of a damaged one. `carray` is on: a
     // table of the elements of a list a caller binds (core/sqlite.c), as
     // in `x IN carray(?1)`. It reads only an array bound from C, which SQL
-    // cannot forge, and core/sqlite.c binds a copy.
+    // cannot forge, and core/sqlite.c binds a copy. The ceiling on
+    // attached databases is SQLite's highest, 125, not its default of 10,
+    // so a connection can raise its limit past 10 (`handle:limit`);
+    // core/sqlite.c still opens each at 10. Past 30 SQLite keeps the set
+    // of databases a statement touches as a byte array, not a word.
     const sqlite_flags = [_][]const u8{
         "-std=c11",
         debug_dir,
@@ -1596,6 +1600,7 @@ fn vendorLibraries(
         "-DSQLITE_DEFAULT_WAL_SYNCHRONOUS=1",
         "-DSQLITE_LIKE_DOESNT_MATCH_BLOBS=1",
         "-DSQLITE_MAX_EXPR_DEPTH=0",
+        "-DSQLITE_MAX_ATTACHED=125",
         "-DSQLITE_USE_ALLOCA=1",
         "-DSQLITE_ENABLE_COLUMN_METADATA=1",
         "-DSQLITE_ENABLE_DBSTAT_VTAB=1",

@@ -231,7 +231,8 @@ local function test_the_type_report_covers_chains_calls_and_the_values_of_a_call
   local called = types[value_of(run, 2).id]
   assert(called ~= nil and called.tag == "integer", "the first value of the call")
   local measured = value_of(run, 3)
-  assert(types[measured.id] ~= nil and types[measured.id].tag == "integer", "#r.names")
+  local length = types[measured.id]
+  assert(length ~= nil and length.tag == "integer", "#r.names")
   assert((measured.kind == "Unary"))
   local names = types[measured.operand.id]
   assert(names ~= nil and names.tag == "array", "r.names")

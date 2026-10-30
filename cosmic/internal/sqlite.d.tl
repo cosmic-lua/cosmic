@@ -154,8 +154,9 @@ local record sqlite
     --- `"compound_select"`, `"vdbe_op"`, `"function_arg"`,
     --- `"like_pattern_length"`, `"variable_number"`, `"trigger_depth"`,
     --- `"worker_threads"`), and answers the value it had. A negative
-    --- `value` changes nothing, so it reads the limit; a value above the
-    --- library's own ceiling is lowered to it. An unknown name raises.
+    --- `value` changes nothing, so it reads the limit. A value above the
+    --- library's own ceiling raises, naming the ceiling, as does an
+    --- unknown name. `"attached"` starts at 10 and may be raised to 125.
     limit: function(Handle, name: string, value: integer): integer
   end
 

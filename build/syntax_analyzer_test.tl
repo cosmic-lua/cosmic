@@ -3,6 +3,13 @@
 local Analyzer = require("build.syntax_analyzer")
 local Test = require("cosmic.test")
 
+--- The element of `list` at `index`, which the case knows is there.
+local function nth<T>(list: {T}, index: integer): T
+  local found = list[index]
+  assert(found ~= nil, "the list has an element at " .. tostring(index))
+  return found
+end
+
 Test.policy{}
 
 --- Joins lines the way a real source file would read.
@@ -227,8 +234,8 @@ local function test_a_policy_the_build_cannot_read_is_refused()
     { "a loopback that is not", lines('local Test = require("cosmic.test")', 'Test.policy{ loopback = { "10.0.0.1" } }') },
   }
   for _, case in ipairs(cases) do
-    local _, why = Analyzer.analyze(case[2], "fixture_test.tl")
-    assert(why:find("fixture_test.tl:", 1, true) == 1 and why:find(": test.policy: ", 1, true) ~= nil, case[1] .. ": " .. why)
+    local _, why = Analyzer.analyze(nth(case, 2), "fixture_test.tl")
+    assert(why:find("fixture_test.tl:", 1, true) == 1 and why:find(": test.policy: ", 1, true) ~= nil, nth(case, 1) .. ": " .. why)
   end
 end
 
@@ -259,9 +266,12 @@ local function test_a_classs_methods_are_documented_as_the_methods_the_fork_docu
   for _, entry in ipairs(found.docs) do
     by[entry.source_symbol] = entry
   end
-  assert(by["Stream"].kind == "record" and by["Stream"].exported, "a class is documented as a record")
-  assert(by["Stream.n"].kind == "field" and by["Stream.n"].text == "The count.")
-  assert(by["Stream.__close"].kind == "metamethod" and by["Stream.__close"].signature == "__close: function(self: Stream)")
+  local stream = assert(by["Stream"], "a class is documented")
+  assert(stream.kind == "record" and stream.exported, "a class is documented as a record")
+  local count = assert(by["Stream.n"], "a field is documented")
+  assert(count.kind == "field" and count.text == "The count.")
+  local close = assert(by["Stream.__close"], "a metamethod is documented")
+  assert(close.kind == "metamethod" and close.signature == "__close: function(self: Stream)")
   local read = by["Stream:read"]
   assert(read ~= nil and read.kind == "method" and read.symbol == "read" and read.exported and read.text == "Reads.")
   assert(read.signature == "function read(self, max: integer?): string?, string", read.signature)
@@ -288,10 +298,10 @@ local function test_a_catalog_message_is_read_as_the_source_means_it()
     "the first line break is the string's own]]",
     "end"))
   assert(#found.catalog == 3, tostring(#found.catalog))
-  assert(found.catalog[1].message == 'say "stop" here', found.catalog[1].message)
-  assert(found.catalog[2].message == "a long message", found.catalog[2].message)
+  assert(nth(found.catalog, 1).message == 'say "stop" here', nth(found.catalog, 1).message)
+  assert(nth(found.catalog, 2).message == "a long message", nth(found.catalog, 2).message)
   -- The line break that opens a long string is the string's own, not part of its value.
-  assert(found.catalog[3].message == "the first line break is the string's own", found.catalog[3].message)
+  assert(nth(found.catalog, 3).message == "the first line break is the string's own", nth(found.catalog, 3).message)
 end
 
 --- The translation writes a metatable's `__close` as a method of the class, which is a metamethod row as the field is.
@@ -340,8 +350,8 @@ local function test_a_comment_after_code_is_no_doc_comment_of_what_follows()
     "--- A doc.",
     "-- A note beside it.",
     "local function g() end"))
-  assert(found.docs[1].symbol == "f" and found.docs[1].text == "", found.docs[1].text)
-  assert(found.docs[2].symbol == "g" and found.docs[2].text == "A doc.", found.docs[2].text)
+  assert(nth(found.docs, 1).symbol == "f" and nth(found.docs, 1).text == "", nth(found.docs, 1).text)
+  assert(nth(found.docs, 2).symbol == "g" and nth(found.docs, 2).text == "A doc.", nth(found.docs, 2).text)
 end
 
 --- The head of a function is read to the token before its body, a comment in it left out.
@@ -357,8 +367,8 @@ local function test_a_signature_is_the_head_on_one_line()
     "  return a + b",
     "end",
     "local function g() end"))
-  assert(found.docs[2].signature == "function R.f(a: integer, b: integer): integer", found.docs[2].signature)
-  assert(found.docs[3].signature == "local function g()", found.docs[3].signature)
+  assert(nth(found.docs, 2).signature == "function R.f(a: integer, b: integer): integer", nth(found.docs, 2).signature)
+  assert(nth(found.docs, 3).signature == "local function g()", nth(found.docs, 3).signature)
 end
 
 --- The comment that opens a file is the module's, unless it ends right above a function, which it documents.

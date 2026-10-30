@@ -79,7 +79,8 @@ local function verb_help(verbs: {string}, binary_only?: boolean): {string: strin
       lines[#lines + 1] = "(cosmic.cli " .. symbol .. ": not found)"
     else
       lines[#lines + 1] = text
-      local options = require("cosmic.flags").options(Cli.verbs[verb].spec or {})
+      local command = Cli.verbs[verb]
+      local options = require("cosmic.flags").options(if command ~= nil then command.spec or {} else {} end)
       if options ~= "" then
         lines[#lines + 1] = options
       end
@@ -106,7 +107,7 @@ local function listed(names: {string}): string
   if #quoted < 2 then
     return table.concat(quoted)
   end
-  local last = table.remove(quoted)
+  local last = assert(table.remove(quoted))
   return table.concat(quoted, ", ") .. " and " .. last
 end
 
@@ -217,7 +218,9 @@ local function verb_text(verb: string, specs: {verb_spec.Spec}, docs?: string): 
   for _, candidate in ipairs(specs) do
     if candidate.name == verb then spec = candidate end
   end
-  return (docs or verb_help({ verb })[verb]) .. "\n" .. spec_notes(verb, spec)
+  local text = docs or verb_help({ verb })[verb]
+  assert(text, "verb_help answers each verb it is asked")
+  return text .. "\n" .. spec_notes(verb, spec)
 end
 
 --- The verbs spelled as options, by that spelling.
@@ -240,7 +243,7 @@ local function usage_line(verb: string): string
   end
   local words: mut {string} = { "cosmic" }
   if typed ~= "" then words[#words + 1] = typed end
-  local command = require("cosmic.cli").verbs[verb]
+  local command = assert(require("cosmic.cli").verbs[verb], "the index lists the verbs of Cli.verbs")
   local usage = command.usage
   if usage == nil then
     local spec = command.spec
@@ -278,12 +281,13 @@ local function index_help(): string
   }
   for _, group in ipairs(Cli.groups) do
     lines[#lines + 1] = ""
-    lines[#lines + 1] = group[1] .. ":"
-    for slot = 2, #group do
-      local verb = group[slot]
-      local usage = usage_line(verb)
-      lines[#lines + 1] = "  " .. usage .. string.rep(" ", width - #usage + 2) ..
-        assert(Cli.verbs[verb].about)
+    lines[#lines + 1] = assert(group[1], "a group of Cli.groups opens with its title") .. ":"
+    for slot, verb in ipairs(group) do
+      if slot > 1 then
+        local usage = usage_line(verb)
+        local command = assert(Cli.verbs[verb], "a grouped verb is one of Cli.verbs")
+        lines[#lines + 1] = "  " .. usage .. string.rep(" ", width - #usage + 2) .. assert(command.about)
+      end
     end
   end
   for _, line in ipairs({
@@ -481,9 +485,11 @@ local function run(file: string, argv: {string}): integer
   local arguments: mut {integer: string} = {}
   arguments[0] = file
   local slot = 2
-  while argv[slot] ~= nil do
-    arguments[slot - 1] = argv[slot]
+  local given = argv[slot]
+  while given ~= nil do
+    arguments[slot - 1] = given
     slot = slot + 1
+    given = argv[slot]
   end
   -- The file's top level, which `require` hands its own name and loader
   -- data as `...`, finds its words in `arg`, as `lua file a b` gives them.
@@ -503,8 +509,9 @@ local function version(argv: {string}): integer
   local Fs = require("cosmic.fs")
   local Hash = require("cosmic.hash")
   local Proc = require("cosmic.proc")
-  if argv[2] ~= nil then
-    log:complain("--version takes nothing after it, not " .. argv[2])
+  local extra = argv[2]
+  if extra ~= nil then
+    log:complain("--version takes nothing after it, not " .. extra)
     return 2
   end
   local path, path_trouble = Proc.executable()
@@ -572,9 +579,11 @@ local function evaluate(argv: {string}): integer
   end
   local arguments: mut {string} = {}
   local slot = 3
-  while argv[slot] ~= nil do
-    arguments[#arguments + 1] = argv[slot]
+  local given = argv[slot]
+  while given ~= nil do
+    arguments[#arguments + 1] = given
     slot = slot + 1
+    given = argv[slot]
   end
   return exit_status.of("-e", (loaded(table.unpack(arguments))))
 end
@@ -609,10 +618,11 @@ local function help(argv: {string}, asked: string?): integer
   if code ~= nil then
     return code
   end
-  local words: {string} = { asked }
+  local words: {string} = if asked ~= nil then { asked } else {} end
   if asked == nil then
     local line = argv
-    local spelled = argv[2] ~= nil and as_option[argv[2]] or nil
+    local second = argv[2]
+    local spelled = if second ~= nil then as_option[second] else nil end
     if spelled ~= nil then
       -- A verb spelled as an option (`cosmic --standalone <file>`,
       -- `cosmic -e <chunk>`) is asked about by either spelling.
@@ -631,24 +641,26 @@ local function help(argv: {string}, asked: string?): integer
     log:complain("help: one verb at a time, not " .. tostring(#words))
     return 2
   end
-  if #words == 1 then
-    local known = words[1] == "exit"
+  local requested = words[1]
+  if #words == 1 and requested ~= nil then
+    local known = requested == "exit"
     for _, verb in ipairs(Cli.order) do
-      if verb == words[1] then
+      if verb == requested then
         known = true
         break
       end
     end
     if not known then
-      log:complain("help: no such verb: " .. words[1])
+      log:complain("help: no such verb: " .. requested)
       return 2
     end
     local specs = verb_list.specs()
-    specs[#specs + 1] = help_spec
-    if words[1] == "exit" then
+    local own_help = assert(help_spec, "help's spec is set before a verb is dispatched")
+    specs[#specs + 1] = own_help
+    if requested == "exit" then
       log:say(exit_help(specs))
     else
-      log:say(verb_text(words[1], specs) .. "\n")
+      log:say(verb_text(requested, specs) .. "\n")
     end
     local _, _ = logger.summary("help", "1 verb, " .. clock.took(started))
     return 0
@@ -717,7 +729,8 @@ local function help_texts(): {string: string}
   local Cli = require("cosmic.cli")
   local verb_list = require("build.verb_list")
   local specs = verb_list.specs()
-  specs[#specs + 1] = help_spec
+  local own_help = assert(help_spec, "help's spec is set before a verb is dispatched")
+  specs[#specs + 1] = own_help
   local out: mut {string: string} = { [""] = index_help(), exit = exit_help(specs) }
   local texts = verb_help(Cli.order)
   for _, verb in ipairs(Cli.order) do
@@ -763,10 +776,8 @@ function Dispatch.main(argv: {string}): integer
   -- have no build directory to write.
   if word ~= nil and word:sub(-3) == ".tl" and require("cosmic.env").get("COSMIC_STANDALONE") == "1" then
     local shifted: mut {string} = { "--standalone" }
-    local slot = 1
-    while argv[slot] ~= nil do
-      shifted[#shifted + 1] = argv[slot]
-      slot = slot + 1
+    for _, given in ipairs(argv) do
+      shifted[#shifted + 1] = given
     end
     return require("build.standalone").run(shifted, "this file ran as --standalone, which " ..
         "finds only cosmic.* modules, because COSMIC_STANDALONE=1 (as under `cosmic sandbox " ..
@@ -778,10 +789,7 @@ function Dispatch.main(argv: {string}): integer
   local Fs = require("cosmic.fs")
   local String = require("cosmic.string")
   local sys = require("cosmic.sys")
-  local verb = word
-  if word == nil or word == "-h" or word == "--help" then
-    verb = "help"
-  end
+  local verb = if word == nil or word == "-h" or word == "--help" then "help" else word end
   local chosen = spec_of(verb)
   -- TODO: dispatch through Flags.dispatch, with each verb a Flags.Command
   -- whose `run` takes the Flags.Parsed. It waits on two things in Flags.
@@ -793,14 +801,17 @@ function Dispatch.main(argv: {string}): integer
   -- (`cosmic <file.tl> args`, whose program arguments Flags.parse would
   -- refuse as options) and `-e`, `--standalone` and `--version` are
   -- verbs by no command name.
-  local options = chosen ~= nil and Cli.verbs[verb].spec or {}
+  local command = Cli.verbs[verb]
+  local options = if chosen ~= nil and command ~= nil then command.spec or {} else {} end
   -- The words of a program a verb runs are not the verb's to read.
   local own = argv
   if chosen ~= nil and chosen.program_slot ~= nil then
     local at = chosen.program_slot(argv)
     if at ~= nil then
       own = {}
-      for slot = 1, at - 1 do own[slot] = argv[slot] end
+      for slot, given in ipairs(argv) do
+        if slot < at then own[slot] = given end
+      end
     end
   end
   if chosen ~= nil and verb ~= "help" and Flags.asks_help(own, 2, options) then

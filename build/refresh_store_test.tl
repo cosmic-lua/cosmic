@@ -24,6 +24,13 @@ local refresh = require("build.refresh")
 local Clock = require("cosmic.clock")
 local build_paths = require("build.paths")
 
+--- The element of `list` at `index`, which the case knows is there.
+local function nth<T>(list: {T}, index: integer): T
+  local found = list[index]
+  assert(found ~= nil, "the list has an element at " .. tostring(index))
+  return found
+end
+
 --- The vendored bundle and zones a refresh replaces, and this program,
 --- whose core a program it builds runs on.
 --- `store`: [`embed.database`] reads every `cosmic.*` module's rows, and
@@ -77,6 +84,11 @@ local function rows(db: Sqlite.Handle, sql: string): Sqlite.Rows
   return (assert(Sqlite.text_rows(db, sql)))
 end
 
+--- The first row `sql` selects from `db`, which the case knows is there.
+local function first_row(db: Sqlite.Handle, sql: string): Sqlite.Row
+  return nth(rows(db, sql), 1)
+end
+
 --- The roots the artifact at `path` carries, as a PEM bundle of their
 --- labels and certificates, in its order.
 local function carried_pem(path: string): string
@@ -103,7 +115,8 @@ local function sdist(path: string, version: string, files: {string:string})
   end
   table.sort(names)
   for _, name in ipairs(names) do
-    assert(w:add_file(("tzdata-%s/src/tzdata/%s"):format(version, name), files[name]))
+    local data = assert(files[name], name .. " is a file of the archive")
+    assert(w:add_file(("tzdata-%s/src/tzdata/%s"):format(version, name), data))
   end
   assert(w:close())
   assert(Fs.write(path, (assert(Compress.deflate("gzip", out:result())))))
@@ -125,7 +138,7 @@ local function test_the_carried_bundle_makes_the_same_binary(tmp: string)
   local path = program(tmp)
   local out = tmp .. "/refreshed"
   local lines = assert(refresh.binary(path, out, { datasets.cacert }, { cacert = bundle }))
-  assert(lines[1]:find("(as it was)", 1, true), lines[1])
+  assert(nth(lines, 1):find("(as it was)", 1, true), lines[1])
   assert(Fs.read(out) == Fs.read(path), "a refresh to the carried release changed the binary")
 end
 
@@ -150,14 +163,15 @@ local function test_a_new_bundle_replaces_the_roots(tmp: string)
   local file = tmp .. "/smaller.txt"
   assert(Fs.write(file, smaller))
   local before = carried(path)
-  local count = math.tointeger(tonumber(rows(before, "SELECT count(*) FROM ca_roots")[1]:text(1)))
+  local count = assert(math.tointeger(tonumber(first_row(before, "SELECT count(*) FROM ca_roots"):text(1))),
+    "the root count is an integer")
   assert(before:close())
 
   local out = tmp .. "/refreshed"
   assert(refresh.binary(path, out, { datasets.cacert }, { cacert = file }))
   local after = carried(out)
-  assert(rows(after, "SELECT count(*) FROM ca_roots")[1]:text(1) == tostring(count - 1))
-  local component = rows(after, "SELECT version, url, sha256 FROM components WHERE name = 'cacert'")[1]
+  assert(first_row(after, "SELECT count(*) FROM ca_roots"):text(1) == tostring(count - 1))
+  local component = first_row(after, "SELECT version, url, sha256 FROM components WHERE name = 'cacert'")
   -- certdata.txt names no version of its own.
   assert(component:text(1) == "sha256:" .. Hash.hex_sha256(smaller):sub(1, 12), component:text(1))
   assert(component:text(2) == "file:smaller.txt", component:text(2))
@@ -184,16 +198,16 @@ local function test_a_tzdata_sdist_replaces_the_zones(tmp: string)
 
   local out = tmp .. "/refreshed"
   local lines = assert(refresh.binary(path, out, { datasets.tzdata }, { tzdata = archive }))
-  assert(lines[1]:find("-> 2099.1", 1, true), lines[1])
+  assert(nth(lines, 1):find("-> 2099.1", 1, true), lines[1])
   local before = carried(path)
   local after = carried(out)
   local query = "SELECT rowid, name, hex(sha256(data)) FROM zoneinfo ORDER BY rowid"
   local was, now = rows(before, query), rows(after, query)
   assert(#now == #was, tostring(#now) .. " zones, not " .. tostring(#was))
   for i, row in ipairs(was) do
-    assert(now[i]:text(1) == row:text(1) and now[i]:text(2) == row:text(2) and now[i]:text(3) == row:text(3), row:text(2))
+    assert(nth(now, i):text(1) == row:text(1) and nth(now, i):text(2) == row:text(2) and nth(now, i):text(3) == row:text(3), row:text(2))
   end
-  local component = rows(after, "SELECT version, sha256 FROM components WHERE name = 'tzdata'")[1]
+  local component = first_row(after, "SELECT version, sha256 FROM components WHERE name = 'tzdata'")
   assert(component:text(1) == "2099.1", component:text(1))
   assert(component:text(2) == Hash.hex_sha256((assert(Fs.read(archive)))), component:text(2))
   assert(before:close())
@@ -223,7 +237,7 @@ local function test_a_bad_release_writes_nothing(tmp: string)
   assert(Fs.write(mixed, (assert(Fs.read(pem))) .. carried_pem(path)))
   lines, trouble = refresh.binary(path, out, { datasets.cacert }, { cacert = mixed })
   assert(lines ~= nil, trouble)
-  assert(lines[1]:find("left out certificate 1 (Bad)", 1, true), lines[1])
+  assert(nth(lines, 1):find("left out certificate 1 (Bad)", 1, true), lines[1])
   local after = carried(out)
   local want = carried(path)
   local query = "SELECT hex(sha256), label FROM ca_roots ORDER BY rowid"

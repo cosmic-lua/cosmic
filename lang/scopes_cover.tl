@@ -71,8 +71,12 @@ local function survey(chunk: Ast.Chunk): Found
       children[#children + 1] = child
       parents[base_of(child).id] = node
     end)
-    for i = #children, 1, -1 do
-      stack[#stack + 1] = children[i]
+    while true do
+      local child = table.remove(children)
+      if child == nil then
+        break
+      end
+      stack[#stack + 1] = child
     end
   end
   return found
@@ -108,8 +112,11 @@ function Cover.check(chunk: Ast.Chunk, scoped: Scopes.Scoped, declared: {string:
       return false, "the variable `" .. v.name .. "` at token " .. tostring(v.declared) .. " is assigned only if it has writes"
     end
     local copies = v.copies
-    if copies ~= nil and (vars[copies] == nil or vars[copies].name ~= v.name) then
-      return false, "the variable `" .. v.name .. "` copies a variable of another name"
+    if copies ~= nil then
+      local source = vars[copies]
+      if source == nil or source.name ~= v.name then
+        return false, "the variable `" .. v.name .. "` copies a variable of another name"
+      end
     end
     local held = by_name[v.name] or {}
     held[#held + 1] = v
@@ -146,7 +153,8 @@ function Cover.check(chunk: Ast.Chunk, scoped: Scopes.Scoped, declared: {string:
         end
       end
       local id = scoped.resolved[n.id]
-      local place = "the name `" .. n.text .. "` at " .. tokens.y[at] .. ":" .. tostring(Lexer.x(tokens, at))
+      local line = assert(tokens.y[at], "the first token of a name is a token of the file")
+      local place = "the name `" .. n.text .. "` at " .. tostring(line) .. ":" .. tostring(Lexer.x(tokens, at))
       if best ~= nil then
         if n.binding ~= best.id or id ~= best.id then
           return false, place .. " is not bound to the variable declared at token " .. tostring(best.declared)
