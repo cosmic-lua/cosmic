@@ -2,7 +2,6 @@
 --- reads it whole: the same values, however the stream splits the text,
 --- the same refusals, placed by line, column and path.
 
-local Cell = require("cosmic.cell")
 local Clock = require("cosmic.clock")
 local Json = require("cosmic.json")
 local Stream = require("cosmic.stream")
@@ -702,11 +701,11 @@ end
 --- chunks, to tell `nan` from `null`.
 local function test_an_n_waits_for_its_next_byte()
   local chunks = { "[", "n", "", "", "an", "]" }
-  local at: Cell<integer> = { value = 0 }
+  local at: integer = 0
   local source: Stream.Reader = {
     read = function(_self: Stream.Reader, _max?: integer): string?, string
-      at.value = at.value + 1
-      return chunks[at.value], ""
+      at = at + 1
+      return chunks[at], ""
     end,
     close = function(_self: Stream.Reader): boolean, string return true, "" end,
   }

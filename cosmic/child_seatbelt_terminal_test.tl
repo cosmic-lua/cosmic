@@ -8,7 +8,6 @@
 --- open did not already acquire it, which a fresh pty's does, so no test
 --- reaches it; the open's acquisition is what these tests show.
 
-local Cell = require("cosmic.cell")
 local Child = require("cosmic.child")
 local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
@@ -99,14 +98,14 @@ local function on_pty(binary: string, streams: {integer}, policy?: Sandbox.Polic
   -- Darwin drops what a slave wrote and the master had not read when the
   -- slave's last descriptor closes, which a child that writes and exits at
   -- once would cause: this holds the slave until all is read.
-  local said: Cell<string> = { value = "" }
+  local said: string = ""
   local function read_some(wait_ns: integer): boolean
     local ready, _ = Poll.readable(started.master, wait_ns)
     if not ready then return false end
     local data, _ = sys.read(started.master, 4096)
     if data == nil then return false end
     if data == "" then return false end
-    said.value = said.value .. data
+    said = said .. data
     return true
   end
   local result: Child.Result?
@@ -121,7 +120,7 @@ local function on_pty(binary: string, streams: {integer}, policy?: Sandbox.Polic
   while read_some(Clock.ms(200)) do end
   assert(sys.close(started.slave))
   assert(sys.close(started.master))
-  return (said.value:gsub("\r", "")), result
+  return (said:gsub("\r", "")), result
 end
 
 --- A policy that runs `binary` and grants nothing else.

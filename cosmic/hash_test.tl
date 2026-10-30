@@ -2,7 +2,6 @@
 --- test vectors, in Teal and in SQL alike, and that an algorithm
 --- nobody has heard of is refused rather than answered.
 
-local Cell = require("cosmic.cell")
 local Codec = require("cosmic.codec")
 local Hash = require("cosmic.hash")
 local Sqlite = require("cosmic.sqlite")
@@ -219,15 +218,15 @@ local function test_a_closed_incremental_hmac_is_finished()
 end
 
 local function test_an_incremental_hmac_revived_by_a_finalizer_is_finished()
-  local saved: Cell<Hash.Hasher?> = { value = nil }
+  local saved: Hash.Hasher? = nil
   local holder: Holder = setmetatable({} as Holder, {
-    __gc = function(self: Holder) saved.value = self.h end,
+    __gc = function(self: Holder) saved = self.h end,
   } as metatable<Holder>)
   holder.h = assert(Hash.hmac_hasher("sha256", "key"))
   holder = nil
   collectgarbage()
   collectgarbage()
-  local kept = assert(saved.value, "the finalizer ran")
+  local kept = assert(saved, "the finalizer ran")
   assert(not pcall(kept.update, kept, "abc"))
   assert(not pcall(kept.digest, kept))
 end
@@ -370,15 +369,15 @@ local function test_hasher_and_digest_carry_an_empty_error()
 end
 
 local function test_a_hasher_revived_by_a_finalizer_is_finished()
-  local saved: Cell<Hash.Hasher?> = { value = nil }
+  local saved: Hash.Hasher? = nil
   local holder: Holder = setmetatable({} as Holder, {
-    __gc = function(self: Holder) saved.value = self.h end,
+    __gc = function(self: Holder) saved = self.h end,
   } as metatable<Holder>)
   holder.h = assert(Hash.hasher("sha256"))
   holder = nil
   collectgarbage()
   collectgarbage()
-  local kept = assert(saved.value, "the finalizer ran")
+  local kept = assert(saved, "the finalizer ran")
   local ok, why = pcall(function(): any
     kept:update("abc")
     return nil

@@ -1,6 +1,5 @@
 --- A streamed child's queued bytes precede its terminal I/O failure.
 
-local Cell = require("cosmic.cell")
 local Child = require("cosmic.child")
 local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
@@ -52,22 +51,22 @@ local function test_a_read_failure_follows_queued_stdout_and_stderr()
     local reader = assert(child_fd == 1 and h.stdout_stream or h.stderr_stream)
     local fd = assert(h._streams)[1].fd
     local reason = "read: injected terminal failure"
-    local bytes: Cell<integer> = { value = 0 }
-    local refused: Cell<boolean> = { value = false }
+    local bytes: integer = 0
+    local refused: boolean = false
     patched(function()
       local read = sys.read
       sys.read = function(which: integer, count: integer): string?, string, integer
-        if which == fd and bytes.value == 6 then
-          refused.value = true
+        if which == fd and bytes == 6 then
+          refused = true
           return nil, reason, sys.EBADF
         end
         local data, trouble, errno = read(which, count)
-        if which == fd and data ~= nil then bytes.value = bytes.value + #data end
+        if which == fd and data ~= nil then bytes = bytes + #data end
         return data, trouble, errno
       end
       assert(assert(h:wait(Clock.seconds(5))).ok)
     end)
-    assert(refused.value and bytes.value == 6, "the fault must follow the real output")
+    assert(refused and bytes == 6, "the fault must follow the real output")
     prefix(reader)
     failed(reader, reason)
     assert(reader:close())
@@ -82,14 +81,14 @@ local function test_a_raw_poll_failure_follows_queued_bytes()
   local pipe = assert(h._streams)[1]
   local fd = pipe.fd
   local reason = "poll: injected terminal failure"
-  local refused: Cell<boolean> = { value = false }
+  local refused: boolean = false
   patched(function()
     local poll = sys.poll
     sys.poll = function(fds: {integer}, events: {integer}, ms: integer): {integer}?, string, integer
-      if pipe.size == 6 and not refused.value then
+      if pipe.size == 6 and not refused then
         for _, which in ipairs(fds) do
           if which == fd then
-            refused.value = true
+            refused = true
             return nil, reason, sys.EBADF
           end
         end
@@ -98,7 +97,7 @@ local function test_a_raw_poll_failure_follows_queued_bytes()
     end
     assert(assert(h:wait(Clock.seconds(5))).ok)
   end)
-  assert(refused.value, "the fault must follow the queued prefix")
+  assert(refused, "the fault must follow the queued prefix")
   local reader = assert(h.stdout_stream)
   prefix(reader)
   failed(reader, reason)
@@ -135,19 +134,19 @@ local function test_a_source_failure_does_not_replace_sticky_guard_cancellation(
   local pipe = assert(h._streams)[1]
   local fd = pipe.fd
   local reason = "read: cancelled by signal is only diagnostic text here"
-  local refused: Cell<boolean> = { value = false }
+  local refused: boolean = false
   patched(function()
     local read = sys.read
     sys.read = function(which: integer, count: integer): string?, string, integer
       if which == fd then
-        refused.value = true
+        refused = true
         return nil, reason, sys.EBADF
       end
       return read(which, count)
     end
     assert(h:wait(Clock.seconds(5)))
   end)
-  assert(refused.value and pipe.failure == reason, "the source owns its separate terminal failure")
+  assert(refused and pipe.failure == reason, "the source owns its separate terminal failure")
   failed(reader, cancellation)
 end
 
@@ -156,19 +155,19 @@ end
 local function test_transient_read_errors_leave_the_stream_readable()
   local h <close> = output(1)
   local fd = assert(h._streams)[1].fd
-  local transient: Cell<integer> = { value = 0 }
+  local transient: integer = 0
   patched(function()
     local read = sys.read
     sys.read = function(which: integer, count: integer): string?, string, integer
-      if which == fd and transient.value < 2 then
-        transient.value = transient.value + 1
-        return nil, "transient read", transient.value == 1 and sys.EAGAIN or sys.EINTR
+      if which == fd and transient < 2 then
+        transient = transient + 1
+        return nil, "transient read", transient == 1 and sys.EAGAIN or sys.EINTR
       end
       return read(which, count)
     end
     assert(assert(h:wait(Clock.seconds(5))).ok)
   end)
-  assert(transient.value == 2)
+  assert(transient == 2)
   local reader = assert(h.stdout_stream)
   prefix(reader)
   local chunk, trouble = reader:read()
@@ -181,24 +180,24 @@ local function test_a_failed_pump_does_not_close_a_reused_descriptor()
   local h <close> = output(1)
   local reader = assert(h.stdout_stream)
   local fd = assert(h._streams)[1].fd
-  local replacement: Cell<integer?> = { value = nil }
+  local replacement: integer? = nil
   local ok, why: boolean, any = pcall(function()
     patched(function()
       local poll = sys.poll
       sys.poll = function(fds: {integer}, events: {integer}, ms: integer): {integer}?, string, integer
-        if replacement.value ~= nil then return poll(fds, events, ms) end
+        if replacement ~= nil then return poll(fds, events, ms) end
         assert(reader:close())
-        replacement.value = assert(Fs.open_read("/dev/null"))
-        assert(replacement.value == fd, "the closed output's descriptor must be reused")
+        replacement = assert(Fs.open_read("/dev/null"))
+        assert(replacement == fd, "the closed output's descriptor must be reused")
         return nil, "poll: output closed during the wait", sys.EBADF
       end
       assert(h:try_wait())
     end)
-    assert(sys.fstat(assert(replacement.value)), "the stale pump closed the replacement descriptor")
+    assert(sys.fstat(assert(replacement)), "the stale pump closed the replacement descriptor")
     local chunk, trouble = reader:read()
     assert(chunk == nil and trouble == "child: the reader is closed", trouble)
   end)
-  local replacement_value = replacement.value
+  local replacement_value = replacement
   if replacement_value ~= nil then assert(Fs.close(replacement_value)) end
   assert(ok, tostring(why))
 end
