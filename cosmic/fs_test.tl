@@ -1,4 +1,3 @@
-local Cell = require("cosmic.cell")
 local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
 local Test = require("cosmic.test")
@@ -63,7 +62,7 @@ local function test_interleaved_writers_have_distinct_temporary_files(tmp: strin
   local real_open_temporary = sys.open_temporary
   local real_write = sys.write
   local temporaries: mut {string} = {}
-  local nested: Cell<boolean> = { value = false }
+  local nested: boolean = false
   sys.open_temporary = function(destination: string, mode?: integer): sys.TemporaryFile?, string, integer
     local file, trouble, number = real_open_temporary(destination, mode)
     if file ~= nil then
@@ -72,8 +71,8 @@ local function test_interleaved_writers_have_distinct_temporary_files(tmp: strin
     return file, trouble, number
   end
   sys.write = function(fd: integer, data: string): integer?, string, integer
-    if not nested.value then
-      nested.value = true
+    if not nested then
+      nested = true
       assert(Fs.write(path, "inner"))
     end
     return real_write(fd, data)
@@ -90,11 +89,11 @@ local function test_write_failure_preserves_destination_and_cleans_its_temp(tmp:
   local path = tmp .. "/target"
   assert(Fs.write(path, "old"))
   local real_write = sys.write
-  local created: Cell<string> = { value = "" }
+  local created: string = ""
   local real_open_temporary = sys.open_temporary
   sys.open_temporary = function(destination: string, mode?: integer): sys.TemporaryFile?, string, integer
     local file, trouble, number = real_open_temporary(destination, mode)
-    if file ~= nil then created.value = file.path end
+    if file ~= nil then created = file.path end
     return file, trouble, number
   end
   sys.write = function(_fd: integer, _data: string): integer?, string, integer
@@ -105,7 +104,7 @@ local function test_write_failure_preserves_destination_and_cleans_its_temp(tmp:
   sys.open_temporary = real_open_temporary
   assert(not ok and trouble == path .. ": injected write failure", trouble)
   assert(Fs.read(path) == "old")
-  assert(created.value ~= "" and Fs.exists(created.value) == false)
+  assert(created ~= "" and Fs.exists(created) == false)
 end
 
 local function test_close_failure_preserves_destination_and_cleans_its_temp(tmp: string)
@@ -113,18 +112,18 @@ local function test_close_failure_preserves_destination_and_cleans_its_temp(tmp:
   assert(Fs.write(path, "old"))
   local real_close = sys.close
   local real_open_temporary = sys.open_temporary
-  local created: Cell<string> = { value = "" }
-  local injected_fd: Cell<integer> = { value = -1 }
+  local created: string = ""
+  local injected_fd: integer = -1
   sys.open_temporary = function(destination: string, mode?: integer): sys.TemporaryFile?, string, integer
     local file, trouble, number = real_open_temporary(destination, mode)
     if file ~= nil then
-      created.value = file.path
-      injected_fd.value = file.fd
+      created = file.path
+      injected_fd = file.fd
     end
     return file, trouble, number
   end
   sys.close = function(fd: integer): boolean, string, integer
-    if fd == injected_fd.value then
+    if fd == injected_fd then
       real_close(fd)
       return false, "injected close failure", 0
     end
@@ -136,7 +135,7 @@ local function test_close_failure_preserves_destination_and_cleans_its_temp(tmp:
   sys.open_temporary = real_open_temporary
   assert(not ok and trouble == path .. ": injected close failure", trouble)
   assert(Fs.read(path) == "old")
-  assert(created.value ~= "" and Fs.exists(created.value) == false)
+  assert(created ~= "" and Fs.exists(created) == false)
 end
 
 local function test_rename_failure_preserves_destination_and_cleans_its_temp(tmp: string)
@@ -144,10 +143,10 @@ local function test_rename_failure_preserves_destination_and_cleans_its_temp(tmp
   assert(Fs.write(path, "old"))
   local real_rename = sys.rename
   local real_open_temporary = sys.open_temporary
-  local created: Cell<string> = { value = "" }
+  local created: string = ""
   sys.open_temporary = function(destination: string, mode?: integer): sys.TemporaryFile?, string, integer
     local file, trouble, number = real_open_temporary(destination, mode)
-    if file ~= nil then created.value = file.path end
+    if file ~= nil then created = file.path end
     return file, trouble, number
   end
   sys.rename = function(_from: string, _to: string): boolean, string, integer
@@ -158,7 +157,7 @@ local function test_rename_failure_preserves_destination_and_cleans_its_temp(tmp
   sys.open_temporary = real_open_temporary
   assert(not ok and trouble == path .. ": injected rename failure", trouble)
   assert(Fs.read(path) == "old")
-  assert(created.value ~= "" and Fs.exists(created.value) == false)
+  assert(created ~= "" and Fs.exists(created) == false)
 end
 
 --- A file begun with `create` is a stage of `write`: nothing is at the
@@ -558,13 +557,13 @@ local function test_read_takes_a_file_in_the_one_read_its_size_asks_for(tmp: str
   local data = string.rep("0123456789abcdef", 20000)
   assert(Fs.write(path, data))
   local real_read = sys.read
-  local reads: Cell<integer> = { value = 0 }
+  local reads: integer = 0
   sys.read = function(fd: integer, count: integer): string?, string, integer
-    reads.value = reads.value + 1
+    reads = reads + 1
     return real_read(fd, count)
   end
   local read, trouble = Fs.read(path)
-  local file_reads = reads.value
+  local file_reads = reads
   sys.read = real_read
   assert(read == data, trouble)
   assert(file_reads == 2, "one read for the bytes and one for the end, not " .. tostring(file_reads))

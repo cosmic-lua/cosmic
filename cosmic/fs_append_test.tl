@@ -1,4 +1,3 @@
-local Cell = require("cosmic.cell")
 local Fs = require("cosmic.fs")
 local sys = require("cosmic.sys")
 
@@ -56,87 +55,87 @@ local function test_append_completes_short_writes(tmp: string)
   local path = tmp .. "/log"
   assert(Fs.write(path, "before"))
   local real_write = sys.write
-  local writes: Cell<integer> = { value = 0 }
+  local writes: integer = 0
   sys.write = function(fd: integer, data: string): integer?, string, integer
-    writes.value = writes.value + 1
+    writes = writes + 1
     return real_write(fd, data:sub(1, 2))
   end
   local ok, why = Fs.append(path, "abcdefg")
   sys.write = real_write
-  assert(ok and why == "" and writes.value == 4)
+  assert(ok and why == "" and writes == 4)
   assert(Fs.read(path) == "beforeabcdefg")
 end
 
 local function test_append_zero_progress_closes_once(tmp: string)
   local real_write, real_close = sys.write, sys.close
-  local closes: Cell<integer> = { value = 0 }
+  local closes: integer = 0
   sys.write = function(_fd: integer, _data: string): integer?, string, integer
     return 0, "", 0
   end
   sys.close = function(fd: integer): boolean, string, integer
-    closes.value = closes.value + 1
+    closes = closes + 1
     return real_close(fd)
   end
   local path = tmp .. "/log"
   local ok, why = Fs.append(path, "data")
   sys.write, sys.close = real_write, real_close
   assert(not ok and why == path .. ": write made no progress", why)
-  assert(closes.value == 1 and Fs.read(path) == "")
+  assert(closes == 1 and Fs.read(path) == "")
 end
 
 local function test_append_partial_failure_keeps_prefix_and_first_error(tmp: string)
   local path = tmp .. "/log"
   assert(Fs.write(path, "before"))
   local real_write, real_close = sys.write, sys.close
-  local writes: Cell<integer> = { value = 0 }
-  local closes: Cell<integer> = { value = 0 }
+  local writes: integer = 0
+  local closes: integer = 0
   sys.write = function(fd: integer, data: string): integer?, string, integer
-    writes.value = writes.value + 1
-    if writes.value == 1 then return real_write(fd, data:sub(1, 2)) end
+    writes = writes + 1
+    if writes == 1 then return real_write(fd, data:sub(1, 2)) end
     return nil, "write refused", 0
   end
   sys.close = function(fd: integer): boolean, string, integer
-    closes.value = closes.value + 1
+    closes = closes + 1
     assert(real_close(fd))
     return false, "close refused", 0
   end
   local ok, why = Fs.append(path, "abcdef")
   sys.write, sys.close = real_write, real_close
   assert(not ok and why == path .. ": write refused", why)
-  assert(closes.value == 1 and Fs.read(path) == "beforeab")
+  assert(closes == 1 and Fs.read(path) == "beforeab")
 end
 
 local function test_append_close_failure_does_not_retry_a_recycled_descriptor(tmp: string)
   local path = tmp .. "/log"
   local real_close = sys.close
-  local closes: Cell<integer> = { value = 0 }
-  local recycled: Cell<integer> = { value = -1 }
+  local closes: integer = 0
+  local recycled: integer = -1
   sys.close = function(fd: integer): boolean, string, integer
-    closes.value = closes.value + 1
+    closes = closes + 1
     assert(real_close(fd))
-    recycled.value = assert(sys.open(tmp .. "/other", sys.O_WRONLY | sys.O_CREAT, 0x180))
+    recycled = assert(sys.open(tmp .. "/other", sys.O_WRONLY | sys.O_CREAT, 0x180))
     return false, "close refused", 0
   end
   local ok, why = Fs.append(path, "data")
   sys.close = real_close
-  local written = sys.write(recycled.value, "still open")
-  assert(sys.close(recycled.value))
+  local written = sys.write(recycled, "still open")
+  assert(sys.close(recycled))
   assert(not ok and why == path .. ": close refused", why)
-  assert(closes.value == 1 and written == 10 and Fs.read(path) == "data")
+  assert(closes == 1 and written == 10 and Fs.read(path) == "data")
 end
 
 local function test_append_raising_write_releases_descriptor_and_keeps_exception(tmp: string)
   local real_write, real_close = sys.write, sys.close
-  local closes: Cell<integer> = { value = 0 }
+  local closes: integer = 0
   local marker = {}
   sys.write = function(_fd: integer, _data: string): integer?, string, integer
     error(marker)
   end
   sys.close = function(fd: integer): boolean, string, integer
-    closes.value = closes.value + 1
+    closes = closes + 1
     return real_close(fd)
   end
   local ok, why = pcall(Fs.append, tmp .. "/log", "data")
   sys.write, sys.close = real_write, real_close
-  assert(not ok and why == marker and closes.value == 1)
+  assert(not ok and why == marker and closes == 1)
 end

@@ -2,7 +2,6 @@
 --- and refuse corrupt or truncated input rather than answering with
 --- something wrong.
 
-local Cell = require("cosmic.cell")
 local Codec = require("cosmic.codec")
 local Compress = require("cosmic.compress")
 local Sqlite = require("cosmic.sqlite")
@@ -493,9 +492,9 @@ end
 
 local function test_a_stream_revived_by_a_finalizer_is_finished()
   for _, case in ipairs(every_kind()) do
-    local saved: Cell<Compress.Stream?> = { value = nil }
+    local saved: Compress.Stream? = nil
     local holder: Holder = setmetatable({} as Holder, {
-      __gc = function(self: Holder) saved.value = self.s end,
+      __gc = function(self: Holder) saved = self.s end,
     } as metatable<Holder>)
     holder.s = case.stream
     -- The stream is collected in the same cycle as the table whose
@@ -505,7 +504,7 @@ local function test_a_stream_revived_by_a_finalizer_is_finished()
     holder = nil
     collectgarbage()
     collectgarbage()
-    local kept = assert(saved.value, "the finalizer ran")
+    local kept = assert(saved, "the finalizer ran")
     local ok, why = pcall(kept.update, kept, case.chunk)
     assert(not ok and tostring(why):find("compress: the stream is finished", 1, true), tostring(why))
     assert(not pcall(kept.finish, kept))

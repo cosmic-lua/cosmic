@@ -1,4 +1,3 @@
-local Cell = require("cosmic.cell")
 local Channel = require("cosmic.channel")
 local Clock = require("cosmic.clock")
 local Poll = require("cosmic.poll")
@@ -204,23 +203,23 @@ end
 local function test_a_receiver_that_loses_its_item_still_times_out_on_time()
   Poll.run(function()
     local queue: Channel.Queue<integer> = Channel.new()
-    local took: Cell<integer> = { value = 0 }
-    local why: Cell<string> = { value = "" }
+    local took: integer = 0
+    local why: string = ""
     local receiver = Poll.spawn(function()
       local start = Clock.monotonic_ns()
       local item, reason = queue:receive(Clock.ms(100))
       assert(item == nil)
-      why.value = reason
-      took.value = Clock.monotonic_ns() - start
+      why = reason
+      took = Clock.monotonic_ns() - start
     end)
     assert(Poll.delay(Clock.ms(30)))
     -- The send notices the receiver; the item is gone before it runs.
     assert(queue:send(1))
     assert(queue:receive() == 1)
     assert(receiver:join())
-    assert(why.value == Poll.TIMEOUT)
+    assert(why == Poll.TIMEOUT)
     -- A wait that began again with the whole timeout would end near 130 ms.
-    assert(took.value >= Clock.ms(95) and took.value < Clock.ms(120), "took " .. tostring(took.value))
+    assert(took >= Clock.ms(95) and took < Clock.ms(120), "took " .. tostring(took))
   end)
 end
 
@@ -228,22 +227,22 @@ local function test_a_sender_that_loses_its_room_still_times_out_on_time()
   Poll.run(function()
     local queue: Channel.Queue<integer> = Channel.new({ capacity = 1 })
     assert(queue:send(0))
-    local took: Cell<integer> = { value = 0 }
-    local why: Cell<string> = { value = "" }
+    local took: integer = 0
+    local why: string = ""
     local sender = Poll.spawn(function()
       local start = Clock.monotonic_ns()
       local ok, reason = queue:send(1, Clock.ms(100))
       assert(not ok)
-      why.value = reason
-      took.value = Clock.monotonic_ns() - start
+      why = reason
+      took = Clock.monotonic_ns() - start
     end)
     assert(Poll.delay(Clock.ms(30)))
     -- The receive notices the sender; the room is gone before it runs.
     assert(queue:receive() == 0)
     assert(queue:try_send(2))
     assert(sender:join())
-    assert(why.value == Poll.TIMEOUT)
-    assert(took.value >= Clock.ms(95) and took.value < Clock.ms(120), "took " .. tostring(took.value))
+    assert(why == Poll.TIMEOUT)
+    assert(took >= Clock.ms(95) and took < Clock.ms(120), "took " .. tostring(took))
     assert(queue:len() == 1 and queue:receive() == 2)
   end)
 end
@@ -408,9 +407,9 @@ local function test_one_consumer_sees_each_producers_items_in_order()
 end
 
 local function test_a_queue_of_another_run_is_refused_when_it_waits()
-  local stale: Cell<Channel.Queue<integer>?> = { value = nil }
-  Poll.run(function() stale.value = Channel.new() end)
-  local other = assert(stale.value)
+  local stale: Channel.Queue<integer>? = nil
+  Poll.run(function() stale = Channel.new() end)
+  local other = assert(stale)
   Poll.run(function()
     raises(function() other:receive() end, "another run")
   end)
