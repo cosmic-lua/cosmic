@@ -85,13 +85,20 @@
 /* Hardware and assembly paths. AES-NI (x86_64) and the Armv8 crypto
  * extension (aarch64) are each picked at run time from what the CPU
  * reports, falling back to the portable C tables; the file for the
- * other architecture compiles to nothing. MBEDTLS_HAVE_ASM also enables
- * bignum's inline multiply-accumulate, and ECP_NIST_OPTIM the fast
- * reduction modulo the NIST primes. None of this depends on the build
- * machine, so two builds still produce the same bytes. */
+ * other architecture compiles to nothing. SHA-256 and SHA-512 on
+ * aarch64 are the same: the Armv8 SHA2 and SHA512 instructions where
+ * the CPU has them (the auxiliary vector on Linux, which static musl provides;
+ * sysctl on macOS), the portable C elsewhere. On x86_64 upstream has
+ * no SHA-256 instructions; patch/mbedtls adds them, chosen the same way.
+ * MBEDTLS_HAVE_ASM also enables bignum's inline multiply-accumulate,
+ * and ECP_NIST_OPTIM the fast reduction modulo the NIST primes. None
+ * of this depends on the build machine, so two builds still produce
+ * the same bytes. */
 #define MBEDTLS_HAVE_ASM
 #define MBEDTLS_AESNI_C
 #define MBEDTLS_AESCE_C
+#define MBEDTLS_SHA256_USE_ARMV8_A_CRYPTO_IF_PRESENT
+#define MBEDTLS_SHA512_USE_A64_CRYPTO_IF_PRESENT
 #define MBEDTLS_ECP_NIST_OPTIM
 
 /* Wall-clock time: MBEDTLS_HAVE_TIME_DATE gates mbedtls_x509_time_gmtime()

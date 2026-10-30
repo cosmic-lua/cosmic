@@ -1,0 +1,104 @@
+file: tf-psa-crypto/drivers/builtin/src/sha256.c
+note: SHA-256 by the x86 SHA extensions (see 03-sha256-ni-select). The
+  function is compiled for "sha" by its own target attribute, so no
+  other code in the file may use the instructions, and it is called
+  only after cpuid says the processor has them: leaf 7 EBX bit 29, with
+  the SSSE3 and SSE4.1 its shuffles and blends need (leaf 1 ECX bits 9
+  and 19). They use XMM state only, so the operating system's saved
+  state is not asked. The processor's answer is cached without a lock;
+  racing threads store the same value. The K table and block size are
+  the portable code's.
+--- find
+/*
+ * SHA-256 process buffer
+ */
+--- replace
+#if defined(COSMIC_SHA256_NI)
+
+/* State words are kept as ABEF and CDGH, the order the instructions take
+ * them in: `rnds2` does two rounds and `msg1`/`msg2` extend the schedule
+ * four words at a time. */
+__attribute__((target("sha,sse4.1,ssse3")))
+static size_t mbedtls_internal_sha256_process_many_ni(mbedtls_sha256_context *ctx,
+                                                      const uint8_t *data, size_t len)
+{
+    const __m128i byte_swap = _mm_set_epi64x(0x0c0d0e0f08090a0bLL, 0x0405060700010203LL);
+    __m128i tmp = _mm_shuffle_epi32(_mm_loadu_si128((const __m128i *) &ctx->state[0]), 0xB1);
+    __m128i cdgh = _mm_shuffle_epi32(_mm_loadu_si128((const __m128i *) &ctx->state[4]), 0x1B);
+    __m128i abef = _mm_alignr_epi8(tmp, cdgh, 8);
+    cdgh = _mm_blend_epi16(cdgh, tmp, 0xF0);
+    size_t processed = 0;
+
+    while (len - processed >= SHA256_BLOCK_SIZE) {
+        const __m128i abef_saved = abef;
+        const __m128i cdgh_saved = cdgh;
+        __m128i w[4];
+        for (int i = 0; i < 4; i++) {
+            w[i] = _mm_shuffle_epi8(_mm_loadu_si128((const __m128i *) (data + 16 * i)), byte_swap);
+        }
+#if defined(__clang__)
+#pragma clang loop unroll(full)
+#endif
+        for (int i = 0; i < 16; i++) {
+            if (i >= 4) {
+                /* Slot i & 3 holds W[i - 4], which this replaces with W[i]. */
+                const __m128i sum = _mm_add_epi32(
+                    _mm_sha256msg1_epu32(w[i & 3], w[(i + 1) & 3]),
+                    _mm_alignr_epi8(w[(i + 3) & 3], w[(i + 2) & 3], 4));
+                w[i & 3] = _mm_sha256msg2_epu32(sum, w[(i + 3) & 3]);
+            }
+            const __m128i msg = _mm_add_epi32(w[i & 3], _mm_loadu_si128((const __m128i *) &K[4 * i]));
+            cdgh = _mm_sha256rnds2_epu32(cdgh, abef, msg);
+            abef = _mm_sha256rnds2_epu32(abef, cdgh, _mm_shuffle_epi32(msg, 0x0E));
+        }
+        abef = _mm_add_epi32(abef, abef_saved);
+        cdgh = _mm_add_epi32(cdgh, cdgh_saved);
+        data += SHA256_BLOCK_SIZE;
+        processed += SHA256_BLOCK_SIZE;
+    }
+
+    tmp = _mm_shuffle_epi32(abef, 0x1B);
+    cdgh = _mm_shuffle_epi32(cdgh, 0xB1);
+    _mm_storeu_si128((__m128i *) &ctx->state[0], _mm_blend_epi16(tmp, cdgh, 0xF0));
+    _mm_storeu_si128((__m128i *) &ctx->state[4], _mm_alignr_epi8(cdgh, tmp, 8));
+    return processed;
+}
+
+static int cosmic_sha256_has_ni(void)
+{
+    static int supported = -1;
+
+    if (supported < 0) {
+        unsigned int a, b, c, d;
+        int ni = __get_cpuid_count(7, 0, &a, &b, &c, &d) && ((b >> 29) & 1);
+        const unsigned int vector_bits = (1u << 9) | (1u << 19);
+        supported = ni && __get_cpuid(1, &a, &b, &c, &d) && (c & vector_bits) == vector_bits;
+    }
+    return supported;
+}
+
+static size_t mbedtls_internal_sha256_process_many(mbedtls_sha256_context *ctx,
+                                                   const uint8_t *msg, size_t len)
+{
+    if (cosmic_sha256_has_ni()) {
+        return mbedtls_internal_sha256_process_many_ni(ctx, msg, len);
+    }
+    return mbedtls_internal_sha256_process_many_c(ctx, msg, len);
+}
+
+static int mbedtls_internal_sha256_process(mbedtls_sha256_context *ctx,
+                                           const unsigned char data[SHA256_BLOCK_SIZE])
+{
+    if (cosmic_sha256_has_ni()) {
+        mbedtls_internal_sha256_process_many_ni(ctx, data, SHA256_BLOCK_SIZE);
+        return 0;
+    }
+    return mbedtls_internal_sha256_process_c(ctx, data);
+}
+
+#endif /* COSMIC_SHA256_NI */
+
+/*
+ * SHA-256 process buffer
+ */
+--- end
