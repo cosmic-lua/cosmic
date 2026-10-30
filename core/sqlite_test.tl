@@ -245,7 +245,8 @@ local function test_existing_only_open_keeps_sqlites_temporary_paths()
     local db = assert(Sqlite.open(path, { writable = true, create = false }))
     assert(db:exec("CREATE TABLE t (a); INSERT INTO t VALUES (42)"))
     local rows = assert(Sqlite.rows(db, "SELECT a FROM t"))
-    assert(rows[1]:integer(1) == 42)
+    local row = assert(rows[1], "the table holds a row")
+    assert(row:integer(1) == 42)
     assert(db:close())
   end
 end
@@ -428,7 +429,8 @@ local function test_an_immutable_open_names_the_path_it_was_given(tmp: string)
     assert(made:close())
     local read = assert(Sqlite.open(path, { immutable = true }), name)
     local rows = assert(Sqlite.text_rows(read, "SELECT v FROM t"))
-    assert(rows[1]:text(1) == name, name)
+    local row = assert(rows[1], name .. " holds a row")
+    assert(row:text(1) == name, name)
     assert(read:close())
   end
   -- The same names as relative paths, from the working directory, and one
@@ -443,12 +445,14 @@ local function test_an_immutable_open_names_the_path_it_was_given(tmp: string)
       break
     end
     local rows = Sqlite.text_rows(read, "SELECT v FROM t")
-    if rows == nil or rows[1]:text(1) ~= name then
+    local row: Sqlite.Row?
+    if rows ~= nil then row = rows[1] end
+    if row == nil or row:text(1) ~= name then
       trouble = name .. " read another file"
     end
     read:close()
   end
-  local dotted = Sqlite.open("../" .. (tmp:match("[^/]*$")) .. "/rel.db", { immutable = true })
+  local dotted = Sqlite.open("../" .. assert(tmp:match("[^/]*$"), "a path ends in a name") .. "/rel.db", { immutable = true })
   assert(sys.chdir(here))
   assert(trouble == nil, trouble)
   assert(dotted ~= nil and #assert(Sqlite.text_rows(dotted, "SELECT v FROM t")) == 1)
@@ -509,7 +513,7 @@ local function test_exec_result_does_not_retry_or_rollback_a_partial_batch()
   local handle = memory()
   assert(handle:exec("CREATE TABLE t (x)"))
   local result = handle:exec_result("INSERT INTO t VALUES (1); SELECT * FROM missing; INSERT INTO t VALUES (2)")
-  assert(result.code == 1 and result.reason:find("missing", 1, true))
+  assert(result.code == 1 and result.reason:find("missing", 1, true) ~= nil)
   local rows = assert(Sqlite.text_rows(handle, "SELECT x FROM t"))
   assert(#rows == 1 and rows[1]:text(1) == "1")
   local ok, reason = handle:exec("SELECT * FROM missing")

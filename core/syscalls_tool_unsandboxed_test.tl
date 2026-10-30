@@ -82,7 +82,7 @@ local function test_an_idmapped_bind_is_refused_without_a_user(tmp: string)
   assert(sys.mkdir(tmp .. "/closed", 0x1c0))
   local ok, trouble = pcall(process.spawn, probe, { probe }, nil, nil, nil, nil, nil, false, nil,
     { unveil = { reads = { probe }, writes = {}, binds = { { path = tmp .. "/closed", idmap = true } } } })
-  assert(not ok and tostring(trouble):find("idmap requires a user", 1, true), tostring(trouble))
+  assert(not ok and tostring(trouble):find("idmap requires a user", 1, true) ~= nil, tostring(trouble))
 end
 
 --- An unveiled path is absolute, and a name it is bound at is plain and
@@ -140,7 +140,7 @@ end
 --- end: it exits once this process closes the other end.
 local function test_an_exit_watch_is_readable_once_its_child_exits()
   local ok, raised = pcall(process.exit_watch, 0)
-  assert(not ok and tostring(raised):find("pid is out of range", 1, true), tostring(raised))
+  assert(not ok and tostring(raised):find("pid is out of range", 1, true) ~= nil, tostring(raised))
   local ends = assert(process.pipe())
   local started = this_program.program({ "-e",
     'local Fs = require("cosmic.fs") while assert(Fs.take(0, 4096)) ~= "" do end' })
@@ -153,7 +153,8 @@ local function test_an_exit_watch_is_readable_once_its_child_exits()
     "the watch was readable while its child ran")
   sys.close(ends.writer)
   local ready = assert(sys.poll({ watch }, { sys.POLLIN }, 30000))
-  assert(ready[1] & sys.POLLIN ~= 0, "the child's exit left its watch unreadable")
+  local watched = assert(ready[1], "the poll answers for the watch")
+  assert(watched & sys.POLLIN ~= 0, "the child's exit left its watch unreadable")
   assert(process.waitpid(pid, false))
   sys.close(watch)
   local none, _, errno = process.exit_watch(pid)
