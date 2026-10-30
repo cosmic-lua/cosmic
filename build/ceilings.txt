@@ -1076,7 +1076,7 @@ cosmic/child_test.tl nil_not_allowed 4
 
 cosmic/clock.tl nil_not_allowed 4
 
-cosmic/codec.tl nil_not_allowed 29
+cosmic/codec.tl nil_not_allowed 23
 
 cosmic/codec_test.tl nil_not_allowed 5
 
@@ -1228,9 +1228,9 @@ cosmic/relay/grant.tl nil_not_allowed 5
 
 cosmic/removed_test.tl nil_not_allowed 7
 
-cosmic/sandbox/init.tl nil_not_allowed 2
+cosmic/sandbox/init.tl nil_not_allowed 1
 
-cosmic/sandbox/policy.tl nil_not_allowed 3
+cosmic/sandbox/policy.tl nil_not_allowed 2
 
 cosmic/sandbox/seatbelt.tl nil_not_allowed 1
 
@@ -1266,7 +1266,7 @@ cosmic/stream_fd_test.tl nil_not_allowed 1
 
 cosmic/string.tl nil_not_allowed 1
 
-cosmic/tar.tl nil_not_allowed 6
+cosmic/tar.tl nil_not_allowed 2
 
 cosmic/tar_fuzz_test.tl nil_not_allowed 8
 
@@ -1304,7 +1304,7 @@ cosmic/test_policy_test.tl nil_not_allowed 11
 
 cosmic/test_test.tl nil_not_allowed 1
 
-cosmic/time.tl nil_not_allowed 77
+cosmic/time.tl nil_not_allowed 70
 
 cosmic/time_duration_fuzz_test.tl nil_not_allowed 1
 
@@ -1366,7 +1366,7 @@ cosmic/web/input_test.tl nil_not_allowed 24
 
 cosmic/web/middleware.tl nil_not_allowed 2
 
-cosmic/web/negotiate.tl nil_not_allowed 7
+cosmic/web/negotiate.tl nil_not_allowed 2
 
 cosmic/web/origin.tl nil_not_allowed 3
 

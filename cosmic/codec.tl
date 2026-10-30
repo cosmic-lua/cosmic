@@ -18,6 +18,8 @@
 ---     local text = Codec.base64("hello")      -- "aGVsbG8="
 ---     local bytes = assert(Codec.unbase64(text))
 
+local String = require("cosmic.string")
+
 local record Codec
 end
 
@@ -66,7 +68,7 @@ function Codec.unhex(s: string): string?, string
   end
   local at = s:find("[^0-9a-fA-F]")
   if at ~= nil then
-    return refuse(("byte 0x%02x at %d is not a hex digit"):format(s:byte(at), at))
+    return refuse(("byte 0x%02x at %d is not a hex digit"):format(String.byte_at(s, at), at))
   end
   return (s:gsub("..", byte_of_hex)), ""
 end
@@ -86,7 +88,7 @@ local function alphabet(chars: string, class: string): Alphabet
   local a: Alphabet = { char = {}, pair = {}, value = {}, class = class }
   for i = 1, 64 do
     a.char[i - 1] = chars:sub(i, i)
-    a.value[chars:byte(i)] = i - 1
+    a.value[String.byte_at(chars, i)] = i - 1
   end
   for v = 0, 4095 do
     a.pair[v] = a.char[v >> 6] .. a.char[v & 63]
@@ -116,12 +118,11 @@ local function encode(a: Alphabet, s: string, pad: boolean): string
   end
   local left = n - whole
   if left == 1 then
-    local v = s:byte(n) << 4
+    local v = String.byte_at(s, n) << 4
     out[k + 1] = pair[v]
     if pad then out[k + 2] = "==" end
   elseif left == 2 then
-    local b1, b2 = s:byte(n - 1, n)
-    local v = (b1 << 10) | (b2 << 2)
+    local v = (String.byte_at(s, n - 1) << 10) | (String.byte_at(s, n) << 2)
     out[k + 1] = pair[v >> 6]
     out[k + 2] = a.char[v & 63]
     if pad then out[k + 3] = "=" end
@@ -178,7 +179,7 @@ local function decode(a: Alphabet, s: string, padded: boolean, name: string): st
     if s:byte(at) == 61 then
       return refuse(("%s text has misplaced '=' padding at %d"):format(name, at))
     end
-    return refuse(("byte 0x%02x at %d is outside the %s alphabet"):format(s:byte(at), at, name))
+    return refuse(("byte 0x%02x at %d is outside the %s alphabet"):format(String.byte_at(s, at), at, name))
   end
   local value = a.value
   local out: mut {string} = {}
