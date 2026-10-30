@@ -390,7 +390,7 @@ local record Types
     decl?: Decl
     arity?: integer
     key?: string
-    list?: {Named}
+    list?: mut {Named}
   end
 
   --- The types of one check. It is not re-entrant, and its types are valid in it alone.
@@ -407,7 +407,7 @@ local record Types
     loader: Loader?
     --- The uses of a declaration whose type parameters are not known yet, by its path, which
     --- `define` checks.
-    pending: mut {string: {Named}}
+    pending: mut {string: mut {Named}}
     --- What a decode has given a declaration, to take back if it fails.
     mut journal: mut {Undo}
     --- The declarations being decoded, by path, and in order.
@@ -577,7 +577,8 @@ local counter = { stores = 0 }
 --- printable ASCII, so that the text is ASCII whatever bytes the string holds.
 local function quote(s: string): string
   local escaped = s:gsub('[%c"\\\127-\255]', function(c: string): string
-    return string.format("\\%03d", c:byte())
+    local code = assert(c:byte(), "the pattern matches one byte")
+    return string.format("\\%03d", code)
   end)
   return '"' .. escaped .. '"'
 end
@@ -830,7 +831,8 @@ local ATOM_RANK <const>: {string: integer} = {
 
 local function rank(t: Type): integer
   if (t.atom == true) then
-    return ATOM_RANK[t.tag]
+    local atom_rank = assert(ATOM_RANK[t.tag], "every atom has a rank")
+    return atom_rank
   elseif (t.tag == "named") then
     return 20
   elseif (t.tag == "array") or (t.tag == "map") then
@@ -953,6 +955,7 @@ local function show_rets(f: Fn, names: Names): string
     -- that has ended. So would a union of function types, whose members would be read as
     -- parenthesized lists joined by `|`.
     local alt = f.rets[1]
+    assert(alt ~= nil, "one alternative was shown, so the function has one")
     local only = alt.items[1]
     local union_of_functions = only ~= nil and (only.tag == "union") and not only.nilable
     if text:sub(1, 1) == "(" and (#alt.items > 1 or alt.tail ~= nil or union_of_functions) then
@@ -1184,7 +1187,7 @@ local function union_of(store: Store, members: {Type}): Type
     return store.any
   end
   local seen = g.seen
-  local yes, no = store.atoms["true"], store.atoms["false"]
+  local yes, no = atom_of(store, "true"), atom_of(store, "false")
   if seen[yes.id] == true and seen[no.id] == true and seen[store.boolean.id] ~= true then
     seen[store.boolean.id] = true
     g.members[#g.members + 1] = store.boolean
@@ -1295,7 +1298,7 @@ Types.Store.optional = function(self: Store, t: Type): Type
   if (t.tag == "union") and t.nilable then
     return t
   end
-  return union_of(self, { t, self.atoms["nil"] })
+  return union_of(self, { t, atom_of(self, "nil") })
 end
 
 Types.Store.non_nil = function(self: Store, t: Type): Type
@@ -2178,21 +2181,23 @@ end
 local function roll_back(store: Store, mark: Mark)
   for i = #store.journal, mark.journal + 1, -1 do
     local undo = store.journal[i]
+    assert(undo ~= nil, "the journal holds an entry at each index to its length")
     local decl = undo.decl
     local key = undo.key
+    local list = undo.list
     if undo.what == "decl" and decl ~= nil then
       decl.body = nil
       decl.arity = undo.arity
     elseif undo.what == "use" and key ~= nil then
       local uses = store.pending[key]
       if uses ~= nil then
-        uses[#uses] = nil
+        table.remove(uses)
         if #uses == 0 then
           store.pending[key] = nil
         end
       end
-    elseif undo.what == "pending" and key ~= nil then
-      store.pending[key] = undo.list
+    elseif undo.what == "pending" and key ~= nil and list ~= nil then
+      store.pending[key] = list
     end
     store.journal[#store.journal] = nil
   end
@@ -2200,6 +2205,7 @@ local function roll_back(store: Store, mark: Mark)
   -- decode finds the store refusing it, and not the type that next takes its id.
   for i = #store.list, mark.decls + 1, -1 do
     local decl = store.list[i]
+    assert(decl ~= nil, "the list holds a declaration at each index to its length")
     store.declared[path_key(decl.module, decl.name)] = nil
     decl.owner = 0
     store.list[#store.list] = nil
@@ -2213,7 +2219,9 @@ local function roll_back(store: Store, mark: Mark)
   end
   store.count = mark.count
   for i = #store.building_order, mark.building + 1, -1 do
-    store.building[store.building_order[i]] = nil
+    local path = store.building_order[i]
+    assert(path ~= nil, "the order holds a path at each index to its length")
+    store.building[path] = nil
     store.building_order[#store.building_order] = nil
   end
   store.depth = mark.depth

@@ -1336,7 +1336,6 @@ lang/check.tl nil_not_allowed 69
 
 lang/check_class_test.tl nil_not_allowed 30
 
-lang/check_expressions_test.tl nil_not_allowed 6
 
 lang/check_flow_fuzz_test.tl nil_not_allowed 4
 
@@ -1348,7 +1347,6 @@ lang/check_generics_test.tl nil_not_allowed 24
 
 lang/check_match_test.tl nil_not_allowed 5
 
-lang/check_refused_test.tl nil_not_allowed 6
 
 lang/check_speed_test.tl nil_not_allowed 5
 
@@ -1358,7 +1356,6 @@ lang/codegen.tl nil_not_allowed 20
 
 lang/codegen_fuzz_test.tl nil_not_allowed 12
 
-lang/codegen_test.tl nil_not_allowed 7
 
 lang/declarations.tl nil_not_allowed 15
 
@@ -1366,15 +1363,12 @@ lang/declarations_speed_test.tl nil_not_allowed 2
 
 lang/declarations_test.tl nil_not_allowed 30
 
-lang/lexer.tl nil_not_allowed 17
 
 lang/lexer_cover.tl nil_not_allowed 3
 
-lang/lexer_test.tl nil_not_allowed 15
 
 lang/literals.tl nil_not_allowed 3
 
-lang/literals_test.tl nil_not_allowed 8
 
 lang/parser.tl nil_not_allowed 57
 
@@ -1388,7 +1382,6 @@ lang/parser_recovery_test.tl nil_not_allowed 57
 
 lang/parser_test.tl nil_not_allowed 19
 
-lang/relation.tl nil_not_allowed 6
 
 lang/relation_fuzz_test.tl nil_not_allowed 6
 
@@ -1406,17 +1399,14 @@ lang/scopes_fuzz_test.tl nil_not_allowed 1
 
 lang/scopes_programs.tl nil_not_allowed 1
 
-lang/scopes_test.tl nil_not_allowed 21
 
 lang/stdlib_test.tl nil_not_allowed 2
 
 lang/truthy_test.tl nil_not_allowed 1
 
-lang/types.tl nil_not_allowed 16
 
 lang/types_programs.tl nil_not_allowed 5
 
-lang/types_test.tl nil_not_allowed 28
 
 lang/warnings_test.tl nil_not_allowed 1
 
@@ -1980,11 +1970,9 @@ lang/declarations.tl index_may_be_nil 13
 
 lang/declarations_test.tl index_may_be_nil 8
 
-lang/generics.tl index_may_be_nil 10
+lang/generics.tl index_may_be_nil 9
 
-lang/lexer.tl index_may_be_nil 3
 
-lang/lexer_test.tl index_may_be_nil 1
 
 lang/parser.tl index_may_be_nil 15
 
@@ -1992,7 +1980,6 @@ lang/parser_recovery_test.tl index_may_be_nil 2
 
 lang/parser_test.tl index_may_be_nil 9
 
-lang/relation.tl index_may_be_nil 2
 
 lang/relation_fuzz_test.tl index_may_be_nil 17
 
@@ -2010,15 +1997,12 @@ lang/scopes_cover.tl index_may_be_nil 1
 
 lang/scopes_programs.tl index_may_be_nil 4
 
-lang/scopes_test.tl index_may_be_nil 2
 
-lang/types.tl index_may_be_nil 3
 
 lang/types_fuzz_test.tl index_may_be_nil 2
 
 lang/types_programs.tl index_may_be_nil 16
 
-lang/types_test.tl index_may_be_nil 13
 
 
 # an index write through a collection that is a view: `mut` is written on the parameters a function
@@ -2281,11 +2265,9 @@ lang/scopes.tl view_written 13
 
 lang/scopes_cover.tl view_written 1
 
-lang/scopes_test.tl view_written 1
 
 lang/stdlib_test.tl view_written 2
 
-lang/types.tl view_written 2
 
 lang/types_programs.tl view_written 4
 
@@ -5039,7 +5021,6 @@ lang/types.tl condition_type 6
 
 lang/types_fuzz_test.tl condition_type 6
 
-lang/types_test.tl condition_type 1
 
 test/coverage_children_test.tl condition_type 1
 
@@ -5429,17 +5410,14 @@ lang/check_flow_test.tl or_mix 4
 
 lang/check_test.tl or_mix 1
 
-lang/codegen_test.tl or_mix 1
 
 
 lang/flow.tl or_mix 1
 
 
-lang/lexer_test.tl or_mix 2
 
 lang/literals.tl or_mix 1
 
-lang/literals_test.tl or_mix 3
 
 
 lang/parser_recovery_test.tl or_mix 1
@@ -5451,7 +5429,6 @@ lang/scopes.tl or_mix 1
 
 lang/types_fuzz_test.tl or_mix 1
 
-lang/types_test.tl or_mix 1
 
 
 
@@ -5882,17 +5859,15 @@ lang/check.tl and_ternary 77
 
 lang/check_class_test.tl and_ternary 2
 
-lang/check_expressions_test.tl and_ternary 2
 
 lang/check_fuzz_test.tl and_ternary 2
 
-lang/check_refused_test.tl and_ternary 2
 
 lang/check_test.tl and_ternary 3
 
 lang/codegen.tl and_ternary 9
 
-lang/codegen_test.tl and_ternary 4
+lang/codegen_test.tl and_ternary 1
 
 lang/declarations.tl and_ternary 28
 
@@ -6251,7 +6226,6 @@ lang/parser.tl compare_disjoint 3
 
 lang/scopes.tl compare_disjoint 1
 
-lang/scopes_test.tl compare_disjoint 1
 
 test/sqlite_result_test.tl compare_disjoint 2
 
