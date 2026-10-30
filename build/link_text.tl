@@ -127,11 +127,12 @@ end
 --- and they are plain text.
 --- A code span ends with its paragraph, which ends at the byte `limit`.
 local function past_code_span(text: string, at: integer, limit: integer): integer
-  local run = #text:match("^`+", at)
+  local fence = assert(text:match("^`+", at), "a code span begins at a backtick")
+  local run = #fence
   local j = at + run
   while true do
     local s, e = text:find("`+", j)
-    if s == nil or s > limit then
+    if s == nil or e == nil or s > limit then
       return at + run
     end
     if e - s + 1 == run then
@@ -260,6 +261,12 @@ local function unquoted(line: string): integer, string, integer
   end
 end
 
+--- The byte where line `number` begins, in the `starts` of a text whose
+--- line numbers it was given.
+local function start_of(starts: {integer}, number: integer): integer
+  return (assert(starts[number], "a line number is one of the text's lines"))
+end
+
 --- Where the paragraph of each byte of `text` ends, given the lines
 --- that go on with the paragraph of the line before them
 --- (`continues`): the line break after its last line, or one past the
@@ -275,16 +282,16 @@ local function paragraph_ends(text: string, continues: {integer: boolean}): func
   for number = #starts, 1, -1 do
     back[#back + 1] = stop
     if continues[number] ~= true then
-      stop = starts[number] - 1
+      stop = start_of(starts, number) - 1
     end
   end
   return function(at: integer): integer
     local low, high = 1, #starts
     while low < high do
       local mid = (low + high + 1) // 2
-      if starts[mid] <= at then low = mid else high = mid - 1 end
+      if start_of(starts, mid) <= at then low = mid else high = mid - 1 end
     end
-    return back[#starts + 1 - low]
+    return (assert(back[#starts + 1 - low], "an end was laid for every line"))
   end
 end
 
@@ -528,7 +535,7 @@ local function destination(raw: string): string?
   if target == nil then
     target, rest = raw:match("^(%S+)(.*)$")
   end
-  if target == nil or target == "" then
+  if target == nil or rest == nil or target == "" then
     return nil
   end
   rest = String.trim(rest)
@@ -560,12 +567,12 @@ local function scan(text: string, continues: {integer: boolean}, spans?: mut {li
     local low, high = 1, #starts
     while low < high do
       local mid = (low + high + 1) // 2
-      if starts[mid] <= at then low = mid else high = mid - 1 end
+      if start_of(starts, mid) <= at then low = mid else high = mid - 1 end
     end
     return low
   end
   local function column_of(at: integer): integer
-    return at - starts[line_of(at)] + 1
+    return at - start_of(starts, line_of(at)) + 1
   end
 
   local out: mut {link_text.Link} = {}
@@ -574,14 +581,15 @@ local function scan(text: string, continues: {integer: boolean}, spans?: mut {li
   for number, start in ipairs(starts) do
     local label, target = text:match("^[ \t]*%[([^%]\n]+)%]:[ \t]*(%S+)", start)
     -- A footnote (`[^1]: ...`) defines no link.
-    if label ~= nil and target ~= nil and label:sub(1, 1) ~= "^" then
+    local bracket = text:find("[", start, true)
+    if label ~= nil and target ~= nil and bracket ~= nil and label:sub(1, 1) ~= "^" then
       target = target:match("^<(.*)>$") or target
       local key = link_text.label_key(label)
       if defined[key] == nil then
         defined[key] = target
       end
       definition_lines[number] = true
-      table.insert(out, { line = number, column = text:find("[", start, true) - start + 1, form = "definition",
+      table.insert(out, { line = number, column = bracket - start + 1, form = "definition",
         text = label, target = target, label = label })
     end
   end
@@ -664,7 +672,7 @@ local function scan(text: string, continues: {integer: boolean}, spans?: mut {li
       at = at + 2
     elseif c == "`" then
       local past = past_code_span(text, at, ends(at))
-      local run = #text:match("^`+", at)
+      local run = #assert(text:match("^`+", at), "a code span begins at a backtick")
       local written = text:sub(at, past - 1)
       if spans ~= nil and past > at + run and written:find("\n", 1, true) == nil then
         table.insert(spans, { line = line_of(at), column = column_of(at), written = written,
@@ -748,15 +756,18 @@ function link_text.blocks_of(comments: {link_text.Comment}): {link_text.Block}
   for _, comment in ipairs(comments) do
     local lines = comment.lines
     local at = comment.starts or {}
-    if #open.lines > 0 and comment.line == next_line - 1 then
+    local head = lines[1]
+    if head ~= nil and #open.lines > 0 and comment.line == next_line - 1 then
       -- A second comment on the line the one before it ended on.
       local last = assert(table.remove(open.lines))
-      open.lines[#open.lines + 1] = last .. " " .. lines[1]
+      open.lines[#open.lines + 1] = last .. " " .. head
       table.remove(open.starts)
       open.starts[#open.starts + 1] = 0
-      for index = 2, #lines do
-        open.lines[#open.lines + 1] = lines[index]
-        open.starts[#open.starts + 1] = at[index] or 0
+      for index, line in ipairs(lines) do
+        if index >= 2 then
+          open.lines[#open.lines + 1] = line
+          open.starts[#open.starts + 1] = at[index] or 0
+        end
       end
     else
       if comment.line ~= next_line then
@@ -829,7 +840,7 @@ function link_text.unlinked(text: string): string
       if link_text.shortcut_target(link.label or "") ~= nil then dropped[link.line] = true end
     elseif (link.form == "shortcut" or link.form == "reference") and
         link_text.shortcut_target(link.text) ~= nil then
-      local open = starts[link.line] + link.column - 1
+      local open = start_of(starts, link.line) + link.column - 1
       local close = open + #link.text + 1
       local after = text:sub(close + 1, close + 1)
       if text:sub(close, close) == "]" and after ~= "(" and after ~= "[" then
@@ -843,7 +854,7 @@ function link_text.unlinked(text: string): string
   for line in String.lines(text) do
     number = number + 1
     if dropped[number] ~= true then
-      local start = starts[number]
+      local start = start_of(starts, number)
       local kept: mut {string} = {}
       local from = 1
       for at = 1, #line do

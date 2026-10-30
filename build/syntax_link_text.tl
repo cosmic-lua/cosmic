@@ -129,7 +129,8 @@ function SyntaxLinkText.declarations(chunk: Ast.Chunk, scoped: Scopes.Scoped): L
         path[i] = name.text
       end
       declare(table.concat(path, "."), here, false)
-      declare(path[#path], here, false)
+      local last = path[#path]
+      if last ~= nil then declare(last, here, false) end
     elseif (node.kind == "ForNum") then
       declare(node.var.name, false, true)
     elseif (node.kind == "ForIn") then
@@ -241,7 +242,8 @@ function SyntaxLinkText.found(chunk: Ast.Chunk, scoped: Scopes.Scoped, source: s
   local column: mut {integer: integer} = {}
   for _, comment in ipairs(comments) do
     doc[comment.line] = comment.doc
-    column[comment.line] = comment.column
+    local at = comment.column
+    if at ~= nil then column[comment.line] = at end
   end
   local known: mut {LinkText.Declarations} = {}
   local function declared(line: integer): LinkText.Declared

@@ -522,7 +522,6 @@ cosmic/template_go_test.tl unchecked_binding 1
 # a value that may be nil where one that is not is wanted, an operand, an index base or a callee, that no test of a
 # local or of a fixed field narrowed: a test of a `mut` field, a global or an index, and the nil results the
 # standard library now answers and the tree uses as values; the rewrite uses `assert`, `or` or an early return
-build/alias_members.tl nil_not_allowed 2
 
 build/archive.tl nil_not_allowed 10
 
@@ -646,9 +645,7 @@ build/dispatch.tl nil_not_allowed 27
 
 build/dispatched_features_test.tl nil_not_allowed 1
 
-build/docs.tl nil_not_allowed 55
 
-build/docs_checks.tl nil_not_allowed 10
 
 build/docs_checks_test.tl nil_not_allowed 5
 
@@ -662,7 +659,6 @@ build/doctest/generate.tl nil_not_allowed 1
 
 build/doctest/generate_test.tl nil_not_allowed 3
 
-build/doctest/markdown.tl nil_not_allowed 9
 
 build/doctest/markdown_test.tl nil_not_allowed 40
 
@@ -744,17 +740,12 @@ build/json_tool_test.tl nil_not_allowed 1
 
 build/key_parts_test.tl nil_not_allowed 1
 
-build/link_files.tl nil_not_allowed 7
 
-build/link_index.tl nil_not_allowed 6
 
-build/link_resolve.tl nil_not_allowed 17
 
-build/link_text.tl nil_not_allowed 14
 
 build/link_text_fuzz_test.tl nil_not_allowed 2
 
-build/links.tl nil_not_allowed 9
 
 build/locator_fuzz_test.tl nil_not_allowed 3
 
@@ -868,7 +859,6 @@ build/syntax_contracts_test.tl nil_not_allowed 1
 
 build/syntax_derivation_test.tl nil_not_allowed 11
 
-build/syntax_link_text.tl nil_not_allowed 1
 
 build/syntax_links_test.tl nil_not_allowed 5
 
@@ -1602,9 +1592,7 @@ build/dispatch.tl index_may_be_nil 6
 
 build/dispatched_features_test.tl index_may_be_nil 1
 
-build/docs.tl index_may_be_nil 11
 
-build/docs_checks.tl index_may_be_nil 1
 
 build/docs_checks_test.tl index_may_be_nil 1
 
@@ -1614,7 +1602,6 @@ build/docs_test.tl index_may_be_nil 52
 
 build/doctest/generate_test.tl index_may_be_nil 1
 
-build/doctest/markdown.tl index_may_be_nil 4
 
 build/driver_test.tl index_may_be_nil 1
 
@@ -1664,15 +1651,11 @@ build/json_test.tl index_may_be_nil 5
 
 build/key_parts_test.tl index_may_be_nil 6
 
-build/link_files.tl index_may_be_nil 1
 
 build/link_index_test.tl index_may_be_nil 3
 
-build/link_resolve.tl index_may_be_nil 1
 
-build/link_text.tl index_may_be_nil 2
 
-build/links.tl index_may_be_nil 6
 
 build/locator_fuzz_test.tl index_may_be_nil 8
 
@@ -1720,7 +1703,6 @@ build/stand_in_probe.tl index_may_be_nil 6
 
 build/symbol_index.tl index_may_be_nil 1
 
-build/symbols.tl index_may_be_nil 1
 
 build/syntax_analyzer_test.tl index_may_be_nil 1
 
@@ -1728,7 +1710,6 @@ build/syntax_contracts.tl index_may_be_nil 17
 
 build/syntax_derivation.tl index_may_be_nil 2
 
-build/syntax_link_text.tl index_may_be_nil 1
 
 build/syntax_links_test.tl index_may_be_nil 1
 
@@ -2081,7 +2062,7 @@ build/dispatch.tl view_written 3
 
 build/dispatched_features_test.tl view_written 1
 
-build/docs.tl view_written 7
+build/docs.tl view_written 5
 
 build/driver.tl view_written 5
 
@@ -2958,7 +2939,7 @@ build/json_query_test.tl map_field 3
 
 build/json_test.tl map_field 4
 
-build/link_resolve.tl map_field 6
+
 
 build/patch_test.tl map_field 18
 
@@ -5122,7 +5103,6 @@ build/json.tl or_mix 1
 
 
 
-build/links.tl or_mix 1
 
 build/lua_children_test.tl or_mix 3
 
@@ -5534,7 +5514,7 @@ build/derivation.tl and_ternary 1
 
 build/dispatch.tl and_ternary 2
 
-build/docs.tl and_ternary 13
+build/docs.tl and_ternary 12
 
 build/docs_test.tl and_ternary 1
 
@@ -5570,15 +5550,15 @@ build/invoke.tl and_ternary 1
 
 build/json_query_fuzz_test.tl and_ternary 1
 
-build/link_index.tl and_ternary 2
+build/link_index.tl and_ternary 1
 
-build/link_resolve.tl and_ternary 4
+build/link_resolve.tl and_ternary 3
 
 build/link_text.tl and_ternary 8
 
 build/link_text_fuzz_test.tl and_ternary 1
 
-build/links.tl and_ternary 6
+build/links.tl and_ternary 5
 
 build/plural.tl and_ternary 1
 

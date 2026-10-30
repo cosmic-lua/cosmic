@@ -73,7 +73,7 @@ local function parse_tag(info: string): Tag?, string
   end
   local modifiers: Modifiers = { continue = false, file = nil, skip = nil }
   for i = 2, #words do
-    local word = words[i]
+    local word = assert(words[i], "i is within the words")
     if word == "continue" then
       modifiers.continue = true
     elseif word:sub(1, 5) == "file=" then
@@ -107,7 +107,7 @@ local function open_fence(line: string): Fence?
   if run == nil then
     run, info = line:match("^(~~~+)(.*)$")
   end
-  if run == nil then
+  if run == nil or info == nil then
     return nil
   end
   return { marker = run:sub(1, 1), length = #run, info = info }
@@ -152,11 +152,12 @@ function markdown.parse_blocks(source: string): {Block}?, string
   local blocks: mut {Block} = {}
   local i = 1
   while i <= #lines do
-    local fence = open_fence(lines[i])
+    local line = assert(lines[i], "i is within the lines")
+    local fence = open_fence(line)
     local declared = fence == nil and
-      lines[i]:match("^<!%-%-%s*policy:%s*(.-)%s*%-%->%s*$") or nil
-    if fence == nil and (lines[i]:match("^<!%-%-%s*inputs:") ~= nil or
-        lines[i]:match("^<!%-%-%s*needs:") ~= nil) then
+      line:match("^<!%-%-%s*policy:%s*(.-)%s*%-%->%s*$") or nil
+    if fence == nil and (line:match("^<!%-%-%s*inputs:") ~= nil or
+        line:match("^<!%-%-%s*needs:") ~= nil) then
       return nil, "line " .. tostring(i) .. ": a doc declares what its examples read with " ..
         "<!-- policy: ... --> now"
     elseif declared ~= nil then
@@ -168,7 +169,7 @@ function markdown.parse_blocks(source: string): {Block}?, string
       }
       i = i + 1
     elseif fence == nil then
-      if looks_like_an_indented_fence(lines[i]) then
+      if looks_like_an_indented_fence(line) then
         return nil, "line " .. tostring(i) .. ": this line looks like a fenced code " ..
           "block opener but is indented; indented fences are not " ..
           "supported here -- start it at column 1"
@@ -180,11 +181,12 @@ function markdown.parse_blocks(source: string): {Block}?, string
       local j = i + 1
       local closed = false
       while j <= #lines do
-        if closes_fence(lines[j], fence) then
+        local inner = assert(lines[j], "j is within the lines")
+        if closes_fence(inner, fence) then
           closed = true
           break
         end
-        content_lines[#content_lines + 1] = lines[j]
+        content_lines[#content_lines + 1] = inner
         j = j + 1
       end
       if not closed then

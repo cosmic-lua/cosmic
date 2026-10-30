@@ -85,6 +85,12 @@ local symbol_index = require("build.symbol_index")
 local symbols = require("build.symbols")
 local String = require("cosmic.string")
 
+--- The byte positions of a link's brackets in a Markdown file: where its `[` and its `]` go.
+local record Brackets
+  open: integer
+  close: integer
+end
+
 local record links
   --- What a file declares, for resolution where a comment on a line
   --- stands (`at`) and for linking a plain span (`module_level`,
@@ -146,7 +152,9 @@ local function relative_path(from: string, to: string): string
   end
   local out: mut {string} = {}
   for _ = common + 1, #from_parts do out[#out + 1] = ".." end
-  for index = common + 1, #to_parts do out[#out + 1] = to_parts[index] end
+  for index, part in ipairs(to_parts) do
+    if index > common then out[#out + 1] = part end
+  end
   return table.concat(out, "/")
 end
 
@@ -228,6 +236,11 @@ end
 --- one line each: `` [`x`]: path ``.
 local definition_line = "^%[(`+[^`]+`+)%]:[ \t]+(%S+)[ \t]*$"
 
+--- Line `number` of `lines`, which is one of them.
+local function line_at(lines: {string}, number: integer): string
+  return (assert(lines[number], "a line number is one of the lines"))
+end
+
 --- `text`, a Markdown file, split before the block of definitions at
 --- its end (`definition_line`, each label a code span), trailing blank
 --- lines and all; the block is "" when there is none.
@@ -236,10 +249,12 @@ local function split_definitions(text: string): string, string
   for line in String.lines(text) do lines[#lines + 1] = line end
   if lines[#lines] == "" then lines[#lines] = nil end
   local last = #lines
-  while last > 0 and lines[last]:match("^%s*$") ~= nil do last = last - 1 end
+  while last > 0 and line_at(lines, last):match("^%s*$") ~= nil do last = last - 1 end
   local first = last + 1
-  while first > 1 and lines[first - 1]:match(definition_line) ~= nil do first = first - 1 end
-  if first > last or (first > 1 and lines[first - 1]:match("^%s*$") == nil) then
+  while first > 1 and line_at(lines, first - 1):match(definition_line) ~= nil do
+    first = first - 1
+  end
+  if first > last or (first > 1 and line_at(lines, first - 1):match("^%s*$") == nil) then
     return text, ""
   end
   return table.concat(lines, "\n", 1, first - 1), table.concat(lines, "\n", first, last)
@@ -289,7 +304,7 @@ function links.rewrite(reader: links.Reader, resolver: link_resolve.Resolver, fi
   end
   -- Each bracket to put in, by the byte it goes before.
   local inserts: mut {integer: string} = {}
-  local by_label: mut {string: {{integer}}} = {}
+  local by_label: mut {string: {Brackets}} = {}
   local label_target: mut {string: string} = {}
   local refused: mut {string: boolean} = {}
   local blocks = facts ~= nil and facts.blocks or reader.blocks(kind, body, file)
@@ -321,15 +336,15 @@ function links.rewrite(reader: links.Reader, resolver: link_resolve.Resolver, fi
         local target = link_resolve.linkable(resolver, absolute, span.content, declared, module_level,
           markdown)
         if target ~= nil then
-          local said = target.kind == "declared" and target.name or
-            target.kind == "file" and target.path or
-            link_resolve.spelled({ module = target.module, symbol = target.symbol })
+          local said = if target.kind == "declared" then target.name
+            elseif target.kind == "file" then target.path
+            else link_resolve.spelled({ module = target.module, symbol = target.symbol }) end
           if label_target[key] ~= nil and label_target[key] ~= said then
             refused[key] = true
           end
           label_target[key] = said
           by_label[key] = by_label[key] or {}
-          table.insert(by_label[key], { at, at + #span.written })
+          table.insert(by_label[key], { open = at, close = at + #span.written })
           inserts[at] = "["
           inserts[at + #span.written] = "]"
           out.linked[#out.linked + 1] = file .. ":" .. (block.line + span.line - 1) ..
@@ -339,14 +354,17 @@ function links.rewrite(reader: links.Reader, resolver: link_resolve.Resolver, fi
     end
   end
   -- Teal that does not parse is left as it is.
-  if held[1] ~= nil and not held[1].parsed then
+  local known_source = held[1]
+  if known_source ~= nil and not known_source.parsed then
     return { source = source, linked = {}, redefined = false }
   end
   if markdown then
     for key in pairs(refused) do
-      for _, pair in ipairs(by_label[key]) do
-        inserts[pair[1]] = nil
-        inserts[pair[2]] = nil
+      -- A label is refused only once it has been linked before.
+      local brackets = assert(by_label[key], "a refused label was linked before")
+      for _, pair in ipairs(brackets) do
+        inserts[pair.open] = nil
+        inserts[pair.close] = nil
       end
     end
     local kept: mut {string} = {}
@@ -365,7 +383,7 @@ function links.rewrite(reader: links.Reader, resolver: link_resolve.Resolver, fi
   local from = 1
   for _, at in ipairs(positions) do
     pieces[#pieces + 1] = body:sub(from, at - 1)
-    pieces[#pieces + 1] = inserts[at]
+    pieces[#pieces + 1] = assert(inserts[at], "the positions are the keys of inserts")
     from = at
   end
   pieces[#pieces + 1] = body:sub(from)
@@ -398,14 +416,16 @@ function links.rewrite(reader: links.Reader, resolver: link_resolve.Resolver, fi
   for _, link in ipairs(shortcuts) do
     local key = link_text.label_key(link.text)
     if human[key] ~= true and labels[key] == nil then
+      local previous = had[key]
+      local previous_label = if previous ~= nil then previous.label else nil end
       local function declared(): link_text.Declared return known().at(link.line) end
       local meant = link_resolve.meant(resolver, absolute, link.target, declared, true)
       if meant ~= nil then
         labels[key] = link.text
         wanted[key] = relative_path(here, file_of(meant))
-      elseif had[key] ~= nil then
-        labels[key] = had[key].label
-        wanted[key] = had[key].target
+      elseif previous ~= nil and previous_label ~= nil then
+        labels[key] = previous_label
+        wanted[key] = previous.target
       end
     end
   end
@@ -414,7 +434,9 @@ function links.rewrite(reader: links.Reader, resolver: link_resolve.Resolver, fi
   table.sort(keys)
   local lines: mut {string} = {}
   for _, key in ipairs(keys) do
-    lines[#lines + 1] = "[" .. labels[key] .. "]: " .. wanted[key]
+    -- `labels` and `wanted` are set together.
+    local label = assert(labels[key], "a wanted target has its label")
+    lines[#lines + 1] = "[" .. label .. "]: " .. assert(wanted[key], "a key listed is one of wanted")
   end
   local block = table.concat(lines, "\n")
   if block == managed and linked == body then
@@ -472,7 +494,8 @@ function links.context(root: string, open: function(): docs.View?, string,
   local failure: mut {string} = {}
   local function ready(): symbol_index.Index?, string
     if ready_index[1] ~= nil then return ready_index[1], "" end
-    if failure[1] ~= nil then return nil, failure[1] end
+    local failed = failure[1]
+    if failed ~= nil then return nil, failed end
     local opened, why = open()
     if opened == nil then
       failure[1] = why
