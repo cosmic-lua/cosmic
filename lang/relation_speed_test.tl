@@ -65,9 +65,11 @@ local function test_a_pair_that_is_settled_costs_no_more_than_its_lookup()
   local judge = Relation.new(store)
   local views: mut {Types.Type} = {}
   local wider: mut {Types.Type} = {}
-  for i, t in ipairs(populate(store, 2000)) do
-    views[i] = store:array(store:array(t))
-    wider[i] = store:array(store:array(store:optional(t)))
+  for _, t in ipairs(populate(store, 2000)) do
+    local view = store:array(store:array(t))
+    local wide = store:array(store:array(store:optional(t)))
+    views[#views + 1] = view
+    wider[#wider + 1] = wide
   end
   local function settle()
     for i = 1, #views do
@@ -99,7 +101,7 @@ local FORMS <const>: {string: function(n: integer)} = {
     local members = populate(store, n * 10 + 1)
     local sub: mut {Types.Type} = {}
     for i = 1, n * 10 do
-      sub[i] = members[i]
+      sub[i] = assert(members[i])
     end
     local judge = Relation.new(store)
     assert(judge:subtype(store:union(sub), store:union(members)))
@@ -110,7 +112,7 @@ local FORMS <const>: {string: function(n: integer)} = {
     local members = populate(store, n * 10 + 1)
     local sub: mut {Types.Type} = {}
     for i = 1, n * 10 do
-      sub[i] = members[i]
+      sub[i] = assert(members[i])
     end
     sub[#sub + 1] = store:atom("nil")
     local judge = Relation.new(store)
@@ -253,9 +255,8 @@ local FORMS <const>: {string: function(n: integer)} = {
     local given = populate(store, n * 10)
     local wanted: mut {Types.Type} = {}
     for i, t in ipairs(given) do
-      wanted[i] = t
+      wanted[#wanted + 1] = if i == #given then store.integer else t end
     end
-    wanted[#wanted] = store.integer
     assert(not judge:subtype(store:named(decl, given), store:named(decl, wanted)))
     local reason = judge:refuse(store:named(decl, given), store:named(decl, wanted))
     assert(reason ~= nil and reason.code == "invariant_generic")

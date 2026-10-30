@@ -122,6 +122,7 @@ local function test_no_client_reader_raises_or_takes_more_than_it_was_given(tmp:
         if status ~= "more" and status ~= "done" and status ~= "refused" then
           return false, "answered " .. tostring(status)
         end
+        if consumed == nil then return false, "answered without a count of bytes taken" end
         if consumed > #input then return false, ("took %d of %d bytes"):format(consumed, #input) end
         if (status == "done") ~= (consumed > 0) then
           return false, ("%s having taken %d bytes"):format(status, consumed)
@@ -207,6 +208,7 @@ local function test_a_request_the_client_writes_is_read_back_by_the_relay(tmp: s
     check = function(input: string): boolean, string
       local fields = Fuzz.unpack(input)
       local host, port = fields[1], math.tointeger(tonumber(fields[2]))
+      assert(host and port, "the generator packs a host and a port")
       local request, why = Wire.socks_client_request(host, port)
       if request == nil then
         if why == "" then return false, "refused without saying why" end
@@ -221,7 +223,7 @@ local function test_a_request_the_client_writes_is_read_back_by_the_relay(tmp: s
       -- host or port than the one written, and an address literal it reads.
       if seen.status == "done" then
         if seen.port ~= port or seen.consumed ~= #request then
-          return false, ("%q:%d was read as %s:%d"):format(host, port, seen.host, seen.port)
+          return false, ("%q:%d was read as %s:%s"):format(host, port, tostring(seen.host), tostring(seen.port))
         end
         local kind = seen.kind
         -- The host read is the host written, as its form has it.
@@ -237,7 +239,7 @@ local function test_a_request_the_client_writes_is_read_back_by_the_relay(tmp: s
         Fuzz.label(assert(seen.kind))
         Fuzz.label("read")
       elseif request:byte(4) ~= 3 then
-        return false, ("an address of type %d was refused: %s"):format(request:byte(4), tostring(seen.reason))
+        return false, ("an address of type %s was refused: %s"):format(tostring(request:byte(4)), tostring(seen.reason))
       end
       return true, ""
     end,
@@ -261,6 +263,7 @@ local function test_a_username_and_password_the_client_writes_are_read_back_by_t
     check = function(input: string): boolean, string
       local fields = Fuzz.unpack(input)
       local user, password = fields[1], fields[2]
+      assert(user and password, "the generator packs a user and a password")
       local message, why = Wire.socks_client_auth(user, password)
       local fits = #user >= 1 and #user <= 255 and #password >= 1 and #password <= 255
       if message == nil then

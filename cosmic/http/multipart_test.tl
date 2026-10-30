@@ -28,7 +28,7 @@ local function close_it(): string return "--" .. B .. "--\r\n" end
 
 local record Seen
   name: string
-  filename: string
+  filename?: string
   content_type: string
   body: string
 end
@@ -94,7 +94,8 @@ end
 local function test_the_boundary_inside_data_is_data_but_a_delimiter_line_is_not()
   local inside = "x--" .. B .. "y\r\n--" .. B:sub(1, -2) .. "\r\n-" .. B
   local got = assert(parse(part('form-data; name="a"', inside) .. close_it(), 3))
-  assert(got[1].body == inside)
+  local only = assert(got[1], "expected a part")
+  assert(only.body == inside)
   refused(part('form-data; name="a"', "data\r\n--" .. B .. "x more") .. close_it())
 end
 
@@ -108,7 +109,7 @@ local function test_a_boundary_must_be_short_and_plain()
   local bad = { "", string.rep("b", 71), "a ", "a\r\nb", "a\0b", 'a"b', "a;b", "é", "a<b" }
   for _, b in ipairs(bad) do
     local r, why = Multipart.reader(Stream.from_string(""), { boundary = b })
-    assert(r == nil and why:find("boundary"), b)
+    assert(r == nil and why:find("boundary") ~= nil, b)
   end
   assert(not pcall(Multipart.reader, Stream.from_string(""), { boundary = "a", max_parts = 0 }))
 end
@@ -161,7 +162,8 @@ end
 local function test_disposition_parameters_are_read_as_browsers_write_them()
   local function one(disposition: string): Seen
     local got = assert(parse(part(disposition, "v") .. close_it()))
-    return got[1]
+    local only = assert(got[1], "expected a part")
+    return only
   end
   assert(one('form-data; name="a"').name == "a")
   assert(one('FORM-DATA;NAME=a').name == "a")
@@ -183,9 +185,10 @@ local function test_disposition_parameters_are_read_as_browsers_write_them()
 end
 
 local function test_a_filename_is_metadata_reduced_to_a_basename()
-  local function name_of(disposition: string): string
+  local function name_of(disposition: string): string?
     local got = assert(parse(part('form-data; name="f"; ' .. disposition, "v") .. close_it()))
-    return got[1].filename
+    local only = assert(got[1], "expected a part")
+    return only.filename
   end
   assert(name_of('filename="report.pdf"') == "report.pdf")
   assert(name_of('filename="../../etc/passwd"') == "passwd")
@@ -247,7 +250,7 @@ local function test_an_unread_part_is_skipped_and_a_passed_one_is_dead()
   local second = assert(reader:next_part())
   assert(second.name == "next")
   local nothing, why = first.body:read()
-  assert(nothing == nil and why:find("passed by next_part"), why)
+  assert(nothing == nil and why:find("passed by next_part") ~= nil, why)
   assert(assert(Stream.read_all(second.body)) == "n")
   assert(reader:next_part() == nil)
   local again, ended = reader:next_part()
@@ -265,9 +268,9 @@ local function test_a_failed_parser_stays_failed_and_a_part_body_reports_it()
   local reader = assert(Multipart.reader(drip(text, 4), { boundary = B }))
   local got = assert(reader:next_part())
   local data, why = Stream.read_all(got.body)
-  assert(data == nil and why:find("before the closing"), why)
+  assert(data == nil and why:find("before the closing") ~= nil, why)
   local next_got, again = reader:next_part()
-  assert(next_got == nil and again:find("before the closing"))
+  assert(next_got == nil and again:find("before the closing") ~= nil)
   assert(reader:close())
   assert(not pcall(got.body.read, got.body, 0))
 end
@@ -318,7 +321,8 @@ local function test_trailing_whitespace_is_trimmed_in_time_linear_in_the_run()
   local took = Clock.monotonic_ns() - start
   assert(took < Clock.seconds(2), "trailing blanks cost " .. tostring(took // 1000000) .. " ms")
   local padded = assert(parse(part('form-data; name="a"; x=b   ', "v", "X-Pad: v \t \r\n") .. close_it()))
-  assert(padded[1].name == "a")
+  local only = assert(padded[1], "expected a part")
+  assert(only.name == "a")
 end
 
 local function test_a_closed_parser_hands_out_no_more_of_a_part()
@@ -327,5 +331,5 @@ local function test_a_closed_parser_hands_out_no_more_of_a_part()
   local first = assert(reader:next_part())
   assert(reader:close())
   local data, why = first.body:read()
-  assert(data == nil and why:find("closed"), why)
+  assert(data == nil and why:find("closed") ~= nil, why)
 end

@@ -292,7 +292,7 @@ cosmic/http/wire.tl 1
 
 cosmic/internal/connector.tl 3
 
-cosmic/internal/relay_config.tl 11
+cosmic/internal/relay_config.tl 9
 
 cosmic/internal/relay_server.tl 1
 
@@ -1112,23 +1112,15 @@ cosmic/html_test.tl nil_not_allowed 9
 
 
 
-cosmic/http/multipart_fuzz_test.tl nil_not_allowed 23
-
-cosmic/http/multipart_test.tl nil_not_allowed 4
 
 
-cosmic/http/server_range_fuzz_test.tl nil_not_allowed 15
-
-cosmic/http/server_range_test.tl nil_not_allowed 2
-
-cosmic/http/server_test.tl nil_not_allowed 17
-
-cosmic/http/server_tool_test.tl nil_not_allowed 2
 
 
-cosmic/http/wire_fuzz_test.tl nil_not_allowed 33
 
-cosmic/http/wire_test.tl nil_not_allowed 4
+
+
+
+
 
 cosmic/http_store_test.tl nil_not_allowed 1
 
@@ -1139,31 +1131,21 @@ cosmic/http_tool_test.tl nil_not_allowed 2
 cosmic/http_unix_test.tl nil_not_allowed 1
 
 
-cosmic/internal/connector_test.tl nil_not_allowed 5
-
-
-cosmic/internal/relay_config_test.tl nil_not_allowed 2
-
-cosmic/internal/relay_handed_test.tl nil_not_allowed 1
 
 
 
 
-cosmic/internal/relay_server_native_test.tl nil_not_allowed 1
-
-cosmic/internal/relay_server_test.tl nil_not_allowed 13
 
 
-cosmic/internal/relay_start_test.tl nil_not_allowed 2
-
-cosmic/internal/relay_token_fuzz_test.tl nil_not_allowed 1
 
 
-cosmic/internal/relay_wire_client_fuzz_test.tl nil_not_allowed 20
 
-cosmic/internal/relay_wire_fuzz_test.tl nil_not_allowed 10
 
-cosmic/internal/relay_wire_test.tl nil_not_allowed 9
+
+
+
+
+
 
 cosmic/json.tl nil_not_allowed 46
 
@@ -1197,7 +1179,6 @@ cosmic/net_serve_test.tl nil_not_allowed 7
 
 cosmic/net_test.tl nil_not_allowed 2
 
-cosmic/policy.tl nil_not_allowed 1
 
 cosmic/policy_test.tl nil_not_allowed 3
 
@@ -1386,9 +1367,7 @@ eval/summarize.tl nil_not_allowed 14
 
 eval/summarize_test.tl nil_not_allowed 2
 
-lang/ast.tl nil_not_allowed 1
-
-lang/ast_dump.tl nil_not_allowed 5
+lang/ast_dump.tl nil_not_allowed 4
 
 lang/check.tl nil_not_allowed 69
 
@@ -1400,7 +1379,7 @@ lang/check_flow_fuzz_test.tl nil_not_allowed 4
 
 lang/check_flow_test.tl nil_not_allowed 9
 
-lang/check_fuzz_test.tl nil_not_allowed 8
+lang/check_fuzz_test.tl nil_not_allowed 5
 
 lang/check_generics_test.tl nil_not_allowed 24
 
@@ -1412,13 +1391,13 @@ lang/check_speed_test.tl nil_not_allowed 5
 
 lang/check_test.tl nil_not_allowed 26
 
-lang/codegen.tl nil_not_allowed 23
+lang/codegen.tl nil_not_allowed 20
 
 lang/codegen_fuzz_test.tl nil_not_allowed 12
 
 lang/codegen_test.tl nil_not_allowed 7
 
-lang/declarations.tl nil_not_allowed 22
+lang/declarations.tl nil_not_allowed 15
 
 lang/declarations_speed_test.tl nil_not_allowed 2
 
@@ -1456,13 +1435,13 @@ lang/relation_refused_test.tl nil_not_allowed 16
 
 lang/relation_test.tl nil_not_allowed 16
 
-lang/scopes.tl nil_not_allowed 67
+lang/scopes.tl nil_not_allowed 59
 
 lang/scopes_cover.tl nil_not_allowed 2
 
 lang/scopes_fuzz_test.tl nil_not_allowed 1
 
-lang/scopes_programs.tl nil_not_allowed 3
+lang/scopes_programs.tl nil_not_allowed 1
 
 lang/scopes_test.tl nil_not_allowed 21
 
@@ -1470,7 +1449,7 @@ lang/stdlib_test.tl nil_not_allowed 2
 
 lang/truthy_test.tl nil_not_allowed 1
 
-lang/types.tl nil_not_allowed 21
+lang/types.tl nil_not_allowed 16
 
 lang/types_programs.tl nil_not_allowed 5
 
@@ -1885,6 +1864,7 @@ core/syscalls_relay_test.tl index_may_be_nil 8
 
 core/syscalls_test.tl index_may_be_nil 4
 
+
 cosmic/archive_fuzz_test.tl index_may_be_nil 7
 
 cosmic/archive_test.tl index_may_be_nil 1
@@ -1898,6 +1878,7 @@ cosmic/child_policy_isolate_test.tl index_may_be_nil 4
 cosmic/child_relay_seatbelt_test.tl index_may_be_nil 2
 
 cosmic/child_seatbelt_database_test.tl index_may_be_nil 1
+
 
 cosmic/codec_test.tl index_may_be_nil 9
 
@@ -1915,33 +1896,24 @@ cosmic/fs_test.tl index_may_be_nil 4
 
 cosmic/hash_test.tl index_may_be_nil 5
 
+
 cosmic/html_test.tl index_may_be_nil 1
 
 
-cosmic/http/multipart_fuzz_test.tl index_may_be_nil 5
-
-cosmic/http/multipart_test.tl index_may_be_nil 1
-
-cosmic/http/server_declared_types_test.tl index_may_be_nil 1
-
-cosmic/http/server_test.tl index_may_be_nil 3
 
 
-cosmic/http/wire_fuzz_test.tl index_may_be_nil 1
+
+
+
 
 cosmic/http_store_test.tl index_may_be_nil 2
 
 
-cosmic/internal/connector_test.tl index_may_be_nil 47
-
-cosmic/internal/relay_server_test.tl index_may_be_nil 2
 
 
-cosmic/internal/relay_wire_client_test.tl index_may_be_nil 3
 
-cosmic/internal/relay_wire_fuzz_test.tl index_may_be_nil 2
 
-cosmic/internal/relay_wire_test.tl index_may_be_nil 5
+
 
 cosmic/json.tl index_may_be_nil 2
 
@@ -1950,6 +1922,7 @@ cosmic/json_fuzz_test.tl index_may_be_nil 5
 cosmic/json_path_test.tl index_may_be_nil 2
 
 cosmic/json_reader_test.tl index_may_be_nil 2
+
 
 cosmic/net_connector_test.tl index_may_be_nil 4
 
@@ -2055,11 +2028,9 @@ eval/round.tl index_may_be_nil 2
 
 eval/solve.tl index_may_be_nil 1
 
-lang/ast.tl index_may_be_nil 1
-
 lang/ast_dump.tl index_may_be_nil 3
 
-lang/check.tl index_may_be_nil 36
+lang/check.tl index_may_be_nil 34
 
 lang/check_flow_fuzz_test.tl index_may_be_nil 4
 
@@ -2081,8 +2052,6 @@ lang/lexer.tl index_may_be_nil 3
 
 lang/lexer_test.tl index_may_be_nil 1
 
-lang/literals_test.tl index_may_be_nil 3
-
 lang/parser.tl index_may_be_nil 15
 
 lang/parser_recovery_test.tl index_may_be_nil 2
@@ -2097,15 +2066,13 @@ lang/relation_programs.tl index_may_be_nil 2
 
 lang/relation_refused_test.tl index_may_be_nil 18
 
-lang/relation_speed_test.tl index_may_be_nil 7
+lang/relation_speed_test.tl index_may_be_nil 5
 
 lang/relation_test.tl index_may_be_nil 28
 
-lang/scopes.tl index_may_be_nil 14
+lang/scopes.tl index_may_be_nil 13
 
 lang/scopes_cover.tl index_may_be_nil 1
-
-lang/scopes_fuzz_test.tl index_may_be_nil 2
 
 lang/scopes_programs.tl index_may_be_nil 4
 
@@ -2113,7 +2080,7 @@ lang/scopes_test.tl index_may_be_nil 2
 
 lang/types.tl index_may_be_nil 3
 
-lang/types_fuzz_test.tl index_may_be_nil 3
+lang/types_fuzz_test.tl index_may_be_nil 2
 
 lang/types_programs.tl index_may_be_nil 16
 
@@ -2440,6 +2407,7 @@ cosmic/internal/relay_server_test.tl view_as_mut 2
 cosmic/json_path_fuzz_test.tl view_as_mut 2
 
 cosmic/net_resolve_through_test.tl view_as_mut 3
+
 
 cosmic/poll_test.tl view_as_mut 3
 
@@ -3258,7 +3226,7 @@ cosmic/http_test.tl map_field 1
 
 cosmic/internal/connector.tl map_field 2
 
-cosmic/internal/relay_config.tl map_field 27
+cosmic/internal/relay_config.tl map_field 4
 
 cosmic/internal/relay_config_test.tl map_field 13
 
@@ -3271,7 +3239,6 @@ cosmic/json_test.tl map_field 4
 cosmic/net.tl map_field 1
 
 
-cosmic/policy.tl map_field 6
 
 cosmic/policy_fuzz_test.tl map_field 12
 
@@ -3570,10 +3537,8 @@ cosmic/csv_fuzz_test.tl overload_none 3
 
 cosmic/csv_test.tl overload_none 1
 
-cosmic/http/multipart_fuzz_test.tl overload_none 1
 
 
-cosmic/internal/connector_test.tl overload_none 1
 
 cosmic/internal/relay_handed_lost_test.tl overload_none 1
 
@@ -3818,7 +3783,6 @@ cosmic/http/wire_test.tl any_use 36
 
 cosmic/internal/connector.tl any_use 2
 
-cosmic/internal/relay_config.tl any_use 4
 
 cosmic/internal/relay_handed_lost_test.tl any_use 3
 
@@ -3857,7 +3821,6 @@ cosmic/net_tcp_test.tl any_use 1
 
 cosmic/net_test.tl any_use 1
 
-cosmic/policy.tl any_use 7
 
 cosmic/proc.tl any_use 1
 
@@ -4503,7 +4466,6 @@ cosmic/http/wire.tl is_on_record 1
 
 cosmic/internal/connector.tl is_on_record 2
 
-cosmic/internal/relay_config.tl is_on_record 4
 
 cosmic/json.tl is_on_record 3
 
@@ -5387,41 +5349,28 @@ cosmic/hash_test.tl or_mix 2
 cosmic/html_test.tl or_mix 11
 
 
-cosmic/http/multipart_test.tl or_mix 5
 
 
-cosmic/http/server_range_fuzz_test.tl or_mix 1
-
-cosmic/http/server_range_test.tl or_mix 2
 
 
-cosmic/http/wire_fuzz_test.tl or_mix 1
+
 
 cosmic/http_test.tl or_mix 11
 
 cosmic/http_tool_test.tl or_mix 1
 
 
-cosmic/internal/relay_config_test.tl or_mix 2
-
-cosmic/internal/relay_handed_test.tl or_mix 3
 
 
 
-cosmic/internal/relay_server_native_test.tl or_mix 1
-
-cosmic/internal/relay_server_test.tl or_mix 3
-
-cosmic/internal/relay_start_test.tl or_mix 5
-
-cosmic/internal/relay_token_fuzz_test.tl or_mix 1
 
 
-cosmic/internal/relay_wire_client_test.tl or_mix 4
 
-cosmic/internal/relay_wire_fuzz_test.tl or_mix 1
 
-cosmic/internal/relay_wire_test.tl or_mix 14
+
+
+
+
 
 
 cosmic/json_fuzz_test.tl or_mix 2
@@ -5848,7 +5797,7 @@ cosmic/http_test.tl and_ternary 1
 
 cosmic/internal/connector.tl and_ternary 5
 
-cosmic/internal/relay_config.tl and_ternary 2
+cosmic/internal/relay_config.tl and_ternary 1
 
 cosmic/internal/relay_handed_test.tl and_ternary 1
 
@@ -6317,7 +6266,6 @@ cosmic/compress_test.tl compare_disjoint 2
 
 cosmic/http/init.tl compare_disjoint 1
 
-cosmic/http/multipart_test.tl compare_disjoint 1
 
 cosmic/http/server.tl compare_disjoint 4
 
@@ -6884,13 +6832,9 @@ cosmic/zip.tl literal_shape 1
 
 cosmic/zip_test.tl literal_shape 6
 
-lang/check.tl literal_shape 1
-
 lang/literals_test.tl literal_shape 5
 
 lang/parser_cover.tl literal_shape 1
-
-lang/scopes.tl literal_shape 1
 
 test/sqlite_parameter_test.tl literal_shape 2
 
@@ -6976,7 +6920,6 @@ cosmic/internal/connector.tl arms_differ 1
 
 cosmic/internal/connector_test.tl arms_differ 4
 
-cosmic/internal/relay_config.tl arms_differ 2
 
 cosmic/internal/relay_handed_lost_test.tl arms_differ 1
 
@@ -7105,25 +7048,24 @@ build/test_worker.tl array_hole 7
 
 build/tree_checks.tl array_hole 1
 
-lang/ast.tl array_hole 2
 
-lang/ast_dump.tl array_hole 1
 
-lang/check.tl array_hole 24
 
-lang/check_fuzz_test.tl array_hole 4
 
-lang/codegen.tl array_hole 6
 
-lang/declarations.tl array_hole 32
 
-lang/parser.tl array_hole 2
 
-lang/scopes.tl array_hole 7
 
-lang/scopes_programs.tl array_hole 4
 
-lang/types.tl array_hole 15
+
+
+
+
+
+
+
+
+
 
 # a `number` as an index or key: the rewrite converts it with `math.floor`
 cosmic/json_test.tl float_key 2
@@ -7311,7 +7253,6 @@ cosmic/html_test.tl not_assignable 2
 cosmic/http/server.tl not_assignable 4
 
 
-cosmic/internal/relay_config.tl not_assignable 1
 
 
 
@@ -7631,39 +7572,59 @@ core/sqlite_functions_test.tl array_hole 1
 
 core/syscalls_tool_test.tl array_hole 1
 
+
+
+
 cosmic/fs.tl compare_disjoint 1
+
+
+
+
+
+
+
+
+
+
 
 cosmic/shape.tl array_hole 1
 
 cosmic/shape_fuzz_test.tl array_hole 1
 
 
+
+
+
+
+
+
+
+
+
+
 cosmic/web/dev.tl view_as_mut 1
+
 
 cosmic/web/input.tl array_hole 1
 
 cosmic/web/response.tl view_as_mut 2
 
+
 cosmic/web/sse.tl view_as_mut 1
+
+
+
 
 
 eval/summarize.tl array_hole 4
 
-lang/check_assigned_fuzz_test.tl array_hole 1
 
-lang/lexer.tl array_hole 6
 
-lang/lexer_cover.tl array_hole 5
 
-lang/literals_test.tl array_hole 3
 
-lang/relation_speed_test.tl array_hole 5
 
-lang/scopes_fuzz_test.tl array_hole 3
 
-lang/types_fuzz_test.tl array_hole 1
 
-lang/types_speed_test.tl array_hole 1
 
 # the language tour, which teaches forms the new checker refuses (see the TODO of [examples]): each stays until the tour is rewritten
 cosmic/removed_example.tl alternatives_as_value 1

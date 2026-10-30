@@ -63,6 +63,12 @@ end
 
 --- Whether the count in digits `a` is less than `b`'s: each padded with
 --- zeros to the other's length and compared as text.
+local function packed(fields: {string}, i: integer): string
+  local field = fields[i]
+  assert(field, "the generator packs field " .. tostring(i))
+  return field
+end
+
 local function less(a: string, b: string): boolean
   local width = math.max(#a, #b)
   return ("0"):rep(width - #a) .. a < ("0"):rep(width - #b) .. b
@@ -71,6 +77,7 @@ end
 --- The count in `digits` where it fits an integer, or nil.
 local function small(digits: string): integer?
   local bare = digits:match("^0*(%d*)$")
+  assert(bare, "the pattern matches every string of digits")
   if #bare > #tostring(math.maxinteger) then return nil end
   -- One past the largest integer reads as a float, which this refuses.
   return math.tointeger(tonumber(bare ~= "" and bare or "0"))
@@ -81,18 +88,21 @@ end
 --- form without one); nil otherwise.
 local function well_formed(header: string): string?, string
   local unit, set = trim(header):match("^([^=]*)=(.*)$")
-  if unit == nil or unit:lower() ~= "bytes" or set:match("^[ \t]") then return nil, "" end
+  if unit == nil or set == nil or unit:lower() ~= "bytes" or set:match("^[ \t]") ~= nil then
+    return nil, ""
+  end
   local specs: mut {string} = {}
   for element in (set .. ","):gmatch("([^,]*),") do
     if trim(element) ~= "" then specs[#specs + 1] = trim(element) end
   end
   if #specs ~= 1 then return nil, "" end
-  local first, last = specs[1]:match("^([0-9]+)%-([0-9]*)$")
-  if first ~= nil then
+  local only = specs[1]
+  local first, last = only:match("^([0-9]+)%-([0-9]*)$")
+  if first ~= nil and last ~= nil then
     if last ~= "" and less(last, first) then return nil, "" end
     return first, last
   end
-  local suffix = specs[1]:match("^%-([0-9]+)$")
+  local suffix = only:match("^%-([0-9]+)$")
   if suffix == nil then return nil, "" end
   return "", suffix
 end
@@ -108,7 +118,8 @@ local function test_reading_a_range_is_total_and_within_the_representation(tmp: 
     gen = gen_range,
     check = function(input: string): boolean, string
       local fields = Fuzz.unpack(input)
-      local header, size = fields[1], math.tointeger(tonumber(fields[2])) as integer
+      local header = packed(fields, 1)
+      local size = math.tointeger(tonumber(fields[2])) as integer
       local r = Server.range(header, size)
       local first, last = well_formed(header)
       Fuzz.label(r.kind)
@@ -214,7 +225,7 @@ local function test_none_match_finds_a_tag_in_any_list_of_tags(tmp: string)
     gen = gen_none_match,
     check = function(input: string): boolean, string
       local fields = Fuzz.unpack(input)
-      local own = fields[1]
+      local own = packed(fields, 1)
       if not opaque_ok(own:sub(2)) then
         Fuzz.label("no tag")
         local ok = pcall(Server.none_match, "*", tag_of(own))
@@ -230,7 +241,7 @@ local function test_none_match_finds_a_tag_in_any_list_of_tags(tmp: string)
       local parts: mut {string} = {}
       local every_ok, listed = true, false
       for i = 2, #fields, 2 do
-        local tag, separator = fields[i], fields[i + 1] or ""
+        local tag, separator = packed(fields, i), fields[i + 1] or ""
         if not opaque_ok(tag:sub(2)) then every_ok = false end
         -- What follows the last tag is a list's trailing space and empty elements.
         if i + 1 < #fields and not separator:find(",", 1, true) then every_ok = false end

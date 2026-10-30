@@ -35,7 +35,23 @@ end
 
 --- The filename a client's `raw` must come back as.
 local function reduced(raw: string): string
-  return raw:match("[^/\\]*$")
+  local base = raw:match("[^/\\]*$")
+  assert(base, "the pattern matches every string")
+  return base
+end
+
+--- The field `i` of an unpacked input, which the generators pack whole.
+local function packed(fields: {string}, i: integer): string
+  local field = fields[i]
+  assert(field, "the generator packs field " .. tostring(i))
+  return field
+end
+
+--- The integer field `i` of an unpacked input.
+local function packed_integer(fields: {string}, i: integer): integer
+  local number = math.tointeger(tonumber(packed(fields, i)))
+  assert(number, "the generator packs an integer in field " .. tostring(i))
+  return number
 end
 
 --- A body that does not hold the delimiter `delim`.
@@ -150,6 +166,7 @@ local function same(a: Outcome, b: Outcome): boolean, string
   if #a.parts ~= #b.parts then return false, ("%d parts against %d"):format(#a.parts, #b.parts) end
   for i, p in ipairs(a.parts) do
     local q = b.parts[i]
+    if q == nil then return false, "part " .. tostring(i) .. " is missing" end
     if p.name ~= q.name or p.filename ~= q.filename or p.content_type ~= q.content_type then
       return false, "part " .. tostring(i) .. " differs in a header"
     end
@@ -174,7 +191,7 @@ local function test_a_well_formed_body_round_trips_under_any_chunking(tmp: strin
     shares = { parts = 0.5, file_part = 0.3 },
     check = function(input: string): boolean, string
       local f = Fuzz.unpack(input)
-      local boundary, chunk, step, text = f[1], math.tointeger(tonumber(f[2])), math.tointeger(tonumber(f[3])), f[4]
+      local boundary, chunk, step, text = packed(f, 1), packed_integer(f, 2), packed_integer(f, 3), packed(f, 4)
       -- The whole body in one read is the reference for any chunking.
       local whole = read_all(text, boundary, #text + 1, 1 << 20)
       local got = read_all(text, boundary, chunk, step)
@@ -220,19 +237,21 @@ local function test_parts_come_back_as_they_were_drawn(tmp: string)
     requires = { "parts" },
     check = function(input: string): boolean, string
       local f = Fuzz.unpack(input)
-      local got = read_all(f[3], f[1], math.tointeger(tonumber(f[2])), 7)
+      local got = read_all(packed(f, 3), packed(f, 1), packed_integer(f, 2), 7)
       if got.failure ~= "" then return false, "refused: " .. got.failure end
       local last: mut {Drawn} = {}
       for i = 4, #f - 3, 4 do
         local filename: string? = nil
-        if f[i + 1]:sub(1, 1) == "F" then filename = f[i + 1]:sub(2) end
-        last[#last + 1] = { name = f[i], filename = filename, content_type = f[i + 2], body = f[i + 3] }
+        local flagged = packed(f, i + 1)
+        if flagged:sub(1, 1) == "F" then filename = flagged:sub(2) end
+        last[#last + 1] = { name = packed(f, i), filename = filename, content_type = packed(f, i + 2), body = packed(f, i + 3) }
       end
       if #last ~= #got.parts then
         return false, ("%d parts drawn, %d read"):format(#last, #got.parts)
       end
       for i, want in ipairs(last) do
         local p = got.parts[i]
+        if p == nil then return false, "part " .. tostring(i) .. " is missing" end
         if p.name ~= want.name or p.filename ~= want.filename or p.content_type ~= want.content_type or
             p.body ~= want.body then
           return false, "part " .. tostring(i) .. " is not the part drawn"
@@ -262,9 +281,13 @@ local function test_any_bytes_are_refused_or_read_within_bounds_and_the_same_in_
     shares = { accepted = 0.05, refused = 0.2 },
     check = function(input: string): boolean, string
       local f = Fuzz.unpack(input)
-      local boundary, chunk, step, text = f[1], math.tointeger(tonumber(f[2])), math.tointeger(tonumber(f[3])), f[4]
-      local ok, got = pcall(read_all, text, boundary, chunk, step)
-      if not ok then return false, "raised: " .. tostring(got) end
+      local boundary, chunk, step, text = packed(f, 1), packed_integer(f, 2), packed_integer(f, 3), packed(f, 4)
+      local read: Outcome? = nil
+      local ok, raised = pcall(function() read = read_all(text, boundary, chunk, step) end)
+      if not ok then return false, "raised: " .. tostring(raised) end
+      -- The copy is narrowed; `read`, which a closure assigns, is not.
+      local got = read
+      if got == nil then return false, "raised: read_all answered nothing" end
       local reference = read_all(text, boundary, 1 << 20, 1 << 20)
       local equal, why = same(reference, got)
       if not equal then return false, "chunking changed the result: " .. why end
@@ -272,10 +295,10 @@ local function test_any_bytes_are_refused_or_read_within_bounds_and_the_same_in_
       if #got.parts > 8 then return false, "more parts than max_parts" end
       for _, p in ipairs(got.parts) do
         local fn = p.filename
-        if fn ~= nil and (fn:find("[/\\]") or fn:find("%c") or #fn > 255 or not utf8.len(fn)) then
+        if fn ~= nil and (fn:find("[/\\]") ~= nil or fn:find("%c") ~= nil or #fn > 255 or not utf8.len(fn)) then
           return false, "an unsafe filename"
         end
-        if p.name:find("%c") or not utf8.len(p.name) then return false, "an unsafe name" end
+        if p.name:find("%c") ~= nil or not utf8.len(p.name) then return false, "an unsafe name" end
       end
       if got.failure == "" then
         Fuzz.label("accepted")

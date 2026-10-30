@@ -397,7 +397,7 @@ local function close()
   for i = #names, mark + 1, -1 do
     local stack = visible[names[i]]
     stack[#stack] = nil
-    names[i] = nil
+    names[#names] = nil
   end
   S.marks[#S.marks] = nil
   S.ends[#S.ends] = nil
@@ -447,12 +447,12 @@ local function distance(a: string, b: string, limit: integer): integer
   if la - lb > limit or lb - la > limit then
     return limit + 1
   end
-  local previous: mut {integer} = {}
+  local previous: mut {integer: integer} = {}
   for j = 0, lb do
     previous[j] = j
   end
   for i = 1, la do
-    local row: mut {integer} = { [0] = i }
+    local row: mut {integer: integer} = { [0] = i }
     local least = i
     local ca = a:byte(i)
     for j = 1, lb do
@@ -817,17 +817,21 @@ resolve_pending = function(depth: integer)
   while first > 1 and pending[first - 1].depth >= depth do
     first = first - 1
   end
-  local kept = first - 1
+  -- The names of the ending scope are taken off the end, and those it passes on to the scope around it go back, in order.
+  local taken: mut {Pending} = {}
   for i = first, n do
-    local p = pending[i]
+    taken[#taken + 1] = pending[i]
+  end
+  for _ = first, n do
+    pending[#pending] = nil
+  end
+  for _, p in ipairs(taken) do
     local v = lookup(p.name)
-    pending[i] = nil
     if v ~= nil then
       type_use(p.node, v)
     elseif depth > 1 then
       p.depth = depth - 1
-      kept = kept + 1
-      pending[kept] = p
+      pending[#pending + 1] = p
     else
       unknown_type(p.node, p.name)
     end
@@ -1144,11 +1148,11 @@ local function dotted(e: Ast.Exp?): string?, Ast.Name?
   if cur ~= nil and (cur.kind == "Name") and #parts > 0 then
     head = cur
     parts[#parts + 1] = cur.text
-    local n = #parts
-    for i = 1, n // 2 do
-      parts[i], parts[n + 1 - i] = parts[n + 1 - i], parts[i]
+    local ordered: mut {string} = {}
+    for i = #parts, 1, -1 do
+      ordered[#ordered + 1] = assert(parts[i])
     end
-    return table.concat(parts, "."), head
+    return table.concat(ordered, "."), head
   end
   return nil, nil
 end

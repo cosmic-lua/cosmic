@@ -415,17 +415,17 @@ end
 --- `text` with each line break written `\n`.
 local function normalised(text: string): string
   local out: mut {string} = {}
-  local n = 0
   local p = 1
   while true do
     local q = find(text, "[\r\n]", p)
     if not q then
-      out[n + 1] = sub(text, p)
+      local rest = sub(text, p)
+      out[#out + 1] = rest
       return concat(out)
     end
-    out[n + 1] = sub(text, p, q - 1)
-    out[n + 2] = "\n"
-    n = n + 2
+    local line = sub(text, p, q - 1)
+    out[#out + 1] = line
+    out[#out + 1] = "\n"
     p = q + break_at(text, q)
   end
 end
@@ -517,18 +517,15 @@ end
 --- every escape decoded. `inner` holds only good escapes.
 local function decode(inner: string): string
   local out: mut {string} = {}
-  local n = 0
   local i = 1
   while true do
     local s = find(inner, "\\", i, true)
     if not s then
-      n = n + 1
-      out[n] = sub(inner, i)
+      out[#out + 1] = sub(inner, i)
       break
     end
     if s > i then
-      n = n + 1
-      out[n] = sub(inner, i, s - 1)
+      out[#out + 1] = sub(inner, i, s - 1)
     end
     local c = byte(inner, s + 1)
     local text: string
@@ -554,8 +551,7 @@ local function decode(inner: string): string
       text = string.char(assert(math.tointeger(assert(tonumber(sub(inner, s + 1, de))))))
       e = de
     end
-    n = n + 1
-    out[n] = text
+    out[#out + 1] = text
     i = e + 1
   end
   return concat(out)

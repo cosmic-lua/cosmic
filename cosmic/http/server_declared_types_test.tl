@@ -26,7 +26,8 @@ local function test_a_handler_that_answers_nothing_is_a_500_the_server_declares(
       end,
       on_error = function(_trouble: string) end,
       on_ready = function(addresses: {Net.Address}, server: Net.Server)
-        local conn = assert(Net.connect(addresses[1]))
+        local listening = assert(addresses[1], "the server listens")
+        local conn = assert(Net.connect(listening))
         assert(conn:write("GET / HTTP/1.1\r\nHost: test\r\n\r\n"))
         local piece = assert(conn:read())
         answered = piece

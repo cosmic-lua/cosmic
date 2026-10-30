@@ -164,7 +164,7 @@ local function test_an_upstream_is_read_from_the_environment()
   for _, bad in ipairs({ "https://proxy.example:443", "socks5://proxy.example:1080", "http://:80", "http://host:0",
       "http://host:99999", "http://host:x" }) do
     local none, why = RelayConfig.upstream({ https_proxy = bad })
-    assert(none == nil and why:find("https_proxy", 1, true), bad .. ": " .. tostring(why))
+    assert(none == nil and why:find("https_proxy", 1, true) ~= nil, bad .. ": " .. tostring(why))
   end
   -- The credentials are never in the reason, whichever way the value is wrong.
   for _, value in ipairs({ "http://user:secret@host:0", "https://user:secret@host:443", "socks5://user:secret@host:1080",
@@ -196,8 +196,12 @@ local function test_the_config_travels_as_one_line_and_reads_back()
     name_servers = { { host = "127.0.0.1", port = 53 } }, name_server_wait_ns = 2500000000,
     upstream = { host = "p.test", port = 80, no_proxy = {}, addresses = { "127.0.0.1" } } })))
   local handed_upstream = assert(handed.upstream)
-  assert(handed.public == true and assert(handed.table)[1].port == 0 and
-      assert(handed.name_servers)[1].port == 53 and handed.name_server_wait_ns == 2500000000 and
+  local handed_table = assert(handed.table)
+  local handed_row = assert(handed_table[1], "expected a table row")
+  local handed_servers = assert(handed.name_servers)
+  local handed_server = assert(handed_servers[1], "expected a name server")
+  assert(handed.public == true and handed_row.port == 0 and
+      handed_server.port == 53 and handed.name_server_wait_ns == 2500000000 and
       assert(handed_upstream.addresses)[1] == "127.0.0.1" and handed_upstream.authorization == nil)
   assert(handed.direct == false and handed.token == nil, "Linux's relay is handed its listeners")
   local direct = assert(RelayConfig.decode(RelayConfig.encode({ grants = { "a.test:1" }, own_addresses = {},
@@ -210,7 +214,7 @@ end
 local function test_a_config_that_is_none_is_refused_naming_why()
   local function says(text: string, expected: string)
     local config, why = RelayConfig.decode(text)
-    assert(config == nil and why:find(expected, 1, true), text .. ": " .. tostring(why))
+    assert(config == nil and why:find(expected, 1, true) ~= nil, text .. ": " .. tostring(why))
   end
   says("not json", "")
   says("[]", "")

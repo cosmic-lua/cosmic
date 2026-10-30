@@ -55,8 +55,8 @@ local function write_node(node: {string: any}, kind: string, out: mut {string})
       used = #out
     end
   end
-  for i = #out, used + 1, -1 do
-    out[i] = nil
+  for _ = #out, used + 1, -1 do
+    out[#out] = nil
   end
   out[#out + 1] = ")"
 end
