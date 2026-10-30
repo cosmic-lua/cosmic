@@ -614,17 +614,17 @@ local function tokenize(input: string, initial: string, last_tag: string): Run
         -- Outside foreign content, which the tests never reach.
         width, next_state, m.comment = 7, "bogus_comment", "[CDATA["
       end
-      for _ = 1, width - 1 do
-        states[#states + 1] = "markup_declaration"
-        attr_at[#attr_at + 1] = ""
-        tails[#tails + 1] = ""
+      for k = 1, width - 1 do
+        states[i + k] = "markup_declaration"
+        attr_at[i + k] = ""
+        tails[i + k] = ""
       end
       if width > 0 then
         i = i + width
         m.state = next_state
-        states[#states + 1] = m.state
-        attr_at[#attr_at + 1] = ""
-        tails[#tails + 1] = ""
+        states[i] = m.state
+        attr_at[i] = ""
+        tails[i] = ""
       else
         m.state = next_state
       end
@@ -632,10 +632,9 @@ local function tokenize(input: string, initial: string, last_tag: string): Run
       while step(c) do
       end
       i = i + 1
-      local rest = tail()
-      states[#states + 1] = m.state
-      attr_at[#attr_at + 1] = (m.state == "value_dq" or m.state == "value_sq") and m.attr_name or ""
-      tails[#tails + 1] = rest
+      states[i] = m.state
+      attr_at[i] = (m.state == "value_dq" or m.state == "value_sq") and m.attr_name or ""
+      tails[i] = tail()
     end
   end
 

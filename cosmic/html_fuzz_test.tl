@@ -115,17 +115,15 @@ local function test_concat_is_the_join_of_its_parts(tmp: string)
     check = function(input: string): boolean, string
       local made: mut {Html.SafeHtml} = {}
       local expected: mut {string} = {}
-      for _, part in ipairs(Fuzz.unpack(input)) do
+      for index, part in ipairs(Fuzz.unpack(input)) do
         local text = part:sub(2)
         if part:sub(1, 1) == "e" then
-          local escaped = Html.escape(text)
-          made[#made + 1] = escaped
-          expected[#expected + 1] = Html.raw(escaped)
+          made[index] = Html.escape(text)
+          expected[index] = Html.raw(made[index])
           Fuzz.label("escaped part")
         else
-          local trusted = Html.trust(text)
-          made[#made + 1] = trusted
-          expected[#expected + 1] = text
+          made[index] = Html.trust(text)
+          expected[index] = text
           Fuzz.label("trusted part")
         end
       end

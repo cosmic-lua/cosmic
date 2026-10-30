@@ -266,9 +266,8 @@ local function test_duplicate_keys_are_refused()
     "an object too large to compare pair by pair names the first repeat in the text")
   for _, size in ipairs({ 8, 9, 64, 65 }) do
     local members: mut {string} = {}
-    for i = 1, size - 1 do
-      members[#members + 1] = if i == 2 then '"k2": {"x": 1, "x": 2}' else ('"k%d": {"x": %d}'):format(i, i) end
-    end
+    for i = 1, size - 1 do members[#members + 1] = ('"k%d": {"x": %d}'):format(i, i) end
+    members[2] = '"k2": {"x": 1, "x": 2}'
     members[#members + 1] = '"k1": 0'
     assert(decode_failure("{" .. table.concat(members, ", ") .. "}") ==
         "json: duplicate key at line 1, column 33 (pointer \"/k2/x\")",
@@ -291,9 +290,8 @@ local function test_duplicate_keys_are_refused()
   -- it is whole, so a key twice after a null is found, and the null's
   -- key is absent after.
   local large: mut {string} = {}
-  for i = 1, 70 do
-    large[#large + 1] = if i == 5 then '"k5": null' else ('"k%d": %d'):format(i, i) end
-  end
+  for i = 1, 70 do large[#large + 1] = ('"k%d": %d'):format(i, i) end
+  large[5] = '"k5": null'
   local whole = decoded("{" .. table.concat(large, ", ") .. "}") as {string: any}
   assert(whole.k5 == nil and whole.k6 == 6, "a null member is absent")
   large[#large + 1] = '"k5": 0'
@@ -482,10 +480,7 @@ local alphabet = { "a", "Z", "0", " ", '"', "\\", "/", "\n", "\t", "\0", "\31", 
 
 local function random_string(pick: function(integer, integer): integer): string
   local parts: mut {string} = {}
-  for _ = 1, pick(0, 8) do
-    local char = assert(alphabet[pick(1, #alphabet)])
-    parts[#parts + 1] = char
-  end
+  for i = 1, pick(0, 8) do parts[i] = alphabet[pick(1, #alphabet)] end
   return table.concat(parts)
 end
 

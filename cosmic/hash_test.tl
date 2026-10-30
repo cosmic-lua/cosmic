@@ -50,11 +50,9 @@ local function test_equal_compares_every_byte()
   -- last byte, and in the high bit, is unequal.
   for _, at in ipairs({ 1, 16, 32 }) do
     for _, flip in ipairs({ 1, 0x80, 0xff }) do
-      local flipped: mut {integer} = {}
-      for i, byte in ipairs({ mac:byte(1, -1) }) do
-        flipped[#flipped + 1] = if i == at then byte ~ flip else byte end
-      end
-      assert(not Hash.equal(mac, string.char(table.unpack(flipped))),
+      local bytes = { mac:byte(1, -1) }
+      bytes[at] = bytes[at] ~ flip
+      assert(not Hash.equal(mac, string.char(table.unpack(bytes))),
         "byte " .. tostring(at) .. " flipped by " .. tostring(flip))
     end
   end

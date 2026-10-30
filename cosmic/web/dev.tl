@@ -603,7 +603,7 @@ function Dev.supervise(opts?: Dev.SuperviseOptions): boolean, string
     ignore = given_ignore
   else
     ignore = {}
-    for _, glob in ipairs(DEFAULT_IGNORE) do ignore[#ignore + 1] = glob end
+    for i, glob in ipairs(DEFAULT_IGNORE) do ignore[i] = glob end
     ignore[#ignore + 1] = "/" .. (given.static or "static")
   end
   local ignored = ignorer(ignore)

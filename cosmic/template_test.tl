@@ -1160,7 +1160,7 @@ local NOSCRIPT_MARKUP <const>: {string} = {
 --- action. No cut goes beside a brace of the literal text, which would run
 --- into an action's own.
 local function cuts(src: string): {string}
-  local literal: mut {integer: boolean} = {}
+  local literal: mut {boolean} = {}
   local at = 1
   while at <= #src do
     local open, close = src:find("{{.-}}", at)

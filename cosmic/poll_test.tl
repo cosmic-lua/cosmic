@@ -239,10 +239,7 @@ local function test_many_tasks_wait_on_descriptors_at_once(tmp: string)
   local count = 200
   local readers: mut {integer} = {}
   local writers: mut {integer} = {}
-  for i = 1, count do
-    local reader, writer = fifo(tmp, "p" .. tostring(i))
-    readers[#readers + 1], writers[#writers + 1] = reader, writer
-  end
+  for i = 1, count do readers[i], writers[i] = fifo(tmp, "p" .. tostring(i)) end
   local got: mut {integer: string} = {}
   Poll.run(function()
     for i = 1, count do
@@ -845,10 +842,7 @@ local function test_waits_sharing_descriptors_come_and_go(tmp: string)
   local count = 6
   local readers: mut {integer} = {}
   local writers: mut {integer} = {}
-  for i = 1, count do
-    local reader, writer = fifo(tmp, "p" .. tostring(i))
-    readers[#readers + 1], writers[#writers + 1] = reader, writer
-  end
+  for i = 1, count do readers[i], writers[i] = fifo(tmp, "p" .. tostring(i)) end
   Poll.run(function()
     for round = 1, 20 do
       local seen: mut {string} = {}
@@ -1369,10 +1363,9 @@ local function test_a_notice_for_a_waiter_killed_in_the_same_batch_passes_on()
     local notifier = Poll.notifier()
     local tasks: mut {Poll.Task} = {}
     for id = 1, 2 do
-      local task = Poll.spawn(function()
+      tasks[id] = Poll.spawn(function()
         if notifier:wait(Clock.ms(300)) then woken[#woken + 1] = id end
       end)
-      tasks[#tasks + 1] = task
     end
     assert(Poll.delay(0))
     assert(notifier:waiting() == 2)

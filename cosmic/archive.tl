@@ -591,7 +591,7 @@ local function extract_from(from: string | Archive.Reader, dest: string,
   --- then `B -> .` makes `x` dest's parent, though no `b` exists.
   local function target_crosses_link(parts: {string}, n: integer, target: string): boolean
     local at: mut {string} = {}
-    for i = 1, n do at[i] = assert(parts[i]) end
+    for i = 1, n do at[i] = parts[i] end
     local segs = components(target)
     for k = 1, #segs - 1 do
       local seg = segs[k]

@@ -204,7 +204,7 @@ local function gen_laid_out(src: Fuzz.Source): string
   pos.value = #prefix
 
   local centrals: mut {Rec} = {}
-  local wides: mut {integer: Rec} = {}
+  local wides: mut {Rec} = {}
   local comments: mut {string} = {}
   local n = 0
   while Fuzz.more(src, n, 4) do
@@ -250,21 +250,21 @@ local function gen_laid_out(src: Fuzz.Source): string
     end
     local fmts: mut {string} = { "I2", "I2" }
     local vals: mut {any} = { 1, 8 * #wide }
-    for _, v in ipairs(wide) do
-      fmts[#fmts + 1] = "i8"
-      vals[#vals + 1] = v
+    for i, v in ipairs(wide) do
+      fmts[i + 2] = "i8"
+      vals[i + 2] = v
     end
     local z64: Rec = { fields = fmts, values = vals, tail = "" }
     local extra_len = #before + (if #wide > 0 then #packed(z64) else 0 end)
     local comment = src:int(0, 3) == 0 and Fuzz.bytes(src, 8) or ""
-    centrals[#centrals + 1] = {
+    centrals[n] = {
       fields = CDFH_FIELDS,
       values = { "PK\1\2", UNIX_MADE_BY, 20, 0, method, 0, 0x21, crc, csize, usize, #name,
         extra_len, #comment, 0, 0, attrs, loff },
       tail = name .. before,
     }
     wides[n] = #wide > 0 and z64 or nil
-    comments[#comments + 1] = comment
+    comments[n] = comment
   end
 
   local cd_offset = pos.value
@@ -312,7 +312,7 @@ local function gen_laid_out(src: Fuzz.Source): string
     end
   end
 
-  out[#out + 1] = prefix
+  out[1] = prefix
   for _, r in ipairs(recs) do out[#out + 1] = packed(r) end
   return table.concat(out)
 end

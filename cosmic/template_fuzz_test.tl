@@ -277,7 +277,7 @@ local function gen_literal(src: Fuzz.Source): string
   while joined:find("{{", 1, true) do
     joined = joined:gsub("{{", "{ {")
   end
-  parts[#parts + 1] = joined
+  parts[2] = joined
   return Fuzz.pack(parts)
 end
 
@@ -1168,7 +1168,7 @@ local function read_tag(s: string): Tag
     tag.attrs[#tag.attrs + 1] = name .. "=" .. value
     name, value = "", ""
   end
-  local named: mut {integer: string} = {}
+  local named: mut {string} = {}
   local i = 2
   while i <= #s and tag.state ~= "" do
     local c = s:sub(i, i)
@@ -1400,12 +1400,9 @@ local function test_a_block_in_a_tag_adds_only_the_attributes_it_writes(tmp: str
       local runs: mut {string} = { "", n_arm }
       local own: mut {{string}} = { {}, written(n_arm, 1) }
       if kind == "else" then
-        runs = { n_other, n_arm }
-        own = { written(n_other, 1), written(n_arm, 1) }
+        runs[1], own[1] = n_other, written(n_other, 1)
       elseif kind == "range" then
-        local doubled = written(n_arm, 2)
-        runs[#runs + 1] = n_arm .. n_arm
-        own[#own + 1] = doubled
+        runs[3], own[3] = n_arm .. n_arm, written(n_arm, 2)
       end
       local tags: mut {Tag} = {}
       for i, run in ipairs(runs) do

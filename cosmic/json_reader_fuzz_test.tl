@@ -150,7 +150,7 @@ local function token_values(text: string, size: integer, opts: Json.ReaderOption
   local r = Json.reader(chunked(text, size), opts)
   local values: mut {any} = {}
   local stack: mut {{any: any}} = {}
-  local keys: mut {integer: string} = {}
+  local keys: mut {string} = {}
   local function place(v: any)
     local top = stack[#stack]
     if top == nil then

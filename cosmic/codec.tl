@@ -107,26 +107,25 @@ local function encode(a: Alphabet, s: string, pad: boolean): string
   local pair = a.pair
   local out: mut {string} = {}
   local n = #s
+  local k = 0
   local whole = n - n % 3
   for i = 1, whole, 3 do
     local b1, b2, b3 = s:byte(i, i + 2)
     local v = (b1 << 16) | (b2 << 8) | b3
-    local first, second = assert(pair[v >> 12]), assert(pair[v & 4095])
-    out[#out + 1] = first
-    out[#out + 1] = second
+    out[k + 1] = pair[v >> 12]
+    out[k + 2] = pair[v & 4095]
+    k = k + 2
   end
   local left = n - whole
   if left == 1 then
     local v = String.byte_at(s, n) << 4
-    local first = assert(pair[v])
-    out[#out + 1] = first
-    if pad then out[#out + 1] = "==" end
+    out[k + 1] = pair[v]
+    if pad then out[k + 2] = "==" end
   elseif left == 2 then
     local v = (String.byte_at(s, n - 1) << 10) | (String.byte_at(s, n) << 2)
-    local first, second = assert(pair[v >> 6]), assert(a.char[v & 63])
-    out[#out + 1] = first
-    out[#out + 1] = second
-    if pad then out[#out + 1] = "=" end
+    out[k + 1] = pair[v >> 6]
+    out[k + 2] = a.char[v & 63]
+    if pad then out[k + 3] = "=" end
   end
   return table.concat(out)
 end
@@ -135,24 +134,27 @@ end
 --- four, and few enough bytes to pass as arguments.
 local BATCH <const> = 4096
 
---- Appends to `out` the bytes the first `whole` characters of `s` spell
---- (a multiple of four, all in the alphabet whose values are `value`).
+--- Appends to `out`, after its `k` pieces, the bytes the first `whole`
+--- characters of `s` spell (a multiple of four, all in the alphabet
+--- whose values are `value`), and returns the new count of pieces.
 --- Bytes gather in a buffer and leave a batch at a time through one
 --- `string.char`: a string per group would intern millions of them.
-local function expand(value: {integer:integer}, s: string, whole: integer, out: mut {string})
+local function expand(value: {integer:integer}, s: string, whole: integer,
+                      out: mut {string}, k: integer): integer
+  local buf: mut {integer} = {}
   for first = 1, whole, BATCH do
-    local buf: mut {integer} = {}
     local last = math.min(first + BATCH - 1, whole)
+    local m = 0
     for i = first, last, 4 do
       local c1, c2, c3, c4 = s:byte(i, i + 3)
       local v = (value[c1] << 18) | (value[c2] << 12) | (value[c3] << 6) | value[c4]
-      buf[#buf + 1] = v >> 16
-      buf[#buf + 1] = (v >> 8) & 255
-      buf[#buf + 1] = v & 255
+      buf[m + 1], buf[m + 2], buf[m + 3] = v >> 16, (v >> 8) & 255, v & 255
+      m = m + 3
     end
-    local chunk = string.char(table.unpack(buf))
-    out[#out + 1] = chunk
+    k = k + 1
+    out[k] = string.char(table.unpack(buf, 1, m))
   end
+  return k
 end
 
 --- The bytes `s` spells in `a`'s alphabet. `padded` says whether `s`
@@ -182,7 +184,7 @@ local function decode(a: Alphabet, s: string, padded: boolean, name: string): st
   local value = a.value
   local out: mut {string} = {}
   local whole = n - n % 4
-  expand(value, s, whole, out)
+  local k = expand(value, s, whole, out, 0)
   local left = n - whole
   if left == 2 then
     local c1, c2 = s:byte(n - 1, n)
@@ -190,16 +192,14 @@ local function decode(a: Alphabet, s: string, padded: boolean, name: string): st
     if v & 15 ~= 0 then
       return refuse(("%s text ends in nonzero padding bits"):format(name))
     end
-    local last = string.char(v >> 4)
-    out[#out + 1] = last
+    out[k + 1] = string.char(v >> 4)
   elseif left == 3 then
     local c1, c2, c3 = s:byte(n - 2, n)
     local v = (value[c1] << 12) | (value[c2] << 6) | value[c3]
     if v & 3 ~= 0 then
       return refuse(("%s text ends in nonzero padding bits"):format(name))
     end
-    local last = string.char(v >> 10, (v >> 2) & 255)
-    out[#out + 1] = last
+    out[k + 1] = string.char(v >> 10, (v >> 2) & 255)
   end
   return table.concat(out), ""
 end

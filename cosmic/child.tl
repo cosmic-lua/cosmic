@@ -586,13 +586,10 @@ local record Pipe
   mut fd?: integer
   child_fd: integer
   mut chunks: mut {string}
-  --- The unread chunks of a streamed pipe, by place: those from `head` to `tail`. Each is taken out of the front, so
-  --- the keys are no sequence.
-  mut queue: mut {integer: string}
   mut size: integer
   mut truncated: boolean
-  --- A stream the caller reads, not one kept for the Result: `queue`
-  --- (and not `chunks`) is then read from `head` and written at `tail`, and
+  --- A stream the caller reads, not one kept for the Result: `chunks`
+  --- is then a queue, read from `head` and written at `tail`, and
   --- `size` is how much of it is unread.
   streamed: boolean
   --- The first terminal read or raw poll failure, after any queued bytes.
@@ -923,7 +920,7 @@ end
 local function keep(self: Handle, stream: Pipe, data: string)
   if stream.streamed then
     stream.tail = stream.tail + 1
-    stream.queue[stream.tail] = data
+    stream.chunks[stream.tail] = data
     stream.size = stream.size + #data
     return
   end
@@ -1152,7 +1149,7 @@ local function pump(entries: mut {Entry}, timeout_ns: integer,
   end
   local fds: mut {integer} = {}
   local events: mut {integer} = {}
-  for _, e in ipairs(entries) do fds[#fds + 1], events[#events + 1] = e.fd, e.events end
+  for i, e in ipairs(entries) do fds[i], events[i] = e.fd, e.events end
   if #fds == 0 then
     -- Nothing here could end a wait with no limit: it waits a slice.
     if timeout_ns < 0 then timeout_ns = POLL_NS end
@@ -1404,7 +1401,7 @@ local consumption_mt: metatable<Consumption> = {
       if self.discard then
         if pipe.failure == nil then pipe.failure = self.reason end
         end_stream(pipe)
-        pipe.chunks, pipe.queue, pipe.head, pipe.tail, pipe.size = {}, {}, 1, 0, 0
+        pipe.chunks, pipe.head, pipe.tail, pipe.size = {}, 1, 0, 0
       end
       pipe.consuming = false
     end
@@ -1423,14 +1420,14 @@ end
 
 --- Takes only the queued prefix requested, shared by Reader and drain.
 local function take_chunk(pipe: Pipe, want: integer): string
-  local chunk = pipe.queue[pipe.head]
+  local chunk = pipe.chunks[pipe.head]
   if #chunk <= want then
-    pipe.queue[pipe.head] = nil
+    pipe.chunks[pipe.head] = nil
     pipe.head = pipe.head + 1
     pipe.size = pipe.size - #chunk
     return chunk
   end
-  pipe.queue[pipe.head] = chunk:sub(want + 1)
+  pipe.chunks[pipe.head] = chunk:sub(want + 1)
   pipe.size = pipe.size - want
   return chunk:sub(1, want)
 end
@@ -1524,7 +1521,7 @@ local class PipeReader is Stream.Reader
     pipe.reader_closed = true
     -- The child's next write to it fails, as it would into `head`.
     end_stream(pipe)
-    pipe.chunks, pipe.queue, pipe.head, pipe.tail, pipe.size = {}, {}, 1, 0, 0
+    pipe.chunks, pipe.head, pipe.tail, pipe.size = {}, 1, 0, 0
     return true, ""
   end
 end
@@ -2089,7 +2086,7 @@ local function capture(wiring: Wiring, child_fd: integer, streamed?: boolean): i
   local nonblocking, nonblocking_trouble = sys.set_nonblocking(ends.reader, true)
   if not nonblocking then return nil, nonblocking_trouble end
   wiring.streams[#wiring.streams + 1] = {
-    fd = ends.reader, child_fd = child_fd, chunks = {}, queue = {}, size = 0, truncated = false,
+    fd = ends.reader, child_fd = child_fd, chunks = {}, size = 0, truncated = false,
     streamed = streamed or false, head = 1, tail = 0, reader_closed = false, consuming = false,
   }
   return ends.writer, ""
@@ -2428,7 +2425,7 @@ end
 --- own /proc; `idmap` says which are mounted idmapped ([`reached_by`]).
 --- With `nest`, which has no Landlock to refuse running a file, every grant
 --- without `x` is noexec. Nil and why where a grant cannot be placed.
-local function root_of(merged: Rules.Policy, base: string, idmap: {integer: boolean}, nest: boolean,
+local function root_of(merged: Rules.Policy, base: string, idmap: {boolean}, nest: boolean,
                        tmp_exec: boolean): raw_process.Unveil?, string
   local binds: mut {raw_process.Bind} = {}
   local reads: mut {string} = {}
@@ -2656,7 +2653,7 @@ end
 --- program starts in, and, for `tmp`, TMPDIR's; under it the root is built without walking to a
 --- grant. A grant that does not exist is left for the start's own report.
 local function reached_by(merged: Rules.Policy, base: string, file: boolean,
-                          user: MappedUser): {integer: boolean}?, string
+                          user: MappedUser): {boolean}?, string
   if merged.tmp == true and not file then
     local given = sys.getenv("TMPDIR")
     local tmpdir = "/tmp"
@@ -2670,7 +2667,7 @@ local function reached_by(merged: Rules.Policy, base: string, file: boolean,
         "or isolate \"file\", whose /tmp is a tmpfs of the sandbox's own"
     end
   end
-  local idmap: mut {integer: boolean} = {}
+  local idmap: mut {boolean} = {}
   for index, grant in ipairs(merged.grants or {}) do
     local named_at = named(grant.from or grant.path, base)
     local real, _ = sys.realpath(named_at)
@@ -2826,7 +2823,7 @@ local function relaunch_of(user: MappedUser?, database?: string): Proc.Relaunch?
   if copy == nil then return nil, trouble end
   if not portable then
     local argv: mut {string} = { copy }
-    table.move(launched.argv, 2, #launched.argv, #argv + 1, argv)
+    for i = 2, #launched.argv do argv[i] = launched.argv[i] end
     return { argv = argv, env = launched.env, fds = launched.fds, cwd = launched.cwd }, ""
   end
   -- The copy may have been removed and made again since it was opened
@@ -2852,7 +2849,7 @@ local function relaunch_of(user: MappedUser?, database?: string): Proc.Relaunch?
   local fds: mut {integer:integer} = {}
   for number, given in pairs(launched.fds) do fds[number] = number == core_fd and fd or given end
   local argv: mut {string} = { copy }
-  table.move(launched.argv, 2, #launched.argv, #argv + 1, argv)
+  for i = 2, #launched.argv do argv[i] = launched.argv[i] end
   return { argv = argv, env = launched.env, fds = fds, cwd = launched.cwd }, ""
 end
 
@@ -3118,7 +3115,7 @@ local function held_to(argv: {string}, opts: Options, policy: Rules.Policy): Hel
       granted[#granted + 1] = { path = found.argv[3], letters = "r" }
     end
   end
-  local idmap: {integer: boolean} = {}
+  local idmap: {boolean} = {}
   local drop: MappedUser?
   if user ~= nil then
     local here, here_trouble = sys.realpath(opts.cwd or ".")

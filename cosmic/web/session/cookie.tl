@@ -65,7 +65,7 @@ function SessionCookie.store(opts: SessionCookie.Options): Session.Store
     end
     local ok, why = Secret.check(key)
     if not ok then error(("session: key %d: %s"):format(i, why), 2) end
-    keys[#keys + 1] = key
+    keys[i] = key
   end
   -- The newest key signs; the count was checked above.
   local newest = assert(keys[1])

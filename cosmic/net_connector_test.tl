@@ -750,7 +750,7 @@ local function test_a_full_table_and_the_public_lists_share_one_process()
     local listener, task = echo_server()
     local other, other_task = echo_server()
     local rows: mut {Net.Endpoint} = { { host = "127.0.0.1", port = listener.address.port } }
-    for i = 2, 128 do rows[#rows + 1] = { host = "10.0.0." .. tostring(i), port = 80 } end
+    for i = 2, 128 do rows[i] = { host = "10.0.0." .. tostring(i), port = 80 } end
     local connector = assert(Net.connector(rows, { public = { deny = {} } }))
     echo_through(assert(dial(connector, "127.0.0.1", assert(listener.address.port), Clock.seconds(5))), "table")
     echo_through(assert(dial(connector, "127.0.0.1", assert(other.address.port), Clock.seconds(5))), "public")

@@ -68,6 +68,16 @@ local writer = require("build.writer")
 local String = require("cosmic.string")
 local Hash = require("cosmic.hash")
 
+--- Element `position` of `list`, a position taken from its bounds or from the rows a producer in this file made.
+local function nth<T>(list: {T}, position: integer): T
+  return (assert(list[position], "a position is within the list"))
+end
+
+--- The value kept under `key` in `map`, a key taken from `map` or set before it is read.
+local function lookup_in<K, V>(map: {K: V}, key: K): V
+  return (assert(map[key], "the key is one of the map's"))
+end
+
 local record tree_checks
   --- What [`plurals`] finds in one text of a file, read off a parse made
   --- before the checks ran ([`plurals_in`]).
@@ -407,8 +417,8 @@ function tree_checks.exports(db: Sqlite.Handle, excused?: {string: string}): {st
   local out: mut {string} = {}
   for _, line in ipairs(lines) do
     local name = line:match(": ([^ ]+)$")
-    found[name] = true
-    if excused[name] == nil then
+    if name ~= nil then found[name] = true end
+    if name == nil or excused[name] == nil then
       out[#out + 1] = line .. ": nothing outside its module uses it but a test -- " ..
         "make it local, or name it in build/tree_checks.tl's `allowed` with why"
     end
@@ -514,7 +524,7 @@ function tree_checks.unnamed_types(db: Sqlite.Handle): {string}
   end
   local out: mut {string} = {}
   for _, module in ipairs(order) do
-    local members = by_module[module]
+    local members = assert(by_module[module], "every module of the order has its rows")
     local source = text[module] or ""
     local record = returned_record(source)
     local body = record ~= nil and record_body(source, record) or nil
@@ -561,8 +571,8 @@ function tree_checks.unnamed_types(db: Sqlite.Handle): {string}
     end
     table.sort(unnamed)
     for _, name in ipairs(unnamed) do
-      local row = tops[name]
-      local owner = record or module:match("[^.]+$")
+      local row = assert(tops[name], "a reached name is one of the tops")
+      local owner = record or module:match("[^.]+$") or module
       out[#out + 1] = row:text(5) .. ":" .. row:text(6) .. ": " .. module .. ": " .. name ..
         " is named by the API but is no member of the module: add `type " .. name .. " = " ..
         name .. "` to " .. owner .. ", so a caller can write " .. owner .. "." .. name
@@ -668,7 +678,7 @@ function tree_checks.anchors(db: Sqlite.Handle, expected?: {string}): {string}
   local out: mut {string} = {}
   for name, list in pairs(by_name) do
     for i = 2, #list do
-      local first, other = list[1], list[i]
+      local first, other = nth(list, 1), nth(list, i)
       out[#out + 1] = string.format(
         "%s:%s: %s %s and %s %s: `cosmic docs %s` answers both -- rename one",
         other.file, other.line, first.module, first.symbol, other.module, other.symbol, name)
@@ -849,23 +859,28 @@ function tree_checks.stand_ins(db: Sqlite.Handle, cases?: {{string}}): {string}
   end
   local out: mut {string} = {}
   for _, case in ipairs(cases or stand_ins_expected) do
-    local found, lookup_trouble = docs.lookup(looked, case[1])
-    local first = "nothing"
-    if found == nil then
-      first = "nothing (" .. lookup_trouble .. ")"
+    local query, wanted = case[1], case[2]
+    if query == nil or wanted == nil then
+      out[#out + 1] = "a stand-in case is the query a newcomer types and the function that stands in for it"
     else
-      -- A raw binding of the same name may come first; what stands in
-      -- for it must come right after.
-      for _, entry in ipairs(found) do
-        if entry.module ~= "cosmic.sys" then
-          first = entry.source_symbol
-          break
+      local found, lookup_trouble = docs.lookup(looked, query)
+      local first = "nothing"
+      if found == nil then
+        first = "nothing (" .. lookup_trouble .. ")"
+      else
+        -- A raw binding of the same name may come first; what stands in
+        -- for it must come right after.
+        for _, entry in ipairs(found) do
+          if entry.module ~= "cosmic.sys" then
+            first = entry.source_symbol
+            break
+          end
         end
       end
-    end
-    if first ~= case[2] then
-      out[#out + 1] = "`cosmic docs " .. case[1] .. "` answers " .. first .. " first, not " ..
-        case[2] .. " -- name the command in " .. case[2] .. "'s doc comment"
+      if first ~= wanted then
+        out[#out + 1] = "`cosmic docs " .. query .. "` answers " .. first .. " first, not " ..
+          wanted .. " -- name the command in " .. wanted .. "'s doc comment"
+      end
     end
   end
   return out
@@ -963,7 +978,7 @@ function tree_checks.restricted(db: Sqlite.Handle, rules?: {string: Restriction}
   for name in pairs(rules or restricted) do names[#names + 1] = name end
   table.sort(names)
   for _, name in ipairs(names) do
-    local rule = (rules or restricted)[name]
+    local rule = assert((rules or restricted)[name], "a name listed is one of the rules")
     local module, symbol = name:match("^(%S+) (%S+)$")
     local rows, trouble = Sqlite.text_rows(db,
       "SELECT from_file, line FROM uses WHERE module = ?1 AND symbol = ?2 " ..
@@ -1217,7 +1232,7 @@ function tree_checks.promises(declared: {string:{string}}, legs: {string:{string
   table.sort(leg_names)
   local all: mut {string} = {}
   for _, leg in ipairs(leg_names) do
-    for _, name in ipairs(legs[leg]) do
+    for _, name in ipairs(lookup_in(legs, leg)) do
       local spec, why = host_names.parse(name)
       if spec == nil then
         out[#out + 1] = string.format("leg %s promises %q, which is refused: %s", leg, name, why)
@@ -1230,7 +1245,7 @@ function tree_checks.promises(declared: {string:{string}}, legs: {string:{string
   for module in pairs(declared) do modules[#modules + 1] = module end
   table.sort(modules)
   for _, module in ipairs(modules) do
-    for _, name in ipairs(declared[module]) do
+    for _, name in ipairs(lookup_in(declared, module)) do
       if not host_names.promised(all, name) then
         out[#out + 1] = string.format("%s requires %s, which no CI leg promises " ..
             "(ci/cosmic_ci/capabilities.json): it would be n/a or skipped on every leg and run " ..
@@ -1350,12 +1365,12 @@ local function tokens_of(text: string, start: integer): {Token}
       out[#out + 1] = { kind = "str", value = value }
       i = after
     elseif text:match("^%[=*%[", i) ~= nil then
-      local level = text:match("^%[(=*)%[", i)
+      local level = assert(text:match("^%[(=*)%[", i), "the branch tested this pattern")
       local close = text:find("]" .. level .. "]", i, true)
       out[#out + 1] = { kind = "long", value = "" }
       i = if close ~= nil then close + #level + 2 else #text + 1 end
     elseif c:match("[%a_]") then
-      local word = text:match("^[%w_]+", i)
+      local word = assert(text:match("^[%w_]+", i), "the branch tested a character this pattern starts with")
       out[#out + 1] = { kind = "word", value = word }
       i = i + #word
     else
@@ -1382,28 +1397,31 @@ local function spec_fields(text: string, start: integer): Fields
   local depth = 0
   local i = 1
   while i <= #tokens do
-    local token = tokens[i]
+    local token = nth(tokens, i)
+    local after, third = tokens[i + 1], tokens[i + 2]
     if token.kind == "mark" and token.value == "{" then
       depth = depth + 1
     elseif token.kind == "mark" and token.value == "}" then
       depth = depth - 1
-    elseif depth == 1 and token.kind == "word" and tokens[i + 1] ~= nil and
-        tokens[i + 1].value == "=" and tokens[i + 1].kind == "mark" and
-        tokens[i + 2] ~= nil and tokens[i + 2].value ~= "=" then
-      local name, value = token.value, tokens[i + 2]
+    elseif depth == 1 and token.kind == "word" and after ~= nil and
+        after.value == "=" and after.kind == "mark" and
+        third ~= nil and third.value ~= "=" then
+      local name, value = token.value, third
       if value.kind == "str" then
         if fields.strings[name] == nil then fields.strings[name] = value.value end
         i = i + 2
       elseif value.kind == "mark" and value.value == "{" then
         local list: mut {string} = {}
         local j = i + 3
-        while tokens[j] ~= nil and not (tokens[j].kind == "mark" and tokens[j].value == "}") do
-          if tokens[j].kind == "str" then
-            list[#list + 1] = tokens[j].value
-          elseif not (tokens[j].kind == "mark" and (tokens[j].value == "," or tokens[j].value == ";")) then
+        local item = tokens[j]
+        while item ~= nil and not (item.kind == "mark" and item.value == "}") do
+          if item.kind == "str" then
+            list[#list + 1] = item.value
+          elseif not (item.kind == "mark" and (item.value == "," or item.value == ";")) then
             fields.nonliteral[name] = true
           end
           j = j + 1
+          item = tokens[j]
         end
         if fields.lists[name] == nil then fields.lists[name] = list end
         i = j
@@ -1476,7 +1494,7 @@ function tree_checks.verbs(db: Sqlite.Handle, quickstart: string?): {string}
       current = heading
       sections[heading] = sections[heading] or ""
     elseif current ~= nil then
-      sections[current] = sections[current] .. line .. "\n"
+      sections[current] = (sections[current] or "") .. line .. "\n"
     end
   end
 
@@ -1496,12 +1514,13 @@ function tree_checks.verbs(db: Sqlite.Handle, quickstart: string?): {string}
       local at = 1
       while true do
         local first, last, field = row:text(3):find("\n[%w_]+%.([%w_]*spec) = {", at)
-        if first == nil then break end
+        if first == nil or last == nil or field == nil then break end
         at = last + 1
         if field == "spec" or field:match("^[%w_]*_spec$") ~= nil then
           assigned = assigned + 1
-          found_fields[row:text(1)] = found_fields[row:text(1)] or {}
-          found_fields[row:text(1)][field] = true
+          local own_fields = found_fields[row:text(1)] or {}
+          found_fields[row:text(1)] = own_fields
+          own_fields[field] = true
           local spec = spec_fields(row:text(3), last)
           local name = spec.strings.name or "?"
           if listed[row:text(1)] ~= true then
@@ -1695,7 +1714,7 @@ function tree_checks.public_docs(db: Sqlite.Handle, excused?: {string: string}):
       local at = 1
       while true do
         local from, to = text:find(rule.pattern, at)
-        if from == nil then break end
+        if from == nil or to == nil then break end
         at = to + 1
         local hit = text:sub(from, to)
         -- The whole word around the match, for the finding.
@@ -1808,24 +1827,31 @@ function tree_checks.plurals(db: Sqlite.Handle, extra?: {{string}}, excused?: {s
   local out: mut {string} = {}
   local found: mut {string: boolean} = {}
   for _, row in ipairs(sources) do
-    local known = read ~= nil and read[row[1]] or nil
+    local file_name, source_text = row[1], row[2]
+    local kept = if read ~= nil and file_name ~= nil then read[file_name] else nil end
     local sites: {{string}}?
     local parse_trouble: string?
-    if known ~= nil and known.source == row[2] then
-      sites = known.sites
+    if file_name == nil or source_text == nil then
+      out[#out + 1] = "a source to check for plurals is a file's path and its text"
+      sites = {}
+    elseif kept ~= nil and kept.source == source_text then
+      sites = kept.sites
     else
-      sites, parse_trouble = plural_sites(assert(row[2]), assert(row[1]))
+      sites, parse_trouble = plural_sites(source_text, file_name)
     end
     if sites == nil then
-      out[#out + 1] = row[1] .. ": cannot read it to check its plurals: " .. (parse_trouble or "")
+      out[#out + 1] = (file_name or "?") .. ": cannot read it to check its plurals: " .. (parse_trouble or "")
     else
       for _, site in ipairs(sites) do
-        local key = row[1] .. ":" .. site[2]
-        found[key] = true
-        if excused[key] == nil then
-          out[#out + 1] = row[1] .. ":" .. site[1] .. ": `" .. site[3] ..
-            "` puts the literal plural `" .. site[2] .. "` after a number, which reads \"1 " ..
-            site[2] .. "\" -- " .. site[4]
+        local line, noun, literal, fix = site[1], site[2], site[3], site[4]
+        if file_name ~= nil and line ~= nil and noun ~= nil and literal ~= nil and fix ~= nil then
+          local key = file_name .. ":" .. noun
+          found[key] = true
+          if excused[key] == nil then
+            out[#out + 1] = file_name .. ":" .. line .. ": `" .. literal ..
+              "` puts the literal plural `" .. noun .. "` after a number, which reads \"1 " ..
+              noun .. "\" -- " .. fix
+          end
         end
       end
     end
@@ -1854,7 +1880,7 @@ function tree_checks.ci_sources(root: string): {{string}}
       if text ~= nil then out[#out + 1] = { "ci/cosmic_ci/" .. name, text } end
     end
   end
-  table.sort(out, function(a: {string}, b: {string}): boolean return a[1] < b[1] end)
+  table.sort(out, function(a: {string}, b: {string}): boolean return nth(a, 1) < nth(b, 1) end)
   return out
 end
 
@@ -1930,7 +1956,7 @@ function tree_checks.ci_testdata(root: string): {string}
       for _, line in ipairs(made.lines) do
         if not (testy and unused_warning(line)) then
           local y, x, msg, code, fix = line:match("^[^:]+:(%d+):(%d+): (.-) %(([%a_]+)%): (.*)$")
-          if code == nil then
+          if code == nil or msg == nil or fix == nil then
             -- The checker's own count of a code ("2 errors of x in its bodies") is told again, against the ceiling, below.
             if line:match("^[^:]+: %d+ errors? of [%a_]+ in its %a+; follow the fix above$") == nil then
               out[#out + 1] = if line:sub(1, #name + 1) == name .. ":" then file .. line:sub(#name + 1) else line end
@@ -2001,16 +2027,18 @@ end
 local function kept_scopes(text: string, file: string): ScopeOutcome?
   local outcome: ScopeOutcome = { consistent = "", errors = {} }
   for _, fields in ipairs(check_memo.decode(text)) do
-    if fields[1] == "C" and #fields == 2 then
-      outcome.consistent = fields[2]
+    local consistent = fields[2]
+    if fields[1] == "C" and #fields == 2 and consistent ~= nil then
+      outcome.consistent = consistent
     elseif fields[1] == "E" and #fields == 6 then
-      local code = scope_codes[fields[2]]
+      local code_name, msg, fix = fields[2], fields[5], fields[6]
+      local code = scope_codes[code_name]
       local y, x = math.tointeger(tonumber(fields[3])), math.tointeger(tonumber(fields[4]))
       if code == nil or y == nil or x == nil then
         return nil
       end
       outcome.errors[#outcome.errors + 1] = {
-        filename = file, code = code, y = y, x = x, offset = 0, length = 0, msg = fields[5], fix = fields[6],
+        filename = file, code = code, y = y, x = x, offset = 0, length = 0, msg = msg, fix = fix,
       }
     else
       return nil
@@ -2086,7 +2114,7 @@ function tree_checks.scoped(root: string, pinned?: {string: integer}, memo?: Sql
     local _, _ = check_memo.prepare(memo, "scoped")
   end
   for _, row in ipairs(files) do
-    local file, source = row[1], row[2]
+    local file, source = nth(row, 1), nth(row, 2)
     local outcome = scope_outcome(file, source, declared, memo, salt)
     if outcome.consistent ~= "" then
       out[#out + 1] = file .. ": its scopes are not consistent with its tree: " .. outcome.consistent
@@ -2121,8 +2149,9 @@ function tree_checks.scoped(root: string, pinned?: {string: integer}, memo?: Sql
   table.sort(keys)
   for _, key in ipairs(keys) do
     local count = found[key] or 0
-    if count < pinned[key] then
-      out[#out + 1] = key .. ": pinned " .. pinned[key] .. " but " .. tostring(count) ..
+    local limit = lookup_in(pinned, key)
+    if count < limit then
+      out[#out + 1] = key .. ": pinned " .. tostring(limit) .. " but " .. tostring(count) ..
         " found; lower the pin in " .. Ceilings.path .. "'s [scoped]"
     end
   end
@@ -2145,12 +2174,13 @@ local function kept_findings(text: string, codes: {string}): DeclareOutcome?
   end
   local outcome: DeclareOutcome = { errors = {} }
   for _, fields in ipairs(check_memo.decode(text)) do
+    local code, msg, fix = fields[2], fields[5], fields[6]
     if fields[1] == "E" and #fields == 6 then
       local y, x = math.tointeger(tonumber(fields[3])), math.tointeger(tonumber(fields[4]))
-      if known[fields[2]] ~= true or y == nil or x == nil then
+      if code == nil or msg == nil or fix == nil or known[code] ~= true or y == nil or x == nil then
         return nil
       end
-      outcome.errors[#outcome.errors + 1] = { code = fields[2], y = y, x = x, msg = fields[5], fix = fields[6] }
+      outcome.errors[#outcome.errors + 1] = { code = code, y = y, x = x, msg = msg, fix = fix }
     elseif fields[1] ~= "N" then
       return nil
     end
@@ -2232,7 +2262,7 @@ local function tree_of(given: {{string}}, salt: string, bindings?: {{string}}, w
   local derived: mut {string: boolean} = {}
   for _, entry in ipairs(bindings or {}) do
     files[#files + 1] = entry
-    derived[entry[1]] = true
+    derived[nth(entry, 1)] = true
   end
   local index = TreeProgram.index(files, {})
   local tree: Tree = { rows = {}, by_module = {}, index = index }
@@ -2387,7 +2417,7 @@ local function held_to_pins(tree: Tree, outcomes: {string: DeclareOutcome}, code
   local out: mut {string} = {}
   local found: mut {string: integer} = {}
   for _, row in ipairs(tree.rows) do
-    local outcome = outcomes[row.file]
+    local outcome = lookup_in(outcomes, row.file)
     local held = Ceilings.over(row.file, outcome.errors, codes, pinned, what)
     for _, line in ipairs(held.lines) do
       out[#out + 1] = line
