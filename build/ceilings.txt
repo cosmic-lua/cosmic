@@ -5766,7 +5766,7 @@ core/socket_test.tl and_ternary 2
 
 core/sqlite_documented_test.tl and_ternary 1
 
-core/sqlite_functions_fuzz_test.tl and_ternary 8
+core/sqlite_functions_fuzz_test.tl and_ternary 7
 
 core/syscalls_test.tl and_ternary 1
 
@@ -6239,13 +6239,12 @@ core/artifact_fd_test.tl compare_disjoint 1
 
 core/connector_public_test.tl compare_disjoint 2
 
-core/sqlite_functions_fuzz_test.tl compare_disjoint 1
 
 core/sqlite_functions_test.tl compare_disjoint 1
 
 core/surface_test.tl compare_disjoint 4
 
-core/syscalls_test.tl compare_disjoint 4
+core/syscalls_test.tl compare_disjoint 3
 
 cosmic/archive.tl compare_disjoint 1
 
