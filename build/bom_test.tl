@@ -76,7 +76,7 @@ end
 local function test_a_bare_key_is_refused_like_one_with_no_value()
   for _, key in ipairs({ "sha256", "sha3-256", "version", "url" }) do
     local component, trouble = bom.parse("zlib",
-      "version 1.3\nurl https://zlib.net/\nlicense Zlib\n" .. key .. "\n")
+      key .. "\nversion 1.3\nurl https://zlib.net/\nlicense Zlib\n")
     assert(component == nil, key .. " with no value was accepted")
     assert(trouble:find(key .. " has no value", 1, true) ~= nil, trouble)
   end
