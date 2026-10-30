@@ -406,7 +406,8 @@ local function trimmed(value: string): string
   if first == nil then
     return ""
   end
-  local back = value:reverse():find("[^ \t]")
+  -- `first` found a non-blank, so the reversed text has one too.
+  local back = assert(value:reverse():find("[^ \t]"))
   return value:sub(first, #value - back + 1)
 end
 
@@ -553,7 +554,7 @@ function relay_wire.connect_reader(): relay_wire.ConnectReader
             if st.seen + special > MAX_HEAD then
               return head_refusal()
             end
-            local byte = chunk:byte(special)
+            local byte = String.byte_at(chunk, special)
             if byte == 13 then
               st.after_cr = true
             elseif byte == 10 then
@@ -607,12 +608,12 @@ local function read_greeting(buf: string, password: boolean): relay_wire.SocksGr
   end
   if buf:byte(1) ~= 5 then
     return { status = "refused", consumed = 0,
-      reason = ("SOCKS version %d is not supported (only 5)"):format(buf:byte(1)) }
+      reason = ("SOCKS version %d is not supported (only 5)"):format(String.byte_at(buf, 1)) }
   end
   if #buf < 2 then
     return { status = "more", consumed = 0 }
   end
-  local count = buf:byte(2)
+  local count = String.byte_at(buf, 2)
   local want = if password then 2 else 0 end
   if count == 0 then
     return { status = "refused", consumed = 0, method = 255, reason = "no authentication method offered" }
@@ -646,19 +647,19 @@ local function read_auth(buf: string): relay_wire.SocksAuth
   end
   if buf:byte(1) ~= 1 then
     return { status = "refused", consumed = 0,
-      reason = ("username/password version %d is not supported (only 1)"):format(buf:byte(1)) }
+      reason = ("username/password version %d is not supported (only 1)"):format(String.byte_at(buf, 1)) }
   end
   if #buf < 2 then
     return { status = "more", consumed = 0 }
   end
-  local ulen = buf:byte(2)
+  local ulen = String.byte_at(buf, 2)
   if ulen == 0 then
     return { status = "refused", consumed = 0, reason = "empty username" }
   end
   if #buf < 2 + ulen + 1 then
     return { status = "more", consumed = 0 }
   end
-  local plen = buf:byte(3 + ulen)
+  local plen = String.byte_at(buf, 3 + ulen)
   if plen == 0 then
     return { status = "refused", consumed = 0, reason = "empty password" }
   end
@@ -699,12 +700,12 @@ local function read_request(buf: string): relay_wire.SocksRequest
     return { status = "more", consumed = 0 }
   end
   if buf:byte(1) ~= 5 then
-    return socks_refused("failure", ("SOCKS version %d is not supported (only 5)"):format(buf:byte(1)))
+    return socks_refused("failure", ("SOCKS version %d is not supported (only 5)"):format(String.byte_at(buf, 1)))
   end
   if size < 2 then
     return { status = "more", consumed = 0 }
   end
-  local command = buf:byte(2)
+  local command = String.byte_at(buf, 2)
   if command ~= 1 then
     return socks_refused("command_not_supported", ("SOCKS command %d is not relayed (only CONNECT, 1)"):format(command))
   end
@@ -717,7 +718,7 @@ local function read_request(buf: string): relay_wire.SocksRequest
   if size < 4 then
     return { status = "more", consumed = 0 }
   end
-  local atyp = buf:byte(4)
+  local atyp = String.byte_at(buf, 4)
   local host: string
   local kind: relay_wire.Kind
   local at: integer
@@ -725,14 +726,14 @@ local function read_request(buf: string): relay_wire.SocksRequest
     if size < 8 then
       return { status = "more", consumed = 0 }
     end
-    host, kind, at = ("%d.%d.%d.%d"):format(buf:byte(5), buf:byte(6), buf:byte(7), buf:byte(8)), "ipv4", 9
+    host, kind, at = ("%d.%d.%d.%d"):format(String.byte_at(buf, 5), String.byte_at(buf, 6), String.byte_at(buf, 7), String.byte_at(buf, 8)), "ipv4", 9
   elseif atyp == 4 then
     if size < 20 then
       return { status = "more", consumed = 0 }
     end
     local g: mut {string} = {}
     for i = 0, 7 do
-      g[#g + 1] = ("%x"):format(buf:byte(5 + 2 * i) * 256 + buf:byte(6 + 2 * i))
+      g[#g + 1] = ("%x"):format(String.byte_at(buf, 5 + 2 * i) * 256 + String.byte_at(buf, 6 + 2 * i))
     end
     local text, why = ipv6(table.concat(g, ":"))
     if text == nil then
@@ -743,7 +744,7 @@ local function read_request(buf: string): relay_wire.SocksRequest
     if size < 5 then
       return { status = "more", consumed = 0 }
     end
-    local length = buf:byte(5)
+    local length = String.byte_at(buf, 5)
     if length == 0 then
       return socks_refused("failure", "empty domain name")
     end
@@ -761,7 +762,7 @@ local function read_request(buf: string): relay_wire.SocksRequest
   if size < at + 1 then
     return { status = "more", consumed = 0 }
   end
-  local port = buf:byte(at) * 256 + buf:byte(at + 1)
+  local port = String.byte_at(buf, at) * 256 + String.byte_at(buf, at + 1)
   if port == 0 then
     return socks_refused("failure", "port 0")
   end
@@ -906,12 +907,12 @@ local function read_method_answer(buf: string, password: boolean): relay_wire.So
   end
   if buf:byte(1) ~= 5 then
     return { status = "refused", consumed = 0,
-      reason = ("SOCKS version %d in the answer, not 5"):format(buf:byte(1)) }
+      reason = ("SOCKS version %d in the answer, not 5"):format(String.byte_at(buf, 1)) }
   end
   if #buf < 2 then
     return { status = "more", consumed = 0 }
   end
-  local method = buf:byte(2)
+  local method = String.byte_at(buf, 2)
   local offered = if password then 2 else 0 end
   if method == offered then
     return { status = "done", consumed = 2, method = method }
@@ -929,7 +930,7 @@ local function read_auth_answer(buf: string): relay_wire.SocksAuthAnswer
   end
   if buf:byte(1) ~= 1 then
     return { status = "refused", consumed = 0,
-      reason = ("username/password version %d in the answer, not 1"):format(buf:byte(1)) }
+      reason = ("username/password version %d in the answer, not 1"):format(String.byte_at(buf, 1)) }
   end
   if #buf < 2 then
     return { status = "more", consumed = 0 }
@@ -953,7 +954,7 @@ local function read_answer(buf: string): relay_wire.SocksAnswer
   end
   if buf:byte(1) ~= 5 then
     return { status = "refused", consumed = 0,
-      reason = ("SOCKS version %d in the reply, not 5"):format(buf:byte(1)) }
+      reason = ("SOCKS version %d in the reply, not 5"):format(String.byte_at(buf, 1)) }
   end
   if size < 3 then
     return { status = "more", consumed = 0 }
@@ -964,7 +965,7 @@ local function read_answer(buf: string): relay_wire.SocksAnswer
   if size < 4 then
     return { status = "more", consumed = 0 }
   end
-  local atyp = buf:byte(4)
+  local atyp = String.byte_at(buf, 4)
   local width: integer
   if atyp == 1 then
     width = 4
@@ -974,7 +975,7 @@ local function read_answer(buf: string): relay_wire.SocksAnswer
     if size < 5 then
       return { status = "more", consumed = 0 }
     end
-    width = 1 + buf:byte(5)
+    width = 1 + String.byte_at(buf, 5)
   else
     return { status = "refused", consumed = 0, reason = ("SOCKS address type %d in the reply is not supported"):format(atyp) }
   end
@@ -982,7 +983,7 @@ local function read_answer(buf: string): relay_wire.SocksAnswer
   if size < total then
     return { status = "more", consumed = 0 }
   end
-  local code = buf:byte(2)
+  local code = String.byte_at(buf, 2)
   return { status = "done", consumed = total, code = code, reply = SOCKS_REPLIES[code] }
 end
 
@@ -1053,7 +1054,7 @@ function relay_wire.socks_reply_meaning(code: integer): string
 end
 
 local function u16(text: string, at: integer): integer
-  return text:byte(at) * 256 + text:byte(at + 1)
+  return String.byte_at(text, at) * 256 + String.byte_at(text, at + 1)
 end
 
 --- What a ClientHello says of its server: the name, or "" for none, and
@@ -1075,7 +1076,7 @@ local function hello_name(body: string): ServerName?, string
     return nil, "ClientHello shorter than its fixed fields"
   end
   local at = 35
-  local session = body:byte(at)
+  local session = String.byte_at(body, at)
   if session > 32 or at + session > size then
     return nil, "ClientHello session id past its end"
   end
@@ -1091,7 +1092,7 @@ local function hello_name(body: string): ServerName?, string
   if at > size then
     return nil, "ClientHello compression methods past its end"
   end
-  local methods = body:byte(at)
+  local methods = String.byte_at(body, at)
   if methods < 1 or at + methods > size then
     return nil, "ClientHello compression methods past its end"
   end
@@ -1194,7 +1195,7 @@ local function record_header(data: string, pos: integer, first: boolean): Header
     return { length = 0 }
   end
   if data:byte(pos) ~= 22 then
-    return { refusal = wrong(("a record whose first byte 0x%02x is not a TLS handshake record"):format(data:byte(pos))), length = 0 }
+    return { refusal = wrong(("a record whose first byte 0x%02x is not a TLS handshake record"):format(String.byte_at(data, pos))), length = 0 }
   end
   if have < 2 then
     return { length = 0 }
@@ -1205,7 +1206,7 @@ local function record_header(data: string, pos: integer, first: boolean): Header
   if have < 3 then
     return { length = 0 }
   end
-  if data:byte(pos + 2) > 4 then
+  if String.byte_at(data, pos + 2) > 4 then
     return { refusal = versioned("a handshake record of a version past TLS 1.3"), length = 0 }
   end
   if have < 5 then
@@ -1265,9 +1266,9 @@ function relay_wire.hello_reader(): relay_wire.HelloReader
       local message = table.concat(st.parts)
       st.parts = { message }
       if message:byte(1) ~= 1 then
-        return finish(malformed(("handshake message type %d is not a ClientHello"):format(message:byte(1))))
+        return finish(malformed(("handshake message type %d is not a ClientHello"):format(String.byte_at(message, 1))))
       end
-      local announced = message:byte(2) * 65536 + message:byte(3) * 256 + message:byte(4)
+      local announced = String.byte_at(message, 2) * 65536 + String.byte_at(message, 3) * 256 + String.byte_at(message, 4)
       st.total = announced
       if announced > MAX_HELLO then
         return finish(malformed(("a ClientHello of %s (at most %d)"):format(String.counted(announced, "byte"), MAX_HELLO)))

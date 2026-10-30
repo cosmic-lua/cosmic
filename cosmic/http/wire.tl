@@ -10,6 +10,7 @@
 --- does; the bytes read past one request stay in the [`Input`] for the
 --- next, which is how a pipelined request is kept.
 
+local Number = require("cosmic.number")
 local Stream = require("cosmic.stream")
 local String = require("cosmic.string")
 local Url = require("cosmic.url")
@@ -331,7 +332,7 @@ local function decimal(digits: string): integer?
   digits = digits:gsub("^0+", "")
   if digits == "" then return 0 end
   if #digits > 18 then return math.maxinteger end
-  return math.tointeger(tonumber(digits))
+  return Number.integer(digits)
 end
 
 --- A request target's path and query.
@@ -568,7 +569,7 @@ local function next_chunk(self: BodyReader): boolean, string
   if #hex > 15 then
     return stopped(self, "over", "http: the body is longer than limits.body_bytes")
   end
-  local size = if hex == "" then 0 else math.tointeger(tonumber(hex, 16)) end
+  local size = if hex == "" then 0 else Number.integer(hex, 16) end
   if size == 0 then
     self.phase = "trailers"
     return true, ""

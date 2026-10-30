@@ -1112,13 +1112,13 @@ cosmic/html_test.tl nil_not_allowed 9
 
 cosmic/http/init.tl nil_not_allowed 1
 
-cosmic/http/multipart.tl nil_not_allowed 11
+cosmic/http/multipart.tl nil_not_allowed 10
 
 cosmic/http/multipart_fuzz_test.tl nil_not_allowed 23
 
 cosmic/http/multipart_test.tl nil_not_allowed 4
 
-cosmic/http/server.tl nil_not_allowed 3
+cosmic/http/server.tl nil_not_allowed 2
 
 cosmic/http/server_range_fuzz_test.tl nil_not_allowed 15
 
@@ -1128,7 +1128,7 @@ cosmic/http/server_test.tl nil_not_allowed 17
 
 cosmic/http/server_tool_test.tl nil_not_allowed 2
 
-cosmic/http/wire.tl nil_not_allowed 15
+cosmic/http/wire.tl nil_not_allowed 13
 
 cosmic/http/wire_fuzz_test.tl nil_not_allowed 33
 
@@ -1168,7 +1168,7 @@ cosmic/internal/relay_start_test.tl nil_not_allowed 3
 
 cosmic/internal/relay_token_fuzz_test.tl nil_not_allowed 1
 
-cosmic/internal/relay_wire.tl nil_not_allowed 54
+cosmic/internal/relay_wire.tl nil_not_allowed 2
 
 cosmic/internal/relay_wire_client_fuzz_test.tl nil_not_allowed 20
 

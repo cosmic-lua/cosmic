@@ -40,6 +40,42 @@ local function test_lines_match_split_on_newline()
   assert(same(collected("a\r\nb"), { "a\r", "b" }))
 end
 
+local function test_byte_at_reads_each_byte_from_1()
+  assert(String.byte_at("abc", 1) == 97)
+  assert(String.byte_at("abc", 3) == 99)
+  assert(String.byte_at("\0\255", 1) == 0)
+  assert(String.byte_at("\0\255", 2) == 255)
+end
+
+local function test_byte_at_refuses_the_indexes_byte_would_answer_nil_or_wrap_for()
+  for _, index in ipairs({ 0, -1, -3, 4, 100 }) do
+    local ok, why = pcall(String.byte_at, "abc", index)
+    assert(not ok, tostring(index))
+    assert(tostring(why):find(("byte_at(%d) is outside the text of 3 bytes (1 to 3)"):format(index), 1, true), tostring(why))
+  end
+end
+
+local function test_byte_at_counts_one_byte_in_the_singular()
+  local ok, why = pcall(String.byte_at, "x", 2)
+  assert(not ok)
+  assert(tostring(why):find("outside the text of 1 byte (1 to 1)", 1, true), tostring(why))
+end
+
+local function test_byte_at_says_when_the_text_is_empty()
+  local ok, why = pcall(String.byte_at, "", 1)
+  assert(not ok)
+  assert(tostring(why):find("byte_at(1) reads an empty text", 1, true), tostring(why))
+end
+
+local function test_byte_at_blames_its_caller()
+  local ok, why = pcall(function(): integer
+    local byte = String.byte_at("abc", 9)
+    return byte
+  end)
+  assert(not ok)
+  assert(tostring(why):find("cosmic.string_test:", 1, true), tostring(why))
+end
+
 local function test_trim_strips_whitespace_at_both_ends()
   assert(String.trim("  a b \t\n") == "a b")
   assert(String.trim("a") == "a")

@@ -1,6 +1,6 @@
 --- Small text operations a program otherwise writes by hand: splitting
 --- on a separator, iterating over lines, trimming, testing a prefix or
---- suffix, and counting a noun. Every separator, prefix and suffix is plain
+--- suffix, reading a byte that must be there, and counting a noun. Every separator, prefix and suffix is plain
 --- text, never a Lua pattern, so a `.` or `%` in one means itself.
 ---
 ---     for line in String.lines("a\n\nb") do print(line) end -- a, "", b
@@ -70,6 +70,28 @@ end
 --- @return boolean True when it does
 function String.ends_with(text: string, suffix: string): boolean
   return suffix == "" or text:sub(-#suffix) == suffix
+end
+
+--- The byte of `text` at `index`, counted from 1, for code that has
+--- already checked the index against `#text` (a wire parser that read a
+--- length first, a loop over `1, #text`). `text:byte(index)` answers nil
+--- past either end, which a caller then adds or shifts; this raises,
+--- blaming its caller, so a length check that was missed fails where the
+--- read is. A negative index is refused rather than counted from the end,
+--- and so is 0.
+--- @param text string The bytes to read
+--- @param index integer The position, 1 to `#text`
+--- @return integer The byte, 0 to 255
+function String.byte_at(text: string, index: integer): integer
+  local byte = if index >= 1 then text:byte(index) else nil end
+  if byte == nil then
+    if #text == 0 then
+      error(("string: byte_at(%d) reads an empty text"):format(index), 2)
+    end
+    error(("string: byte_at(%d) is outside the text of %s (1 to %d)"):format(
+      index, String.counted(#text, "byte"), #text), 2)
+  end
+  return byte
 end
 
 --- `n` and `singular` as a count of things, "1 entry" or "2 entries": the

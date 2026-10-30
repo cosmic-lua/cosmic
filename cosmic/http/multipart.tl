@@ -48,6 +48,7 @@
 
 -- TODO: make this `local type Cell = require("cosmic.cell")` once the store keeps a module that only a `local type` require names; today that drops cosmic.cell from the binary and build/link_index_test fails.
 local Cell = require("cosmic.cell")
+local Number = require("cosmic.number")
 local Stream = require("cosmic.stream")
 local String = require("cosmic.string")
 
@@ -246,7 +247,7 @@ local function ext_value(text: string): string?, string
       bad_escape.value = true
       return ""
     end
-    return string.char(tonumber(hex, 16))
+    return string.char(Number.integer(hex, 16))
   end)
   if bad_escape.value == true then return nil, "multipart: filename* has a bad escape" end
   local lower = charset:lower()
