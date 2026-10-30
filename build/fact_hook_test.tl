@@ -143,7 +143,7 @@ local function test_a_read_with_no_place_is_placed_by_its_caller()
   local met = since(before)
   assert(#met == 1, tostring(#met) .. " rows")
   local first = met[1]
-  assert(first ~= nil and first.at:find("fact_hook_test[^:]*:%d+$") ~= nil, spelled(first))
+  assert(first.at:find("fact_hook_test[^:]*:%d+$") ~= nil, spelled(first))
 end
 
 --- Past `most_kept` distinct violations a worker only counts, as for the fork's checks.
