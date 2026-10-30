@@ -98,8 +98,9 @@ function Solve.parse(argv: {string}): Solve.Options?, string
   local model: string? = nil
   local max_turns, timeout = 150, 600
   local i = 1
-  while argv[i] ~= nil do
+  while true do
     local word = argv[i]
+    if word == nil then break end
     if word == "--model" or word == "--max-turns" or word == "--timeout" then
       local value = argv[i + 1]
       if value == nil then return nil, word .. " needs a value" end
@@ -146,7 +147,8 @@ end
 function Solve.environment(host: {string:string}, arena: string, extra: {string}): {string:string}
   local env: mut {string:string} = {}
   for _, name in ipairs(passed) do
-    env[name] = host[name]
+    local value = host[name]
+    if value ~= nil then env[name] = value end
   end
   local path = { arena .. "/bin" }
   for _, dir in ipairs(extra) do path[#path + 1] = dir end
