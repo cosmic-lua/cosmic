@@ -113,8 +113,8 @@ fix, and the cause sits in upstream's design, not in any one fix.
 
 [narrowing by construction] replaces the first three with a design that is
 sound by construction. the fourth is answered by narrowing only what no
-other code can change: a local, which only its own function assigns once
-[captures are read-only]. the new checker adds a fixed field, which
+other code can change: a local that no function but its own assigns
+([captures are read-only]). the new checker adds a fixed field, which
 nothing assigns after its table is made. a call then drops no fact, and
 no list of what runs code is kept for narrowing. the patch format made each of these
 worse: a patch finds and replaces text in one 15,000-line file, so a change
@@ -557,8 +557,8 @@ flow analysis decides narrowing and reachability.
   not places, and a test of one narrows nothing; the rewrite is a local
   copy, `local n = r.n if n then ... end`, which the error gives.
 - inside a function, a local of the code around it is a place only if
-  nothing assigns it after the function is made. [captures are read-only]
-  stops the closure assigning it, but the code that declares it can while
+  nothing assigns it after the function is made. a local a closure assigns is
+  never narrowed ([captures are read-only]), but the code that declares it can assign while
   the closure is suspended in a coroutine, or between two calls, so a
   test inside the closure narrows only a local that is fixed from then
   on.
@@ -611,10 +611,25 @@ field.
 
 ### captures are read-only
 
-a restriction (done, #3067). a function literal may read but not assign a
-local declared outside it. it makes the closure-assigns-a-narrowed-local
-class of hole impossible, and with it the pending-function machinery of
-[assigned before read] for assignments.
+a restriction (done, #3067; replaced, see below). a function literal could
+read but not assign a local declared outside it. it made the
+closure-assigns-a-narrowed-local class of hole impossible, and with it the
+pending-function machinery of [assigned before read] for assignments. the
+cost was a box (`Cell<T>`) at every counter or result a callback fills in.
+
+it is replaced by a rule that closes the same hole without the box: a function
+may assign a captured local, and the checker never narrows a local that any
+function assigns. the hole needs a test of the local followed by a use, with a
+call between that runs the assignment; with no test of the local, no fact is
+there to go stale, and every read is of the declared type. which locals are
+assigned by a function is known before the checker's first test, because the
+scope builder finishes the whole chunk first and marks the local
+(`closure_assigned`) wherever the function is: made before the test, after it,
+in a loop that holds both, or inside another function. nothing is order
+dependent, so the rule needs no flow analysis of its own. the cost is that such
+a local is tested through a copy (`local y = x`, then `if y ~= nil`), which no
+function assigns. a local no function assigns narrows as before, and [`Capture.after`]
+still decides what a test inside a function may keep of it.
 
 ### goto only as continue
 
@@ -1581,6 +1596,7 @@ since the seed's Lua runs on the tree's VM.
 [`build/lsp/session.tl`]: ../../build/lsp/session.tl
 [`build/syntax_contracts.tl`]: ../../build/syntax_contracts.tl
 [`build/type_watch.tl`]: ../../build/type_watch.tl
+[`Capture.after`]: ../../lang/scopes.tl
 [`Child.Handle`]: ../../cosmic/child.tl
 [`cosmic.json.array`]: ../../cosmic/json.tl
 [`lang/SEED_DIFFERS`]: ../../lang/SEED_DIFFERS
