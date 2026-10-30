@@ -1402,9 +1402,7 @@ eval/summarize.tl nil_not_allowed 14
 
 eval/summarize_test.tl nil_not_allowed 2
 
-lang/ast.tl nil_not_allowed 1
-
-lang/ast_dump.tl nil_not_allowed 5
+lang/ast_dump.tl nil_not_allowed 4
 
 lang/check.tl nil_not_allowed 69
 
@@ -1416,7 +1414,7 @@ lang/check_flow_fuzz_test.tl nil_not_allowed 4
 
 lang/check_flow_test.tl nil_not_allowed 9
 
-lang/check_fuzz_test.tl nil_not_allowed 8
+lang/check_fuzz_test.tl nil_not_allowed 5
 
 lang/check_generics_test.tl nil_not_allowed 24
 
@@ -1428,13 +1426,13 @@ lang/check_speed_test.tl nil_not_allowed 5
 
 lang/check_test.tl nil_not_allowed 26
 
-lang/codegen.tl nil_not_allowed 23
+lang/codegen.tl nil_not_allowed 20
 
 lang/codegen_fuzz_test.tl nil_not_allowed 12
 
 lang/codegen_test.tl nil_not_allowed 7
 
-lang/declarations.tl nil_not_allowed 22
+lang/declarations.tl nil_not_allowed 15
 
 lang/declarations_speed_test.tl nil_not_allowed 2
 
@@ -1472,13 +1470,13 @@ lang/relation_refused_test.tl nil_not_allowed 16
 
 lang/relation_test.tl nil_not_allowed 16
 
-lang/scopes.tl nil_not_allowed 67
+lang/scopes.tl nil_not_allowed 59
 
 lang/scopes_cover.tl nil_not_allowed 2
 
 lang/scopes_fuzz_test.tl nil_not_allowed 1
 
-lang/scopes_programs.tl nil_not_allowed 3
+lang/scopes_programs.tl nil_not_allowed 1
 
 lang/scopes_test.tl nil_not_allowed 21
 
@@ -1486,7 +1484,7 @@ lang/stdlib_test.tl nil_not_allowed 2
 
 lang/truthy_test.tl nil_not_allowed 1
 
-lang/types.tl nil_not_allowed 21
+lang/types.tl nil_not_allowed 16
 
 lang/types_programs.tl nil_not_allowed 5
 
@@ -2087,11 +2085,9 @@ eval/round.tl index_may_be_nil 2
 
 eval/solve.tl index_may_be_nil 1
 
-lang/ast.tl index_may_be_nil 1
-
 lang/ast_dump.tl index_may_be_nil 3
 
-lang/check.tl index_may_be_nil 36
+lang/check.tl index_may_be_nil 34
 
 lang/check_flow_fuzz_test.tl index_may_be_nil 4
 
@@ -2113,8 +2109,6 @@ lang/lexer.tl index_may_be_nil 3
 
 lang/lexer_test.tl index_may_be_nil 1
 
-lang/literals_test.tl index_may_be_nil 3
-
 lang/parser.tl index_may_be_nil 15
 
 lang/parser_recovery_test.tl index_may_be_nil 2
@@ -2129,15 +2123,13 @@ lang/relation_programs.tl index_may_be_nil 2
 
 lang/relation_refused_test.tl index_may_be_nil 18
 
-lang/relation_speed_test.tl index_may_be_nil 7
+lang/relation_speed_test.tl index_may_be_nil 5
 
 lang/relation_test.tl index_may_be_nil 28
 
-lang/scopes.tl index_may_be_nil 14
+lang/scopes.tl index_may_be_nil 13
 
 lang/scopes_cover.tl index_may_be_nil 1
-
-lang/scopes_fuzz_test.tl index_may_be_nil 2
 
 lang/scopes_programs.tl index_may_be_nil 4
 
@@ -2145,7 +2137,7 @@ lang/scopes_test.tl index_may_be_nil 2
 
 lang/types.tl index_may_be_nil 3
 
-lang/types_fuzz_test.tl index_may_be_nil 3
+lang/types_fuzz_test.tl index_may_be_nil 2
 
 lang/types_programs.tl index_may_be_nil 16
 
@@ -6928,13 +6920,9 @@ cosmic/zip.tl literal_shape 1
 
 cosmic/zip_test.tl literal_shape 6
 
-lang/check.tl literal_shape 1
-
 lang/literals_test.tl literal_shape 5
 
 lang/parser_cover.tl literal_shape 1
-
-lang/scopes.tl literal_shape 1
 
 test/sqlite_parameter_test.tl literal_shape 2
 
