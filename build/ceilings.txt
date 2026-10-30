@@ -7867,8 +7867,6 @@ eval/summarize.tl array_hole 4
 
 lang/check_assigned_fuzz_test.tl array_hole 1
 
-lang/flow.tl view_as_mut 1
-
 lang/lexer.tl array_hole 6
 
 lang/lexer_cover.tl array_hole 5
