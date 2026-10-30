@@ -95,7 +95,6 @@ cosmic/web/sse.tl key_type 1
 
 cosmic/web/types.tl key_type 3
 
-eval/check/grade.tl key_type 2
 
 # a type named through a field of a record ([`importer.Module`] is the field `Module: Module`): write `type Module = ...`
 # inside the record, where the grammar declares a nested type
@@ -2760,11 +2759,9 @@ cosmic/zip.tl field_fixed 2
 
 cosmic/zip_test.tl field_fixed 13
 
-eval/check/grade.tl field_fixed 2
 
 eval/result.tl field_fixed 7
 
-eval/round.tl field_fixed 1
 
 lang/ast.tl field_fixed 2
 
@@ -3258,7 +3255,6 @@ cosmic/zip_fuzz_test.tl map_field 9
 
 cosmic/zip_test.tl map_field 1
 
-eval/check/grade.tl map_field 16
 
 
 
@@ -3853,13 +3849,11 @@ cosmic/zip.tl any_use 2
 
 cosmic/zip_fuzz_test.tl any_use 43
 
-eval/check/grade.tl any_use 46
 
 eval/declared_types_test.tl any_use 12
 
 
 
-eval/round.tl any_use 1
 
 eval/summarize_test.tl any_use 52
 
@@ -4422,11 +4416,9 @@ cosmic/web/testing_test.tl is_on_record 7
 
 cosmic/web/typed.tl is_on_record 3
 
-eval/check/grade.tl is_on_record 2
 
 eval/result.tl is_on_record 6
 
-eval/round.tl is_on_record 2
 
 eval/summarize.tl is_on_record 9
 
@@ -4958,7 +4950,6 @@ cosmic/zip.tl condition_type 1
 
 eval/arena_test.tl condition_type 3
 
-eval/check/grade.tl condition_type 1
 
 eval/check/grade_test.tl condition_type 9
 
@@ -5842,11 +5833,9 @@ cosmic/zip.tl and_ternary 5
 
 cosmic/zip_fuzz_test.tl and_ternary 4
 
-eval/check/grade.tl and_ternary 10
 
 eval/result.tl and_ternary 8
 
-eval/round.tl and_ternary 9
 
 
 eval/summarize.tl and_ternary 11
@@ -6220,7 +6209,6 @@ cosmic/web/testing.tl compare_disjoint 1
 
 cosmic/zip_fuzz_test.tl compare_disjoint 1
 
-eval/check/grade.tl compare_disjoint 1
 
 lang/parser.tl compare_disjoint 3
 
@@ -6610,14 +6598,12 @@ cosmic/zip_example.tl literal_needs_type 1
 
 cosmic/zip_test.tl literal_needs_type 1
 
-eval/check/grade.tl literal_needs_type 1
 
 eval/declared_types_test.tl literal_needs_type 1
 
 eval/result.tl literal_needs_type 1
 
 
-eval/round.tl literal_needs_type 1
 
 eval/summarize.tl literal_needs_type 1
 
@@ -6864,7 +6850,6 @@ cosmic/web/testing.tl arms_differ 2
 
 cosmic/zip.tl arms_differ 1
 
-eval/check/grade.tl arms_differ 5
 
 eval/declared_types_test.tl arms_differ 2
 

@@ -75,7 +75,7 @@ local record Grade
 end
 
 --- Raised, as an error value, when a grade passes its deadline.
-local DEADLINE <const> = {}
+local DEADLINE <const>: {string: string} = {}
 
 --- Ends the grade, by raising `DEADLINE`, once its deadline has passed.
 local function due(g: Grade)
@@ -89,7 +89,7 @@ end
 local function within(g: Grade, ns: integer): integer
   local left = g.deadline - Clock.monotonic_ns()
   if left < Clock.ms(1) then left = Clock.ms(1) end
-  return left < ns and left or ns
+  return if left < ns then left else ns end
 end
 
 local function say(line: string)
@@ -189,7 +189,7 @@ end
 function Grader.evidence(path: string): Grader.Evidence?, string
   local present, trouble = Fs.exists(path)
   if present ~= true then
-    return nil, present == nil and trouble or path .. ": no build database"
+    return nil, if present == nil then trouble else path .. ": no build database" end
   end
   local db, otrouble = Sqlite.open(path)
   if db == nil then
@@ -266,14 +266,14 @@ end
 --- without declaring it passed there and would fail sandboxed on the
 --- host. COSMIC_SANDBOX and COSMIC_CI_REQUIRE_SANDBOX, which hold a run
 --- to sandboxing, are dropped with it.
-function Grader.unsandboxed(env: {string:string}): {string:string}
+function Grader.unsandboxed(env: {string:string}): mut {string:string}
   local pinned: mut {string:string} = {}
   for name, value in pairs(env) do
     pinned[name] = value
   end
-  pinned.COSMIC_TEST_SANDBOX = "0"
-  pinned.COSMIC_SANDBOX = nil
-  pinned.COSMIC_CI_REQUIRE_SANDBOX = nil
+  pinned["COSMIC_TEST_SANDBOX"] = "0"
+  pinned["COSMIC_SANDBOX"] = nil
+  pinned["COSMIC_CI_REQUIRE_SANDBOX"] = nil
   return pinned
 end
 
@@ -453,9 +453,9 @@ local function hidden_api(g: Grade, cosmic: string, project: string, test: strin
     -- where a solver run by hand, with this HOME, could read it. A test
     -- that hangs is cut short well within the grading's own budget.
     local env = Grader.unsandboxed(g.env)
-    env.TMPDIR = scratch .. "/tmp"
-    env.COSMIC_BUILD_CACHE = "0"
-    env.COSMIC_VERDICT_CACHE = "0"
+    env["TMPDIR"] = scratch .. "/tmp"
+    env["COSMIC_BUILD_CACHE"] = "0"
+    env["COSMIC_VERDICT_CACHE"] = "0"
     local result, rtrouble = Child.run({ cosmic, "test", "--timeout", "5", name }, { cwd = copy,
       env = env, stdout = "capture", stderr = "stdout", timeout_ns = within(g, Clock.seconds(20)) })
     if result == nil then
@@ -491,8 +491,8 @@ end
 --- empty environment by default), answering its result.
 local function run(g: Grade, args: {string}, env?: {string: string}): Child.Result
   local options: Child.Options = { cwd = g.empty, env = env or {}, stdout = "capture",
-    stderr = "capture", process_group = g.own_group, timeout_ns = within(g, g.timeout_ns) }
-  if g.null_stdin then options.stdin = "null" end
+    stderr = "capture", process_group = g.own_group, timeout_ns = within(g, g.timeout_ns),
+    stdin = if g.null_stdin then "null" else nil end }
   due(g)
   local result, trouble = Child.run(argv_of(g, args), options)
   due(g)
@@ -590,21 +590,22 @@ local function is_executable(path: string): boolean
   return st ~= nil and st.kind == "file" and st.mode & 0x49 ~= 0
 end
 
--- TODO: once ci/cosmic-driver.pin names a release whose cosmic.json has
--- Json.to_value, Json.to_object and Json.to_array, type the JSON this
--- file decodes as Json.Value instead of `any` (`field`, `shown`, `same`,
--- [`jobs_report`], [`each_job`] and the jobs and listing checks), and lower
--- this file's key_type, map_field, any_use, is_on_record and arms_differ
--- pins in build/ceilings.txt. The grader runs on the pinned bootstrap
--- cosmic, which lacks them.
-local function field(value: any, key: string): any
-  if value is {string: any} then
-    return value[key]
-  end
-  return nil
+--- `text` decoded as a [`Json.Value`], or nil and why. A decoded `null` is none: it is the
+--- same as an absent member.
+local function decoded(text: string): Json.Value?, string
+  local value, trouble = Json.decode(text)
+  if value == nil then return nil, trouble end
+  return Json.to_value(value)
 end
 
-local function shown(value: any): string
+--- The member `key` of `value` where it is a JSON object that has one, else nil.
+local function field(value: Json.Value?, key: string): Json.Value?
+  local object, _ = Json.to_object(value)
+  if object == nil then return nil end
+  return object[key]
+end
+
+local function shown(value: Json.Value?): string
   if value == nil then return "null" end
   return tostring(value)
 end
@@ -621,14 +622,26 @@ local function sleep_until(deadline: integer)
   end
 end
 
---- Whether two decoded JSON values are equal, numbers by value.
-local function same(a: any, b: any): boolean
-  if a is {any: any} and b is {any: any} then
-    for k, v in pairs(a) do
-      if not same(v, b[k]) then return false end
+--- Whether two decoded JSON values are equal, numbers by value: an object by its members, an
+--- array by its items.
+local function same(a: Json.Value?, b: Json.Value?): boolean
+  local left, _ = Json.to_object(a)
+  local right, _ = Json.to_object(b)
+  if left ~= nil and right ~= nil then
+    for k, v in pairs(left) do
+      if not same(v, right[k]) then return false end
     end
-    for k in pairs(b) do
-      if a[k] == nil then return false end
+    for k in pairs(right) do
+      if left[k] == nil then return false end
+    end
+    return true
+  end
+  local items, _ = Json.to_array(a)
+  local others, _ = Json.to_array(b)
+  if items ~= nil and others ~= nil then
+    if #items ~= #others then return false end
+    for i, item in ipairs(items) do
+      if not same(item, others[i]) then return false end
     end
     return true
   end
@@ -651,8 +664,8 @@ local function serves(g: Grade, args: {string}, log?: string): Served?
   local what = g.name .. " " .. table.concat(args, " ")
   local out_path = g.logs .. "/" .. (log or "check-serve.out")
   local out = assert(Fs.open_write(out_path))
-  local options: Child.Options = { cwd = g.empty, env = {}, stdout = out, stderr = out }
-  if g.null_stdin then options.stdin = "null" end
+  local options: Child.Options = { cwd = g.empty, env = {}, stdout = out, stderr = out,
+    stdin = if g.null_stdin then "null" else nil end }
   local server, trouble = Child.start(argv_of(g, args), options)
   local _, _ = Fs.close(out)
   if server == nil then
@@ -746,7 +759,8 @@ local function receive(conn: Net.Conn, head_only: boolean, to_close: boolean): A
     local chunk, trouble = conn:read()
     if chunk == nil then
       if answer == nil then
-        return nil, trouble ~= "" and trouble or "closed before a response"
+        if trouble ~= "" then return nil, trouble end
+        return nil, "closed before a response"
       elseif trouble ~= "" and to_close then
         return nil, trouble
       end
@@ -755,8 +769,6 @@ local function receive(conn: Net.Conn, head_only: boolean, to_close: boolean): A
     end
     if answer == nil then got = got .. chunk else answer.body = answer.body .. chunk end
   end
-  -- The loop breaks only once a head was read.
-  assert(answer ~= nil)
   if to_close then
     conn:set_timeout(Clock.ms(300))
     while true do
@@ -812,14 +824,18 @@ local function notes_expect(g: Grade, want: string?, args: {string}, env?: {stri
   local result, trouble = Child.run(argv_of(g, args), { cwd = g.empty, env = env or {},
     stdout = "capture", stderr = "stdout", process_group = g.own_group,
     timeout_ns = g.timeout_ns })
-  local code = result ~= nil and status(result) or 127
-  local got = result ~= nil and trimmed(result.stdout or "") or trouble
+  local code = 127
+  local got = trouble
+  if result ~= nil then
+    code = status(result)
+    got = trimmed(result.stdout or "")
+  end
   if code == 0 and want == nil then
     ok(what .. " -> exit 0")
   elseif code == 0 and got == want then
     ok(what .. " -> " .. first_line(assert(want)))
   else
-    fail(g, what .. ": exit " .. code .. ", got '" .. got .. "', wanted '" .. (want or "exit 0") .. "'")
+    fail(g, what .. ": exit " .. tostring(code) .. ", got '" .. got .. "', wanted '" .. (want or "exit 0") .. "'")
   end
 end
 
@@ -835,7 +851,8 @@ local function notes(g: Grade)
   -- also exits non-zero with something on stderr.
   local result, _ = Child.run(argv_of(g, { "rm", "9" }), { cwd = g.empty, env = {},
     stdout = "null", stderr = "capture", process_group = g.own_group, timeout_ns = g.timeout_ns })
-  local err = result ~= nil and result.stderr or ""
+  local err = ""
+  if result ~= nil then err = result.stderr or "" end
   local _, _ = Fs.write(g.logs .. "/check.err", err)
   if result ~= nil and status(result) == 0 then
     fail(g, "rm of an unknown id exited 0")
@@ -975,8 +992,8 @@ local LEDGER_CSV <const> = table.concat({
 
 local function reports(g: Grade, args: {string}, want: string): string
   local result = run(g, args)
-  local got, trouble = Json.decode(result.stdout or "")
-  local wanted = assert(Json.decode(want))
+  local got, trouble = decoded(result.stdout or "")
+  local wanted = assert(decoded(want))
   if status(result) ~= 0 then
     fail(g, label(g, args) .. ": exit " .. tostring(status(result)) .. "; stderr: " ..
         first_line(result.stderr or ""))
@@ -1194,25 +1211,25 @@ end
 
 --- A jobfile's text for `jobs`, each of which is a table the JSON
 --- encoder takes.
-local function jobfile(g: Grade, path: string, jobs: {string: any})
-  write(g, path, (assert(Json.encode_any(jobs))))
+local function jobfile(g: Grade, path: string, jobs: {string: Json.Value})
+  write(g, path, (assert(Json.encode(jobs))))
 end
 
 --- The report `jobs` printed, by job name, or nil and why.
-local function jobs_report(result: Child.Result): {string: any}?, string
-  local doc, trouble = Json.decode(result.stdout or "")
+local function jobs_report(result: Child.Result): {string: Json.Value}?, string
+  local doc, trouble = decoded(result.stdout or "")
   if doc == nil then
     return nil, "stdout is no JSON (" .. trouble .. "): " .. first_line(result.stdout or "")
   end
-  local jobs = field(doc, "jobs")
-  if not jobs is {string: any} then
+  local jobs, _ = Json.to_object(field(doc, "jobs"))
+  if jobs == nil then
     return nil, "no \"jobs\" object in " .. first_line(result.stdout or "")
   end
   return jobs, ""
 end
 
 --- Checks one field of each named job's report.
-local function each_job(g: Grade, report: {string: any}, key: string, want: {string: any})
+local function each_job(g: Grade, report: {string: Json.Value}, key: string, want: {string: Json.Value})
   local names: mut {string} = {}
   for name in pairs(want) do names[#names + 1] = name end
   table.sort(names)
@@ -1229,7 +1246,7 @@ local function each_job(g: Grade, report: {string: any}, key: string, want: {str
     table.concat(wrong, "; "))
 end
 
-local function number_of(value: any): number?
+local function number_of(value: Json.Value?): number?
   if value is number then return value end
   return nil
 end
@@ -1277,8 +1294,8 @@ local function jobs_main(g: Grade, w: string): integer
   each_job(g, report, "code", { first = 0, broken = 3, after_broken = Json.null,
     slow = Json.null })
   each_job(g, report, "start_ms", { after_broken = Json.null })
-  local first_end = number_of(field(report.first, "end_ms"))
-  local second_start = number_of(field(report.second, "start_ms"))
+  local first_end = number_of(field(report["first"], "end_ms"))
+  local second_start = number_of(field(report["second"], "start_ms"))
   check(g, first_end ~= nil and second_start ~= nil and second_start >= first_end,
     "second (needs first) started at " .. shown(second_start) .. " ms, after first ended at " ..
       shown(first_end) .. " ms")
@@ -1287,15 +1304,15 @@ local function jobs_main(g: Grade, w: string): integer
     "skipped jobs never ran")
   check(g, exists(w .. "/env.ok"), "a job sees its env and nothing of jobs's own")
   check(g, exists(w .. "/sub/here.txt"), "a job runs in its cwd")
-  local slow_start = number_of(field(report.slow, "start_ms"))
-  local slow_end = number_of(field(report.slow, "end_ms"))
+  local slow_start = number_of(field(report["slow"], "start_ms"))
+  local slow_end = number_of(field(report["slow"], "end_ms"))
   local slow_ran = if slow_start ~= nil and slow_end ~= nil then slow_end - slow_start else nil end
   check(g, slow_ran ~= nil and slow_ran >= 400 and slow_ran < 1500,
     "a job with a 0.5 s timeout ran " .. shown(slow_ran) .. " ms")
   local log, _ = Fs.read(w .. "/logs/first.log")
   check(g, log ~= nil and log:find("first-out", 1, true) ~= nil and
       log:find("first-err", 1, true) ~= nil, "w/logs/first.log holds first's stdout and stderr",
-    if log == nil then "no such file" else "got '" .. trimmed(log or "") .. "'" end)
+    if log == nil then "no such file" else "got '" .. trimmed(log) .. "'" end)
   check(g, not (result.stdout or ""):find("first-out", 1, true),
     "a job's output stays out of jobs's stdout")
   -- slow waits its turn among ten jobs three at a time; without its
@@ -1585,10 +1602,9 @@ local function mirror_listings(g: Grade, site: Site)
     do
       local answer = asks(g, site, "GET", target, {}, { 200 })
       if answer ~= nil then
-        local got, trouble = Json.decode(answer.body)
-        local expected = assert(Json.decode((assert(Json.encode_any(entries)))))
-        check(g, got ~= nil and same(got, expected), "GET " .. target ..
-            " lists its entries by name", got == nil and trouble or "got " .. answer.body)
+        local got, trouble = decoded(answer.body)
+        check(g, got ~= nil and same(got, entries), "GET " .. target ..
+            " lists its entries by name", if got == nil then trouble else "got " .. answer.body end)
       end
     end
   end
@@ -1823,7 +1839,7 @@ local function packed(g: Grade, site: Site, name: string, dirs: boolean): boolea
   end
   local closed, why = writer:close()
   if not closed or trouble ~= "" then
-    fail(g, "could not write " .. name .. ": " .. (closed and trouble or why))
+    fail(g, "could not write " .. name .. ": " .. (if closed then trouble else why end))
     return false
   end
   return true
@@ -2241,7 +2257,8 @@ local Store = require("cosmic.store")
 local root = ...
 if root ~= nil and Store.source("build.paths") ~= nil then print(require("build.paths").required(root)) end
 ]], project }, { env = env, stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(30) })
-  local answer = asked ~= nil and asked.ok and (asked.stdout or ""):match("^(/[^\n]+)\n$") or nil
+  local answer: string? = nil
+  if asked ~= nil and asked.ok then answer = (asked.stdout or ""):match("^(/[^\n]+)\n$") end
   return answer or project .. "/o"
 end
 
@@ -2255,11 +2272,11 @@ function Grader.isolated(env: {string:string}, dir: string): {string:string}
   for name, value in pairs(env) do
     pinned[name] = value
   end
-  pinned.HOME = dir .. "/grade-home"
-  pinned.XDG_CACHE_HOME = dir .. "/grade-home/.cache"
-  pinned.COSMIC_BUILD_HOME = nil
-  pinned.COSMIC_BUILD_CACHE = nil
-  pinned.COSMIC_VERDICT_CACHE = nil
+  pinned["HOME"] = dir .. "/grade-home"
+  pinned["XDG_CACHE_HOME"] = dir .. "/grade-home/.cache"
+  pinned["COSMIC_BUILD_HOME"] = nil
+  pinned["COSMIC_BUILD_CACHE"] = nil
+  pinned["COSMIC_VERDICT_CACHE"] = nil
   return pinned
 end
 
@@ -2374,7 +2391,9 @@ function Grader.grade(name: string, dir: string, testdata: string,
   end
   say("logs " .. logs)
   local grading = Grader.isolated(env or Env.all(), dir)
-  local homed, htrouble = Fs.mkdirs(grading.XDG_CACHE_HOME)
+  local cache_home = grading["XDG_CACHE_HOME"]
+  local homed, htrouble = false, "the grading environment has no XDG_CACHE_HOME"
+  if cache_home ~= nil then homed, htrouble = Fs.mkdirs(cache_home) end
   if not homed then
     say("FAIL " .. htrouble)
     say("FAIL")
@@ -2417,8 +2436,9 @@ function Grader.run(argv: {string}, program: string): integer
   local here: string? = nil
   if script ~= nil then here = script:match("^(.*)/[^/]+%.tl$") end
   if here == nil then
-    local _, _ = Fs.put(Fs.stderr, "grade: " .. (script == nil and trouble or
-      program .. ": expected to run as .../eval/check/grade.tl") .. "\n")
+    local said = program .. ": expected to run as .../eval/check/grade.tl"
+    if script == nil then said = trouble end
+    local _, _ = Fs.put(Fs.stderr, "grade: " .. said .. "\n")
     return 2
   end
   -- The steps run in other directories, and name the arena's files.

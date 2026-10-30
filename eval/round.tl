@@ -57,7 +57,7 @@ local record Round
 
   --- The tasks `all` stands for: one for each eval/task/<task>.md
   --- ([`eval/round_test.tl`] holds the list to them).
-  all_tasks: {string}
+  mut all_tasks: {string}
 
   --- A finished command's exit status and its output (standard
   --- output and error together).
@@ -141,8 +141,10 @@ function Round.parse(argv: {string}): Round.Options?, string
       local picked: mut {string} = {}
       tasks = picked
       local seen: mut {string: boolean} = {}
-      local names: mut {string} = word == "all" and Round.all_tasks or {}
-      if word ~= "all" then
+      local names: mut {string} = {}
+      if word == "all" then
+        for _, each in ipairs(Round.all_tasks) do names[#names + 1] = each end
+      else
         for name in word:gmatch("[^,]+") do names[#names + 1] = name end
       end
       for _, name in ipairs(names) do
@@ -213,24 +215,20 @@ end
 --- turns, cost and verdict, `null` where it has none.
 local function index_line(system: Round.System, entry: Round.Entry): string
   local text = system.read(entry.arena .. "/result.json")
-  -- TODO: once ci/cosmic-driver.pin names a release whose cosmic.json has
-  -- Json.to_value, Json.to_object and Json.to_array, read result.json in
-  -- [`index_line`] as Json.Value ([`Json.to_object`]) instead of `any`, and
-  -- lower this file's any_use, is_on_record and and_ternary pins in
-  -- build/ceilings.txt. This script runs on the pinned bootstrap cosmic,
-  -- which lacks them.
-  local fields: any = nil
+  local fields: {string: Json.Value} = {}
   if text ~= nil then
     local decoded, _ = Json.decode(text)
-    fields = decoded
+    local object, _ = Json.to_object(decoded)
+    if object ~= nil then fields = object end
   end
   local function field(key: string): string
-    local value: any = fields is {string: any} and fields[key] or nil
+    local value = fields[key]
     if value == nil then return "null" end
     return tostring(value)
   end
-  local spent: any = fields is {string: any} and fields["cost_usd"] or nil
-  local cost = spent is number and string.format("$%.2f", spent) or "null"
+  local spent = fields["cost_usd"]
+  local cost = "null"
+  if spent is number then cost = string.format("$%.2f", spent) end
   return entry.task .. " status=" .. field("status") .. " turns=" .. field("turns") ..
     " cost=" .. cost .. " verdict=" .. field("grade_verdict")
 end
@@ -298,7 +296,8 @@ function Round.execute(plan: Round.Plan, system: Round.System): integer
     local result: mut {string} = {}
     for _, word in ipairs(entry.result) do result[#result + 1] = word end
     -- The log is named from the arena, as the transcript is.
-    local relative = log:sub(1, #entry.arena + 1) == entry.arena .. "/" and log:sub(#entry.arena + 2) or log
+    local relative = log
+    if log:sub(1, #entry.arena + 1) == entry.arena .. "/" then relative = log:sub(#entry.arena + 2) end
     for _, word in ipairs({ "--grade-exit", tostring(graded.code), "--grade-log", relative }) do
       result[#result + 1] = word
     end
@@ -324,7 +323,8 @@ function Round.short_commit(root: string, path?: string): string
   if git == nil then return "unknown" end
   local ran, _ = Child.run({ git, "-C", root, "rev-parse", "--short", "HEAD" },
     { stdout = "capture", stderr = "null", stdin = "null", timeout_ns = Clock.seconds(10) })
-  local sha = ran ~= nil and ran.ok and (ran.stdout or ""):match("^(%x+)\n$") or nil
+  local sha: string? = nil
+  if ran ~= nil and ran.ok then sha = (ran.stdout or ""):match("^(%x+)\n$") end
   return sha or "unknown"
 end
 
@@ -366,7 +366,9 @@ local function real_system(): Round.System
       local result, _ = done:wait()
       local stream = assert(streams[finished], "wait_any answered a handle that start made")
       local _, _ = Fs.close(stream)
-      return { id = finished, code = result ~= nil and Child.shell_status(result) or 127 }
+      local code = 127
+      if result ~= nil then code = Child.shell_status(result) end
+      return { id = finished, code = code }
     end,
     read = function(path: string): string?
       local text, _ = Fs.read(path)
@@ -397,9 +399,14 @@ local function run(argv: {string}, program: string): integer
     return 2
   end
   local script, strouble = Fs.absolute(program)
-  local root = script ~= nil and script:match("^(.*)/eval/[^/]+%.tl$") or nil
+  local root: string? = nil
+  if script ~= nil then root = script:match("^(.*)/eval/[^/]+%.tl$") end
   if root == nil then
-    complain(script == nil and strouble or program .. ": expected to run as .../eval/round.tl")
+    if script == nil then
+      complain(strouble)
+    else
+      complain(program .. ": expected to run as .../eval/round.tl")
+    end
     return 2
   end
   local system = real_system()
