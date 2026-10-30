@@ -23,7 +23,9 @@ local function near(src: Fuzz.Source): string
   if kind == 0 then return TOKEN:sub(1, src:int(0, #TOKEN - 1)) end
   if kind == 1 then
     local at = src:int(1, #TOKEN)
-    return TOKEN:sub(1, at - 1) .. string.char((TOKEN:byte(at) + src:int(1, 255)) % 256) .. TOKEN:sub(at + 1)
+    local byte = TOKEN:byte(at)
+    assert(byte, "at lies within the token")
+    return TOKEN:sub(1, at - 1) .. string.char((byte + src:int(1, 255)) % 256) .. TOKEN:sub(at + 1)
   end
   if kind == 2 then return TOKEN .. "x" .. Fuzz.bytes(src, 4) end
   return Fuzz.bytes(src, 30)
@@ -116,7 +118,7 @@ local function test_no_bytes_but_the_token_reach_the_upstream(tmp: string)
           trouble = "the connector was asked for a connection"
         elseif stats.accepted ~= 0 or stats.open ~= 0 then
           trouble = ("%d accepted, %d open"):format(stats.accepted, stats.open)
-        elseif reply:find("200 Connection established", 1, true) or (first == "S" and reply:sub(3, 4) == "\1\0") then
+        elseif reply:find("200 Connection established", 1, true) ~= nil or (first == "S" and reply:sub(3, 4) == "\1\0") then
           trouble = "an acceptance was answered"
         end
         if reply ~= "" then Fuzz.label("answered") end

@@ -39,13 +39,13 @@ local function test_more_addresses_than_a_table_holds_are_refused()
   local none, why = SandboxRelay.plan(grants, {})
   assert(none == nil and why == "connect names 129 endpoints, more than the 128 a connector holds; " ..
       "grant fewer addresses, or names", why)
-  grants[129] = nil
+  table.remove(grants)
   local plan = assert(SandboxRelay.plan(grants, { https_proxy = "http://10.0.0.1:3128" }))
   assert(assert(plan.upstream).host == "10.0.0.1" and assert(plan.upstream).port == 3128)
   local over, over_why = SandboxRelay.table(plan, { "10.0.0.1" })
-  assert(over == nil and over_why:find("connect and the upstream proxy together name 129 endpoints", 1, true), over_why)
+  assert(over == nil and over_why:find("connect and the upstream proxy together name 129 endpoints", 1, true) ~= nil, over_why)
   local bad, bad_why = SandboxRelay.plan({ "a.test:1" }, { https_proxy = "https://proxy.test:3128" })
-  assert(bad == nil and bad_why:find("https_proxy has the scheme \"https\"", 1, true), bad_why)
+  assert(bad == nil and bad_why:find("https_proxy has the scheme \"https\"", 1, true) ~= nil, bad_why)
 end
 
 --- A fixed port of an address granted at any port is dropped, a repeat too,
@@ -66,13 +66,13 @@ local function test_plan_normalizes_and_limits_endpoints_and_table_bytes_togethe
   v4[33] = "10.0.0.33:*"
   local none, why = SandboxRelay.plan(v4, {})
   assert(none == nil and why:find("connect names addresses whose port tables take 33 MiB, more than the " ..
-      "32 MiB a connector holds", 1, true), tostring(why))
+      "32 MiB a connector holds", 1, true) ~= nil, tostring(why))
   local v6: mut {string} = {}
   for i = 1, 16 do v6[i] = "[2001:db8::" .. tostring(i) .. "]:*" end
   assert(SandboxRelay.plan(v6, {}) ~= nil)
   v6[17] = "[2001:db8::17]:*"
   local none6, why6 = SandboxRelay.plan(v6, {})
-  assert(none6 == nil and why6:find("take 34 MiB", 1, true), tostring(why6))
+  assert(none6 == nil and why6:find("take 34 MiB", 1, true) ~= nil, tostring(why6))
   -- The upstream's address at a port its any-port grant covers adds nothing; at another, a slot of its own.
   local fits = assert(SandboxRelay.plan({ "10.0.0.1:*", "10.0.0.2:*" }, { https_proxy = "http://10.0.0.1:3128" }))
   local covered = assert(SandboxRelay.table(fits, { "10.0.0.1" }))
@@ -81,7 +81,8 @@ local function test_plan_normalizes_and_limits_endpoints_and_table_bytes_togethe
   for i = 1, 32 do full[i] = "10.0.0." .. tostring(i) .. ":*" end
   local tight = assert(SandboxRelay.plan(full, { https_proxy = "http://10.9.9.9:3128" }))
   local added = assert(SandboxRelay.table(tight, { "10.9.9.9" }))
-  assert(#added == 33 and added[33].port == 3128)
+  local last_row = assert(added[33], "expected 33 rows")
+  assert(#added == 33 and last_row.port == 3128)
 end
 
 --- Spellings of one address are one row; an IPv4-mapped IPv6 address is a row
@@ -136,7 +137,7 @@ local function test_name_servers_and_the_public_lists()
   local servers = assert(many.servers)
   for port = 1, 129 do servers[port] = { host = "127.0.0.1", port = port } end
   local none, why = SandboxRelay.name_servers(many)
-  assert(none == nil and why:find("more than a connector holds (128)", 1, true), why)
+  assert(none == nil and why:find("more than a connector holds (128)", 1, true) ~= nil, why)
   local public = SandboxRelay.public({ "10.1.0.2" })
   local own, deny = assert(public.own), public.deny
   assert(own[1] == "10.1.0.2" and deny[1] == "169.254.169.254/32", deny[1])
@@ -165,6 +166,7 @@ local function test_the_plan_and_the_core_count_the_port_tables_alike()
     local rows: mut {Net.Endpoint} = {}
     for _, grant in ipairs(grants) do
       local host, port = grant:match("^%[?([^%]]+)%]?:([%d*]+)$")
+      assert(host ~= nil and port ~= nil, "a grant is a host and a port: " .. grant)
       rows[#rows + 1] = { host = host, port = if port == "*" then 0 else math.tointeger(port) as integer end }
     end
     local took, why = core_takes(rows)

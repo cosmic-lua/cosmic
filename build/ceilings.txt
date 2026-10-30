@@ -1139,31 +1139,21 @@ cosmic/http_tool_test.tl nil_not_allowed 2
 cosmic/http_unix_test.tl nil_not_allowed 1
 
 
-cosmic/internal/connector_test.tl nil_not_allowed 5
-
-
-cosmic/internal/relay_config_test.tl nil_not_allowed 2
-
-cosmic/internal/relay_handed_test.tl nil_not_allowed 1
 
 
 
 
-cosmic/internal/relay_server_native_test.tl nil_not_allowed 1
-
-cosmic/internal/relay_server_test.tl nil_not_allowed 13
 
 
-cosmic/internal/relay_start_test.tl nil_not_allowed 3
-
-cosmic/internal/relay_token_fuzz_test.tl nil_not_allowed 1
 
 
-cosmic/internal/relay_wire_client_fuzz_test.tl nil_not_allowed 20
 
-cosmic/internal/relay_wire_fuzz_test.tl nil_not_allowed 10
 
-cosmic/internal/relay_wire_test.tl nil_not_allowed 9
+
+
+
+
+
 
 cosmic/json.tl nil_not_allowed 46
 
@@ -1936,16 +1926,11 @@ cosmic/http/wire_fuzz_test.tl index_may_be_nil 1
 cosmic/http_store_test.tl index_may_be_nil 2
 
 
-cosmic/internal/connector_test.tl index_may_be_nil 47
-
-cosmic/internal/relay_server_test.tl index_may_be_nil 2
 
 
-cosmic/internal/relay_wire_client_test.tl index_may_be_nil 3
 
-cosmic/internal/relay_wire_fuzz_test.tl index_may_be_nil 2
 
-cosmic/internal/relay_wire_test.tl index_may_be_nil 5
+
 
 cosmic/json.tl index_may_be_nil 2
 
@@ -3575,7 +3560,6 @@ cosmic/csv_test.tl overload_none 1
 cosmic/http/multipart_fuzz_test.tl overload_none 1
 
 
-cosmic/internal/connector_test.tl overload_none 1
 
 cosmic/internal/relay_handed_lost_test.tl overload_none 1
 
@@ -5404,26 +5388,17 @@ cosmic/http_test.tl or_mix 11
 cosmic/http_tool_test.tl or_mix 1
 
 
-cosmic/internal/relay_config_test.tl or_mix 2
-
-cosmic/internal/relay_handed_test.tl or_mix 3
 
 
 
-cosmic/internal/relay_server_native_test.tl or_mix 1
-
-cosmic/internal/relay_server_test.tl or_mix 3
-
-cosmic/internal/relay_start_test.tl or_mix 5
-
-cosmic/internal/relay_token_fuzz_test.tl or_mix 1
 
 
-cosmic/internal/relay_wire_client_test.tl or_mix 4
 
-cosmic/internal/relay_wire_fuzz_test.tl or_mix 1
 
-cosmic/internal/relay_wire_test.tl or_mix 14
+
+
+
+
 
 
 cosmic/json_fuzz_test.tl or_mix 2
@@ -7649,7 +7624,7 @@ cosmic/html_fuzz_test.tl array_hole 4
 
 cosmic/internal/relay_config.tl array_hole 1
 
-cosmic/internal/relay_start_test.tl array_hole 5
+cosmic/internal/relay_start_test.tl array_hole 4
 
 cosmic/internal/relay_wire_fuzz_test.tl array_hole 2
 
