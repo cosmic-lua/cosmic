@@ -21,6 +21,20 @@ local String = require("cosmic.string")
 local Time = require("cosmic.time")
 local build_paths = require("build.paths")
 
+--- The element of `list` at `index`, which the case knows is there.
+local function nth<T>(list: {T}, index: integer): T
+  local found = list[index]
+  assert(found ~= nil, "the list has an element at " .. tostring(index))
+  return found
+end
+
+--- The number `text` reads as, which the case knows is one.
+local function count_of(text: string): number
+  local count = tonumber(text)
+  assert(count ~= nil, "a number: " .. text)
+  return count
+end
+
 --- This program's database, which every executable's is joined from.
 --- The programs these tests run are built `--host`, so no launcher --
 --- and no `sh` -- runs them.
@@ -80,7 +94,7 @@ local function test_build_prints_the_path_of_each_program(tmp: string)
   assert(Fs.mkdirs(tmp .. "/cmd/bye"))
   assert(Fs.write(tmp .. "/cmd/bye/main.tl", "return function(): integer return 0 end\n"))
   local built = invoke.run({ "build", "--host" }, { cwd = tmp,
-    env = { COSMIC_BUILD_CACHE = "0", COSMIC_BUILD_HOME = Env.get("COSMIC_BUILD_HOME") } })
+    env = { COSMIC_BUILD_CACHE = "0", COSMIC_BUILD_HOME = assert(Env.get("COSMIC_BUILD_HOME")) } })
   assert(built.code == 0, built.stdout .. built.stderr)
   local bin = build_dir(tmp) .. "/bin"
   local lines: mut {string} = {}
@@ -123,35 +137,36 @@ local function test_the_carried_database_holds_what_a_program_needs(tmp: string)
   assert(#decls == 1, "the syscall declaration is in")
   local images = rows_of(path,
     "SELECT count(*) FROM sqlite_schema WHERE name = 'images'")
-  assert(images[1]:text(1) == "0", "portable databases have no images table")
+  assert(nth(images, 1):text(1) == "0", "portable databases have no images table")
   local guidance = rows_of(path,
     "SELECT count(*) FROM catalog_fts WHERE catalog_fts MATCH 'coverage'")
-  assert(tonumber(guidance[1]:text(1)) > 0, "the error catalog is in, and indexed")
+  assert(count_of(nth(guidance, 1):text(1)) > 0, "the error catalog is in, and indexed")
   local text = rows_of(path,
     "SELECT coalesce(length(text), 0) FROM catalog WHERE symbol = 'Coverage.start'")
-  assert(#text == 1 and tonumber(text[1]:text(1)) > 0,
+  assert(#text == 1 and count_of(nth(text, 1):text(1)) > 0,
     "a row carries its guidance, though the docs it comes from are not")
   local about_build = rows_of(path,
     "SELECT count(*) FROM catalog WHERE module LIKE 'build.%'")
-  assert(about_build[1]:text(1) == "0", "guidance about the build is not")
+  assert(nth(about_build, 1):text(1) == "0", "guidance about the build is not")
   local databases = Store.databases()
-  local carried = assert(Sqlite.text_rows(databases[#databases], "SELECT count(*) FROM zoneinfo"))
+  local own = assert(databases[#databases], "this program has a database")
+  local carried = assert(Sqlite.text_rows(own, "SELECT count(*) FROM zoneinfo"))
   local zones = rows_of(path, "SELECT count(*), sum(name = 'America/New_York') FROM zoneinfo")
-  assert(zones[1]:text(1) == carried[1]:text(1) and tonumber(zones[1]:text(1)) > 500 and zones[1]:text(2) == "1",
+  assert(nth(zones, 1):text(1) == nth(carried, 1):text(1) and count_of(nth(zones, 1):text(1)) > 500 and nth(zones, 1):text(2) == "1",
     "every zone the binary carries is in")
-  local assets = assert(Sqlite.text_rows(databases[#databases],
+  local assets = assert(Sqlite.text_rows(own,
     "SELECT group_concat(name || ' ' || version || ' ' || sha256, ',' ORDER BY name) FROM web_assets"))
   local web = rows_of(path,
     "SELECT group_concat(name || ' ' || version || ' ' || sha256, ',' ORDER BY name) FROM web_assets")
-  assert(web[1]:text(1) ~= nil and web[1]:text(1) == assets[1]:text(1) and web[1]:text(1):find("htmx.min.js", 1, true) ~= nil,
+  assert(nth(web, 1):text(1) ~= nil and nth(web, 1):text(1) == nth(assets, 1):text(1) and nth(web, 1):text(1):find("htmx.min.js", 1, true) ~= nil,
     "every web asset the binary carries is in")
   local materials = rows_of(path,
     "SELECT (SELECT count(*) FROM components WHERE name = 'lua'), " ..
       "(SELECT count(*) FROM notices WHERE component = 'lua' AND text LIKE '%Lua.org%')")
-  assert(materials[1]:text(1) == "1" and materials[1]:text(2) == "1",
+  assert(nth(materials, 1):text(1) == "1" and nth(materials, 1):text(2) == "1",
     "the program carries the bill of materials its cores ship under")
   local trusted = rows_of(path, "SELECT count(*) FROM ca_roots")
-  assert(tonumber(trusted[1]:text(1)) > 100, "the program carries the CA roots its requests trust")
+  assert(count_of(nth(trusted, 1):text(1)) > 100, "the program carries the CA roots its requests trust")
 end
 
 --- A project's tests and examples stay with the project: the program
@@ -187,7 +202,7 @@ local function test_the_carried_database_leaves_tests_and_examples_out(tmp: stri
   assert(embed.tree(tmp, true))
   local projected = rows_of(build_dir(tmp) .. "/cosmic.db",
     "SELECT count(*) FROM modules WHERE path IN ('greet_test', 'greet_example')")
-  assert(projected[1]:text(1) == "2", "the project's own projection keeps both")
+  assert(nth(projected, 1):text(1) == "2", "the project's own projection keeps both")
   local database = assert(embed.database(build_dir(tmp) .. "/cosmic.db", "cmd.hello.main"))
   local path = tmp .. "/carried.db"
   assert(Fs.write(path, database))
@@ -198,10 +213,10 @@ local function test_the_carried_database_leaves_tests_and_examples_out(tmp: stri
     "the module is in and its test and example are not")
   local imports = rows_of(path,
     "SELECT count(*) FROM imports WHERE path IN ('greet_test', 'greet_example')")
-  assert(imports[1]:text(1) == "0", "no import edge from a test or example")
+  assert(nth(imports, 1):text(1) == "0", "no import edge from a test or example")
   local catalog = rows_of(path,
     "SELECT count(*) FROM catalog WHERE module IN ('greet_test', 'greet_example')")
-  assert(catalog[1]:text(1) == "0", "no catalog row about a test or example")
+  assert(nth(catalog, 1):text(1) == "0", "no catalog row about a test or example")
 end
 
 --- A test or example file is only a kind by its name: one the program
@@ -248,7 +263,7 @@ local function test_a_test_or_example_the_program_requires_is_carried(tmp: strin
   local imports = rows_of(path,
     "SELECT count(*) FROM imports WHERE path = 'shared_example' " ..
       "AND requires = 'fixture_test'")
-  assert(imports[1]:text(1) == "1", "the edge between them is carried")
+  assert(nth(imports, 1):text(1) == "1", "the edge between them is carried")
 end
 
 --- A `pcall(require, "<name>")` is an edge as a `require` is: the module it probes is carried with its edge, so the

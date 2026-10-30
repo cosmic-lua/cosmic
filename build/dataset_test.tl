@@ -1,6 +1,13 @@
 local dataset = require("build.dataset")
 local Sqlite = require("cosmic.sqlite")
 
+--- The element of `list` at `index`, which the case knows is there.
+local function nth<T>(list: {T}, index: integer): T
+  local found = list[index]
+  assert(found ~= nil, "the list has an element at " .. tostring(index))
+  return found
+end
+
 --- A fresh in-memory database.
 local function memory(): Sqlite.Handle
   return (assert(Sqlite.memory()))
@@ -78,7 +85,7 @@ local function test_keys_are_quoted_and_collisions_renamed()
   -- Each key's value is in the column named for it, or the renamed one.
   local function value(column: string): string
     local rows = assert(Sqlite.text_rows(db, 'SELECT "' .. column:gsub('"', '""') .. '" FROM t'))
-    return rows[1]:text(1)
+    return nth(rows, 1):text(1)
   end
   assert(value("a b") == "1" and value('x"y') == "2" and value("select") == "3")
   assert(value("A") == "4" and value("_") == "6")
@@ -119,18 +126,18 @@ end
 local function test_at_reads_the_rows_from_a_path()
   local rows = assert(dataset.read("json", '{"a": {"rows": [{"id": 1}, {"id": 2}]}}',
     { at = { "a", "rows" } }))
-  assert(#rows == 2 and rows[2].id == 2)
+  assert(#rows == 2 and nth(rows, 2).id == 2)
   local none, why = dataset.read("json", '{"a": 1}', { at = { "b" } })
   assert(none == nil and why == 'json: no value at pointer "/b"', why)
   local last = assert(dataset.read("json", '{"a": [{"id": 1}, {"id": 2}]}', { at = { "a", -1 } }))
-  assert(#last == 1 and last[1].id == 2)
+  assert(#last == 1 and nth(last, 1).id == 2)
   local bad, bad_why = dataset.read("json", "{", {})
   assert(bad == nil and bad_why:find("invalid JSON", 1, true) ~= nil, bad_why)
 end
 
 local function test_ndjson_is_a_row_per_line()
   local rows = assert(dataset.read("ndjson", '{"a": 1}\n\n{"a": 2, "b": "x"}\r\n7\n'))
-  assert(#rows == 3 and rows[2].b == "x" and rows[3].value == 7)
+  assert(#rows == 3 and nth(rows, 2).b == "x" and nth(rows, 3).value == 7)
   local db = memory()
   local made = assert(dataset.load(db, "t", rows))
   assert(table.concat(made.columns, ",") == "a,b,value,_json")
@@ -211,9 +218,9 @@ local function csv_cells(text: string, raw?: boolean): string
   local made = assert(dataset.load(db, "t", rows))
   local picks: mut {string} = {}
   for index = 1, #made.columns - 1 do
-    picks[#picks + 1] = 'typeof("' .. made.columns[index] .. '") || \':\' || coalesce("' .. made.columns[index] .. '", \'NULL\')'
+    picks[#picks + 1] = 'typeof("' .. nth(made.columns, index) .. '") || \':\' || coalesce("' .. nth(made.columns, index) .. '", \'NULL\')'
   end
-  return grid(db, "SELECT " .. table.concat(picks, " || '|' || ") .. " FROM t")[1]
+  return nth(grid(db, "SELECT " .. table.concat(picks, " || '|' || ") .. " FROM t"), 1)
 end
 
 local function test_a_csv_cell_that_is_plainly_a_number_is_one()
@@ -252,7 +259,7 @@ end
 
 local function test_tsv_reads_tabs_and_csv_and_tsv_refuse_a_path()
   local rows = assert(dataset.read("tsv", "a\tb\n1,5\t2\n"))
-  assert(rows[1].a == "1,5" and rows[1].b == 2)
+  assert(nth(rows, 1).a == "1,5" and nth(rows, 1).b == 2)
   assert(dataset.format_of("x.tab") == "tsv" and dataset.format_of("X.TSV") == "tsv")
   assert(dataset.format_of("x.csv") == "csv")
   for _, name in ipairs({ "csv", "tsv" }) do
@@ -290,7 +297,7 @@ local function test_a_csv_table_follows_the_header_and_json_stays_sorted()
   local made = assert(dataset.load(db, "t", rows))
   assert(table.concat(made.columns, ",") == "z,a,m,_json", table.concat(made.columns, ","))
   local star = Sqlite.text_rows(db, "SELECT * FROM t")
-  assert(star ~= nil and star[1]:text(1) == "1" and star[1]:text(2) == "2" and star[1]:text(3) == "3")
+  assert(star ~= nil and nth(star, 1):text(1) == "1" and nth(star, 1):text(2) == "2" and nth(star, 1):text(3) == "3")
   -- Rows with no order of their own are in byte order.
   local db2 = memory()
   assert(table.concat(assert(dataset.load(db2, "t", { { z = 1, a = 2 } })).columns, ",") == "a,z,_json")
@@ -330,8 +337,8 @@ local function test_a_csv_file_answers_a_sum_by_group()
   assert(table.concat(made.columns, ",") == "type,balance,_json")
   local totals = assert(Sqlite.text_rows(db,
     "SELECT type, sum(balance) FROM accounts GROUP BY type ORDER BY type"))
-  assert(totals[1]:text(1) == "checking" and totals[1]:text(2) == "5")
-  assert(totals[2]:text(1) == "savings" and totals[2]:text(2) == "12.5")
+  assert(nth(totals, 1):text(1) == "checking" and nth(totals, 1):text(2) == "5")
+  assert(nth(totals, 2):text(1) == "savings" and nth(totals, 2):text(2) == "12.5")
 end
 
 --- JSON rows carry no column order, so a key one row lacks is NULL there
