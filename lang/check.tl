@@ -6123,11 +6123,11 @@ function Writes.holds_continue(stat: Ast.Node): boolean
 end
 
 --- Whether the statements `body` of a loop write the array held by the local `array`, or take elements from it, other
---- than by a write at the index `var` of the loop: a write at another key, `table.remove`, or `table.insert` (which may
---- append past the key `var` is on, and says no more than that write). The reads of `array` that [`Writes.unreachable`]
---- allows are those of [`Writes.stays_private`] (an index, a length, `return`, `ipairs`, `pairs` and five functions of
---- `table`), and of these only a write of an index and `table.remove` change the keys the array has, and `table.insert`
---- and `table.sort` leave the keys it had.
+--- than by a write at the index `var` of the loop: a write at another key, or `table.remove`. `table.insert` is not one: it
+--- only appends, so it leaves the keys the array had. The reads of `array` that [`Writes.unreachable`] allows are those of
+--- [`Writes.stays_private`] (an index, a length, `return`, `ipairs`, `pairs` and five functions of `table`), and of these
+--- only a write of an index and `table.remove` change the keys the array has, and `table.insert` and `table.sort` leave the
+--- keys it had.
 function Writes.rewrites_array(ctx: Ctx, body: Ast.Node, array: integer, var: integer): boolean
   local marks: mut {boolean} = {}
   local waiting: mut {Ast.Node} = { body }
