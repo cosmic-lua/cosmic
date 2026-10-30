@@ -112,15 +112,13 @@ end
 local function test_every_request_is_answered_once_with_its_own_tag(tmp: string)
   require_native_connector()
   local listener <close> = assert(socket.listen({ kind = "tcp", host = "127.0.0.1", port = 0 }, 64))
-  local port = assert(assert(socket.bound(listener:fd())).port)
-  local pair = assert(process.connector_pair())
-  local first = assert(pair[1], "a connector pair holds two descriptors")
-  local second = assert(pair[2], "a connector pair holds two descriptors")
-  local child, why = process.connector_start({ { host = "127.0.0.1", port = port } }, second, 2000,
+  local port = RawTables.bound_port(listener)
+  local pair = RawTables.connector_pair()
+  local child, why = process.connector_start({ { host = "127.0.0.1", port = port } }, pair.connector, 2000,
     { deny = DENY })
-  assert(sys.close(second))
+  assert(sys.close(pair.connector))
   assert(child, why)
-  assert(string.unpack(">I4", read_whole(first, 4)) == socket.CONNECTOR_HELLO, "the connector said no hello")
+  assert(string.unpack(">I4", read_whole(pair.controller, 4)) == socket.CONNECTOR_HELLO, "the connector said no hello")
   local seen = Fuzz.run({
     name = "connector requests are answered once with their own tag",
     dir = tmp,
@@ -144,8 +142,8 @@ local function test_every_request_is_answered_once_with_its_own_tag(tmp: string)
       local passes: mut {integer: boolean} = {}
       local stream: mut {string} = {}
       local count = 0
-      local requests = assert(fields[1], "the generator packs the requests first")
-      local cuts = assert(fields[2], "the generator packs the cuts second")
+      local requests = assert(fields[1], "the generator packs the requests pair.controller")
+      local cuts = assert(fields[2], "the generator packs the cuts pair.connector")
       for at = 1, #requests, 36 do
         local request = requests:sub(at, at + 35)
         local tag, index, drawn = string.unpack(">I4I4I4", request)
@@ -167,12 +165,14 @@ local function test_every_request_is_answered_once_with_its_own_tag(tmp: string)
         local size = string.unpack(">I2", cuts, at)
         local piece = bytes:sub(from, from + size - 1)
         if (from - 1) % 36 ~= 0 or (from - 1 + #piece) % 36 ~= 0 then Fuzz.label("split") end
-        assert(sys.write(first, piece) == #piece)
+        assert(sys.write(pair.controller, piece) == #piece)
         from = from + #piece
       end
-      if from <= #bytes then assert(sys.write(first, bytes:sub(from)) == #bytes - from + 1) end
+      if from <= #bytes then
+        assert(sys.write(pair.controller, bytes:sub(from)) == #bytes - from + 1)
+      end
       for _ = 1, count do
-        local tag, errno = string.unpack(">I4I4", read_whole(first, 8))
+        local tag, errno = string.unpack(">I4I4", read_whole(pair.controller, 8))
         local allowed = waiting[tag]
         if allowed == nil then
           return false, "a reply for tag " .. tostring(tag) .. ", which no request waits for"
@@ -182,7 +182,7 @@ local function test_every_request_is_answered_once_with_its_own_tag(tmp: string)
           return false, "tag " .. tostring(tag) .. " was answered errno " .. tostring(errno)
         end
         if errno == 0 and passes[tag] == true then
-          local received = assert(socket.recvfds(first, 1))
+          local received = assert(socket.recvfds(pair.controller, 1))
           local passed_socket = assert(received[1], "recvfds answers the one descriptor it was asked for")
           local peer = socket.peer(passed_socket:fd())
           assert(passed_socket:close())
@@ -198,6 +198,6 @@ local function test_every_request_is_answered_once_with_its_own_tag(tmp: string)
     end,
   })
   assert(seen >= 0)
-  assert(sys.close(first))
+  assert(sys.close(pair.controller))
   assert(assert(process.waitpid(child, false)).code == 0)
 end

@@ -73,10 +73,8 @@ end
 --- A stream socketpair, which the relay's channel is one end of: the
 --- end the relay is given, then the one that receives its listeners.
 local function channel(): integer, integer
-  local pair = assert(process.connector_pair())
-  local given, receiving = pair[1], pair[2]
-  assert(given and receiving, "a socketpair holds two descriptors")
-  return given, receiving
+  local pair = RawTables.connector_pair()
+  return pair.controller, pair.connector
 end
 
 --- A start that gave the relay its listeners: the program connects to both
@@ -145,10 +143,9 @@ local function test_the_relay_ports_default_to_http_connect_and_socks(tmp: strin
     return
   end
   local received = assert(socket.recvfds(receiving, 2))
-  local first = assert(socket.bound(passed(received, 1):fd()))
-  local second = assert(socket.bound(passed(received, 2):fd()))
-  assert(first.port == 3128 and second.port == 1080,
-    "the defaults are " .. tostring(first.port) .. " and " .. tostring(second.port))
+  local first = RawTables.bound_port(passed(received, 1))
+  local second = RawTables.bound_port(passed(received, 2))
+  assert(first == 3128 and second == 1080, "the defaults are " .. tostring(first) .. " and " .. tostring(second))
   for index = 1, 2 do assert(passed(received, index):close()) end
   finished(tmp, pid)
   assert(sys.close(given) and sys.close(receiving))
