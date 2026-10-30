@@ -375,18 +375,31 @@ local function test_env_is_reserved()
   assert(errors("local function f(_ENV) end") == "env_reserved 1:18")
 end
 
-local function test_a_function_that_assigns_a_local_outside_it_is_refused_with_the_fix()
-  local e = one_error("local n = 0\nlocal function bump() n = n + 1 end\nbump()")
-  assert(e.code == "captured_assigned" and e.y == 2 and e.x == 23)
-  assert(e.msg == "`n` is a local of the code around this function, which a function may read but not assign")
-  assert(e.fix == "return the value from the function, or keep it in a field of a table both read: " ..
-      "`local held = { n = <the value> }`, then `held.n = ...` in the function")
-  assert(place(e) == "1:7")
-  assert(errors("local n = 0\nlocal t = { f = function() n = 1 end }") == "captured_assigned 2:28")
-  assert(errors("local n = 0\nlocal function a() local function b() n = 1 end b() end a()") == "captured_assigned 2:39")
+local function test_a_function_may_assign_a_local_outside_it_and_the_local_is_marked()
+  local function marked(source: string, name: string): boolean
+    local parsed = Parser.parse(Lexer.lex(source, "f.tl"), "f.tl", "tl")
+    local scoped = Scopes.build(parsed.chunk, "f.tl", GLOBALS)
+    assert(#scoped.errors == 0, source)
+    for _, v in ipairs(scoped.list) do
+      if v.name == name then
+        return v.closure_assigned
+      end
+    end
+    error("no local " .. name)
+  end
+  assert(marked("local n = 0\nlocal function bump() n = n + 1 end\nbump()", "n"))
+  assert(marked("local n = 0\nlocal t = { f = function() n = 1 end }", "n"))
+  assert(marked("local n = 0\nlocal function a() local function b() n = 1 end b() end a()", "n"))
+  -- The mark is made wherever the function is: before a read of the local, and in a loop.
+  assert(marked("local n = 0\nprint(n)\nfor i = 1, 2 do local f = function() n = i end f() end", "n"))
+  -- A write by the function that declares it, a parameter that shadows, and a write to a field are not marked.
+  assert(not marked("local n = 0\nn = 1\nprint(n)", "n"))
+  assert(not marked("local n = 0\nlocal function f() local m = n m = 2 return m end f()", "n"))
   assert(errors("local n = 0\nlocal function f(n) n = 1 end f(0)") == "shadows 2:18")
-  assert(errors("local n = 0\nn = 1\nprint(n)") == "")
-  assert(errors("local box = { n = 0 }\nlocal function f() box.n = 1 end f()") == "")
+  assert(not marked("local box = { n = 0 }\nlocal function f() box.n = 1 end f()", "box"))
+  -- A write by a function leaves the capture of the local after it as the writes of its own function make it.
+  assert(errors("local n = 0\nlocal function f() n = 1 end f()\nn = 2") == "")
+  assert(errors("local n <const> = 0\nlocal function f() n = 1 end f()") == "const_assigned 2:20")
 end
 
 local function test_what_is_assigned_and_read_is_recorded_for_each_variable()

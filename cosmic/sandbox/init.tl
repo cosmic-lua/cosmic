@@ -46,6 +46,7 @@ local rules = require("cosmic.sandbox.policy")
 local Seatbelt = require("cosmic.sandbox.seatbelt")
 local Sqlite = require("cosmic.sqlite")
 local Store = require("cosmic.store")
+local String = require("cosmic.string")
 local sys = require("cosmic.sys")
 
 -- What holds the running process lives in the raw process table, under
@@ -211,7 +212,7 @@ local PT_INTERP <const> = 3
 local function unsigned(bytes: string, position: integer, width: integer, little: boolean): integer
   local value = 0
   for i = 0, width - 1 do
-    local byte = bytes:byte(if little then position + width - 1 - i else position + i end)
+    local byte = String.byte_at(bytes, if little then position + width - 1 - i else position + i end)
     value = value << 8 | byte
   end
   return value

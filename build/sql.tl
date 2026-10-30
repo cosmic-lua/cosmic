@@ -36,6 +36,8 @@
 --- `no such table` are answered with the names that exist. The database
 --- is built from the data alone, so no build directory is read.
 
+-- TODO: make this `local type Cell = require("cosmic.cell")` once the store keeps a module that only a `local type` require names; today that drops cosmic.cell from the binary and build/link_index_test fails.
+local Cell = require("cosmic.cell")
 local build_paths = require("build.paths")
 local Cli = require("cosmic.cli")
 local Clock = require("cosmic.clock")
@@ -388,24 +390,25 @@ end
 --- UTF-8, and a `_json` that is not a JSON object's text on one line.
 local function ndjson_writer(): Writer
   local keys: {string} = {}
-  local names_seen = { unnamable = "", whole = false }
+  local unnamable_key: Cell<string> = { value = "" }
+  local whole_json: Cell<boolean> = { value = false }
   return {
     header = function(names: {string}): string?
-      names_seen.whole = #names == 1 and names[1] == "_json"
+      whole_json.value = #names == 1 and names[1] == "_json"
       for index, name in ipairs(unique(names)) do
         local encoded, _ = Json.encode(name)
         if encoded == nil then
-          names_seen.unnamable = "column " .. tostring(index) .. "'s name is not UTF-8, which a JSON key must be"
+          unnamable_key.value = "column " .. tostring(index) .. "'s name is not UTF-8, which a JSON key must be"
         end
         keys[index] = encoded or ""
       end
       return nil
     end,
     row = function(statement: Sqlite.Statement, width: integer): string?, string
-      if names_seen.unnamable ~= "" then
-        return nil, names_seen.unnamable
+      if unnamable_key.value ~= "" then
+        return nil, unnamable_key.value
       end
-      if names_seen.whole then
+      if whole_json.value then
         local text = statement:kind(0) == "text" and statement:bytes(0) or nil
         local object, _ = Json.decode_object(text or "")
         if text == nil or text:find("[\r\n]") ~= nil or object == nil then
@@ -942,7 +945,7 @@ function sql.run(argv: {string}, root?: string, output?: sql.Output,
           ", not this tool's; reading it as it is, as another tool wrote it")
     end
   end
-  local refusal = { unwritable = false }
+  local unwritable: Cell<boolean> = { value = false }
   local written: Writer? = nil
   if writer ~= nil then
     local inner = writer
@@ -951,7 +954,7 @@ function sql.run(argv: {string}, root?: string, output?: sql.Output,
       row = function(statement: Sqlite.Statement, width: integer): string?, string
         local line, why = inner.row(statement, width)
         if line == nil then
-          refusal.unwritable = true
+          unwritable.value = true
           return nil, why
         end
         return line, ""
@@ -964,7 +967,7 @@ function sql.run(argv: {string}, root?: string, output?: sql.Output,
   end
   if rows == nil then
     -- The hint is for SQLite's refusals, not for a row `--to` cannot write.
-    if source.path == nil and refusal.unwritable ~= true then
+    if source.path == nil and unwritable.value ~= true then
       trouble = trouble .. store_hint
     end
     complain(source.name .. ": " .. trouble)

@@ -138,15 +138,16 @@ local SPECIAL_BODY_LIMIT <const> = 1 << 20
 --- bits) answers nil, for the header to be refused, as GNU tar does,
 --- rather than read as whatever its low 64 bits say.
 local function numeric(field: string): integer?
-  if #field > 0 and (field:byte(1) & 0x80) ~= 0 then
-    local negative = (field:byte(1) & 0x40) ~= 0
+  if #field > 0 and (String.byte_at(field, 1) & 0x80) ~= 0 then
+    local lead = String.byte_at(field, 1)
+    local negative = (lead & 0x40) ~= 0
     local value: integer = if negative then -1 else 0 end
-    value = (value << 7) | (field:byte(1) & 0x7f)
+    value = (value << 7) | (lead & 0x7f)
     for i = 2, #field do
       -- Past this range, shifting in another byte drops bits the
       -- value needs, its sign among them.
       if value < -(1 << 55) or value >= (1 << 55) then return nil end
-      value = (value << 8) | field:byte(i)
+      value = (value << 8) | String.byte_at(field, i)
     end
     return value
   end

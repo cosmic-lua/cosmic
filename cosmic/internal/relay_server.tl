@@ -112,6 +112,8 @@
 ---     })
 ---     server:wait()
 
+-- TODO: make this `local type Cell = require("cosmic.cell")` once the store keeps a module that only a `local type` require names; today that drops cosmic.cell from the binary and build/link_index_test fails.
+local Cell = require("cosmic.cell")
 local Clock = require("cosmic.clock")
 local Codec = require("cosmic.codec")
 local Hash = require("cosmic.hash")
@@ -390,12 +392,12 @@ function Relay.handed(handed: Relay.Handed): Relay.Connector
   end
   -- A copy that takes the type of the checked one, for the functions below.
   local connector, lost = given, handed.lost
-  local telling = { told = false }
+  local told: Cell<boolean> = { value = false }
   --- Tells `lost`, the first time, that the connector has ended.
   local function ended(): string
     local why = "relay: the connector has ended"
-    if lost ~= nil and telling.told ~= true then
-      telling.told = true
+    if lost ~= nil and told.value ~= true then
+      told.value = true
       lost(why)
     end
     return why
@@ -917,10 +919,10 @@ local record Sniff
   --- Whether a hello with no name is refused.
   strict: boolean
   --- The bytes held until the hello is decided.
-  held: string
+  mut held: string
   --- When a hello begun must be whole, from the program's first byte; 0
   --- until it has sent one.
-  deadline: integer
+  mut deadline: integer
 end
 
 --- Whether the hello `seen` is allowed to the requested host, and why not.
@@ -958,10 +960,11 @@ end
 local function tunnel(run: Running, req: Request, client: Net.Conn, far: Net.Conn, first: string,
                       sniff: Sniff?): string
   local idle = run.timeouts.idle
-  local flow = { ended = "", stamp = Clock.monotonic_ns() }
+  local flow_ended: Cell<string> = { value = "" }
+  local flow_stamp: Cell<integer> = { value = Clock.monotonic_ns() }
   local function end_with(why: string)
-    if flow.ended == "" then
-      flow.ended = why
+    if flow_ended.value == "" then
+      flow_ended.value = why
       local _, _ = client:close()
       local _, _ = far:close()
     end
@@ -969,9 +972,9 @@ local function tunnel(run: Running, req: Request, client: Net.Conn, far: Net.Con
   --- Pumps `from` to `to`; `check` is the sniff, for the client's side.
   local function pump(from: Net.Conn, to: Net.Conn, pending: string, check: Sniff?, name: string)
     -- The check stands until the hello is judged.
-    local sniffed = { check = check }
+    local sniff_pending: Cell<Sniff?> = { value = check }
     local function pass(data: string): boolean
-      flow.stamp = Clock.monotonic_ns()
+      flow_stamp.value = Clock.monotonic_ns()
       if not send(to, data, idle) then
         end_with(name .. ": the other side stopped taking bytes")
         return false
@@ -979,7 +982,7 @@ local function tunnel(run: Running, req: Request, client: Net.Conn, far: Net.Con
       return true
     end
     local function take(data: string): boolean
-      local sniffing = sniffed.check
+      local sniffing = sniff_pending.value
       if sniffing == nil then return pass(data) end
       -- The hello's time starts at the program's first byte: a client that
       -- waits for a server that speaks first is not on the clock.
@@ -998,14 +1001,14 @@ local function tunnel(run: Running, req: Request, client: Net.Conn, far: Net.Con
         return false
       end
       local held = sniffing.held
-      sniffed.check = nil
+      sniff_pending.value = nil
       return pass(held)
     end
     if pending ~= "" and not take(pending) then return end
-    while flow.ended == "" do
-      local left = idle - (Clock.monotonic_ns() - flow.stamp)
+    while flow_ended.value == "" do
+      local left = idle - (Clock.monotonic_ns() - flow_stamp.value)
       local hello_late = false
-      local sniffed_check = sniffed.check
+      local sniffed_check = sniff_pending.value
       if sniffed_check ~= nil and sniffed_check.deadline ~= 0 then
         local remaining = sniffed_check.deadline - Clock.monotonic_ns()
         if remaining < left then left, hello_late = remaining, true end
@@ -1024,7 +1027,7 @@ local function tunnel(run: Running, req: Request, client: Net.Conn, far: Net.Con
       end
       from:set_timeout(left)
       local data, why = from:read(CHUNK)
-      if flow.ended ~= "" then return end
+      if flow_ended.value ~= "" then return end
       if data == nil then
         if why == "" then
           -- The side has ended what it sends: the other hears it as a half-close.
@@ -1042,15 +1045,15 @@ local function tunnel(run: Running, req: Request, client: Net.Conn, far: Net.Con
   local down = Poll.spawn(function() pump(far, client, first, nil, "from the far side") end)
   pump(client, far, req.leftover, sniff, "from the program")
   local _, _ = down:join()
-  if flow.ended == "" then
-    flow.ended = "both sides ended"
-  elseif not flow.ended:find("hello", 1, true) then
+  if flow_ended.value == "" then
+    flow_ended.value = "both sides ended"
+  elseif not flow_ended.value:find("hello", 1, true) then
     -- A refused hello has its own line; any other early end gets this one.
-    run.log(("#%d %s %s: closed: %s"):format(req.id, req.protocol, target(req.host, req.port), flow.ended))
+    run.log(("#%d %s %s: closed: %s"):format(req.id, req.protocol, target(req.host, req.port), flow_ended.value))
   end
   local _, _ = client:close()
   local _, _ = far:close()
-  return flow.ended
+  return flow_ended.value
 end
 
 --- Why a connection that arrives now is refused outright, or "".
@@ -1094,7 +1097,7 @@ local function serve_connection(run: Running, protocol: string, client: Net.Conn
   local req: Request = { id = id, protocol = protocol, client = client, host = "", kind = "name", port = 0, leftover = "" }
   -- Why the connection is refused outright, "" when it is counted already,
   -- nil until it has authenticated.
-  local admission = { over = over }
+  local admitted_over: Cell<string?> = { value = over }
   local function reject(why: Refusal, replied: boolean)
     run.refused = run.refused + 1
     local at = if req.host ~= "" then (" " .. target(req.host, req.port)) else "" end
@@ -1110,7 +1113,7 @@ local function serve_connection(run: Running, protocol: string, client: Net.Conn
     close_refused(client)
   end
   local function authenticated()
-    if admission.over == nil then admission.over = admit(run, slot) end
+    if admitted_over.value == nil then admitted_over.value = admit(run, slot) end
   end
   local reading_until = Clock.monotonic_ns() + first_wait(run)
   local sniffed = ""
@@ -1154,7 +1157,7 @@ local function serve_connection(run: Running, protocol: string, client: Net.Conn
     req.host, req.kind, req.port, req.leftover = asked.host, asked.kind, asked.port, asked.leftover
   end
   local shown = target(req.host, req.port)
-  local admission_over = admission.over
+  local admission_over = admitted_over.value
   if admission_over == nil then
     -- A relay with a token has admitted nothing that did not authenticate.
     reject(refusal("not authenticated", 407, "failure"), true)
