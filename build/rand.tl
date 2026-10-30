@@ -115,7 +115,7 @@ local function marked(argv: {string}): {string}
     local slot = 3
     while argv[slot] ~= nil do
       local word = argv[slot]
-      if word == "--" then break end
+      if word == nil or word == "--" then break end
       if word == "-n" or word == "--seed" then
         slot = slot + 1
       elseif word:match("^%-%d+$") then
@@ -144,13 +144,14 @@ local function arguments(argv: {string}): Request?, string
   if command == nil then
     return nil, "give a subcommand"
   end
-  if allowed[command] == nil then
+  local allowed_here = allowed[command]
+  if allowed_here == nil then
     return nil, "no such subcommand: " .. command
   end
   local parsed, trouble = Flags.parse(marked(argv), 3, spec)
   if parsed == nil then return nil, trouble end
   for _, name in ipairs(parsed.given) do
-    if allowed[command][name] ~= true then
+    if allowed_here[name] ~= true then
       if name == "--seed" then
         return nil, "--seed is refused with " .. command .. ": its output is secret, and a seed would make it replayable"
       end
@@ -348,8 +349,8 @@ function verb.run(argv: {string}, io?: verb.Io): integer
   local function uuid(version: integer): string
     if version == 4 then
       local bytes = secret(16)
-      local b6 = (bytes:byte(7) & 0x0f) | 0x40
-      local b8 = (bytes:byte(9) & 0x3f) | 0x80
+      local b6 = (assert(bytes:byte(7), "sixteen bytes were drawn") & 0x0f) | 0x40
+      local b8 = (assert(bytes:byte(9), "sixteen bytes were drawn") & 0x3f) | 0x80
       return uuid_text(bytes:sub(1, 6) .. string.char(b6) .. bytes:sub(8, 8) ..
           string.char(b8) .. bytes:sub(10))
     end
@@ -358,7 +359,7 @@ function verb.run(argv: {string}, io?: verb.Io): integer
     if stamp <= last_v7 then stamp = last_v7 + 1 end
     last_v7 = stamp
     local tail = secret(8)
-    local b8 = (tail:byte(1) & 0x3f) | 0x80
+    local b8 = (assert(tail:byte(1), "eight bytes were drawn") & 0x3f) | 0x80
     local head = string.pack(">I6", stamp >> 12)
     local counter = stamp & 0xfff
     return uuid_text(head .. string.char(0x70 | (counter >> 8), counter & 0xff) ..
@@ -380,9 +381,11 @@ function verb.run(argv: {string}, io?: verb.Io): integer
         return 2
       end
     elseif command == "int" then
-      local lo, hi = integer_of(request.words[1]), integer_of(request.words[2])
+      local low_word = assert(request.words[1], "int takes two bounds, which the arity check holds it to")
+      local high_word = assert(request.words[2], "int takes two bounds, which the arity check holds it to")
+      local lo, hi = integer_of(low_word), integer_of(high_word)
       if lo == nil or hi == nil then
-        complain("the bounds are whole numbers, not " .. request.words[1] .. " and " .. request.words[2])
+        complain("the bounds are whole numbers, not " .. low_word .. " and " .. high_word)
         return 2
       end
       if lo > hi then
@@ -421,8 +424,10 @@ function verb.run(argv: {string}, io?: verb.Io): integer
       end
       for slot = 1, wanted do
         local other = source.int(slot, #items)
-        items[slot], items[other] = items[other], items[slot]
-        if not emit(items[slot]) then
+        local at_slot = assert(items[slot], "a slot up to the count is a line")
+        local at_other = assert(items[other], "a slot drawn up to the end is a line")
+        items[slot], items[other] = at_other, at_slot
+        if not emit(at_other) then
           return 2
         end
       end

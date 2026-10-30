@@ -126,7 +126,11 @@ end
 --- sealed one too (build/test_key.tl's `sealed_fill`, [`Store.seal`]).
 local function embedded_edges(name: string): {string}?, string
   local databases = Store.databases()
-  local rows, trouble = Sqlite.text_rows(databases[#databases],
+  local own = databases[#databases]
+  if own == nil then
+    return nil, "this binary carries no database"
+  end
+  local rows, trouble = Sqlite.text_rows(own,
     "SELECT requires FROM decl_imports WHERE path = ?1 ORDER BY requires",
     { text(name) })
   if rows == nil then
@@ -699,9 +703,9 @@ function plans.collect(db: Sqlite.Handle): {Module}?, string
       source = source,
       source_hash = source_hash,
       requires = requires[source_hash] or {},
-      tests = kind == "test" and (tests[source_hash] or {}) or
-        kind == "example" and (examples[source_hash] or {}) or
-        {},
+      tests = if kind == "test" then tests[source_hash] or {}
+        elseif kind == "example" then examples[source_hash] or {}
+        else {} end,
       inputs = inputs,
       has_top_level_return = has_return == "1",
       generated = origin == "doctest" or origin == "template",
@@ -763,7 +767,7 @@ end
 --- a parse error. Both facts come from `collect`'s one parse of
 --- `m.source`; this reads what `m` carries and parses nothing.
 local function collides_with_test_tail(m: Module): boolean
-  return #m.tests > 0 and m.has_top_level_return
+  return #m.tests > 0 and m.has_top_level_return == true
 end
 
 --- Whether an example module found `Example.<name>` functions but has

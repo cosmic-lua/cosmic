@@ -15,9 +15,15 @@ end
 
 schema.local_index = "docs_by_local"
 
+--- What a statement creates: the `name` of a table or an index and the `body` after it.
+local record Definition
+  name: string
+  body: string
+end
+
 --- Each table's name and its column list, in creation order.
-local tables: {{string}} = {
-  { "meta", "(key TEXT PRIMARY KEY, value BLOB) WITHOUT ROWID" },
+local tables: {Definition} = {
+  { name = "meta", body = "(key TEXT PRIMARY KEY, value BLOB) WITHOUT ROWID" },
 
   -- bytecode comes before source: every require reads it, and SQLite
   -- reaches a column by walking the row's overflow-page chain past
@@ -31,7 +37,7 @@ local tables: {{string}} = {
   -- A WITHOUT ROWID lookup compares wide records and can read their
   -- overflow chains even when only the path is needed. A separate
   -- narrow primary-key index keeps unrelated bytecode out of a require.
-  { "modules", [[(path TEXT PRIMARY KEY NOT NULL,
+  { name = "modules", body = [[(path TEXT PRIMARY KEY NOT NULL,
                   file TEXT NOT NULL,
                   kind TEXT NOT NULL,
                   source_hash BLOB NOT NULL,
@@ -40,7 +46,7 @@ local tables: {{string}} = {
                   tests TEXT NOT NULL,
                   source BLOB NOT NULL)]] },
 
-  { "imports", [[(path TEXT NOT NULL,
+  { name = "imports", body = [[(path TEXT NOT NULL,
                   requires TEXT NOT NULL,
                   PRIMARY KEY (path, requires)) WITHOUT ROWID]] },
 
@@ -54,7 +60,7 @@ local tables: {{string}} = {
   -- module loadable. Each module has a row with the empty name beside
   -- its edges, so a module that requires nothing is told from one the
   -- table was written without.
-  { "decl_imports", [[(path TEXT NOT NULL,
+  { name = "decl_imports", body = [[(path TEXT NOT NULL,
                        requires TEXT NOT NULL,
                        PRIMARY KEY (path, requires)) WITHOUT ROWID]] },
 
@@ -63,19 +69,19 @@ local tables: {{string}} = {
   -- declares means by `name.Member` (`record Entry is
   -- Stream.ArchiveEntry`), which [`build.alias_members`] follows. Unlike
   -- `imports`, `requires` need not be a module the projection holds.
-  { "bound", [[(path TEXT NOT NULL,
+  { name = "bound", body = [[(path TEXT NOT NULL,
                 name TEXT NOT NULL,
                 requires TEXT NOT NULL,
                 PRIMARY KEY (path, name)) WITHOUT ROWID]] },
 
-  { "decls", [[(path TEXT PRIMARY KEY,
+  { name = "decls", body = [[(path TEXT PRIMARY KEY,
                 source BLOB NOT NULL) WITHOUT ROWID]] },
 
   -- The stub of each of the standard library's modules (build.stub),
   -- raw-deflated like a source: what a project's checker is given in
   -- place of the module's source. Only cosmic's own projection
   -- and the tool fill it; a program has no checker to read it.
-  { "stubs", [[(path TEXT PRIMARY KEY,
+  { name = "stubs", body = [[(path TEXT PRIMARY KEY,
                 source BLOB NOT NULL) WITHOUT ROWID]] },
 
   -- A project's static assets ([`Layout.static`]), one row per
@@ -84,7 +90,7 @@ local tables: {{string}} = {
   -- ([`cosmic.mime`]), and the gzip of the bytes when that is worth
   -- sending ([`Mime.gzip`]), else NULL. [`cosmic.web.assets`] reads it
   -- from the program's own database.
-  { "payload", [[(path TEXT PRIMARY KEY,
+  { name = "payload", body = [[(path TEXT PRIMARY KEY,
                   data BLOB NOT NULL,
                   sha256 TEXT NOT NULL,
                   type TEXT NOT NULL,
@@ -92,19 +98,19 @@ local tables: {{string}} = {
 
   -- The IANA time zone database, one TZif file per zone name, which
   -- [`cosmic.time`] reads where the host has no zone files of its own.
-  { "zoneinfo", [[(name TEXT PRIMARY KEY,
+  { name = "zoneinfo", body = [[(name TEXT PRIMARY KEY,
                    data BLOB NOT NULL)]] },
 
   -- The browser-side files [`cosmic.web`] serves under `/_web/` (htmx and
   -- its SSE extension), each with its SHA-256 as hex and its SHA-384 as
   -- base64, the value of an `integrity` attribute, computed at boot.
-  { "web_assets", [[(name TEXT PRIMARY KEY,
+  { name = "web_assets", body = [[(name TEXT PRIMARY KEY,
                      data BLOB NOT NULL,
                      sha256 TEXT NOT NULL,
                      sha384 TEXT NOT NULL,
                      version TEXT NOT NULL) WITHOUT ROWID]] },
 
-  { "docs", [[(id INTEGER PRIMARY KEY,
+  { name = "docs", body = [[(id INTEGER PRIMARY KEY,
                module TEXT NOT NULL,
                symbol TEXT NOT NULL,
                source_symbol TEXT NOT NULL,
@@ -115,7 +121,7 @@ local tables: {{string}} = {
                file TEXT NOT NULL,
                line INTEGER NOT NULL)]] },
 
-  { "uses", [[(module TEXT NOT NULL,
+  { name = "uses", body = [[(module TEXT NOT NULL,
                      symbol TEXT NOT NULL,
                      from_module TEXT NOT NULL,
                      from_file TEXT NOT NULL,
@@ -132,7 +138,7 @@ local tables: {{string}} = {
   -- from the root, or an "anchor" of the file at `path`. A column that
   -- does not apply is "". Keyed by target first, as `uses` is, since a
   -- reader asks what links to a target.
-  { "links", [[(module TEXT NOT NULL,
+  { name = "links", body = [[(module TEXT NOT NULL,
                 symbol TEXT NOT NULL,
                 path TEXT NOT NULL,
                 anchor TEXT NOT NULL,
@@ -147,7 +153,7 @@ local tables: {{string}} = {
                 PRIMARY KEY (module, symbol, path, anchor, from_file, line, column))
                 WITHOUT ROWID]] },
 
-  { "examples", [[(id INTEGER PRIMARY KEY,
+  { name = "examples", body = [[(id INTEGER PRIMARY KEY,
                    module TEXT NOT NULL,
                    name TEXT NOT NULL,
                    text TEXT NOT NULL,
@@ -159,7 +165,7 @@ local tables: {{string}} = {
   -- The bill of materials ([`build.bom`]): filled in cosmic's own
   -- projection, carried by the tool and copied into every executable
   -- `cosmic build` writes; empty in a project's projection.
-  { "components", [[(name TEXT PRIMARY KEY,
+  { name = "components", body = [[(name TEXT PRIMARY KEY,
                      kind TEXT NOT NULL,
                      version TEXT NOT NULL,
                      license TEXT NOT NULL,
@@ -168,7 +174,7 @@ local tables: {{string}} = {
                      sha3_256 TEXT NOT NULL,
                      patches TEXT NOT NULL) WITHOUT ROWID]] },
 
-  { "notices", [[(component TEXT NOT NULL,
+  { name = "notices", body = [[(component TEXT NOT NULL,
                   ordinal INTEGER NOT NULL,
                   file TEXT NOT NULL,
                   text TEXT NOT NULL,
@@ -182,18 +188,18 @@ local tables: {{string}} = {
   -- `sha256` order, which keeps the file the same on every build, and
   -- [`build.roots`] never writes one certificate twice.
   -- `distrust_after` is [`build.roots.Root`]'s.
-  { "ca_roots", [[(sha256 BLOB NOT NULL,
+  { name = "ca_roots", body = [[(sha256 BLOB NOT NULL,
                    label TEXT NOT NULL,
                    der BLOB NOT NULL,
                    distrust_after TEXT NOT NULL)]] },
 
   -- The certificates OneCRL revokes ([`build.onecrl`]), filled and
   -- carried as `ca_roots` is, in the order of their bytes.
-  { "ca_revoked", [[(kind TEXT NOT NULL,
+  { name = "ca_revoked", body = [[(kind TEXT NOT NULL,
                      name BLOB NOT NULL,
                      value BLOB NOT NULL)]] },
 
-  { "catalog", [[(id INTEGER PRIMARY KEY,
+  { name = "catalog", body = [[(id INTEGER PRIMARY KEY,
                   kind TEXT NOT NULL,
                   module TEXT NOT NULL,
                   symbol TEXT,
@@ -211,14 +217,14 @@ local tables: {{string}} = {
 --- a search for "reading files" finds a comment that says "reads a
 --- file". `catalog_fts` keeps the plain tokenizer: an error message is
 --- matched as it is spelled, not as a query in words.
-local virtual_tables: {{string}} = {
-  { "docs_fts",
-    "USING fts5(symbol, signature, text, content=docs, content_rowid=id, " ..
+local virtual_tables: {Definition} = {
+  { name = "docs_fts", body =
+      "USING fts5(symbol, signature, text, content=docs, content_rowid=id, " ..
       "tokenize='porter unicode61')" },
-  { "catalog_fts",
-    "USING fts5(message, text, content=catalog, content_rowid=id)" },
-  { "examples_fts",
-    "USING fts5(name, text, source, content=examples, content_rowid=id, " ..
+  { name = "catalog_fts", body =
+      "USING fts5(message, text, content=catalog, content_rowid=id)" },
+  { name = "examples_fts", body =
+      "USING fts5(name, text, source, content=examples, content_rowid=id, " ..
       "tokenize='porter unicode61')" },
 }
 
@@ -251,12 +257,12 @@ end
 --- the index of those alone. A query answers the same rows with them or
 --- without them, so a database written before they existed is only
 --- slower to read.
-local docs_indexes: {{string}} = {
-  { "docs_by_last_name", "(" .. schema.last_name("symbol") .. ")" },
-  { "docs_by_source_symbol", "(source_symbol)" },
-  { "docs_by_module", "(module)" },
-  { "docs_by_module_row", "(module) WHERE symbol = ''" },
-  { schema.local_index, "(module, source_symbol) WHERE exported = 0 AND signature LIKE 'local %'" },
+local docs_indexes: {Definition} = {
+  { name = "docs_by_last_name", body = "(" .. schema.last_name("symbol") .. ")" },
+  { name = "docs_by_source_symbol", body = "(source_symbol)" },
+  { name = "docs_by_module", body = "(module)" },
+  { name = "docs_by_module_row", body = "(module) WHERE symbol = ''" },
+  { name = schema.local_index, body = "(module, source_symbol) WHERE exported = 0 AND signature LIKE 'local %'" },
 }
 
 --- The statements that create an empty database, in order, every table
@@ -265,14 +271,14 @@ local docs_indexes: {{string}} = {
 function schema.create(qualifier: string): {string}
   local out: mut {string} = {}
   for _, pair in ipairs(tables) do
-    out[#out + 1] = "CREATE TABLE " .. qualifier .. pair[1] .. " " .. pair[2]
+    out[#out + 1] = "CREATE TABLE " .. qualifier .. pair.name .. " " .. pair.body
   end
   for _, pair in ipairs(docs_indexes) do
-    out[#out + 1] = "CREATE INDEX " .. qualifier .. pair[1] .. " ON docs " .. pair[2]
+    out[#out + 1] = "CREATE INDEX " .. qualifier .. pair.name .. " ON docs " .. pair.body
   end
   for _, pair in ipairs(virtual_tables) do
     out[#out + 1] =
-      "CREATE VIRTUAL TABLE " .. qualifier .. pair[1] .. " " .. pair[2]
+      "CREATE VIRTUAL TABLE " .. qualifier .. pair.name .. " " .. pair.body
   end
   return out
 end
@@ -286,7 +292,7 @@ end
 function schema.rebuild(qualifier: string): {string}
   local out: mut {string} = {}
   for _, pair in ipairs(virtual_tables) do
-    out[#out + 1] = "INSERT INTO " .. qualifier .. pair[1] .. "(" .. pair[1] ..
+    out[#out + 1] = "INSERT INTO " .. qualifier .. pair.name .. "(" .. pair.name ..
       ") VALUES ('rebuild')"
   end
   return out

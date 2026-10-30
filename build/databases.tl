@@ -73,7 +73,12 @@ local function describe(path: string): integer?, string
         local _, _ = db:close()
         return nil, count_trouble
       end
-      rows = counted[1]:text(1)
+      local only = counted[1]
+      if only == nil then
+        local _, _ = db:close()
+        return nil, "count(*) of " .. name .. " answered no row"
+      end
+      rows = only:text(1)
     end
     log:say("  " .. column(rows, 8) .. column(pages, 8) .. column(bytes, 10) ..
         column(payload, 10) .. "  " .. name)
@@ -143,6 +148,13 @@ end
 --- about the file with that hash.
 local source_columns = { "file", "from_file", "path", "source_hash", "sha256" }
 
+--- A database to read a file mapping from: its `path` and the `sql` that
+--- selects a key and the file it stands for.
+local record Source
+  path: string
+  sql: string
+end
+
 --- The source file each module name and each source hash stands for,
 --- from whichever of the two databases hold one: `cosmic.db`'s modules
 --- and `build.db`'s derived rows and staged files, unless `working`
@@ -150,14 +162,14 @@ local source_columns = { "file", "from_file", "path", "source_hash", "sha256" }
 local function module_files(root: string, working: boolean): {string:string}?, string
   local files: mut {string:string} = {}
   local layout = build_paths.resolve(root)
-  local sources = { { layout.projection, "SELECT path, file FROM modules" } }
+  local sources: mut {Source} = { { path = layout.projection, sql = "SELECT path, file FROM modules" } }
   if working then
-    table.insert(sources, { layout.working, "SELECT path, file FROM derived" })
-    table.insert(sources, { layout.working, "SELECT source_hash, file FROM derived" })
-    table.insert(sources, { layout.working, "SELECT sha256, path FROM files" })
+    table.insert(sources, { path = layout.working, sql = "SELECT path, file FROM derived" })
+    table.insert(sources, { path = layout.working, sql = "SELECT source_hash, file FROM derived" })
+    table.insert(sources, { path = layout.working, sql = "SELECT sha256, path FROM files" })
   end
   for _, source in ipairs(sources) do
-    local path = source[1]
+    local path = source.path
     local present, present_trouble = Fs.exists(path)
     if present == nil then
       return nil, present_trouble
@@ -167,7 +179,7 @@ local function module_files(root: string, working: boolean): {string:string}?, s
       if db == nil then
         return nil, open_trouble
       end
-      local rows, trouble = Sqlite.text_rows(db, source[2])
+      local rows, trouble = Sqlite.text_rows(db, source.sql)
       local _, _ = db:close()
       if rows == nil then
         return nil, path .. ": " .. trouble
@@ -316,7 +328,7 @@ local function run(argv: {string}): integer
       return 1
     end
     if present then
-      local counted, trouble: integer, string
+      local counted, trouble: integer?, string
       if #paths > 0 then
         counted, trouble = describe_under(path, about)
       else

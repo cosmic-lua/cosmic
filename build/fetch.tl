@@ -142,7 +142,8 @@ local algorithms: {Algorithm} = {
 }
 
 function verb.redirect_protocols(url: string, allow_downgrade: boolean): {string}?
-  if allow_downgrade or url:match("^(%a+)://"):lower() ~= "https" then return nil end
+  local scheme = assert(url:match("^(%a+)://"), "is_url refused a URL without a scheme")
+  if allow_downgrade or scheme:lower() ~= "https" then return nil end
   return { "https" }
 end
 
@@ -169,7 +170,8 @@ end
 --- Dropping such a parameter as an ordinary fragment would fetch unverified
 --- what the user believes is checked.
 local function looks_like_a_checksum(parameter: string): boolean
-  local name = (parameter:match("^[^=:]*"):lower():gsub("[-_ ]", ""))
+  local head = assert(parameter:match("^[^=:]*"), "the pattern matches an empty name at worst")
+  local name = (head:lower():gsub("[-_ ]", ""))
   local patterns: {string} = { "^sha%d", "^sha$", "^md%d", "^blake", "^crc%d", "^ripemd", "^whirlpool",
     "^hash$", "^hash%d", "^checksum", "^digest$", "^integrity$" }
   for _, pattern in ipairs(patterns) do
@@ -209,9 +211,10 @@ end
 local function is_url(url: string): boolean
   local authority = url:match("^%a+://([^/?#]*)")
   if authority == nil then return false end
-  local scheme = url:match("^(%a+)://"):lower()
+  local scheme = assert(url:match("^(%a+)://"), "the authority matched after a scheme"):lower()
   if scheme ~= "http" and scheme ~= "https" then return false end
   local host = authority:match("([^@]*)$")
+  assert(host ~= nil, "the pattern matches an empty tail at worst")
   if host:sub(1, 1) == "[" then
     return host:match("^%[.+%]") ~= nil
   end
@@ -264,8 +267,9 @@ function verb.run(argv: {string}, io?: verb.Io): integer
   end
   -- The fragment never reaches a request, a redirect or a message: it
   -- is taken off first, and only the digests it names are kept.
-  local url, fragment = parsed.words[1]:match("^([^#]*)#(.*)$")
-  if url == nil then url = parsed.words[1] end
+  local word = parsed.words[1]
+  local before, fragment = word:match("^([^#]*)#(.*)$")
+  local url = before or word
   shown, given = bare.redact_url(url), url
   if not is_url(url) then
     return refuse(url .. " is not an http:// or https:// URL")
@@ -283,8 +287,9 @@ function verb.run(argv: {string}, io?: verb.Io): integer
       return source .. " wants " .. plural.count(algorithm.digits, "hex digit") .. ", not " .. digest
     end
     digest = digest:lower()
-    if wants[name] ~= nil and wants[name] ~= digest then
-      return from[name] .. " and " .. source .. sep .. digest .. " name different " .. name .. " digests"
+    local earlier = wants[name]
+    if earlier ~= nil and earlier ~= digest then
+      return assert(from[name], "a wanted digest has its source") .. " and " .. source .. sep .. digest .. " name different " .. name .. " digests"
     end
     wants[name], from[name] = digest, source .. sep .. digest
     return nil
@@ -299,13 +304,14 @@ function verb.run(argv: {string}, io?: verb.Io): integer
   for parameter in (fragment or ""):gmatch("[^&]+") do
     local key, value = parameter:match("^([^=]+)=(.*)$")
     if looks_like_a_checksum(parameter) and not recognized(key) then
-      return refuse("#" .. parameter:match("^[^=]*"):sub(1, 40) ..
+      local named = assert(parameter:match("^[^=]*"), "the pattern matches an empty name at worst")
+      return refuse("#" .. named:sub(1, 40) ..
           " looks like a checksum but is not one this verb checks (it reads #sha256=, " ..
           "#sha256sum=, #sha512= and #sha512sum=, in lowercase), and the body would go unverified")
     end
     for _, algorithm in ipairs(algorithms) do
       for _, name in ipairs(algorithm.keys) do
-        if key == name then
+        if key ~= nil and value ~= nil and key == name then
           local why = want_digest(algorithm, value, "#" .. key, "=")
           if why ~= nil then return refuse(why) end
         end
@@ -404,7 +410,7 @@ function verb.run(argv: {string}, io?: verb.Io): integer
       local lines: mut {string} = { "HTTP " .. tostring(response.status) }
       for _, name in ipairs(names) do
         -- A repeated Set-Cookie arrives joined with "\n": a line each.
-        for value in String.lines(response.headers[name]) do
+        for value in String.lines((assert(response.headers[name], "a header named is a header held"))) do
           lines[#lines + 1] = escaped(name .. ": " .. value)
         end
       end
@@ -430,10 +436,12 @@ function verb.run(argv: {string}, io?: verb.Io): integer
     end
     for _, algorithm in ipairs(algorithms) do
       local wanted = wants[algorithm.name]
-      local got = wanted ~= nil and digest_of(algorithm.name, body)
-      if wanted ~= nil and got ~= wanted then
-        complain(shown .. ": " .. algorithm.name .. " mismatch: want " .. wanted .. ", got " .. got)
-        return bare.failed
+      if wanted ~= nil then
+        local got = digest_of(algorithm.name, body)
+        if got ~= wanted then
+          complain(shown .. ": " .. algorithm.name .. " mismatch: want " .. wanted .. ", got " .. got)
+          return bare.failed
+        end
       end
     end
     return written(to.out(body))

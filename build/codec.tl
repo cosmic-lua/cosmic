@@ -189,7 +189,7 @@ local class HexDecoder is verb.Coder
     end
     local at = data:find("[^0-9a-fA-F]")
     assert(at ~= nil, "codec: hex text refused though every character is a digit")
-    self.bad_at, self.bad_byte, self.carry = before + at, data:byte(at), ""
+    self.bad_at, self.bad_byte, self.carry = before + at, assert(data:byte(at), "the offset found is a byte of the data"), ""
     return "", ""
   end
 
@@ -255,7 +255,7 @@ local class Base64Decoder is verb.Coder
     whole = usable - usable % 4
     self.carry = data:sub(whole + 1, usable)
     if at ~= nil then
-      self.bad_at, self.bad_byte = before + at, data:byte(at)
+      self.bad_at, self.bad_byte = before + at, assert(data:byte(at), "the offset found is a byte of the data")
       self.run = #data - at + 1
       self.run_pad = self.bad_byte == 61 and data:find("[^=]", at) == nil
     end
@@ -490,11 +490,12 @@ local class Decoding is verb.Coder
     local bad = clean:find(self.wrong)
     if bad ~= nil then
       return fail(self, ("byte 0x%02x at offset %d is not in the %s alphabet"):format(
-        clean:byte(bad), self.fed + offset_of(chunk, bad), name))
+        assert(clean:byte(bad), "the offset found is a byte of the text"), self.fed + offset_of(chunk, bad), name))
     end
     if #clean > 0 then
       self.seen = self.seen + #clean
-      self.last = self.fed + chunk:find("[^ \t\n\r\f\v]" .. blank .. "*$") - 1
+      self.last = self.fed + assert(chunk:find("[^ \t\n\r\f\v]" .. blank .. "*$"),
+        "a chunk with a byte left after squeezing has a last one that is not blank") - 1
     end
     local body = clean
     if name ~= "hex" then
@@ -556,7 +557,7 @@ end
 --- @param lenient whether the other padding spelling is accepted
 function verb.decoding(name: verb.Name, lenient: boolean): verb.Coder
   local c: Decoding = {
-    inner = verb.decoder(name), name = name, wrong = refused[name], lenient = lenient,
+    inner = verb.decoder(name), name = name, wrong = assert(refused[name], "every name has its refused bytes"), lenient = lenient,
     fed = 0, seen = 0, last = nil, pad_at = nil, pad_run = 0, pad_other = false, failed = nil,
   }
   return c

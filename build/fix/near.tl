@@ -250,7 +250,7 @@ function near.notes(module: string, candidates: {near.Candidate},
     end
     for _, index in ipairs(scan) do
       local other = known[index]
-      if comparable[index] == true then
+      if other ~= nil and comparable[index] == true then
         local same = other.module == module and
           (other.source_symbol == mine.source_symbol or other.symbol == name)
         local why: string? = nil
@@ -260,12 +260,14 @@ function near.notes(module: string, candidates: {near.Candidate},
           why = "stands in for `" .. name .. "`"
         else
           local together = shared[index]
-          if together ~= nil and their_counts[index] >= MIN_WORDS and
-              together / (my_count + their_counts[index] - together) >= SIMILAR then
+          local theirs = assert(their_counts[index], "every known symbol has its word count")
+          if together ~= nil and theirs >= MIN_WORDS and
+              together / (my_count + theirs - together) >= SIMILAR then
             why = "is documented in nearly the same words"
           end
         end
-        if why ~= nil and not names(lower, qualified[index], coded[index]) then
+        if why ~= nil and not names(lower, assert(qualified[index], "every known symbol was spelled qualified"),
+            (assert(coded[index], "every known symbol was spelled coded"))) then
           out[#out + 1] = tostring(mine.line) .. ": " .. mine.source_symbol .. ": " ..
             other.source_symbol .. " (" .. other.module .. ") " .. why ..
             "; see cosmic docs " .. other.source_symbol

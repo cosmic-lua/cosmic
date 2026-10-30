@@ -630,6 +630,20 @@ local function to_wal(db: Sqlite.Handle, path: string, wait: boolean): Took?, st
   end
 end
 
+--- Whether the `SELECT count(*)` in `counting` counted none. It answers
+--- one row; a database that answers none is in trouble.
+local function counted_none(db: Sqlite.Handle, counting: string): boolean?, string
+  local counted, trouble = Sqlite.text_rows(db, counting)
+  if counted == nil then
+    return nil, trouble
+  end
+  local row = counted[1]
+  if row == nil then
+    return nil, "`" .. counting .. "` answered no row"
+  end
+  return row:text(1) == "0", ""
+end
+
 --- Creates every table the schema names, in order, in the working
 --- database `db` at `path`. A fresh file's go in in one transaction,
 --- which commits, and syncs, once rather than once a statement: about
@@ -640,11 +654,10 @@ end
 --- run's own [`begin_waiting`]. Unless `wait`, it waits for no other
 --- run, answering "busy".
 local function create(db: Sqlite.Handle, path: string, wait: boolean): Took?, string
-  local tables, count_trouble = Sqlite.text_rows(db, "SELECT count(*) FROM sqlite_master")
-  if tables == nil then
+  local fresh, count_trouble = counted_none(db, "SELECT count(*) FROM sqlite_master")
+  if fresh == nil then
     return nil, count_trouble
   end
-  local fresh = tables[1]:text(1) == "0"
   if fresh then
     local begun, begin_trouble = begin_waiting(db, path, wait)
     if begun == nil then return nil, begin_trouble end
@@ -1433,13 +1446,19 @@ function work.stage(handle: work.Handle, own_tree: boolean): work.Staged?, strin
   end
   local put: mut {string:Sqlite.Statement} = {}
   for _, name in ipairs({ "files", "tool", "scanned", "linked", "todo" }) do
-    local statement, trouble = db:prepare(puts[name])
+    local statement, trouble = db:prepare((assert(puts[name], "every name listed has its put")))
     if statement == nil then
       finish(put)
       return nil, trouble
     end
     put[name] = statement
   end
+  -- Prepared by the loop above, one for each name it lists.
+  local put_files = assert(put["files"], "every put was prepared")
+  local put_tool = assert(put["tool"], "every put was prepared")
+  local put_scanned = assert(put["scanned"], "every put was prepared")
+  local put_linked = assert(put["linked"], "every put was prepared")
+  local put_todo = assert(put["todo"], "every put was prepared")
   local now = Clock.now_ns()
   local staged: work.Staged = { files = 0, read = 0, notes = {} }
   -- The real path of `root`, once a static asset asks for it, and the
@@ -1508,7 +1527,7 @@ function work.stage(handle: work.Handle, own_tree: boolean): work.Staged?, strin
         end
         local sha256 = Hash.hex_sha256(data)
         if (input or tool or scan) and holds_own_todos(file) then
-          local ok, why = put_todos(put["todo"], data, sha256)
+          local ok, why = put_todos(put_todo, data, sha256)
           if not ok then
             finish(put)
             return nil, file .. ": " .. why
@@ -1521,18 +1540,18 @@ function work.stage(handle: work.Handle, own_tree: boolean): work.Staged?, strin
           end
           return put_row(statement, file, stat, mtime_ns, settled, content, sha256)
         end
-        local ok, why = write(write_files, put["files"])
+        local ok, why = write(write_files, put_files)
         if ok then
-          ok, why = write(write_tool, put["tool"])
+          ok, why = write(write_tool, put_tool)
         end
         if ok then
-          ok, why = write(write_scanned, put["scanned"])
+          ok, why = write(write_scanned, put_scanned)
         end
         if ok and write_linked and link_kind ~= nil then
           texts[file] = data
-          ok, why = put["linked"]:bind_text(8, link_kind)
+          ok, why = put_linked:bind_text(8, link_kind)
           if ok then
-            ok, why = write(true, put["linked"])
+            ok, why = write(true, put_linked)
           end
         end
         if not ok then
@@ -1588,7 +1607,8 @@ function work.stage(handle: work.Handle, own_tree: boolean): work.Staged?, strin
   end
   finish(put)
   for _, table_name in ipairs({ "files", "tool", "scanned", "linked" }) do
-    local forgot, forget_trouble = forget(db, table_name, known[table_name])
+    local forgot, forget_trouble = forget(db, table_name,
+      (assert(known[table_name], "every table forgotten was read above")))
     if not forgot then
       return nil, forget_trouble
     end
@@ -1704,7 +1724,7 @@ local function links_finder(db: Sqlite.Handle): string?, string
   local stack: mut {string} = { "build.link_files" }
   while #stack > 0 do
     local name = table.remove(stack)
-    if reached[name] ~= true then
+    if name ~= nil and reached[name] ~= true then
       reached[name] = true
       local required, trouble = Store.requires(name)
       if required == nil then
@@ -1841,13 +1861,13 @@ end
 --- Every zone the database `db` carries in its `zoneinfo` table, by
 --- name: none when it has no such table.
 function work.zoneinfo_of(db: Sqlite.Handle): {string:string}?, string
-  local tables, trouble = Sqlite.text_rows(db,
+  local absent, trouble = counted_none(db,
     "SELECT count(*) FROM sqlite_schema WHERE type = 'table' AND name = 'zoneinfo'")
-  if tables == nil then
+  if absent == nil then
     return nil, trouble
   end
   local zones: mut {string:string} = {}
-  if tables[1]:text(1) == "0" then
+  if absent then
     return zones, ""
   end
   local rows, rows_trouble = Sqlite.rows(db, "SELECT name, data FROM zoneinfo")
@@ -1890,11 +1910,18 @@ function work.put_zoneinfo(handle: work.Handle, zones: {string:string}): boolean
   return work.write_zones(handle.db, zones)
 end
 
---- The files `web_assets` carries, as the vendored trees hold them: the
---- table name, the directory under `vendor/` and the path in it.
-local web_files: {{string}} = {
-  { "htmx.min.js", "htmx", "dist/htmx.min.js" },
-  { "htmx-ext-sse.min.js", "htmx-ext-sse", "dist/sse.min.js" },
+--- A file `web_assets` carries, as the vendored trees hold it: the table
+--- `name`, the `tree` directory under `vendor/` and the `path` in it.
+local record WebFile
+  name: string
+  tree: string
+  path: string
+end
+
+--- The files `web_assets` carries.
+local web_files: {WebFile} = {
+  { name = "htmx.min.js", tree = "htmx", path = "dist/htmx.min.js" },
+  { name = "htmx-ext-sse.min.js", tree = "htmx-ext-sse", path = "dist/sse.min.js" },
 }
 
 --- The files of `web_assets` read from the trees under `vendor` (a
@@ -1902,19 +1929,19 @@ local web_files: {{string}} = {
 function work.read_web_assets(vendor: string): {work.WebAsset}?, string
   local assets: mut {work.WebAsset} = {}
   for _, file in ipairs(web_files) do
-    local pin, pin_trouble = Fs.read(vendor .. "/" .. file[2] .. "/PIN")
+    local pin, pin_trouble = Fs.read(vendor .. "/" .. file.tree .. "/PIN")
     if pin == nil then
       return nil, pin_trouble
     end
     local pinned = pin:match("^version%s+(%S+)") or pin:match("\nversion%s+(%S+)")
     if pinned == nil then
-      return nil, vendor .. "/" .. file[2] .. "/PIN names no version"
+      return nil, vendor .. "/" .. file.tree .. "/PIN names no version"
     end
-    local data, read_trouble = Fs.read(vendor .. "/" .. file[2] .. "/" .. file[3])
+    local data, read_trouble = Fs.read(vendor .. "/" .. file.tree .. "/" .. file.path)
     if data == nil then
       return nil, read_trouble
     end
-    assets[#assets + 1] = { name = file[1], data = data,
+    assets[#assets + 1] = { name = file.name, data = data,
       sha256 = Hash.hex_sha256(data), sha384 = Codec.base64(Hash.digest("sha384", data)),
       version = pinned }
   end
@@ -1927,13 +1954,13 @@ end
 --- Every row of the `web_assets` table `db` holds, by name: none when it
 --- has no such table.
 function work.web_assets_of(db: Sqlite.Handle): {work.WebAsset}?, string
-  local tables, trouble = Sqlite.text_rows(db,
+  local absent, trouble = counted_none(db,
     "SELECT count(*) FROM sqlite_schema WHERE type = 'table' AND name = 'web_assets'")
-  if tables == nil then
+  if absent == nil then
     return nil, trouble
   end
   local assets: mut {work.WebAsset} = {}
-  if tables[1]:text(1) == "0" then
+  if absent then
     return assets, ""
   end
   local rows, rows_trouble = Sqlite.rows(db,

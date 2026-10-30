@@ -47,6 +47,12 @@ end
 
 local text = bind.text
 
+--- A row of the `meta` table a program's database carries.
+local record MetaRow
+  key: string
+  value: string
+end
+
 --- One column of the row a statement is standing on, bound as what it
 --- was: a blob stays a blob, a null stays a null.
 local function value_at(statement: Sqlite.Statement, index: integer): Sqlite.Value
@@ -356,15 +362,15 @@ function embed.database(project: string, main: string, roots?: string): string?,
         return false, failure
       end
     end
-    local meta: {{string}} = {
-      { "compiler", Store.meta("compiler") or "" },
-      { "runtime_basis", basis },
-      { "main", main },
+    local meta: {MetaRow} = {
+      { key = "compiler", value = Store.meta("compiler") or "" },
+      { key = "runtime_basis", value = basis },
+      { key = "main", value = main },
     }
     for _, pair in ipairs(meta) do
       local ok, failure = Sqlite.run(out,
         "INSERT INTO meta (key, value) VALUES (?1, ?2)",
-        { text(pair[1]), text(pair[2]) })
+        { text(pair.key), text(pair.value) })
       if not ok then
         return false, failure
       end
@@ -508,7 +514,7 @@ function embed.tree(root: string, host?: boolean, under?: {string}, grammar?: Gr
       return nil, name .. ": " .. database_trouble
     end
     local out = bin .. "/" .. name
-    local program, program_trouble: string, string
+    local program, program_trouble: string?, string
     if core ~= nil then
       program, program_trouble = artifact.host_program(core, database)
     elseif prefix ~= nil then

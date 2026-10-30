@@ -63,7 +63,7 @@ local function stamp_text(staged: Staged, carried: string, records: string): str
   }
   local lines: mut {string} = {}
   for _, field in ipairs(stamp_fields) do
-    lines[#lines + 1] = field .. "=" .. values[field]
+    lines[#lines + 1] = field .. "=" .. assert(values[field], "every stamp field has a value")
   end
   return table.concat(lines, "\n") .. "\n"
 end
@@ -300,8 +300,9 @@ local function boot(root: string, argv: {string}): integer
     host_only = true
     first = first + 1
   end
-  if argv[first] == "--stage" or argv[first] == "--assemble" then
-    mode = argv[first]:sub(3)
+  local flag = argv[first]
+  if flag ~= nil and (flag == "--stage" or flag == "--assemble") then
+    mode = flag:sub(3)
     first = first + 1
   end
   --- The command line's slot `n`, counted as a whole boot's.

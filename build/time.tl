@@ -104,10 +104,9 @@ local arity: {string:integer} = { now = 0, convert = 1, between = 2, add = 2 }
 local function protect(argv: {string}): {string}, {string:string}
   local out: mut {string} = {}
   local kept: mut {string:string} = {}
-  local slot = 1
   local ended = false
-  while argv[slot] ~= nil do
-    local word = argv[slot]
+  for slot, original in ipairs(argv) do
+    local word = original
     if word == "--" then ended = true end
     local before = slot > 1 and argv[slot - 1] or ""
     local option = spec[before]
@@ -119,7 +118,6 @@ local function protect(argv: {string}): {string}, {string:string}
       word = name
     end
     out[#out + 1] = word
-    slot = slot + 1
   end
   return out, kept
 end
@@ -130,7 +128,8 @@ local function arguments(argv: {string}): Flags.Parsed?, string
   local parsed, trouble = Flags.parse(safe, 2, spec)
   if parsed == nil then return nil, trouble end
   for index, word in ipairs(parsed.words) do
-    if kept[word] ~= nil then parsed.words[index] = kept[word] end
+    local restored = kept[word]
+    if restored ~= nil then parsed.words[index] = restored end
   end
   return parsed, ""
 end
@@ -193,7 +192,7 @@ local RANGE <const> = "outside 1677-09-21T00:12:43.145224192Z through " ..
 --- The nanoseconds the digits of a fraction of a second spell, one to
 --- nine of them: `5` is 500000000.
 local function fraction_ns(digits: string): integer
-  return math.tointeger(tonumber(digits .. ("0"):rep(9 - #digits)))
+  return (assert(math.tointeger(tonumber(digits .. ("0"):rep(9 - #digits))), "one to nine digits spell an integer"))
 end
 
 --- What the text [`verb.parse_input`] reads may spell.
@@ -211,11 +210,11 @@ local function read_input(text: string, zone: Time.Zone?,
                           how: Time.Disambiguation): verb.Moment?, string
   if text:sub(1, 1) == "@" then
     local sign, whole, dot, frac = text:match("^@([+-]?)(%d+)(%.?)(%d*)$")
-    if whole == nil or #whole > 10 or #frac > 9 or (dot == "." and frac == "") then
+    if whole == nil or frac == nil or #whole > 10 or #frac > 9 or (dot == "." and frac == "") then
       return nil, "@ and seconds since 1970, as @1700000000 or @-1.5, at most 10 digits " ..
         "(the calendar ends in 2262) and 9 of fraction"
     end
-    local s = math.tointeger(tonumber(whole))
+    local s = assert(math.tointeger(tonumber(whole)), "at most ten digits spell an integer")
     local n = if frac == "" then 0 else fraction_ns(frac) end
     if sign == "-" then
       s = -s
@@ -240,7 +239,7 @@ local function read_input(text: string, zone: Time.Zone?,
       minute = math.tointeger(tonumber(minute)), second = 0, ns = 0,
     }
     if tail ~= "" then
-      c.second = math.tointeger(tonumber(tail:sub(2, 3)))
+      c.second = assert(math.tointeger(tonumber(tail:sub(2, 3))), "a tail of seconds starts with two digits")
       if c.second == 60 then
         return nil, "second 60 is not 0 through 59: cosmic time has no leap seconds"
       end
@@ -259,7 +258,7 @@ local function read_input(text: string, zone: Time.Zone?,
   -- Seconds are optional as in the local form: `T12:00Z` is `T12:00:00Z`.
   local zoned, why: Time.Zoned?, string
   local minutes, rest = text:match("^(%d%d%d%d%-%d%d%-%d%d[Tt]%d%d:%d%d)([Zz+%-].*)$")
-  if minutes ~= nil then
+  if minutes ~= nil and rest ~= nil then
     zoned, why = Time.parse_rfc3339_zoned(minutes .. ":00" .. rest)
     if zoned == nil then
       -- The text parsed had ":00" at bytes 17 to 19: a byte past them is 3 earlier in the user's.
@@ -340,9 +339,10 @@ function verb.run(argv: {string}, io?: verb.Io): integer
   for _, name in ipairs(parsed.given) do
     if is_allowed[name] ~= true then return refuse(name .. " is not an option of " .. sub) end
   end
-  if #parsed.words - 1 ~= arity[sub] then
-    return refuse(("%s takes %d word%s, not %d"):format(sub, arity[sub],
-      if arity[sub] == 1 then "" else "s" end, #parsed.words - 1))
+  local words_taken = assert(arity[sub], "takes and arity name the same subcommands")
+  if #parsed.words - 1 ~= words_taken then
+    return refuse(("%s takes %d word%s, not %d"):format(sub, words_taken,
+      if words_taken == 1 then "" else "s" end, #parsed.words - 1))
   end
   local as_json = parsed.set["--json"] or false
   local format = parsed.values["--format"] or "rfc3339"
@@ -424,7 +424,8 @@ function verb.run(argv: {string}, io?: verb.Io): integer
   if sub == "convert" then
     local from = zone_of("--from")
     if from == nil then return bare.refused end
-    local zoned = read_time(parsed.words[2], from)
+    local convert_word = assert(parsed.words[2], "convert takes one word, which the arity check holds it to")
+    local zoned = read_time(convert_word, from)
     if zoned == nil then return bare.refused end
     local target = zone_of("--to")
     if target == nil then return bare.refused end
@@ -435,14 +436,16 @@ function verb.run(argv: {string}, io?: verb.Io): integer
   -- own zone, else the host's.
   local fallback = zone_of("--zone")
   if fallback == nil then return bare.refused end
-  local first = read_time(parsed.words[2], fallback)
+  local first_word = assert(parsed.words[2], "between and add take two words, which the arity check holds them to")
+  local second_word = assert(parsed.words[3], "between and add take two words, which the arity check holds them to")
+  local first = read_time(first_word, fallback)
   if first == nil then return bare.refused end
   local calendar = parsed.values["--zone"] ~= nil and fallback or first.zone or fallback
 
   if sub == "add" then
-    local duration, why = Time.parse_duration(parsed.words[3])
+    local duration, why = Time.parse_duration(second_word)
     if duration == nil then
-      complain(("%q: %s"):format(parsed.words[3], plain(why)))
+      complain(("%q: %s"):format(second_word, plain(why)))
       return bare.refused
     end
     local moved, moved_why = Time.add_calendar(first.ns, duration, calendar, {
@@ -455,7 +458,7 @@ function verb.run(argv: {string}, io?: verb.Io): integer
     return print_seen({ ns = moved, zone = calendar })
   end
 
-  local second = read_time(parsed.words[3], calendar)
+  local second = read_time(second_word, calendar)
   if second == nil then return bare.refused end
   local modes: mut {string} = {}
   for _, name in ipairs({ "--days", "--months", "--seconds" }) do

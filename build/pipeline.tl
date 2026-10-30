@@ -295,7 +295,11 @@ end
 --- Whether the binary holds the module `name` as a declaration.
 local function declared(name: string): boolean
   local databases = Store.databases()
-  local rows, _ = Sqlite.text_rows(databases[#databases], "SELECT 1 FROM decls WHERE path = ?1", { { text = name } })
+  local own = databases[#databases]
+  if own == nil then
+    return false
+  end
+  local rows, _ = Sqlite.text_rows(own, "SELECT 1 FROM decls WHERE path = ?1", { { text = name } })
   return rows ~= nil and #rows > 0
 end
 
