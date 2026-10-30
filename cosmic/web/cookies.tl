@@ -91,7 +91,9 @@ local MAX_COOKIES <const> = 100
 
 --- Strips spaces and tabs from both ends.
 local function trim(text: string): string
-  return (text:match("^[ \t]*(.-)[ \t]*$"))
+  -- The pattern matches every string: `.-` takes any text and the rest can be empty.
+  local trimmed = assert(text:match("^[ \t]*(.-)[ \t]*$"))
+  return trimmed
 end
 
 --- The cookies in a `Cookie` header, by name. The first of a name wins
@@ -116,7 +118,7 @@ function Cookies.parse(header: string?): {string:string}
   local count = 0
   for piece in (text .. ";"):gmatch("([^;,]*)[;,]") do
     local name, value = piece:match("^([^=]*)=(.*)$")
-    if name ~= nil then
+    if name ~= nil and value ~= nil then
       name = trim(name)
       value = trim(value)
       if name ~= "" and out[name] == nil then
@@ -141,7 +143,7 @@ end
 --- ASCII but not space, `"`, `,`, `;` or `\`.
 local function is_cookie_value(value: string): boolean
   for i = 1, #value do
-    local b = value:byte(i)
+    local b = assert(value:byte(i))
     if b < 0x21 or b > 0x7e or b == 0x22 or b == 0x2c or b == 0x3b or b == 0x5c then
       return false
     end
@@ -271,15 +273,16 @@ end
 --- @return string Why none, or ""
 function Cookies.parse_set_cookie(line: string): Cookies.Parsed?, string
   local first, rest = line:match("^([^;]*)(.*)$")
+  if first == nil or rest == nil then return nil, "cookies: a Set-Cookie line needs name=value" end
   local name, value = first:match("^([^=]*)=(.*)$")
-  if name == nil then return nil, "cookies: a Set-Cookie line needs name=value" end
+  if name == nil or value == nil then return nil, "cookies: a Set-Cookie line needs name=value" end
   name = trim(name)
   if name == "" then return nil, "cookies: a Set-Cookie line needs a name" end
   local parsed: Cookies.Parsed = { name = name, value = trim(value), secure = false,
     http_only = false, partitioned = false }
   for piece in rest:gmatch(";([^;]*)") do
     local key, attr = piece:match("^([^=]*)=(.*)$")
-    if key == nil then key, attr = piece, "" end
+    if key == nil or attr == nil then key, attr = piece, "" end
     key = trim(key):lower()
     attr = trim(attr)
     if key == "path" then

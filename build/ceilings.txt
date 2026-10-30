@@ -1322,33 +1322,25 @@ cosmic/url_fuzz_test.tl nil_not_allowed 9
 
 cosmic/url_test.tl nil_not_allowed 2
 
-cosmic/web/app.tl nil_not_allowed 2
 
 cosmic/web/app_test.tl nil_not_allowed 10
 
-cosmic/web/assets.tl nil_not_allowed 5
 
-cosmic/web/cookies.tl nil_not_allowed 8
 
 cosmic/web/cookies_fuzz_test.tl nil_not_allowed 5
 
 cosmic/web/cookies_test.tl nil_not_allowed 1
 
-cosmic/web/cors.tl nil_not_allowed 1
 
 cosmic/web/cors_test.tl nil_not_allowed 3
 
-cosmic/web/csrf.tl nil_not_allowed 2
 
 cosmic/web/csrf_test.tl nil_not_allowed 1
 
-cosmic/web/dev.tl nil_not_allowed 2
 
 cosmic/web/dev_test.tl nil_not_allowed 3
 
-cosmic/web/errors.tl nil_not_allowed 2
 
-cosmic/web/headers.tl nil_not_allowed 3
 
 cosmic/web/headers_test.tl nil_not_allowed 3
 
@@ -1364,55 +1356,40 @@ cosmic/web/input_multipart_test.tl nil_not_allowed 25
 
 cosmic/web/input_test.tl nil_not_allowed 24
 
-cosmic/web/middleware.tl nil_not_allowed 2
 
-cosmic/web/negotiate.tl nil_not_allowed 2
 
-cosmic/web/origin.tl nil_not_allowed 3
 
-cosmic/web/request.tl nil_not_allowed 5
 
 cosmic/web/request_test.tl nil_not_allowed 43
 
-cosmic/web/response.tl nil_not_allowed 5
 
-cosmic/web/router.tl nil_not_allowed 8
 
 cosmic/web/router_fuzz_test.tl nil_not_allowed 7
 
 cosmic/web/router_test.tl nil_not_allowed 1
 
-cosmic/web/secret.tl nil_not_allowed 4
 
 cosmic/web/serve_test.tl nil_not_allowed 1
 
-cosmic/web/session/cookie.tl nil_not_allowed 1
 
-cosmic/web/session/csrf_example.tl nil_not_allowed 3
 
-cosmic/web/session/init.tl nil_not_allowed 2
 
 cosmic/web/session/session_test.tl nil_not_allowed 8
 
-cosmic/web/session/sqlite.tl nil_not_allowed 1
 
 cosmic/web/session/sqlite_test.tl nil_not_allowed 4
 
-cosmic/web/sse.tl nil_not_allowed 9
 
 cosmic/web/sse_fuzz_test.tl nil_not_allowed 4
 
 cosmic/web/sse_test.tl nil_not_allowed 10
 
-cosmic/web/static.tl nil_not_allowed 15
 
 cosmic/web/static_test.tl nil_not_allowed 1
 
-cosmic/web/testing.tl nil_not_allowed 13
 
 cosmic/web/testing_test.tl nil_not_allowed 1
 
-cosmic/web/typed.tl nil_not_allowed 5
 
 cosmic/web/typed_test.tl nil_not_allowed 3
 
@@ -2095,17 +2072,12 @@ cosmic/time_zone_test.tl index_may_be_nil 5
 
 cosmic/url_fuzz_test.tl index_may_be_nil 3
 
-cosmic/web/builtin.tl index_may_be_nil 1
 
-cosmic/web/csp.tl index_may_be_nil 1
 
-cosmic/web/dev.tl index_may_be_nil 1
 
 cosmic/web/dev_supervise_test.tl index_may_be_nil 1
 
-cosmic/web/headers.tl index_may_be_nil 3
 
-cosmic/web/htmx.tl index_may_be_nil 2
 
 cosmic/web/input.tl index_may_be_nil 2
 
@@ -2117,23 +2089,19 @@ cosmic/web/input_test.tl index_may_be_nil 5
 
 cosmic/web/request_test.tl index_may_be_nil 1
 
-cosmic/web/router.tl index_may_be_nil 2
 
 cosmic/web/router_test.tl index_may_be_nil 2
 
 cosmic/web/serve_test.tl index_may_be_nil 2
 
-cosmic/web/session/cookie.tl index_may_be_nil 1
 
 cosmic/web/session/session_test.tl index_may_be_nil 6
 
-cosmic/web/sse.tl index_may_be_nil 1
 
 cosmic/web/sse_test.tl index_may_be_nil 1
 
 cosmic/web/static_test.tl index_may_be_nil 2
 
-cosmic/web/testing.tl index_may_be_nil 1
 
 cosmic/zip_fuzz_test.tl index_may_be_nil 3
 
@@ -6105,7 +6073,6 @@ cosmic/web/input_multipart_test.tl and_ternary 1
 
 cosmic/web/input_test.tl and_ternary 1
 
-cosmic/web/request.tl and_ternary 1
 
 cosmic/web/response.tl and_ternary 2
 
@@ -6119,7 +6086,7 @@ cosmic/web/sse_fuzz_test.tl and_ternary 1
 
 cosmic/web/static.tl and_ternary 2
 
-cosmic/web/testing.tl and_ternary 6
+cosmic/web/testing.tl and_ternary 5
 
 cosmic/web/typed.tl and_ternary 5
 
@@ -6502,15 +6469,12 @@ cosmic/url.tl compare_disjoint 1
 
 cosmic/web/app.tl compare_disjoint 1
 
-cosmic/web/request.tl compare_disjoint 1
 
 cosmic/web/request_test.tl compare_disjoint 1
 
 cosmic/web/session/init.tl compare_disjoint 3
 
-cosmic/web/sse.tl compare_disjoint 3
 
-cosmic/web/static.tl compare_disjoint 2
 
 cosmic/web/testing.tl compare_disjoint 1
 
@@ -7827,7 +7791,7 @@ cosmic/web/app.tl array_hole 1
 
 cosmic/web/app_test.tl array_hole 2
 
-cosmic/web/dev.tl array_hole 2
+cosmic/web/dev.tl array_hole 1
 
 cosmic/web/dev.tl view_as_mut 1
 

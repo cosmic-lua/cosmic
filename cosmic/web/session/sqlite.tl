@@ -137,6 +137,7 @@ local function immediate(db: Sqlite.Handle, work: function(): boolean, string): 
   end
   if not ok then
     local _, _ = Sqlite.run(db, "ROLLBACK")
+    assert(why, "session: a transaction that answers false says why")
     return false, why
   end
   local committed, commit_why = Sqlite.run(db, "COMMIT")

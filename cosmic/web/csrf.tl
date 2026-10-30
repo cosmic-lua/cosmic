@@ -116,7 +116,7 @@ local SAFE <const>: {string:boolean} = { GET = true, HEAD = true, OPTIONS = true
 --- `a` xor `b`, both of one length.
 local function xor(a: string, b: string): string
   local out: mut {string} = {}
-  for i = 1, #a do out[i] = string.char(a:byte(i) ~ b:byte(i)) end
+  for i = 1, #a do out[i] = string.char(assert(a:byte(i)) ~ assert(b:byte(i))) end
   return table.concat(out)
 end
 

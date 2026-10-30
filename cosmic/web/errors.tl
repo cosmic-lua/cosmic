@@ -86,9 +86,9 @@ function Errors.terminal(req: Types.Request): Types.Response
   local outcome = assert(req.outcome)
   local kind = outcome.kind
   if kind == "not_allowed" then
-    return respond(req, 405, nil, nil, { Allow = outcome.allow })
+    return respond(req, 405, nil, nil, { Allow = assert(outcome.allow) })
   elseif kind == "options" then
-    return Response.empty(204, { headers = { Allow = outcome.allow } })
+    return Response.empty(204, { headers = { Allow = assert(outcome.allow) } })
   elseif kind == "redirect" then
     local location = assert(outcome.location)
     if req.query_string ~= "" then location = location .. "?" .. req.query_string end

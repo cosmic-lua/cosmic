@@ -121,7 +121,8 @@ function App.new(spec: Types.AppSpec): Types.App
   local trusted: mut {string:boolean}? = nil
   local trusted_hosts = spec.trusted_hosts
   if trusted_hosts ~= nil then
-    trusted = {}
+    local seen: mut {string:boolean} = {}
+    trusted = seen
     local hosts: mut {string} = {}
     kept.trusted_hosts = hosts
     for i, host in ipairs(trusted_hosts) do
@@ -129,7 +130,7 @@ function App.new(spec: Types.AppSpec): Types.App
       if parsed == nil or parsed.port ~= nil then
         error(("web: trusted_hosts: %q is not a host name without a port"):format(tostring(host)), 2)
       end
-      trusted[parsed.host] = true
+      seen[parsed.host] = true
       hosts[i] = parsed.host
     end
   end
@@ -146,7 +147,7 @@ function App.new(spec: Types.AppSpec): Types.App
     local outcome = given or Router.lookup(router, req.method, req.segments, req.trailing)
     req.outcome = outcome
     if outcome.kind == "match" then
-      req.params = outcome.params
+      req.params = assert(outcome.params)
       req.route = outcome.route
     end
     req.mount_path = outcome.mount_path

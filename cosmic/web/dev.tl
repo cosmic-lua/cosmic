@@ -357,7 +357,10 @@ local function event_for(paths: {string}): Sse.Event
     if not path:find("%.css$") then css = false end
   end
   local shown: mut {string} = {}
-  for i = 1, math.min(#paths, LISTED) do shown[i] = paths[i] end
+  for i, path in ipairs(paths) do
+    if i > LISTED then break end
+    shown[i] = path
+  end
   return Sse.text(if css then "css" else "reload" end, table.concat(shown, "\n"))
 end
 
@@ -414,7 +417,7 @@ local function events(req: Types.Request, boot: string, static: string, interval
   local first, _ = scan(roots, ignored, true)
   local source: Watch = {
     roots = roots, ignored = ignored, interval_ns = interval_ns, last = first,
-    trouble = first == nil, sink = req.app.spec.sink,
+    trouble = first == nil, sink = assert(req.app.spec.sink),
     queue = {}, shut = false, notifier = Poll.notifier(), next = Watch.next, close = Watch.close,
   }
   return Sse.EventStream(req, source, {
@@ -697,7 +700,8 @@ function Dev.supervise(opts?: Dev.SuperviseOptions): boolean, string
       elseif pending ~= nil then
         local moved = pending
         pending = nil
-        log(("web dev: %s changed; restarting"):format(moved[1] .. (#moved > 1 and (" and %d more"):format(#moved - 1) or "")))
+        local first_moved = assert(moved[1], "web dev: a restart is pending only for a change")
+        log(("web dev: %s changed; restarting"):format(first_moved .. (#moved > 1 and (" and %d more"):format(#moved - 1) or "")))
         halt()
         launch()
       end

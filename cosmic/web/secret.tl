@@ -35,7 +35,7 @@ function Secret.check(key: string): boolean, string
   local seen: mut {integer:boolean} = {}
   local distinct = 0
   for i = 1, #key do
-    local byte = key:byte(i)
+    local byte = assert(key:byte(i))
     if seen[byte] ~= true then
       seen[byte] = true
       distinct = distinct + 1
@@ -60,7 +60,7 @@ function Secret.parse_keys(text: string, name?: string): {string}?, string
   local where = name or "the key list"
   local keys: mut {string} = {}
   for piece in (text .. ","):gmatch("([^,]*),") do
-    local key = piece:match("^%s*(.-)%s*$")
+    local key = assert(piece:match("^%s*(.-)%s*$"))
     local ok, why = Secret.check(key)
     if not ok then
       return nil, ("%s (entry %d of %s)"):format(why, #keys + 1, where)

@@ -329,7 +329,7 @@ local function cut(text: string, limit: integer): string
   if #text <= limit then return text end
   local stop = limit
   while stop > 0 do
-    local b = text:byte(stop + 1)
+    local b = assert(text:byte(stop + 1))
     if b < 0x80 or b >= 0xC0 then break end
     stop = stop - 1
   end

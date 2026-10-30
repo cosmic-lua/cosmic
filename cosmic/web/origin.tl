@@ -52,7 +52,7 @@ end
 function Origin.normalize(text: string): string?
   if #text > MAX_LENGTH then return nil end
   local scheme, authority = text:match("^(%a[%w+.-]*)://([^/?#@%s,]*)$")
-  if scheme == nil then return nil end
+  if scheme == nil or authority == nil then return nil end
   return reduce(scheme, authority)
 end
 
@@ -63,7 +63,7 @@ end
 function Origin.of_url(text: string): string?
   if #text > 8192 then return nil end
   local scheme, authority = text:match("^(%a[%w+.-]*)://([^/?#]*)")
-  if scheme == nil or authority:find("[@%s,]") ~= nil then return nil end
+  if scheme == nil or authority == nil or authority:find("[@%s,]") ~= nil then return nil end
   return reduce(scheme, authority)
 end
 
