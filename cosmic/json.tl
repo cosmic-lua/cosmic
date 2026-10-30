@@ -773,6 +773,157 @@ local function pointer_of(steps: Json.Steps): string
   return table.concat(parts)
 end
 
+--- The checks [`Json.to_value`] makes, which call each other.
+local record Check
+end
+
+--- The elements of the array `v`, whose members are `m`, checked, and "".
+function Check.items(v: any, m: Json.Members, pointer: string, depth: integer, active: mut {string: boolean},
+                     done: mut {string: Json.Value}): {Json.Value}?, string
+  local t = table_of(v)
+  if t == nil then return refuse("the value at " .. at_pointer(pointer) .. " is not a table") end
+  local items: mut {Json.Value} = {}
+  for i = 1, m.extent do
+    local item, why = Check.value(t[i], pointer .. "/" .. tostring(i - 1), depth + 1, active, done)
+    if item == nil then return nil, why end
+    items[i] = item
+  end
+  return Json.array(items), ""
+end
+
+--- The object `v`, whose members are `m`, checked, and "".
+function Check.members(v: any, m: Json.Members, pointer: string, depth: integer, active: mut {string: boolean},
+                       done: mut {string: Json.Value}): {string: Json.Value}?, string
+  local t = table_of(v)
+  if t == nil then return refuse("the value at " .. at_pointer(pointer) .. " is not a table") end
+  local members: mut {string: Json.Value} = {}
+  for _, key in ipairs(m.keys) do
+    if key is string then
+      if utf8.len(key) == nil then
+        return refuse("a name at " .. at_pointer(pointer) .. " is not UTF-8")
+      end
+      local member, why = Check.value(t[key], pointer .. "/" .. pointer_segment(key), depth + 1, active, done)
+      if member == nil then return nil, why end
+      members[key] = member
+    end
+  end
+  return members, ""
+end
+
+--- Why the table `t`, whose members are `m`, is not an array or an object
+--- JSON can say, or "" when it is one; nesting past the limit is refused too.
+local function table_why(m: Json.Members, pointer: string, depth: integer): string
+  if depth > Json.depth_limit then
+    return ("nesting at %s is deeper than %d"):format(at_pointer(pointer), Json.depth_limit)
+  end
+  if m.layout == "mixed" then
+    return "the table at " .. at_pointer(pointer) .. " has keys that are neither all names nor all positions from 1"
+  end
+  if m.layout == "hole" or (m.layout == "array" and #m.keys > 0) then
+    return "the array at " .. at_pointer(pointer) .. " has a hole; decode with null_value = Json.null to keep a null"
+  end
+  return ""
+end
+
+--- `v` as a [`Json.Value`] with its parts checked, and "". nil and a
+--- message naming the first part that is none, by its JSON Pointer.
+function Check.value(v: any, pointer: string, depth: integer, active: mut {string: boolean},
+                     done: mut {string: Json.Value}): Json.Value?, string
+  if v is string then
+    if utf8.len(v) == nil then
+      return refuse("the string at " .. at_pointer(pointer) .. " is not UTF-8")
+    end
+    return v, ""
+  end
+  if v is number then
+    if v ~= v or v == math.huge or v == -math.huge then
+      return refuse("the number at " .. at_pointer(pointer) .. " is NaN or an infinity")
+    end
+    return v, ""
+  end
+  if v is boolean then return v, "" end
+  if rawequal(v, raw.null) then return Json.null, "" end
+  local t = table_of(v)
+  if t == nil then
+    if v == nil then return refuse("no value at " .. at_pointer(pointer)) end
+    return refuse(("the value at %s is a %s, which JSON cannot say"):format(at_pointer(pointer), type(v)))
+  end
+  -- A table is told apart by its address: a map cannot be keyed by a table.
+  local id = ("%p"):format(t)
+  local converted = done[id]
+  if converted ~= nil then return converted, "" end
+  if active[id] == true then
+    return refuse("the table at " .. at_pointer(pointer) .. " contains itself")
+  end
+  local m = Json.members(t, true)
+  local why = table_why(m, pointer, depth)
+  if why ~= "" then return refuse(why) end
+  active[id] = true
+  local result: Json.Value?
+  if m.layout == "array" then
+    result, why = Check.items(v, m, pointer, depth, active, done)
+  else
+    result, why = Check.members(v, m, pointer, depth, active, done)
+  end
+  if result == nil then return nil, why end
+  active[id] = nil
+  done[id] = result
+  return result, ""
+end
+
+--- `value`, a decoded value or any other, as a [`Json.Value`], and "": the
+--- way to read what [`Json.decode`] answered as typed data without a cast.
+--- Every part is checked as it is copied -- a string is UTF-8, a number is
+--- finite, a table is an array or an object by [`Json.layout`] -- so what comes
+--- back is what [`Json.encode`] writes (an array marked as one). nil and
+--- a message naming the first part that is none, by its JSON Pointer, when
+--- `value` is a nil (a decoded `null`, unless `null_value` kept it), a
+--- function, userdata other than [`Json.null`], a table with mixed keys or
+--- a hole, a string that is not UTF-8, or nesting past [`Json.depth_limit`].
+--- A table that holds itself, however deep, is refused, naming the place it
+--- came back to; a table reached by two ways is copied once and the copy is
+--- shared, so a value of 40 levels that holds the one below it twice takes
+--- 40 steps, not 2^40. It copies the value; a Value read from it never changes `value`. A
+--- `null` that `decode` dropped from the end of an array is already gone from
+--- `value`, so it is not found here; one inside an array is a hole and is
+--- refused. The result may nest as deep as [`Json.depth_limit`], deeper than
+--- [`Json.encode`] writes by default: pass `max_depth` to that.
+---
+---     local decoded = assert(Json.decode('{"tools": ["a", "b"]}'))
+---     local value = assert(Json.to_value(decoded))
+function Json.to_value(value: any): Json.Value?, string
+  return Check.value(value, "", 1, {}, {})
+end
+
+--- `value` as an object, a map of [`Json.Value`], and "": [`Json.to_value`]
+--- for what must be an object. nil and a message when it is not one -- an
+--- array, a scalar, a nil -- or when a part of it is none, as [`to_value`]
+--- says.
+function Json.to_object(value: any): {string: Json.Value}?, string
+  local t = table_of(value)
+  if t == nil then return refuse("expected a JSON object, got " .. kind(value)) end
+  local m = Json.members(t, true)
+  local why = table_why(m, "", 1)
+  if why ~= "" then return refuse(why) end
+  if m.layout ~= "object" then return refuse("expected a JSON object, got " .. kind(value)) end
+  return Check.members(value, m, "", 1, { [("%p"):format(t)] = true }, {})
+end
+
+--- `value` as an array, a list of [`Json.Value`], and "": [`Json.to_value`]
+--- for what must be an array. nil and a message when it is not one -- an
+--- object, a scalar, a nil -- or when a part of it is none, as [`to_value`]
+--- says. A table with no keys is an array only where [`Json.is_array`]
+--- marks it, as `decode` does for `[]`.
+function Json.to_array(value: any): {Json.Value}?, string
+  local t = table_of(value)
+  if t == nil then return refuse("expected a JSON array, got " .. kind(value)) end
+  local m = Json.members(t, true)
+  local why = table_why(m, "", 1)
+  if why ~= "" then return refuse(why) end
+  if m.layout ~= "array" then return refuse("expected a JSON array, got " .. kind(value)) end
+  return Check.items(value, m, "", 1, { [("%p"):format(t)] = true }, {})
+end
+
 --- The highest position of the array `t`, holes and all.
 local function last_position(t: {any: any}): integer
   local m = Json.members(t, true)

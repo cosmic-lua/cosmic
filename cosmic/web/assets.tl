@@ -276,6 +276,7 @@ function Assets.embedded(): Assets.Source
         { { text = path } })
       if rows == nil then return miss(path, "not held") end
       local row = rows[1]
+      if row == nil then return miss(path, "not held") end
       local packed: string? = nil
       if row:text(5) == "1" then packed = row:text(4) end
       asset = make(path, row:text(1), { sha256 = row:text(2), type = row:text(3), gzip = packed })

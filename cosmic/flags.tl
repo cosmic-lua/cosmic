@@ -22,9 +22,6 @@
 --- command first -- `prog build --jobs 4` -- parses the rest with that
 --- command's own spec, and answers `--help` from the same descriptions.
 
--- TODO: make this `local type Cell = require("cosmic.cell")` once the store keeps a module that only a `local type` require names; today that drops cosmic.cell from the binary and build/link_index_test fails.
-local Cell = require("cosmic.cell")
-
 local record Flags
   --- One option described, for a spec to name and [`Flags.help`] to show.
   record Option
@@ -140,7 +137,7 @@ function Flags.parse(argv: {string}, from: integer,
     end
   end
   local parsed: Flags.Parsed = { set = {}, values = {}, all = {}, given = {}, words = {} }
-  local cursor: Cell<integer> = { value = from }
+  local cursor: integer = from
   local function flag(name: string)
     parsed.set[name] = true
     parsed.given[#parsed.given + 1] = name
@@ -150,8 +147,8 @@ function Flags.parse(argv: {string}, from: integer,
   -- value is attached to `name` in one word, for the refusal to show.
   local function valued(name: string, value: string?, same: string): string
     if value == nil then
-      cursor.value = cursor.value + 1
-      value = argv[cursor.value]
+      cursor = cursor + 1
+      value = argv[cursor]
       if value == nil then
         return name .. " needs a value"
       elseif looks_like_option(value) then
@@ -177,8 +174,8 @@ function Flags.parse(argv: {string}, from: integer,
     return name ~= nil and #name > 2 and spec[name] ~= nil
   end
   local options = true
-  while argv[cursor.value] ~= nil do
-    local word = argv[cursor.value]
+  while argv[cursor] ~= nil do
+    local word = argv[cursor]
     if not options or word == "-" or word:sub(1, 1) ~= "-" then
       parsed.words[#parsed.words + 1] = word
     elseif word == "--" then
@@ -225,7 +222,7 @@ function Flags.parse(argv: {string}, from: integer,
         at = at + 1
       end
     end
-    cursor.value = cursor.value + 1
+    cursor = cursor + 1
   end
   return parsed, ""
 end

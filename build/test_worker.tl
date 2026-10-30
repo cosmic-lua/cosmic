@@ -379,8 +379,7 @@ local checks: mut {string:Check} = {}
 local facts: mut {string:Fact} = {}
 local malformed: mut {string:boolean} = {}
 local found: mut {worker.Violation} = {}
--- TODO: hold this in a `Cell<integer>` once a change to the harness that bumps the epoch for another reason can add cosmic.cell to [`worker.loads`] and `library` in build/harness_epoch.tl: a harness module may not require it before, and a bump for this alone reruns every test.
-local tally = { dropped = 0 }
+local tally = 0
 -- The place that sent a value is asked of the stack for every violation of
 -- a parameter, in constant time, so the report names it however often a
 -- boundary is violated; what is bounded is how many distinct violations one
@@ -454,7 +453,7 @@ end
 -- the worker keeps as many as it may: then it is only counted.
 local function keep(sites: mut {string:worker.Violation}, at: string, met: worker.Violation)
   if #found >= worker.most_kept then
-    tally.dropped = tally.dropped + 1
+    tally = tally + 1
     return
   end
   sites[at] = met
@@ -753,7 +752,7 @@ end
 --- How many kinds of violation this process met past the number it keeps
 --- a record of.
 function worker.dropped_violations(): integer
-  return tally.dropped
+  return tally
 end
 
 --- The monotonic clock, in nanoseconds, straight from the binding.

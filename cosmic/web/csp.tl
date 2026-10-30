@@ -57,7 +57,9 @@ function Csp.format(p: Csp.Policy, nonce?: string): string
   local out: mut {string} = {}
   for _, name in ipairs(names) do
     local parts: mut {string} = { name }
-    for _, source in ipairs(p.directives[name]) do
+    local sources = p.directives[name]
+    assert(sources, "csp: a directive name collected from the policy has no sources")
+    for _, source in ipairs(sources) do
       if source == "{nonce}" then
         if nonce == nil or nonce == "" then
           error("csp: the policy has a {nonce} source and no nonce was given", 2)

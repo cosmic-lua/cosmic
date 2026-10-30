@@ -36,10 +36,10 @@ local function ranges_of(header: string): {Negotiate.Range}
   local out: mut {Negotiate.Range} = {}
   for piece in header:gmatch("[^,]+") do
     local media, rest = piece:match("^%s*([^;%s]+)(.*)$")
-    if media ~= nil then
+    if media ~= nil and rest ~= nil then
       local params = String.trim(rest)
       local kind, subtype = media:lower():match("^(" .. TOKEN .. ")/(" .. TOKEN .. ")$")
-      if kind ~= nil and not (kind == "*" and subtype ~= "*") then
+      if kind ~= nil and subtype ~= nil and not (kind == "*" and subtype ~= "*") then
         local weight: integer? = 1000
         for param in params:gmatch(";%s*([^;]*)") do
           local value = param:match("^[qQ]%s*=%s*(%S+)%s*$")

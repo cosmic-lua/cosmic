@@ -8,8 +8,6 @@
 --- stays ignored and is never caught: a non-interactive shell starts a
 --- background job (`cmd &`) with SIGINT ignored, so `kill -INT` of one
 --- does nothing; send SIGTERM, or start it with the signal restored.
--- TODO: make this `local type Cell = require("cosmic.cell")` once the store keeps a module that only a `local type` require names; today that drops cosmic.cell from the binary and build/link_index_test fails.
-local Cell = require("cosmic.cell")
 local Clock = require("cosmic.clock")
 local Innermost = require("cosmic.internal.innermost_guard")
 local Poll = require("cosmic.poll")
@@ -66,7 +64,7 @@ local open_guards: mut {Guard} = {}
 --- The stamp of the latest signal a guard caught and then closed on
 --- while another stayed open, 0 when none: the last guard to close
 --- delivers it, where that guard opened after it and so never saw it.
-local owed: Cell<integer> = { value = 0 }
+local owed: integer = 0
 
 --- Takes `stamp`, a stamp the core answered, as what `g` has read: a
 --- stamp that moved since the last is a signal caught, for both what
@@ -130,7 +128,7 @@ local function restore_guard(self: Guard): string, boolean, integer
   Innermost.set(active)
   local last = active == nil
   local owing = 0
-  if last then owing, owed.value = owed.value % raw.SIGNAL_STAMP_UNIT, 0 end
+  if last then owing, owed = owed % raw.SIGNAL_STAMP_UNIT, 0 end
   local fd = raw.child_signal_fd()
   local stamp, trouble = raw.unguard_child_signals(active ~= nil and active.state.read or 0)
   -- Every task waiting on the pipe looks again: one waiting on this
@@ -156,7 +154,7 @@ Guard.close = function(self: Guard): boolean, string
     -- The caller's dispositions are not back yet: the guards still
     -- open have seen the signal, if they opened before it, and the
     -- last to close delivers it.
-    if self._signal ~= 0 and self.state.read > owed.value then owed.value = self.state.read end
+    if self._signal ~= 0 and self.state.read > owed then owed = self.state.read end
     return true, ""
   end
   local signal = self._signal ~= 0 and self._signal or owing

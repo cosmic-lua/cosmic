@@ -77,12 +77,13 @@ end
 --- name that is not one.
 local function unfingerprint(rel: string): Parts?
   local dir, name = rel:match("^(.-)([^/]+)$")
+  if dir == nil or name == nil then return nil end
   local stem, digits, ext = name:match("^(.+)%.(" .. HEX10 .. ")(%.[^.]+)$")
   if stem == nil then
     stem, digits = name:match("^(.+)%.(" .. HEX10 .. ")$")
     ext = ""
   end
-  if stem == nil then return nil end
+  if stem == nil or digits == nil or ext == nil then return nil end
   return { plain = dir .. stem .. ext, digits = digits }
 end
 
@@ -92,8 +93,11 @@ end
 local function fingerprinted(path: string, sha256: string): string
   local digits = sha256:sub(1, 10)
   local dir, name = path:match("^(.-)([^/]+)$")
+  if dir == nil or name == nil then
+    error(("static: cannot fingerprint %q, which names no file"):format(path), 2)
+  end
   local stem, ext = name:match("^(.+)(%.[^.]+)$")
-  if stem == nil then return dir .. name .. "." .. digits end
+  if stem == nil or ext == nil then return dir .. name .. "." .. digits end
   return dir .. stem .. "." .. digits .. ext
 end
 
@@ -116,7 +120,7 @@ local function relative(req: Types.Request): string?
   local parts: mut {string} = {}
   for i = depth(req.mount_path) + 1, #req.segments do
     local segment = req.segments[i]
-    if not servable(segment) then return nil end
+    if segment == nil or not servable(segment) then return nil end
     parts[#parts + 1] = segment
   end
   local rel = table.concat(parts, "/")
@@ -131,7 +135,7 @@ local function takes_gzip(header: string?): boolean
   local star: boolean? = nil
   for item in (header .. ","):gmatch("([^,]*),") do
     local token, rest = item:match("^%s*([^;%s]*)(.*)$")
-    if token ~= nil then
+    if token ~= nil and rest ~= nil then
       local params = String.trim(rest)
       token = token:lower()
       local q = params:match(";%s*[qQ]%s*=%s*([%d.]+)")
@@ -219,7 +223,7 @@ function StaticFiles.handler(opts?: StaticFiles.Options): Types.Handler
     local rel = relative(req)
     if rel == nil then return missing(req) end
     if req.trailing and o.html ~= true then return missing(req) end
-    local asset: Assets.Asset
+    local asset: Assets.Asset?
     local by_digest: boolean
     local trouble: string
     if o.html == true and (rel == "" or req.trailing) then

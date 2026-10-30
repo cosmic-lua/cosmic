@@ -3,7 +3,6 @@
 --- replies out of order or from the wrong protocol, and a stream that
 --- falls out of step. The connector [`Net.connector`] starts is in
 --- cosmic/net_connector_test.tl.
-local Cell = require("cosmic.cell")
 local Clock = require("cosmic.clock")
 local Connector = require("cosmic.internal.connector")
 local Net = require("cosmic.net")
@@ -295,14 +294,14 @@ local function test_replies_out_of_order_reach_the_requests_their_tags_name()
     for i = 1, 3 do endpoints[i] = { host = "127.0.0." .. tostring(i), port = 9 } end
     local connector = assert(Connector.adopted(pair[1], endpoints, false, Clock.seconds(5)))
     local tags: mut {integer: integer} = {}
-    local count: Cell<integer> = { value = 0 }
+    local count: integer = 0
     -- Each endpoint's own refusal, so the answer shows whose it was.
     local errnos: {integer} = { socket.ECONNREFUSED, socket.ETIMEDOUT, sys.EPERM }
     local serving = stand_in(pair[2], function(tag: integer, request: string)
       local index = string.unpack(">I4", request, 5)
       tags[index] = tag
-      count.value = count.value + 1
-      if count.value < 3 then return end
+      count = count + 1
+      if count < 3 then return end
       for i = 3, 1, -1 do
         assert(sys.write(pair[2], string.pack(">I4I4", assert(tags[i]), assert(errnos[i]))) == 8)
       end
@@ -335,12 +334,12 @@ local function test_a_reply_no_request_was_tagged_with_fails_every_request_waiti
     local pair = stream_pair()
     local endpoints: {raw_process.ConnectorEndpoint} = { { host = "127.0.0.1", port = 9 } }
     local connector = assert(Connector.adopted(pair[1], endpoints, false, Clock.seconds(5)))
-    local count: Cell<integer> = { value = 0 }
+    local count: integer = 0
     local serving = stand_in(pair[2], function(tag: integer, _: string)
-      count.value = count.value + 1
-      if count.value == 1 then
+      count = count + 1
+      if count == 1 then
         assert(sys.write(pair[2], string.pack(">I4I4", tag, socket.CONNECTOR_BUSY)) == 8)
-      elseif count.value == 4 then
+      elseif count == 4 then
         assert(sys.write(pair[2], string.pack(">I4I4", 999, 0)) == 8)
       end
     end)
@@ -378,29 +377,29 @@ local function test_a_reply_another_task_reads_wakes_its_owner()
     local pair = stream_pair()
     local connector = assert(Connector.adopted(pair[1], { { host = "127.0.0.1", port = 9 },
       { host = "127.0.0.2", port = 9 } }, false, Clock.seconds(5)))
-    local first_tag: Cell<integer?> = { value = nil }
+    local first_tag: integer? = nil
     local serving = stand_in(pair[2], function(tag: integer, request: string)
-      if string.unpack(">I4", request, 5) == 1 then first_tag.value = tag end
+      if string.unpack(">I4", request, 5) == 1 then first_tag = tag end
     end)
     local started = Clock.monotonic_ns()
-    local first: Cell<string?> = { value = nil }
-    local took: Cell<integer?> = { value = nil }
+    local first: string? = nil
+    local took: integer? = nil
     local asking = Poll.spawn(function()
       local conn, why = dial(connector, "127.0.0.1", 9, Clock.seconds(3))
       assert(conn == nil)
-      first.value, took.value = why, Clock.monotonic_ns() - started
+      first, took = why, Clock.monotonic_ns() - started
     end)
     assert(Poll.delay(Clock.ms(100)))
-    local first_tag_value = first_tag.value
+    local first_tag_value = first_tag
     assert(first_tag_value ~= nil, "the first request was not asked")
     -- Its reply, and then a request of this task's, whose read takes it.
     assert(sys.write(pair[2], string.pack(">I4I4", first_tag_value, socket.ECONNREFUSED)) == 8)
     local conn, why = dial(connector, "127.0.0.2", 9, Clock.ms(100))
     assert(conn == nil and why == Poll.TIMEOUT, tostring(why))
     assert(asking:join(Clock.seconds(5)))
-    local first_value = first.value
+    local first_value = first
     assert(first_value ~= nil and first_value:find("refused", 1, true) ~= nil, tostring(first_value))
-    local waited = assert(took.value, "the first request was answered")
+    local waited = assert(took, "the first request was answered")
     assert(waited < Clock.seconds(1), "the first request was answered after " .. tostring(waited // Clock.ms(1)) .. " ms")
     serving:cancel()
     assert(connector:close())
@@ -416,14 +415,14 @@ local function test_a_lost_stream_sends_nothing_to_its_closed_descriptor()
     local pair = stream_pair()
     local connector = assert(Connector.adopted(pair[1], { { host = "127.0.0.1", port = 9 } }, false,
       Clock.seconds(5)))
-    local count: Cell<integer> = { value = 0 }
+    local count: integer = 0
     local serving = stand_in(pair[2], function(_: integer, _: string)
-      count.value = count.value + 1
-      if count.value == FLIGHT then
+      count = count + 1
+      if count == FLIGHT then
         assert(sys.write(pair[2], string.pack(">I4I4", 999, 0)) == 8)
       end
     end)
-    local taken: Cell<{integer}?> = { value = nil }
+    local taken: {integer}? = nil
     local tasks: mut {Poll.Task} = {}
     for i = 1, FLIGHT do
       tasks[i] = Poll.spawn(function()
@@ -431,20 +430,20 @@ local function test_a_lost_stream_sends_nothing_to_its_closed_descriptor()
         assert(conn == nil)
         -- The first to learn of the loss opens a pair, which takes the
         -- lowest numbers free: the stream's closed one among them.
-        if taken.value == nil then taken.value = stream_pair() end
+        if taken == nil then taken = stream_pair() end
       end)
     end
-    local past: Cell<string?> = { value = nil }
+    local past: string? = nil
     local waiting = Poll.spawn(function()
       local conn, why = dial(connector, "127.0.0.1", 9, Clock.seconds(3))
       assert(conn == nil)
-      past.value = why
+      past = why
     end)
     for i = 1, FLIGHT do assert(tasks[i]:join(Clock.seconds(5))) end
     assert(waiting:join(Clock.seconds(5)))
-    assert(past.value == "net: the connector replied to a request it was not asked (tag 999)", tostring(past.value))
-    assert(count.value == FLIGHT, tostring(count.value) .. " requests were sent")
-    local lost = assert(taken.value)
+    assert(past == "net: the connector replied to a request it was not asked (tag 999)", tostring(past))
+    assert(count == FLIGHT, tostring(count) .. " requests were sent")
+    local lost = assert(taken)
     assert(sys.set_nonblocking(lost[2], true))
     local leaked, _, errno = sys.read(lost[2], 4096)
     assert(leaked == nil and errno == sys.EAGAIN, "bytes went to the descriptor that took the closed number: " ..
@@ -472,11 +471,11 @@ local function test_a_task_cancelled_waiting_for_room_asks_nothing()
         local _, _ = dial(connector, "127.0.0.1", 9, Clock.seconds(3))
       end)
     end
-    local cancelled: Cell<string?> = { value = nil }
+    local cancelled: string? = nil
     local waiting = Poll.spawn(function()
       local conn, why = dial(connector, "127.0.0.1", 9, Clock.seconds(3))
       assert(conn == nil)
-      cancelled.value = why
+      cancelled = why
     end)
     assert(Poll.delay(Clock.ms(50)))
     assert(#tags == FLIGHT, tostring(#tags) .. " requests were asked")
@@ -487,7 +486,7 @@ local function test_a_task_cancelled_waiting_for_room_asks_nothing()
     local conn, why = dial(connector, "127.0.0.1", 9, Clock.ms(50))
     assert(conn == nil and why == Poll.TIMEOUT, tostring(why))
     assert(waiting:join(Clock.seconds(5)))
-    assert(cancelled.value == Poll.CANCELLED, tostring(cancelled.value))
+    assert(cancelled == Poll.CANCELLED, tostring(cancelled))
     assert(#tags == FLIGHT + 1, "the cancelled task asked: " .. tostring(#tags) .. " requests")
     for _, task in ipairs(tasks) do task:cancel() end
     for _, task in ipairs(tasks) do assert(task:join(Clock.seconds(5))) end
@@ -504,15 +503,15 @@ local function test_a_connector_of_another_protocol_is_asked_nothing()
     local pair = stream_pair()
     local connector = assert(Connector.adopted(pair[1], { { host = "127.0.0.1", port = 9 } }, false,
       Clock.seconds(1)))
-    local asked: Cell<integer> = { value = 0 }
+    local asked: integer = 0
     local serving = stand_in(pair[2], function(_: integer, _: string)
-      asked.value = asked.value + 1
+      asked = asked + 1
     end, 0x434e4301)
     local conn, why = dial(connector, "127.0.0.1", 9, Clock.seconds(1))
     assert(conn == nil and why == "net: the connector speaks another protocol than this program's: " ..
         "it said 0x434e4301, not 0x434e4302", tostring(why))
     assert(connector:ended())
-    assert(asked.value == 0, "a request was sent before the hello was checked")
+    assert(asked == 0, "a request was sent before the hello was checked")
     serving:cancel()
     assert(connector:close())
     assert(sys.close(pair[2]))

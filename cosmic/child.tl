@@ -66,8 +66,6 @@
 --- memory, up to `capture_limit` unread bytes of each, after which the
 --- child is left to wait until the caller reads. Nothing streamed is
 --- dropped, and nothing is kept for the Result.
--- TODO: make this `local type Cell = require("cosmic.cell")` once the store keeps a module that only a `local type` require names; today that drops cosmic.cell from the binary and build/link_index_test fails.
-local Cell = require("cosmic.cell")
 local Fs = require("cosmic.fs")
 local Hash = require("cosmic.hash")
 local Poll = require("cosmic.poll")
@@ -2537,7 +2535,7 @@ local PID_SPREAD <const> = 2481
 
 --- The sandboxes this process has given a user: the part of the serial
 --- that makes two of its own differ.
-local sandbox_serial: Cell<integer> = { value = 0 }
+local sandbox_serial: integer = 0
 
 --- The user this process runs as, which a program of a policy is not to
 --- be where it is root. Where /proc/self/status is not there (macOS) it is
@@ -2625,8 +2623,8 @@ local function mapped_user(merged: Rules.Policy): MappedUser?, string
     end
     return { uid = user, gid = group }, ""
   end
-  sandbox_serial.value = sandbox_serial.value + 1
-  local id, why = Rules.user_id(uid_map, gid_map, sys.getpid() * PID_SPREAD + sandbox_serial.value)
+  sandbox_serial = sandbox_serial + 1
+  local id, why = Rules.user_id(uid_map, gid_map, sys.getpid() * PID_SPREAD + sandbox_serial)
   if id == nil then return nil, why end
   return { uid = id, gid = id }, ""
 end

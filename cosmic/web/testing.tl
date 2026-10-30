@@ -127,11 +127,17 @@ local function pairs_of(values: {string: string | {string}}): {Url.Pair}
     local value = values[name]
     if value is string then
       out[#out + 1] = { name = name, value = value }
-    else
+    elseif value ~= nil then
       for _, each in ipairs(value) do out[#out + 1] = { name = name, value = each } end
     end
   end
   return out
+end
+
+--- A header line of a reply, in the order it was sent.
+local record HeaderLine
+  name: string
+  value: string
 end
 
 --- What a request is made of: the target, headers and body.
@@ -212,14 +218,19 @@ local response_methods = { header_list = header_list, text = text, json = json }
 local response_mt: metatable<Response> = { __index = response_methods }
 
 --- A response from `lines`, header lines as `{name, value}` in order.
-local function response_of(status: integer, lines: {{string}}, body: string): Response
+local function response_of(status: integer, lines: {HeaderLine}, body: string): Response
   local headers: mut {string:string} = {}
   local by_name: mut {string:{string}} = {}
   for _, line in ipairs(lines) do
-    local name = line[1]:lower()
-    headers[name] = headers[name] == nil and line[2] or headers[name] .. ", " .. line[2]
+    local name = line.name:lower()
+    local held = headers[name]
+    if held == nil then
+      headers[name] = line.value
+    else
+      headers[name] = held .. ", " .. line.value
+    end
     by_name[name] = by_name[name] or {}
-    table.insert(by_name[name], line[2])
+    table.insert(by_name[name], line.value)
   end
   local response: Response = { status = status, headers = headers, lines = by_name, body = body,
     ok = status >= 200 and status < 300 }
@@ -308,15 +319,15 @@ local function remember(client: Testing.Client, line: string, path: string)
 end
 
 --- The header lines of `reply`, in name order: `{name, value}`.
-local function lines_of(reply: Reply): mut {{string}}
-  local out: mut {{string}} = {}
+local function lines_of(reply: Reply): mut {HeaderLine}
+  local out: mut {HeaderLine} = {}
   local headers = reply.headers or {}
   for _, name in ipairs(sorted_names(headers)) do
     local value = headers[name]
     if value is string then
-      out[#out + 1] = { name, value }
-    else
-      for _, each in ipairs(value) do out[#out + 1] = { name, each } end
+      out[#out + 1] = { name = name, value = value }
+    elseif value ~= nil then
+      for _, each in ipairs(value) do out[#out + 1] = { name = name, value = each } end
     end
   end
   return out
@@ -346,7 +357,8 @@ local function send(client: Testing.Client, method: string, path: string, opts: 
   if next(cookies) ~= nil then
     local list: mut {string} = {}
     for _, name in ipairs(sorted_names(cookies)) do
-      list[#list + 1] = name .. "=" .. cookies[name]
+      local value = cookies[name]
+      if value ~= nil then list[#list + 1] = name .. "=" .. value end
     end
     local sent = table.concat(list, "; ")
     local old = prepared.headers["cookie"]
@@ -396,10 +408,10 @@ local function send(client: Testing.Client, method: string, path: string, opts: 
     end
     local has_length = false
     for _, line in ipairs(lines) do
-      if line[1]:lower() == "content-length" then has_length = true end
+      if line.name:lower() == "content-length" then has_length = true end
     end
     if not has_length and length ~= nil and not bodiless(reply.status) then
-      table.insert(lines, { "content-length", tostring(length) })
+      table.insert(lines, { name = "content-length", value = tostring(length) })
     end
     if method == "HEAD" or bodiless(reply.status) then body = "" end
     local made = response_of(reply.status, lines, body)
@@ -535,16 +547,17 @@ local function read_reply(lb: Testing.Loopback, method: string): Response?, stri
   local code = status_line:match("^HTTP/1%.[01] (%d%d%d)")
   if code == nil then return nil, "not a status line: " .. status_line end
   local status = math.tointeger(tonumber(code))
-  local lines: mut {{string}} = {}
+  if status == nil then return nil, "not a status line: " .. status_line end
+  local lines: mut {HeaderLine} = {}
   local headers: mut {string:string} = {}
   while true do
     local line, line_why = next_line(lb)
     if line == nil then return nil, line_why end
     if line == "" then break end
     local name, rest = line:match("^([^:]+):(.*)$")
-    if name == nil then return nil, "not a header line: " .. line end
+    if name == nil or rest == nil then return nil, "not a header line: " .. line end
     local value = String.trim(rest)
-    lines[#lines + 1] = { name, value }
+    lines[#lines + 1] = { name = name, value = value }
     headers[name:lower()] = value
   end
   local body = ""
@@ -565,7 +578,9 @@ local function read_reply(lb: Testing.Loopback, method: string): Response?, stri
           until trailer == ""
           break
         end
-        local data, data_why = take(lb, math.tointeger(size))
+        local count = math.tointeger(size)
+        if count == nil then return nil, "not a chunk size: " .. size_line end
+        local data, data_why = take(lb, count)
         if data == nil then return nil, data_why end
         pieces[#pieces + 1] = data
         local crlf, crlf_why = take(lb, 2)
@@ -656,7 +671,8 @@ local function loopback_request(self: Testing.Loopback, method: string, path: st
   prepared.headers["host"] = self.host
   local head: mut {string} = { ("%s %s HTTP/1.1"):format(method, prepared.target) }
   for _, name in ipairs(sorted_names(prepared.headers)) do
-    head[#head + 1] = name .. ": " .. prepared.headers[name]
+    local value = prepared.headers[name]
+    if value ~= nil then head[#head + 1] = name .. ": " .. value end
   end
   return loopback_raw(self, table.concat(head, "\r\n") .. "\r\n\r\n" .. prepared.body, method)
 end
@@ -688,7 +704,13 @@ function Testing.with_server(app: Types.App, fn: function(client: Testing.Loopba
   local ok, why = App.serve(app, {
     listeners = { Net.tcp("127.0.0.1", 0) },
     on_ready = function(addresses: {Net.Address}, server: Net.Server)
-      local conn, connect_why = Net.connect(addresses[1], { timeout_ns = IO_TIMEOUT_NS })
+      local address = addresses[1]
+      if address == nil then
+        failures[1] = "web: with_server: the server listened on no address"
+        server:stop()
+        return
+      end
+      local conn, connect_why = Net.connect(address, { timeout_ns = IO_TIMEOUT_NS })
       if conn == nil then
         failures[1] = "web: with_server: connecting: " .. connect_why
         server:stop()
@@ -696,7 +718,7 @@ function Testing.with_server(app: Types.App, fn: function(client: Testing.Loopba
       end
       conn:set_timeout(IO_TIMEOUT_NS)
       local client: Testing.Loopback = {
-        conn = conn, buf = "", timeout_ns = IO_TIMEOUT_NS, host = "127.0.0.1:" .. tostring(assert(addresses[1].port)),
+        conn = conn, buf = "", timeout_ns = IO_TIMEOUT_NS, host = "127.0.0.1:" .. tostring(assert(address.port)),
         set_timeout = loopback_set_timeout, request = loopback_request, raw = loopback_raw,
         get = loopback_verb("GET"), post = loopback_verb("POST"), head = loopback_verb("HEAD"),
       }

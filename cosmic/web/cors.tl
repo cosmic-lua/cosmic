@@ -197,7 +197,7 @@ function Cors.middleware(opts: Cors.Options): Types.Middleware
       else
         for piece in headers_asked:gmatch("[^,]+") do
           local name = piece:match("^%s*(.-)%s*$")
-          if not token(name) then
+          if name == nil or not token(name) then
             pass = false
             break
           end

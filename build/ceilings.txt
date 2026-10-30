@@ -1322,33 +1322,25 @@ cosmic/url_fuzz_test.tl nil_not_allowed 9
 
 cosmic/url_test.tl nil_not_allowed 2
 
-cosmic/web/app.tl nil_not_allowed 2
 
 cosmic/web/app_test.tl nil_not_allowed 10
 
-cosmic/web/assets.tl nil_not_allowed 5
 
-cosmic/web/cookies.tl nil_not_allowed 8
 
 cosmic/web/cookies_fuzz_test.tl nil_not_allowed 5
 
 cosmic/web/cookies_test.tl nil_not_allowed 1
 
-cosmic/web/cors.tl nil_not_allowed 1
 
 cosmic/web/cors_test.tl nil_not_allowed 3
 
-cosmic/web/csrf.tl nil_not_allowed 2
 
 cosmic/web/csrf_test.tl nil_not_allowed 1
 
-cosmic/web/dev.tl nil_not_allowed 2
 
 cosmic/web/dev_test.tl nil_not_allowed 3
 
-cosmic/web/errors.tl nil_not_allowed 2
 
-cosmic/web/headers.tl nil_not_allowed 3
 
 cosmic/web/headers_test.tl nil_not_allowed 3
 
@@ -1364,55 +1356,40 @@ cosmic/web/input_multipart_test.tl nil_not_allowed 25
 
 cosmic/web/input_test.tl nil_not_allowed 24
 
-cosmic/web/middleware.tl nil_not_allowed 2
 
-cosmic/web/negotiate.tl nil_not_allowed 2
 
-cosmic/web/origin.tl nil_not_allowed 3
 
-cosmic/web/request.tl nil_not_allowed 5
 
 cosmic/web/request_test.tl nil_not_allowed 43
 
-cosmic/web/response.tl nil_not_allowed 5
 
-cosmic/web/router.tl nil_not_allowed 8
 
 cosmic/web/router_fuzz_test.tl nil_not_allowed 7
 
 cosmic/web/router_test.tl nil_not_allowed 1
 
-cosmic/web/secret.tl nil_not_allowed 4
 
 cosmic/web/serve_test.tl nil_not_allowed 1
 
-cosmic/web/session/cookie.tl nil_not_allowed 1
 
-cosmic/web/session/csrf_example.tl nil_not_allowed 3
 
-cosmic/web/session/init.tl nil_not_allowed 2
 
 cosmic/web/session/session_test.tl nil_not_allowed 8
 
-cosmic/web/session/sqlite.tl nil_not_allowed 1
 
 cosmic/web/session/sqlite_test.tl nil_not_allowed 4
 
-cosmic/web/sse.tl nil_not_allowed 9
 
 cosmic/web/sse_fuzz_test.tl nil_not_allowed 4
 
 cosmic/web/sse_test.tl nil_not_allowed 10
 
-cosmic/web/static.tl nil_not_allowed 15
 
 cosmic/web/static_test.tl nil_not_allowed 1
 
-cosmic/web/testing.tl nil_not_allowed 13
 
 cosmic/web/testing_test.tl nil_not_allowed 1
 
-cosmic/web/typed.tl nil_not_allowed 5
 
 cosmic/web/typed_test.tl nil_not_allowed 3
 
@@ -2093,17 +2070,12 @@ cosmic/time_zone_test.tl index_may_be_nil 5
 
 cosmic/url_fuzz_test.tl index_may_be_nil 3
 
-cosmic/web/builtin.tl index_may_be_nil 1
 
-cosmic/web/csp.tl index_may_be_nil 1
 
-cosmic/web/dev.tl index_may_be_nil 1
 
 cosmic/web/dev_supervise_test.tl index_may_be_nil 1
 
-cosmic/web/headers.tl index_may_be_nil 3
 
-cosmic/web/htmx.tl index_may_be_nil 2
 
 cosmic/web/input.tl index_may_be_nil 2
 
@@ -2115,23 +2087,19 @@ cosmic/web/input_test.tl index_may_be_nil 5
 
 cosmic/web/request_test.tl index_may_be_nil 1
 
-cosmic/web/router.tl index_may_be_nil 2
 
 cosmic/web/router_test.tl index_may_be_nil 2
 
 cosmic/web/serve_test.tl index_may_be_nil 2
 
-cosmic/web/session/cookie.tl index_may_be_nil 1
 
 cosmic/web/session/session_test.tl index_may_be_nil 6
 
-cosmic/web/sse.tl index_may_be_nil 1
 
 cosmic/web/sse_test.tl index_may_be_nil 1
 
 cosmic/web/static_test.tl index_may_be_nil 2
 
-cosmic/web/testing.tl index_may_be_nil 1
 
 cosmic/zip_fuzz_test.tl index_may_be_nil 3
 
@@ -3077,7 +3045,6 @@ build/database_start_fixture.tl map_field 2
 
 build/dataset_test.tl map_field 7
 
-build/declared_key.tl map_field 3
 
 build/declared_key_fuzz_test.tl map_field 19
 
@@ -3241,7 +3208,7 @@ build/test_standing_test.tl map_field 10
 
 build/test_test.tl map_field 1
 
-build/test_worker.tl map_field 10
+build/test_worker.tl map_field 7
 
 build/test_worker_test.tl map_field 7
 
@@ -3419,13 +3386,13 @@ cosmic/web/cookies_test.tl map_field 17
 
 cosmic/web/cors_test.tl map_field 8
 
-cosmic/web/csrf_test.tl map_field 11
+cosmic/web/csrf_test.tl map_field 2
 
 cosmic/web/dev.tl map_field 2
 
 cosmic/web/htmx.tl map_field 2
 
-cosmic/web/htmx_test.tl map_field 17
+cosmic/web/htmx_test.tl map_field 13
 
 cosmic/web/input_multipart_fuzz_test.tl map_field 5
 
@@ -3449,7 +3416,7 @@ cosmic/web/session/cookie_test.tl map_field 3
 
 cosmic/web/session/init.tl map_field 2
 
-cosmic/web/session/session_test.tl map_field 67
+cosmic/web/session/session_test.tl map_field 60
 
 cosmic/web/session/sqlite_test.tl map_field 16
 
@@ -3473,7 +3440,6 @@ eval/check/grade_test.tl map_field 15
 
 eval/result_test.tl map_field 37
 
-eval/round.tl map_field 5
 
 eval/round_test.tl map_field 11
 
@@ -3487,7 +3453,6 @@ lang/check_programs.tl map_field 9
 
 lang/check_test.tl map_field 2
 
-lang/declarations.tl map_field 10
 
 lang/declarations_test.tl map_field 14
 
@@ -3782,11 +3747,8 @@ build/confine_tool_test.tl any_use 3
 
 build/coverage_hits.tl any_use 1
 
-build/dataset.tl any_use 8
 
-build/dataset_fuzz_test.tl any_use 14
 
-build/dataset_test.tl any_use 5
 
 build/declared_key_test.tl any_use 3
 
@@ -4024,7 +3986,7 @@ cosmic/web/htmx.tl any_use 8
 
 cosmic/web/htmx_test.tl any_use 2
 
-cosmic/web/input.tl any_use 20
+cosmic/web/input.tl any_use 8
 
 cosmic/web/input_fuzz_test.tl any_use 7
 
@@ -4076,9 +4038,7 @@ eval/check/grade.tl any_use 49
 
 eval/declared_types_test.tl any_use 12
 
-eval/result.tl any_use 20
 
-eval/result_test.tl any_use 18
 
 eval/round.tl any_use 1
 
@@ -4568,7 +4528,6 @@ test/sqlite_row_test.tl cast_refused 1
 
 build/compile_grammar_test.tl is_on_record 3
 
-build/dataset.tl is_on_record 2
 
 build/flow.tl is_on_record 7
 
@@ -6106,7 +6065,6 @@ cosmic/web/input_multipart_test.tl and_ternary 1
 
 cosmic/web/input_test.tl and_ternary 1
 
-cosmic/web/request.tl and_ternary 1
 
 cosmic/web/response.tl and_ternary 2
 
@@ -6120,7 +6078,7 @@ cosmic/web/sse_fuzz_test.tl and_ternary 1
 
 cosmic/web/static.tl and_ternary 2
 
-cosmic/web/testing.tl and_ternary 6
+cosmic/web/testing.tl and_ternary 5
 
 cosmic/web/typed.tl and_ternary 5
 
@@ -6503,15 +6461,12 @@ cosmic/url.tl compare_disjoint 1
 
 cosmic/web/app.tl compare_disjoint 1
 
-cosmic/web/request.tl compare_disjoint 1
 
 cosmic/web/request_test.tl compare_disjoint 1
 
 cosmic/web/session/init.tl compare_disjoint 3
 
-cosmic/web/sse.tl compare_disjoint 3
 
-cosmic/web/static.tl compare_disjoint 2
 
 cosmic/web/testing.tl compare_disjoint 1
 
@@ -6639,7 +6594,6 @@ build/compile.tl literal_needs_type 1
 
 build/confine_tool_test.tl literal_needs_type 1
 
-build/dataset_fuzz_test.tl literal_needs_type 1
 
 build/dataset_test.tl literal_needs_type 2
 
@@ -6868,7 +6822,7 @@ cosmic/web/cors_example.tl literal_needs_type 1
 
 cosmic/web/csp_example.tl literal_needs_type 1
 
-cosmic/web/csrf_test.tl literal_needs_type 2
+cosmic/web/csrf_test.tl literal_needs_type 1
 
 cosmic/web/dev_supervise_test.tl literal_needs_type 1
 
@@ -6914,7 +6868,6 @@ eval/declared_types_test.tl literal_needs_type 1
 
 eval/result.tl literal_needs_type 1
 
-eval/result_test.tl literal_needs_type 3
 
 eval/round.tl literal_needs_type 1
 
@@ -7168,9 +7121,7 @@ eval/check/grade.tl arms_differ 5
 
 eval/declared_types_test.tl arms_differ 2
 
-eval/result.tl arms_differ 1
 
-eval/result_test.tl arms_differ 1
 
 eval/summarize_test.tl arms_differ 3
 
@@ -7257,7 +7208,6 @@ cosmic/shape_test.tl float_key 1
 
 cosmic/time.tl float_key 1
 
-lang/declarations.tl float_key 2
 
 lang/lexer.tl float_key 3
 
@@ -7809,7 +7759,7 @@ cosmic/web/app.tl array_hole 1
 
 cosmic/web/app_test.tl array_hole 2
 
-cosmic/web/dev.tl array_hole 2
+cosmic/web/dev.tl array_hole 1
 
 cosmic/web/dev.tl view_as_mut 1
 

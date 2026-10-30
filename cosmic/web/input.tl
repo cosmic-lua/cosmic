@@ -57,8 +57,6 @@
 --- failure is reported. A JSON client should read an error's `pointer`, not
 --- its `field`: the dotted `field` is ambiguous for a key that holds a `.`.
 
--- TODO: make this `local type Cell = require("cosmic.cell")` once the store keeps a module that only a `local type` require names; today that drops cosmic.cell from the binary and build/link_index_test fails.
-local Cell = require("cosmic.cell")
 local Codec = require("cosmic.codec")
 local Fs = require("cosmic.fs")
 local Json = require("cosmic.json")
@@ -384,18 +382,18 @@ end
 --- A Reader over `source` that fails with [`OVER_LIMIT`] when it would pass
 --- `limit` bytes, and the count of the bytes it passed so far.
 local function counted(source: Stream.Reader, limit: integer): Stream.Reader, function(): integer
-  local passed: Cell<integer> = { value = 0 }
+  local passed: integer = 0
   local reader: Stream.Reader = {
     read = function(_self: Stream.Reader, max?: integer): string?, string
-      local chunk, why = source:read(math.min(max or CHUNK, limit + 1 - passed.value))
+      local chunk, why = source:read(math.min(max or CHUNK, limit + 1 - passed))
       if chunk == nil then return nil, why end
-      passed.value = passed.value + #chunk
-      if passed.value > limit then return nil, OVER_LIMIT end
+      passed = passed + #chunk
+      if passed > limit then return nil, OVER_LIMIT end
       return chunk, ""
     end,
     close = function(_self: Stream.Reader): boolean, string return true, "" end,
   }
-  return reader, function(): integer return passed.value end
+  return reader, function(): integer return passed end
 end
 
 --- The file an upload is being written to, where the closer of a killed
@@ -816,7 +814,7 @@ end
 
 --- The value `text` spells for the scalar `spec`, or nil with the error
 --- recorded.
-local function coerce(w: Walk, field: string, spec: Shape.Spec, text: string): any
+local function coerce(w: Walk, field: string, spec: Shape.Spec, text: string): Json.Value?
   local kind = spec.kind
   if kind == "string" or kind == "any" then
     if text:find("\0", 1, true) then
@@ -858,7 +856,7 @@ local function coerce(w: Walk, field: string, spec: Shape.Spec, text: string): a
 end
 
 --- The value of the scalar `field`, given the text sent for it or nil.
-local function scalar(w: Walk, field: string, spec: Shape.Spec, text: string?): any
+local function scalar(w: Walk, field: string, spec: Shape.Spec, text: string?): Json.Value?
   local kind = spec.kind
   if text == nil or (text == "" and kind ~= "string" and kind ~= "any") then
     if spec.optional then return nil end
@@ -886,6 +884,9 @@ local function bind_list(w: Walk, field: string, spec: Shape.Spec): any
     if spec.optional then return nil end
     return Json.array({})
   end
+  -- An item that is absent without an error (an optional element read
+  -- from empty text) stays a hole: shape admits it for a
+  -- `list(optional(...))` and handlers see it at its position.
   local out: mut {any} = {}
   local of = assert(spec.of)
   for i, text in ipairs(values) do

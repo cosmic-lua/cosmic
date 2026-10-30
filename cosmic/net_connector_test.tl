@@ -1,7 +1,6 @@
 --- [`Net.listener_from`] and [`Net.connector`]: a listening socket
 --- another process or an earlier call made, taken as a listener, and the
 --- confined native connector (core/connector.c) as a connection maker.
-local Cell = require("cosmic.cell")
 local Clock = require("cosmic.clock")
 local Connector = require("cosmic.internal.connector")
 local Net = require("cosmic.net")
@@ -287,7 +286,7 @@ local function test_a_table_connector_serves_tasks_at_once()
     local listener, task = echo_server()
     local port = assert(listener.address.port)
     local connector = assert(Net.connector({ { host = "127.0.0.1", port = port } }))
-    local done: Cell<integer> = { value = 0 }
+    local done: integer = 0
     local tasks: mut {Poll.Task} = {}
     for n = 1, 4 do
       tasks[n] = Poll.spawn(function()
@@ -296,11 +295,11 @@ local function test_a_table_connector_serves_tasks_at_once()
         assert(conn:write(tostring(n)))
         assert(assert(conn:read()) == tostring(n))
         assert(conn:close())
-        done.value = done.value + 1
+        done = done + 1
       end)
     end
     for n = 1, 4 do assert(tasks[n]:join()) end
-    assert(done.value == 4)
+    assert(done == 4)
     assert(connector:close())
     task:cancel()
     assert(listener:close())
@@ -450,11 +449,11 @@ local function test_a_hung_connect_holds_up_no_other()
     local connector = assert(Net.connector({
       { host = "127.0.0.1", port = port }, { host = "127.0.0.1", port = echo },
     }, { timeout_ns = Clock.seconds(30) }))
-    local hung: Cell<string?> = { value = nil }
+    local hung: string? = nil
     local started = Clock.monotonic_ns()
     local hanging = Poll.spawn(function()
       local _, why = dial(connector, "127.0.0.1", port, Clock.ms(800))
-      hung.value = why
+      hung = why
     end)
     assert(Poll.delay(Clock.ms(50)))
     local tasks: mut {Poll.Task} = {}
@@ -471,11 +470,11 @@ local function test_a_hung_connect_holds_up_no_other()
     end
     for n = 1, 8 do assert(tasks[n]:join()) end
     local others = Clock.monotonic_ns() - started
-    assert(#done == 8 and hung.value == nil, "the others finished first")
+    assert(#done == 8 and hung == nil, "the others finished first")
     assert(others < Clock.ms(700), "the others waited for the hung connect: " .. tostring(others // Clock.ms(1)) .. " ms")
     assert(hanging:join())
     local elapsed = Clock.monotonic_ns() - started
-    assert(hung.value == Poll.TIMEOUT, tostring(hung.value))
+    assert(hung == Poll.TIMEOUT, tostring(hung))
     assert(elapsed >= Clock.ms(790) and elapsed < Clock.seconds(3), tostring(elapsed // Clock.ms(1)) .. " ms")
     -- The hung connect's reply came whole: the same stream serves on.
     assert(not connector:ended())
@@ -530,19 +529,19 @@ end
 --- Makes `count` connections at once with `connect`, each within 500 ms:
 --- how many were made, closed again.
 local function made_at_once(count: integer, connect: function(): Net.Conn?, string): integer
-  local made: Cell<integer> = { value = 0 }
+  local made: integer = 0
   local tasks: mut {Poll.Task} = {}
   for i = 1, count do
     tasks[i] = Poll.spawn(function()
       local conn = connect()
       if conn ~= nil then
-        made.value = made.value + 1
+        made = made + 1
         assert(conn:close())
       end
     end)
   end
   for _, task in ipairs(tasks) do assert(task:join()) end
-  return made.value
+  return made
 end
 
 --- A connector with a table and public lists shares its flights between
@@ -617,16 +616,16 @@ local function test_closing_a_connector_wakes_a_request_in_flight()
     local port, held = hung_port()
     local connector = assert(Net.connector({ { host = "127.0.0.1", port = port } },
       { timeout_ns = Clock.seconds(30) }))
-    local answer: Cell<string?> = { value = nil }
+    local answer: string? = nil
     local started = Clock.monotonic_ns()
     local waiting = Poll.spawn(function()
       local _, why = dial(connector, "127.0.0.1", port, Clock.seconds(20))
-      answer.value = why
+      answer = why
     end)
     assert(Poll.delay(Clock.ms(100)))
     assert(connector:close())
     assert(waiting:join(Clock.seconds(5)), "the request was left parked")
-    assert(tostring(answer.value):find("closed", 1, true) ~= nil, tostring(answer.value))
+    assert(tostring(answer):find("closed", 1, true) ~= nil, tostring(answer))
     assert(Clock.monotonic_ns() - started < Clock.seconds(3))
     for _, each in ipairs(held) do assert(each:close()) end
   end)
