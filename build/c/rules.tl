@@ -262,8 +262,12 @@ local narrow: {string: boolean} = {
   ["unsigned char"] = true,
 }
 
+--- The name `decl` declares: the whole word right before its type's quote,
+--- so `f$` and `$g` are read as written. A function may be called `used`,
+--- the word clang prints before a name too, so the word is taken as it is.
+--- Nil when no word comes before the quote.
 local function name_of(decl: Node): string?
-  return decl.text:match("([%w_]+) '")
+  return decl.text:match("^(%S+) '") or decl.text:match("%s(%S+) '")
 end
 
 --- Visits `node` and everything under it, children first: the order an
@@ -278,10 +282,16 @@ end
 --- The arguments of a call, its callee left out.
 local function arguments(call: Node): {Node}
   local out: mut {Node} = {}
-  for i = 2, #call.children do
-    out[#out + 1] = call.children[i]
+  for i, child in ipairs(call.children) do
+    if i >= 2 then out[#out + 1] = child end
   end
   return out
+end
+
+--- Child `position` of `node` once conversions and parentheses are seen through, or nil where `node` has no such child.
+local function bare_child(node: Node, position: integer): Node?
+  local child = node.children[position]
+  return if child ~= nil then tree.bare(child) else nil end
 end
 
 --- What `node` refers to once conversions and an `&` are seen through:
@@ -315,7 +325,7 @@ end
 local function ends(call: Node): boolean
   local name = tree.callee(call)
   if name ~= nil and ending[name] == true then return true end
-  local callee = call.children[1] and tree.bare(call.children[1])
+  local callee = bare_child(call, 1)
   return callee ~= nil and callee.text:find("noreturn", 1, true) ~= nil
 end
 
@@ -331,7 +341,7 @@ local record Function
   static: boolean
   inline: boolean
   --- A declaration of it in a header, or nil when no header declares it.
-  prototype: Node
+  prototype?: Node
   --- The nodes of its body of a kind `indexed` names, children first
   --- (`after`'s order): a pass visits these, not the whole body, so a
   --- pass that reads another kind adds it to `indexed`.
@@ -380,9 +390,9 @@ local function narrowed(ctx: Context, fn: Function)
       end
     elseif kind == "CStyleCastExpr" and node.text:find("<IntegralCast>", 1, true) ~= nil then
       local to = tree.canonical_type(node)
-      local operand = node.children[1] and tree.bare(node.children[1])
-      if narrow[to] == true and operand ~= nil and
-          (tree.type_of(operand) or ""):find("lua_Integer", 1, true) then
+      local operand = bare_child(node, 1)
+      if to ~= nil and narrow[to] == true and operand ~= nil and
+          (tree.type_of(operand) or ""):find("lua_Integer", 1, true) ~= nil then
         local id = referenced(operand)
         if id == nil or bounded[id] ~= true then
           report(ctx, node, "narrowed-integer", "casts a lua_Integer to " .. to ..
@@ -421,7 +431,8 @@ local function above_buffer(ctx: Context, fn: Function)
   local open: mut {string: boolean} = {}
   -- A buffer handed in is open for as long as this function has it.
   for _, param in ipairs(fn.params) do
-    if is_buffer(param) then open[param.id] = true end
+    local param_id = param.id
+    if param_id ~= nil and is_buffer(param) then open[param_id] = true end
   end
   local above = 0
   for _, node in ipairs(fn.nodes) do
@@ -511,12 +522,13 @@ local function receiver(state: State, call: Node): Local?
     at = at.parent
   end
   if at == nil then return nil end
-  if at.kind == "VarDecl" and state.locals[at.id] == true then
-    return { id = at.id, name = assert(name_of(at), "a variable declaration names its variable") }
+  local at_id = at.id
+  if at.kind == "VarDecl" and at_id ~= nil and state.locals[at_id] == true then
+    return { id = at_id, name = assert(name_of(at), "a variable declaration names its variable") }
   end
   if at.kind == "BinaryOperator" and tree.operator(at) == "=" and at.children[2] == child then
-    local target = tree.bare(at.children[1])
-    local r = tree.referent(target)
+    local target = bare_child(at, 1)
+    local r = if target ~= nil then tree.referent(target) else nil end
     if r ~= nil and r.kind == "Var" and state.locals[r.id] == true then
       return { id = r.id, name = r.name }
     end
@@ -547,18 +559,25 @@ local function constant(node: Node): integer?
   if bare.kind == "IntegerLiteral" then
     return math.tointeger(tonumber(bare.text:match("(%d+)$")))
   end
-  if bare.kind == "UnaryOperator" and bare.text:match("'%-'") ~= nil and #bare.children == 1 then
-    local v = constant(bare.children[1])
+  local only, second = bare.children[1], bare.children[2]
+  if bare.kind == "UnaryOperator" and bare.text:match("'%-'") ~= nil and #bare.children == 1 and only ~= nil then
+    local v = constant(only)
     return if v ~= nil then -v else nil end
   end
-  if bare.kind == "BinaryOperator" and #bare.children == 2 then
+  if bare.kind == "BinaryOperator" and #bare.children == 2 and only ~= nil and second ~= nil then
     local op = bare.text:match("'([^']*)'$")
-    local a, b = constant(bare.children[1]), constant(bare.children[2])
+    local a, b = constant(only), constant(second)
     if a == nil or b == nil then return nil end
     if op == "+" then return a + b end
     if op == "-" then return a - b end
   end
   return nil
+end
+
+--- The constant argument `position` of a call's `args` is, or nil where it is not one or the call has no such argument.
+local function constant_at(args: {Node}, position: integer): integer?
+  local argument = args[position]
+  return if argument ~= nil then constant(argument) else nil end
 end
 
 --- The calls that pop the value on top and push nothing, by how many.
@@ -572,24 +591,25 @@ local popping: {string: integer} = {
 --- values it leaves (negative for what it takes), or nil when that cannot
 --- be told from the call, and whether it may take everything (a
 --- `lua_settop` to a height no constant says).
-local function stack_effect(name: string, call: Node): integer, boolean
+local function stack_effect(name: string, call: Node): integer?, boolean
   local args = arguments(call)
+  local popped = popping[name]
   if name == "lua_settop" then
-    local n = args[2] and constant(args[2])
+    local n = constant_at(args, 2)
     if n ~= nil and n < 0 then return n + 1, false end
     return nil, true
   elseif name == "lua_callk" or name == "lua_pcallk" then
-    local nargs, nresults = args[2] and constant(args[2]), args[3] and constant(args[3])
+    local nargs, nresults = constant_at(args, 2), constant_at(args, 3)
     if nargs == nil or nresults == nil or nresults < 0 then return nil, false end
     return nresults - nargs - 1, false
   elseif name == "lua_concat" then
-    local n = args[2] and constant(args[2])
+    local n = constant_at(args, 2)
     if n == nil then return nil, false end
     return 1 - n, false
   elseif name == "lua_next" then
     return nil, false
-  elseif popping[name] ~= nil then
-    return -popping[name], false
+  elseif popped ~= nil then
+    return -popped, false
   elseif pushes(name) then
     return 1, false
   end
@@ -655,11 +675,12 @@ local function expression(ctx: Context, node: Node, state: State)
       local name = tree.callee(n)
       -- Released first: `realloc(buffer, n)` gives up the old buffer
       -- before it takes the new one.
-      local released = name ~= nil and (releases[name] or ctx.releasing[name] ~= nil)
-      if released then
+      local released_at = if name ~= nil then ctx.releasing[name] else nil end
+      local always_released = name ~= nil and releases[name] == true
+      if always_released or released_at ~= nil then
         for i, argument in ipairs(arguments(n)) do
           local id = referenced(argument)
-          if id ~= nil and (releases[name] == true or ctx.releasing[name][i] == true) then
+          if id ~= nil and (always_released or (released_at ~= nil and released_at[i] == true)) then
             state.held[id] = nil
           end
         end
@@ -678,7 +699,7 @@ local function expression(ctx: Context, node: Node, state: State)
       end
       local slot: integer? = nil
       if name ~= nil then slot = acquires[name] end
-      if slot ~= nil then
+      if name ~= nil and slot ~= nil then
         local held: Local?
         if slot == 0 then
           held = receiver(state, n)
@@ -710,20 +731,23 @@ local function expression(ctx: Context, node: Node, state: State)
       end
     elseif n.kind == "BinaryOperator" and tree.operator(n) == "=" then
       -- A pointer given another value points into nothing on the stack.
-      local lhs = tree.referent(tree.bare(n.children[1]))
-      local rhs = tree.bare(n.children[2])
-      if lhs ~= nil and lhs.kind == "Var" and state.strings[lhs.id] ~= nil and not (rhs ~= nil and
-          rhs.kind == "CallExpr" and string_pointers[tree.callee(rhs) or ""] ~= nil) then
-        state.strings[lhs.id] = nil
-      end
-      -- A held resource stored anywhere but in a local has been handed
-      -- on: to a record, a guard, an array that owns it.
-      local id = referenced(n.children[2])
-      local target = tree.bare(n.children[1])
-      local t = tree.referent(target)
-      if id ~= nil and state.held[id] ~= nil and
-          not (t ~= nil and t.kind == "Var" and state.locals[t.id] == true) then
-        state.held[id] = nil
+      local target = bare_child(n, 1)
+      local rhs = bare_child(n, 2)
+      local assigned = n.children[2]
+      if target ~= nil and rhs ~= nil and assigned ~= nil then
+        local lhs = tree.referent(target)
+        if lhs ~= nil and lhs.kind == "Var" and state.strings[lhs.id] ~= nil and not (
+            rhs.kind == "CallExpr" and string_pointers[tree.callee(rhs) or ""] ~= nil) then
+          state.strings[lhs.id] = nil
+        end
+        -- A held resource stored anywhere but in a local has been handed
+        -- on: to a record, a guard, an array that owns it.
+        local id = referenced(assigned)
+        local t = tree.referent(target)
+        if id ~= nil and state.held[id] ~= nil and
+            not (t ~= nil and t.kind == "Var" and state.locals[t.id] == true) then
+          state.held[id] = nil
+        end
       end
     end
   end)
@@ -740,15 +764,16 @@ end
 local function tested(cond: Node, state: State): Absent
   local bare = tree.bare(cond)
   if bare == nil then return {} end
-  if bare.kind == "UnaryOperator" and bare.text:match("'!'") ~= nil then
-    return { yes = referenced(bare.children[1]) }
+  local operand = bare.children[1]
+  if bare.kind == "UnaryOperator" and bare.text:match("'!'") ~= nil and operand ~= nil then
+    return { yes = referenced(operand) }
   end
-  if bare.kind ~= "BinaryOperator" or #bare.children ~= 2 then
+  local left, right = bare.children[1], bare.children[2]
+  if bare.kind ~= "BinaryOperator" or #bare.children ~= 2 or left == nil or right == nil then
     if bare.kind == "DeclRefExpr" then return { no = referenced(bare) } end
     return {}
   end
   local op = bare.text:match("'([^']*)'$")
-  local left, right = bare.children[1], bare.children[2]
   -- A failed status says what the call that returned it never took.
   if op == "!=" or op == "==" then
     for _, side in ipairs({ left, right }) do
@@ -756,8 +781,9 @@ local function tested(cond: Node, state: State): Absent
       local absent: string? = nil
       if b.kind == "CallExpr" then
         local name = tree.callee(b)
-        if name ~= nil and absent_on_failure[name] == true then
-          local handed = given(b, acquires[name], state)
+        local slot = if name ~= nil then acquires[name] else nil end
+        if name ~= nil and absent_on_failure[name] == true and slot ~= nil then
+          local handed = given(b, slot, state)
           absent = handed ~= nil and handed.id or nil
         end
       else
@@ -819,10 +845,10 @@ local function statement(ctx: Context, node: Node, state: State): boolean
     end
     return false
   elseif kind == "IfStmt" then
-    local n = #node.children
     local cond = node.children[1]
     local yes = node.children[2]
-    local no: Node = n >= 3 and node.children[3] or nil
+    local no: Node? = node.children[3]
+    if cond == nil or yes == nil then return false end
     expression(ctx, cond, state)
     local absent = tested(cond, state)
     local a = copy(state)
@@ -849,8 +875,8 @@ local function statement(ctx: Context, node: Node, state: State): boolean
     for _, child in ipairs(node.children) do
       expression(ctx, child, state)
       after(child, function(n: Node)
-        local id = n.kind == "DeclRefExpr" and referenced(n)
-        if id then state.held[id] = nil end
+        local id = if n.kind == "DeclRefExpr" then referenced(n) else nil end
+        if id ~= nil then state.held[id] = nil end
       end)
     end
     return true
@@ -858,8 +884,9 @@ local function statement(ctx: Context, node: Node, state: State): boolean
     return true
   elseif kind == "DeclStmt" then
     for _, decl in ipairs(node.children) do
-      if decl.kind == "VarDecl" and not decl.text:find(" static", 1, true) then
-        state.locals[decl.id] = true
+      local decl_id = decl.id
+      if decl.kind == "VarDecl" and decl_id ~= nil and not decl.text:find(" static", 1, true) then
+        state.locals[decl_id] = true
       end
       expression(ctx, decl, state)
     end
@@ -932,10 +959,12 @@ local function functions(decls: {Node}): {Function}
         if child.kind == "ParmVarDecl" then params[#params + 1] = child end
         if child.kind == "CompoundStmt" then body = child end
       end
+      -- A body whose name is not read is refused by [`rules.unreadable`],
+      -- never skipped; its rules still run under a placeholder.
+      local name = name_of(decl) or "<unnamed>"
       if body ~= nil then
-        local name = name_of(decl)
         local static, inline = storage(decl)
-        local prototype = prototypes[name]
+        local prototype: Node? = prototypes[name]
         if prototype == decl then prototype = nil end
         local nodes: mut {Node} = {}
         local returns: mut {Node} = {}
@@ -958,15 +987,19 @@ local function releasing(fns: {Function}): {string: {integer: boolean}}
   local out: mut {string: {integer: boolean}} = {}
   for _, fn in ipairs(fns) do
     local positions: mut {string: integer} = {}
-    for i, param in ipairs(fn.params) do positions[param.id] = i end
+    for i, param in ipairs(fn.params) do
+      local param_id = param.id
+      if param_id ~= nil then positions[param_id] = i end
+    end
     for _, n in ipairs(fn.nodes) do
-      local name = n.kind == "CallExpr" and tree.callee(n)
-      if name and releases[name] then
+      local name = if n.kind == "CallExpr" then tree.callee(n) else nil end
+      if name ~= nil and releases[name] == true then
         for _, argument in ipairs(arguments(n)) do
           local i = positions[referenced(argument) or ""]
           if i ~= nil then
-            out[fn.name] = out[fn.name] or {}
-            out[fn.name][i] = true
+            local own = out[fn.name] or {}
+            out[fn.name] = own
+            own[i] = true
           end
         end
       end
@@ -1035,14 +1068,19 @@ local function truth_locals(fn: Function, known: Truths): {string: boolean}
   for _, n in ipairs(fn.nodes) do
     if n.kind == "VarDecl" then
       local init = n.children[#n.children]
-      if init ~= nil and init.kind ~= "ParmVarDecl" and truth(init, known) then
-        offered[n.id] = true
-      else
-        refused[n.id] = true
+      local own_id = n.id
+      if own_id ~= nil then
+        if init ~= nil and init.kind ~= "ParmVarDecl" and truth(init, known) then
+          offered[own_id] = true
+        else
+          refused[own_id] = true
+        end
       end
     elseif n.kind == "BinaryOperator" and tree.operator(n) == "=" then
-      local r = tree.referent(tree.bare(n.children[1]))
-      if r ~= nil and r.kind == "Var" and not truth(n.children[2], known) then
+      local target = bare_child(n, 1)
+      local value = n.children[2]
+      local r = if target ~= nil then tree.referent(target) else nil end
+      if r ~= nil and r.kind == "Var" and value ~= nil and not truth(value, known) then
         refused[r.id] = true
       end
     elseif n.kind == "CompoundAssignOperator" or (n.kind == "UnaryOperator" and
@@ -1050,7 +1088,8 @@ local function truth_locals(fn: Function, known: Truths): {string: boolean}
             n.text:find("'&'", 1, true)) ~= nil) then
       -- Changed in place, or handed out by address to be written
       -- anything at all: `fetch(&status)`.
-      local r = tree.referent(tree.bare(n.children[1]))
+      local target = bare_child(n, 1)
+      local r = if target ~= nil then tree.referent(target) else nil end
       if r ~= nil and r.kind == "Var" then refused[r.id] = true end
     end
   end
@@ -1207,11 +1246,12 @@ end
 --- the shape fail.h makes.
 local function returned_shape(ctx: Context, fn: Function, declared: {string: rules.Declared})
   local call = fn.name:match("^cosmic_sys_(.+)$")
-  local d = call ~= nil and declared[call] or nil
-  if d == nil then return end
+  local d = if call ~= nil then declared[call] else nil end
+  if call == nil or d == nil then return end
   for _, n in ipairs(fn.returns) do
-    if #n.children == 1 then
-      local value = tree.bare(n.children[1])
+    local only = n.children[1]
+    if #n.children == 1 and only ~= nil then
+      local value = tree.bare(only)
       local helper = value ~= nil and value.kind == "CallExpr" and tree.callee(value) or nil
       local shape = helper ~= nil and ctx.shapes[helper] or nil
       local through = if helper ~= nil and ctx.shapes[helper] ~= nil and not helper:match("^cosmic_") then
@@ -1225,11 +1265,11 @@ local function returned_shape(ctx: Context, fn: Function, declared: {string: rul
             "a value, whose failure is nil, a message and an errno, and never a bare true: " ..
             "return the value, or cosmic_fail" .. through .. " (core/fail.h)")
       end
-      local count = constant(n.children[1])
+      local count = constant(only)
       if count ~= nil then
         if count > d.count then
           report(ctx, n, "returned-shape", "returns " .. plural.count(count, "value") ..
-              " where binding " .. call .. " is declared to return " .. d.count ..
+              " where binding " .. call .. " is declared to return " .. tostring(d.count) ..
               " (core/syscalls.h or core/process.h)")
         elseif d.fallible and count == 2 then
           report(ctx, n, "returned-shape", "returns 2 values where a failure of binding " ..
@@ -1264,7 +1304,10 @@ local function checked_positions(fn: Function, bound: {integer: integer},
                                  byname: {string: Function}, out: mut {integer: boolean},
                                  seen: mut {string: boolean})
   local index: mut {string: integer} = {}
-  for i, param in ipairs(fn.params) do index[param.id] = i end
+  for i, param in ipairs(fn.params) do
+    local param_id = param.id
+    if param_id ~= nil then index[param_id] = i end
+  end
   local function value(node: Node): integer?
     local c = constant(node)
     if c ~= nil then return c end
@@ -1277,7 +1320,8 @@ local function checked_positions(fn: Function, bound: {integer: integer},
     if name ~= nil then
       local args = arguments(n)
       if descriptor_checks[name] then
-        local at = args[2] ~= nil and value(args[2]) or nil
+        local second = args[2]
+        local at = if second ~= nil then value(second) else nil end
         if at ~= nil then out[at] = true end
       else
         local callee = byname[name]
@@ -1328,8 +1372,8 @@ local function descriptor_arguments(ctx: Context, fn: Function, byname: {string:
         local taker = bare_taker(n.children[#n.children])
         if descriptor_name(name) and taker ~= nil then flag(n, name, taker) end
       elseif n.kind == "BinaryOperator" and #n.children == 2 and tree.operator(n) == "=" then
-        local target = tree.bare(n.children[1])
-        local r = target ~= nil and tree.referent(target) or nil
+        local target = bare_child(n, 1)
+        local r = if target ~= nil then tree.referent(target) else nil end
         local taker = bare_taker(n.children[2])
         if r ~= nil and r.name ~= nil and descriptor_name(r.name) and taker ~= nil then
           flag(n, r.name, taker)
@@ -1338,14 +1382,14 @@ local function descriptor_arguments(ctx: Context, fn: Function, byname: {string:
     end
   end
   local call = fn.name:match("^cosmic_sys_(.+)$")
-  local d = call ~= nil and declared[call] or nil
-  if d == nil or d.descriptors == nil or #d.descriptors == 0 then return end
+  local d = if call ~= nil then declared[call] else nil end
+  if call == nil or d == nil or d.descriptors == nil or #d.descriptors == 0 then return end
   local out: mut {integer: boolean} = {}
   checked_positions(fn, {}, byname, out, {})
   for _, at in ipairs(d.descriptors) do
     if out[at] ~= true then
       report(ctx, fn.body, "descriptor-argument", "cosmic.sys." .. call .. "'s argument " ..
-          at .. " is a descriptor (core/syscalls.h or core/process.h) it takes through " ..
+          tostring(at) .. " is a descriptor (core/syscalls.h or core/process.h) it takes through " ..
           "neither cosmic_checkfd nor cosmic_argfd (core/check.h), which " ..
           "refuse the artifact's retained descriptor")
     end
@@ -1409,6 +1453,31 @@ function rules.single_file(units: {rules.Unit}): {rules.Finding}
     return a.line < b.line
   end)
   return out
+end
+
+--- Why `decls` cannot be checked: a function it defines whose name is not
+--- read from clang's dump, named by the declaration's place. Nil when every
+--- defined function has one.
+function rules.unreadable(decls: {Node}): string?
+  for _, decl in ipairs(decls) do
+    if decl.kind == "FunctionDecl" and name_of(decl) == nil then
+      for _, child in ipairs(decl.children) do
+        if child.kind == "CompoundStmt" then
+          local at = tree.placed(decl)
+          local where = "?"
+          local line = 0
+          if at ~= nil then
+            where = at.file or "?"
+            line = at.line or 0
+          end
+          return "a function is defined at " .. where .. ":" ..
+            tostring(line) .. " whose name is not read from clang's dump: " ..
+            decl.text
+        end
+      end
+    end
+  end
+  return nil
 end
 
 --- Every finding in `decls`, a translation unit's own declarations, that
