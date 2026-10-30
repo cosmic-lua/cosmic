@@ -533,7 +533,6 @@ build/artifact.tl nil_not_allowed 4
 
 build/artifact_fuzz_test.tl nil_not_allowed 1
 
-build/bare.tl nil_not_allowed 5
 
 build/bom.tl nil_not_allowed 25
 
@@ -557,11 +556,9 @@ build/c/tree_test.tl nil_not_allowed 30
 
 build/c/variants_test.tl nil_not_allowed 2
 
-build/c_functions.tl nil_not_allowed 4
 
 build/c_functions_test.tl nil_not_allowed 5
 
-build/c_tokens.tl nil_not_allowed 3
 
 build/cache.tl nil_not_allowed 3
 
@@ -570,13 +567,11 @@ build/cache_maintenance.tl nil_not_allowed 2
 
 build/cache_tool_test.tl nil_not_allowed 1
 
-build/ceilings.tl nil_not_allowed 2
 
 build/ceilings_test.tl nil_not_allowed 2
 
 build/check_memo_test.tl nil_not_allowed 1
 
-build/check_draws.tl nil_not_allowed 1
 
 build/child_policy_database_fixture.tl nil_not_allowed 1
 
@@ -614,7 +609,6 @@ build/core_image.tl nil_not_allowed 10
 
 build/core_image_fuzz_test.tl nil_not_allowed 5
 
-build/coverage/syntax_lines.tl nil_not_allowed 1
 
 build/coverage/syntax_lines_test.tl nil_not_allowed 1
 
@@ -651,7 +645,6 @@ build/docs_removed_test.tl nil_not_allowed 16
 build/docs_search_test.tl nil_not_allowed 2
 
 
-build/doctest/generate.tl nil_not_allowed 1
 
 build/doctest/generate_test.tl nil_not_allowed 3
 
@@ -663,7 +656,6 @@ build/embed.tl nil_not_allowed 2
 
 build/embed_tool_test.tl nil_not_allowed 23
 
-build/example_checks.tl nil_not_allowed 1
 
 build/example_checks_test.tl nil_not_allowed 1
 
@@ -675,7 +667,6 @@ build/fetch_tool_test.tl nil_not_allowed 1
 
 build/fix/fix_test.tl nil_not_allowed 7
 
-build/fix/init.tl nil_not_allowed 1
 
 build/fix/near.tl nil_not_allowed 10
 
@@ -719,9 +710,7 @@ build/importer_store_test.tl nil_not_allowed 1
 
 build/importer_test.tl nil_not_allowed 28
 
-build/json.tl nil_not_allowed 5
 
-build/json_query.tl nil_not_allowed 2
 
 build/json_query_fuzz_test.tl nil_not_allowed 1
 
@@ -742,7 +731,6 @@ build/link_text_fuzz_test.tl nil_not_allowed 2
 
 build/locator_fuzz_test.tl nil_not_allowed 3
 
-build/lua_tail.tl nil_not_allowed 1
 
 build/patch_test.tl nil_not_allowed 1
 
@@ -750,11 +738,8 @@ build/perf_test.tl nil_not_allowed 10
 
 build/perf_validation.tl nil_not_allowed 9
 
-build/plural_sites.tl nil_not_allowed 5
 
-build/policy_rules.tl nil_not_allowed 1
 
-build/positions.tl nil_not_allowed 1
 
 build/rand.tl nil_not_allowed 8
 
@@ -764,7 +749,6 @@ build/rand_tool_test.tl nil_not_allowed 1
 
 build/reboot.tl nil_not_allowed 4
 
-build/rebuild_lock.tl nil_not_allowed 1
 
 build/rebuild_lock_tool_test.tl nil_not_allowed 3
 
@@ -841,7 +825,6 @@ build/subdirectory_verbs_test.tl nil_not_allowed 1
 
 build/symbol_index.tl nil_not_allowed 4
 
-build/syntax_analyzer.tl nil_not_allowed 4
 
 build/syntax_analyzer_test.tl nil_not_allowed 23
 
@@ -853,23 +836,18 @@ build/syntax_derivation_test.tl nil_not_allowed 11
 
 build/syntax_links_test.tl nil_not_allowed 5
 
-build/syntax_match.tl nil_not_allowed 5
 
 build/syntax_match_test.tl nil_not_allowed 4
 
-build/syntax_node.tl nil_not_allowed 3
 
 build/syntax_node_test.tl nil_not_allowed 3
 
-build/syntax_rewrite.tl nil_not_allowed 7
 
 build/syntax_scopes_test.tl nil_not_allowed 11
 
-build/syntax_shape_specs.tl nil_not_allowed 5
 
 build/syntax_shape_specs_test.tl nil_not_allowed 1
 
-build/syntax_stub.tl nil_not_allowed 2
 
 build/syntax_stub_test.tl nil_not_allowed 6
 
@@ -1511,12 +1489,10 @@ build/c/rules.tl index_may_be_nil 22
 
 build/c/rules_test.tl index_may_be_nil 1
 
-build/c_functions.tl index_may_be_nil 3
 
 build/cache_maintenance.tl index_may_be_nil 1
 
 
-build/check_draws.tl index_may_be_nil 2
 
 build/closure_store.tl index_may_be_nil 6
 
@@ -1583,7 +1559,6 @@ build/gen_syscalls.tl index_may_be_nil 3
 
 build/harness_epoch_test.tl index_may_be_nil 2
 
-build/hash.tl index_may_be_nil 1
 
 build/hash_sums_fuzz_test.tl index_may_be_nil 2
 
@@ -1599,9 +1574,7 @@ build/importer_store_test.tl index_may_be_nil 2
 
 build/importer_test.tl index_may_be_nil 4
 
-build/json.tl index_may_be_nil 1
 
-build/json_query.tl index_may_be_nil 1
 
 build/json_query_fuzz_test.tl index_may_be_nil 1
 
@@ -1664,22 +1637,18 @@ build/symbol_index.tl index_may_be_nil 1
 build/syntax_analyzer_test.tl index_may_be_nil 1
 
 
-build/syntax_derivation.tl index_may_be_nil 2
 
 
 build/syntax_links_test.tl index_may_be_nil 1
 
-build/syntax_match.tl index_may_be_nil 5
 
 build/syntax_match_test.tl index_may_be_nil 1
 
-build/syntax_node.tl index_may_be_nil 1
 
 build/syntax_rewrite_test.tl index_may_be_nil 1
 
 build/syntax_shape_specs_test.tl index_may_be_nil 1
 
-build/syntax_stub.tl index_may_be_nil 10
 
 build/syntax_typed_fixture.tl index_may_be_nil 2
 
@@ -1725,7 +1694,6 @@ build/todos_git_test.tl index_may_be_nil 3
 
 
 
-build/tree_program.tl index_may_be_nil 1
 
 build/tree_root.tl index_may_be_nil 1
 
@@ -4991,14 +4959,12 @@ test/sqlite_result_test.tl condition_type 2
 
 build/c/rules.tl or_mix 2
 
-build/c_tokens.tl or_mix 1
 
 
 
 
 
 
-build/check_draws.tl or_mix 2
 
 
 
@@ -5035,7 +5001,6 @@ build/hash_sums_fuzz_test.tl or_mix 1
 
 
 
-build/json.tl or_mix 1
 
 
 
@@ -7310,7 +7275,6 @@ build/json_query.tl view_as_mut 1
 build/link_files.tl view_as_mut 1
 
 
-build/lsp/graph.tl nil_not_allowed 1
 
 
 build/lsp/syntax_read.tl view_as_mut 1

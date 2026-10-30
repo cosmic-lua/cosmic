@@ -87,6 +87,9 @@ local spec_of: function(t: Type, path: string, shape: string, holding: {Types.De
 local function optional_of(t: Types.Union, path: string, shape: string, holding: {Types.Decl: boolean},
                            store: Types.Store): string?, string
   local present = t.members[1]
+  if present == nil then
+    return nil, path .. ": a union of no type has no shape"
+  end
   if #t.members > 1 then
     return nil, path .. ": a union of more than one type has no shape; " ..
       "`T?` is the one it has, and `Shape.one_of` an enumeration"
@@ -276,6 +279,9 @@ local function resolve_name(build: Driver.Build, outcome: Driver.Outcome, name: 
                             required_by: {string: string}): Target?, string
   local program = build.program
   local first = name:match("^[^.]+")
+  if first == nil then
+    return nil, "a name has its first word"
+  end
   local rest = name:sub(#first + 2)
   local lowered = outcome.lowered
   local here = Scopes.in_scope(outcome.scoped, at)[first]
@@ -307,7 +313,8 @@ local function resolve_name(build: Driver.Build, outcome: Driver.Outcome, name: 
   if found == nil then
     return nil, ("module %q declares no record %q"):format(longest, inside)
   end
-  return entry_target(program.store, found, required_by[longest] .. "." .. inside)
+  local module_name = assert(required_by[longest], "the module found is one the file requires")
+  return entry_target(program.store, found, module_name .. "." .. inside)
 end
 
 local type Splice = ShapeSpecs.Splice
@@ -346,7 +353,7 @@ function ShapeSpecs.splices(build: Driver.Build, module: string, file: string, s
     local where = ("%s:%d: %s.record_of"):format(file, span.y, shape)
     local named = hit.caps["_N"]
     local literal = named ~= nil and named.nodes[1] or nil
-    if literal == nil or not ((literal.kind == "String")) then
+    if named == nil or literal == nil or not ((literal.kind == "String")) then
       return { splices = none, line = span.y,
         refusal = where .. ": the name must be a string literal, which the build reads" }
     end

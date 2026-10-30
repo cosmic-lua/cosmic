@@ -364,7 +364,7 @@ local function failure_message(stat: Ast.Return, which: string): Ast.Exp?
   local values = stat.values
   if which == "refuse" then
     local call = values[1]
-    if #values == 1 and (call.kind == "Call") and #call.args == 1 then
+    if #values == 1 and call ~= nil and (call.kind == "Call") and #call.args == 1 then
       local callee = call.callee
       if (callee.kind == "Name") and callee.text == "refuse" then
         return call.args[1]
@@ -373,7 +373,7 @@ local function failure_message(stat: Ast.Return, which: string): Ast.Exp?
     return nil
   end
   local head = values[1]
-  if #values ~= 2 then
+  if #values ~= 2 or head == nil then
     return nil
   end
   if (which == "nil" and (head.kind == "Nil")) or (which == "false" and (head.kind == "Boolean") and not head.value) then
@@ -1422,7 +1422,7 @@ local function inputs_of(chunk: Ast.Chunk, name: string): PolicyRules.Declared?,
     return nil, ""
   end
   local value = found.args[1]
-  if #found.args ~= 1 or not ((value.kind == "Table")) then
+  if #found.args ~= 1 or value == nil or not ((value.kind == "Table")) then
     return nil, at(found_line) .. "hand it one table written out as a literal: Test.policy { grants = { ... } }"
   end
   local data, why = policy_data(chunk, value)

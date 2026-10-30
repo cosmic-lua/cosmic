@@ -200,7 +200,7 @@ function TreeProgram.joined(files: {{string}}, written: {{string}}): TreeProgram
   end
   for _, entry in ipairs(written) do
     out[#out + 1] = entry
-    derived[entry[1]] = true
+    derived[assert(entry[1], "a written file names its path")] = true
   end
   return { files = out, derived = derived }
 end

@@ -169,11 +169,12 @@ end
 local function line_range(chunk: Ast.Chunk, starts: {integer}, length: integer, node: Ast.Node): integer, integer
   local base = Node.base(node)
   local tokens = chunk.tokens
-  local a = starts[Lexer.y(tokens, base.first)]
+  local a = assert(starts[Lexer.y(tokens, base.first)], "every line of a token has its start")
   local b = length
   local last_end = Lexer.yend(tokens, base.last)
-  if last_end + 1 <= #starts then
-    b = starts[last_end + 1] - 1
+  local next_start = starts[last_end + 1]
+  if next_start ~= nil then
+    b = next_start - 1
   end
   return a, b
 end
@@ -197,7 +198,7 @@ function Rewrite.rewrite(source: string, name: string, pattern: Match.Pattern, r
   local refused: mut {Rewrite.Refusal} = {}
   local edits: mut {Match.Hit} = {}
   for i = #hits, 1, -1 do
-    local hit = hits[i]
+    local hit = assert(hits[i], "the hits run from the last to the first")
     local parent = parents[Node.base(hit.node).id]
     local whole = Node.range(chunk, hit.node)
     local a, b = whole.first, whole.last

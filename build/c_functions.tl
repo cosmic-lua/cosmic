@@ -195,7 +195,8 @@ local function after_end(lines: {string}, first: integer): integer?
   local text = lines[first]
   if text ~= nil and text:match("^%S.*{.*}%s*$") ~= nil then return first + 1 end
   for at = first + 1, #lines do
-    if lines[at]:match("^}") ~= nil then return at + 1 end
+    local text_at = lines[at]
+    if text_at ~= nil and text_at:match("^}") ~= nil then return at + 1 end
   end
   return nil
 end
@@ -212,6 +213,7 @@ local function definition(lines: {string}, name: string): integer?
         (text:find(spaced, 1, true) ~= nil or text:find(pointed, 1, true) ~= nil) then
       for ahead = at, #lines do
         local rest = lines[ahead]
+        if rest == nil then break end
         if rest:find("{", 1, true) ~= nil then return at end
         if rest:match(";%s*$") ~= nil then break end
       end
@@ -284,7 +286,7 @@ function c_functions.tally(functions: {Coverage.Function}, hits: Coverage.Hits,
         first = definition(source, fn.name) or fn.line
         stop = after_end(source, first)
       else
-        for _, line in ipairs(starts[fn.path]) do
+        for _, line in ipairs((assert(starts[fn.path], "every function's file has its starts"))) do
           if line > fn.line then
             stop = line
             break
@@ -303,6 +305,8 @@ function c_functions.tally(functions: {Coverage.Function}, hits: Coverage.Hits,
   local tally: c_functions.Tally = { unentered = {}, entered = 0, exempted = 0,
     total = #keys, stale = {}, unavailable = {} }
   for _, key in ipairs(keys) do
+    local prerequisite = prerequisites[key]
+    local absent = if prerequisite ~= nil and unavailable ~= nil then unavailable[prerequisite] else nil end
     if entered[key] == true then
       tally.entered = tally.entered + 1
       if exempts(key) then
@@ -310,8 +314,8 @@ function c_functions.tally(functions: {Coverage.Function}, hits: Coverage.Hits,
       end
     elseif exempts(key) then
       tally.exempted = tally.exempted + 1
-    elseif prerequisites[key] ~= nil and unavailable ~= nil and unavailable[prerequisites[key]] ~= nil then
-      tally.unavailable[#tally.unavailable + 1] = key .. ": " .. unavailable[prerequisites[key]]
+    elseif absent ~= nil then
+      tally.unavailable[#tally.unavailable + 1] = key .. ": " .. absent
     else
       tally.unentered[#tally.unentered + 1] = key
     end

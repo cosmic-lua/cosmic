@@ -48,7 +48,7 @@ end
 --- the chunk's line is the line of the Teal.
 local function at_source_line(trouble: string, file: string): string
   local line, said = trouble:match("^.-:(%d+): (.*)$")
-  if line == nil then
+  if line == nil or said == nil then
     return file .. ": " .. trouble
   end
   return file .. ":" .. line .. ": " .. said

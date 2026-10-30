@@ -41,7 +41,7 @@ function Lines.executable(source: string, name: string): {integer: boolean}?, st
       for _, stat in ipairs(node.stats) do
         if not declares_type(stat) then
           local base = Node.base(stat)
-          local y = chunk.tokens.y[base.first]
+          local y = assert(chunk.tokens.y[base.first], "every token has a line")
           -- Lua attributes a closure to the line its body ends on, and a `local function` is nothing but that closure:
           -- its own first line never runs. (`function M.f` is pinned to its first line by the assignment Lua fixes
           -- there.)

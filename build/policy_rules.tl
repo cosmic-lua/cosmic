@@ -88,9 +88,10 @@ local LOOPBACK_ONLY <const> = "loopback takes loopback addresses 127.a.b.c only:
 local function loopback_trouble(host: string): string
   local refused = string.format("loopback %q: %s", host, LOOPBACK_ONLY)
   local a, b, c, d = host:match("^(%d+)%.(%d+)%.(%d+)%.(%d+)$")
-  if a ~= "127" then return refused end
+  if a ~= "127" or b == nil or c == nil or d == nil then return refused end
   for _, part in ipairs({ b, c, d }) do
-    if #part > 3 or (#part > 1 and part:sub(1, 1) == "0") or tonumber(part) > 255 then
+    local octet = tonumber(part)
+    if #part > 3 or (#part > 1 and part:sub(1, 1) == "0") or octet == nil or octet > 255 then
       return refused
     end
   end

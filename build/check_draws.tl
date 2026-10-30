@@ -564,7 +564,7 @@ end
 --- else, a local being no function's to assign, either a field or, drawn
 --- only to be refused (`g.captures`), the local.
 local function cleared(g: Gen, v: Vis, p: string): string
-  if p:find(".", 1, true) or has(v.globals, p) then return p end
+  if p:find(".", 1, true) ~= nil or has(v.globals, p) then return p end
   if g.src:int(0, 1) == 0 then
     g.captures = true
     return p
@@ -915,11 +915,12 @@ local function str_nest(g: Gen)
     if left < levels and g.src:int(0, 2) > 0 then return end
     -- A key that only a narrowing to the literals is accepted for, which a
     -- string that is none of them reads as nil from.
-    local uses = { "#(" .. var .. " or \"\")" }
+    local plain_use = "#(" .. var .. " or \"\")"
+    local uses = { plain_use }
     if wipes then
-      uses = { "#" .. var, "#" .. var, "#(" .. var .. " .. \"x\")", "#" .. var .. ":upper()", uses[1] }
+      uses = { "#" .. var, "#" .. var, "#(" .. var .. " .. \"x\")", "#" .. var .. ":upper()", plain_use }
     else
-      uses = { "keyed[" .. var .. "]", "keyed[" .. var .. "]", "keyed[" .. var .. "]", "keyed[" .. var .. "]", uses[1] }
+      uses = { "keyed[" .. var .. "]", "keyed[" .. var .. "]", "keyed[" .. var .. "]", "keyed[" .. var .. "]", plain_use }
     end
     add(g, "st.sink = st.sink + " .. Fuzz.pick(g.src, uses))
   end
@@ -1044,7 +1045,12 @@ local function loop_drop(g: Gen, v: Vis)
   end
   if g.shapes and g.src:int(0, 3) == 0 then
     -- A `break` that leaves the block of a `<close>` local runs its `__close`.
-    local who = if has(v.globals, p) then "g" else is_field(p) and p:sub(1, 1) end or "r"
+    local who = "r"
+    if has(v.globals, p) then
+      who = "g"
+    elseif is_field(p) then
+      who = p:sub(1, 1)
+    end
     add(g, "if " .. i .. " >= 2 then")
     g.depth = g.depth + 1
     for _, line in ipairs(close_lines(g, who, "break")) do
@@ -1290,7 +1296,7 @@ local function gen_program(src: Fuzz.Source): string
     -- Constructs the property requires of the programs it runs, so that a
     -- run of 64 draws reaches each whatever share of them draws shapes.
     proc(g, v)
-    add(g, v.procs[#v.procs] .. "()")
+    add(g, assert(v.procs[#v.procs], "proc made one") .. "()")
     assert_stmt(g, v)
     -- A loop that leaves on a test of drawn places.
     local i = fresh(g, "i")

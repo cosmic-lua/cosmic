@@ -87,7 +87,7 @@ local function declared_names(line: string): {string}
     out[1] = named
     return out
   end
-  local names = line:sub(7):match("^([^=:]*)")
+  local names = assert(line:sub(7):match("^([^=:]*)"), "the pattern matches an empty head at worst")
   for name in (names:gsub("<[%w_]+>", "")):gmatch("[%w_]+") do
     out[#out + 1] = name
   end
