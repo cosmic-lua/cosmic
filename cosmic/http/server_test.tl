@@ -75,7 +75,7 @@ local function reply(p: Peer, method?: string): Got
     local text = line(p)
     if text == "" then break end
     local name, value = text:match("^([^:]+): (.*)$")
-    assert(name ~= nil, "header line: " .. text)
+    assert(name ~= nil and value ~= nil, "header line: " .. text)
     assert(headers[name:lower()] == nil, "repeated header " .. name)
     headers[name:lower()] = value
   end
@@ -150,7 +150,8 @@ local function serving(handle: function(Server.Request): Server.Reply,
   }
   given.on_error = function(trouble: string) troubles[#troubles + 1] = trouble end
   given.on_ready = function(addresses: {Net.Address}, server: Net.Server)
-    client(addresses[1])
+    local listening = assert(addresses[1], "the server listens")
+    client(listening)
     server:stop()
   end
   assert(Server.serve(given))
@@ -162,6 +163,13 @@ local function echo(req: Server.Request): Server.Reply
   local body = assert(Stream.read_all(req.body))
   return { status = 200, headers = { ["Content-Type"] = "text/plain" },
     body = req.method .. " " .. req.path .. " " .. req.query .. " " .. body }
+end
+
+--- The `i`th trouble the server reported.
+local function trouble_at(troubles: {string}, i: integer): string
+  local found = troubles[i]
+  assert(found, "expected trouble " .. tostring(i))
+  return found
 end
 
 local function get(path: string, extra?: string): string
@@ -181,7 +189,8 @@ local function test_pipelined_requests_are_answered_in_order_on_one_connection()
     assert(second.body == "GET /b  ", second.body)
     assert(third.body == "PUT /c  abc", third.body)
     assert(first.headers["content-length"] == tostring(#first.body))
-    assert(first.headers["date"]:find(" GMT$") ~= nil, first.headers["date"])
+    local date = assert(first.headers["date"], "expected a Date header")
+    assert(date:find(" GMT$") ~= nil, date)
     assert(first.headers["connection"] == nil)
     assert(first.headers["content-type"] == "text/plain")
     send(p, get("/d"))
@@ -379,20 +388,20 @@ local function test_a_failing_handler_is_answered_500()
     end
   end)
   assert(#troubles == #paths, tostring(#troubles))
-  assert(troubles[1]:find("http: GET /raise: .*the handler failed") ~= nil, troubles[1])
-  assert(troubles[1]:find("stack traceback", 1, true) ~= nil, troubles[1])
-  assert(troubles[2]:find("not a Server.Reply", 1, true) ~= nil, troubles[2])
-  assert(troubles[3]:find("Date: the server writes it itself", 1, true) ~= nil, troubles[3])
-  assert(troubles[4]:find("CR, LF or NUL", 1, true) ~= nil, troubles[4])
-  assert(troubles[5]:find("no body goes with status 204", 1, true) ~= nil, troubles[5])
-  assert(troubles[6]:find("from 200 to 999", 1, true) ~= nil, troubles[6])
-  assert(troubles[7]:find("no field header", 1, true) ~= nil, troubles[7])
-  assert(troubles[8]:find("Content-Length is 3, but the reply has no body", 1, true) ~= nil, troubles[8])
-  assert(troubles[9]:find("Content-Length is 4, but the body is 5 bytes", 1, true) ~= nil, troubles[9])
-  assert(troubles[10]:find("CR, LF or NUL", 1, true) ~= nil, troubles[10])
-  assert(troubles[11]:find("one value, not a list", 1, true) ~= nil, troubles[11])
-  assert(troubles[12]:find("Date: the server writes it itself", 1, true) ~= nil, troubles[12])
-  assert(troubles[13]:find("strings or lists of them", 1, true) ~= nil, troubles[13])
+  assert(trouble_at(troubles, 1):find("http: GET /raise: .*the handler failed") ~= nil, troubles[1])
+  assert(trouble_at(troubles, 1):find("stack traceback", 1, true) ~= nil, troubles[1])
+  assert(trouble_at(troubles, 2):find("not a Server.Reply", 1, true) ~= nil, troubles[2])
+  assert(trouble_at(troubles, 3):find("Date: the server writes it itself", 1, true) ~= nil, troubles[3])
+  assert(trouble_at(troubles, 4):find("CR, LF or NUL", 1, true) ~= nil, troubles[4])
+  assert(trouble_at(troubles, 5):find("no body goes with status 204", 1, true) ~= nil, troubles[5])
+  assert(trouble_at(troubles, 6):find("from 200 to 999", 1, true) ~= nil, troubles[6])
+  assert(trouble_at(troubles, 7):find("no field header", 1, true) ~= nil, troubles[7])
+  assert(trouble_at(troubles, 8):find("Content-Length is 3, but the reply has no body", 1, true) ~= nil, troubles[8])
+  assert(trouble_at(troubles, 9):find("Content-Length is 4, but the body is 5 bytes", 1, true) ~= nil, troubles[9])
+  assert(trouble_at(troubles, 10):find("CR, LF or NUL", 1, true) ~= nil, troubles[10])
+  assert(trouble_at(troubles, 11):find("one value, not a list", 1, true) ~= nil, troubles[11])
+  assert(trouble_at(troubles, 12):find("Date: the server writes it itself", 1, true) ~= nil, troubles[12])
+  assert(trouble_at(troubles, 13):find("strings or lists of them", 1, true) ~= nil, troubles[13])
 end
 
 --- A handler may give a reply's Content-Length, under any case of its
@@ -494,10 +503,11 @@ local function test_stopping_closes_idle_connections_at_once()
       return { status = 200, body = "ok" }
     end,
     on_ready = function(addresses: {Net.Address}, server: Net.Server)
-      local idle = peer(addresses[1])
+      local listening = assert(addresses[1], "the server listens")
+      local idle = peer(listening)
       send(idle, get("/"))
       assert(reply(idle).status == 200)
-      local busy = peer(addresses[1])
+      local busy = peer(listening)
       send(busy, get("/slow"))
       assert(Poll.delay(Clock.ms(20)))
       Poll.spawn(function()
@@ -570,7 +580,7 @@ local function test_a_reader_body_short_of_its_length_closes_the_connection()
     while more(p) do end
     assert(p.buf:find("\r\n\r\nabc$") ~= nil, p.buf)
   end)
-  assert(#troubles == 1 and troubles[1]:find("ended 7 bytes short", 1, true) ~= nil, troubles[1])
+  assert(#troubles == 1 and trouble_at(troubles, 1):find("ended 7 bytes short", 1, true) ~= nil, troubles[1])
 end
 
 --- A 304 carries no body, and a Content-Length only where the handler
@@ -639,8 +649,8 @@ local function test_a_reply_body_that_raises_closes_the_connection()
     while more(p) do end
   end)
   assert(closed)
-  assert(#troubles == 1 and troubles[1]:find("the body broke", 1, true) ~= nil, troubles[1])
-  assert(troubles[1]:find("stack traceback", 1, true) ~= nil, troubles[1])
+  assert(#troubles == 1 and trouble_at(troubles, 1):find("the body broke", 1, true) ~= nil, troubles[1])
+  assert(trouble_at(troubles, 1):find("stack traceback", 1, true) ~= nil, troubles[1])
 end
 
 --- A request body that fails while a reply's Reader reads it closes the
@@ -723,7 +733,7 @@ local function test_a_callers_on_stop_runs_once_and_its_raise_is_reported()
   local given_value = given
   assert(given_value ~= nil and type(given_value.stop) == "function")
   assert(idle_ended, "the idle connection was left open")
-  assert(#troubles == 1 and troubles[1]:find("stopping badly", 1, true) ~= nil, tostring(troubles[1]))
+  assert(#troubles == 1 and trouble_at(troubles, 1):find("stopping badly", 1, true) ~= nil, tostring(troubles[1]))
 end
 
 --- A spec's on_stop that is no function raises, naming the field.

@@ -97,6 +97,36 @@ local function requests_of(fields: {string}): {Request}
   return out
 end
 
+--- Field `i` of `r`'s target `key`: the request line, path, query and host.
+local function target_field(key: integer, i: integer): string
+  local target = TARGETS[key]
+  assert(target, "the generator draws a target from TARGETS")
+  local field = target[i]
+  assert(field, "every target holds four fields")
+  return field
+end
+
+--- The name and value of a header pair.
+local function pair_of(pair: {string}): string, string
+  local name, value = pair[1], pair[2]
+  assert(name and value, "a header is a name and a value")
+  return name, value
+end
+
+--- The field `i` of an unpacked input, which the generators pack whole.
+local function unpacked(fields: {string}, i: integer): string
+  local field = fields[i]
+  assert(field, "the generator packs field " .. tostring(i))
+  return field
+end
+
+--- The integer in field `i` of an unpacked input.
+local function unpacked_integer(fields: {string}, i: integer): integer
+  local number = math.tointeger(tonumber(unpacked(fields, i)))
+  assert(number, "the generator packs an integer in field " .. tostring(i))
+  return number
+end
+
 --- `r` as the bytes a client sends: its head's lines ended by `eol`,
 --- and a chunked body's by CRLF, as a server holds them to. An
 --- HTTP/1.0 request is never chunked, which that version cannot carry.
@@ -104,8 +134,11 @@ local function written(r: Request): string
   local eol = r.eol
   local framing = r.framing
   if framing == "chunked" and r.version == "HTTP/1.0" then framing = "length" end
-  local lines: mut {string} = { r.method .. " " .. TARGETS[r.target][1] .. " " .. r.version, "Host: h.test" }
-  for _, pair in ipairs(r.headers) do lines[#lines + 1] = pair[1] .. ": " .. pair[2] end
+  local lines: mut {string} = { r.method .. " " .. target_field(r.target, 1) .. " " .. r.version, "Host: h.test" }
+  for _, pair in ipairs(r.headers) do
+    local name, value = pair_of(pair)
+    lines[#lines + 1] = name .. ": " .. value
+  end
   local body = table.concat(r.chunks)
   local encoded = ""
   if framing == "length" then
@@ -162,7 +195,7 @@ local function transcript(data: string, sizes: {integer}): string
     local read = wire.read_head(input, LIMITS)
     local head = read.head
     if head == nil then
-      assert(read.status == 0 or REFUSALS[read.status], "status " .. tostring(read.status))
+      assert(read.status == 0 or REFUSALS[read.status] == true, "status " .. tostring(read.status))
       if read.status ~= 0 then Fuzz.label("refused") end
       out[#out + 1] = "end " .. tostring(read.status)
       return table.concat(out, "\n")
@@ -174,7 +207,11 @@ local function transcript(data: string, sizes: {integer}): string
     table.sort(names)
     local fields: mut {string} = { head.method, head.target, head.path, head.query, head.version,
       tostring(head.length), tostring(head.chunked), tostring(head.close), tostring(head.continue) }
-    for _, name in ipairs(names) do fields[#fields + 1] = name .. "=" .. head.headers[name] end
+    for _, name in ipairs(names) do
+      local value = head.headers[name]
+      assert(value, "a name collected from the headers holds a value")
+      fields[#fields + 1] = name .. "=" .. value
+    end
     out[#out + 1] = table.concat(fields, "|")
     local body = wire.body(input, head, LIMITS)
     local got, _ = Stream.read_all(body)
@@ -277,8 +314,9 @@ local function test_a_written_request_reads_back(tmp: string)
       local head = read.head
       local expectations: mut {string} = {}
       for _, pair in ipairs(r.headers) do
-        if pair[1] == "Expect" and r.version == "HTTP/1.1" then
-          for member in pair[2]:lower():gmatch("[^,]+") do
+        local header, header_value = pair_of(pair)
+        if header == "Expect" and r.version == "HTTP/1.1" then
+          for member in header_value:lower():gmatch("[^,]+") do
             local bare = member:match("^%s*(%S.-)%s*$")
             if bare ~= nil then expectations[#expectations + 1] = bare end
           end
@@ -292,18 +330,19 @@ local function test_a_written_request_reads_back(tmp: string)
         end
       end
       if head == nil then return false, "refused: " .. tostring(read.status) .. " " .. read.why end
-      local target = TARGETS[r.target]
-      if head.method ~= r.method or head.target ~= target[1] or head.version ~= r.version or
-          head.path ~= target[2] or head.query ~= target[3] then
+      if head.method ~= r.method or head.target ~= target_field(r.target, 1) or head.version ~= r.version or
+          head.path ~= target_field(r.target, 2) or head.query ~= target_field(r.target, 3) then
         return false, "the request line read differs"
       end
       local expected: mut {string:string} = {}
       for _, pair in ipairs(r.headers) do
-        local name = pair[1]:lower()
+        local header, header_value = pair_of(pair)
+        local name = header:lower()
         local joiner = if name == "cookie" then "; " else ", " end
-        expected[name] = if expected[name] ~= nil then expected[name] .. joiner .. pair[2] else pair[2] end
+        local earlier = expected[name]
+        expected[name] = if earlier ~= nil then earlier .. joiner .. header_value else header_value end
       end
-      expected["host"] = target[4]
+      expected["host"] = target_field(r.target, 4)
       if framing == "length" then expected["content-length"] = tostring(#body) end
       if framing == "chunked" then expected["transfer-encoding"] = "chunked" end
       for name, value in pairs(expected) do
@@ -359,7 +398,8 @@ local function test_a_reply_is_framed_as_its_status_and_method_say(tmp: string)
     end,
     check = function(input: string): boolean, string
       local f = Fuzz.unpack(input)
-      local method, status, version, kind, text = f[1], math.tointeger(tonumber(f[2])), f[3], f[4], f[5]
+      local method, status, version, kind, text =
+        unpacked(f, 1), unpacked_integer(f, 2), unpacked(f, 3), unpacked(f, 4), unpacked(f, 5)
       local given, given_name = f[6] or "", f[7] or "Content-Length"
       local cookies = math.tointeger(tonumber(f[8] or "0")) or 0
       local reply_headers: mut {string: string | {string}} = { ["X-A"] = "1" }
@@ -383,7 +423,7 @@ local function test_a_reply_is_framed_as_its_status_and_method_say(tmp: string)
       local sent_text = if kind == "none" then "" else text end
       local why = wire.check(reply)
       if bodiless and kind ~= "none" and not (kind == "string" and text == "") then
-        if why == "" then return false, "a body for a " .. status .. " was taken" end
+        if why == "" then return false, "a body for a " .. tostring(status) .. " was taken" end
         Fuzz.label("bodiless")
         return true, ""
       end
@@ -438,9 +478,9 @@ local function test_a_reply_is_framed_as_its_status_and_method_say(tmp: string)
       if bodiless then
         Fuzz.label("bodiless")
         if (declared == nil and headers["content-length"] ~= nil) or headers["transfer-encoding"] ~= nil then
-          return false, "a " .. status .. " reply is framed"
+          return false, "a " .. tostring(status) .. " reply is framed"
         end
-        if rest ~= "" then return false, "a " .. status .. " reply carries a body" end
+        if rest ~= "" then return false, "a " .. tostring(status) .. " reply carries a body" end
         return true, ""
       end
       if method == "HEAD" then
@@ -452,6 +492,7 @@ local function test_a_reply_is_framed_as_its_status_and_method_say(tmp: string)
         Fuzz.label("content-length")
         if method == "HEAD" then return true, "" end
         local n = math.tointeger(tonumber(cl))
+        if n == nil then return false, "Content-Length is no integer: " .. cl end
         if short then
           if not (sent.close and sent.body_failure ~= "" and #rest < n) then
             return false, "a body cut short was not said so"
@@ -466,8 +507,9 @@ local function test_a_reply_is_framed_as_its_status_and_method_say(tmp: string)
         local at = 1
         while true do
           local size_text, after = rest:match("^(%x+)\r\n()", at)
-          if size_text == nil then return false, "malformed chunks" end
+          if size_text == nil or after == nil then return false, "malformed chunks" end
           local size = math.tointeger(tonumber(size_text, 16))
+          if size == nil then return false, "malformed chunks" end
           if size == 0 then
             if rest:sub(after) ~= "\r\n" then return false, "bytes after the last chunk" end
             break

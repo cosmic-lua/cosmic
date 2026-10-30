@@ -1112,23 +1112,15 @@ cosmic/html_test.tl nil_not_allowed 9
 
 
 
-cosmic/http/multipart_fuzz_test.tl nil_not_allowed 23
-
-cosmic/http/multipart_test.tl nil_not_allowed 4
 
 
-cosmic/http/server_range_fuzz_test.tl nil_not_allowed 15
-
-cosmic/http/server_range_test.tl nil_not_allowed 2
-
-cosmic/http/server_test.tl nil_not_allowed 17
-
-cosmic/http/server_tool_test.tl nil_not_allowed 2
 
 
-cosmic/http/wire_fuzz_test.tl nil_not_allowed 33
 
-cosmic/http/wire_test.tl nil_not_allowed 4
+
+
+
+
 
 cosmic/http_store_test.tl nil_not_allowed 1
 
@@ -1912,16 +1904,11 @@ cosmic/html_fuzz_test.tl index_may_be_nil 1
 cosmic/html_test.tl index_may_be_nil 1
 
 
-cosmic/http/multipart_fuzz_test.tl index_may_be_nil 5
-
-cosmic/http/multipart_test.tl index_may_be_nil 1
-
-cosmic/http/server_declared_types_test.tl index_may_be_nil 1
-
-cosmic/http/server_test.tl index_may_be_nil 3
 
 
-cosmic/http/wire_fuzz_test.tl index_may_be_nil 1
+
+
+
 
 cosmic/http_store_test.tl index_may_be_nil 2
 
@@ -3557,7 +3544,6 @@ cosmic/csv_fuzz_test.tl overload_none 3
 
 cosmic/csv_test.tl overload_none 1
 
-cosmic/http/multipart_fuzz_test.tl overload_none 1
 
 
 
@@ -5373,15 +5359,11 @@ cosmic/hash_test.tl or_mix 2
 cosmic/html_test.tl or_mix 11
 
 
-cosmic/http/multipart_test.tl or_mix 5
 
 
-cosmic/http/server_range_fuzz_test.tl or_mix 1
-
-cosmic/http/server_range_test.tl or_mix 2
 
 
-cosmic/http/wire_fuzz_test.tl or_mix 1
+
 
 cosmic/http_test.tl or_mix 11
 
@@ -6294,7 +6276,6 @@ cosmic/compress_test.tl compare_disjoint 2
 
 cosmic/http/init.tl compare_disjoint 1
 
-cosmic/http/multipart_test.tl compare_disjoint 1
 
 cosmic/http/server.tl compare_disjoint 4
 

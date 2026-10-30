@@ -250,6 +250,7 @@ end
 local function test_a_given_content_length_is_held_to_the_body()
   local function framed(out: string): string, integer, string
     local head, rest = out:match("^(.-\r\n)\r\n(.*)$")
+    assert(head and rest, "a reply is a head, a blank line and a body")
     local _, count = head:lower():gsub("\r\ncontent%-length:", "")
     return head, count, rest
   end
@@ -309,7 +310,8 @@ local function test_a_head_of_spaces_or_repeats_is_read_in_linear_time()
   assert(spaces.headers["x"] == inside)
   local repeated = assert(read("GET / HTTP/1.1\r\nHost: h\r\n" .. string.rep("X: ab\r\n", 9000) ..
       "\r\n", limits).head)
-  assert(#repeated.headers["x"] == 9000 * 4 - 2)
+  local joined = assert(repeated.headers["x"], "expected a joined X header")
+  assert(#joined == 9000 * 4 - 2)
 end
 
 --- A Reader body breaking its contract -- an empty chunk, which would
