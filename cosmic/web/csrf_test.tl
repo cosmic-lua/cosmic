@@ -24,7 +24,7 @@ local function memory_store(): Session.Store
     save = function(_self: Session.Store, previous: string, data: Session.Data, changes: Session.Changes,
                     _now: integer, _cookie: string): string?, string
       local id = previous
-      if id == "" or changes.regenerated then
+      if id == "" or changes.regenerated == true then
         count = count + 1
         id = "id" .. tostring(count)
         rows[previous] = nil
@@ -92,7 +92,8 @@ local function make_app(opts?: Csrf.Options, spec?: Web.AppSpec): Web.App
       local got = Input.form(req)
       if got.invalid ~= nil then return Web.text("invalid", { status = 400 }) end
       local query = assert(got.value)
-      return Web.text("name=" .. (query.by_name["name"] or { "-" })[1])
+      local names = query.by_name["name"] or { "-" }
+      return Web.text("name=" .. assert(names[1]))
     end),
     Web.post("/upload", function(req: Web.Request): Web.Response
       local got = Input.multipart(req)
@@ -356,9 +357,9 @@ local function test_the_refusal_is_a_403_that_says_why_without_the_token()
   assert(res.status == 403)
   assert(res.body:find("another site", 1, true), res.body)
   local missing = client:post("/do")
-  assert(missing.status == 403 and missing.body:find("security token", 1, true), missing.body)
+  assert(missing.status == 403 and missing.body:find("security token", 1, true) ~= nil, missing.body)
   local htmx = client:post("/do", { headers = { ["HX-Request"] = "true" } })
-  assert(htmx.status == 403 and htmx.body:find("reload the page", 1, true), htmx.body)
+  assert(htmx.status == 403 and htmx.body:find("reload the page", 1, true) ~= nil, htmx.body)
   assert(#lines >= 3 and lines[1]:find("csrf: refused POST /do (origin)", 1, true), lines[1])
   assert(not lines[1]:find("\1", 1, true), "a control byte of the client's is not written")
   for _, line in ipairs(lines) do assert(not line:find(token, 1, true)) end

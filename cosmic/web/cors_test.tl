@@ -101,7 +101,8 @@ local function test_errors_carry_the_headers_so_the_browser_shows_them()
     local res = get(client, APP, case[1] as string)
     assert(res.status == case[2], case[1] as string .. " " .. tostring(res.status))
     assert(res.headers["access-control-allow-origin"] == APP, case[1] as string)
-    assert(res.headers["vary"]:find("Origin", 1, true), case[1] as string)
+    local res_headers_vary = assert(res.headers["vary"], "expected res.headers[\"vary\"]")
+    assert(res_headers_vary:find("Origin", 1, true), case[1] as string)
   end
   local wrong = client:request("DELETE", "/data", { headers = { Origin = APP } })
   assert(wrong.status == 405 and wrong.headers["access-control-allow-origin"] == APP)
@@ -190,7 +191,8 @@ local function test_a_preflight_the_config_does_not_allow_is_a_403_without_a_gra
     for name in pairs(res.headers) do
       assert(not name:find("^access%-control%-allow"), why .. " leaked " .. name)
     end
-    assert(res.headers["vary"]:find("Origin", 1, true), why)
+    local res_headers_vary = assert(res.headers["vary"], "expected res.headers[\"vary\"]")
+    assert(res_headers_vary:find("Origin", 1, true), why)
   end
   refused(preflight(client, "https://evil.example", "POST"), "origin")
   refused(preflight(client, "null", "POST"), "null")
@@ -219,7 +221,8 @@ local function test_a_wildcard_header_list_repeats_only_valid_names()
   assert(res.status == 204 and res.headers["access-control-allow-headers"] == "x-one, x-two")
   assert(preflight(client, APP, "POST", "X-One\r\nSet-Cookie: a=b").status == 403)
   assert(preflight(client, APP, "POST", "a b").status == 403)
-  assert(res.headers["access-control-allow-headers"]:find("*", 1, true) == nil, "never a literal *")
+  local res_headers_access_control_allow_headers = assert(res.headers["access-control-allow-headers"], "expected res.headers[\"access-control-allow-headers\"]")
+  assert(res_headers_access_control_allow_headers:find("*", 1, true) == nil, "never a literal *")
 end
 
 local function test_a_preflight_has_a_default_age_and_method_list()
