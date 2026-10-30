@@ -36,8 +36,6 @@
 --- dropped, so CRLF input gives the same lines as LF input; output ends
 --- each line with "\n".
 
--- TODO: make this `local type Cell = require("cosmic.cell")` once the store keeps a module that only a `local type` require names; today that drops cosmic.cell from the binary and build/link_index_test fails.
-local Cell = require("cosmic.cell")
 local Codec = require("cosmic.codec")
 local Cli = require("cosmic.cli")
 local Flags = require("cosmic.flags")
@@ -341,7 +339,7 @@ function verb.run(argv: {string}, io?: verb.Io): integer
       hex:sub(17, 20) .. "-" .. hex:sub(21, 32)
   end
 
-  local last_v7: Cell<integer> = { value = -1 }
+  local last_v7: integer = -1
   --- One UUID: version 4 from 16 entropy bytes with the version and
   --- variant bits set, or version 7 laid out as 48 bits of milliseconds,
   --- the version, the 12-bit counter, the variant and 62 entropy bits.
@@ -355,8 +353,8 @@ function verb.run(argv: {string}, io?: verb.Io): integer
     end
     local ns = now_ns()
     local stamp = ((ns // 1000000) << 12) | ((ns % 1000000) * 4096 // 1000000)
-    if stamp <= last_v7.value then stamp = last_v7.value + 1 end
-    last_v7.value = stamp
+    if stamp <= last_v7 then stamp = last_v7 + 1 end
+    last_v7 = stamp
     local tail = secret(8)
     local b8 = (tail:byte(1) & 0x3f) | 0x80
     local head = string.pack(">I6", stamp >> 12)

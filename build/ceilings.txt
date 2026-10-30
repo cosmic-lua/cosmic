@@ -3085,7 +3085,6 @@ build/database_start_fixture.tl map_field 2
 
 build/dataset_test.tl map_field 7
 
-build/declared_key.tl map_field 3
 
 build/declared_key_fuzz_test.tl map_field 19
 
@@ -3249,7 +3248,7 @@ build/test_standing_test.tl map_field 10
 
 build/test_test.tl map_field 1
 
-build/test_worker.tl map_field 10
+build/test_worker.tl map_field 7
 
 build/test_worker_test.tl map_field 7
 
@@ -3481,7 +3480,6 @@ eval/check/grade_test.tl map_field 15
 
 eval/result_test.tl map_field 37
 
-eval/round.tl map_field 5
 
 eval/round_test.tl map_field 11
 
@@ -3495,7 +3493,6 @@ lang/check_programs.tl map_field 9
 
 lang/check_test.tl map_field 2
 
-lang/declarations.tl map_field 10
 
 lang/declarations_test.tl map_field 14
 
@@ -7289,7 +7286,6 @@ cosmic/shape_test.tl float_key 1
 
 cosmic/time.tl float_key 1
 
-lang/declarations.tl float_key 2
 
 lang/lexer.tl float_key 3
 
