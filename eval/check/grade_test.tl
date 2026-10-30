@@ -84,7 +84,10 @@ local function graded(name: string, dir: string, env?: {string:string},
   assert(sys.dup2(saved, 1))
   assert(sys.close(saved))
   if not ok then error(status, 0) end
-  return status as integer, (assert(Fs.read(lines)))
+  if not status is integer then
+    error("Grader.grade answered " .. tostring(status) .. ", not an integer status", 0)
+  end
+  return status, (assert(Fs.read(lines)))
 end
 
 --- A build that fails leaves an earlier o/bin/notes where it was, and
@@ -356,11 +359,11 @@ local function test_cosmic_test_steps_run_unsandboxed_whatever_the_caller_holds(
   local held: {string:string} = { PATH = "/bin", COSMIC_TEST_SANDBOX = "1", COSMIC_SANDBOX = "must",
     COSMIC_CI_REQUIRE_SANDBOX = "1" }
   local env = Grader.unsandboxed(held)
-  assert(env.COSMIC_TEST_SANDBOX == "0", tostring(env.COSMIC_TEST_SANDBOX))
-  assert(env.COSMIC_SANDBOX == nil and env.COSMIC_CI_REQUIRE_SANDBOX == nil, "a held run stayed")
-  assert(env.PATH == "/bin", "the rest of the environment is kept")
-  assert(held.COSMIC_TEST_SANDBOX == "1" and held.COSMIC_SANDBOX == "must", "the input was changed")
-  assert(Grader.unsandboxed({}).COSMIC_TEST_SANDBOX == "0")
+  assert(env["COSMIC_TEST_SANDBOX"] == "0", tostring(env["COSMIC_TEST_SANDBOX"]))
+  assert(env["COSMIC_SANDBOX"] == nil and env["COSMIC_CI_REQUIRE_SANDBOX"] == nil, "a held run stayed")
+  assert(env["PATH"] == "/bin", "the rest of the environment is kept")
+  assert(held["COSMIC_TEST_SANDBOX"] == "1" and held["COSMIC_SANDBOX"] == "must", "the input was changed")
+  assert(Grader.unsandboxed({})["COSMIC_TEST_SANDBOX"] == "0")
 end
 
 --- A grader holding its tests to sandboxing still runs both `cosmic
@@ -428,7 +431,7 @@ local function test_a_grade_runs_with_a_home_inside_the_arena()
   local held: {string:string} = { HOME = "/root", XDG_CACHE_HOME = "/root/.cache", PATH = "/bin",
     COSMIC_BUILD_HOME = "/elsewhere", COSMIC_BUILD_CACHE = "/x", COSMIC_VERDICT_CACHE = "/y" }
   local env = Grader.isolated(held, "/arena")
-  assert(env.HOME == "/arena/grade-home" and env.XDG_CACHE_HOME == "/arena/grade-home/.cache")
-  assert(env.COSMIC_BUILD_HOME == nil and env.COSMIC_BUILD_CACHE == nil and env.COSMIC_VERDICT_CACHE == nil)
-  assert(env.PATH == "/bin" and held.HOME == "/root", "the input was changed or the rest dropped")
+  assert(env["HOME"] == "/arena/grade-home" and env["XDG_CACHE_HOME"] == "/arena/grade-home/.cache")
+  assert(env["COSMIC_BUILD_HOME"] == nil and env["COSMIC_BUILD_CACHE"] == nil and env["COSMIC_VERDICT_CACHE"] == nil)
+  assert(env["PATH"] == "/bin" and held["HOME"] == "/root", "the input was changed or the rest dropped")
 end

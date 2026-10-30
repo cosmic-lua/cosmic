@@ -211,17 +211,18 @@ end
 --- turns, cost and verdict, `null` where it has none.
 local function index_line(system: Round.System, entry: Round.Entry): string
   local text = system.read(entry.arena .. "/result.json")
-  local fields: any = nil
+  local fields: {string: Json.Value} = {}
   if text ~= nil then
     local decoded, _ = Json.decode(text)
-    fields = decoded
+    local object, _ = Json.to_object(decoded)
+    if object ~= nil then fields = object end
   end
   local function field(key: string): string
-    local value: any = fields is {string: any} and fields[key] or nil
+    local value = fields[key]
     if value == nil then return "null" end
     return tostring(value)
   end
-  local spent: any = fields is {string: any} and fields["cost_usd"] or nil
+  local spent = fields["cost_usd"]
   local cost = spent is number and string.format("$%.2f", spent) or "null"
   return entry.task .. " status=" .. field("status") .. " turns=" .. field("turns") ..
     " cost=" .. cost .. " verdict=" .. field("grade_verdict")
