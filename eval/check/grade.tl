@@ -1430,14 +1430,14 @@ local function jobs_refusals(g: Grade, w: string)
   refuses(g, { "run", "w/missing.json" })
 end
 
---- Three one-second jobs at the default bound of two take about two
---- seconds: one when the bound is ignored, three when they run in turn.
 --- When a job started and finished, in milliseconds.
 local record Span
   start: number
   finish: number
 end
 
+--- Three one-second jobs at the default bound of two take about two
+--- seconds: one when the bound is ignored, three when they run in turn.
 local function jobs_parallel(g: Grade)
   jobfile(g, "w/par.json", {
     one = { cmd = { "/bin/sleep", "1" } },
