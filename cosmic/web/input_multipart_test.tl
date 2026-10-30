@@ -19,6 +19,30 @@ local function message_of(invalid: Types.Invalid?): string?
   return invalid.message
 end
 
+--- The first error of `bad`, which every refusal here lists.
+local function first_error(bad: Types.Invalid): Types.FieldError
+  local first = assert(bad.errors[1], "a refusal lists an error")
+  return first
+end
+
+--- The uploads `read` holds under the file input `name`.
+local function uploads(read: Input.Multipart, name: string): {Input.Upload}
+  local found = assert(read.files[name], "expected files under " .. name)
+  return found
+end
+
+--- The first upload `read` holds under the file input `name`.
+local function upload(read: Input.Multipart, name: string): Input.Upload
+  local first = assert(uploads(read, name)[1], "expected a file under " .. name)
+  return first
+end
+
+--- The values `fields` holds under the text input `name`.
+local function values_of(fields: Url.Query, name: string): {string}
+  local found = assert(fields.by_name[name], "expected values under " .. name)
+  return found
+end
+
 local B <const> = "----boundary123"
 local FORM_TYPE <const> = "multipart/form-data; boundary=" .. B
 
@@ -57,23 +81,21 @@ end
 
 --- The refusal reading `body` with `opts` gives, failing where it is read.
 local function refusal(body: string, opts?: Types.InputOptions, content_type?: string, chunked?: boolean): Types.Invalid
-  -- TODO: hold the `nil as T?` boxes of this file (Types.Invalid?, Input.Multipart?, Signup?, {string}?, Types.Parsed<Url.Query>?) in plain `T?` locals once the reads they type assert what they index (`files[name][1]`, `errors[1]`, `by_name[name][1]`): typed, they add 19 nil_not_allowed to a file pinned at 25.
-  local got = { value = nil as Types.Invalid? }
+  local got: Types.Invalid? = nil
   local reply = post(body, function(req: Web.Request): Web.Response
     local read = Input.multipart(req, opts)
-    got.value = read.invalid
+    got = read.invalid
     return Web.empty()
   end, content_type, chunked)
   assert(reply.status == 204, reply.status)
-  local got_value = got.value
-  assert(got_value ~= nil, "read: " .. body:sub(1, 80))
-  return got_value
+  local refused = assert(got, "expected a refusal reading: " .. body:sub(1, 80))
+  return refused
 end
 
 local function test_text_and_file_parts_are_read_and_the_file_is_spooled(tmp: string)
-  local seen = { value = nil as Input.Multipart? }
+  local seen: Input.Multipart? = nil
   local contents: string? = nil
-  local listing = { value = nil as {string}? }
+  local listing: {string}? = nil
   local stat_mode: integer? = nil
   local reply = post(body_of(
     field("email", "a@b.test"), field("tags", "x"), field("tags", "y"),
@@ -81,23 +103,24 @@ local function test_text_and_file_parts_are_read_and_the_file_is_spooled(tmp: st
       local read = Input.multipart(req, { dir = tmp })
       assert(read.invalid == nil, message_of(read.invalid))
       local value = assert(read.value)
-      seen.value = value
-      local up = value.files["avatar"][1]
-      contents = assert(Fs.read(up.path))
-      listing.value = assert(Fs.list(tmp))
-      stat_mode = assert(Fs.stat(up.path)).mode & 0x1ff
+      seen = value
+      local kept = upload(value, "avatar")
+      contents = assert(Fs.read(kept.path))
+      listing = assert(Fs.list(tmp))
+      stat_mode = assert(Fs.stat(kept.path)).mode & 0x1ff
       return Web.empty()
     end)
   assert(reply.status == 204)
-  local files_listed = assert(listing.value, "the handler never listed the directory")
-  local read = assert(seen.value, "the handler never ran")
-  assert(read.fields.by_name["email"][1] == "a@b.test" and #read.fields.by_name["tags"] == 2)
-  local up = read.files["avatar"][1]
+  local files_listed = assert(listing, "the handler never listed the directory")
+  local read = assert(seen, "the handler never ran")
+  assert(values_of(read.fields, "email")[1] == "a@b.test" and #values_of(read.fields, "tags") == 2)
+  local up = upload(read, "avatar")
   assert(up.filename == "passwd" and up.content_type == "image/png" and up.size == 12 and up.field == "avatar")
   assert(contents == "PNG\0\r\n--data")
-  assert(#files_listed == 1 and files_listed[1]:find("^%x+$") and #files_listed[1] == 32,
-    "a random name: " .. tostring(files_listed[1]))
-  assert(up.path == tmp .. "/" .. files_listed[1], "the client's name is no part of the path")
+  assert(#files_listed == 1, "one file listed: " .. tostring(#files_listed))
+  local spooled = assert(files_listed[1], "expected the spooled file")
+  assert(spooled:find("^%x+$") ~= nil and #spooled == 32, "a random name: " .. spooled)
+  assert(up.path == tmp .. "/" .. spooled, "the client's name is no part of the path")
   assert(stat_mode == 384, "mode 0600")
   assert(read.size > 100)
   assert(#assert(Fs.list(tmp)) == 0, "removed when the request ended")
@@ -107,7 +130,7 @@ end
 local function test_without_a_dir_a_private_directory_is_made_and_removed()
   local where: string? = nil
   post(body_of(file("f", "a.txt", "hello")), function(req: Web.Request): Web.Response
-    local up = assert(Input.multipart(req).value).files["f"][1]
+    local up = upload(assert(Input.multipart(req).value), "f")
     where = up.path
     assert(Fs.exists(up.path) == true)
     return Web.empty()
@@ -122,7 +145,7 @@ end
 local function test_a_handler_that_keeps_a_file_moves_it(tmp: string)
   local kept = tmp .. "/kept.bin"
   post(body_of(file("f", "a.txt", "keep me")), function(req: Web.Request): Web.Response
-    local up = assert(Input.multipart(req).value).files["f"][1]
+    local up = upload(assert(Input.multipart(req).value), "f")
     assert(Fs.rename(up.path, kept))
     return Web.empty()
   end)
@@ -147,40 +170,43 @@ local function test_files_are_removed_when_the_handler_raises_or_discards(tmp: s
 end
 
 local function test_a_blank_file_input_is_not_a_file(tmp: string)
-  local m = { value = nil as Input.Multipart? }
+  local m: Input.Multipart? = nil
   post(body_of(file("none", "", ""), file("empty", "e.txt", ""), file("noname", "", "data")),
     function(req: Web.Request): Web.Response
-      m.value = assert(Input.multipart(req, { dir = tmp }).value)
+      m = assert(Input.multipart(req, { dir = tmp }).value)
       return Web.empty()
     end)
-  local parsed = assert(m.value, "the handler never ran")
+  local parsed = assert(m, "the handler never ran")
   assert(parsed.files["none"] == nil)
-  assert(parsed.files["empty"][1].size == 0 and parsed.files["empty"][1].filename == "e.txt")
-  assert(parsed.files["noname"][1].filename == "" and parsed.files["noname"][1].size == 4)
+  local empty = upload(parsed, "empty")
+  assert(empty.size == 0 and empty.filename == "e.txt")
+  local noname = upload(parsed, "noname")
+  assert(noname.filename == "" and noname.size == 4)
 end
 
 local function test_the_text_parts_bind_as_a_forms_fields_do()
-  local bound = { value = nil as Signup? }
+  local bound: Signup? = nil
   local reply = post(body_of(field("email", "a@b.test"), field("age", " 42 "), field("tags", "x"), field("tags", "y"),
     field("news", "on"), field("is_admin", "1"), file("avatar", "me.png", "x")), function(req: Web.Request): Web.Response
       local read = Input.form_into(req, SIGNUP)
-      bound.value = assert(read.value, message_of(read.invalid))
-      assert(assert(Input.multipart(req).value).files["avatar"][1].filename == "me.png", "the files are still there")
+      bound = assert(read.value, message_of(read.invalid))
+      assert(upload(assert(Input.multipart(req).value), "avatar").filename == "me.png", "the files are still there")
       return Web.empty()
     end)
   assert(reply.status == 204)
-  local signup = assert(bound.value, "the handler never ran")
+  local signup = assert(bound, "the handler never ran")
   assert(signup.email == "a@b.test" and signup.age == 42 and #signup.tags == 2 and signup.news)
 end
 
 local function test_a_multipart_form_fails_its_spec_with_a_forms_errors()
   local function errors_of(read: function(req: Web.Request): Types.Parsed<Signup>): Types.Invalid
-    local bad = { value = nil as Types.Invalid? }
+    local bad: Types.Invalid? = nil
     post(body_of(field("age", "x"), field("password", "hunter2")), function(req: Web.Request): Web.Response
-      bad.value = read(req).invalid
+      bad = read(req).invalid
       return Web.empty()
     end)
-    return bad.value
+    local refused = assert(bad, "the handler never refused")
+    return refused
   end
   local via_form = errors_of(function(req: Web.Request): Types.Parsed<Signup>
     return Input.form_into(req, SIGNUP, { secret = { "password" } })
@@ -189,33 +215,34 @@ local function test_a_multipart_form_fails_its_spec_with_a_forms_errors()
     return Input.multipart_into(req, SIGNUP, { secret = { "password" } })
   end)
   for _, bad in ipairs({ via_form, via_multipart }) do
-    assert(bad.status == 422 and #bad.errors == 2 and bad.errors[1].source == "form", bad.message)
-    assert(bad.errors[1].field == "age" and bad.errors[1].code == "integer", bad.errors[1].field)
-    assert(bad.errors[2].field == "email" and bad.errors[2].code == "required")
+    assert(bad.status == 422 and #bad.errors == 2 and first_error(bad).source == "form", bad.message)
+    assert(first_error(bad).field == "age" and first_error(bad).code == "integer", first_error(bad).field)
+    local second = assert(bad.errors[2], "expected a second error")
+    assert(second.field == "email" and second.code == "required")
     assert(Input.value(bad, "age") == "x" and Input.value(bad, "password") == "", "the secret is left out")
   end
 end
 
 local function test_a_typed_multipart_route_binds_and_answers_problems(tmp: string)
-  local got = { value = nil as Signup? }
+  local got: Signup? = nil
   local files: integer = 0
   local app = Web.app{ routes = {
     Web.post_typed("/up", Web.input(Web.NONE, Web.NONE, Web.multipart_body(SIGNUP)),
       function(req: Web.Request, _p: Web.None, _q: Web.None, b: Signup): Web.Response
-        got.value = b
-        files = #assert(Input.multipart(req).value).files["pic"]
+        got = b
+        files = #uploads(assert(Input.multipart(req).value), "pic")
         return Web.empty()
       end, { input_options = { dir = tmp, max_file_bytes = 10 } }),
   }, sink = { line = function(_self: Web.Sink, _text: string) end } }
   local client = Web.test_client(app)
   local ok_body = body_of(field("email", "e"), field("news", "0"), file("pic", "p.png", "0123456789"))
   local reply = client:post("/up", { body = ok_body, headers = { ["Content-Type"] = FORM_TYPE } })
-  local got_value = got.value
+  local got_value = got
   assert(reply.status == 204 and got_value ~= nil and got_value.email == "e" and files == 1, reply.status)
   assert(#assert(Fs.list(tmp)) == 0)
   reply = client:post("/up", { body = body_of(field("age", "x")), headers = { ["Content-Type"] = FORM_TYPE,
     Accept = "application/json" } })
-  assert(reply.status == 422 and reply:text():find('"field":"age"', 1, true), reply:text())
+  assert(reply.status == 422 and reply:text():find('"field":"age"', 1, true) ~= nil, reply:text())
   reply = client:post("/up", { form = { email = "e" } })
   assert(reply.status == 415, "a urlencoded body is not multipart: " .. tostring(reply.status))
   reply = client:post("/up", { body = body_of(field("email", "e"), file("pic", "p.png", "0123456789A")),
@@ -245,19 +272,19 @@ local function test_a_form_route_takes_multipart_within_its_own_small_limit(tmp:
     return Web.empty()
   end)
   assert(status == 413, "a form's 64 KiB default is not the upload's")
-  local fields = { value = nil as Types.Parsed<Url.Query>? }
+  local fields: Types.Parsed<Url.Query>? = nil
   post(text, function(req: Web.Request): Web.Response
-    fields.value = Input.form(req, { dir = tmp, max_bytes = 100000 })
+    fields = Input.form(req, { dir = tmp, max_bytes = 100000 })
     return Web.empty()
   end)
-  local fields_value = fields.value
+  local fields_value = fields
   assert(fields_value ~= nil and fields_value.invalid == nil)
   assert(#assert(Fs.list(tmp)) == 0)
 end
 
 local function test_a_file_over_its_cap_is_413_and_leaves_nothing(tmp: string)
   local bad = refusal(body_of(field("a", "1"), file("f", "big", ("z"):rep(2000))), { dir = tmp, max_file_bytes = 1999 })
-  assert(bad.status == 413 and bad.errors[1].code == "too_large", bad.message)
+  assert(bad.status == 413 and first_error(bad).code == "too_large", bad.message)
   assert(#assert(Fs.list(tmp)) == 0, "the partial file and the staging file are gone")
   local fits = post(body_of(file("f", "big", ("z"):rep(2000))), function(req: Web.Request): Web.Response
     assert(Input.multipart(req, { dir = tmp, max_file_bytes = 2000 }).invalid == nil)
@@ -270,7 +297,7 @@ end
 
 local function test_a_text_part_over_its_cap_is_413_before_it_is_all_held()
   local bad = refusal(body_of(field("t", ("z"):rep(1000))), { max_field_bytes = 999 })
-  assert(bad.status == 413 and bad.errors[1].code == "too_large")
+  assert(bad.status == 413 and first_error(bad).code == "too_large")
   assert(#bad.message < 200 and not bad.message:find("zzz"), "no user data echoed")
 end
 
@@ -278,15 +305,15 @@ local function test_the_part_and_file_counts_are_capped(tmp: string)
   local text = ""
   for i = 1, 4 do text = text .. field("f" .. tostring(i), "v") end
   local bad = refusal(body_of(text), { max_parts = 3 })
-  assert(bad.status == 413 and bad.errors[1].code == "too_many")
+  assert(bad.status == 413 and first_error(bad).code == "too_many")
   local two = refusal(body_of(file("a", "a", "1"), file("b", "b", "2"), file("c", "c", "3")), { dir = tmp, max_files = 2 })
-  assert(two.status == 413 and two.errors[1].code == "too_many" and #assert(Fs.list(tmp)) == 0)
+  assert(two.status == 413 and first_error(two).code == "too_many" and #assert(Fs.list(tmp)) == 0)
 end
 
 local function test_the_total_is_capped_by_length_and_when_chunked(tmp: string)
   local text = body_of(field("a", ("x"):rep(500)), file("f", "f", ("y"):rep(500)))
   local by_length = refusal(text, { dir = tmp, max_bytes = 900 })
-  assert(by_length.status == 413 and by_length.errors[1].code == "too_large")
+  assert(by_length.status == 413 and first_error(by_length).code == "too_large")
   local chunked = refusal(text, { dir = tmp, max_bytes = 900 }, nil, true)
   assert(chunked.status == 413 and #assert(Fs.list(tmp)) == 0)
   local exact = post(text, function(req: Web.Request): Web.Response
@@ -350,7 +377,8 @@ local function test_a_malformed_body_is_400(tmp: string)
   for i, text in ipairs(cases) do
     local bad = refusal(text, { dir = tmp })
     assert(bad.status == 400, ("case %d: %d %s"):format(i, bad.status, bad.message))
-    assert(bad.errors[1].code == "malformed" or bad.errors[1].code == "utf8")
+    local code = first_error(bad).code
+    assert(code == "malformed" or code == "utf8")
   end
   assert(#assert(Fs.list(tmp)) == 0)
 end
@@ -359,12 +387,12 @@ local function test_charsets_of_text_parts()
   local latin = post(body_of(field("a", "caf\233", "Content-Type: text/plain; charset=ISO-8859-1\r\n"),
     field("b", "plain", "Content-Type: text/plain; charset=utf-8\r\n")), function(req: Web.Request): Web.Response
       local m = assert(Input.multipart(req).value)
-      assert(m.fields.by_name["a"][1] == "caf\195\169" and m.fields.by_name["b"][1] == "plain")
+      assert(values_of(m.fields, "a")[1] == "caf\195\169" and values_of(m.fields, "b")[1] == "plain")
       return Web.empty()
     end)
   assert(latin.status == 204)
   local bad = refusal(body_of(field("a", "x", "Content-Type: text/plain; charset=utf-16\r\n")))
-  assert(bad.status == 415 and bad.errors[1].code == "content_type")
+  assert(bad.status == 415 and first_error(bad).code == "content_type")
 end
 
 local function test_a_field_name_is_not_echoed_raw_in_a_message()
@@ -381,7 +409,7 @@ local function test_the_body_is_read_once_and_kept()
     assert(Input.form(req).value == assert(first.value).fields, "the form is its text parts")
     assert(Input.form(req).value == Input.form(req).value)
     local bytes, why = req:bytes()
-    assert(bytes == nil and why:find("already read"), "the spent body is no empty body")
+    assert(bytes == nil and why:find("already read") ~= nil, "the spent body is no empty body")
     assert(assert(Input.multipart(req, { max_bytes = 5 }).invalid).status == 413, "held to a later, smaller limit")
     return Web.empty()
   end)
@@ -405,15 +433,16 @@ local function test_a_slow_or_failing_source_is_408_or_400(tmp: string)
       end,
       close = function(_self: Stream.Reader): boolean, string return true, "" end,
     }
-    local got = { value = nil as Types.Invalid? }
+    local got: Types.Invalid? = nil
     local app = Web.app{ routes = { Web.post("/x", function(req: Web.Request): Web.Response
-      got.value = Input.multipart(req, { dir = tmp }).invalid
+      got = Input.multipart(req, { dir = tmp }).invalid
       return Web.empty()
     end) } }
     local raw: Server.Request = { method = "POST", target = "/x", path = "/x", query = "", version = "HTTP/1.1",
       headers = { host = "x", ["content-type"] = FORM_TYPE }, body = body }
     assert(app.handle(raw).status == 204)
-    return got.value
+    local refused = assert(got, "the read was never refused")
+    return refused
   end
   assert(with_source(Poll.TIMEOUT).status == 408)
   assert(with_source("connection reset").status == 400)
@@ -442,7 +471,7 @@ end
 --- How many private upload directories the temp directory holds.
 local function upload_dirs(): integer
   local probe = (assert(Fs.mkdtemp("probe-")))
-  local base = probe:match("^(.*)/[^/]+$")
+  local base = assert(probe:match("^(.*)/[^/]+$"), "mkdtemp answers a path with a directory")
   assert(Fs.remove_tree(probe))
   local count = 0
   local names = assert(Fs.list(base))
@@ -456,12 +485,12 @@ local function test_a_blank_file_input_makes_no_directory()
   local before = upload_dirs()
   post(body_of(field("a", "1"), file("none", "", "")), function(req: Web.Request): Web.Response
     local m = assert(Input.multipart(req).value)
-    assert(m.files["none"] == nil and m.fields.by_name["a"][1] == "1")
+    assert(m.files["none"] == nil and values_of(m.fields, "a")[1] == "1")
     return Web.empty()
   end)
   assert(upload_dirs() == before, "a blank file input leaked its directory")
   post(body_of(file("none", "", ""), file("f", "x.txt", "data")), function(req: Web.Request): Web.Response
-    assert(assert(Input.multipart(req).value).files["f"][1].size == 4)
+    assert(upload(assert(Input.multipart(req).value), "f").size == 4)
     return Web.empty()
   end)
   assert(upload_dirs() == before, "the directory goes with the files")
@@ -469,23 +498,23 @@ end
 
 local function test_a_limit_failure_is_not_kept_for_a_reader_with_a_higher_limit(tmp: string)
   local text = body_of(field("email", "e"), file("f", "a", ("x"):rep(70000)))
-  local seen = { value = nil as Input.Multipart? }
+  local seen: Input.Multipart? = nil
   post(text, function(req: Web.Request): Web.Response
     assert(assert(Input.form(req, { dir = tmp }).invalid).status == 413)
-    seen.value = assert(Input.multipart(req, { dir = tmp }).value)
+    seen = assert(Input.multipart(req, { dir = tmp }).value)
     return Web.empty()
   end)
-  local seen_value = seen.value
-  assert(seen_value ~= nil and seen_value.files["f"][1].size == 70000, "the upload's own limit took the body")
-  local again = { value = nil as Types.Invalid? }
+  local seen_value = assert(seen, "the handler never ran")
+  assert(upload(seen_value, "f").size == 70000, "the upload's own limit took the body")
+  local again: Types.Invalid? = nil
   post(text, function(req: Web.Request): Web.Response
     local first = Input.form(req, { dir = tmp })
     assert(assert(first.invalid).status == 413)
-    again.value = Input.multipart(req, { dir = tmp }).invalid
+    again = Input.multipart(req, { dir = tmp }).invalid
     return Web.empty()
   end, nil, true)
-  local again_value = again.value
-  assert(again_value ~= nil and again_value.status == 413 and again_value.message:find("max_bytes = 65536", 1, true),
+  local again_value = assert(again, "the handler never ran")
+  assert(again_value.status == 413 and again_value.message:find("max_bytes = 65536", 1, true) ~= nil,
     "a body spent past a lower limit says whose limit it was")
   assert(#assert(Fs.list(tmp)) == 0)
 end
@@ -581,7 +610,7 @@ local function test_a_long_filename_is_cut_to_its_last_component_in_linear_time(
     local invalid = read.invalid
     local value = read.value
     assert(value ~= nil, invalid ~= nil and invalid.message or "no value")
-    for _, up in ipairs(value.files["f"]) do names[#names + 1] = up.filename end
+    for _, up in ipairs(uploads(value, "f")) do names[#names + 1] = up.filename end
     return Web.empty()
   end)
   local took = Clock.monotonic_ns() - start
