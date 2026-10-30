@@ -528,7 +528,8 @@ local function test_deflate_and_inflate_leave_nothing_whenever_an_allocation_fai
   local ended = under_every_failure(function()
     local rows = assert(Sqlite.rows(db, "SELECT inflate(deflate(?1))",
       { { text = text } }))
-    assert(rows[1]:blob(1) == text)
+    local row = assert(rows[1], "the query answers a row")
+    assert(row:blob(1) == text)
   end)
   assert(ended > 0, "a query allocates")
   assert_c_heap(bytes, blocks, "deflate and inflate under refusal")
@@ -766,7 +767,7 @@ local function test_json_names_a_record_yyjson_could_not_allocate()
       assert(values ~= nil, why)
       break
     end
-    assert(values == nil and why:match("^json: line %d: out of memory$"), tostring(why))
+    assert(values == nil and why:match("^json: line %d: out of memory$") ~= nil, tostring(why))
     named[why] = true
   end
   assert(named["json: line 1: out of memory"] and named["json: line 2: out of memory"],
@@ -840,7 +841,8 @@ local function test_http_leaves_nothing_whenever_an_allocation_fails(tmp: string
   -- The first request makes the process-wide state -- curl's global
   -- init, the trust store, the multi handle and its wakeup pair -- which
   -- is made once and kept, so it is made before anything is counted.
-  assert(exchange(exchanges[1].options) == hello)
+  local first = assert(exchanges[1], "the exchanges include a first request")
+  assert(exchange(first.options) == hello)
   collectgarbage("collect")
   local before = next_descriptor(tmp)
   local bytes, blocks = testing.c_heap()
@@ -1064,8 +1066,8 @@ local function test_rights_release_every_descriptor_when_allocation_fails(tmp: s
     local receiver <close> = assert(socket.accept(listener:fd()))
     assert(socket.sendfds(sender:fd(), { listener:fd(), sender:fd() }))
     local passed = assert(socket.recvfds(receiver:fd(), 2))
-    local one <close> = passed[1]
-    local two <close> = passed[2]
+    local one <close> = assert(passed[1], "two descriptors passed")
+    local two <close> = assert(passed[2], "two descriptors passed")
     assert(one:fd() ~= listener:fd() and two:fd() ~= sender:fd())
   end)
   assert(ended > 0, "the descriptor receive allocates")

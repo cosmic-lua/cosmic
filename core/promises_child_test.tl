@@ -167,14 +167,14 @@ local function test_a_child_that_cannot_raise_a_hard_limit_sets_its_own_limits(t
   local raises = under(tmp, {}, "setrlimit nofile 64; setrlimit nofile 128", probe)
   if holds_resource_capability() then
     -- A child that can raise a hard limit keeps the filter's refusal.
-    assert(lowers.code == 1 and lowers.said:find("not permitted", 1, true), lowers.said)
-    assert(raises.code == 1 and raises.said:find("not permitted", 1, true), raises.said)
+    assert(lowers.code == 1 and lowers.said:find("not permitted", 1, true) ~= nil, lowers.said)
+    assert(raises.code == 1 and raises.said:find("not permitted", 1, true) ~= nil, raises.said)
     return
   end
   assert(lowers.code == 0 and lowers.said == "set\n", "it lowers its limits: " .. lowers.said)
   -- The first is let through, and the kernel refuses the raised hard limit.
   assert(raises.code == 1 and raises.said:find("set\n", 1, true) == 1 and
-      raises.said:find("not permitted", 1, true), "it raises none: " .. raises.said)
+      raises.said:find("not permitted", 1, true) ~= nil, "it raises none: " .. raises.said)
   -- Never another's, which the filter holds to the process itself.
   local other = under(tmp, {}, "rlimit nofile", probe)
   assert(other.code == 0, other.said)
@@ -217,6 +217,6 @@ end
 local function test_promises_without_grants_keep_the_filter_to_the_starting_pid(tmp: string)
   local probe = assert(stand_in.build(tmp .. "/stand-in"))
   local outcome = under(tmp, { "fork" }, "run " .. probe .. " signal TERM", probe)
-  assert(outcome.code == 1 and outcome.said:find("not permitted", 1, true),
+  assert(outcome.code == 1 and outcome.said:find("not permitted", 1, true) ~= nil,
     "its own pid only: " .. tostring(outcome.code) .. " " .. outcome.said)
 end

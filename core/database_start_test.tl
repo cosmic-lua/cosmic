@@ -177,7 +177,7 @@ local function test_a_core_a_stamp_vouches_for_is_not_hashed_again_until_it_is_w
   assert(Fs.mkdirs(directory))
   local copy = directory .. "/" .. prefix .. tostring(#bytes) .. "-" .. digest
   assert(Fs.write(copy, bytes))
-  assert(Fs.chmod(copy, tonumber("755", 8)))
+  assert(Fs.chmod(copy, (assert(tonumber("755", 8), "755 is octal"))))
   local path = info_database(tmp)
   local stamp = directory .. "/.verified-" .. Fs.basename(copy)
   -- A stamp is written only once a second has passed since the entry changed.
@@ -195,10 +195,10 @@ local function test_a_core_a_stamp_vouches_for_is_not_hashed_again_until_it_is_w
   local last = assert(sys.lseek(fd, -1, sys.SEEK_END))
   local old = assert(sys.read(fd, 1))
   assert(sys.lseek(fd, last, sys.SEEK_SET))
-  assert(sys.write(fd, string.char(old:byte() ~ 1)))
+  assert(sys.write(fd, string.char((assert(old:byte(), "a byte was read")) ~ 1)))
   assert(sys.close(fd))
   local third = run({ copy, "--database", path })
-  assert(third.code == 2 and (assert(third.stderr)):find("another core", 1, true),
+  assert(third.code == 2 and (assert(third.stderr)):find("another core", 1, true) ~= nil,
     "exit " .. tostring(third.code) .. ": " .. tostring(third.stderr))
 end
 

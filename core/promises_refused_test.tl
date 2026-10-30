@@ -53,6 +53,6 @@ local function test_nest_is_a_promise_of_a_root_and_pid_namespace_of_its_own(tmp
     sandboxed.promises = { "nest" }
     local started, why = pcall(process.spawn, probe, { probe }, nil, nil, nil, nil, nil, false, nil,
       sandboxed)
-    assert(not started and tostring(why):find("nest", 1, true), tostring(why))
+    assert(not started and tostring(why):find("nest", 1, true) ~= nil, tostring(why))
   end
 end

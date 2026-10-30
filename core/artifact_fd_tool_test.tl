@@ -36,6 +36,18 @@ end
 
 local socket = socket_table()
 
+--- The program a relaunch starts again.
+local function program_of(relaunch: Proc.Relaunch): string
+  local program = assert(relaunch.argv[1], "a relaunch names its program")
+  return program
+end
+
+--- The descriptor a relaunch hands its child in `slot`.
+local function fd_of(relaunch: Proc.Relaunch, slot: integer): integer
+  local fd = assert(relaunch.fds[slot], "a relaunch hands a descriptor in slot " .. tostring(slot))
+  return fd
+end
+
 --- The child of the test below, run in a copy of the artifact: it sends the file in `args[2]` over the channel in `args[1]`.
 test_child.register("send_file", function(args: {string}): integer
   local channel, file = math.tointeger(args[1]), math.tointeger(args[2])
@@ -75,7 +87,7 @@ local function test_a_tool_has_the_tree_s_own_program_in_the_tree()
   local relaunch, _ = Proc.relaunch()
   if relaunch == nil or sys.getcwd() ~= "/tree" then return end
   local slot = math.tointeger(tonumber(relaunch.env.COSMIC_PORTABLE_ARTIFACT_FD)) as integer
-  local artifact = sys.stat("/proc/self/fd/" .. relaunch.fds[slot])
+  local artifact = sys.stat("/proc/self/fd/" .. tostring(fd_of(relaunch, slot)))
   local own = sys.stat("/tree/o/bin/cosmic")
   if artifact == nil or own == nil or artifact.dev ~= own.dev or artifact.ino ~= own.ino then
     return -- another program runs the tree's tests: it keeps its own name
@@ -137,8 +149,8 @@ local function test_a_change_through_the_artifact_descriptor_changes_nothing(tmp
   local opened = assert(sys.open(copy, sys.O_RDONLY))
   local env: mut {string: string} = {}
   for name, value in pairs(relaunch.env) do env[name] = value end
-  local result = assert(Child.run({ relaunch.argv[1], "--artifact", copy, "-e", probe }, {
-    env = env, fds = { [slot] = opened, [core_slot] = relaunch.fds[core_slot] },
+  local result = assert(Child.run({ program_of(relaunch), "--artifact", copy, "-e", probe }, {
+    env = env, fds = { [slot] = opened, [core_slot] = fd_of(relaunch, core_slot) },
     stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(30) }))
   assert(sys.close(opened))
   assert(result.ok, tostring(result.stderr))
@@ -181,9 +193,9 @@ local function test_the_artifact_reached_by_names_is_not_refused(tmp: string)
   local env: mut {string: string} = {}
   for name, value in pairs(relaunch.env) do env[name] = value end
   local opened = assert(sys.open(copy, sys.O_RDONLY))
-  local result = assert(Child.run({ relaunch.argv[1], "--artifact", copy, "-e",
+  local result = assert(Child.run({ program_of(relaunch), "--artifact", copy, "-e",
     table.concat(script, "\n") }, { env = env, fds = { [slot] = opened,
-      [core_slot] = relaunch.fds[core_slot] }, stdout = "capture", stderr = "capture",
+      [core_slot] = fd_of(relaunch, core_slot) }, stdout = "capture", stderr = "capture",
       timeout_ns = Clock.seconds(30) }))
   assert(sys.close(opened))
   assert(result.ok, tostring(result.stderr))
@@ -299,8 +311,8 @@ local function swapped_link_changes_nothing(tmp: string, policy?: Sandbox.Policy
   for name, value in pairs(relaunch.env) do env[name] = value end
   if policy ~= nil then policy.set_env = env end
   local opened = assert(sys.open(copy, sys.O_RDONLY))
-  local fds = { [slot] = opened, [core_slot] = relaunch.fds[core_slot] }
-  local flipping = assert(Child.start({ relaunch.argv[1], "--artifact", copy, "-e",
+  local fds = { [slot] = opened, [core_slot] = fd_of(relaunch, core_slot) }
+  local flipping = assert(Child.start({ program_of(relaunch), "--artifact", copy, "-e",
     filled(flipper, values) }, { env = env, fds = fds, stdin = "stream", stdout = "stream",
       stderr = "capture" }))
   local said = Stream.lines(assert(flipping.stdout_stream)):read()
@@ -309,7 +321,7 @@ local function swapped_link_changes_nothing(tmp: string, policy?: Sandbox.Policy
     error("the flipper did not start: " .. tostring(said) .. "\n" ..
         (ended ~= nil and tostring(ended.stderr) or why))
   end
-  local result = assert(Child.run({ relaunch.argv[1], "--artifact", copy, "-e",
+  local result = assert(Child.run({ program_of(relaunch), "--artifact", copy, "-e",
     filled(caller, values) }, { env = policy == nil and env or nil, fds = fds, stdout = "capture",
       stderr = "capture", policy = policy, timeout_ns = Clock.seconds(7) }))
   if not Fs.exists(stop) then assert(Fs.write(stop, "")) end
@@ -324,7 +336,8 @@ local function swapped_link_changes_nothing(tmp: string, policy?: Sandbox.Policy
   assert(after.mode == before.mode, "a chmod through a swapped link reached the artifact:\n" .. out)
   for _, what in ipairs({ "chmod", "truncate" }) do
     local done, refused = out:match(what .. " (%d+) (%d+)\n")
-    assert(done ~= nil and tonumber(done) > 0 and tonumber(refused) > 0,
+    local met_done, met_refused = tonumber(done), tonumber(refused)
+    assert(met_done ~= nil and met_done > 0 and met_refused ~= nil and met_refused > 0,
       what .. " did not meet both ends of the link:\n" .. out)
   end
 end
@@ -343,15 +356,15 @@ local function test_a_link_swapped_after_the_check_changes_nothing_under_promise
   -- A root runner's policy child is a user of its own, which owns none of
   -- these: the test's directory is opened to it. The core, in a cache
   -- of the host's, is not this test's to chmod.
-  local core = sys.stat(relaunch.argv[1])
+  local core = sys.stat(program_of(relaunch))
   if sys.getuid() == 0 and (core == nil or core.mode & 5 ~= 5) then
-    Test.skip("the core " .. relaunch.argv[1] .. " is not open to the user a root runner's policy " ..
+    Test.skip("the core " .. program_of(relaunch) .. " is not open to the user a root runner's policy " ..
         "child runs as")
     return
   end
   searchable.share(searchable.open(tmp))
   swapped_link_changes_nothing(tmp, { promises = { "fattr" }, grants = {
-    { path = relaunch.argv[1], letters = "rx" }, { path = tmp, letters = "rwc" } } })
+    { path = program_of(relaunch), letters = "rx" }, { path = tmp, letters = "rwc" } } })
 end
 
 --- The source number alone does not protect rights: another open of
@@ -393,7 +406,7 @@ local function test_descriptor_receive_refuses_and_closes_an_artifact_alias(tmp:
   -- send this ordinary file; the original receiver must judge it again.
   local words = test_child.words(tmp, "core.artifact_fd_tool_test", "send_file",
     { tostring(channel_slot), tostring(file_slot) })
-  local argv: mut {string} = { relaunch.argv[1], "--artifact", copy }
+  local argv: mut {string} = { program_of(relaunch), "--artifact", copy }
   for _, word in ipairs(words) do argv[#argv + 1] = word end
   local child = assert(Child.start(argv,
     { env = env, fds = fds, stdout = "capture", stderr = "capture" }))

@@ -28,6 +28,12 @@ end
 local process = raw_behind("cosmic.child") as raw_process -- cast: the table core/process.h declares
 
 local AUDIT: {string: integer} = { x86_64 = 0xc000003e, aarch64 = 0xc00000b7 }
+
+--- The audit architecture number of `arch`, one of ARCHES.
+local function audit_of(arch: string): integer
+  local number = assert(AUDIT[arch], arch .. " has no audit architecture")
+  return number
+end
 local ARCHES: {string} = { "x86_64", "aarch64" }
 
 local ALLOW <const> = 0x7fff0000
@@ -198,6 +204,7 @@ local function decode(program: string): {Insn}
   local insns: mut {Insn} = {}
   for at = 1, #program, 8 do
     local jt, jf = string.byte(program, at + 2, at + 3)
+    assert(jt ~= nil and jf ~= nil, "an instruction is eight bytes")
     insns[#insns + 1] = {
       code = string.unpack("<I2", program, at), jt = jt, jf = jf,
       k = string.unpack("<I4", program, at + 4),
@@ -284,7 +291,7 @@ local function holds(promises: {string}, arch: string, cases: {Case},
     assert(both ~= nil, case.name .. " is in no table of this test")
     local number = arch == "x86_64" and both[1] or both[2]
     if number ~= nil then
-      local got = verdict(run(insns, AUDIT[arch], number, case.args))
+      local got = verdict(run(insns, audit_of(arch), number, case.args))
       local shown: mut {string} = {}
       for _, value in ipairs(case.args) do shown[#shown + 1] = tostring(value) end
       assert(got == case.want, string.format("%s: %s(%s) on %s with {%s} is %s, not %s",
@@ -380,12 +387,12 @@ local function test_a_call_above_the_reviewed_table_answers_ENOSYS()
     local insns = decode(process.promise_filter({ "fork", "jit", "fattr" }, arch))
     local reviewed = process.PROMISE_CALLS_REVIEWED
     for _, number in ipairs({ reviewed, reviewed + 1, 1000, 0x7fffffff, 0xffffffff }) do
-      local got = verdict(run(insns, AUDIT[arch], number, {}))
+      local got = verdict(run(insns, audit_of(arch), number, {}))
       assert(got == "ENOSYS", arch .. " call " .. number .. " is " .. got)
     end
     -- The highest call reviewed is within the table, so a call there is
     -- judged, not answered as unknown.
-    local last = verdict(run(insns, AUDIT[arch], reviewed - 1, {}))
+    local last = verdict(run(insns, audit_of(arch), reviewed - 1, {}))
     assert(last == "EPERM", arch .. " call " .. (reviewed - 1) .. " is " .. last)
   end
   -- x32's calls share x86_64's architecture and set a high bit.
@@ -891,7 +898,7 @@ local function test_every_call_gets_an_answer()
           local insns = decode(process.promise_filter(promises, arch,
             { pid = 9, unix = unix, inet = inet }))
           for number = 0, process.PROMISE_CALLS_REVIEWED + 2 do
-            local got = verdict(run(insns, AUDIT[arch], number, {}))
+            local got = verdict(run(insns, audit_of(arch), number, {}))
             assert(got == "allow" or got == "EPERM" or got == "ENOSYS" or got == "ENOTTY",
               arch .. " " .. tostring(number) .. " is " .. got)
           end
@@ -909,8 +916,8 @@ local function test_a_promise_only_adds()
     local full = decode(process.promise_filter({ "fork", "jit", "fattr", "nest" }, arch))
     assert(#full > #base and #full < 1500, tostring(#base) .. " and " .. tostring(#full) .. " instructions")
     for number = 0, process.PROMISE_CALLS_REVIEWED - 1 do
-      local before = verdict(run(base, AUDIT[arch], number, { 0, 0, 0, 0 }))
-      local after = verdict(run(full, AUDIT[arch], number, { 0, 0, 0, 0 }))
+      local before = verdict(run(base, audit_of(arch), number, { 0, 0, 0, 0 }))
+      local after = verdict(run(full, audit_of(arch), number, { 0, 0, 0, 0 }))
       assert(before ~= "allow" or after == "allow", arch .. " " .. tostring(number) .. " lost to a promise")
     end
   end

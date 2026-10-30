@@ -22,6 +22,20 @@ local function process_table(): raw_process
 end
 local process = process_table()
 
+--- The controller's end of a connector pair, which asks and is answered.
+local function controller_end(pair: {integer}): integer
+  local fd = pair[1]
+  assert(fd, "a connector pair holds two descriptors")
+  return fd
+end
+
+--- The connector's end of a connector pair, which the connector is started on.
+local function connector_end(pair: {integer}): integer
+  local fd = pair[2]
+  assert(fd, "a connector pair holds two descriptors")
+  return fd
+end
+
 local function require_native_connector()
   local result, why, number = process.connector_probe({ host = "127.0.0.1", port = 9 }, "pointer")
   if result == nil and (number == sys.ENOSYS or number == sys.EOPNOTSUPP) then
@@ -52,10 +66,10 @@ end
 --- `decide` reads for an address.
 local function start(): {integer}, integer
   local pair = assert(process.connector_pair())
-  local child, why = process.connector_start({}, pair[2], 500, { deny = Address.deny_cidrs(), own = OWN })
-  assert(sys.close(pair[2]))
+  local child, why = process.connector_start({}, connector_end(pair), 500, { deny = Address.deny_cidrs(), own = OWN })
+  assert(sys.close(connector_end(pair)))
   assert(child, why)
-  greeted(pair[1])
+  greeted(controller_end(pair))
   return pair, child
 end
 
@@ -75,9 +89,9 @@ local record Edge
   cidr: string
   first: string
   last: string
-  below: string
+  below?: string
   below_ok: boolean
-  above: string
+  above?: string
   above_ok: boolean
 end
 
@@ -157,16 +171,20 @@ local function test_every_refused_prefix_is_refused_at_both_ends_and_its_neighbo
   local named: mut {string: boolean} = {}
   for _, row in ipairs(EDGES) do
     named[row.cidr] = true
-    expect(pair[1], row.first, false, row.cidr .. " first")
-    expect(pair[1], row.last, false, row.cidr .. " last")
-    if row.below ~= nil then expect(pair[1], row.below, row.below_ok, row.cidr .. " below") end
-    if row.above ~= nil then expect(pair[1], row.above, row.above_ok, row.cidr .. " above") end
+    expect(controller_end(pair), row.first, false, row.cidr .. " first")
+    expect(controller_end(pair), row.last, false, row.cidr .. " last")
+    if row.below ~= nil then
+      expect(controller_end(pair), row.below, row.below_ok, row.cidr .. " below")
+    end
+    if row.above ~= nil then
+      expect(controller_end(pair), row.above, row.above_ok, row.cidr .. " above")
+    end
   end
   -- A prefix added to the list is a prefix added here.
   for _, cidr in ipairs(Address.deny_cidrs()) do
     assert(named[cidr], cidr .. " has no boundary vectors")
   end
-  assert(sys.close(pair[1]))
+  assert(sys.close(controller_end(pair)))
   assert(assert(process.waitpid(child, false)).code == 0)
 end
 
@@ -175,20 +193,20 @@ local function test_ipv6_is_allowed_only_inside_2000_slash_3_and_the_forms_that_
   local pair, child = start()
   for _, address in ipairs({ "2000::", "2000::1", "2606:4700:4700::1111", "2a00:1450:4001:81b::200e",
       "3fff:ffff:ffff:ffff:ffff:ffff:ffff:ffff", "2003::", "3ffe::" }) do
-    expect(pair[1], address, true, "global unicast")
+    expect(controller_end(pair), address, true, "global unicast")
   end
   for _, address in ipairs({ "::", "1fff:ffff:ffff:ffff:ffff:ffff:ffff:ffff", "4000::", "8000::", "a000::",
       "e000::", "1::", "100:0:0:1::", "::ffff:8.8.8.8", "::ffff:0808:0808", "::ffff:10.0.0.1", "::ffff:127.0.0.1",
       "64:ff9b::808:808", "64:ff9b::8.8.8.8", "64:ff9b:1:808:0:0:a9fe:a9fe", "::8.8.8.8", "::808:808",
       "::ffff:0:808:808", "2002:808:808::", "2001:0:808:808::" }) do
-    expect(pair[1], address, false, "outside what is allowed")
+    expect(controller_end(pair), address, false, "outside what is allowed")
   end
   -- An IPv4-mapped spelling of an own address is the IPv4 address it carries, for the IPv4 form.
-  expect(pair[1], "8.8.4.4", false, "own")
-  expect(pair[1], "8.8.4.5", true, "next to an own address")
-  expect(pair[1], "2606:4700::6810:84e5", false, "own")
-  expect(pair[1], "2606:4700::6810:84e6", true, "next to an own address")
-  assert(sys.close(pair[1]))
+  expect(controller_end(pair), "8.8.4.4", false, "own")
+  expect(controller_end(pair), "8.8.4.5", true, "next to an own address")
+  expect(controller_end(pair), "2606:4700::6810:84e5", false, "own")
+  expect(controller_end(pair), "2606:4700::6810:84e6", true, "next to an own address")
+  assert(sys.close(controller_end(pair)))
   assert(assert(process.waitpid(child, false)).code == 0)
 end
 
@@ -196,16 +214,21 @@ end
 local function flipped(bytes: {integer}, at: integer): {integer}
   local copy: mut {integer} = { table.unpack(bytes) }
   local index = (at - 1) // 8 + 1
-  local byte = copy[index] ~ (1 << (7 - (at - 1) % 8))
+  local byte = assert(copy[index], "bit " .. tostring(at) .. " is inside the address")
+  local flipped_byte = byte ~ (1 << (7 - (at - 1) % 8))
   table.remove(copy, index)
-  table.insert(copy, index, byte)
+  table.insert(copy, index, flipped_byte)
   return copy
 end
 
 local function spelled(bytes: {integer}): string
   if #bytes == 4 then return table.concat(bytes, ".") end
   local groups: mut {string} = {}
-  for i = 1, 16, 2 do groups[#groups + 1] = ("%x"):format(bytes[i] * 256 + bytes[i + 1]) end
+  for i = 1, 16, 2 do
+    local high, low = bytes[i], bytes[i + 1]
+    assert(high and low, "an IPv6 address holds 16 bytes")
+    groups[#groups + 1] = ("%x"):format(high * 256 + low)
+  end
   return table.concat(groups, ":")
 end
 
@@ -216,11 +239,11 @@ local function test_a_prefix_of_any_length_holds_exactly_the_addresses_that_shar
     local width = #bytes * 8
     for bits = 0, width do
       local pair = assert(process.connector_pair())
-      local child, why = process.connector_start({}, pair[2], 500, { deny = { base .. "/" .. tostring(bits) } })
-      assert(sys.close(pair[2]))
+      local child, why = process.connector_start({}, connector_end(pair), 500, { deny = { base .. "/" .. tostring(bits) } })
+      assert(sys.close(connector_end(pair)))
       assert(child, why)
-      greeted(pair[1])
-      assert(not decide(pair[1], base), base .. "/" .. tostring(bits) .. " does not hold its own address")
+      greeted(controller_end(pair))
+      assert(not decide(controller_end(pair), base), base .. "/" .. tostring(bits) .. " does not hold its own address")
       for _, at in ipairs({ 1, 3, 4, bits - 1, bits, bits + 1, bits + 2, width }) do
         if at >= 1 and at <= width then
           -- Flipping bit `at` leaves the first at - 1 bits, so the prefix holds the
@@ -229,11 +252,11 @@ local function test_a_prefix_of_any_length_holds_exactly_the_addresses_that_shar
           local held = bits < at
           local outside = #bytes == 16 and at <= 3
           local other = spelled(flipped(bytes, at))
-          assert(decide(pair[1], other) == not (held or outside),
+          assert(decide(controller_end(pair), other) == not (held or outside),
             base .. "/" .. tostring(bits) .. " with bit " .. tostring(at) .. " flipped: " .. other)
         end
       end
-      assert(sys.close(pair[1]))
+      assert(sys.close(controller_end(pair)))
       assert(assert(process.waitpid(child, false)).code == 0)
     end
   end

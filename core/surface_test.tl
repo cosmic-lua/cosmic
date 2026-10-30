@@ -183,8 +183,10 @@ local function test_trace_of_a_coroutine_that_raised_names_where()
     local text = errors.trace_of((coroutine.running()), nil, level)
     return text
   end
-  assert(at_site():match("stack traceback:\n\t([^\n]*)"):find("at_site", 1, true) ~= nil)
-  assert(at_site(2):match("stack traceback:\n\t([^\n]*)"):find("at_site", 1, true) == nil)
+  local top = assert(at_site():match("stack traceback:\n\t([^\n]*)"), "a trace has a top frame")
+  assert(top:find("at_site", 1, true) ~= nil)
+  local skipped = assert(at_site(2):match("stack traceback:\n\t([^\n]*)"), "a trace has a top frame")
+  assert(skipped:find("at_site", 1, true) == nil)
   -- A coroutine other than the running one is read from its top.
   assert(errors.trace_of(co, nil, 5) == errors.trace_of(co))
 end

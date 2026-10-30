@@ -22,7 +22,7 @@ local function shared_objects(maps: string): {string}
     -- spaces (a deleted file's " (deleted)").
     local path = line:match("^%S+%s+%S+%s+%S+%s+%S+%s+%S+%s+(/.*)$")
     if path ~= nil and not seen[path] then
-      local name = path:match("([^/]*)$")
+      local name = assert(path:match("([^/]*)$"), "a path ends in a name")
       if name:find("%.so$") ~= nil or name:find("%.so[%.%s]") ~= nil or
           name:find("^ld%-") ~= nil then
         seen[path] = true

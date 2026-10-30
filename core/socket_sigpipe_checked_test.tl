@@ -46,7 +46,7 @@ local function test_sendfds_protects_a_received_channel_without_so_nosigpipe(tmp
   local receiver <close> = taking
   assert(raw.sendfds(sender:fd(), { external:fd() }))
   local batch = assert(raw.recvfds(receiver:fd(), 1))
-  local received <close> = batch[1]
+  local received <close> = assert(batch[1], "one descriptor passed")
   assert(peer:close())
   local ok, why, errno = raw.sendfds(received:fd(), { sender:fd() })
   assert(ok == false and why ~= "" and errno == sys.EPIPE)

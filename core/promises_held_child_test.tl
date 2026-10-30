@@ -94,7 +94,7 @@ local function test_a_child_in_a_user_namespace_of_its_own_sets_its_own_limits(t
   assert(lowers.code == 0 and lowers.said == "set\nnofile 64 64\n", "it lowers them: " .. lowers.said)
   local raises = in_sandbox(tmp, probe, { promises = {}, offline = true },
     "setrlimit nofile 64; setrlimit nofile 128")
-  assert(raises.code == 1 and raises.said:find("not permitted", 1, true), "it raises none: " .. raises.said)
+  assert(raises.code == 1 and raises.said:find("not permitted", 1, true) ~= nil, "it raises none: " .. raises.said)
 end
 
 local function test_a_child_asks_after_any_pid_only_in_a_pid_namespace_of_its_own(tmp: string)
@@ -104,7 +104,7 @@ local function test_a_child_asks_after_any_pid_only_in_a_pid_namespace_of_its_ow
     "getpgid 1")
   assert(own.code == 0 and own.said:find("pgid ", 1, true) == 1, "pid 1 is its own: " .. own.said)
   local host = under(tmp, probe, "getpgid 1")
-  assert(host.code == 1 and host.said:find("not permitted", 1, true),
+  assert(host.code == 1 and host.said:find("not permitted", 1, true) ~= nil,
     "in the host's, no pid but its own: " .. host.said)
   local itself = under(tmp, probe, "getpgid 0")
   assert(itself.code == 0, itself.said)
@@ -341,7 +341,7 @@ local function test_a_unix_socket_below_abi_9_fails_a_start_that_binds_a_directo
   if pid == nil then Test.skip("no such sandbox: " .. tostring(why)) end
   local shown, refusal = start(probe, with_u({ tmp .. "/socks" }))
   if below_abi_9 then
-    assert(shown == nil and tostring(refusal):find("changed kind", 1, true), "refused: " .. tostring(refusal))
+    assert(shown == nil and tostring(refusal):find("changed kind", 1, true) ~= nil, "refused: " .. tostring(refusal))
   else
     assert(shown ~= nil, "Landlock holds it from ABI 9: " .. tostring(refusal))
   end
@@ -374,7 +374,7 @@ local function test_a_path_swapped_for_a_directory_after_the_check_fails_the_sta
   local caught = false
   for _ = 1, 1500 do
     local pid, why = start(probe, rooted_with(probe, { tmp .. "/swap-a" }))
-    if pid == nil and tostring(why):find("changed kind", 1, true) then
+    if pid == nil and tostring(why):find("changed kind", 1, true) ~= nil then
       caught = true
       break
     end
