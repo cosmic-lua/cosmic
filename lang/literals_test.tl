@@ -88,6 +88,7 @@ local WRONG_PATTERNS <const>: {{string}} = {
 local function test_a_pattern_that_lua_raises_on_is_found_and_says_what_lua_says()
   for _, each in ipairs(WRONG_PATTERNS) do
     local pattern, subject, ours, lua = each[1], each[2], each[3], each[4]
+    assert(pattern ~= nil and subject ~= nil and ours ~= nil and lua ~= nil, "a row holds a pattern, a subject and two messages")
     local read = Literals.pattern(pattern)
     local problem = read.problem
     assert(problem ~= nil, "taken: " .. pattern)
@@ -153,13 +154,13 @@ local function test_a_replacement_names_only_the_captures_the_pattern_has_and_es
   assert(Literals.replacement("%1", 0) == nil, "%1 is the whole match when the pattern has no capture")
   assert(Literals.replacement("%1%2", 2) == nil)
   local past = Literals.replacement("%3", 2)
-  assert(past ~= nil and has(past.msg, "`%3` is used") and has(past.msg, "2 captures"), tostring(past ~= nil and past.msg))
+  assert(past ~= nil and has(past.msg, "`%3` is used") and has(past.msg, "2 captures"), tostring(if past ~= nil then past.msg else "none" end))
   local none = Literals.replacement("%2", 0)
   assert(none ~= nil and has(none.msg, "no capture"))
   local stray = Literals.replacement("100%", 0)
-  assert(stray ~= nil and has(stray.msg, "followed by nothing"), tostring(stray ~= nil and stray.msg))
+  assert(stray ~= nil and has(stray.msg, "followed by nothing"), tostring(if stray ~= nil then stray.msg else "none" end))
   local letter = Literals.replacement("%a", 1)
-  assert(letter ~= nil and has(letter.msg, "followed by `a`"), tostring(letter ~= nil and letter.msg))
+  assert(letter ~= nil and has(letter.msg, "followed by `a`"), tostring(if letter ~= nil then letter.msg else "none" end))
   -- Lua agrees on each
   local function replaces(replacement: string, pattern: string): string
     local ok, why = pcall(function(): string

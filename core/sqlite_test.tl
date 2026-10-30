@@ -470,6 +470,7 @@ local function test_limit_sets_a_named_limit_and_answers_the_old_one()
   local ok, why = handle:exec("ATTACH ':memory:' AS m")
   failed(ok, why)
   assert(why:find("too many attached", 1, true) ~= nil, why)
+  assert(why:find("raises it", 1, true) == nil, "a limit of 0 refuses every ATTACH: " .. why)
   raises_saying("sqlite: no such limit: nonesuch", handle.limit, handle, "nonesuch", 0)
   raises(handle.limit, handle, "attached", 2 ^ 40)
   for _, name in ipairs({ "length", "sql_length", "column", "expr_depth", "compound_select",
@@ -479,6 +480,34 @@ local function test_limit_sets_a_named_limit_and_answers_the_old_one()
   end
   handle:close()
   raises(handle.limit, handle, "attached", 0)
+end
+
+--- A handle attaches 10 databases until it raises the limit, and the
+--- refusal of the eleventh says how far it may go.
+local function test_attached_limit_starts_at_ten_and_rises_to_its_ceiling()
+  local handle = memory()
+  assert(handle:limit("attached", -1) == 10)
+  for i = 1, 10 do
+    assert(handle:exec("ATTACH ':memory:' AS m" .. tostring(i)))
+  end
+  local hint = 'handle:limit("attached", n) raises it, to at most 125'
+  local ok, why = handle:exec("ATTACH ':memory:' AS m11")
+  failed(ok, why)
+  assert(why == "too many attached databases - max 10; " .. hint, why)
+  local result = handle:exec_result("ATTACH ':memory:' AS m11")
+  assert(result.code == 1 and result.reason == why, result.reason)
+  assert(handle:limit("attached", 125) == 10)
+  assert(handle:exec("ATTACH ':memory:' AS m11"))
+  raises_saying("sqlite: the attached limit is at most 125, not 126",
+    handle.limit, handle, "attached", 126)
+  assert(handle:limit("attached", -1) == 125, "a refused value leaves the limit as it was")
+  for i = 12, 125 do
+    assert(handle:exec("ATTACH ':memory:' AS m" .. tostring(i)))
+  end
+  ok, why = handle:exec("ATTACH ':memory:' AS m126")
+  failed(ok, why)
+  assert(why == "too many attached databases - max 125", "nothing is left to raise: " .. why)
+  assert(handle:close())
 end
 
 local function test_exec_result_captures_codes_and_reason_before_later_operations()

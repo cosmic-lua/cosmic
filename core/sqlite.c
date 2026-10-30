@@ -3,6 +3,7 @@
 #include <errno.h>
 #include <limits.h>
 #include <stdbool.h>
+#include <stdio.h>
 #include <string.h>
 #include <sys/uio.h>
 
@@ -19,6 +20,11 @@
 
 #define HANDLE_TYPE "cosmic.sqlite.handle"
 #define STATEMENT_TYPE "cosmic.sqlite.statement"
+
+/* How many databases a connection opened here may attach until it raises
+ * the limit: SQLite's own default, well below the ceiling build.zig
+ * compiles in (SQLITE_MAX_ATTACHED). */
+#define ATTACHED_DEFAULT 10
 
 struct handle {
   sqlite3 *db;
@@ -58,10 +64,47 @@ static int wait_busy (void *context, int previous) {
   return status == 0;
 }
 
+/* A limit's compiled ceiling, which sqlite3_limit lowers a larger value
+ * to without saying so. The limit is left as it was. */
+static int limit_ceiling (sqlite3 *db, int id) {
+  int old = sqlite3_limit(db, id, INT_MAX);
+  return sqlite3_limit(db, id, old);
+}
+
+#define TOO_MANY_ATTACHED "too many attached databases"
+#define HINT_SIZE 80
+
+/* What SQLite's refusal of an ATTACH past the limit leaves unsaid: that
+ * the limit is the connection's to raise, and how far. Empty for any
+ * other reason, for a limit already at its ceiling, and for a limit of 0,
+ * which a caller sets to refuse every ATTACH. */
+static void attach_hint (sqlite3 *db, const char *reason, char hint[HINT_SIZE]) {
+  hint[0] = '\0';
+  if (strncmp(reason, TOO_MANY_ATTACHED, sizeof TOO_MANY_ATTACHED - 1) != 0) return;
+  int limit = sqlite3_limit(db, SQLITE_LIMIT_ATTACHED, -1);
+  int ceiling = limit_ceiling(db, SQLITE_LIMIT_ATTACHED);
+  if (limit == 0 || limit >= ceiling) return;
+  snprintf(hint, HINT_SIZE, "; handle:limit(\"attached\", n) raises it, to at most %d",
+           ceiling);
+}
+
+/* The reason the connection's last call failed, copied before anything
+ * that allocates. */
+static void push_reason (lua_State *L, sqlite3 *db) {
+  char hint[HINT_SIZE];
+  const char *reason = sqlite3_errmsg(db);
+  attach_hint(db, reason, hint);
+  lua_pushstring(L, reason);
+  if (hint[0] != '\0') {
+    lua_pushstring(L, hint);
+    lua_concat(L, 2);
+  }
+}
+
 static int failed (lua_State *L, sqlite3 *db, int rc) {
   lua_pushnil(L);
   if (db != NULL) {
-    lua_pushstring(L, sqlite3_errmsg(db));
+    push_reason(L, db);
   } else {
     lua_pushstring(L, sqlite3_errstr(rc));
   }
@@ -71,7 +114,7 @@ static int failed (lua_State *L, sqlite3 *db, int rc) {
 static int failed_effect (lua_State *L, sqlite3 *db, int rc) {
   lua_pushboolean(L, 0);
   if (db != NULL) {
-    lua_pushstring(L, sqlite3_errmsg(db));
+    push_reason(L, db);
   } else {
     lua_pushstring(L, sqlite3_errstr(rc));
   }
@@ -98,13 +141,17 @@ static void capture (lua_State *L, struct outcome *out, sqlite3 *db, int rc,
   out->cancelled = out->code == SQLITE_BUSY && cancelled;
   if (rc != SQLITE_OK) {
     const char *reason = db == NULL ? sqlite3_errstr(rc) : sqlite3_errmsg(db);
-    size_t size = strlen(reason) + 1;
+    char hint[HINT_SIZE] = "";
+    if (db != NULL) attach_hint(db, reason, hint);
+    size_t length = strlen(reason);
+    size_t size = length + strlen(hint) + 1;
     out->message->resource = cosmic_malloc(size);
     if (out->message->resource == NULL) {
       luaL_error(L, "not enough memory");
       return;
     }
-    memcpy(out->message->resource, reason, size);
+    memcpy(out->message->resource, reason, length);
+    memcpy((char *)out->message->resource + length, hint, size - length);
   }
 }
 
@@ -432,6 +479,7 @@ static int open_database (lua_State *L, bool result) {
   /* Another process may hold the file's lock: two builds of one tree, or a
    * reader meeting a writer's commit. Wait for it rather than failing. */
   if (rc == SQLITE_OK) rc = sqlite3_busy_timeout(h->db, 60000);
+  if (rc == SQLITE_OK) sqlite3_limit(h->db, SQLITE_LIMIT_ATTACHED, ATTACHED_DEFAULT);
   if (rc == SQLITE_OK) rc = cosmic_sqlite_functions(h->db);
   if (result) {
     capture(L, &out, h->db, rc, false);
@@ -577,7 +625,7 @@ static int prepare_statement (lua_State *L, bool result) {
       return 1;
     }
     lua_pushnil(L);
-    lua_pushstring(L, sqlite3_errmsg(h->db));
+    push_reason(L, h->db);
     sqlite3_finalize(s->stmt);
     s->stmt = NULL;
     return 2;
@@ -678,7 +726,14 @@ static int handle_limit (lua_State *L) {
   int value = cosmic_checkint(L, 3);
   for (int i = 0; limit_names[i].name != NULL; i++) {
     if (strcmp(name, limit_names[i].name) == 0) {
-      lua_pushinteger(L, sqlite3_limit(h->db, limit_names[i].id, value));
+      int id = limit_names[i].id;
+      int old = sqlite3_limit(h->db, id, value);
+      if (value >= 0 && sqlite3_limit(h->db, id, -1) < value) {
+        int ceiling = sqlite3_limit(h->db, id, old);
+        return luaL_error(L, "sqlite: the %s limit is at most %d, not %d", name,
+                          ceiling, value); /* a bug, not a failure */
+      }
+      lua_pushinteger(L, old);
       return 1;
     }
   }

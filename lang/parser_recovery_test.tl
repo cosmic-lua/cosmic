@@ -37,14 +37,29 @@ end
 
 local function clean(source: string, dialect?: Ast.Dialect): string
   local parsed = parse(source, dialect)
-  assert(#parsed.errors == 0, codes(parsed) .. ": " .. (parsed.errors[1] and parsed.errors[1].msg or "") .. " in " .. source)
+  local first = parsed.errors[1]
+  assert(#parsed.errors == 0, codes(parsed) .. ": " .. (first and first.msg or "") .. " in " .. source)
   return tree(parsed)
+end
+
+--- Error `n` of `parsed`; the test fails when there are fewer.
+local function error_at(parsed: Parser.Parsed, n: integer): Parser.Error
+  local e = parsed.errors[n]
+  assert(e, "expected error " .. tostring(n) .. ", found [" .. codes(parsed) .. "]")
+  return e
+end
+
+--- Statement `n` of `parsed`; the test fails when there are fewer.
+local function stat_at(parsed: Parser.Parsed, n: integer): Ast.Stat
+  local stat = parsed.chunk.body.stats[n]
+  assert(stat, "expected statement " .. tostring(n))
+  return stat
 end
 
 local function the_error(source: string, code: string): Parser.Error
   local parsed = parse(source)
   assert(codes(parsed) == code, "expected " .. code .. ", found [" .. codes(parsed) .. "] in " .. source)
-  return parsed.errors[1]
+  return error_at(parsed, 1)
 end
 
 local function has(text: string, part: string, what: string)
@@ -82,14 +97,14 @@ local function test_a_trailing_comma_is_refused_in_parameters_types_and_patterns
   end
   clean("local t = { 1, 2, }")
   local call = parse("f(a, b,)")
-  assert(call.errors[1] ~= nil and call.errors[1].code == "expected_expression", "a call has a value to give")
+  assert(error_at(call, 1).code == "expected_expression", "a call has a value to give")
 end
 
 local function test_a_table_item_on_the_next_line_without_a_comma_says_to_add_one()
   local parsed = parse("local t = {\n  a = 1\n  b = 2,\n  [3] = 4\n  5\n}")
   assert(codes(parsed) == "expected_token expected_token", codes(parsed))
-  has(parsed.errors[1].fix, "add a `,`", "fix")
-  assert(parsed.errors[1].y == 3 and parsed.errors[2].y == 5)
+  has(error_at(parsed, 1).fix, "add a `,`", "fix")
+  assert(error_at(parsed, 1).y == 3 and error_at(parsed, 2).y == 5)
   has(tree(parsed), "(Table [(Named \"a\" (Integer 1)) (Named \"b\" (Integer 2)) (Keyed (Integer 3) (Integer 4)) (Positional (Integer 5))])", "all items")
 end
 
@@ -108,9 +123,9 @@ local UNCLOSED <const>: {string} = {
 local function test_a_declaration_that_is_not_closed_ends_at_the_statement_after_it_and_is_blamed_once()
   for _, source in ipairs(UNCLOSED) do
     local parsed = parse(source)
-    assert(codes(parsed) == "unclosed" or (codes(parsed) == "expected_token unclosed" and source:find(" b c d", 1, true)),
+    assert(codes(parsed) == "unclosed" or (codes(parsed) == "expected_token unclosed" and source:find(" b c d", 1, true) ~= nil),
       codes(parsed) .. " for " .. source)
-    local e = parsed.errors[#parsed.errors]
+    local e = error_at(parsed, #parsed.errors)
     has(e.msg, "R` on line", source)
     assert(e.msg:find("`record R`", 1, true) or e.msg:find("`interface R`", 1, true) or e.msg:find("`class R`", 1, true) or
         e.msg:find("`enum R`", 1, true), "names the construct, not `local`: " .. e.msg)
@@ -138,7 +153,7 @@ local function test_a_bar_inside_brackets_or_before_anything_but_a_paren_continu
   }
   for _, body in ipairs(arms) do
     local source = "match f() do\n  | (true, v) then\n    " .. body .. "\n  | (false, e) then error(e)\nend"
-    local stat = parse(source).chunk.body.stats[1]
+    local stat = stat_at(parse(source), 1)
     assert((stat.kind == "Match") and #stat.arms == 2, "two arms: " .. body)
     assert(codes(parse(source)) == "", "no error: " .. body)
   end
@@ -157,23 +172,23 @@ local function test_a_function_literal_in_an_arm_has_the_union_of_lists_of_its_o
   local parsed = parse(source)
   assert(codes(parsed) == "", codes(parsed))
   has(tree(parsed), "(Rets [[(TypeBool true) (TypeName [\"A\"])] [(TypeBool false) (TypeName [\"B\"])]])", "two lists")
-  local stat = parsed.chunk.body.stats[1]
+  local stat = stat_at(parsed, 1)
   assert((stat.kind == "Match") and #stat.arms == 2)
 end
 
 local function test_two_arms_on_a_line_are_refused_and_read_as_two()
   local parsed = parse("match f() do\n  | (true, v) then local x = v | (false, e) then error(e)\nend")
   assert(codes(parsed) == "arm_on_same_line", codes(parsed))
-  has(parsed.errors[1].fix, "start each arm on its own line", "fix")
-  local stat = parsed.chunk.body.stats[1]
+  has(error_at(parsed, 1).fix, "start each arm on its own line", "fix")
+  local stat = stat_at(parsed, 1)
   assert((stat.kind == "Match") and #stat.arms == 2, "two arms")
 end
 
 local function test_an_if_in_an_arm_that_is_not_closed_is_blamed_not_the_bar()
   local parsed = parse("match f() do\n  | (true, v) then\n    if v then\n      g()\n  | (false, e) then error(e)\nend")
   assert(codes(parsed) == "unclosed", codes(parsed))
-  has(parsed.errors[1].msg, "to close the `if` on line 3", "blames the if")
-  local stat = parsed.chunk.body.stats[1]
+  has(error_at(parsed, 1).msg, "to close the `if` on line 3", "blames the if")
+  local stat = stat_at(parsed, 1)
   assert((stat.kind == "Match") and #stat.arms == 2)
 end
 
@@ -182,7 +197,7 @@ end
 local function test_a_local_after_a_continue_in_a_repeat_body_is_refused_whether_or_not_the_until_reads_it()
   local read = the_error("repeat\n  if c then continue end\n  local y = 1\nuntil y", "continue_skips_local")
   has(read.fix, "`until` reads `y`: declare it before the `repeat`, or before the `continue` on line 2", "read")
-  local other = parse("repeat\n  if c then continue end\n  local y = 1\nuntil done").errors[1]
+  local other = error_at(parse("repeat\n  if c then continue end\n  local y = 1\nuntil done"), 1)
   has(other.fix, "wrap the code from `local y` to the end of the body in `do ... end`", "not read")
   assert(other.y == 3 and other.x == 3, "at the local")
   local at = other.other
@@ -212,8 +227,8 @@ local function test_the_until_of_a_very_long_chain_is_searched_without_a_stack_o
   local chain = ("a + "):rep(120000) .. "y"
   -- The cover check recurses as deep as the chain, so this goes without it.
   local lexed = Lexer.lex("repeat\n  if c then continue end\n  local y = 1\nuntil " .. chain, "t.tl")
-  local e = Parser.parse(lexed, "t.tl", "tl").errors[1]
-  assert(e ~= nil and e.code == "continue_skips_local")
+  local e = error_at(Parser.parse(lexed, "t.tl", "tl"), 1)
+  assert(e.code == "continue_skips_local")
   has(e.fix, "`until` reads `y`", "found at the end of the chain")
 end
 
@@ -231,34 +246,36 @@ local function test_the_fix_for_a_union_with_nil_keeps_the_parentheses_the_sourc
     { "local x: Map<A | B, C> | nil", "write `Map<A | B, C>?`" },
   }
   for _, case in ipairs(cases) do
-    local e = the_error(case[1], "nil_union")
-    assert(e.fix == case[2], case[1] .. ": " .. e.fix)
+    local source, fix = case[1], case[2]
+    assert(source and fix, "a case is a source and its fix")
+    local e = the_error(source, "nil_union")
+    assert(e.fix == fix, source .. ": " .. e.fix)
   end
 end
 
 -- the places an error involves
 
 local function test_an_error_carries_the_second_place_it_involves()
-  local unclosed = parse("local function f()\n  if x then\n    foo()\n").errors[2]
+  local unclosed = error_at(parse("local function f()\n  if x then\n    foo()\n"), 2)
   local opener = unclosed.other
   assert(opener ~= nil and opener.y == 1 and opener.x == 7, "the opener of a function")
-  local after = parse("return 1\nx = 2").errors[1]
+  local after = error_at(parse("return 1\nx = 2"), 1)
   local returned = after.other
   assert(after.code == "statement_after_return" and returned ~= nil and returned.y == 1 and returned.x == 1, "the return")
-  local repeated = parse("repeat\n  if c then continue end\n  local y = 1\nuntil y").errors[1]
+  local repeated = error_at(parse("repeat\n  if c then continue end\n  local y = 1\nuntil y"), 1)
   local continued = repeated.other
   assert(continued ~= nil and continued.y == 2, "the continue")
-  assert(parse("local x = = 1").errors[1].other == nil, "most have one place")
+  assert(error_at(parse("local x = = 1"), 1).other == nil, "most have one place")
 end
 
 -- docs
 
 local function test_a_function_statement_has_its_doc_comment()
-  local stat = parse("-- one\n--- two\nfunction R.m() end\nfunction R.n() end").chunk.body.stats[1]
+  local stat = stat_at(parse("-- one\n--- two\nfunction R.m() end\nfunction R.n() end"), 1)
   assert((stat.kind == "Function"))
   local doc = stat.doc
   assert(doc ~= nil and #doc == 2 and assert(doc[1]).text == "-- one" and assert(doc[2]).text == "--- two", "the run before the statement")
-  local second = parse("-- one\nfunction R.m() end\nfunction R.n() end").chunk.body.stats[2]
+  local second = stat_at(parse("-- one\nfunction R.m() end\nfunction R.n() end"), 2)
   assert((second.kind == "Function") and second.doc == nil, "none for the next")
 end
 
@@ -311,7 +328,7 @@ end
 local function test_a_type_declared_with_the_old_word_is_read_as_the_declaration_it_means()
   local parsed = parse("local type X = record\n  a: integer\n  mut b: string\nend\nlocal y = 1")
   assert(codes(parsed) == "old_type_declaration", codes(parsed))
-  has(parsed.errors[1].fix, "write `local record X ... end`", "fix")
+  has(error_at(parsed, 1).fix, "write `local record X ... end`", "fix")
   has(tree(parsed), "(Record \"local\" (Binding \"X\") _ _ _ [(FieldDecl (Binding \"a\") _ _ (TypeName [\"integer\"])) (FieldDecl (Binding \"b\") mut _ (TypeName [\"string\"]))])", "the record")
   for _, word in ipairs({ "interface", "enum", "class" }) do
     assert(codes(parse("local type X = " .. word .. "\nend")) == "old_type_declaration", word)
@@ -340,10 +357,10 @@ end
 local function test_a_reserved_word_where_a_name_is_used_says_it_is_reserved_and_suggests_a_rename()
   local parsed = parse("match(p)\ncontinue(p)\nmut = 1\nuserdata.x = 1\nlocal function f(match) end\nlocal goto = 1")
   assert(codes(parsed) == "reserved_word reserved_word reserved_word reserved_word reserved_word reserved_word", codes(parsed))
-  has(parsed.errors[1].fix, "`matched`", "match")
-  has(parsed.errors[2].fix, "`continued`", "continue")
-  has(parsed.errors[3].fix, "`mutable`", "mut")
-  has(parsed.errors[5].fix, "`matched`", "a parameter")
+  has(error_at(parsed, 1).fix, "`matched`", "match")
+  has(error_at(parsed, 2).fix, "`continued`", "continue")
+  has(error_at(parsed, 3).fix, "`mutable`", "mut")
+  has(error_at(parsed, 5).fix, "`matched`", "a parameter")
   has(tree(parsed), "(CallStat (Call (Name \"match\") [(Name \"p\")])) (CallStat (Call (Name \"continue\") [(Name \"p\")])) (Assign [(Name \"mut\")] [(Integer 1)])", "read as the names")
   clean("local m = s:match(p)\nlocal c = t.continue(p)\nmatch f(p) do\n  | (true, v) then g(v)\nend")
 end
@@ -357,34 +374,34 @@ end
 local function test_two_constructs_left_open_at_the_end_of_the_file_are_both_reported()
   local parsed = parse("local function f()\n  while x do\n    g()\n")
   assert(codes(parsed) == "unclosed unclosed", codes(parsed))
-  has(parsed.errors[1].msg, "`while` on line 2", "the inner one first")
-  has(parsed.errors[2].msg, "function `f` on line 1", "then the outer")
+  has(error_at(parsed, 1).msg, "`while` on line 2", "the inner one first")
+  has(error_at(parsed, 2).msg, "function `f` on line 1", "then the outer")
 end
 
 local function test_a_missing_end_is_blamed_on_the_function_that_the_next_one_shows_is_open()
   local parsed = parse("local function f()\n  if x then\n    g()\nlocal function h()\n  return 1\nend\n")
   assert(codes(parsed) == "unclosed unclosed", codes(parsed))
   for i = 1, 2 do
-    assert(parsed.errors[i].y == 4, "at the function that begins no deeper, not at the end of the file")
+    assert(error_at(parsed, i).y == 4, "at the function that begins no deeper, not at the end of the file")
   end
-  has(parsed.errors[1].msg, "`if` on line 2", "inner")
-  has(parsed.errors[2].msg, "function `f` on line 1", "outer")
+  has(error_at(parsed, 1).msg, "`if` on line 2", "inner")
+  has(error_at(parsed, 2).msg, "function `f` on line 1", "outer")
   local flush = parse("if a then\nlocal function g() end\nend")
   assert(#flush.errors == 0, "a body written without indentation is read as written")
 end
 
 local function test_a_long_expression_is_quoted_cut_in_a_message()
   local bad = parse("(" .. ("abcdefghij + "):rep(12) .. "k) == 1")
-  assert(bad.errors[1] ~= nil and bad.errors[1].code == "not_a_statement")
-  has(bad.errors[1].msg, "\226\128\166", "ends in an ellipsis")
-  assert(#bad.errors[1].msg < 150, "short")
+  assert(error_at(bad, 1).code == "not_a_statement")
+  has(error_at(bad, 1).msg, "\226\128\166", "ends in an ellipsis")
+  assert(#error_at(bad, 1).msg < 150, "short")
 end
 
 local function test_what_follows_a_construct_that_was_too_deep_is_reported_again()
   local source = "local x = " .. ("("):rep(250) .. "1" .. (")"):rep(250) .. "\nlocal z = = 1\nlocal w: T | nil"
   local parsed = parse(source)
   assert(codes(parsed) == "too_deep expected_expression nil_union", codes(parsed))
-  assert(parsed.errors[2].y == 2 and parsed.errors[3].y == 3)
+  assert(error_at(parsed, 2).y == 2 and error_at(parsed, 3).y == 3)
 end
 
 local function test_goto_is_refused_by_the_parser_in_each_place_it_stands()
@@ -403,11 +420,11 @@ end
 local function test_a_function_missing_its_end_after_a_return_is_blamed_not_the_statement_after_the_return()
   local one = parse("local function f()\n  return 1\n\nlocal function g()\n  return 2\nend")
   assert(codes(one) == "unclosed", codes(one))
-  has(one.errors[1].msg, "function `f` on line 1", "the function")
-  assert(one.errors[1].y == 4, "at the function that follows")
+  has(error_at(one, 1).msg, "function `f` on line 1", "the function")
+  assert(error_at(one, 1).y == 4, "at the function that follows")
   local two = parse("local function f()\n  if a then return 1\n\nlocal function g() end")
   assert(codes(two) == "unclosed unclosed", codes(two))
-  has(two.errors[1].msg, "function `f` on line 1", "the function")
+  has(error_at(two, 1).msg, "function `f` on line 1", "the function")
   local still = the_error("local function f()\n  return 1\n  x = 2\nend", "statement_after_return")
   has(still.fix, "do return end", "a real statement after a return")
 end
@@ -415,8 +432,8 @@ end
 local function test_code_written_flush_left_in_an_unclosed_body_is_blamed_at_the_end_of_the_file()
   local parsed = parse("local function f()\nx = 1\nlocal function g() end")
   assert(codes(parsed) == "unclosed", codes(parsed))
-  has(parsed.errors[1].msg, "found the end of the file", "no indentation to go by")
-  assert(parsed.errors[1].y == 3)
+  has(error_at(parsed, 1).msg, "found the end of the file", "no indentation to go by")
+  assert(error_at(parsed, 1).y == 3)
 end
 
 -- a table without a comma
@@ -425,8 +442,8 @@ local function test_a_string_or_table_item_on_the_next_line_without_a_comma_is_a
   for _, items in ipairs({ "\"a\"\n  \"b\"", "{1}\n  {2}", "a\n  \"b\"", "a\n  {2}", "k = f\n  \"b\"", "[1] = {}\n  {2}" }) do
     local parsed = parse("local t = {\n  " .. items .. "\n}")
     assert(codes(parsed) == "expected_token", codes(parsed) .. " for " .. items)
-    has(parsed.errors[1].fix, "add a `,`", items)
-    assert(parsed.errors[1].y == 3)
+    has(error_at(parsed, 1).fix, "add a `,`", items)
+    assert(error_at(parsed, 1).y == 3)
   end
   assert(codes(parse("local t = { f\"x\" }")) == "string_call", "on one line it is the call it was")
   clean("local t = {\n  function()\n    f(\n      \"x\")\n  end,\n}")
@@ -437,7 +454,7 @@ end
 local function test_a_second_arm_on_the_line_of_a_call_statement_is_refused()
   local parsed = parse("match f() do\n  | (true, x) then a() | (false, y) then b()\nend")
   assert(codes(parsed) == "arm_on_same_line", codes(parsed))
-  local stat = parsed.chunk.body.stats[1]
+  local stat = stat_at(parsed, 1)
   assert((stat.kind == "Match") and #stat.arms == 2)
 end
 
@@ -446,8 +463,8 @@ end
 local function test_a_reserved_word_assigned_to_or_called_is_read_as_the_name_it_was_meant_for()
   local parsed = parse("match = 1\ncontinue = true\nmatch(a, b)\ncontinue(a)\ncontinue, match = 1, 2")
   assert(codes(parsed) == "reserved_word reserved_word reserved_word reserved_word reserved_word reserved_word", codes(parsed))
-  has(parsed.errors[1].fix, "`matched`", "match")
-  has(parsed.errors[2].fix, "`continued`", "continue")
+  has(error_at(parsed, 1).fix, "`matched`", "match")
+  has(error_at(parsed, 2).fix, "`continued`", "continue")
   has(tree(parsed), "(Assign [(Name \"match\")] [(Integer 1)]) (Assign [(Name \"continue\")] [(Boolean true)]) " ..
       "(CallStat (Call (Name \"match\") [(Name \"a\") (Name \"b\")])) (CallStat (Call (Name \"continue\") [(Name \"a\")]))", "tree")
   assert(#parsed.chunk.body.stats == 5)
@@ -471,5 +488,5 @@ end
 local function test_small_messages()
   the_error("local f: function(): (integer, string,)", "trailing_comma")
   has(the_error("local x = s:match\"x\"", "string_call").fix, "obj:match(\"x\")", "a method call")
-  has(parse("local type X = enum\nend").errors[1].msg, ": an enum is declared", "an enum")
+  has(error_at(parse("local type X = enum\nend"), 1).msg, ": an enum is declared", "an enum")
 end

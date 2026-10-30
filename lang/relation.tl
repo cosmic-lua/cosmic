@@ -452,10 +452,8 @@ local function closure_of(j: Relation.Judge, n: Named): Relation.Closure
   end
   local closure: Relation.Closure = { set = {}, list = {}, by_decl = {}, complete = true }
   local queue: mut {Named} = { n }
-  local head = 1
-  while head <= #queue do
-    local x = queue[head]
-    head = head + 1
+  -- The walk takes the uses it adds, which `ipairs` meets as they are appended.
+  for _, x in ipairs(queue) do
     defined(x)
     local body = x.decl.body
     if body ~= nil then
@@ -837,8 +835,8 @@ end
 --- the rest parameter, which stands at every position past the last parameter. Nil where `f`
 --- takes none.
 local function slot(f: Fn, i: integer): Type?, boolean, boolean
-  if i <= #f.params then
-    local p = f.params[i]
+  local p = f.params[i]
+  if p ~= nil then
     return p.type, p.omittable == true, false
   end
   local rest = f.rest
@@ -921,7 +919,11 @@ local function alternative_below(
     return leaf(j, why, "return_length", f, g)
   end
   for k, item in ipairs(fa.items) do
-    local r = rel(j, item, ga.items[k], why)
+    local other = ga.items[k]
+    if other == nil then
+      return leaf(j, why, "return_length", f, g)
+    end
+    local r = rel(j, item, other, why)
     if r ~= nil then
       return through(why, "item", k, r)
     end
@@ -1048,7 +1050,11 @@ local function from_generic(j: Relation.Judge, a: Fn, b: Fn, why: boolean): Rela
   end
   for i, tp in ipairs(a.tparams) do
     local bound = tp.bound
-    if bound ~= nil and rel(j, args[i], bound, false) ~= nil then
+    local solved = args[i]
+    if solved == nil then
+      return leaf(j, why, "generic_function", a, b)
+    end
+    if bound ~= nil and rel(j, solved, bound, false) ~= nil then
       return leaf(j, why, "generic_function", a, b)
     end
   end

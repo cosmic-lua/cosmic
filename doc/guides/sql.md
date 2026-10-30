@@ -379,6 +379,37 @@ in a database file may use them.
   one of 16 have the same length and compare.
 - `jaccard_distance(A, B)`: one minus the share of set bits two bit
   vectors of the same length have in common.
+- `vector_block(ID, X [, STORAGE])`: an aggregate: the rows of its group
+  packed into one blob, a [block](#packed-rows), or NULL for no rows. ID
+  is an integer. X is a vector, which must be finite, and as wide as the
+  group's first. STORAGE is `'f32'` (the default), `'f16'` or `'int8'`, how
+  the block holds the numbers, as [`cosmic.vector`]'s corpus does; for
+  `'f16'` X holds numbers under 65520 in magnitude. A row whose X is NULL
+  is left out.
+- `vector_block_search(BLOCK, QUERY, K [, METRIC])`: a table-valued
+  function: the K rows of BLOCK nearest to QUERY, as `id` and `distance`,
+  nearest first, equal distances in order of the lower id. METRIC is
+  `'inner_product'` (the default), `'cosine'` or `'l2'`. The distance is
+  lower for nearer rows: the negative inner product (pgvector's `<#>`,
+  so `ORDER BY distance` ranks the rows `inner_product(A, B) DESC`
+  would), `cosine_distance` (NULL for a vector of zeros, which comes
+  last) or `l2_distance`. The scores are those of a
+  [`cosmic.vector`] corpus of the block's storage, so they agree with a
+  corpus's to the bit (a cosine that rounds just past 1 is clamped, as
+  `cosine_distance` clamps it, and rows at the same distance then rank by
+  id) and with the per-row functions to the rounding of a float sum; an
+  `'int8'` block's are those of the quantized numbers. A NULL BLOCK,
+  QUERY or K answers no rows. QUERY must have the block's dimensions and
+  hold finite numbers, K is an integer from 1, and a block is checked
+  before any of it is read ([layout](#packed-rows)). The arguments are
+  hidden columns named `block`, `query`, `k` and `metric`, so a table that
+  joins it and has a column of one of those names is qualified
+  (`blocks.block`). `k` and `metric` read back what was given (`metric`
+  the default's name when it was left out); `block` and `query` read NULL.
+  A NULL METRIC is an error. List the tables that supply the arguments
+  before the function: a comma join does, and a `CROSS JOIN` the other way
+  round has no plan for the block ("no query solution") and answers no rows
+  for a metric.
 
 A search is an `ORDER BY` over every row a `WHERE` keeps, so a filter
 never loses a match, and a hybrid search blends it with FTS5's ranking.
@@ -412,6 +443,64 @@ SELECT c.id FROM (
 ) b JOIN chunks c ON c.id = b.id
 ORDER BY cosine_distance(c.embedding, ?1) NULLS LAST LIMIT 10;
 ```
+
+### packed rows
+
+A table with a row per vector reads a page per row (above), however few
+bytes the scan wants. A block holds many vectors in one row, so a scan
+reads one row for a few dozen and the arithmetic is what remains.
+`vector_block` packs the rows of a group, `vector_block_search` joins the
+blocks and answers each one's nearest rows, and an `ORDER BY` with a
+`LIMIT` over them is the global nearest. A `WHERE` on the table of
+blocks drops whole blocks, so filter on columns the block table keeps
+(a tenant, a range of ids) and group by them.
+
+```text
+CREATE TABLE blocks AS
+  SELECT tenant, (seq - 1) / 32 AS n, min(id) AS lo, max(id) AS hi,
+         vector_block(id, embedding, 'int8') AS vectors
+  FROM chunks GROUP BY tenant, n;
+
+SELECT h.id, h.distance
+FROM blocks, vector_block_search(blocks.vectors, ?1, 10, 'cosine') AS h
+WHERE blocks.tenant = 'a'
+ORDER BY h.distance NULLS LAST, h.id LIMIT 10;
+```
+
+A block is derived data: rebuild the blocks a change touched, or search
+the rows not yet packed with the per-row functions beside them. The
+[semantic search guide](semantic-search.md#packed-rows) has the numbers, the
+sizes to pack and an example that does both. [`Vector.load_blocks`]
+fills a corpus from the blocks without reading the vectors one by one.
+
+A block is the following, little-endian, each section starting at a
+multiple of 8 bytes, and nothing after it, so its length is a function
+of its header:
+
+- The bytes `VBLK`, a byte for the storage (0 `f32`, 1 `f16`, 2 `int8`), three
+  zero bytes, the dimensions and the count of vectors, each a 32-bit
+  integer;
+- the ids, a 64-bit integer each;
+- the inverse of each vector's length, a 32-bit float each (0 for a
+  vector of zeros), which `cosine` reads;
+- for `int8` only, each vector's scale, sum of its squared codes and sum
+  of its codes, 12 bytes each;
+- the vectors back to back: `dims` numbers each, 32-bit floats, 16-bit
+  floats or signed bytes.
+
+A function that is given anything else, a blob of another length than
+its header's, a header it does not write, or a length or scale out of
+range (not a number, negative, or for a scale over what makes a code
+a finite number), refuses it by name and reads nothing. A search does not
+read a vector's own numbers or an int8 vector's sums again, as the
+aggregate wrote them: a block made by hand that lies about them ranks its
+rows by whatever the kernels make of the lie, which may differ between
+processors, and [`Vector.load_blocks`] refuses such a block (numbers that
+are not finite, an int8 sum that is not its codes').
+
+A statement scanning blocks ends with the error `interrupted` when a
+[`Signal.guard`] of [`cosmic.signal`] has caught SIGINT or SIGTERM,
+within a few hundred vectors of work.
 
 ## SQLite's extensions
 
@@ -518,6 +607,10 @@ and `decimal` and `uint` from [SQLite's extensions](#sqlites-extensions).
 [`cosmic.csv`]: ../../cosmic/csv.tl
 [`cosmic.hash`]: ../../cosmic/hash.tl
 [`cosmic.json`]: ../../cosmic/json.tl
+[`cosmic.signal`]: ../../cosmic/signal.tl
 [`cosmic.sqlite`]: ../../cosmic/sqlite.tl
 [`cosmic.store`]: ../../cosmic/store.tl
+[`cosmic.vector`]: ../../cosmic/vector.tl
 [`cosmic/sqlite_example.tl`]: ../../cosmic/sqlite_example.tl
+[`Signal.guard`]: ../../cosmic/signal.tl
+[`Vector.load_blocks`]: ../../cosmic/vector.tl

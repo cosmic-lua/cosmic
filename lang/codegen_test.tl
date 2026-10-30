@@ -15,7 +15,8 @@ local Truthy = require("lang.truthy")
 --- The generator's result for `text`, which is in the new grammar. `truthy` is what it takes as neither false nor nil.
 local function generated(text: string, truthy?: function(e: Ast.Exp): boolean): Codegen.Generated
   local parsed = Parser.parse(Lexer.lex(text, "t.tl"), "t.tl", "tl")
-  assert(#parsed.errors == 0, if parsed.errors[1] ~= nil then parsed.errors[1].msg .. "\n" .. text else "" end)
+  local first = parsed.errors[1]
+  assert(#parsed.errors == 0, if first ~= nil then first.msg .. "\n" .. text else "" end)
   return Codegen.generate(parsed.chunk, Scopes.build(parsed.chunk, "t.tl", {}), truthy)
 end
 
@@ -23,14 +24,16 @@ end
 --- its value is never false, which is what the generator is told here.
 local function emits(source: string, lua: string)
   local ours = generated(source, Truthy.never_false)
-  assert(#ours.errors == 0, ours.errors[1] ~= nil and ours.errors[1].msg or "")
+  local first = ours.errors[1]
+  assert(#ours.errors == 0, if first ~= nil then first.msg else "" end)
   assert(ours.text == lua, "the generator wrote\n" .. ours.text .. "\nnot\n" .. lua)
 end
 
 --- Runs the generator's text of `source` and answers the four values it returns.
 local function run(source: string, truthy?: function(e: Ast.Exp): boolean): any, any, any, any
   local result = generated(source, truthy)
-  assert(#result.errors == 0, result.errors[1] ~= nil and result.errors[1].msg or "")
+  local first = result.errors[1]
+  assert(#result.errors == 0, if first ~= nil then first.msg else "" end)
   local env: {string: any} = { print = print, pcall = pcall, error = error, select = select, table = table, math = math,
     type = type, ipairs = ipairs, pairs = pairs }
   local chunk = assert(load(result.text, "=t", "t", env))
@@ -976,8 +979,9 @@ local function test_a_match_keeps_every_statement_on_its_line()
   for line in (generated(source).text .. "\n"):gmatch("(.-)\n") do
     lines[#lines + 1] = line
   end
-  assert(lines[8] == "local after = 1" and lines[4]:find("print(n)", 1, true) and lines[6]:find("print(m)", 1, true),
-    table.concat(lines, "\n"))
+  local four, six = lines[4], lines[6]
+  assert(lines[8] == "local after = 1" and four ~= nil and four:find("print(n)", 1, true) ~= nil and six ~= nil and
+      six:find("print(m)", 1, true) ~= nil, table.concat(lines, "\n"))
 end
 
 local function test_nested_matches_do_not_share_their_temporaries()
@@ -1027,7 +1031,8 @@ end
 --- Runs the Lua of `classed(source)` and answers the five values it returns.
 local function run_classes(source: string): any, any, any, any, any
   local result = classed(source)
-  assert(#result.errors == 0, result.errors[1] ~= nil and result.errors[1].msg or "")
+  local first = result.errors[1]
+  assert(#result.errors == 0, if first ~= nil then first.msg else "" end)
   -- No `setmetatable` and no `getmetatable`: a class reaches the metatable through the reserved form alone.
   local env: {string: any} = { tostring = tostring, pcall = pcall, error = error, select = select, ipairs = ipairs }
   local chunk = assert(load(result.text, "=t", "t", env))
@@ -1221,7 +1226,8 @@ local function test_a_class_declared_inside_another_type_is_refused_where_it_is(
     "return Outer"))
   assert(#result.errors == 1 and result.errors[1].code == "class_nested_refused" and result.errors[1].y == 2,
     #result.errors > 0 and result.errors[1].code or "none")
-  assert(result.errors[1].msg:find("Inner", 1, true) and result.errors[1].fix ~= "")
+  local refusal = assert(result.errors[1], "the refusal of the nested class")
+  assert(refusal.msg:find("Inner", 1, true) ~= nil and refusal.fix ~= "")
   local deeper = generated(program(
     "local class Outer",
     "  record Middle",

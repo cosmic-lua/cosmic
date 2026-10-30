@@ -7,6 +7,13 @@ local cache = require("build.cache")
 local formats = require("build.cache_formats")
 local maintenance = require("build.cache_maintenance")
 
+--- The element of `list` at `index`, which the case knows is there.
+local function nth<T>(list: {T}, index: integer): T
+  local found = list[index]
+  assert(found ~= nil, "the list has an element at " .. tostring(index))
+  return found
+end
+
 local function database(path: string, schema: {string}): Sqlite.Handle
   local db = assert(Sqlite.open(path, { writable = true }))
   for _, sql in ipairs(schema) do assert(db:exec(sql)) end
@@ -28,7 +35,7 @@ local function count(path: string, name: string): integer
   local db = assert(Sqlite.open(path))
   local rows = assert(Sqlite.rows(db, "SELECT count(*) FROM " .. name))
   assert(db:close())
-  return rows[1]:integer(1)
+  return nth(rows, 1):integer(1)
 end
 
 local function test_compiles_trim_even_when_no_row_was_reached(tmp: string)
@@ -38,8 +45,8 @@ local function test_compiles_trim_even_when_no_row_was_reached(tmp: string)
   assert(db:exec("INSERT INTO parsed_v1 VALUES ('a','s',0,'',x'','d',0,4)"))
   assert(db:close())
   local result = trim(path, "compiles", 5)
-  assert(result.complete, result.report.files[1].reason)
-  local file = result.report.files[1]
+  assert(result.complete, nth(result.report.files, 1).reason)
+  local file = nth(result.report.files, 1)
   assert(file.kept == 0 and file.removed == 2 and file.reached ~= true)
   assert(count(path, "compiled_v2") == 0 and count(path, "parsed_v1") == 0)
 end
@@ -55,8 +62,8 @@ local function test_bridge_rows_are_trimmed_with_the_compiles(tmp: string)
   assert(db:exec("INSERT INTO bridge_v2 VALUES ('new','modules','',x'00','d',1,6)"))
   assert(db:close())
   local result = trim(path, "compiles", 5)
-  assert(result.complete, result.report.files[1].reason)
-  local file = result.report.files[1]
+  assert(result.complete, nth(result.report.files, 1).reason)
+  local file = nth(result.report.files, 1)
   assert(file.removed == 1 and #file.unknown_tables == 0 and count(path, "bridge_v2") == 1)
 end
 
@@ -73,7 +80,7 @@ local function test_equal_cutoff_is_kept_and_fresh_counts_only_compiles(tmp: str
   assert(db:close())
   local result = trim(path, "compiles", 5, old)
   assert(result.complete, table.concat(result.report.warnings, ";"))
-  assert(result.report.files[1].kept == 3 and result.report.files[1].removed == 1)
+  assert(nth(result.report.files, 1).kept == 3 and nth(result.report.files, 1).removed == 1)
   assert(result.report.fresh == 1)
   assert(count(old, "compiled_v2") == 1, "the snapshot belongs to the caller")
   local absent = trim(path, "compiles", 5, tmp .. "/absent.db")
@@ -90,13 +97,13 @@ local function test_verdicts_keep_unreached_then_trim_all_supported_tables(tmp: 
   assert(db:exec("INSERT INTO verdicts_v4 VALUES ('v','test','m',x'',x'',0,1,'origin')"))
   assert(db:close())
   local untouched = trim(path, "verdicts", 5)
-  assert(untouched.complete and untouched.report.files[1].kept == 3 and
-      untouched.report.files[1].removed == 0 and untouched.report.files[1].reached ~= true)
+  assert(untouched.complete and nth(untouched.report.files, 1).kept == 3 and
+      nth(untouched.report.files, 1).removed == 0 and nth(untouched.report.files, 1).reached ~= true)
   db = assert(Sqlite.open(path, { writable = true }))
   assert(db:exec("INSERT INTO stores_v1 VALUES ('new','digest',5)"))
   assert(db:close())
   local cut = trim(path, "verdicts", 5)
-  assert(cut.complete and cut.report.files[1].kept == 1 and cut.report.files[1].removed == 3)
+  assert(cut.complete and nth(cut.report.files, 1).kept == 1 and nth(cut.report.files, 1).removed == 3)
 end
 
 local function test_whole_verdicts_never_vacuum_or_delete_active_rows(tmp: string)
@@ -106,8 +113,8 @@ local function test_whole_verdicts_never_vacuum_or_delete_active_rows(tmp: strin
   assert(db:close())
   local before = assert(Fs.read(path))
   local result = trim(path, "verdicts")
-  assert(result.complete and result.report.files[1].kept == 1)
-  assert(result.report.files[1].removed == 0 and result.report.files[1].reached == nil)
+  assert(result.complete and nth(result.report.files, 1).kept == 1)
+  assert(nth(result.report.files, 1).removed == 0 and nth(result.report.files, 1).reached == nil)
   assert(Fs.read(path) == before)
 end
 
@@ -122,8 +129,8 @@ local function test_future_shapes_and_constraints_remain_whole(tmp: string)
   assert(db:exec("INSERT INTO parsed_v99 VALUES ('unversioned')"))
   assert(db:close())
   local result = trim(path, "compiles", 5)
-  assert(result.complete and result.report.files[1].kept == 3 and result.report.files[1].removed == 0)
-  assert(#result.report.files[1].unknown_tables == 3 and #result.report.files[1].unstamped_tables == 1)
+  assert(result.complete and nth(result.report.files, 1).kept == 3 and nth(result.report.files, 1).removed == 0)
+  assert(#nth(result.report.files, 1).unknown_tables == 3 and #nth(result.report.files, 1).unstamped_tables == 1)
   assert(result.report.digest ~= nil)
   local compared = trim(path, "compiles", 5, tmp .. "/missing")
   assert(not compared.complete and compared.report.fresh == nil and #compared.report.warnings == 1)
@@ -137,19 +144,19 @@ local function test_trigger_cannot_delete_unrelated_data(tmp: string)
   assert(db:exec("CREATE TRIGGER surprising AFTER DELETE ON compiled_v2 BEGIN DELETE FROM unrelated; END"))
   assert(db:close())
   local result = trim(path, "compiles", 5)
-  assert(result.complete and result.report.files[1].removed == 0)
+  assert(result.complete and nth(result.report.files, 1).removed == 0)
   assert(count(path, "compiled_v2") == 1 and count(path, "unrelated") == 1)
 end
 
 local function test_missing_and_unreadable_active_files_are_never_created_or_removed(tmp: string)
   local missing = tmp .. "/missing/absent.db"
   local result = trim(missing, "compiles", 5)
-  assert(result.complete and result.report.files[1].state == "missing" and result.report.digest == nil)
+  assert(result.complete and nth(result.report.files, 1).state == "missing" and result.report.digest == nil)
   assert(Fs.stat(tmp .. "/missing") == nil)
   local path = tmp .. "/cache.db"
   assert(Fs.write(path, "not a SQLite database"))
   result = trim(path, "compiles", 5)
-  assert(not result.complete and result.report.files[1].state == "failed" and result.report.digest == nil)
+  assert(not result.complete and nth(result.report.files, 1).state == "failed" and result.report.digest == nil)
   assert(Fs.read(path) == "not a SQLite database")
 end
 
@@ -163,7 +170,7 @@ local function test_only_exact_retired_basename_siblings_are_removed(tmp: string
   local other = tmp .. "/other.db.corrupt-1"
   assert(Fs.write(other, "other"))
   local result = trim(path, "compiles", 5)
-  assert(result.complete and #result.report.files[1].removed_set_aside == #retired)
+  assert(result.complete and #nth(result.report.files, 1).removed_set_aside == #retired)
   for _, suffix in ipairs(retired) do assert(Fs.stat(path .. suffix) == nil) end
   for _, suffix in ipairs(kept) do assert(Fs.read(path .. suffix) == "unowned") end
   assert(Fs.read(other) == "other")
@@ -182,8 +189,8 @@ local function test_retired_names_do_not_authorize_removing_other_file_kinds(tmp
   assert(Fs.symlink(path, link))
   assert(sys.mkfifo(pipe))
   local result = trim(path, "compiles", 5)
-  assert(result.complete, result.report.files[1].reason)
-  assert(#result.report.files[1].removed_set_aside == 0)
+  assert(result.complete, nth(result.report.files, 1).reason)
+  assert(#nth(result.report.files, 1).removed_set_aside == 0)
   assert(Fs.read(directory .. "/keep") == "inside")
   assert(assert(sys.lstat(link)).kind == "link" and Fs.readlink(link) == path)
   assert(assert(sys.lstat(pipe)).kind == "fifo")
@@ -307,12 +314,12 @@ end
 local function test_declared_format_without_parts_is_supported_without_migration(tmp: string)
   local path = tmp .. "/verdicts.db"
   local db = database(path, {})
-  local old_schema = formats.verdicts[1]:gsub(",%s*parts TEXT NOT NULL DEFAULT ''", "")
+  local old_schema = nth(formats.verdicts, 1):gsub(",%s*parts TEXT NOT NULL DEFAULT ''", "")
   assert(db:exec(old_schema))
   assert(db:exec("INSERT INTO declared_v1 VALUES ('old','test',x'',0,1,'origin'), ('new','test',x'',0,5,'origin')"))
   assert(db:close())
   local result = trim(path, "verdicts", 5)
-  assert(result.complete and result.report.files[1].removed == 1)
+  assert(result.complete and nth(result.report.files, 1).removed == 1)
   db = assert(Sqlite.open(path))
   assert(#assert(Sqlite.text_rows(db, "PRAGMA table_info(declared_v1)")) == 6)
   assert(db:close())
@@ -326,14 +333,14 @@ local function test_foreign_keys_and_added_constraints_are_kept(tmp: string)
   assert(db:exec("INSERT INTO dependent VALUES ('old')"))
   assert(db:close())
   local result = trim(path, "compiles", 5)
-  assert(result.complete and result.report.files[1].removed == 0 and count(path, "dependent") == 1)
+  assert(result.complete and nth(result.report.files, 1).removed == 0 and count(path, "dependent") == 1)
   local other = tmp .. "/constrained.db"
-  local constrained = formats.compiles[1]:gsub("used_ns INTEGER NOT NULL", "used_ns INTEGER NOT NULL CHECK (used_ns > 0)")
+  local constrained = nth(formats.compiles, 1):gsub("used_ns INTEGER NOT NULL", "used_ns INTEGER NOT NULL CHECK (used_ns > 0)")
   db = database(other, { constrained })
   compiled(db, "old", 1)
   assert(db:close())
   result = trim(other, "compiles", 5)
-  assert(result.complete and #result.report.files[1].unknown_tables == 1 and result.report.files[1].removed == 0)
+  assert(result.complete and #nth(result.report.files, 1).unknown_tables == 1 and nth(result.report.files, 1).removed == 0)
 end
 
 local function test_disappearance_before_open_does_not_recreate_database(tmp: string)
@@ -377,13 +384,13 @@ local function test_existing_ci_digest_golden(tmp: string)
   assert(db:exec("CREATE TABLE mixed (a,b,c,d,e,used_ns); INSERT INTO mixed VALUES (NULL,x'00ff','a'||char(0)||'b',42,0.5,100)"))
   assert(db:close())
   local result = trim(path, "compiles", 0)
-  assert(result.complete, result.report.files[1].reason)
+  assert(result.complete, nth(result.report.files, 1).reason)
   assert(result.report.digest == "a78d0fce16d987ecc7f27677e5e7003a9f03a4a7cf6a4826fbbc82911ea6bac3", result.report.digest)
 end
 
 local function test_vacuum_failure_reports_already_committed_row_counts(tmp: string)
   local path = tmp .. "/cache.db"
-  local db = database(path, { formats.compiles[1] })
+  local db = database(path, { nth(formats.compiles, 1) })
   compiled(db, "old", 1)
   compiled(db, "new", 5)
   assert(db:close())
