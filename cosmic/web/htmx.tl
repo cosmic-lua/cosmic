@@ -147,6 +147,13 @@ local record Htmx
   sse_version: string
 end
 
+--- A header line [`Htmx.apply`] has put, to write to the response once every
+--- field has been checked.
+local record Line
+  name: string
+  value: string
+end
+
 --- A response header's value: no CR, LF or NUL, which the server would
 --- refuse later, and no other control byte.
 local function plain(value: string): boolean
@@ -320,9 +327,9 @@ end
 --- @return Types.Response | nil The same response, or nil
 --- @return string Why it was refused
 function Htmx.apply(res: Types.Response, reply: Htmx.Reply): Types.Response?, string
-  local lines: mut {{string}} = {}
+  local lines: mut {Line} = {}
   local function put(name: string, value: string)
-    lines[#lines + 1] = { name, value }
+    lines[#lines + 1] = { name = name, value = value }
   end
   local redirect = reply.redirect
   if redirect ~= nil then
@@ -399,7 +406,7 @@ function Htmx.apply(res: Types.Response, reply: Htmx.Reply): Types.Response?, st
     events_field("trigger_after_swap", "HX-Trigger-After-Swap", reply.trigger_after_swap) or
     events_field("trigger_after_settle", "HX-Trigger-After-Settle", reply.trigger_after_settle)
   if trouble ~= nil then return nil, trouble end
-  for _, line in ipairs(lines) do Response.set_header(res, line[1], line[2]) end
+  for _, line in ipairs(lines) do Response.set_header(res, line.name, line.value) end
   return res, ""
 end
 

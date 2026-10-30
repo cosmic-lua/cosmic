@@ -33,7 +33,9 @@ end
 function Middleware.compose(stack: {Types.Middleware}, handler: Types.Handler): Types.Handler
   local composed = handler
   for i = #stack, 1, -1 do
-    composed = Errors.guard(stack[i](composed))
+    local wrap = stack[i]
+    assert(wrap, "web: a middleware stack has an entry at each position up to its length")
+    composed = Errors.guard(wrap(composed))
   end
   return composed
 end
@@ -91,7 +93,7 @@ function Middleware.access_log(opts?: Middleware.AccessLogOptions): Types.Middle
         if opts.log_query == true and req.query_string ~= "" then
           -- A client chooses the query: no control byte may split the line.
           path = path .. "?" .. req.query_string:gsub("[%z\1-\31\127]", function(byte: string): string
-            return ("%%%02X"):format(byte:byte())
+            return ("%%%02X"):format(assert(byte:byte()))
           end)
         end
         local client = req.client

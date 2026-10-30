@@ -74,11 +74,14 @@ function Request.parse_host(value: string): Request.HostPort?
   local host, tail: string, string
   if lower:sub(1, 1) == "[" then
     local inner, rest = lower:match("^%[([%x:.]+)%](.*)$")
-    if inner == nil or not inner:find(":", 1, true) or not ip_literal(inner) then return nil end
+    if inner == nil or rest == nil or not inner:find(":", 1, true) or not ip_literal(inner) then
+      return nil
+    end
     host, tail = "[" .. inner .. "]", rest
   else
-    host, tail = lower:match("^([%w.%-]+)(.*)$")
-    if host == nil then return nil end
+    local name, after = lower:match("^([%w.%-]+)(.*)$")
+    if name == nil or after == nil then return nil end
+    host, tail = name, after
   end
   if tail == "" then return { host = host } end
   local digits = tail:match("^:(%d+)$")
@@ -168,7 +171,12 @@ local function last_entry(value: string?): string?
   if value == nil then return nil end
   -- Found from the end: `([^,]*)$` retries at every byte of a long entry.
   local comma = value:reverse():find(",", 1, true)
-  local entry = String.trim(comma == nil and value or value:sub(#value - comma + 2))
+  local entry: string
+  if comma == nil then
+    entry = String.trim(value)
+  else
+    entry = String.trim(value:sub(#value - comma + 2))
+  end
   if entry == "" then return nil end
   return entry
 end
@@ -185,8 +193,9 @@ function Request.new(app: Types.App, raw: Server.Request, parts: Request.Parts):
   local host = headers["host"]
   local client: Types.Client? = nil
   local peer = raw.peer
-  if peer ~= nil and peer.kind == "tcp" then
-    client = { host = peer.host, port = peer.port }
+  local peer_host = if peer ~= nil then peer.host else nil end
+  if peer ~= nil and peer.kind == "tcp" and peer_host ~= nil then
+    client = { host = peer_host, port = peer.port }
   end
   if app.spec.trusted_proxy == true then
     local proto = last_entry(headers["x-forwarded-proto"])

@@ -68,6 +68,7 @@ function Response.header(res: Types.Response, name: string): string?
   local key = key_of(headers, name)
   if key == nil then return nil end
   local value = headers[key]
+  if value == nil then return nil end
   if value is string then return value end
   return value[1]
 end
@@ -136,7 +137,7 @@ function Response.add_header(res: Types.Response, name: string, value: string)
       local lines = headers[key]
       if lines is string then
         old = lines
-      else
+      elseif lines ~= nil then
         old = table.concat(lines, ", ")
       end
     end
@@ -165,7 +166,9 @@ function Response.add_header(res: Types.Response, name: string, value: string)
     return
   end
   local old = headers[key]
-  if old is string then
+  if old == nil then
+    headers[key] = value
+  elseif old is string then
     headers[key] = { old, value }
   else
     old[#old + 1] = value
@@ -191,7 +194,7 @@ local function finish(res: Types.Response, opts: Types.ResponseOptions?): Types.
   local status = opts.status
   if status ~= nil then
     check_status(status, 4)
-    res.status = opts.status
+    res.status = status
   end
   local close = opts.close
   if close ~= nil then res.close = close end

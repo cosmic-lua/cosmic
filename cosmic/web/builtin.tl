@@ -20,16 +20,18 @@ local PREFIX <const> = "_web"
 local served: mut {Types.Handler} = {}
 
 local function handler(): Types.Handler
-  if served[1] == nil then
+  local built = served[1]
+  if built == nil then
     local held: mut {string:string} = {}
     for path, file in pairs(Htmx.assets()) do held[path:sub(#PREFIX + 3)] = file.data end
-    served[1] = StaticFiles.handler{
+    built = StaticFiles.handler{
       source = Assets.memory(held, { gzip = true }),
       cache_control = "public, max-age=31536000, immutable",
       headers = { ["Cross-Origin-Resource-Policy"] = "same-origin" },
     }
+    served[1] = built
   end
-  return served[1]
+  return built
 end
 
 --- Answers `req` where it is under `/_web/`, else nil.
