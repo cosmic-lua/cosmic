@@ -648,6 +648,91 @@ local function test_a_corpus_is_intact_after_a_refused_allocation()
   end
 end
 
+--- A table of forty rows, a block's worth to grow its buffers twice, and
+--- the packed block of each storage the rows make.
+local function block_rows(db: Sqlite.Handle): {Vector.Storage: string}
+  assert(db:exec("CREATE TABLE r (id INTEGER PRIMARY KEY, v BLOB)"))
+  for i = 1, 40 do
+    assert(Sqlite.run(db, "INSERT INTO r VALUES (?1, ?2)",
+      { { integer = 100 + i }, { blob = corpus_vector(i) } }))
+  end
+  local made: mut {Vector.Storage: string} = {}
+  for _, storage in ipairs(corpus_storages) do
+    local rows = assert(Sqlite.rows(db, ("SELECT vector_block(id, v, '%s') FROM r"):format(storage)))
+    made[storage] = assert(rows[1]):blob(1)
+  end
+  return made
+end
+
+--- The block aggregate grows four buffers and assembles one result, and
+--- the table-valued function holds a heap and its answer, all on the
+--- core's own heap (the vtab and its cursors too, which a connection
+--- keeps until it closes, so each run opens one): a refusal anywhere
+--- leaves no block on the C heap, in every storage, and with none refused
+--- the search answers. Forty rows make the aggregate grow twice.
+local function test_blocks_leave_nothing_whenever_an_allocation_fails()
+  local query = corpus_vector(3)
+  for _, storage in ipairs(corpus_storages) do
+    collectgarbage("collect")
+    local bytes, blocks = testing.c_heap()
+    local ended = under_every_failure(function()
+      local db = assert(Sqlite.memory())
+      assert(db:exec("CREATE TABLE r (id INTEGER PRIMARY KEY, v BLOB)"))
+      assert(db:exec([[
+        INSERT INTO r SELECT 100 + value,
+          vector('[' || (value % 7 - 3) || ',' || (value % 5 - 2) || ',' || (value % 3 - 1) || ',1]')
+        FROM generate_series(1, 40)
+      ]]))
+      local rows = assert(Sqlite.rows(db, ([[
+        SELECT h.id, h.distance
+        FROM (SELECT vector_block(id, v, '%s') AS b FROM r) AS p,
+             vector_block_search(p.b, ?1, 3, 'cosine') AS h
+        ORDER BY h.distance, h.id
+      ]]):format(storage), { { blob = query } }))
+      assert(#rows == 3)
+      local more = assert(Sqlite.rows(db, ([[
+        SELECT id FROM vector_block_search((SELECT vector_block(id, v, '%s') FROM r), ?1, 5, 'l2')
+      ]]):format(storage), { { blob = query } }))
+      assert(#more == 5)
+      assert(db:close())
+    end)
+    assert(ended > 0, "a block allocates")
+    assert_c_heap(bytes, blocks, "the " .. storage .. " block under refusal")
+  end
+end
+
+--- A refused allocation while a block is added to a corpus, in every pair
+--- of storages, leaves the corpus as it was: its count, its ids and its
+--- answers are the same once allocation is granted again.
+local function test_a_corpus_is_intact_after_a_refused_block()
+  local db = assert(Sqlite.memory())
+  local made = block_rows(db)
+  local query = corpus_vector(3)
+  for _, from in ipairs(corpus_storages) do
+    for _, into in ipairs(corpus_storages) do
+      local corpus = Vector.corpus(4, { storage = into })
+      -- Exactly the first capacity, so the block must grow every buffer.
+      for i = 1, 64 do corpus:add(i, corpus_vector(i)) end
+      local block = assert(made[from])
+      local ended = under_every_failure(function()
+        if corpus:count() == 64 then pcall(corpus.add_block, corpus, block) end
+      end, function()
+        local n = corpus:count()
+        assert(n == 64 or n == 104, "the count became " .. tostring(n))
+        local all = assert(corpus:search(query, 200, { metric = "l2" }))
+        assert(#all.ids == n)
+        local sum = 0
+        for _, id in ipairs(all.ids) do sum = sum + id end
+        assert(sum == 2080 + (if n == 104 then 4820 else 0 end), "the ids changed")
+        assert(#assert(corpus:search(query, 3, { candidates = 10 })).ids == 3)
+      end)
+      assert(ended > 0, "adding a block allocates")
+      assert(corpus:count() == 104, from .. " into " .. into)
+    end
+  end
+  assert(db:close())
+end
+
 --- Ranking the centroids a corpus made allocates only Lua's scratch.
 local function test_nearest_n_leaves_nothing_whenever_an_allocation_fails()
   local centroids: mut {string} = {}
