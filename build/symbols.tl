@@ -270,6 +270,13 @@ function symbols.named(databases: {Sqlite.Handle}, public: {boolean},
   return out
 end
 
+--- One query [`symbols.has_example_query`] asks: its SQL and the one or two texts it binds.
+local record ExampleQuery
+  sql: string
+  first: string
+  second?: string
+end
+
 --- Whether a worked-example name, comment, or checked source answers a
 --- query in any of `databases`. Compiler diagnostics ask before printing
 --- a docs command, so an old or incomplete binary never advertises
@@ -291,21 +298,22 @@ function symbols.has_example_query(databases: {Sqlite.Handle}, public: {boolean}
   for word in name:gmatch("[%w_]+") do words[#words + 1] = word end
   local phrase = '"' .. table.concat(words, " ") .. '"'
   for index, db in ipairs(databases) do
-    for _, lookup in ipairs({
-        { "SELECT e.module FROM examples e WHERE e.name = ?1 AND " ..
-              symbols.public_only("e.module", public[index] == true), name },
-        -- The phrase matches stemmed words, so `Fs.reads` finds [`Fs.read`];
-        -- the GLOB says the name is there whole, as `docs` checks it.
-        { "SELECT e.module FROM examples_fts JOIN examples e " ..
-              "ON e.id = examples_fts.rowid WHERE examples_fts MATCH ?1 AND " ..
-              "(e.text || ' ' || e.source || ' ') GLOB ?2 AND " ..
-              symbols.public_only("e.module", public[index] == true), phrase,
-            "*" .. name .. "[^A-Za-z0-9_]*" },
-    }) do
+    local lookups: {ExampleQuery} = {
+      { sql = "SELECT e.module FROM examples e WHERE e.name = ?1 AND " ..
+          symbols.public_only("e.module", public[index] == true), first = name },
+      -- The phrase matches stemmed words, so `Fs.reads` finds [`Fs.read`];
+      -- the GLOB says the name is there whole, as `docs` checks it.
+      { sql = "SELECT e.module FROM examples_fts JOIN examples e " ..
+          "ON e.id = examples_fts.rowid WHERE examples_fts MATCH ?1 AND " ..
+          "(e.text || ' ' || e.source || ' ') GLOB ?2 AND " ..
+          symbols.public_only("e.module", public[index] == true), first = phrase,
+        second = "*" .. name .. "[^A-Za-z0-9_]*" },
+    }
+    for _, lookup in ipairs(lookups) do
       -- A query that fails is no match.
-      local binds: mut {Sqlite.Value} = { { text = lookup[2] } }
-      if lookup[3] ~= nil then binds[#binds + 1] = { text = lookup[3] } end
-      local rows, _ = Sqlite.text_rows(db, lookup[1], binds)
+      local binds: mut {Sqlite.Value} = { { text = lookup.first } }
+      if lookup.second ~= nil then binds[#binds + 1] = { text = lookup.second } end
+      local rows, _ = Sqlite.text_rows(db, lookup.sql, binds)
       if rows ~= nil then
         for _, row in ipairs(rows) do
           if owners[row:text(1)] == index then return true end

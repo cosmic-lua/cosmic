@@ -82,7 +82,7 @@ local function bound_type<T is alias_members.Declared>(source: alias_members.Sou
                                                        module: string,
                                                        reference: string): T?, string
   local stem, rest = reference:match("^([%w_]+)%.([%w_%.]+)$")
-  if stem == nil then
+  if stem == nil or rest == nil then
     return nil, ""
   end
   local other, other_trouble = source.bound(module, stem)
@@ -161,10 +161,11 @@ function alias_members.resolved<T is alias_members.Declared>(source: alias_membe
       -- The first name is a type of the module's own: `Stream.X` under
       -- `type Stream = Y` is `Y.X`.
       local onward = not concrete(holder) and alias_members.references(holder)[1] or nil
-      if onward == nil or depth >= DEPTH then
+      local tail = reference:match("%..*$")
+      if onward == nil or tail == nil or depth >= DEPTH then
         return nil, ""
       end
-      from, reference, depth = holder, onward .. reference:match("%..*$"), depth + 1
+      from, reference, depth = holder, onward .. tail, depth + 1
     else
       if found == nil then
         found, found_trouble = bound_type(source, from.module, reference)

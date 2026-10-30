@@ -111,7 +111,7 @@ local function slug_of(heading: string): string
     -- Not UTF-8: each byte past ASCII is kept as it is.
     for at = 1, #text do
       local c = text:sub(at, at)
-      if c:byte() >= 128 or c:match("[%w_%-]") ~= nil then
+      if String.byte_at(c, 1) >= 128 or c:match("[%w_%-]") ~= nil then
         out[#out + 1] = c:lower()
       elseif c == " " then
         out[#out + 1] = "-"
@@ -171,6 +171,19 @@ function link_resolve.anchors(text: string): {string: boolean}
   return out
 end
 
+--- The anchors of the headings of the file at `path`, read once: none for a file the
+--- context cannot read.
+local function headings_of(resolver: link_resolve.Resolver, path: string): {string: boolean}
+  local cached = resolver.headings[path]
+  if cached ~= nil then
+    return cached
+  end
+  local text = resolver.context.read(path)
+  local read = if text ~= nil then link_resolve.anchors(text) else {} end
+  resolver.headings[path] = read
+  return read
+end
+
 --- Why `anchor` names nothing in the file at `path`, or nil when it
 --- names a heading of it. A file other than Markdown takes only a line
 --- anchor (`L12`, `L12-L20`).
@@ -181,12 +194,7 @@ local function anchor_problem(resolver: link_resolve.Resolver, path: string, anc
     end
     return "only a Markdown file's headings take an anchor"
   end
-  local found = resolver.headings[path]
-  if found == nil then
-    local text = resolver.context.read(path)
-    found = text ~= nil and link_resolve.anchors(text) or {}
-    resolver.headings[path] = found
-  end
+  local found = headings_of(resolver, path)
   if found[anchor:lower()] == true or found[anchor] == true then
     return nil
   end
@@ -360,6 +368,16 @@ local function unescaped(path: string): string
   end))
 end
 
+--- What [`link_resolve.resolve`] makes a target from: the fields a kind of target has, the rest empty.
+local record TargetFields
+  name?: string
+  module?: string
+  symbol?: string
+  path?: string
+  anchor?: string
+  file?: string
+end
+
 --- What `target`, linked from the file at the absolute path `from`,
 --- resolves to; nil and why when it resolves to nothing or to more
 --- than one thing. `declared` gives what that file declares where the
@@ -370,7 +388,7 @@ end
 function link_resolve.resolve(resolver: link_resolve.Resolver, from: string, target: string,
                               declared: function(): link_text.Declared,
                               path_first: boolean): link_resolve.Target?, string
-  local function made(kind: string, fields: {string: string}): link_resolve.Target
+  local function made(kind: string, fields: TargetFields): link_resolve.Target
     return { kind = kind, name = fields.name or "", module = fields.module or "",
       symbol = fields.symbol or "", path = fields.path or "", anchor = fields.anchor or "",
       file = fields.file or "" }
@@ -422,8 +440,8 @@ function link_resolve.resolve(resolver: link_resolve.Resolver, from: string, tar
       return made("standard", { name = dotted }), ""
     end
     local first, rest = dotted:match("^([%a_][%w_]*)%.(.+)$")
-    if first ~= nil and own.aliases[first] ~= nil then
-      local module = own.aliases[first]
+    local module = if first ~= nil then own.aliases[first] else nil end
+    if module ~= nil and rest ~= nil then
       local members = members_named(resolver, module, rest)
       -- Unbuilt, the members of a module the symbols do not know yet
       -- (the project's own) may be ones the build would record, as for
@@ -440,8 +458,10 @@ function link_resolve.resolve(resolver: link_resolve.Resolver, from: string, tar
       if problem ~= nil then
         return nil, problem
       end
-      return made("symbol", { module = members[1].module, symbol = members[1].symbol,
-        file = members[1].file }), ""
+      -- [`one_of`] found no fault, so `spelled`, one to a member, holds exactly one.
+      local member = assert(members[1], "one member was spelled")
+      return made("symbol", { module = member.module, symbol = member.symbol,
+        file = member.file }), ""
     end
     -- A name alone is its own file's: another module's symbol is
     -- written in full, so a link does not start naming another thing
@@ -479,7 +499,8 @@ function link_resolve.resolve(resolver: link_resolve.Resolver, from: string, tar
   if file ~= nil then
     return in_file(file)
   end
-  local symbol = symbols[found[1]]
+  -- [`one_of`] found no fault and no file is named, so `found` holds one symbol's spelling.
+  local symbol = assert(symbols[assert(found[1], "one symbol was found")], "a spelling found is one of the symbols")
   return made("symbol", { module = symbol.module, symbol = symbol.symbol, file = symbol.file }), ""
 end
 

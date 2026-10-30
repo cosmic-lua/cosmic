@@ -117,20 +117,24 @@ local function slash_comment(text: string, column: integer): {string}, {integer}
   if text:sub(1, 2) == "/*" then
     local body = text:sub(3):gsub("%*/$", "")
     local raw = split_lines(body)
-    local out: mut {string} = { raw[1] }
+    local out: mut {string} = {}
+    local head = raw[1]
+    if head ~= nil then out[1] = head end
     local starts: mut {integer} = { 3 }
     local at = 3
     for index = 2, #raw do
-      at = at + #raw[index - 1] + 1
-      local marker = raw[index]:match("^[ \t]*%*") or
-        raw[index]:match("^" .. ("[ \t]?"):rep(column + 1)) or ""
-      local line = raw[index]:sub(#marker + 1)
+      local before = assert(raw[index - 1], "index is within the lines")
+      local written = assert(raw[index], "index is within the lines")
+      at = at + #before + 1
+      local marker = written:match("^[ \t]*%*") or
+        written:match("^" .. ("[ \t]?"):rep(column + 1)) or ""
+      local line = written:sub(#marker + 1)
       out[#out + 1] = line
       starts[#starts + 1] = at + #marker
     end
     return out, starts
   end
-  local marker = text:match("^//[/!]?")
+  local marker = assert(text:match("^//[/!]?"), "a comment that is not /* begins with //")
   return { text:sub(#marker + 1) }, { #marker + 1 }
 end
 
@@ -295,8 +299,9 @@ function link_files.found(kind: string, source: string): {link_text.Found}
         -- A line of the block that is not one stretch of the file keeps
         -- the column of its text.
         local start = starts[link.line] or 0
-        if start > 0 and line_starts[line] ~= nil then
-          link.column = start - line_starts[line] + link.column
+        local line_start = line_starts[line]
+        if start > 0 and line_start ~= nil then
+          link.column = start - line_start + link.column
         end
         link.line = line
         local own = false

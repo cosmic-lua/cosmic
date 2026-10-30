@@ -227,7 +227,8 @@ function docs_checks.rendered(db: Sqlite.Handle, exempt?: docs_checks.Exempt): {
         inherited = false
       elseif inherited and line:match("^    [%a_]") ~= nil then
         -- A field a record writes is listed with its `mut`.
-        local name = line:match("^    mut ([%w_]+)") or line:match("^    ([%w_]+)")
+        local name = assert(line:match("^    mut ([%w_]+)") or line:match("^    ([%w_]+)"),
+          "a line that starts with a letter or an underscore has a name")
         local asked = entry.source_symbol .. "." .. name
         local reached = lookup(asked)
         local found = false
@@ -278,7 +279,8 @@ function docs_checks.rendered(db: Sqlite.Handle, exempt?: docs_checks.Exempt): {
     signatures[module] = signatures[module] or {}
     table.insert(signatures[module], " " .. signature .. " ")
     if symbol ~= source_symbol then
-      canonical[module .. "\n" .. source_symbol:match("^[^.:]*")] = true
+      local stem = assert(source_symbol:match("^[^.:]*"), "the pattern ^[^.:]* matches the empty text")
+      canonical[module .. "\n" .. stem] = true
     end
   end
 
@@ -324,7 +326,8 @@ function docs_checks.rendered(db: Sqlite.Handle, exempt?: docs_checks.Exempt): {
       if signature:sub(1, 6) == "local " and source_symbol:find("[.:]") == nil and
           containers[kind] == true and canonical[module .. "\n" .. source_symbol] ~= true then
         local named = false
-        for _, other in ipairs(signatures[module]) do
+        local module_signatures = assert(signatures[module], "every module of the rows has its signatures")
+        for _, other in ipairs(module_signatures) do
           if other:find("[^.%w_]" .. source_symbol .. "[^%w_]") ~= nil and
               other ~= " " .. signature .. " " then
             named = true
@@ -418,8 +421,8 @@ function docs_checks.references(db: Sqlite.Handle, help?: {string: string},
   -- `Fs` for [`cosmic.fs`].
   local records: mut {string: boolean} = {}
   for _, summary in ipairs(index) do
-    if symbols.is_public_module(summary.module) then
-      local last = summary.module:match("[^.]+$")
+    local last = summary.module:match("[^.]+$")
+    if symbols.is_public_module(summary.module) and last ~= nil then
       records[last:sub(1, 1):upper() .. last:sub(2)] = true
     end
   end
@@ -460,8 +463,9 @@ function docs_checks.references(db: Sqlite.Handle, help?: {string: string},
     if cached == nil then
       local found, _ = docs.lookup(view, query)
       cached = found ~= nil and #found > 0 and (found.exact or query:find(" ", 1, true) ~= nil)
-      if found ~= nil and #found > 0 and found[1].kind == "removed" then
-        gone[query] = found[1].text
+      local top = if found ~= nil then found[1] else nil end
+      if top ~= nil and top.kind == "removed" then
+        gone[query] = top.text
         cached = false
       end
       answered[query] = cached
@@ -476,7 +480,8 @@ function docs_checks.references(db: Sqlite.Handle, help?: {string: string},
       if query ~= nil then
         query = query:gsub("^([\"'])(.*)%1$", "%2")
         if not placeholder(query) and not resolves(query) then
-          problem = if gone[query] ~= nil then "names a removed symbol: " .. gone[query] else
+          local removal = gone[query]
+          problem = if removal ~= nil then "names a removed symbol: " .. removal else
             "finds nothing" end
         end
       elseif verb ~= nil then
@@ -485,11 +490,13 @@ function docs_checks.references(db: Sqlite.Handle, help?: {string: string},
         end
       else
         local chain = span:match("^(%u[%w]*[%.:][%w_%.:]*[%w_])")
-        if chain ~= nil and records[chain:match("^[%w]+")] == true and
+        local head = if chain ~= nil then chain:match("^[%w]+") else nil end
+        if chain ~= nil and head ~= nil and records[head] == true and
             (#chain == #span or span:sub(#chain + 1, #chain + 1):match("[%s(]") ~= nil) then
           chain = chain:gsub(":", ".")
           if not resolves(chain) then
-            problem = if gone[chain] ~= nil then "names a removed symbol: " .. gone[chain] else
+            local removal = gone[chain]
+            problem = if removal ~= nil then "names a removed symbol: " .. removal else
               "names no symbol" end
           end
         end

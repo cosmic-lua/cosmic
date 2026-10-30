@@ -198,16 +198,18 @@ local function remembering(root: string, memo: link_index.Memo,
       return kind ~= "" and kind or nil
     end,
     read = function(path: string): string?
-      if memo.reads[path] == nil then
-        memo.reads[path] = { disk.read(path) }
-      end
-      return memo.reads[path][1]
+      local kept = memo.reads[path]
+      if kept ~= nil then return kept[1] end
+      local contents = disk.read(path)
+      memo.reads[path] = if contents ~= nil then { contents } else {} end
+      return contents
     end,
     real = function(path: string): string?
-      if memo.reals[path] == nil then
-        memo.reals[path] = { disk.real(path) }
-      end
-      return memo.reals[path][1]
+      local kept = memo.reals[path]
+      if kept ~= nil then return kept[1] end
+      local resolved = disk.real(path)
+      memo.reals[path] = if resolved ~= nil then { resolved } else {} end
+      return resolved
     end,
     unbuilt = disk.unbuilt,
     symbols = symbols_of,
@@ -262,7 +264,9 @@ local function digest_of(root: string, memo: link_index.Memo, rows: {link_index.
     if String.starts_with(path, root .. "/") then return path:sub(#root + 2) end
     return path
   end
-  local real_root = memo.reals[root] ~= nil and memo.reals[root][1] or root
+  local real_root = root
+  local kept_root = memo.reals[root]
+  if kept_root ~= nil then real_root = kept_root[1] or root end
   local lines: mut {string} = {}
   for _, raw in ipairs(rows) do
     if raw.from_module == "" then
@@ -566,7 +570,9 @@ local function resolve_and_write(db: Sqlite.Handle, pending: link_index.Pending,
   local index: symbol_index.Index = indexed
   -- The library is read the first time a link the projection's own
   -- symbols do not settle asks for one.
-  local waiting: mut {link_index.Library} = { pending.library }
+  local waiting: mut {link_index.Library} = {}
+  local library = pending.library
+  if library ~= nil then waiting[1] = library end
   local function ready(): boolean, string
     local adding = table.remove(waiting)
     if adding == nil then

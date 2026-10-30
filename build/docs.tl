@@ -285,7 +285,7 @@ local function calls_of(code: string, symbol: string): integer, integer
     local from = 1
     while true do
       local at, to = code:find(spelled, from, true)
-      if at == nil then break end
+      if at == nil or to == nil then break end
       local after = code:sub(to + 1, to + 1)
       if after:match("[%w_]") == nil and (spelled:sub(1, 1) == ":" or starts_name(code, at)) then
         count = count + 1
@@ -315,20 +315,30 @@ local record Piece
   mut code: string
 end
 
+--- A top-level piece of an example's head: its `text`, and its first line
+--- of code.
+local record HeadPiece
+  text: string
+  code: string
+end
+
 --- What the analyzer put above an example's function, cut into its
 --- top-level pieces: a `require`, a helper (any other `local`) or a
 --- call (`Test.policy{...}`), each with the comment lines above it. The
 --- text is in the layout `cosmic fix` writes, so a piece begins at a
 --- line in column one that does not close the one before. `code` is a
 --- piece's first line that is not a comment.
-local function pieces_of(head: string): {{string}}
-  local out: mut {{string}} = {}
+local function pieces_of(head: string): {HeadPiece}
+  local out: mut {HeadPiece} = {}
   -- The piece being read: its lines so far and its first line of code.
   local current: Piece = { lines = {}, code = "" }
   local function finish()
     local lines = current.lines
-    while #lines > 0 and lines[#lines] == "" do lines[#lines] = nil end
-    if #lines > 0 then table.insert(out, { table.concat(lines, "\n"), current.code }) end
+    local last = #lines
+    while last > 0 and lines[last] == "" do last = last - 1 end
+    if last > 0 then
+      table.insert(out, { text = table.concat(lines, "\n", 1, last), code = current.code })
+    end
     current.lines = {}
     current.code = ""
   end
@@ -362,12 +372,12 @@ local function shown_source(source: string, symbol: string): string
   local helpers: mut {string} = {}
   local calls: mut {string} = {}
   for _, piece in ipairs(pieces_of(head)) do
-    if piece[2]:match("^local [%w_]+ = require%(") ~= nil then
-      requires[#requires + 1] = piece[1]
-    elseif piece[2]:match("^local ") ~= nil then
-      helpers[#helpers + 1] = piece[1]
+    if piece.code:match("^local [%w_]+ = require%(") ~= nil then
+      requires[#requires + 1] = piece.text
+    elseif piece.code:match("^local ") ~= nil then
+      helpers[#helpers + 1] = piece.text
     else
-      calls[#calls + 1] = piece[1]
+      calls[#calls + 1] = piece.text
     end
   end
   if #calls == 0 then
@@ -385,7 +395,7 @@ local function shown_source(source: string, symbol: string): string
     local from = 1
     while name ~= nil and not found do
       local at, to = wanted:find(name, from, true)
-      if at == nil then break end
+      if at == nil or to == nil then break end
       found = starts_name(wanted, at) and wanted:sub(to + 1, to + 1):match("[%w_]") == nil
       from = to + 1
     end
@@ -397,6 +407,14 @@ local function shown_source(source: string, symbol: string): string
   return out .. body
 end
 
+--- What [`ranked_examples`] orders an example by, each field lower first.
+local record Rank
+  named: integer
+  calls: integer
+  first: integer
+  size: integer
+end
+
 --- `found` in the order a reader wants them: an example named for the
 --- symbol (`Example.read` for [`Fs.read`]) first, then the one that
 --- calls it most, then the one that calls it soonest, then the shorter,
@@ -405,19 +423,21 @@ end
 --- must not lead its page.
 local function ranked_examples(found: {docs.Example}, symbol: string): {docs.Example}
   local last = symbol:match("([%w_]+)$") or symbol
-  local keys: mut {docs.Example: {integer}} = {}
+  local keys: mut {docs.Example: Rank} = {}
   for _, ex in ipairs(found) do
     local body = example_body(ex.source)
     local calls, first = calls_of(body, symbol)
-    keys[ex] = { if ex.name == last then 0 else 1 end, -calls, first, #body }
+    keys[ex] = { named = if ex.name == last then 0 else 1 end, calls = -calls, first = first, size = #body }
   end
   local out: mut {docs.Example} = {}
   for _, ex in ipairs(found) do out[#out + 1] = ex end
   table.sort(out, function(a: docs.Example, b: docs.Example): boolean
-    local ka, kb = keys[a], keys[b]
-    for i = 1, #ka do
-      if ka[i] ~= kb[i] then return ka[i] < kb[i] end
-    end
+    local ka = assert(keys[a], "every example sorted was ranked")
+    local kb = assert(keys[b], "every example sorted was ranked")
+    if ka.named ~= kb.named then return ka.named < kb.named end
+    if ka.calls ~= kb.calls then return ka.calls < kb.calls end
+    if ka.first ~= kb.first then return ka.first < kb.first end
+    if ka.size ~= kb.size then return ka.size < kb.size end
     if a.file ~= b.file then return a.file < b.file end
     return a.line < b.line
   end)
@@ -724,8 +744,13 @@ local function partly_searched(db: Sqlite.Handle, public: boolean,
     if count >= bar(#words) then ids[#ids + 1] = id end
   end
   table.sort(ids, function(x: integer, y: integer): boolean
-    if matched[x] ~= matched[y] then return matched[x] > matched[y] end
-    if score[x] ~= score[y] then return score[x] < score[y] end
+    -- Every id came from `matched`, and `score` is set wherever it is.
+    local matched_x = assert(matched[x], "every id was counted")
+    local matched_y = assert(matched[y], "every id was counted")
+    if matched_x ~= matched_y then return matched_x > matched_y end
+    local score_x = assert(score[x], "every counted id was scored")
+    local score_y = assert(score[y], "every counted id was scored")
+    if score_x ~= score_y then return score_x < score_y end
     return x < y
   end)
   while #ids > CLOSEST do ids[#ids] = nil end
@@ -745,7 +770,8 @@ local function partly_searched(db: Sqlite.Handle, public: boolean,
   end
   local out: Sqlite.Rows = {}
   for _, id in ipairs(ids) do
-    out[#out + 1] = by_id[id]
+    local row = by_id[id]
+    if row ~= nil then out[#out + 1] = row end
   end
   return out, ""
 end
@@ -994,7 +1020,7 @@ local function uses_of(db: Sqlite.Handle, public: boolean, query: string): {docs
   local path = query:gsub("^%./", ""):gsub("/$", "")
   local anchor: string? = nil
   local before, after = path:match("^([^#]*)#(.+)$")
-  if before ~= nil then
+  if before ~= nil and after ~= nil then
     path, anchor = before, after:lower()
   end
   local link_rows, link_trouble = Sqlite.text_rows(db,
@@ -1069,10 +1095,11 @@ function docs.databases(store?: {Sqlite.Handle}, at?: string, known?: docs.Known
     own_tree = own
   end
   local own_path = build_paths.under(directory or "/nonexistent").projection
-  local own_exists, own_trouble = false, ""
+  local own_exists = false
   if directory ~= nil then
-    own_exists, own_trouble = Fs.exists(own_path)
-    assert(own_exists ~= nil, own_trouble)
+    local exists, own_trouble = Fs.exists(own_path)
+    assert(exists ~= nil, own_trouble)
+    own_exists = exists
   end
   if own_exists then
     -- The project's own build is best effort: one that cannot be opened
@@ -1166,6 +1193,12 @@ local function calling_module(use: docs.Use): string
   return use.from_module
 end
 
+--- The database `owner` stands for: an owner is the index of a database
+--- [`docs.view`] listed, so it always has one.
+local function database_of(view: docs.View, owner: integer): Sqlite.Handle
+  return (assert(view.databases[owner], "an owner is the index of one of the view's databases"))
+end
+
 --- The record `module`'s value is typed as when the module returns a
 --- name that is not that record (`local module: Module`), as its own
 --- row records it ([`alias_members.value_record`]); nil when it returns
@@ -1194,7 +1227,7 @@ local function used_as(view: docs.View, entry: docs.Entry): string?, string
   end
   local cached = view.value_records[entry.module]
   if cached == nil then
-    local record, trouble = value_record(view.databases[owner], entry.module)
+    local record, trouble = value_record(database_of(view, owner), entry.module)
     if record == nil and trouble ~= "" then
       return nil, trouble
     end
@@ -1411,9 +1444,11 @@ local function by_options(view: docs.View, query: string,
   local out: mut {docs.Entry} = {}
   for _, entry in ipairs(fields) do
     local verb = entry.module == "cosmic.cli" and entry.symbol:match("^Cli%.(%w+)$") or nil
-    if verb ~= nil and held[entry.module .. "\n" .. entry.symbol] ~= true then
+    -- A field of `Cli` that is no verb has no options to speak of.
+    local command = if verb ~= nil then Cli.verbs[verb] else nil end
+    if command ~= nil and held[entry.module .. "\n" .. entry.symbol] ~= true then
       local spoken = tokens_of(entry.source_symbol .. "\n" .. entry.signature .. "\n" ..
-          entry.text .. "\n" .. Flags.options(Cli.verbs[verb].spec or {}))
+          entry.text .. "\n" .. Flags.options(command.spec or {}))
       local all = true
       for _, phrase in ipairs(wanted) do
         if not spoken:find(phrase, 1, true) then all = false end
@@ -1563,9 +1598,9 @@ local function lookup_names(view: docs.View, query: string): docs.Lookup?, strin
   end
   -- A module the index lists is always answered, though it has no row
   -- of its own to name it.
-  if view.owners[query] ~= nil then
-    local owner = view.owners[query]
-    local held, held_trouble = module_symbol(view.databases[owner], view.public[owner] == true, query)
+  local owner = view.owners[query]
+  if owner ~= nil then
+    local held, held_trouble = module_symbol(database_of(view, owner), view.public[owner] == true, query)
     if held == nil then
       return nil, held_trouble
     end
@@ -1597,7 +1632,7 @@ local function lookup_names(view: docs.View, query: string): docs.Lookup?, strin
   end
   local found: mut {docs.Entry} = {}
   local qualifier, name = query:match("^([%w_]+)[.:]([%w_]+)$")
-  if qualifier ~= nil then
+  if qualifier ~= nil and name ~= nil then
     local near, near_trouble = across(view,
       function(db: Sqlite.Handle, public: boolean): {docs.Entry}?, string
         return scoped(db, public, qualifier, name)
@@ -1636,12 +1671,16 @@ local function lookup_names(view: docs.View, query: string): docs.Lookup?, strin
       if near == nil then
         return nil, near_trouble
       end
-      while #near > CLOSEST do near[#near] = nil end
-      local counted, count_trouble = effective_counts(view, near)
+      local nearest: mut {docs.Entry} = {}
+      for position, entry in ipairs(near) do
+        if position > CLOSEST then break end
+        nearest[position] = entry
+      end
+      local counted, count_trouble = effective_counts(view, nearest)
       if not counted then
         return nil, count_trouble
       end
-      return lookup(near, false, 0, #near > 0), ""
+      return lookup(nearest, false, 0, #nearest > 0), ""
     end
   end
   local counted, count_trouble = effective_counts(view, found)
@@ -1782,9 +1821,9 @@ function docs.exact(view: docs.View, query: string): {docs.Entry}?, string
   if #found > 0 then
     return found, ""
   end
-  if view.owners[query] ~= nil then
-    local owner = view.owners[query]
-    local held, held_trouble = module_symbol(view.databases[owner], view.public[owner] == true, query)
+  local owner = view.owners[query]
+  if owner ~= nil then
+    local held, held_trouble = module_symbol(database_of(view, owner), view.public[owner] == true, query)
     if held == nil then
       return nil, held_trouble
     end
@@ -1808,7 +1847,7 @@ local function member_of(view: docs.View, module: string, name: string): {docs.E
   if owner == nil then
     return {}, ""
   end
-  local db = view.databases[owner]
+  local db = database_of(view, owner)
   local shown = symbols.shown_in(db, "d", view.public[owner] == true)
   local dotted = name:gsub(":", ".")
   local rows, trouble = Sqlite.text_rows(db,
@@ -1839,7 +1878,7 @@ local function member_of(view: docs.View, module: string, name: string): {docs.E
     end
   end
   local prefix, last = dotted:match("^(.+)%.([%w_]+)$")
-  if prefix == nil then
+  if prefix == nil or last == nil then
     return found, ""
   end
   local owners, owners_trouble = member_of(view, module, prefix)
@@ -1878,12 +1917,13 @@ end
 by_last_name = function(view: docs.View, query: string): {docs.Entry}?, string
   local out: mut {docs.Entry} = {}
   local qualifier, name = query:match("^([%w_]+)%.(.+)$")
-  if qualifier == nil then
+  if qualifier == nil or name == nil then
     return out, ""
   end
   local modules: mut {string} = {}
   for module in pairs(view.owners) do
-    if module:match("[^.]+$"):lower() == qualifier:lower() and module ~= qualifier and
+    local tail = module:match("[^.]+$")
+    if tail ~= nil and tail:lower() == qualifier:lower() and module ~= qualifier and
         module:sub(1, 16) ~= "cosmic.internal." and module:sub(-5) ~= "_test" and
         module:sub(-8) ~= "_example" then
       modules[#modules + 1] = module
@@ -1900,7 +1940,14 @@ by_last_name = function(view: docs.View, query: string): {docs.Entry}?, string
   return out, ""
 end
 
---- The module a removed member left and what to write instead, as a pair,
+--- A removed name: the module it left (`""` for a global's field) and the
+--- sentence that says what to write instead.
+local record Removal
+  module: string
+  sentence: string
+end
+
+--- The module a removed member left and what to write instead,
 --- when [`cosmic.removed`] lists `query`: a member of a module written
 --- from its last name in either case (`Net.pair`, `net.pair`) or in
 --- full (`cosmic.net.pair`), by its `members`; else a field of a removed
@@ -1909,23 +1956,24 @@ end
 --- The sentence is `message` for a global, which is the same words a refusal at run
 --- time raises with.
 ---
-local function removed_as(query: string): {string}?
+local function removed_as(query: string): Removal?
   local instead = Removed.members[query]
   local whole = query:match("^(.+)%.[%w_]+$")
   if instead ~= nil and whole ~= nil then
-    return { whole, query .. " was removed: " .. instead }
+    return { module = whole, sentence = query .. " was removed: " .. instead }
   end
   local qualifier, name = query:match("^([%w_]+)%.([%w_]+)$")
   if qualifier == nil then
     return nil
   end
   if Removed.names[qualifier] ~= nil or Removed.replacements[query] ~= nil then
-    return { "", Removed.message(qualifier, name) }
+    return { module = "", sentence = Removed.message(qualifier, name) }
   end
   local keys: mut {string} = {}
   for key in pairs(Removed.members) do
     local module, member = key:match("^(.+)%.([%w_]+)$")
-    if member == name and module:match("[^.]+$"):lower() == qualifier:lower() then
+    local tail = if module ~= nil then module:match("[^.]+$") else nil end
+    if member == name and tail ~= nil and tail:lower() == qualifier:lower() then
       keys[#keys + 1] = key
     end
   end
@@ -1933,7 +1981,16 @@ local function removed_as(query: string): {string}?
   if #keys == 0 then
     return nil
   end
-  return { keys[1]:match("^(.+)%."), query .. " was removed: " .. Removed.members[keys[1]] }
+  local first = keys[1]
+  if first == nil then
+    return nil
+  end
+  local module = first:match("^(.+)%.")
+  local replacement = Removed.members[first]
+  if module == nil or replacement == nil then
+    return nil
+  end
+  return { module = module, sentence = query .. " was removed: " .. replacement }
 end
 
 removed_by = function(view: docs.View, query: string): {docs.Entry}?, string
@@ -1941,10 +1998,11 @@ removed_by = function(view: docs.View, query: string): {docs.Entry}?, string
   if gone == nil then
     return {}, ""
   end
-  local module, sentence = gone[1], gone[2]
+  local module, sentence = gone.module, gone.sentence
   -- A member the module still has is the live page's.
-  if module ~= "" then
-    local live, trouble = member_of(view, module, query:match("[%w_]+$"))
+  local member = query:match("[%w_]+$")
+  if module ~= "" and member ~= nil then
+    local live, trouble = member_of(view, module, member)
     if live == nil then
       return nil, trouble
     end
@@ -2064,6 +2122,11 @@ local function parent_of(symbol: string): string
   return symbol:match("^(.*)%.[^.]*$") or ""
 end
 
+--- The last name of a dotted `symbol`: all of it when it has no dot.
+local function last_name(symbol: string): string
+  return (assert(symbol:match("([^.]*)$"), "the pattern [^.]*$ matches the empty text"))
+end
+
 --- `note` cut to `limit` bytes at a word, marked as cut.
 local function clipped(note: string, limit: integer): string
   if #note <= limit then
@@ -2180,7 +2243,7 @@ local function members_under(view: docs.View, target: docs.Entry): {docs.Entry}?
         return nil, trouble
       end
       for _, member in ipairs(entries_of(rows)) do
-        local name = member.source_symbol:match("([^.]*)$")
+        local name = last_name(member.source_symbol)
         if parent_of(member.source_symbol) == target.source_symbol and
             name:sub(1, 1) ~= "_" then
           out[#out + 1] = member
@@ -2257,7 +2320,7 @@ local function inherited_lines(view: docs.View, entry: docs.Entry): {string}?, s
     if mine == nil then
       return nil, mine_trouble
     end
-    for _, member in ipairs(mine) do own[member.source_symbol:match("([^.]*)$")] = true end
+    for _, member in ipairs(mine) do own[last_name(member.source_symbol)] = true end
   end
   local heading = if (entry.kind == "record" or entry.kind == "interface") then "inherited " else "" end
   local fields: mut {string} = {}
@@ -2273,9 +2336,9 @@ local function inherited_lines(view: docs.View, entry: docs.Entry): {string}?, s
       if members == nil then
         return nil, members_trouble
       end
-      local short = target.source_symbol:match("([^.]*)$")
+      local short = last_name(target.source_symbol)
       for _, member in ipairs(members) do
-        local name = member.source_symbol:match("([^.]*)$")
+        local name = last_name(member.source_symbol)
         if own[name] ~= true then
           local note = first_sentence(member.text)
           local tail = member.signature:match("^[%w_]+: function%(" .. short .. "(.*)$")
@@ -2315,7 +2378,7 @@ end
 
 through_alias = function(view: docs.View, query: string): {docs.Entry}?, string
   local prefix, name = query:match("^([%w_]+%.[%w_%.]+)%.([%w_]+)$")
-  if prefix == nil then
+  if prefix == nil or name == nil then
     return {}, ""
   end
   local owners, owners_trouble = across(view,
@@ -2328,11 +2391,16 @@ through_alias = function(view: docs.View, query: string): {docs.Entry}?, string
   return aliased_members(view, owners, name)
 end
 
+--- The example an entry of kind "example" stands for.
+local function example_of(entry: docs.Entry): docs.Example
+  return (assert(entry.related[1], "an entry of kind example carries its example"))
+end
+
 --- An entry's first line as [`docs.render`] prints it: what it is and
 --- where.
 local function heading(entry: docs.Entry): string
   if entry.kind == "example" then
-    local ex = entry.related[1]
+    local ex = example_of(entry)
     return entry.module .. " example " .. ex.name .. " (" .. ex.file .. ":" .. tostring(ex.line) .. ")"
   end
   if entry.kind == "removed" then
@@ -2353,9 +2421,10 @@ end
 --- A module's row lists the symbols it declares instead of a signature.
 --- Nil and why when a database cannot be read.
 function docs.render(view: docs.View, entry: docs.Entry): {string}?, string
-  local lines: mut {string} = { heading(entry) }
+  local first_line = heading(entry)
+  local lines: mut {string} = { first_line }
   if entry.kind == "example" then
-    local ex = entry.related[1]
+    local ex = example_of(entry)
     for line in String.lines(ex.text) do
       lines[#lines + 1] = if #line > 0 then "  " .. line else "" end
     end
@@ -2367,7 +2436,7 @@ function docs.render(view: docs.View, entry: docs.Entry): {string}?, string
   if entry.kind == "removed" then
     -- A name that is gone has no declaration to show, only what its
     -- module's catalog says to write instead.
-    return { lines[1], "  " .. entry.text }, ""
+    return { first_line, "  " .. entry.text }, ""
   end
   if entry.kind == "code" then
     -- A code has no declaration, only its row: what emits it, its rule, why it holds and the fix.
@@ -2455,8 +2524,9 @@ function docs.render(view: docs.View, entry: docs.Entry): {string}?, string
   for line in String.lines(link_text.unlinked(entry.text)) do text_lines[#text_lines + 1] = line end
   local function code_at(from: integer): boolean
     for j = from, #text_lines do
-      if text_lines[j] ~= "" then
-        return text_lines[j]:match("^%s") ~= nil or text_lines[j]:sub(1, 3) == "```"
+      local text_line = text_lines[j]
+      if text_line ~= nil and text_line ~= "" then
+        return text_line:match("^%s") ~= nil or text_line:sub(1, 3) == "```"
       end
     end
     return false
@@ -2620,7 +2690,7 @@ local function page(view: docs.View, found: docs.Lookup,
     if index > 1 then
       lines[#lines + 1] = ""
     end
-    local rendered, trouble = docs.render(view, found[index])
+    local rendered, trouble = docs.render(view, (assert(found[index], "index is within the lookup")))
     if rendered == nil then
       return nil, trouble
     end
@@ -2636,8 +2706,8 @@ local function page(view: docs.View, found: docs.Lookup,
     lines[#lines + 1] = ""
     lines[#lines + 1] = tostring((#found - whole)) .. " more; narrow the search, or look one up by name:"
     for index = whole + 1, #found do
-      local entry = found[index]
-      local said = entry.kind == "example" and entry.related[1].text or entry.text
+      local entry = (assert(found[index], "index is within the lookup"))
+      local said = if entry.kind == "example" then example_of(entry).text else entry.text end
       local note = clipped(first_sentence(said), LISTED_NOTE)
       lines[#lines + 1] = "  " .. heading(entry) .. (if note ~= "" then " -- " .. note else "" end)
     end
@@ -2853,7 +2923,9 @@ local function run_uses(argv: {string}): integer
     return 1
   end
   local words: mut {string} = {}
-  for slot = 2, #parsed.words do words[#words + 1] = parsed.words[slot] end
+  for slot, word in ipairs(parsed.words) do
+    if slot >= 2 then words[#words + 1] = word end
+  end
   local root, root_trouble = Fs.absolute(".")
   if root == nil then
     log:complain("uses: " .. root_trouble)
