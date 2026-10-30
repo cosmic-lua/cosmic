@@ -1017,10 +1017,11 @@ end
 local function test_a_sparse_array_does_not_write_a_million_holes()
   local far: {integer: string} = { [1] = "a" }
   local huge = sparse_of(1 << 40, far)
-  assert(huge[1] == "a" and Json.is_array(huge), "making one costs nothing, whatever its length")
+  assert(huge == far and Json.is_array(huge), "making one costs nothing, whatever its length")
   local why = encode_failure(huge)
   assert(why:find("more than 1048576 holes", 1, true) and why:find("holds 1 items", 1, true), why)
-  assert(encoded(sparse_of(1048577, far)):sub(1, 14) == '["a",null,null', "the most it may hold is written")
+  local near: {integer: string} = { [1] = "a" }
+  assert(encoded(sparse_of(1048577, near)):sub(1, 14) == '["a",null,null', "the most it may hold is written")
 end
 
 local function test_to_value_and_to_array_refuse_a_sparse_array_that_has_a_hole()

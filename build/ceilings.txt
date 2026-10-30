@@ -3765,7 +3765,7 @@ cosmic/web/htmx.tl any_use 8
 
 cosmic/web/htmx_test.tl any_use 2
 
-cosmic/web/input.tl any_use 8
+cosmic/web/input.tl any_use 7
 
 cosmic/web/input_fuzz_test.tl any_use 7
 
@@ -7101,7 +7101,6 @@ cosmic/time.tl not_assignable 1
 
 
 
-cosmic/web/input.tl not_assignable 1
 
 
 cosmic/web/router.tl not_assignable 1
@@ -7263,9 +7262,7 @@ build/bom.tl not_assignable 1
 
 build/json_query_test.tl not_assignable 1
 
-cosmic/shape.tl not_assignable 1
 
-cosmic/shape_fuzz_test.tl not_assignable 1
 
 cosmic/web/response_test.tl not_assignable 2
 

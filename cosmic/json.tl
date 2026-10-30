@@ -640,17 +640,15 @@ function Json.sparse<T>(length: integer, items: {integer: T}): {integer: T}?, st
   if math.type(length) ~= "integer" or length < 0 then
     return refuse(("a sparse array's length is an integer from 0 up, not %s"):format(tostring(length)))
   end
-  local list: mut {integer: T} = {}
-  for key, item in pairs(items) do
+  for key in pairs(items) do
     if math.type(key) ~= "integer" then
       return refuse(("a sparse array's key must be an integer position from 1 to %d, not %s"):format(length, tostring(key)))
     end
     if key < 1 or key > length then
       return refuse(("a sparse array's key must be a position from 1 to %d, not %d"):format(length, key))
     end
-    list[key] = item
   end
-  return raw.sparse(list, length), ""
+  return raw.sparse(items, length), ""
 end
 
 --- Classifies `t` as [`Json.layout`] says and, when `members` is true,
