@@ -190,7 +190,7 @@ local function numeric_field(src: Fuzz.Source, width: integer, v: integer): stri
     return string.char(b:byte(1) | 0x80) .. b:sub(2)
   elseif how == 9 then
     local b: mut {string} = { string.char(0x80 | src:int(0, 0x7f)) }
-    for i = 2, width do b[i] = string.char(src:int(0, 255)) end
+    for _ = 2, width do b[#b + 1] = string.char(src:int(0, 255)) end
     return table.concat(b)
   elseif how == 10 then
     return field(Fuzz.pick(src, NOT_OCTAL) .. ("%o"):format(v), width)

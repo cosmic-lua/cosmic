@@ -228,9 +228,11 @@ local function earlier(a: Wait, b: Wait): boolean
   return assert(a.seq) < assert(b.seq)
 end
 
-local function heap_push(heap: mut {Wait}, w: Wait)
-  heap[#heap + 1] = w
-  local i = #heap
+--- Puts `w` in the heap `heap` of `size` waits, `w` the last of them. The heap is a map by slot, 1 to `size`: a swap
+--- of two slots is then no write that could leave a hole.
+local function heap_push(heap: mut {integer: Wait}, size: integer, w: Wait)
+  heap[size] = w
+  local i = size
   while i > 1 do
     local parent = i // 2
     if not earlier(heap[i], heap[parent]) then break end
@@ -239,11 +241,11 @@ local function heap_push(heap: mut {Wait}, w: Wait)
   end
 end
 
-local function sift_down(heap: mut {Wait}, i: integer)
+local function sift_down(heap: mut {integer: Wait}, size: integer, i: integer)
   while true do
     local l, r, least = 2 * i, 2 * i + 1, i
-    if l <= #heap and earlier(heap[l], heap[least]) then least = l end
-    if r <= #heap and earlier(heap[r], heap[least]) then least = r end
+    if l <= size and earlier(heap[l], heap[least]) then least = l end
+    if r <= size and earlier(heap[r], heap[least]) then least = r end
     if least == i then return end
     heap[i], heap[least] = heap[least], heap[i]
     i = least
@@ -255,7 +257,8 @@ end
 --- order the old one would have.
 local function compact_timers()
   local heap, kept = running().timers, 0
-  for i = 1, #heap do
+  local size = running().timer_count
+  for i = 1, size do
     local w = heap[i]
     if w.done == true then
       w.in_heap = false
@@ -264,9 +267,10 @@ local function compact_timers()
       heap[kept] = w
     end
   end
-  for i = #heap, kept + 1, -1 do heap[i] = nil end
+  for i = size, kept + 1, -1 do heap[i] = nil end
+  running().timer_count = kept
   running().stale = 0
-  for i = kept // 2, 1, -1 do sift_down(heap, i) end
+  for i = kept // 2, 1, -1 do sift_down(heap, kept, i) end
 end
 
 --- Enters `w`'s wait on `fd` for `mask` among the waits on `fd`, whose
@@ -359,7 +363,7 @@ local function finish(w: Wait)
   end
   if w.in_heap == true then
     running().stale = running().stale + 1
-    if running().stale > STALE_FLOOR and running().stale * 2 > #running().timers then
+    if running().stale > STALE_FLOOR and running().stale * 2 > running().timer_count then
       compact_timers()
     end
   end
@@ -410,7 +414,8 @@ local function park(task: State, w: Wait, timeout_ns: integer?): boolean, string
     end
     if timeout_ns ~= nil then
       w.at, w.in_heap = Clock.monotonic_ns() + timeout_ns, true
-      heap_push(running().timers, w)
+      running().timer_count = running().timer_count + 1
+      heap_push(running().timers, running().timer_count, w)
     end
   end
   task.waiting = true
@@ -559,7 +564,9 @@ local record Loop
   events: {integer}
   watched: mut {integer:Watched}
   --- Time waits, a binary heap on `at` then `seq`.
-  timers: {Wait}
+  timers: mut {integer: Wait}
+  --- How many slots of `timers`, from 1, hold a wait.
+  mut timer_count: integer
   --- How many of `timers` are done: each leaves only on reaching the
   --- top, or when the heap is rebuilt without them.
   stale: integer
@@ -572,10 +579,14 @@ end
 local function pop_timer(): Wait
   local heap = running().timers
   local top = heap[1]
-  local last = table.remove(heap)
-  if #heap > 0 then
+  local size = running().timer_count
+  local last = heap[size]
+  heap[size] = nil
+  size = size - 1
+  running().timer_count = size
+  if size > 0 then
     heap[1] = last
-    sift_down(heap, 1)
+    sift_down(heap, size, 1)
   end
   top.in_heap = false
   if top.done == true then running().stale = running().stale - 1 end
@@ -730,7 +741,8 @@ function Poll.ready(fds: {integer}, events: {integer}, timeout_ns?: integer): {i
     local mask = events[i]
     checked_fd(fd, "fds[" .. tostring(i) .. "]", 2)
     checked_events(mask, "events[" .. tostring(i) .. "]", 2)
-    watched[i], masks[i], answers[i] = fd, mask, 0
+    local checked = assert(mask)
+    watched[#watched + 1], masks[#masks + 1], answers[#answers + 1] = fd, checked, 0
   end
   local ok, why = park(task,
     { task = task, fds = watched, masks = masks, answers = answers }, timeout_ns)
@@ -853,8 +865,8 @@ end
 --- while a task is ready, until the nearest time wait, or -1 for no limit.
 local function next_timeout(): integer
   if #running().ready > 0 then return 0 end
-  while #running().timers > 0 and running().timers[1].done == true do pop_timer() end
-  if #running().timers == 0 then return -1 end
+  while running().timer_count > 0 and running().timers[1].done == true do pop_timer() end
+  if running().timer_count == 0 then return -1 end
   local left = assert(running().timers[1].at) - Clock.monotonic_ns()
   if left <= 0 then return 0 end
   return math.min(Clock.ceil(left, MS), Clock.ceil(Poll.MOST_NS, MS))
@@ -900,7 +912,7 @@ end
 --- Answers every time wait whose time has come.
 local function expire()
   local t = Clock.monotonic_ns()
-  while #running().timers > 0 and (running().timers[1].done == true or assert(running().timers[1].at) <= t) do
+  while running().timer_count > 0 and (running().timers[1].done == true or assert(running().timers[1].at) <= t) do
     local w = pop_timer()
     if w.done ~= true then
       if w.expiry_ok == true then wake(w, true, "") else wake(w, false, Poll.TIMEOUT) end
@@ -992,7 +1004,7 @@ end
 function Poll.run(main: function())
   if ongoing.loop ~= nil then error("poll: Poll.run is already running", 2) end
   ongoing.loop = { tasks = {}, live = 0, ready = {}, fds = {}, events = {}, watched = {}, timers = {},
-    stale = 0, seq = 0 }
+    timer_count = 0, stale = 0, seq = 0 }
   -- Nothing may allocate between setting `loop` and the pcall, or a
   -- refused allocation would raise past the teardown and leave `loop`
   -- set for every later run: so no closure is made here.

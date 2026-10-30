@@ -165,9 +165,10 @@ end
 --- The text of a pattern's segments: "/items/:id".
 local function pattern_text(segments: {Types.Segment}, slash: boolean): string
   local out: mut {string} = {}
-  for i, segment in ipairs(segments) do
-    out[i] = segment.kind == "literal" and segment.text or
+  for _, segment in ipairs(segments) do
+    local text = segment.kind == "literal" and segment.text or
       (if segment.kind == "param" then ":" else "*" end) .. segment.text
+    out[#out + 1] = text
   end
   return "/" .. table.concat(out, "/") .. (if slash and #out > 0 then "/" else "" end)
 end

@@ -906,10 +906,9 @@ local DRIBBLE_FACTOR <const> = 40
 
 local function test_a_head_fed_a_byte_at_a_time_costs_its_length()
   local function head(total: integer): string
-    local lines = { "A: " .. ("v"):rep(7000), "B: " .. ("v"):rep(7000), "C: " }
-    local without = Fixture.connect("example.com:80", lines)
-    lines[3] = "C: " .. ("w"):rep(total - #without)
-    return Fixture.connect("example.com:80", lines)
+    local first, second = "A: " .. ("v"):rep(7000), "B: " .. ("v"):rep(7000)
+    local without = Fixture.connect("example.com:80", { first, second, "C: " })
+    return Fixture.connect("example.com:80", { first, second, "C: " .. ("w"):rep(total - #without) })
   end
   local input = head(16384)
   assert(#input == 16384)
