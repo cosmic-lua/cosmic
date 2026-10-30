@@ -62,6 +62,7 @@ local function moved(bytes: {integer}, delta: integer): {integer}
       replace(out, i, value + 256)
       carry = -1
     else
+      replace(out, i, value)
       carry = 0
     end
     if carry == 0 then break end
@@ -149,6 +150,20 @@ local function decided(fd: integer, item: string): boolean
   assert(tag == 3, "the reply carries another tag: " .. tostring(tag))
   assert(errno == 0 or errno == REFUSED, "errno " .. tostring(errno))
   return errno == 0
+end
+
+local function test_moving_an_address_changes_it_with_or_without_a_carry()
+  local function same(a: {integer}, b: {integer}): boolean
+    if #a ~= #b then return false end
+    for i = 1, #a do
+      if a[i] ~= b[i] then return false end
+    end
+    return true
+  end
+  assert(same(moved({ 8, 8, 4, 4 }, 1), { 8, 8, 4, 5 }), "one up moves the last byte")
+  assert(same(moved({ 8, 8, 4, 4 }, -2), { 8, 8, 4, 2 }), "two down moves the last byte")
+  assert(same(moved({ 8, 8, 4, 255 }, 1), { 8, 8, 5, 0 }), "one up past 255 carries")
+  assert(same(moved({ 8, 8, 5, 0 }, -1), { 8, 8, 4, 255 }), "one down past 0 borrows")
 end
 
 local function test_the_connector_and_the_relay_s_check_agree_on_every_address(tmp: string)
