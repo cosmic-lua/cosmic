@@ -303,7 +303,7 @@ local function test_an_exported_tuple_is_flagged_and_a_single_result_or_failure_
     "local record M\n  record R\n    n: integer\n    pair: function(R): integer, integer\n  end\nend\nreturn M",
   })
   keeps({
-    "local record M end\nfunction M.one(): string\n  return 'a'\nend\nfunction M.problems_of(): string?, string\n  return sget()\nend\n" ..
+    "local record M end\nfunction M.one(): string\n  return 'a'\nend\nfunction M.read(): string?, string\n  return sget()\nend\n" ..
       "function M.write(): boolean, string\n  return put()\nend\nreturn M",
     "local record M end\nlocal function split(): string, string\n  return 'a', 'b'\nend\nfunction M.first(): string\n" ..
       "  local a, _ = split()\n  return a\nend\nreturn M",

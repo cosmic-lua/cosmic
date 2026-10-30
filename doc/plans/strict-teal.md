@@ -1283,7 +1283,7 @@ and the worker that compared the two. what the change did, and what it decided:
   (`testdata/gate/`, `lang/check_verdicts_test.tl`), the fuzz properties ([`lang/check_flow_fuzz_test.tl`],
   [`lang/check_total_fuzz_test.tl`], [`lang/check_assigned_fuzz_test.tl`]) and the sweep `bin/gate-sweep` ran over them;
   the tables and the sweep were deleted with the fork's grammar, and the fuzz properties stay. the fork's
-  answers to the programs the tests compared were kept as text beside the cases ([`lang/forked.tl`]).
+  answers to the programs the tests compared were kept as text beside the cases (`lang/forked.tl`).
 - **one grammar.** the tool reads the new grammar and no other. `COSMIC_GRAMMAR` takes `new` or nothing; `teal` and
   `cosmic compile --grammar teal` are refused, pointing to the project guide (`cosmic migrate`, which translated a project,
   was kept for one release as a user-facing verb and then removed, leaving a word that says so). a project outside the tree is a hard cutover: it compiles with the
@@ -1545,7 +1545,6 @@ since the seed's Lua runs on the tree's VM.
 [`lang/prelude.d.tl`]: ../../lang/prelude.d.tl
 [`lang/ast.tl`]: ../../lang/ast.tl
 [`lang/types.tl`]: ../../lang/types.tl
-[`lang/forked.tl`]: ../../lang/forked.tl
 [`build/seed.txt`]: ../../build/seed.txt
 [`build/fix/init.tl`]: ../../build/fix/init.tl
 [`build/paths.tl`]: ../../build/paths.tl

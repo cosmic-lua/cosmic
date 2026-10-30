@@ -98,7 +98,7 @@ local record compile_grammar
   --- The Lua for `result`, a module of `build` that was lowered and checked with its bodies ([`Driver.Build.result`]):
   --- what [`lang.codegen`] writes of its syntax tree given what the checker concluded (the classes its table literals
   --- make, the values of the enums it tests, the kinds its type names resolved to, and with `facts` the wraps of the
-  --- reads a test narrowed), and the tests it cannot write. The generator is told what the translator knew of the text
+  --- reads a test narrowed), and the tests it cannot write. The generator is told what the syntax of the text shows
   --- ([`Driver.Outcome.never_false`]). With `counted` the test of a record, an interface or a userdata is written as the fork
   --- writes it, the test for a table (for userdata): the tree's own, which the ceilings of `[checked]` count as the checker's
   --- `is_on_record` and let no more of, so that the program is not refused for a test the fork wrote. Without it such a test
