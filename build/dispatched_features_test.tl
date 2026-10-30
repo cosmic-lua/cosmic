@@ -112,9 +112,15 @@ local SITES <const>: {string:Site} = {
   -- none chooses code by it. syscalls.c asks Apple's
   -- kern.maxfilesperproc too, for the descriptor limit a start raises
   -- to: no feature.
-  ["core/syscalls.c"] = { lines = "d4945a6faa1d47ab", reads = {} },
-  ["core/syscalls.h"] = { lines = "07f5fc6fd89b1e76", reads = {} },
+  ["core/syscalls.c"] = { lines = "73996c52b47965b2", reads = {} },
+  ["core/syscalls.h"] = { lines = "f23c54e6e2b7ac0d", reads = {} },
   ["core/syscalls_test.tl"] = { lines = "8e89471955981f9c", reads = {} },
+  -- The int8 dot product of [`Vector.corpus`]: VNNI in its AVX-512 (256-bit
+  -- forms) and AVX encodings, by cpuid leaf 7. It also asks cpuid leaf 1
+  -- for OSXSAVE and xgetbv for the state the system saves, which are the
+  -- system's and no feature of the processor.
+  ["core/vector.c"] = { lines = "cd0767ce3aa41c0c",
+    reads = { x86_64 = { "avx512f", "avx512vl", "avx512_vnni", "avx_vnni" } } },
   -- The processor count on Apple (sysctlbyname("hw.ncpu")): no feature.
   ["vendor/sqlite/sqlite3.c"] = { lines = "7b27815aae63deac", reads = {} },
 }

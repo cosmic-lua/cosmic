@@ -842,7 +842,7 @@ local function test_each_part_of_the_host_moves_its_identity(tmp: string)
   end
   differs("the start")
   assert(identity() == identity(), "the same host")
-  sources.cpu_features = { "fma", "aes", "avx512f" }
+  sources.cpu_features = { "fma", "aes", "avx512bw" }
   assert(seen[identity()] == "the start", "each feature is counted once, if a core reads it")
   local installed = declared_key.system_identity(declared_key.digests(tmp), sources)
   write("packages", "p2")

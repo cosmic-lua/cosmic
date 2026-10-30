@@ -864,7 +864,8 @@ what the declared key leaves out, each with a `TODO:` where its fix goes:
 the processor is keyed, for good, by the features a core chooses code by
 alone (`dispatched` in [`build/declared_key.tl`], which
 [`ci/cosmic_ci/host_id.tl`] mirrors): mbedtls's AES and xz's CRC
-instructions. no Linux core links a libm that dispatches: every one,
+instructions, and the VNNI instructions of the core's own int8 vector
+search. no Linux core links a libm that dispatches: every one,
 the checked core too, is static musl. the rest of
 /proc/cpuinfo's flags, its model and its microcode choose no code a test runs,
 and keying them split hosted runners of one leg for nothing.

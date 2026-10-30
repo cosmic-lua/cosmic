@@ -15,4 +15,8 @@ int cosmic_vector_functions (sqlite3 *db);
  * functions. */
 int cosmic_open_vector (lua_State *L);
 
+/* Sets the int8 kernel selector as the field `vector_kernel` of the table
+ * on top of the stack: [`cosmic.internal.testing`]'s, in every core. */
+void cosmic_add_vector_kernel (lua_State *L);
+
 #endif

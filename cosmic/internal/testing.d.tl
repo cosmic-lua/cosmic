@@ -1,9 +1,9 @@
 --- Test instruments, as the core provides them (core/testing.h). Every
 --- core has every member, but only the checked core's instruments
 --- instrument: in any other, each raises "only the checked core has
---- test instruments". The exception is the raw calls a sandbox's own
---- setup makes (`mount`, `umount2`, `unshare`, `setns`, `chroot`),
---- which are real in every core. `configuration` says which core is
+--- test instruments". The exceptions are the raw calls a sandbox's own
+--- setup makes (`mount`, `umount2`, `unshare`, `setns`, `chroot`) and
+--- [`vector_kernel`], which are real in every core. `configuration` says which core is
 --- running, "sanitized" for the checked one.
 
 local record testing
@@ -74,6 +74,14 @@ local record testing
   --- with local_lock "flock" or "all" among the filesystem's own
   --- options: what [`sys.flock_kind`] asks of an NFS file's mount.
   mountinfo_local_flock: function(text: string, device: string): boolean
+
+  --- The int8 dot product that [`cosmic.vector`]'s `"int8"` corpus scores
+  --- with, real in every core: "generic", or on x86_64 "avx512_vnni" or
+  --- "avx_vnni", the widest the CPU has until told otherwise. Given a
+  --- name, switches to it and answers it; raises on an unknown name or
+  --- one this CPU lacks. The sums are exact integers, so no kernel
+  --- changes an answer: this is for tests that compare them.
+  vector_kernel: function(name?: string): string
 
   --- The calls a sandbox's own setup makes, made raw in every core (not
   --- instruments), so a test can ask whether a program inside one is
