@@ -264,14 +264,14 @@ end
 --- without declaring it passed there and would fail sandboxed on the
 --- host. COSMIC_SANDBOX and COSMIC_CI_REQUIRE_SANDBOX, which hold a run
 --- to sandboxing, are dropped with it.
-function Grader.unsandboxed(env: {string:string}): mut {string:string}
+function Grader.unsandboxed(env: {string:string}): {string:string}
   local pinned: mut {string:string} = {}
   for name, value in pairs(env) do
     pinned[name] = value
   end
-  pinned["COSMIC_TEST_SANDBOX"] = "0"
-  pinned["COSMIC_SANDBOX"] = nil
-  pinned["COSMIC_CI_REQUIRE_SANDBOX"] = nil
+  pinned.COSMIC_TEST_SANDBOX = "0"
+  pinned.COSMIC_SANDBOX = nil
+  pinned.COSMIC_CI_REQUIRE_SANDBOX = nil
   return pinned
 end
 
@@ -446,9 +446,9 @@ local function hidden_api(g: Grade, cosmic: string, project: string, test: strin
     -- where a solver run by hand, with this HOME, could read it. A test
     -- that hangs is cut short well within the grading's own budget.
     local env = Grader.unsandboxed(g.env)
-    env["TMPDIR"] = scratch .. "/tmp"
-    env["COSMIC_BUILD_CACHE"] = "0"
-    env["COSMIC_VERDICT_CACHE"] = "0"
+    env.TMPDIR = scratch .. "/tmp"
+    env.COSMIC_BUILD_CACHE = "0"
+    env.COSMIC_VERDICT_CACHE = "0"
     local result, rtrouble = Child.run({ cosmic, "test", "--timeout", "5", name }, { cwd = copy,
       env = env, stdout = "capture", stderr = "stdout", timeout_ns = within(g, Clock.seconds(20)) })
     if result == nil then
@@ -583,15 +583,21 @@ local function is_executable(path: string): boolean
   return st ~= nil and st.kind == "file" and st.mode & 0x49 ~= 0
 end
 
---- The member `key` of the job `name` in a jobs report, or nil where the
---- report has no such job or the job no such member.
-local function job_field(report: {string: {string: Json.Value}}, name: string, key: string): Json.Value?
-  local job = report[name]
-  if job == nil then return nil end
-  return job[key]
+-- TODO: once ci/cosmic-driver.pin names a release whose cosmic.json has
+-- Json.to_value, Json.to_object and Json.to_array, type the JSON this
+-- file decodes as Json.Value instead of `any` (`field`, `shown`, `same`,
+-- [`jobs_report`], [`each_job`] and the jobs and listing checks), and lower
+-- this file's key_type, map_field, any_use, is_on_record and arms_differ
+-- pins in build/ceilings.txt. The grader runs on the pinned bootstrap
+-- cosmic, which lacks them.
+local function field(value: any, key: string): any
+  if value is {string: any} then
+    return value[key]
+  end
+  return nil
 end
 
-local function shown(value: Json.Value?): string
+local function shown(value: any): string
   if value == nil then return "null" end
   return tostring(value)
 end
@@ -609,32 +615,14 @@ local function sleep_until(deadline: integer)
 end
 
 --- Whether two decoded JSON values are equal, numbers by value.
-local function same(a: Json.Value?, b: Json.Value?): boolean
-  local a_object, _ = Json.to_object(a)
-  local b_object, _ = Json.to_object(b)
-  if a_object ~= nil and b_object ~= nil then
-    for k, v in pairs(a_object) do
-      if not same(v, b_object[k]) then return false end
+local function same(a: any, b: any): boolean
+  if a is {any: any} and b is {any: any} then
+    for k, v in pairs(a) do
+      if not same(v, b[k]) then return false end
     end
-    for k in pairs(b_object) do
-      if a_object[k] == nil then return false end
+    for k in pairs(b) do
+      if a[k] == nil then return false end
     end
-    return true
-  end
-  local a_array, _ = Json.to_array(a)
-  local b_array, _ = Json.to_array(b)
-  if a_array ~= nil and b_array ~= nil then
-    if #a_array ~= #b_array then return false end
-    for i, v in ipairs(a_array) do
-      if not same(v, b_array[i]) then return false end
-    end
-    return true
-  end
-  -- An empty object and an empty array are the one empty table to Lua.
-  if a_object ~= nil and next(a_object) == nil and b_array ~= nil and #b_array == 0 then
-    return true
-  end
-  if a_array ~= nil and #a_array == 0 and b_object ~= nil and next(b_object) == nil then
     return true
   end
   return a == b
@@ -973,12 +961,8 @@ local LEDGER_CSV <const> = table.concat({
 
 local function reports(g: Grade, args: {string}, want: string): string
   local result = run(g, args)
-  local decoded, trouble = Json.decode(result.stdout or "")
-  local got: Json.Value?
-  if decoded ~= nil then
-    got, trouble = Json.to_value(decoded)
-  end
-  local wanted = assert(Json.to_value((assert(Json.decode(want)))))
+  local got, trouble = Json.decode(result.stdout or "")
+  local wanted = assert(Json.decode(want))
   if status(result) ~= 0 then
     fail(g, label(g, args) .. ": exit " .. tostring(status(result)) .. "; stderr: " ..
         first_line(result.stderr or ""))
@@ -1196,45 +1180,32 @@ end
 
 --- A jobfile's text for `jobs`, each of which is a table the JSON
 --- encoder takes.
-local function jobfile(g: Grade, path: string, jobs: {string: Json.Value})
-  write(g, path, (assert(Json.encode(jobs))))
+local function jobfile(g: Grade, path: string, jobs: {string: any})
+  write(g, path, (assert(Json.encode_any(jobs))))
 end
 
 --- The report `jobs` printed, by job name, or nil and why.
-local function jobs_report(result: Child.Result): {string: {string: Json.Value}}?, string
+local function jobs_report(result: Child.Result): {string: any}?, string
   local doc, trouble = Json.decode(result.stdout or "")
   if doc == nil then
     return nil, "stdout is no JSON (" .. trouble .. "): " .. first_line(result.stdout or "")
   end
-  local top, top_why = Json.to_object(doc)
-  if top == nil then
-    return nil, "no \"jobs\" object in " .. first_line(result.stdout or "") .. " (" .. top_why .. ")"
-  end
-  local named, jobs_why = Json.to_object(top["jobs"])
-  if named == nil then
-    return nil, "no \"jobs\" object in " .. first_line(result.stdout or "") .. " (" .. jobs_why .. ")"
-  end
-  local jobs: mut {string: {string: Json.Value}} = {}
-  for name, listing in pairs(named) do
-    local job, job_why = Json.to_object(listing)
-    if job == nil then
-      return nil, "job " .. name .. " in " .. first_line(result.stdout or "") .. " is no object (" ..
-        job_why .. ")"
-    end
-    jobs[name] = job
+  local jobs = field(doc, "jobs")
+  if not jobs is {string: any} then
+    return nil, "no \"jobs\" object in " .. first_line(result.stdout or "")
   end
   return jobs, ""
 end
 
 --- Checks one field of each named job's report.
-local function each_job(g: Grade, report: {string: {string: Json.Value}}, key: string, want: {string: Json.Value})
+local function each_job(g: Grade, report: {string: any}, key: string, want: {string: any})
   local names: mut {string} = {}
   for name in pairs(want) do names[#names + 1] = name end
   table.sort(names)
   local wrong: mut {string} = {}
   for _, name in ipairs(names) do
-    local got = job_field(report, name, key)
-    local expected: Json.Value? = want[name]
+    local got = field(report[name], key)
+    local expected = want[name]
     if expected == Json.null then expected = nil end
     if got ~= expected then
       wrong[#wrong + 1] = name .. " " .. shown(got) .. " (wanted " .. shown(expected) .. ")"
@@ -1244,7 +1215,7 @@ local function each_job(g: Grade, report: {string: {string: Json.Value}}, key: s
     table.concat(wrong, "; "))
 end
 
-local function number_of(value: Json.Value?): number?
+local function number_of(value: any): number?
   if value is number then return value end
   return nil
 end
@@ -1292,8 +1263,8 @@ local function jobs_main(g: Grade, w: string): integer
   each_job(g, report, "code", { first = 0, broken = 3, after_broken = Json.null,
     slow = Json.null })
   each_job(g, report, "start_ms", { after_broken = Json.null })
-  local first_end = number_of(job_field(report, "first", "end_ms"))
-  local second_start = number_of(job_field(report, "second", "start_ms"))
+  local first_end = number_of(field(report.first, "end_ms"))
+  local second_start = number_of(field(report.second, "start_ms"))
   check(g, first_end ~= nil and second_start ~= nil and second_start >= first_end,
     "second (needs first) started at " .. shown(second_start) .. " ms, after first ended at " ..
       shown(first_end) .. " ms")
@@ -1302,8 +1273,8 @@ local function jobs_main(g: Grade, w: string): integer
     "skipped jobs never ran")
   check(g, exists(w .. "/env.ok"), "a job sees its env and nothing of jobs's own")
   check(g, exists(w .. "/sub/here.txt"), "a job runs in its cwd")
-  local slow_start = number_of(job_field(report, "slow", "start_ms"))
-  local slow_end = number_of(job_field(report, "slow", "end_ms"))
+  local slow_start = number_of(field(report.slow, "start_ms"))
+  local slow_end = number_of(field(report.slow, "end_ms"))
   local slow_ran = if slow_start ~= nil and slow_end ~= nil then slow_end - slow_start else nil end
   check(g, slow_ran ~= nil and slow_ran >= 400 and slow_ran < 1500,
     "a job with a 0.5 s timeout ran " .. shown(slow_ran) .. " ms")
@@ -1447,7 +1418,7 @@ local function jobs_parallel(g: Grade)
   end
   local spans: mut {{number}} = {}
   for _, name in ipairs({ "one", "two", "three" }) do
-    local s, e = number_of(job_field(report, name, "start_ms")), number_of(job_field(report, name, "end_ms"))
+    local s, e = number_of(field(report[name], "start_ms")), number_of(field(report[name], "end_ms"))
     if s ~= nil and e ~= nil then spans[#spans + 1] = { s, e } end
   end
   local most = 0
@@ -1559,33 +1530,27 @@ local function mirror_files(): {string: string}
   }
 end
 
---- A path asked of the mirror and the entries its listing must hold.
-local record Listing
-  target: string
-  entries: {Json.Value}
-end
-
 local function mirror_listings(g: Grade, site: Site)
-  local function entry(name: string, path: string): {string: Json.Value}
+  local function entry(name: string, path: string): any
     local data = site.files[path]
     return { name = name, type = "file", size = #data, sha256 = Hash.hex_sha256(data) }
   end
-  local wants: {Listing} = {
-    { target = "/", entries = { entry("a.txt", "a.txt"), entry("big.txt", "big.txt"),
-      { name = "sub", type = "dir" }, entry("two words.txt", "two words.txt") } },
-    { target = "/sub", entries = { entry("b.bin", "sub/b.bin"), { name = "deep", type = "dir" } } },
-    { target = "/sub/deep/", entries = { entry("c.txt", "sub/deep/c.txt") } },
+  local wants: {{string | {any}}} = {
+    { "/", { entry("a.txt", "a.txt"), entry("big.txt", "big.txt"), { name = "sub", type = "dir" },
+      entry("two words.txt", "two words.txt") } },
+    { "/sub", { entry("b.bin", "sub/b.bin"), { name = "deep", type = "dir" } } },
+    { "/sub/deep/", { entry("c.txt", "sub/deep/c.txt") } },
   }
   for _, want in ipairs(wants) do
-    local answer = asks(g, site, "GET", want.target, {}, { 200 })
-    if answer ~= nil then
-      local decoded, trouble = Json.decode(answer.body)
-      local got: Json.Value?
-      if decoded ~= nil then
-        got, trouble = Json.to_value(decoded)
+    local target, entries = want[1], want[2]
+    if target is string and entries is {any} then
+      local answer = asks(g, site, "GET", target, {}, { 200 })
+      if answer ~= nil then
+        local got, trouble = Json.decode(answer.body)
+        local expected = assert(Json.decode((assert(Json.encode_any(entries)))))
+        check(g, got ~= nil and same(got, expected), "GET " .. target ..
+            " lists its entries by name", got == nil and trouble or "got " .. answer.body)
       end
-      check(g, got ~= nil and same(got, want.entries), "GET " .. want.target ..
-          " lists its entries by name", got == nil and trouble or "got " .. answer.body)
     end
   end
 end
@@ -2245,11 +2210,11 @@ function Grader.isolated(env: {string:string}, dir: string): {string:string}
   for name, value in pairs(env) do
     pinned[name] = value
   end
-  pinned["HOME"] = dir .. "/grade-home"
-  pinned["XDG_CACHE_HOME"] = dir .. "/grade-home/.cache"
-  pinned["COSMIC_BUILD_HOME"] = nil
-  pinned["COSMIC_BUILD_CACHE"] = nil
-  pinned["COSMIC_VERDICT_CACHE"] = nil
+  pinned.HOME = dir .. "/grade-home"
+  pinned.XDG_CACHE_HOME = dir .. "/grade-home/.cache"
+  pinned.COSMIC_BUILD_HOME = nil
+  pinned.COSMIC_BUILD_CACHE = nil
+  pinned.COSMIC_VERDICT_CACHE = nil
   return pinned
 end
 
@@ -2364,9 +2329,7 @@ function Grader.grade(name: string, dir: string, testdata: string,
   end
   say("logs " .. logs)
   local grading = Grader.isolated(env or Env.all(), dir)
-  local cache_home = grading["XDG_CACHE_HOME"]
-  local homed, htrouble = false, "Grader.isolated left XDG_CACHE_HOME unset"
-  if cache_home ~= nil then homed, htrouble = Fs.mkdirs(cache_home) end
+  local homed, htrouble = Fs.mkdirs(grading.XDG_CACHE_HOME)
   if not homed then
     say("FAIL " .. htrouble)
     say("FAIL")
