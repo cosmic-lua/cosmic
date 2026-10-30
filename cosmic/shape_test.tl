@@ -309,6 +309,19 @@ local function test_a_refused_key_is_named_before_any_value_is_looked_at()
     "$.nested.a: unknown key")
 end
 
+-- A list shrunk after Shape.into is as long as it is now.
+local function test_a_list_shrunk_after_into_encodes_as_it_stands()
+  -- A chunk of Lua, because the checker would not let a test drop the last element of what [`Shape.into`] answers.
+  local chunk = assert(load([[
+    local Json, Shape = ...
+    local r = assert(Shape.into({ 1, 2, 3 }, Shape.list(Shape.integer)))
+    r[#r] = nil
+    return Json.encode_any(r)
+  ]]))
+  local text: any = chunk(Json, Shape)
+  assert(text == "[1,2]", "the last element is gone, not written as null")
+end
+
 -- A hole is a missing element however the table came by it: a marked
 -- array that dropped a null, an unmarked table with a gap, and a table
 -- whose length is a border short of its highest index.

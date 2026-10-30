@@ -896,11 +896,11 @@ local function test_to_value_refuses_what_json_cannot_say_naming_where()
   local _, nothing = Json.to_value(nil)
   assert(nothing == 'json: no value at pointer ""', nothing)
   local _, dropped = Json.to_value(decoded('{"a": [1, null, 3]}'))
-  assert(dropped == 'json: the array at pointer "/a" has a hole; decode with null_value = Json.null to keep a null', dropped)
+  assert(dropped == 'json: the array at pointer "/a" has a hole; fill it with Json.null (decode with null_value = Json.null keeps a null)', dropped)
   local _, fn = Json.to_value({ list = { print } })
   assert(fn == 'json: the value at pointer "/list/0" is a function, which JSON cannot say', fn)
   local _, gap = Json.to_value({ [1] = 1, [3] = 3 })
-  assert(gap == 'json: the array at pointer "" has a hole; decode with null_value = Json.null to keep a null', gap)
+  assert(gap == 'json: the array at pointer "" has a hole; fill it with Json.null (decode with null_value = Json.null keeps a null)', gap)
   local _, nan = Json.to_value({ x = 0 / 0 })
   assert(nan == 'json: the number at pointer "/x" is NaN or an infinity', nan)
   local _, inf = Json.to_value(-math.huge)
@@ -950,111 +950,102 @@ local function test_to_object_and_to_array_name_the_kind_they_wanted()
   assert(holed:find('the array at pointer "" has a hole', 1, true), holed)
 end
 
---- The sparse array of `length` positions with `items`, or a failed assertion naming the refusal.
-local function sparse_of<T>(length: integer, items: {integer: T}): {integer: T}
-  local list, err = Json.sparse(length, items)
-  assert(list ~= nil, "sparse failed: " .. err)
-  assert(err == "", "a success carries \"\" in the error slot")
-  return list
+--- What the Lua in `source`, which sees `Json`, answers; a chunk of Lua because the checker would not let a test name some of
+--- what it builds or refuses.
+local function lua_of(source: string): any, any
+  local chunk = assert(load("local Json = ...\n" .. source))
+  return chunk(Json)
 end
 
---- The message [`Json.sparse`] refuses with when the Lua in `source`, which sees `Json`, calls it.
-local function refusal_of(source: string): string
-  local chunk = assert(load("local Json = ...\n" .. source))
-  local list, why = chunk(Json)
+--- The refusal [`Json.with_holes`] answers for the Lua in `source`.
+local function with_holes_refusal(source: string): string
+  local list, why = lua_of(source)
   assert(list == nil, "expected a refusal")
   assert(why is string, "a refusal is a message")
   return why
 end
 
-local function test_sparse_writes_a_hole_in_the_middle_as_null()
-  local row = sparse_of(3, { [1] = "a", [3] = "c" })
-  assert(Json.is_array(row), "a sparse array is marked as an array")
-  assert(row[1] == "a" and row[2] == nil and row[3] == "c", "the items stand at their positions and the hole is nil")
+--- The array of `items` marked as one that may have holes, or a failed assertion naming the refusal.
+local function holed<T>(items: {integer: T}): {integer: T}
+  local list, err = Json.with_holes(items)
+  assert(list ~= nil, "with_holes failed: " .. err)
+  assert(err == "", "a success carries \"\" in the error slot")
+  return list
+end
+
+local function test_with_holes_writes_each_hole_as_null_at_any_depth()
+  local row = holed({ [1] = "a", [3] = "c" })
+  assert(Json.is_array(row), "it is marked as an array")
+  assert(row[1] == "a" and row[2] == nil and row[3] == "c", "the items stay at their positions")
   assert(encoded(row) == '["a",null,"c"]', encoded(row))
-  assert(encoded({ list = row }) == '{"list":["a",null,"c"]}', "a sparse array nested in a value is written the same")
+  assert(encoded({ list = row }) == '{"list":["a",null,"c"]}')
   local twice: {{integer: string}} = { row, row }
   assert(encoded({ twice }) == '[[["a",null,"c"],["a",null,"c"]]]', "at any depth")
-end
-
-local function test_sparse_counts_a_trailing_hole_in_its_length()
-  assert(encoded(sparse_of(4, { [2] = true })) == "[null,true,null,null]", "holes at both ends")
-  assert(encoded(sparse_of(3, { [1] = 1 })) == "[1,null,null]")
+  assert(encoded(holed({ [2] = true })) == "[null,true]", "a hole at the start")
   local nothing: {integer: integer} = {}
-  assert(encoded(sparse_of(2, nothing)) == "[null,null]", "no item at all is all holes")
-  local _, dense = Json.to_array(sparse_of(2, { [1] = 1 }))
-  assert(dense:find("has a hole at pointer \"/1\"", 1, true), "a trailing hole is a hole: " .. dense)
+  assert(encoded(holed(nothing)) == "[]", "no item is `[]`, not `{}`")
 end
 
-local function test_sparse_of_no_positions_is_an_empty_array()
-  local nothing: {integer: integer} = {}
-  local none = sparse_of(0, nothing)
-  assert(Json.is_array(none) and next(none) == nil)
-  assert(encoded(none) == "[]", "a length of 0 is `[]`, not `{}`")
-  assert(encoded({ none }) == "[[]]")
-  local items = assert(Json.to_array(none))
-  assert(#items == 0 and Json.is_array(items), "and converts, having no hole")
+local function test_with_holes_marks_the_table_it_is_given_so_its_length_follows_the_table()
+  local items: mut {integer: string} = { [1] = "a", [2] = "b", [3] = "c" }
+  local list = holed(items)
+  assert(list == items, "it is the same table, not a copy")
+  assert(encoded(list) == '["a","b","c"]')
+  items[3] = nil
+  assert(encoded(list) == '["a","b"]', "shrinking it shortens what it encodes as")
+  items[5] = "e"
+  assert(encoded(list) == '["a","b",null,null,"e"]', "a key added past the end lengthens it")
 end
 
-local function test_sparse_refuses_a_key_outside_its_length_naming_it()
-  local _, below = Json.sparse(3, { [0] = "x" })
-  assert(below == "json: a sparse array's key must be a position from 1 to 3, not 0", below)
-  local _, negative = Json.sparse(3, { [-2] = "x" })
+local function test_with_holes_refuses_a_key_below_1_naming_it()
+  local _, zero = Json.with_holes({ [0] = "x" })
+  assert(zero == "json: an array with holes has keys from 1 up, not 0", zero)
+  local _, negative = Json.with_holes({ [1] = "a", [-2] = "x" })
   assert(negative:find("not -2", 1, true), negative)
-  local _, above = Json.sparse(3, { [1] = "a", [4] = "d" })
-  assert(above == "json: a sparse array's key must be a position from 1 to 3, not 4", above)
-  local _, empty = Json.sparse(0, { [1] = "a" })
-  assert(empty == "json: a sparse array's key must be a position from 1 to 0, not 1", empty)
-  -- The types keep a caller from naming what follows, so a chunk of Lua, which the checker does not read, says it.
-  assert(refusal_of("return Json.sparse(3, { [1.5] = 'x' })") ==
-      "json: a sparse array's key must be an integer position from 1 to 3, not 1.5")
-  assert(refusal_of("return Json.sparse(3, { name = 'x' })"):find("not name", 1, true))
-  assert(refusal_of("return Json.sparse(-1, {})") == "json: a sparse array's length is an integer from 0 up, not -1")
-  assert(refusal_of("return Json.sparse(2.5, {})"):find("not 2.5", 1, true))
-  assert(refusal_of("return Json.sparse('2', {})"):find("not 2", 1, true))
 end
 
-local function test_a_sparse_array_does_not_write_a_million_holes()
-  local far: {integer: string} = { [1] = "a" }
-  local huge = sparse_of(1 << 40, far)
-  assert(huge == far and Json.is_array(huge), "making one costs nothing, whatever its length")
-  local why = encode_failure(huge)
-  assert(why:find("more than 1048576 holes", 1, true) and why:find("holds 1 items", 1, true), why)
-  local near: {integer: string} = { [1] = "a" }
-  assert(encoded(sparse_of(1048577, near)):sub(1, 14) == '["a",null,null', "the most it may hold is written")
+local function test_with_holes_refuses_a_table_that_has_a_metatable_without_raising()
+  local why = with_holes_refusal("return Json.with_holes(setmetatable({ 'a' }, {}))")
+  assert(why:find("metatable", 1, true), why)
+  assert(with_holes_refusal("return Json.with_holes(Json.array({ 'a' }))"):find("metatable", 1, true))
 end
 
-local function test_to_value_and_to_array_refuse_a_sparse_array_that_has_a_hole()
-  local row = sparse_of(3, { [1] = "a", [3] = "c" })
+local function test_an_array_with_holes_does_not_write_a_million_holes()
+  local items: mut {integer: string} = { [1] = "a", [1 << 40] = "b" }
+  local list = holed(items)
+  local failed = encode_failure(list)
+  assert(failed:find("more than 1048576 holes", 1, true) and failed:find("holds 2 items", 1, true), failed)
+  assert(failed:find("use an object, or fill the holes", 1, true), failed)
+  items[1 << 40] = nil
+  items[1048578] = "b"
+  assert(encoded(list):sub(1, 14) == '["a",null,null', "the most it may hold is written")
+end
+
+local function test_a_plain_array_still_refuses_a_hole()
+  assert(encode_failure({ [1] = 1, [3] = 3 }):find("array with a hole (index 2 is nil)", 1, true))
+  local plain = lua_of("local t = Json.array({ 1, 2, 3 }); t[2] = nil; return t")
+  assert(encode_failure(plain):find("array with a hole (index 2 is nil)", 1, true), "so does a marked one")
+end
+
+local function test_decode_never_answers_an_array_that_may_have_holes()
+  local dropped = assert(Json.decode_array('[1,null,3]'))
+  assert(encode_failure(dropped):find("array with a hole", 1, true), "a decoded array with a dropped null")
+  local whole = lua_of("local t = assert(Json.decode_array('[1,2]')); t[4] = 4; return t")
+  assert(encode_failure(whole):find("array with a hole", 1, true), "refuses a hole made later")
+end
+
+local function test_to_value_and_to_array_refuse_an_array_with_a_hole_naming_where()
+  local row = holed({ [1] = "a", [3] = "c" })
   local _, array = Json.to_array(row)
-  assert(array:find('the sparse array at pointer "" has a hole at pointer "/1"', 1, true), array)
-  assert(array:find("Json.null", 1, true), "it says how to go on: " .. array)
+  assert(array:find('the array at pointer "" has a hole', 1, true), array)
+  assert(array:find("fill it with Json.null", 1, true), "it says how to go on: " .. array)
   local _, value = Json.to_value({ list = row })
-  assert(value:find('the sparse array at pointer "/list" has a hole at pointer "/list/1"', 1, true), value)
-  local _, first = Json.to_array(sparse_of(2, { [2] = 2 }))
-  assert(first:find('hole at pointer "/0"', 1, true), first)
-  -- It is never closed up: the item at 3 would sit at 2.
-  local full = assert(Json.to_array(sparse_of(2, { [1] = "a", [2] = "b" })))
-  assert(full[1] == "a" and full[2] == "b" and #full == 2, "a sparse array with no hole is a dense array")
+  assert(value:find('the array at pointer "/list" has a hole', 1, true), value)
+  local full = assert(Json.to_array(holed({ [1] = "a", [2] = "b" })))
+  assert(full[1] == "a" and full[2] == "b" and #full == 2, "with no hole it converts")
   local items: {integer: Json.Value} = { [1] = "a", [2] = Json.null, [3] = "c" }
-  local filled = assert(Json.to_array(sparse_of(3, items)))
+  local filled = assert(Json.to_array(holed(items)))
   assert(encoded(filled) == '["a",null,"c"]', "a hole filled with Json.null converts")
-end
-
-local function test_a_sparse_array_encodes_and_decodes_with_the_hole_as_null()
-  local row = sparse_of(4, { [1] = "a", [3] = "c" })
-  local text = encoded(row)
-  assert(text == '["a",null,"c",null]', text)
-  local kept = assert(Json.decode_array(text, { null_value = Json.null }))
-  assert(Json.is_array(kept) and #kept == 4, "the holes came back as null, not as holes")
-  assert(kept[1] == "a" and kept[2] == Json.null and kept[3] == "c" and kept[4] == Json.null)
-  assert(Json.layout(kept) == "array")
-  assert(encoded(kept) == text, "and write the same text")
-  assert(Json.to_array(kept) ~= nil, "a decoded array with its nulls kept is dense")
-  local dropped = assert(Json.decode_array(text))
-  assert(dropped[1] == "a" and dropped[2] == nil and dropped[3] == "c", "decoding makes no sparse array of its own")
-  assert(encode_failure(dropped):find("array with a hole", 1, true), "so what it answers still refuses to encode")
-  assert(encode_failure({ [1] = 1, [3] = 3 }):find("array with a hole", 1, true), "as does any other table with a hole")
 end
 
 local function test_to_value_refuses_a_table_that_holds_itself()

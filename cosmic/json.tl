@@ -48,8 +48,8 @@
 --- a hole. `decode(text, { null_value = Json.null })` puts [`Json.null`]
 --- where the text says `null`, and [`Json.null`] encodes as `null`, so
 --- the round trip is whole. An array with a hole is an error to encode,
---- never a silent truncation, unless it is a [`Json.sparse`] array, which
---- says its holes and encodes each as `null`.
+--- never a silent truncation, unless it was marked [`Json.with_holes`],
+--- which writes each hole as `null`.
 ---
 --- A decoded array carries a mark ([`Json.is_array`]), so an empty `[]`
 --- encodes back as `[]` and not `{}`; [`Json.array`] marks a table you
@@ -410,21 +410,6 @@ local function refuse(why: string): nil, string
   return nil, "json: " .. why
 end
 
---- The first position of 1 to `declared` that an array whose members are `m` holds nothing at, or nil when it holds an item
---- at each: `m` lists the keys of an array only when it has a gap, and `extent` is its highest.
-local function first_hole(m: Json.Members, declared: integer): integer?
-  local expected = 1
-  for _, key in ipairs(m.keys) do
-    if key is integer then
-      if key ~= expected then return expected end
-      expected = expected + 1
-    end
-  end
-  if #m.keys == 0 then expected = m.extent + 1 end
-  if expected <= declared then return expected end
-  return nil
-end
-
 --- `raw.decode` of `text` under `opts`; `record`, when given, is the
 --- JSON Lines line `text` is, which a failure names.
 local function decode_with(text: string, opts: Json.DecodeOptions, record?: integer,
@@ -622,33 +607,34 @@ function Json.is_array(v: any): boolean
   return raw.is_array(v)
 end
 
---- A JSON array that has holes, in the one form that says so: `length` positions, of which `items` holds the present
---- ones by their position, 1 to `length`, and answers it; or nil and a message naming the bad length or key, when `length`
---- is not an integer from 0 up, or `items` has a key below 1, a key above `length`, or a key that is not an integer. Every position `items` leaves out is a hole, `length` counting a trailing one. The answer is a new table
---- marked as an array ([`Json.is_array`]) that holds the items and nothing else, so what reads it reads it as it reads
---- any list, a hole as a nil at its position; `items` is not kept.
+--- Marks `items` itself, not a copy, as an array that may have holes,
+--- and answers it. [`Json.encode`] and [`Json.encode_any`] write it as
+--- long as its highest key, and each position it holds nothing at as
+--- `null`, at any depth; so a later change to `items` changes what it
+--- encodes as. `{ [1] = "a", [3] = "c" }` marked encodes as
+--- `["a",null,"c"]`, and with its last item removed as `["a"]`. Any
+--- other table with a hole is still an error to encode, and
+--- [`Json.decode`] never answers a marked array.
 ---
---- A hole encodes as `null` at its position, wherever the array stands in what [`Json.encode`] or [`Json.encode_any`]
---- is given, and `length` is how long it writes: `Json.sparse(3, { [1] = "a" })` encodes as `["a",null,null]`.
---- Nothing else makes one: [`Json.decode`] answers a dense array, a `null` in it a hole only as it says, and
---- [`Json.to_value`] and [`Json.to_array`] refuse a sparse array that has a hole rather than close it up, as each of
---- its items would then sit at another position. Fill each hole with [`Json.null`] to make it a dense array.
+--- Answers nil and a message when `items` has a key below 1, naming it,
+--- or has a metatable already. Encoding
+--- refuses an array with more than 1048576 holes, since its highest key
+--- is no cost to make; use an object for a table that sparse.
+--- [`Json.to_value`] and [`Json.to_array`] refuse it while it has a
+--- hole, naming where; fill each with [`Json.null`] first.
 ---
----     local row = assert(Json.sparse(3, { [1] = "a", [3] = "c" }))
+---     local row = assert(Json.with_holes({ [1] = "a", [3] = "c" }))
 ---     assert(Json.encode_any(row) == '["a",null,"c"]')
-function Json.sparse<T>(length: integer, items: {integer: T}): {integer: T}?, string
-  if math.type(length) ~= "integer" or length < 0 then
-    return refuse(("a sparse array's length is an integer from 0 up, not %s"):format(tostring(length)))
-  end
+function Json.with_holes<T>(items: {integer: T}): {integer: T}?, string
   for key in pairs(items) do
-    if math.type(key) ~= "integer" then
-      return refuse(("a sparse array's key must be an integer position from 1 to %d, not %s"):format(length, tostring(key)))
-    end
-    if key < 1 or key > length then
-      return refuse(("a sparse array's key must be a position from 1 to %d, not %d"):format(length, key))
+    if key < 1 then
+      return refuse(("an array with holes has keys from 1 up, not %d"):format(key))
     end
   end
-  return raw.sparse(items, length), ""
+  if getmetatable(items) ~= nil then
+    return refuse("a table that has a metatable already cannot be marked as an array with holes")
+  end
+  return raw.with_holes(items), ""
 end
 
 --- Classifies `t` as [`Json.layout`] says and, when `members` is true,
@@ -869,23 +855,15 @@ end
 
 --- Why the table `t`, whose members are `m`, is not an array or an object
 --- JSON can say, or "" when it is one; nesting past the limit is refused too.
-local function table_why(declared: integer?, m: Json.Members, pointer: string, depth: integer): string
+local function table_why(m: Json.Members, pointer: string, depth: integer): string
   if depth > Json.depth_limit then
     return ("nesting at %s is deeper than %d"):format(at_pointer(pointer), Json.depth_limit)
-  end
-  if declared ~= nil then
-    local hole = first_hole(m, declared)
-    if hole ~= nil then
-      return ("the sparse array at %s has a hole at %s, which a dense array cannot keep without moving its later items;" ..
-        " fill the hole with Json.null, or encode the sparse array as it is, which writes null there"):format(
-          at_pointer(pointer), at_pointer(pointer .. "/" .. tostring(hole - 1)))
-    end
   end
   if m.layout == "mixed" then
     return "the table at " .. at_pointer(pointer) .. " has keys that are neither all names nor all positions from 1"
   end
   if m.layout == "hole" or (m.layout == "array" and #m.keys > 0) then
-    return "the array at " .. at_pointer(pointer) .. " has a hole; decode with null_value = Json.null to keep a null"
+    return "the array at " .. at_pointer(pointer) .. " has a hole; fill it with Json.null (decode with null_value = Json.null keeps a null)"
   end
   return ""
 end
@@ -928,7 +906,7 @@ function Check.value(v: any, pointer: string, depth: integer, active: mut {strin
     return refuse("the table at " .. at_pointer(pointer) .. " contains itself")
   end
   local m = Json.members(t, true)
-  local why = table_why(raw.sparse_length(t), m, pointer, depth)
+  local why = table_why(m, pointer, depth)
   if why ~= "" then return refuse(why) end
   active[id] = true
   local result: Json.Value?
@@ -977,7 +955,7 @@ function Json.to_object(value: any): {string: Json.Value}?, string
   local t = table_of(value)
   if t == nil then return refuse("expected a JSON object, got " .. kind(value)) end
   local m = Json.members(t, true)
-  local why = table_why(raw.sparse_length(t), m, "", 1)
+  local why = table_why(m, "", 1)
   if why ~= "" then return refuse(why) end
   if m.layout ~= "object" then return refuse("expected a JSON object, got " .. kind(value)) end
   return Check.members(value, m, "", 1, { [("%p"):format(t)] = true }, {}, {})
@@ -992,7 +970,7 @@ function Json.to_array(value: any): {Json.Value}?, string
   local t = table_of(value)
   if t == nil then return refuse("expected a JSON array, got " .. kind(value)) end
   local m = Json.members(t, true)
-  local why = table_why(raw.sparse_length(t), m, "", 1)
+  local why = table_why(m, "", 1)
   if why ~= "" then return refuse(why) end
   if m.layout ~= "array" then return refuse("expected a JSON array, got " .. kind(value)) end
   return Check.items(value, m, "", 1, { [("%p"):format(t)] = true }, {}, {})

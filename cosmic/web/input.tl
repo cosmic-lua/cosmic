@@ -890,18 +890,15 @@ local function bind_list(w: Walk, field: string, spec: Shape.Spec): any
   -- from empty text) stays a hole: shape admits it for a
   -- `list(optional(...))` and handlers see it at its position.
   local out: mut {integer: Json.Value} = {}
-  local last = 0
   local of = assert(spec.of)
   for i, text in ipairs(values) do
     local item = scalar(w, field .. "." .. tostring((i - 1)), of, text)
-    if item ~= nil then
-      out[i] = item
-      last = i
-    end
+    if item ~= nil then out[i] = item end
   end
-  local list, why = Json.sparse(last, out)
-  if list == nil then error(why) end
-  return list
+  -- `out` is a new table of positions from 1 with no metatable, which `with_holes` takes.
+  local list, why = Json.with_holes(out)
+  local marked = assert(list, why)
+  return marked
 end
 
 local function bind_node(w: Walk, field: string, spec: Shape.Spec, depth: integer): any
