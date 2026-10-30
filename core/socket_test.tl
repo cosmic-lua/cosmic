@@ -309,8 +309,8 @@ local function test_descriptor_passing_preserves_files_and_listener_ownership(tm
   assert(raw.sendfds(sender:fd(), { original:fd(), file }))
   assert(raw.wait(receiver:fd(), false, 5000))
   local passed = assert(raw.recvfds(receiver:fd(), 2))
-  local listening <close> = passed[1]
-  local reading <close> = passed[2]
+  local listening <close> = assert(passed[1], "two descriptors passed")
+  local reading <close> = assert(passed[2], "two descriptors passed")
   assert(listening:fd() ~= original:fd() and reading:fd() ~= file)
   assert(assert(sys.fd_flags(reading:fd())) & sys.FD_CLOEXEC ~= 0)
   assert(assert(sys.fd_flags(listening:fd())) & sys.FD_CLOEXEC ~= 0)
@@ -353,7 +353,7 @@ local function test_descriptor_passing_closes_extras_truncation_and_bad_frames(t
   assert(raw.sendfds(sender:fd(), { original:fd() }))
   assert(raw.wait(receiver:fd(), false, 5000))
   local passed = assert(raw.recvfds(receiver:fd(), 1))
-  assert(passed[1]:close())
+  assert(assert(passed[1], "one descriptor passed"):close())
   assert(descriptor_count() == before)
 end
 
@@ -397,7 +397,8 @@ local function test_received_descriptor_is_closed_by_collection(tmp: string)
   assert(raw.sendfds(sender:fd(), { original:fd() }))
   do
     local passed = assert(raw.recvfds(receiver:fd(), 1))
-    assert(passed[1]:fd() ~= original:fd())
+    local received = assert(passed[1], "one descriptor passed")
+    assert(received:fd() ~= original:fd())
   end
   collectgarbage("collect")
   collectgarbage("collect")

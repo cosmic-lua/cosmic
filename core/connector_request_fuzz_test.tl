@@ -151,8 +151,10 @@ local function test_every_request_is_answered_once_with_its_own_tag(tmp: string)
       local passes: mut {integer: boolean} = {}
       local stream: mut {string} = {}
       local count = 0
-      for at = 1, #fields[1], 36 do
-        local request = fields[1]:sub(at, at + 35)
+      local requests = assert(fields[1], "the generator packs the requests first")
+      local cuts = assert(fields[2], "the generator packs the cuts second")
+      for at = 1, #requests, 36 do
+        local request = requests:sub(at, at + 35)
         local tag, index, drawn = string.unpack(">I4I4I4", request)
         -- Tags are the request's own to choose; the check keeps them
         -- apart, so each reply names one request.
@@ -167,9 +169,9 @@ local function test_every_request_is_answered_once_with_its_own_tag(tmp: string)
       local bytes = table.concat(stream)
       -- Written in pieces cut where the input says, the rest at once.
       local from = 1
-      for at = 1, #fields[2], 2 do
+      for at = 1, #cuts, 2 do
         if from > #bytes then break end
-        local size = string.unpack(">I2", fields[2], at)
+        local size = string.unpack(">I2", cuts, at)
         local piece = bytes:sub(from, from + size - 1)
         if (from - 1) % 36 ~= 0 or (from - 1 + #piece) % 36 ~= 0 then Fuzz.label("split") end
         assert(sys.write(pair[1], piece) == #piece)
@@ -186,7 +188,7 @@ local function test_every_request_is_answered_once_with_its_own_tag(tmp: string)
         if not allowed[errno] then
           return false, "tag " .. tostring(tag) .. " was answered errno " .. tostring(errno)
         end
-        if errno == 0 and passes[tag] then
+        if errno == 0 and passes[tag] == true then
           local received = assert(socket.recvfds(pair[1], 1))
           local peer = socket.peer(received[1]:fd())
           assert(received[1]:close())

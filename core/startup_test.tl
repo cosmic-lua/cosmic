@@ -24,6 +24,12 @@ local function environment(): mut {string:string}
 end
 
 --- Runs `argv` with the private contract `relaunch` hands a child.
+--- Word `i` of the argv a relaunch starts: the core, `--artifact`, the artifact.
+local function argv_at(relaunch: Proc.Relaunch, i: integer): string
+  local word = assert(relaunch.argv[i], "a relaunch's argv holds word " .. tostring(i))
+  return word
+end
+
 local function run_relaunched(relaunch: Proc.Relaunch, argv: {string}): Child.Result
   local env = environment()
   for name, value in pairs(relaunch.env) do env[name] = value end
@@ -36,7 +42,7 @@ end
 local function test_a_relative_artifact_path_is_refused()
   local relaunch = Proc.relaunch()
   if relaunch == nil or #relaunch.argv < 3 then return end
-  local r = run_relaunched(relaunch, { relaunch.argv[1], relaunch.argv[2], "relative/artifact" })
+  local r = run_relaunched(relaunch, { argv_at(relaunch, 1), argv_at(relaunch, 2), "relative/artifact" })
   assert(r.code == 2, "exit " .. tostring(r.code))
   assert((assert(r.stderr)):find("cosmic: portable artifact path is not absolute",
     1, true), tostring(r.stderr))
@@ -50,7 +56,7 @@ local SHOW_EXECUTABLE <const> = "print(require('cosmic.proc').executable(), ...)
 local function test_the_joined_artifact_argument_starts_as_the_two_argument_form()
   local relaunch = Proc.relaunch()
   if relaunch == nil or #relaunch.argv < 3 then return end
-  local core, artifact = relaunch.argv[1], relaunch.argv[3]
+  local core, artifact = argv_at(relaunch, 1), argv_at(relaunch, 3)
   local joined = run_relaunched(relaunch,
     { core, "--artifact=" .. artifact, "-e", SHOW_EXECUTABLE, "a", "b c" })
   assert(joined.ok, "exit " .. tostring(joined.code) .. ": " .. tostring(joined.stderr))
@@ -67,13 +73,14 @@ end
 local function test_the_joined_artifact_argument_without_a_path_is_refused()
   local relaunch = Proc.relaunch()
   if relaunch == nil or #relaunch.argv < 3 then return end
-  local core = relaunch.argv[1]
+  local core = argv_at(relaunch, 1)
   for _, argv in ipairs({ { core, "--artifact=", "-e", "print(1)" }, { core, "--artifact" } }) do
+    local flag = assert(argv[2], "each argv names the flag")
     local r = run_relaunched(relaunch, argv)
-    assert(r.code == 2, argv[2] .. ": exit " .. tostring(r.code))
-    assert(r.stdout == "", argv[2] .. ": " .. tostring(r.stdout))
+    assert(r.code == 2, flag .. ": exit " .. tostring(r.code))
+    assert(r.stdout == "", flag .. ": " .. tostring(r.stdout))
     assert((assert(r.stderr)):find("cosmic: portable startup names no artifact", 1, true),
-      argv[2] .. ": " .. tostring(r.stderr))
+      flag .. ": " .. tostring(r.stderr))
   end
 end
 
@@ -83,11 +90,11 @@ end
 local function test_a_joined_artifact_path_naming_another_file_is_refused(tmp: string)
   local relaunch = Proc.relaunch()
   if relaunch == nil or #relaunch.argv < 3 then return end
-  local artifact = relaunch.argv[3]
+  local artifact = argv_at(relaunch, 3)
   assert(Fs.write(tmp .. "/other", "not the artifact\n"))
   for _, path in ipairs({ artifact:sub(1, #artifact - 1), tmp .. "/other" }) do
     local r = run_relaunched(relaunch,
-      { relaunch.argv[1], "--artifact=" .. path, "-e", "print(1)" })
+      { argv_at(relaunch, 1), "--artifact=" .. path, "-e", "print(1)" })
     assert(r.code == 2, path .. ": exit " .. tostring(r.code))
     assert(r.stdout == "", path .. ": " .. tostring(r.stdout))
     assert((assert(r.stderr)):find(
@@ -109,8 +116,8 @@ local function test_a_script_names_the_core_as_its_interpreter(tmp: string)
   if names.sysname ~= "Linux" then return end
   local relaunch = Proc.relaunch()
   if relaunch == nil or #relaunch.argv < 3 then return end
-  assert(Fs.symlink(relaunch.argv[1], tmp .. "/c"))
-  assert(Fs.symlink(relaunch.argv[3], tmp .. "/a"))
+  assert(Fs.symlink(argv_at(relaunch, 1), tmp .. "/c"))
+  assert(Fs.symlink(argv_at(relaunch, 3), tmp .. "/a"))
   local line = "#!" .. tmp .. "/c --artifact=" .. tmp .. "/a"
   assert(#line <= 255, "the #! line is longer than the kernel reads: " .. line)
   local script = tmp .. "/script.tl"
@@ -149,10 +156,10 @@ end
 local function test_a_start_told_of_no_descriptor_opens_its_artifact_by_path()
   local relaunch = Proc.relaunch()
   if relaunch == nil or #relaunch.argv < 3 then return end
-  local r = run_by_path(relaunch, { relaunch.argv[1], "--artifact", relaunch.argv[3], "-e",
+  local r = run_by_path(relaunch, { argv_at(relaunch, 1), "--artifact", argv_at(relaunch, 3), "-e",
     SHOW_EXECUTABLE, "a" })
   assert(r.ok, "exit " .. tostring(r.code) .. ": " .. tostring(r.stderr))
-  assert(r.stdout == relaunch.argv[3] .. "\ta\n", tostring(r.stdout))
+  assert(r.stdout == argv_at(relaunch, 3) .. "\ta\n", tostring(r.stdout))
 end
 
 --- By path, the artifact must be there to open, and it is still checked
@@ -160,13 +167,13 @@ end
 local function test_a_start_by_path_names_an_artifact_it_can_open(tmp: string)
   local relaunch = Proc.relaunch()
   if relaunch == nil or #relaunch.argv < 3 then return end
-  local missing = run_by_path(relaunch, { relaunch.argv[1], "--artifact", tmp .. "/none", "-e",
+  local missing = run_by_path(relaunch, { argv_at(relaunch, 1), "--artifact", tmp .. "/none", "-e",
     "print(1)" })
   assert(missing.code == 2 and missing.stdout == "", tostring(missing.code))
   assert((assert(missing.stderr)):find("cosmic: portable artifact path cannot be opened", 1, true),
     tostring(missing.stderr))
   assert(Fs.write(tmp .. "/other", "not the artifact\n"))
-  local other = run_by_path(relaunch, { relaunch.argv[1], "--artifact", tmp .. "/other", "-e",
+  local other = run_by_path(relaunch, { argv_at(relaunch, 1), "--artifact", tmp .. "/other", "-e",
     "print(1)" })
   assert(other.code == 2 and other.stdout == "", tostring(other.code))
 end
@@ -177,7 +184,7 @@ local function test_a_start_naming_one_descriptor_alone_is_refused()
   local relaunch = Proc.relaunch()
   if relaunch == nil or #relaunch.argv < 3 then return end
   for _, keep in ipairs({ "COSMIC_PORTABLE_ARTIFACT_FD", "COSMIC_PORTABLE_CORE_FD" }) do
-    local r = run_by_path(relaunch, { relaunch.argv[1], "--artifact", relaunch.argv[3], "-e",
+    local r = run_by_path(relaunch, { argv_at(relaunch, 1), "--artifact", argv_at(relaunch, 3), "-e",
       "print(1)" }, keep)
     assert(r.code == 2 and r.stdout == "", keep .. ": exit " .. tostring(r.code))
     assert((assert(r.stderr)):find("descriptor field is invalid", 1, true), tostring(r.stderr))

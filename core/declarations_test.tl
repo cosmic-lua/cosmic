@@ -120,7 +120,8 @@ end
 --- The record a declaration's source returns.
 local function declared(source: string, file: string): Surface
   local parsed = Parser.parse(Lexer.lex(source, file), file, "decl")
-  assert(#parsed.errors == 0, file .. ": " .. (if parsed.errors[1] ~= nil then parsed.errors[1].msg else "" end))
+  local first_error = parsed.errors[1]
+  assert(#parsed.errors == 0, file .. ": " .. (if first_error ~= nil then first_error.msg else "" end))
   local body = parsed.chunk.body.stats
   local last = body[#body]
   assert(last ~= nil and last.kind == "Return", file .. " returns no record")
@@ -181,7 +182,7 @@ local function disagreements(module: string, source: string, raw: any,
   end
   table.sort(names)
   for _, name in ipairs(names) do
-    local nested = surface.nested[name]
+    local nested = assert(surface.nested[name], "the names are those of surface.nested")
     local where = module .. "." .. name
     local instance = instances[name]
     if instance == nil then
@@ -463,7 +464,11 @@ end
 local function test_every_raw_module_has_a_declaration()
   local in_c = assert(raw_modules_in((assert(Fs.read("core/store.c")))))
   for wrapper, raws in pairs(in_c) do
-    local expected = merged[wrapper] or { wrappers[wrapper] }
+    local expected = merged[wrapper]
+    if expected == nil then
+      local wrapped = assert(wrappers[wrapper], wrapper .. " is a wrapper")
+      expected = { wrapped }
+    end
     assert(table.concat(raws, ",") == table.concat(expected, ","), wrapper .. " is handed cosmic.internal." ..
         table.concat(raws, ", cosmic.internal.") .. ", which `wrappers` and `merged` here name as " ..
         table.concat(expected, ", "))
@@ -478,8 +483,10 @@ local function test_every_raw_module_has_a_declaration()
     local combined = assert(raw_behind(wrapper), wrapper .. " is handed no raw value") as {string: any} -- cast: a raw value is a table of fields
     -- A name two of the raw values share must be one value, or the
     -- combined table (core/store.c's wrapper_raw) refuses to load.
-    local first = raw_module(names[1]) as {string: any} -- cast: as above
-    for key, value in pairs(raw_module(names[2]) as {string: any}) do -- cast: as above
+    local first_name = assert(names[1], wrapper .. " merges two raw values")
+    local second_name = assert(names[2], wrapper .. " merges two raw values")
+    local first = raw_module(first_name) as {string: any} -- cast: as above
+    for key, value in pairs(raw_module(second_name) as {string: any}) do -- cast: as above
       assert(first[key] == nil or rawequal(first[key], value), wrapper .. ": " .. key .. " differs between the raw values")
     end
     for _, name in ipairs(names) do

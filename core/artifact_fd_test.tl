@@ -174,7 +174,8 @@ local function test_every_descriptor_argument_refuses_the_artifact_descriptor()
           if case == nil then
             missing[#missing + 1] = call.name
           else
-            local binding = tables[derivation.path][call.name]
+            local derived = assert(tables[derivation.path], "the derivation has a table")
+            local binding = derived[call.name]
             local args = case(at, fd)
             refused(call.name .. "'s argument " .. tostring(at), binding, table.unpack(args, 1, 10))
             tried = tried + 1
@@ -353,7 +354,7 @@ end
 --- slash percent-escaped.
 local function escaped(path: string): string
   return (path:gsub("[^%w/%-%._~]", function(c: string): string
-    return string.format("%%%02X", c:byte())
+    return string.format("%%%02X", (assert(c:byte(), "a matched byte")))
   end))
 end
 

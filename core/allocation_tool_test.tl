@@ -64,10 +64,11 @@ end
 --- always runs from a portable artifact.
 local function spawn_again(chunk: string): integer
   local relaunch = assert(Proc.relaunch())
+  local program = assert(relaunch.argv[1], "the relaunch names a program")
   local argv: mut {string} = { table.unpack(relaunch.argv) }
   argv[#argv + 1] = "-e"
   argv[#argv + 1] = chunk
-  return (assert(process.spawn(argv[1], argv, relaunch.env, nil, nil, nil, nil, false,
+  return (assert(process.spawn(program, argv, relaunch.env, nil, nil, nil, nil, false,
     relaunch.fds)))
 end
 

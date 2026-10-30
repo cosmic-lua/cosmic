@@ -77,9 +77,10 @@ end
 local function test_a_start_at_a_low_limit_raises_it_and_relaunches(tmp: string)
   local lines = started_low(tmp, CHUNK)
   if lines == nil then return end
+  local limit = assert(lines[1], "the child reports its soft limit")
   assert(lines[2] == "relaunched", lines[2])
-  local raised = assert(math.tointeger(tonumber(lines[1])), lines[1])
-  assert(raised > LOW, "the soft limit stayed " .. lines[1])
+  local raised = assert(math.tointeger(tonumber(limit)), limit)
+  assert(raised > LOW, "the soft limit stayed " .. limit)
 end
 
 --- A start that gives its child the limit the program started with
@@ -87,7 +88,8 @@ end
 local function test_a_start_leaves_this_program_s_limit_raised(tmp: string)
   local lines = started_low(tmp, CHUNK)
   if lines == nil then return end
-  assert(lines[4] == lines[1], tostring(lines[4]) .. " after starting, not " .. lines[1])
+  local limit = assert(lines[1], "the child reports its soft limit")
+  assert(lines[4] == limit, tostring(lines[4]) .. " after starting, not " .. limit)
 end
 
 --- A host program gets the limit the program started with, not the one

@@ -982,37 +982,21 @@ build/zig_test.tl nil_not_allowed 1
 
 build/zig_tool_test.tl nil_not_allowed 1
 
-core/allocation_test.tl nil_not_allowed 4
 
-core/artifact_fd_test.tl nil_not_allowed 2
 
-core/artifact_fd_tool_test.tl nil_not_allowed 4
 
-core/connector_filter_test.tl nil_not_allowed 1
 
-core/connector_public_fuzz_test.tl nil_not_allowed 13
 
-core/connector_public_test.tl nil_not_allowed 5
 
-core/connector_request_fuzz_test.tl nil_not_allowed 2
 
-core/database_start_test.tl nil_not_allowed 2
 
-core/declarations_test.tl nil_not_allowed 5
 
-core/descriptor_limit_system_test.tl nil_not_allowed 2
 
-core/fault_test.tl nil_not_allowed 3
 
-core/linkage_test.tl nil_not_allowed 3
 
-core/lookup_test.tl nil_not_allowed 7
 
-core/promises_test.tl nil_not_allowed 2
 
-core/socket_sigpipe_checked_test.tl nil_not_allowed 1
 
-core/socket_test.tl nil_not_allowed 10
 
 core/sqlite_functions_fuzz_test.tl nil_not_allowed 69
 
@@ -1022,9 +1006,7 @@ core/sqlite_test.tl nil_not_allowed 4
 
 core/sqlite_wait_lua_test.tl nil_not_allowed 3
 
-core/startup_test.tl nil_not_allowed 4
 
-core/surface_test.tl nil_not_allowed 2
 
 core/syscalls_pledge_test.tl nil_not_allowed 2
 
@@ -1838,27 +1820,17 @@ build/workflows_test.tl index_may_be_nil 8
 
 build/zig_fetch_test.tl index_may_be_nil 1
 
-core/allocation_tool_test.tl index_may_be_nil 1
 
-core/artifact_fd_tool_test.tl index_may_be_nil 9
 
-core/connector_filter_test.tl index_may_be_nil 18
 
-core/connector_public_fuzz_test.tl index_may_be_nil 5
 
-core/connector_public_test.tl index_may_be_nil 21
 
-core/connector_request_fuzz_test.tl index_may_be_nil 1
 
-core/connector_test.tl index_may_be_nil 19
 
-core/declarations_test.tl index_may_be_nil 3
 
-core/promises_test.tl index_may_be_nil 6
 
 core/sqlite_functions_fuzz_test.tl index_may_be_nil 5
 
-core/startup_test.tl index_may_be_nil 5
 
 core/syscalls_relay_test.tl index_may_be_nil 8
 
@@ -5254,25 +5226,15 @@ build/workflows_test.tl or_mix 1
 
 
 
-core/allocation_test.tl or_mix 1
 
-core/connector_request_fuzz_test.tl or_mix 1
 
-core/connector_test.tl or_mix 2
 
-core/database_start_test.tl or_mix 1
 
-core/grants_child_test.tl or_mix 16
 
-core/instrument_test.tl or_mix 1
 
-core/promises_child_test.tl or_mix 4
 
-core/promises_held_child_test.tl or_mix 4
 
-core/promises_refused_test.tl or_mix 1
 
-core/rlimits_child_test.tl or_mix 1
 
 core/sqlite_functions_fuzz_test.tl or_mix 1
 

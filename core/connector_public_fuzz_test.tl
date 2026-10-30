@@ -25,20 +25,43 @@ local function process_table(): raw_process
 end
 local process = process_table()
 
+--- The controller's end of a connector pair, which asks and is answered.
+local function controller_end(pair: {integer}): integer
+  local fd = pair[1]
+  assert(fd, "a connector pair holds two descriptors")
+  return fd
+end
+
+--- The connector's end of a connector pair, which the connector is started on.
+local function connector_end(pair: {integer}): integer
+  local fd = pair[2]
+  assert(fd, "a connector pair holds two descriptors")
+  return fd
+end
+
 local OWN <const>: {string} = { "8.8.4.4", "2606:4700::6810:84e5", "203.0.113.9", "2a00:1450:4001:81b::200e" }
 local NONE: {string} = {}
+
+--- Byte `i` of `bytes`, an address's.
+local function byte_at(bytes: {integer}, i: integer): integer
+  local byte = bytes[i]
+  assert(byte, "an address holds byte " .. tostring(i))
+  return byte
+end
 
 --- The first and last address of `cidr`, and its length in bytes.
 local function span(cidr: string): {integer}, {integer}
   local address, bits = cidr:match("^(.-)/(%d+)$")
+  assert(address and bits, "a denied prefix is an address and a length: " .. cidr)
   local first = assert(Address.parse(address))
   local last: mut {integer} = { table.unpack(first) }
-  local held = math.tointeger(tonumber(bits))
+  local held = assert(math.tointeger(tonumber(bits)), "a prefix length is an integer: " .. cidr)
   for i = 1, #first do
     local kept = math.max(0, math.min(8, held - (i - 1) * 8))
     local mask = (0xff << (8 - kept)) & 0xff
-    first[i] = first[i] & mask
-    last[i] = first[i] | (~mask & 0xff)
+    local masked = byte_at(first, i) & mask
+    first[i] = masked
+    last[i] = masked | (~mask & 0xff)
   end
   return first, last
 end
@@ -48,7 +71,7 @@ local function moved(bytes: {integer}, delta: integer): {integer}
   local out: mut {integer} = { table.unpack(bytes) }
   local carry = delta
   for i = #out, 1, -1 do
-    local value = out[i] + carry
+    local value = byte_at(out, i) + carry
     if value > 255 then
       out[i], carry = value - 256, 1
     elseif value < 0 then
@@ -94,11 +117,14 @@ local function gen_address(src: Fuzz.Source): string
   end
   if kind == 5 then
     local inside: mut {integer} = {}
-    for i = 1, #first do inside[i] = first[i] + src:int(0, last[i] - first[i]) end
+    for i = 1, #first do
+      local low = byte_at(first, i)
+      inside[i] = low + src:int(0, byte_at(last, i) - low)
+    end
     local at = src:int(0, #first * 8)
     if at >= 1 then
       local index = (at - 1) // 8 + 1
-      inside[index] = inside[index] ~ (1 << (7 - (at - 1) % 8))
+      inside[index] = byte_at(inside, index) ~ (1 << (7 - (at - 1) % 8))
     end
     return packed(inside)
   end
@@ -110,7 +136,9 @@ end
 local function spelled(bytes: {integer}): string
   if #bytes == 4 then return table.concat(bytes, ".") end
   local groups: mut {string} = {}
-  for i = 1, 16, 2 do groups[#groups + 1] = ("%x"):format(bytes[i] * 256 + bytes[i + 1]) end
+  for i = 1, 16, 2 do
+    groups[#groups + 1] = ("%x"):format(byte_at(bytes, i) * 256 + byte_at(bytes, i + 1))
+  end
   return table.concat(groups, ":")
 end
 
@@ -145,10 +173,10 @@ end
 local function test_the_connector_and_the_relay_s_check_agree_on_every_address(tmp: string)
   require_native_connector()
   local pair = assert(process.connector_pair())
-  local child, why = process.connector_start({}, pair[2], 500, { deny = DENIED, own = OWN })
-  assert(sys.close(pair[2]))
+  local child, why = process.connector_start({}, connector_end(pair), 500, { deny = DENIED, own = OWN })
+  assert(sys.close(connector_end(pair)))
   assert(child, why)
-  assert(string.unpack(">I4", read_whole(pair[1], 4)) == 0x434e4302, "the connector said no hello")
+  assert(string.unpack(">I4", read_whole(controller_end(pair), 4)) == 0x434e4302, "the connector said no hello")
   local own = Address.own_addresses(OWN)
   local seen = Fuzz.run({
     name = "connector public classifier agrees with Address",
@@ -163,18 +191,20 @@ local function test_the_connector_and_the_relay_s_check_agree_on_every_address(t
     check = function(input: string): boolean, string
       for _, item in ipairs(Fuzz.unpack(input)) do
         local length = item:byte(1)
-        if (length ~= 4 and length ~= 16) or #item ~= 17 then return false, "a malformed item" end
+        if length == nil or (length ~= 4 and length ~= 16) or #item ~= 17 then
+          return false, "a malformed item"
+        end
         local bytes = { item:byte(2, 1 + length) }
         local text = spelled(bytes)
         local want = Address.check(text, 443, NONE, own)
-        local got = decided(pair[1], item)
+        local got = decided(controller_end(pair), item)
         if got ~= want then
           return false, text .. ": the connector " .. (if got then "allows" else "refuses" end) ..
             " it and the relay's check " .. (if want then "allows" else "refuses" end) .. " it"
         end
         Fuzz.label(if got then "allowed" else "refused" end)
         Fuzz.label(if length == 4 then "ipv4" else "ipv6" end)
-        if length == 16 and bytes[1] & 0xe0 ~= 0x20 then Fuzz.label("outside") end
+        if length == 16 and byte_at(bytes, 1) & 0xe0 ~= 0x20 then Fuzz.label("outside") end
         for _, mine in ipairs(own) do
           if table.concat(mine, ",") == table.concat(bytes, ",") then Fuzz.label("own") end
         end
@@ -183,6 +213,6 @@ local function test_the_connector_and_the_relay_s_check_agree_on_every_address(t
     end,
   })
   assert(seen >= 0)
-  assert(sys.close(pair[1]))
+  assert(sys.close(controller_end(pair)))
   assert(assert(process.waitpid(child, false)).code == 0)
 end

@@ -98,6 +98,6 @@ local function test_a_limit_the_call_cannot_hold_raises(tmp: string)
   }
   for _, case in ipairs(cases) do
     local ok, why = spawn(case[1])
-    assert(not ok and why:find(case[2] as string, 1, true), tostring(case[2]) .. ": " .. why)
+    assert(not ok and why:find(case[2] as string, 1, true) ~= nil, tostring(case[2]) .. ": " .. why)
   end
 end

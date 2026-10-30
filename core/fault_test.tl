@@ -119,11 +119,11 @@ local function test_each_fault_point_in_open_fails_the_request_cleanly(tmp: stri
       headers = { ["X-One"] = "1" }, roots = fault.roots, script = { reply("200 OK", "", "hello") } })
     assert(not testing.fail_at(), what .. " was never reached")
     assert(response == nil, what .. " did not fail the request")
-    local call = fault.point:match("^[%w_]+")
+    local call = assert(fault.point:match("^[%w_]+"), "a fault point names a call")
     assert(trouble:find(call, 1, true) ~= nil, what .. ": the message does not name " ..
         call .. ": " .. trouble)
     if fault.point:find("(", 1, true) ~= nil then
-      local option = fault.point:match("%((.*)%)")
+      local option = assert(fault.point:match("%((.*)%)"), "a fault point names an option")
       assert(trouble:find(option, 1, true) ~= nil, what .. ": " .. trouble)
     end
     assert_released(tmp, before, what)
