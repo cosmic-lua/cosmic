@@ -906,8 +906,9 @@ function verb.run(argv: {string}, io?: verb.Io): integer
       return bare.refused
     end
     local members: mut {string} = {}
-    for slot, word in ipairs(words) do
-      if slot >= 3 then members[#members + 1] = word end
+    for slot = 3, #words do
+      local word = words[slot]
+      if word ~= nil then members[#members + 1] = word end
     end
     outcome = extract(archive_file, flags.values["-C"] or ".", flags.set["--force"] or false,
       members, to)
@@ -918,8 +919,9 @@ function verb.run(argv: {string}, io?: verb.Io): integer
       return bare.refused
     end
     local paths: mut {string} = {}
-    for slot, word in ipairs(words) do
-      if slot >= 3 then paths[#paths + 1] = word end
+    for slot = 3, #words do
+      local word = words[slot]
+      if word ~= nil then paths[#paths + 1] = word end
     end
     outcome = create(output, paths, flags.set["--reproducible"] or false, to)
   end

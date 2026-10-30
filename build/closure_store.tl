@@ -119,9 +119,9 @@ function closure_store.required_by(source: string): {string}
   return out
 end
 
---- What [`grouped`] is asked for: the column `owner` names the rows'
---- group, the `columns` (a space-separated list) are digested, `from` is
---- the table (or table and condition) and `order` the ordering.
+--- One call of [`grouped`], as `read` lists them: the column `owner` names
+--- the rows' group, the `columns` (a space-separated list) are digested,
+--- `from` is the table (or table and condition) and `order` the ordering.
 local record Group
   owner: string
   columns: string

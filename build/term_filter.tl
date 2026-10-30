@@ -382,7 +382,8 @@ function TermFilter.new(): Filter
     for number in pairs(modes) do numbers[#numbers + 1] = number end
     table.sort(numbers)
     for _, number in ipairs(numbers) do
-      local default = assert(MODE_DEFAULTS[number], "only modes with a default are tracked")
+      local default = MODE_DEFAULTS[number]
+      assert(default ~= nil, "only modes with a default are tracked")
       if modes[number] ~= default then
         resets[#resets + 1] = "\27[?" .. tostring(number) .. (if default then "h" else "l" end)
         modes[number] = default
