@@ -1,6 +1,6 @@
 --- `cosmic test --check-types` end to end, in a project of its own: it reports a value of another kind than a parameter
---- declares, at its caller, in the summary and in the working database, and changes no verdict; and neither it nor
---- the variable that asks for it puts a check into what `cosmic build` writes.
+--- declares, at its caller, in the summary and in the working database, and changes no verdict (a project outside
+--- cosmic/); and neither it nor the variable that asks for it puts a check into what `cosmic build` writes.
 
 local Child = require("cosmic.child")
 local Clock = require("cosmic.clock")
