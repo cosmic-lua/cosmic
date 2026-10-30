@@ -8,6 +8,7 @@
 
 local Fuzz = require("build.fuzz")
 local relay_address = require("cosmic.relay.address")
+local String = require("cosmic.string")
 
 local NONE: {string} = {}
 local NO_OWN: {{integer}} = {}
@@ -49,12 +50,17 @@ local function render(g: {integer}, at: integer, count: integer, upper: boolean,
       if g[i] ~= 0 then run = false end
     end
   end
+  local function group(i: integer): integer
+    local value = assert(g[i], "g holds the eight groups")
+    return value
+  end
   local function part(i: integer): string
     if tail and i == 7 then
-      return dotted({ g[7] >> 8, g[7] & 0xff, g[8] >> 8, g[8] & 0xff })
+      local seventh, eighth = group(7), group(8)
+      return dotted({ seventh >> 8, seventh & 0xff, eighth >> 8, eighth & 0xff })
     end
     if tail and i == 8 then return "" end
-    local text = ("%x"):format(g[i])
+    local text = ("%x"):format(group(i))
     if upper then text = text:upper() end
     return text
   end
@@ -139,9 +145,15 @@ local function gen_bytes16(src: Fuzz.Source): string
   return table.concat(out)
 end
 
+--- The `at`th field of an input `gen` packed.
+local function field(fields: {string}, at: integer): string
+  local value = assert(fields[at], "the input packs field " .. tostring(at))
+  return value
+end
+
 local function groups_of(bytes: string): {integer}
   local g: mut {integer} = {}
-  for i = 1, 8 do g[i] = bytes:byte(2 * i - 1) * 256 + bytes:byte(2 * i) end
+  for i = 1, 8 do g[i] = String.byte_at(bytes, 2 * i - 1) * 256 + String.byte_at(bytes, 2 * i) end
   return g
 end
 
@@ -149,7 +161,8 @@ end
 --- run of zero groups starts and how long it is, upper case, an IPv4 tail)
 --- chooses.
 local function spelled(bytes: string, style: string): string
-  return render(groups_of(bytes), style:byte(1), style:byte(2), style:byte(3) == 1, style:byte(4) == 1)
+  return render(groups_of(bytes), String.byte_at(style, 1), String.byte_at(style, 2),
+    String.byte_at(style, 3) == 1, String.byte_at(style, 4) == 1)
 end
 
 local function gen_style(src: Fuzz.Source): string
@@ -164,7 +177,7 @@ local function test_an_ipv6_address_reads_as_the_bytes_it_was_written_from(tmp: 
       local bytes, style = gen_bytes16(src), gen_style(src)
       if src:int(0, 2) > 0 then
         -- Zero the run the style compresses, so that it can be.
-        local at, count = style:byte(1), style:byte(2)
+        local at, count = String.byte_at(style, 1), String.byte_at(style, 2)
         local zeroed: mut {string} = {}
         for i = 1, 8 do
           local inside = i >= at and i < at + count
@@ -178,10 +191,11 @@ local function test_an_ipv6_address_reads_as_the_bytes_it_was_written_from(tmp: 
     shares = { compressed = 0.2, tail = 0.1, plain = 0.05 },
     check = function(input: string): boolean, string
       local fields = Fuzz.unpack(input)
-      local text = spelled(fields[1], fields[2])
+      local bytes = field(fields, 1)
+      local text = spelled(bytes, field(fields, 2))
       local parsed = relay_address.parse(text)
       if parsed == nil then return false, "refused " .. text end
-      if string.char(table.unpack(parsed)) ~= fields[1] then
+      if string.char(table.unpack(parsed)) ~= bytes then
         return false, text .. " read as other bytes"
       end
       Fuzz.label(if text:find("::", 1, true) then "compressed" else "plain" end)
@@ -196,7 +210,6 @@ end
 --- 2 NAT64 in 64:ff9b::/96 and 3 the local-use 64:ff9b:1::/48 laid out as
 --- RFC 6052 would, which the relay refuses rather than decodes.
 local function carrying(form: integer, v4: {integer}, filler: string): string
-  local head = filler
   if form == 0 then
     return string.rep("\0", 10) .. "\xff\xff" .. string.char(table.unpack(v4))
   elseif form == 1 then
@@ -206,8 +219,9 @@ local function carrying(form: integer, v4: {integer}, filler: string): string
   end
   -- RFC 6052 /48: the address in octets 6-7 and 9-10 (0-based), the u octet
   -- between them and the suffix after being free.
-  return "\0\x64\xff\x9b\0\x01" .. string.char(v4[1], v4[2], head:byte(1)) ..
-    string.char(v4[3], v4[4]) .. head:sub(2, 6)
+  local octets = string.char(table.unpack(v4))
+  return "\0\x64\xff\x9b\0\x01" .. octets:sub(1, 2) .. string.char(String.byte_at(filler, 1)) ..
+    octets:sub(3, 4) .. filler:sub(2, 6)
 end
 
 local function test_an_address_carrying_ipv4_is_refused_whatever_it_carries(tmp: string)
@@ -223,9 +237,10 @@ local function test_an_address_carrying_ipv4_is_refused_whatever_it_carries(tmp:
     shares = { refused = 0.9, own = 0.3 },
     check = function(input: string): boolean, string
       local fields = Fuzz.unpack(input)
-      local form, own_mode = fields[1]:byte(1), fields[1]:byte(2)
-      local v4 = { fields[1]:byte(3, 6) }
-      local text = spelled(carrying(form, v4, fields[2]), fields[3])
+      local carried = field(fields, 1)
+      local form, own_mode = String.byte_at(carried, 1), String.byte_at(carried, 2)
+      local v4 = { carried:byte(3, 6) }
+      local text = spelled(carrying(form, v4, field(fields, 2)), field(fields, 3))
       local own = own_mode == 0 and relay_address.own_addresses({ dotted(v4) }) or NO_OWN
       if own_mode == 0 then Fuzz.label("own") end
       local got, why = relay_address.check(text, 443, NONE, own)

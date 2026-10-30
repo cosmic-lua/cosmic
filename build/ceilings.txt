@@ -1207,13 +1207,13 @@ cosmic/poll_test.tl nil_not_allowed 18
 
 cosmic/rand_test.tl nil_not_allowed 2
 
-cosmic/relay/address.tl nil_not_allowed 5
 
-cosmic/relay/address_fuzz_test.tl nil_not_allowed 16
 
-cosmic/relay/address_test.tl nil_not_allowed 4
 
-cosmic/relay/grant.tl nil_not_allowed 5
+
+
+
+
 
 cosmic/removed_test.tl nil_not_allowed 7
 
@@ -1977,11 +1977,11 @@ cosmic/poll_test.tl index_may_be_nil 15
 
 cosmic/rand_test.tl index_may_be_nil 1
 
-cosmic/relay/address.tl index_may_be_nil 4
 
-cosmic/relay/address_fuzz_test.tl index_may_be_nil 9
 
-cosmic/relay/grant.tl index_may_be_nil 1
+
+
+
 
 cosmic/sandbox/policy.tl index_may_be_nil 3
 
@@ -5454,9 +5454,9 @@ cosmic/proc_user_test.tl or_mix 1
 
 cosmic/rand_test.tl or_mix 2
 
-cosmic/relay/address_test.tl or_mix 8
 
-cosmic/relay/grant.tl or_mix 1
+
+
 
 cosmic/removed_test.tl or_mix 15
 
