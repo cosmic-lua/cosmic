@@ -699,6 +699,8 @@ end
 --- outcome when one cannot be archived.
 local function gather(paths: {string}, skip_file: string?): {Item}?, Outcome
   local by_name: mut {string:Item} = {}
+  -- The path given that was the output file itself, left out of the archive.
+  local left_out: string? = nil
   local function add(name: string, full: string): Outcome?
     local st, why = sys.lstat(full)
     if st == nil then return fail(bare.failed, full .. ": " .. why) end
@@ -707,7 +709,10 @@ local function gather(paths: {string}, skip_file: string?): {Item}?, Outcome
     if st.kind == "file" then
       if skip_file ~= nil then
         local same, _ = Fs.absolute(full)
-        if same == skip_file then return nil end
+        if same == skip_file then
+          left_out = full
+          return nil
+        end
       end
     elseif st.kind == "link" then
       local target, target_why = Fs.readlink(full)
@@ -767,6 +772,10 @@ local function gather(paths: {string}, skip_file: string?): {Item}?, Outcome
   local names: mut {string} = {}
   for name in pairs(by_name) do names[#names + 1] = name end
   table.sort(names)
+  if #names == 0 and left_out ~= nil then
+    return nil, fail(bare.refused, left_out .. ": the archive being written is the only path given, and it is left out of itself; " ..
+      "name a file or directory to put in it")
+  end
   local items: mut {Item} = {}
   for _, name in ipairs(names) do
     local item = assert(by_name[name], "the names are the keys of by_name")

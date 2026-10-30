@@ -311,8 +311,7 @@ local function read_basis(whole: string): closure_store.Basis?, string
       "SELECT coalesce((SELECT group_concat(key || ' ' || lower(hex(value)), char(10) " ..
         "ORDER BY key) FROM meta WHERE key IN " .. closure_meta .. "), '')")
     if shared == nil then return nil, shared_trouble end
-    local shared_row = shared[1]
-    if shared_row == nil then return nil, "the shared meta query answered no row" end
+    local shared_row = assert(shared[1], "the shared meta query answers one row")
     local decl_rows, decl_trouble = Sqlite.text_rows(db,
       "SELECT path, lower(hex(sha256(source))), CAST(inflate(source) AS TEXT) FROM decls " ..
         "ORDER BY path")
@@ -335,7 +334,7 @@ local function read_basis(whole: string): closure_store.Basis?, string
       end
       basis.modules[row:text(1)] = table.concat(line, "\t")
       local kind = row:text(2):match("^[^\t]*\t([^\t]*)")
-      if kind == nil then return nil, row:text(1) .. ": its row names no kind" end
+      assert(kind ~= nil, "the second column of a module's row holds its kind")
       basis.kinds[row:text(1)] = kind
     end
     for i, row in ipairs(names) do basis.pairable[i] = row:text(1) end

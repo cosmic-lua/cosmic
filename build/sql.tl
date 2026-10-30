@@ -595,9 +595,7 @@ local function read_inputs(parsed: Flags.Parsed): {sql.Input}?, string
     local listed = parsed.all[name]
     local value = if listed ~= nil then listed[index] else nil end
     if name == "--from" then
-      if value == nil then
-        return nil, "--from needs a file"
-      end
+      assert(value ~= nil, "Flags.parse gives each --from its value")
       local label = value
       local table_name: string?
       local given_name, rest = value:match("^([%w_]+)=(.*)$")
@@ -642,9 +640,7 @@ local function read_inputs(parsed: Flags.Parsed): {sql.Input}?, string
       if input == nil then
         return nil, name .. " belongs to the --from before it; give --from first"
       end
-      if value == nil then
-        return nil, name .. " needs a value"
-      end
+      assert(value ~= nil, "Flags.parse gives each --as and --at its value")
       local given = name == "--as" and given_as or given_at
       if given[#inputs] == true then
         return nil, name .. " is given twice for " .. input.label

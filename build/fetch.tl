@@ -142,9 +142,8 @@ local algorithms: {Algorithm} = {
 }
 
 function verb.redirect_protocols(url: string, allow_downgrade: boolean): {string}?
-  local scheme = url:match("^(%a+)://")
-  -- A URL without a scheme is held to https, the narrower choice.
-  if allow_downgrade or (scheme ~= nil and scheme:lower() ~= "https") then return nil end
+  local scheme = assert(url:match("^(%a+)://"), "is_url refused a URL without a scheme")
+  if allow_downgrade or scheme:lower() ~= "https" then return nil end
   return { "https" }
 end
 
@@ -212,12 +211,10 @@ end
 local function is_url(url: string): boolean
   local authority = url:match("^%a+://([^/?#]*)")
   if authority == nil then return false end
-  local scheme = url:match("^(%a+)://")
-  if scheme == nil then return false end
-  scheme = scheme:lower()
+  local scheme = assert(url:match("^(%a+)://"), "the authority matched after a scheme"):lower()
   if scheme ~= "http" and scheme ~= "https" then return false end
   local host = authority:match("([^@]*)$")
-  if host == nil then return false end
+  assert(host ~= nil, "the pattern matches an empty tail at worst")
   if host:sub(1, 1) == "[" then
     return host:match("^%[.+%]") ~= nil
   end

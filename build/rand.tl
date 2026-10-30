@@ -381,11 +381,8 @@ function verb.run(argv: {string}, io?: verb.Io): integer
         return 2
       end
     elseif command == "int" then
-      local low_word, high_word = request.words[1], request.words[2]
-      if low_word == nil or high_word == nil then
-        complain("give a low and a high bound")
-        return 2
-      end
+      local low_word = assert(request.words[1], "int takes two bounds, which the arity check holds it to")
+      local high_word = assert(request.words[2], "int takes two bounds, which the arity check holds it to")
       local lo, hi = integer_of(low_word), integer_of(high_word)
       if lo == nil or hi == nil then
         complain("the bounds are whole numbers, not " .. low_word .. " and " .. high_word)

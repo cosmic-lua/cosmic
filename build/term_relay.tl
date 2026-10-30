@@ -496,11 +496,7 @@ function TermRelay.run(argv: {string}, opts: Child.Options, terminal?: Terminal)
       relay.failure = "terminal: waiting: " .. poll_why
       break
     end
-    local master_ready = ready[2]
-    if master_ready == nil then
-      relay.failure = "terminal: waiting: poll answered no master slot"
-      break
-    end
+    local master_ready = assert(ready[2], "poll answers a slot for each descriptor given")
     if master_ready ~= 0 then
       if master_ready & sys.POLLOUT ~= 0 and #relay.pending > 0 then
         local _ = flush_pending()

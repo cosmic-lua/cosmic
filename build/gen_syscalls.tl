@@ -261,10 +261,9 @@ local function parse_call(name: string, lines: {string}): Call?, string
       "value, string, integer)"
   end
   if n == 3 then
-    local result_one, result_two, result_three = call.results[1], call.results[2], call.results[3]
-    if result_one == nil or result_two == nil or result_three == nil then
-      return nil, name .. ": a fallible syscall's returns are not all there"
-    end
+    local result_one = assert(call.results[1], "three returns were counted")
+    local result_two = assert(call.results[2], "three returns were counted")
+    local result_three = assert(call.results[3], "three returns were counted")
     local first = result_one.kind
     if first == "boolean?" then
       return nil, name .. ": a fallible syscall's first return is boolean, an " ..
@@ -301,10 +300,7 @@ local function parse_class(lines: {string}, at: {integer}): Class?, string
       if name == nil or parent == nil or (parent ~= "" and not is_userdata) then
         return nil, "a class block names no class, or a parent other than userdata"
       end
-      local class_line = at[index]
-      if class_line == nil then
-        return nil, name .. ": no line was kept for the class"
-      end
+      local class_line = assert(at[index], "annotation_lines kept a line for each line")
       class.name = name
       class.userdata = is_userdata
       class.line = class_line
@@ -313,10 +309,7 @@ local function parse_class(lines: {string}, at: {integer}): Class?, string
       if fname == nil or kind == nil or description == nil then
         return nil, "a @field line names no field"
       end
-      local field_line = at[index]
-      if field_line == nil then
-        return nil, fname .. ": no line was kept for the field"
-      end
+      local field_line = assert(at[index], "annotation_lines kept a line for each line")
       table.insert(class.fields, {
         name = fname,
         kind = teal_type(kind),
@@ -353,10 +346,7 @@ local function parse_alias(lines: {string}, at: {integer}): Alias?, string
       if name == nil then
         return nil, "an alias block names no alias, or gives it a type on its own line"
       end
-      local alias_line = at[index]
-      if alias_line == nil then
-        return nil, name .. ": no line was kept for the alias"
-      end
+      local alias_line = assert(at[index], "annotation_lines kept a line for each line")
       alias.name = name
       alias.line = alias_line
     elseif line:sub(1, 1) == "|" then

@@ -311,10 +311,7 @@ function identity.hash_over(db: Sqlite.Handle, where: string): string?, string
   if rows == nil then
     return nil, trouble
   end
-  local row = rows[1]
-  if row == nil then
-    return nil, "the hash query answered no row"
-  end
+  local row = assert(rows[1], "a hash query answers one row")
   return row:text(1), ""
 end
 
@@ -471,10 +468,7 @@ local function hash_of(db: Sqlite.Handle, names: {string}, extra: string): strin
   if rows == nil then
     return nil, trouble
   end
-  local row = rows[1]
-  if row == nil then
-    return nil, "the hash of the names answered no row"
-  end
+  local row = assert(rows[1], "a hash query answers one row")
   return row:text(1), ""
 end
 
@@ -678,10 +672,7 @@ function identity.record_identities(db: Sqlite.Handle): identity.Identities?, st
   if bases == nil then
     return nil, basis_trouble
   end
-  local basis = bases[1]
-  if basis == nil then
-    return nil, "the runtime basis query answered no row"
-  end
+  local basis = assert(bases[1], "a hash query answers one row")
   local identities: identity.Identities = {
     compiler = compiler,
     runtime_basis = basis:text(1),

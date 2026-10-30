@@ -339,8 +339,7 @@ function verb.run(argv: {string}, io?: verb.Io): integer
   for _, name in ipairs(parsed.given) do
     if is_allowed[name] ~= true then return refuse(name .. " is not an option of " .. sub) end
   end
-  local words_taken = arity[sub]
-  if words_taken == nil then return refuse("no subcommand " .. sub) end
+  local words_taken = assert(arity[sub], "takes and arity name the same subcommands")
   if #parsed.words - 1 ~= words_taken then
     return refuse(("%s takes %d word%s, not %d"):format(sub, words_taken,
       if words_taken == 1 then "" else "s" end, #parsed.words - 1))
@@ -425,8 +424,7 @@ function verb.run(argv: {string}, io?: verb.Io): integer
   if sub == "convert" then
     local from = zone_of("--from")
     if from == nil then return bare.refused end
-    local convert_word = parsed.words[2]
-    if convert_word == nil then return refuse("convert takes a time") end
+    local convert_word = assert(parsed.words[2], "convert takes one word, which the arity check holds it to")
     local zoned = read_time(convert_word, from)
     if zoned == nil then return bare.refused end
     local target = zone_of("--to")
@@ -438,8 +436,8 @@ function verb.run(argv: {string}, io?: verb.Io): integer
   -- own zone, else the host's.
   local fallback = zone_of("--zone")
   if fallback == nil then return bare.refused end
-  local first_word, second_word = parsed.words[2], parsed.words[3]
-  if first_word == nil or second_word == nil then return refuse(sub .. " takes two words") end
+  local first_word = assert(parsed.words[2], "between and add take two words, which the arity check holds them to")
+  local second_word = assert(parsed.words[3], "between and add take two words, which the arity check holds them to")
   local first = read_time(first_word, fallback)
   if first == nil then return bare.refused end
   local calendar = parsed.values["--zone"] ~= nil and fallback or first.zone or fallback
