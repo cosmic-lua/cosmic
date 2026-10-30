@@ -778,7 +778,7 @@ local function test_proc_given_to_write_changes_nothing_of_the_host_s(tmp: strin
     if path ~= "/proc" then without[#without + 1] = path end
   end
   local writes: mut {string} = { "/proc" }
-  if sys.stat("/proc/sys/kernel") ~= nil then writes[2] = "/proc/sys/kernel" end
+  if sys.stat("/proc/sys/kernel") ~= nil then writes[#writes + 1] = "/proc/sys/kernel" end
   local report = create(tmp .. "/written")
   local pid, trouble, errno = process.spawn(probe, { probe,
     "writable /proc/sys/vm/swappiness && print sys-writable || print sys-read-only; " ..

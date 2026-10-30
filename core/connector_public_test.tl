@@ -196,7 +196,9 @@ end
 local function flipped(bytes: {integer}, at: integer): {integer}
   local copy: mut {integer} = { table.unpack(bytes) }
   local index = (at - 1) // 8 + 1
-  copy[index] = copy[index] ~ (1 << (7 - (at - 1) % 8))
+  local byte = copy[index] ~ (1 << (7 - (at - 1) % 8))
+  table.remove(copy, index)
+  table.insert(copy, index, byte)
   return copy
 end
 

@@ -98,7 +98,8 @@ local function length_prefix(n: integer): string
     table.insert(bytes, 1, n & 0x7f)
     n = n >> 7
   until n == 0
-  bytes[#bytes] = bytes[#bytes] | 0x80
+  local last = assert(table.remove(bytes))
+  bytes[#bytes + 1] = last | 0x80
   return string.char(table.unpack(bytes))
 end
 

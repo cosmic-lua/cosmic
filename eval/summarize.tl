@@ -508,15 +508,20 @@ function Summarize.paths(name: string, input: {string: any}, project: string): {
   if name == "Bash" then
     shell_words(field("command"), raw, false)
   elseif name == "Grep" then
-    raw[1] = field("path")
-    raw[2] = candidate(plain(field("glob"))) or ""
+    local glob = candidate(plain(field("glob"))) or ""
+    local path = field("path")
+    raw[#raw + 1] = path
+    raw[#raw + 1] = glob
   elseif name == "Glob" then
-    raw[1] = field("path")
-    raw[2] = candidate(plain(field("pattern"))) or ""
+    local pattern = candidate(plain(field("pattern"))) or ""
+    local path = field("path")
+    raw[#raw + 1] = path
+    raw[#raw + 1] = pattern
   else
-    raw[1] = field("file_path")
-    raw[2] = field("notebook_path")
-    raw[3] = field("path")
+    local file_path, notebook_path, path = field("file_path"), field("notebook_path"), field("path")
+    raw[#raw + 1] = file_path
+    raw[#raw + 1] = notebook_path
+    raw[#raw + 1] = path
   end
   local found: mut {string} = {}
   for _, path in ipairs(raw) do
