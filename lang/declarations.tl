@@ -1602,7 +1602,7 @@ local function declare_all(ctx: Ctx)
       if inside ~= nil then
         local members = members_of(node)
         for i = #members, 1, -1 do
-          local m = assert(members[i])
+          local m = members[i]
           if DECLARATIONS[m.kind] == true then
             nodes[#nodes + 1], places[#places + 1] = m, inside
           elseif (m.kind == "Method") then
@@ -1669,7 +1669,7 @@ local function find_export(ctx: Ctx): Entry?
             names[#names + 1] = n
           end
           for i = 2, #annotation.path do
-            names[#names + 1] = assert(annotation.path[i])
+            names[#names + 1] = annotation.path[i]
           end
           local entry = ctx.program.entries[entry_key(base.module, names)]
           if entry == nil or entry.decl == nil then

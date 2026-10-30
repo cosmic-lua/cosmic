@@ -35,7 +35,7 @@ function verb.run(argv: {string}, io?: verb.Io): integer
   local paths: mut {string} = {}
   for i = 3, #parsed.words do
     local path = parsed.words[i]
-    if path == nil or path:sub(1, 1) ~= "/" or path:find("\0", 1, true) ~= nil then
+    if path:sub(1, 1) ~= "/" or path:find("\0", 1, true) ~= nil then
       return refuse("cache paths must be absolute and contain no NUL")
     end
     paths[#paths + 1] = path

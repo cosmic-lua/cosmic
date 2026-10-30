@@ -1150,7 +1150,7 @@ local function dotted(e: Ast.Exp?): string?, Ast.Name?
     parts[#parts + 1] = cur.text
     local ordered: mut {string} = {}
     for i = #parts, 1, -1 do
-      ordered[#ordered + 1] = assert(parts[i])
+      ordered[#ordered + 1] = parts[i]
     end
     return table.concat(ordered, "."), head
   end
@@ -1408,7 +1408,7 @@ local function settle(v: Scopes.Var)
     local loop = loops[i]
     while loop ~= 0 and level[loop] > floor and holding[loop] ~= true do
       holding[loop] = true
-      loop = parent[loop]
+      loop = assert(parent[loop], "push_frame gives every loop a parent")
     end
   end
   for _, c in ipairs(v.captures) do
@@ -1418,7 +1418,7 @@ local function settle(v: Scopes.Var)
       local loop = S.entry_of[c.fn]
       while loop ~= 0 and level[loop] > floor and not c.after do
         c.after = holding[loop] == true
-        loop = parent[loop]
+        loop = assert(parent[loop], "push_frame gives every loop a parent")
       end
     end
   end

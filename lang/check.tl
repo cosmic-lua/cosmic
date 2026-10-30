@@ -2698,8 +2698,16 @@ local record Tests
   --- Whether the read `object[key]` of an array is an element it has: `key` is an integer literal, or `#object`, and the
   --- flow has the array at least that long.
   length_proves: function(ctx: Ctx, object: Ast.Exp, key: Ast.Exp): boolean
+  --- `f` at the start of the numeric `for` `s`, knowing the loop's index is no more than the length the array it counts had
+  --- there: `for i = a, #t [, k]` from a literal `a` of 1 or more by a literal `k` of 1 or more, or `for i = #t, a, -k` down to a
+  --- literal of 1 or more, over a place `t` that holds an array. [`Tests.length_proves`] reads it for `t[i]`.
+  bound: function(ctx: Ctx, f: Flow.State, s: Ast.ForNum): Flow.State
   --- Whether a call of `callee` runs no code of the program whatever it is given: `assert` and `type` of the standard library.
   quiet_callee: function(callee: Ast.Exp?): boolean
+  --- The literal integer `e` is, `3` or `-3`, or nil.
+  literal_integer: function(e: Ast.Exp): integer?
+  --- The key of the fact that the index `var` of a loop counts the array at `p` ([`Tests.bound`]).
+  loop_key: function(p: Place, var: integer): string
   --- Whether `t` holds no value that code of the program can run through a function of the standard library: scalars, enums,
   --- and arrays and maps of them. A class value may have a `__tostring`, which `tostring` and `string.format` run.
   plain: function(ctx: Ctx, t: Type): boolean
@@ -3143,6 +3151,46 @@ function Tests.length_edges(ctx: Ctx, f: Flow.State, op: string, left: Ast.Node,
   return Tests.know_length(ctx, f, p, yes), Tests.know_length(ctx, f, p, no)
 end
 
+-- The fact of a loop is kept like the facts of lengths ([`Flow.know_length`], key `<place>.#loop<index>.#len.1`), so that code
+-- that may shorten an array, an assignment to the place and a join with a path that lacks it take it away. The loop's entry
+-- state holds it, and the state at the head of the body is the join of that with the end of the body, so a body that may
+-- shorten the array before it ends leaves it unknown at the next pass. The index is no more than the length the array had
+-- at the start, and that is no more than its length now while no such code has run.
+
+--- The literal integer `e` is, or nil: `3`, or `-3`.
+function Tests.literal_integer(e: Ast.Exp): integer?
+  local at = peel(e)
+  if at.kind == "Integer" then
+    return at.value
+  elseif (at.kind == "Unary") and at.op == "-" then
+    local inner = peel(at.operand)
+    if inner.kind == "Integer" then
+      return -inner.value
+    end
+  end
+  return nil
+end
+
+function Tests.bound(ctx: Ctx, f: Flow.State, s: Ast.ForNum): Flow.State
+  local from, to = Tests.literal_integer(s.from), Tests.literal_integer(s.to)
+  local step = if s.step == nil then 1 else Tests.literal_integer(s.step) end
+  local counted: Ast.Exp? = nil
+  if from ~= nil and from >= 1 and step ~= nil and step >= 1 then
+    counted = s.to
+  elseif to ~= nil and to >= 1 and step ~= nil and step <= -1 then
+    counted = s.from
+  end
+  local p = if counted ~= nil then Tests.counted(ctx, f, counted) else nil end
+  if p == nil or ctx.closers > 0 then
+    return f
+  end
+  return Flow.know_length(f, Tests.loop_key(p, s.var.id), 1, ctx.store.boolean, ctx.store.integer)
+end
+
+function Tests.loop_key(p: Place, var: integer): string
+  return p.key .. ".#loop" .. tostring(var)
+end
+
 function Tests.length_proves(ctx: Ctx, object: Ast.Exp, key: Ast.Exp): boolean
   local f = ctx.flow
   if next(f.lens) == nil then
@@ -3159,6 +3207,9 @@ function Tests.length_proves(ctx: Ctx, object: Ast.Exp, key: Ast.Exp): boolean
     -- The last element is there where the first is.
     local same = place_of(ctx, f, at.operand)
     return same ~= nil and same.key == p.key and Flow.knows_length(f, p.key, 1)
+  elseif (at.kind == "Name") and at.binding ~= nil then
+    -- The index of a loop that counts this array.
+    return Flow.knows_length(f, Tests.loop_key(p, at.binding), 1)
   end
   return false
 end
@@ -6920,7 +6971,7 @@ local function for_numeric(ctx: Ctx, s: Ast.ForNum)
     step = numeric_bound(ctx, step_node, "step")
   end
   ctx.vars[s.var.id] = (from == 1 and step == 1) and ctx.store.integer or ctx.store.number
-  local entry = ctx.flow
+  local entry = Tests.bound(ctx, ctx.flow, s)
   local fill = Writes.fill_of(s)
   local grow: Grow? = nil
   if Writes.counts_from_one(s) then

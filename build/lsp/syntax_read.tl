@@ -71,7 +71,7 @@ end
 function syntax_read.unspliced(splices: {ShapeSpecs.Splice}, offset: integer): integer
   local shift = 0
   for i = #splices, 1, -1 do
-    local one = assert(splices[i])
+    local one = splices[i]
     local first = one.at + shift + 1
     if offset < first then break end
     if offset < first + #one.text then return one.at end

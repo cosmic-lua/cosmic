@@ -726,7 +726,8 @@ function Arrays.statement(g: Gen, s: string, loop: string?)
     local i = fresh(g, "i")
     local other = if s == "v" then "o" else "v" end
     local head = Fuzz.pick(g.src, {
-      "for " .. i .. " = 1, " .. len .. " do", "for " .. i .. " = " .. len .. ", 1, -1 do", "for " .. i .. " = 2, " .. len .. " do",
+      "for " .. i .. " = 1, " .. len .. " do", "for " .. i .. " = " .. len .. ", 1, -1 do", "for " .. i .. " = " .. len .. ", 0, -1 do", "for " .. i .. " = " .. len .. ", 2, -2 do",
+      "for " .. i .. " = 2, " .. len .. " do",
       "for " .. i .. " = 1, " .. len .. " - 1 do", "for " .. i .. " = 0, " .. len .. " do", "for " .. i .. " = 1, " .. len .. " + 1 do",
       "for " .. i .. " = 1, " .. len .. ", 2 do", "for " .. i .. " = 1, #" .. other .. " do", "for " .. i .. " = 1, #shared do",
     })

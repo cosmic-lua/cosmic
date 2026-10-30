@@ -74,7 +74,7 @@ local function doc_start(tokens: Lexer.Tokens, i: integer, comments: {Lexer.Comm
   local from = #comments + 1
   for k = #comments, 1, -1 do
     local comment = comments[k]
-    if comment == nil or comment.y ~= line or comment.y <= floor then
+    if comment.y ~= line or comment.y <= floor then
       break
     end
     from = k

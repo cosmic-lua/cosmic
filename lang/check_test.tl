@@ -1246,6 +1246,71 @@ local function test_a_read_of_an_array_is_an_element_where_a_length_test_shows_i
   reads(box .. "if #box.items > 0 then\n  n = box.items[1]\nend\n", "")
 end
 
+local function test_the_index_of_a_loop_over_the_length_of_an_array_reads_an_element_of_it()
+  reads("for i = 1, #xs do\n  n = xs[i]\nend\n", "")
+  reads("for i = 1, #zs do\n  n = zs[i]\nend\n", "")
+  reads("for i = 2, #xs do\n  n = xs[i]\nend\n", "")
+  reads("for i = 1, #xs, 2 do\n  n = xs[i]\nend\n", "")
+  reads("for i = #xs, 1, -1 do\n  n = xs[i]\nend\n", "")
+  reads("for i = #xs, 2, -2 do\n  n = xs[i]\nend\n", "")
+  -- other code that runs no program code, writes of an element and tests in the body
+  reads("for i = 1, #zs do\n  n = n + zs[i] + 1\n  zs[i] = n\n  n = zs[i]\nend\n", "")
+  reads("for i = 1, #xs do\n  if xs[i] > 1 then\n    break\n  end\n  n = xs[i]\nend\n", "")
+  reads("for i = 1, #xs do\n  if i > 1 then\n    n = xs[i]\n  end\nend\n", "")
+  reads("for i = 1, #xs do\n  n = xs[i] + #tostring(i)\nend\n", "")
+  -- one loop in another, each over an array of its own, and a loop that is entered with a fact of a length
+  reads("for i = 1, #xs do\n  for j = 1, #ys do\n    n = xs[i] + ys[j]\n  end\nend\n", "")
+  reads("for i = 1, #xs do\n  for j = 1, #xs do\n    n = xs[i] + xs[j]\n  end\nend\n", "")
+  reads("if #xs > 2 then\n  for i = 1, #xs do\n    n = xs[i] + xs[3]\n  end\nend\n", "")
+  -- fixed fields from a local are a place
+  local box = "local record Box\n  items: {integer}\nend\nlocal box: Box = { items = { 1 } }\n"
+  reads(box .. "for i = 1, #box.items do\n  n = box.items[i]\nend\n", "")
+  -- inside a function, over its parameter
+  reads("local function sum(list: {integer}): integer\n  local total = 0\n  for i = 1, #list do\n    total = total + list[i]\n  end\n" ..
+      "  return total\nend\n", "")
+end
+
+local function test_the_index_of_a_loop_reads_an_element_only_while_no_code_may_have_shortened_the_array()
+  -- a call, a write of nil, a removal, another way to shorten, before the read in the body
+  reads("for i = 1, #zs do\n  touch()\n  n = zs[i]\nend\n", "index_may_be_nil")
+  reads("for i = 1, #zs do\n  zs[#zs] = nil\n  n = zs[i]\nend\n", "index_may_be_nil")
+  reads("for i = 1, #zs do\n  table.remove(zs)\n  n = zs[i]\nend\n", "index_may_be_nil")
+  reads("for i = 1, #zs do\n  for _ in ipairs(ys) do\n  end\n  n = zs[i]\nend\n", "index_may_be_nil")
+  reads("for i = 1, #zs do\n  local c <close> = nil\n  n = zs[i]\nend\n", "index_may_be_nil")
+  reads("local ws: mut {integer} = zs\nfor i = 1, #zs do\n  ws[#ws] = nil\n  n = zs[i]\nend\n", "index_may_be_nil")
+  -- a call at the end of the body ends what the head showed for the next pass
+  reads("for i = 1, #zs do\n  n = zs[i]\n  touch()\nend\n", "index_may_be_nil")
+  reads("for i = 1, #zs do\n  n = zs[i]\n  if n > 1 then\n    touch()\n  end\nend\n", "index_may_be_nil")
+  reads("for i = 1, #zs do\n  if n > 1 then\n    continue\n  end\n  n = zs[i]\n  touch()\nend\n", "index_may_be_nil")
+  -- the array is assigned in the body, or is read where a function runs later
+  reads("local other: mut {integer} = {}\nfor i = 1, #zs do\n  zs = other\n  n = zs[i]\nend\n", "index_may_be_nil")
+  reads("local read: function(): integer = function(): integer\n  return 0\nend\nfor i = 1, #zs do\n" ..
+      "  read = function(): integer\n    return zs[i]\n  end\nend\n", "index_may_be_nil")
+  -- a bound or a start or a step that is not the loop's count
+  reads("for i = 1, #xs + 1 do\n  n = xs[i]\nend\n", "index_may_be_nil")
+  reads("for i = 1, #xs - 1 do\n  n = xs[i]\nend\n", "index_may_be_nil")
+  reads("for i = 0, #xs do\n  n = xs[i]\nend\n", "index_may_be_nil")
+  reads("for i = 1, #xs, 2 do\n  n = xs[i + 1]\nend\n", "index_may_be_nil")
+  reads("for i = 1, #xs do\n  n = xs[i - 1]\nend\n", "index_may_be_nil")
+  reads("for i = 1, #xs do\n  n = xs[#xs - i]\nend\n", "index_may_be_nil")
+  reads("for i = 1, #xs, -1 do\n  n = xs[i]\nend\n", "index_may_be_nil")
+  reads("for i = #xs, 0, -1 do\n  n = xs[i]\nend\n", "index_may_be_nil")
+  reads("for i = #xs, 1 do\n  n = xs[i]\nend\n", "index_may_be_nil")
+  reads("for i = #xs, 1, 1 do\n  n = xs[i]\nend\n", "index_may_be_nil")
+  reads("for i = n, #xs do\n  n = xs[i]\nend\n", "index_may_be_nil")
+  reads("for i = 1, #xs, n do\n  n = xs[i]\nend\n", "index_may_be_nil")
+  -- another array, or the length through a local, or a loop of another array
+  reads("for i = 1, #ys do\n  n = xs[i]\nend\n", "index_may_be_nil")
+  reads("local m = #xs\nfor i = 1, m do\n  n = xs[i]\nend\n", "index_may_be_nil")
+  reads("for i = 1, #xs do\n  for j = 1, #ys do\n    n = xs[j]\n  end\nend\n", "index_may_be_nil")
+  reads("local k = 1\nfor i = 1, #xs do\n  n = xs[k]\nend\n", "index_may_be_nil")
+  -- the index outside its loop is another variable
+  reads("local last = 1\nfor i = 1, #xs do\n  last = i\nend\nn = xs[last]\n", "index_may_be_nil")
+  -- a mut field is not a place
+  local box = "local record Box\n  mut items: mut {integer}\nend\nlocal box: Box = { items = { 1 } }\n"
+  reads(box .. "for i = 1, #box.items do\n  n = box.items[i]\nend\n", "index_may_be_nil")
+end
+
 local function test_a_length_test_shows_no_more_than_it_says()
   -- off by one, below the first, past the first, not the test
   reads("if #xs > 0 then\n  n = xs[2]\nend\n", "index_may_be_nil")

@@ -73,7 +73,7 @@ local function parse_tag(info: string): Tag?, string
   end
   local modifiers: Modifiers = { continue = false, file = nil, skip = nil }
   for i = 2, #words do
-    local word = assert(words[i], "i is within the words")
+    local word = words[i]
     if word == "continue" then
       modifiers.continue = true
     elseif word:sub(1, 5) == "file=" then

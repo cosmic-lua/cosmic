@@ -797,7 +797,7 @@ local function test_cosine_rows_that_round_past_one_rank_by_id()
     assert(hit.distance >= 0 and hit.distance <= 2, "a cosine distance is from 0 to 2")
   end
   for i = 2, #all do
-    local before, now = assert(all[i - 1]), assert(all[i])
+    local before, now = assert(all[i - 1]), all[i]
     assert(before.distance < now.distance or (before.distance == now.distance and before.id < now.id))
   end
   for _, k in ipairs({ 1, 3, 10, 100 }) do

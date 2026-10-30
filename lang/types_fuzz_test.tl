@@ -346,7 +346,7 @@ end
 local function reversed(list: {Types.Type}): {Types.Type}
   local out: mut {Types.Type} = {}
   for i = #list, 1, -1 do
-    local item = assert(list[i], "`i` is within the list")
+    local item = list[i]
     out[#out + 1] = item
   end
   return out

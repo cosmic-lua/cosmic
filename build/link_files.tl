@@ -124,7 +124,7 @@ local function slash_comment(text: string, column: integer): {string}, {integer}
     local at = 3
     for index = 2, #raw do
       local before = assert(raw[index - 1], "index is within the lines")
-      local written = assert(raw[index], "index is within the lines")
+      local written = raw[index]
       at = at + #before + 1
       local marker = written:match("^[ \t]*%*") or
         written:match("^" .. ("[ \t]?"):rep(column + 1)) or ""

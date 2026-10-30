@@ -90,7 +90,7 @@ end
 local function test_the_seed_list_is_in_byte_order_with_one_file_a_line()
   local held = listed()
   for i = 2, #held do
-    local before, file = assert(held[i - 1]), assert(held[i])
+    local before, file = assert(held[i - 1]), held[i]
     assert(before < file, file .. " is out of order or listed twice, after " .. before)
   end
 end
