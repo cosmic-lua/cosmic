@@ -1278,6 +1278,12 @@ local function test_the_index_of_a_loop_reads_an_element_only_while_no_code_may_
   reads("for i = 1, #zs do\n  for _ in ipairs(ys) do\n  end\n  n = zs[i]\nend\n", "index_may_be_nil")
   reads("for i = 1, #zs do\n  local c <close> = nil\n  n = zs[i]\nend\n", "index_may_be_nil")
   reads("local ws: mut {integer} = zs\nfor i = 1, #zs do\n  ws[#ws] = nil\n  n = zs[i]\nend\n", "index_may_be_nil")
+  -- another loop in the body that shortens it, a `continue` that skips the end, and a name of the array that the loop is not over
+  reads("for i = 1, #zs do\n  local w = 0\n  while w < 2 do\n    w = w + 1\n    zs[#zs] = nil\n  end\n  n = zs[i]\nend\n", "index_may_be_nil")
+  reads("for i = 1, #zs do\n  repeat\n    touch()\n  until n > 0\n  n = zs[i]\nend\n", "index_may_be_nil")
+  reads("for i = 1, #zs do\n  if n > 1 then\n    touch()\n    continue\n  end\n  n = zs[i]\nend\n", "index_may_be_nil")
+  reads("local function f(a: {integer}, b: mut {integer}): integer\n  local total = 0\n  for i = 1, #a do\n    b[#b] = nil\n" ..
+      "    total = total + a[i]\n  end\n  return total\nend\n", "nil_not_allowed")
   -- a call at the end of the body ends what the head showed for the next pass
   reads("for i = 1, #zs do\n  n = zs[i]\n  touch()\nend\n", "index_may_be_nil")
   reads("for i = 1, #zs do\n  n = zs[i]\n  if n > 1 then\n    touch()\n  end\nend\n", "index_may_be_nil")
