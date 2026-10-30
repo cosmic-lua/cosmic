@@ -100,7 +100,7 @@ local SITES <const>: {string:Site} = {
   [SHA512] = { lines = "08b640331951aadd", reads = { aarch64 = { "sha512" } } },
   -- patch/mbedtls's SHA-NI SHA-256: cpuid leaf 7 EBX bit 29, with the
   -- SSSE3 and SSE4.1 bits of leaf 1 its shuffles and blends need ...
-  ["patch/mbedtls/04-sha256-ni.txt"] = { lines = "1762090955e684d8",
+  ["patch/mbedtls/04-sha256-ni.txt"] = { lines = "a2bc2eeb6868491a",
     reads = { x86_64 = { "sha_ni", "sse4_1", "ssse3" } } },
   -- ... and the header that declares __get_cpuid_count.
   ["patch/mbedtls/03-sha256-ni-select.txt"] = { lines = "bfdef8b0c7ebba67", reads = {} },
@@ -121,7 +121,7 @@ local SITES <const>: {string:Site} = {
   -- kern.maxfilesperproc too, for the descriptor limit a start raises
   -- to: no feature.
   ["core/syscalls.c"] = { lines = "6d6f8c1e9f60c406", reads = {} },
-  ["core/syscalls.h"] = { lines = "f23c54e6e2b7ac0d", reads = {} },
+  ["core/syscalls.h"] = { lines = "297b223c6bbcbc65", reads = {} },
   ["core/syscalls_test.tl"] = { lines = "b7dcc2df755b9cbc", reads = {} },
   -- The int8 dot product of [`Vector.corpus`]: VNNI in its AVX-512 (256-bit
   -- forms) and AVX encodings, by cpuid leaf 7. It also asks cpuid leaf 1

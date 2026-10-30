@@ -5,7 +5,7 @@ note: SHA-256 by the x86 SHA extensions (see 03-sha256-ni-select). The
   only after cpuid says the processor has them: leaf 7 EBX bit 29, with
   the SSSE3 and SSE4.1 its shuffles and blends need (leaf 1 ECX bits 9
   and 19). They use XMM state only, so the operating system's saved
-  state is not asked. The processor's answer is cached without a lock;
+  state is not asked. The processor's answer is cached in a relaxed atomic;
   racing threads store the same value. The K table and block size are
   the portable code's.
 --- find
@@ -66,13 +66,15 @@ static size_t mbedtls_internal_sha256_process_many_ni(mbedtls_sha256_context *ct
 
 static int cosmic_sha256_has_ni(void)
 {
-    static int supported = -1;
+    static int cached = -1;
+    int supported = __atomic_load_n(&cached, __ATOMIC_RELAXED);
 
     if (supported < 0) {
         unsigned int a, b, c, d;
         int ni = __get_cpuid_count(7, 0, &a, &b, &c, &d) && ((b >> 29) & 1);
         const unsigned int vector_bits = (1u << 9) | (1u << 19);
         supported = ni && __get_cpuid(1, &a, &b, &c, &d) && (c & vector_bits) == vector_bits;
+        __atomic_store_n(&cached, supported, __ATOMIC_RELAXED);
     }
     return supported;
 }

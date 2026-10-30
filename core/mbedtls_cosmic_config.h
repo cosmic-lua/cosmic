@@ -93,7 +93,10 @@
  * MBEDTLS_HAVE_ASM also enables bignum's inline multiply-accumulate,
  * and ECP_NIST_OPTIM the fast reduction modulo the NIST primes. None
  * of this depends on the build machine, so two builds still produce
- * the same bytes. */
+ * the same bytes.
+ * TODO: add an x86_64 SHA-512 path on the SHA512 extension (Arrow Lake
+ * and Lunar Lake onward) once a host the suite runs on has it, so that
+ * its tests exercise the path. */
 #define MBEDTLS_HAVE_ASM
 #define MBEDTLS_AESNI_C
 #define MBEDTLS_AESCE_C
