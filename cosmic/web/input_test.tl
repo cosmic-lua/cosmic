@@ -46,18 +46,26 @@ local record Counts
 end
 local COUNTS <const> = Shape.record_of("Counts")
 
+--- The first error of `invalid`, which every refusal here lists.
+local function first_error(invalid: Types.Invalid): Types.FieldError
+  local first = assert(invalid.errors[1], "a refusal lists an error")
+  return first
+end
+
 --- A query of the pairs, names and values as given (a NUL included, which
 --- the text decoder would pass anyway).
 local function pairs_of(list: {{string}}): Url.Query
   local q: Url.Query = { pairs = {}, by_name = {} }
   for _, pair in ipairs(list) do
-    q.pairs[#q.pairs + 1] = { name = pair[1], value = pair[2] }
-    local values = q.by_name[pair[1]]
+    local name = assert(pair[1], "expected a name")
+    local value = assert(pair[2], "expected a value")
+    q.pairs[#q.pairs + 1] = { name = name, value = value }
+    local values = q.by_name[name]
     if values == nil then
       values = {}
-      q.by_name[pair[1]] = values
+      q.by_name[name] = values
     end
-    values[#values + 1] = pair[2]
+    values[#values + 1] = value
   end
   return q
 end
@@ -85,7 +93,7 @@ end
 local function bound_count(text: string): integer?, string
   local r: Types.Parsed<Counts> = Input.bind_strings(decoded(text), COUNTS.spec)
   local invalid = r.invalid
-  if invalid ~= nil then return nil, invalid.errors[1].code end
+  if invalid ~= nil then return nil, first_error(invalid).code end
   return assert(r.value).n, ""
 end
 
@@ -137,7 +145,7 @@ local FLAGS <const> = Shape.record_of("Flags")
 local function flags(text: string): Flags?, string
   local r: Types.Parsed<Flags> = Input.bind_strings(decoded(text), FLAGS.spec)
   local invalid = r.invalid
-  if invalid ~= nil then return nil, invalid.errors[1].code end
+  if invalid ~= nil then return nil, first_error(invalid).code end
   return r.value, ""
 end
 
@@ -174,7 +182,8 @@ end
 local function test_repeated_error_refuses_a_repeated_scalar()
   local r: Types.Parsed<Counts> = Input.bind_strings(decoded("n=1&n=2"), COUNTS.spec, { repeated = "error" })
   local invalid = r.invalid
-  assert(invalid ~= nil and invalid.errors[1].code == "repeated" and invalid.errors[1].field == "n")
+  assert(invalid ~= nil, "a repeated scalar is refused")
+  assert(first_error(invalid).code == "repeated" and first_error(invalid).field == "n")
   r = Input.bind_strings(decoded("n=1"), COUNTS.spec, { repeated = "error" })
   assert(r.invalid == nil and assert(r.value).n == 1)
 end
@@ -194,7 +203,7 @@ local function test_one_of_compares_text_or_the_listed_kind()
   local invalid = r.invalid
   assert(invalid ~= nil and #invalid.errors == 3)
   for _, e in ipairs(invalid.errors) do assert(e.code == "one_of", e.field) end
-  assert(invalid.errors[1].message == "must be one of red, green")
+  assert(first_error(invalid).message == "must be one of red, green")
   local p: Types.Parsed<Pick> = Input.bind_strings(decoded("color=red"), PICK.spec)
   assert(p.invalid == nil and assert(p.value).color == "red")
 end
@@ -249,7 +258,8 @@ local function test_nested_records_read_dotted_names()
   assert(none.invalid == nil and assert(none.value).a == nil, "no name under a. leaves the optional record nil")
   local some: Types.Parsed<{string:any}> = Input.bind_strings(decoded("a.x="), opt)
   local invalid = some.invalid
-  assert(invalid ~= nil and invalid.errors[1].field == "a.x", "one name under it asks for the rest")
+  assert(invalid ~= nil, "one name under it asks for the rest")
+  assert(first_error(invalid).field == "a.x")
 end
 
 local function test_every_field_error_is_collected_in_field_order()
@@ -289,7 +299,7 @@ local function test_check_spec_refuses_what_text_cannot_carry()
       Input.check_spec(spec, source)
       return nil
     end)
-    assert(not ok and tostring(err):find(needle, 1, true), tostring(err))
+    assert(not ok and tostring(err):find(needle, 1, true) ~= nil, tostring(err))
   end
   refuses(Shape.record({ m = Shape.map(Shape.string) }), "form", "m of a form is a map")
   refuses(Shape.record({ l = Shape.list(Shape.record({ x = Shape.string })) }), "query", "list of records")
@@ -381,11 +391,10 @@ local function test_a_wrong_content_type_is_415()
     local got: integer = 0
     local opts: Web.TestOptions = { body = body, content_type = content_type }
     with_request("POST", opts, function(req: Web.Request)
-      local bad: Types.Invalid
-      if kind == "form" then bad = Input.form(req).invalid else bad = Input.json(req).invalid end
-      got = bad and bad.status or 0
-      if bad then
-        assert(bad.errors[1].code == "content_type" and bad.errors[1].source == "body")
+      local bad = if kind == "form" then Input.form(req).invalid else Input.json(req).invalid end
+      if bad ~= nil then
+        got = bad.status
+        assert(first_error(bad).code == "content_type" and first_error(bad).source == "body")
       end
     end)
     return got
@@ -408,14 +417,14 @@ local function test_a_request_with_no_body_is_an_empty_form_and_no_json()
     assert(form.invalid == nil and #assert(form.value).pairs == 0, "no type is asked of no body")
     local json = Input.json(req)
     local invalid = json.invalid
-    assert(invalid ~= nil and invalid.status == 422 and invalid.errors[1].code == "required")
+    assert(invalid ~= nil and invalid.status == 422 and first_error(invalid).code == "required")
   end)
 end
 
 local function test_a_body_over_the_limit_is_413()
   with_request("POST", { form = { a = ("x"):rep(100) } }, function(req: Web.Request)
     local bad = Input.form(req, { max_bytes = 50 }).invalid
-    assert(bad ~= nil and bad.status == 413 and bad.errors[1].code == "too_large")
+    assert(bad ~= nil and bad.status == 413 and first_error(bad).code == "too_large")
     assert(Input.form(req, { max_bytes = 200 }).invalid == nil, "the limit is the call's")
     local again = Input.form(req, { max_bytes = 50 }).invalid
     assert(again ~= nil and again.status == 413, "a kept body is held to a later, smaller limit")
@@ -525,26 +534,27 @@ end
 local function test_json_that_does_not_parse_is_400_with_the_decoders_position()
   with_request("POST", { body = '{"a": ', content_type = "application/json" }, function(req: Web.Request)
     local bad = Input.json(req).invalid
-    assert(bad ~= nil and bad.status == 400 and bad.errors[1].code == "json", bad and bad.message)
-    assert(bad.errors[1].message:find("line", 1, true), bad.errors[1].message)
+    assert(bad ~= nil, "a body that does not parse is refused")
+    assert(bad.status == 400 and first_error(bad).code == "json", bad.message)
+    assert(first_error(bad).message:find("line", 1, true) ~= nil, first_error(bad).message)
   end)
 end
 
 local function test_a_body_that_is_not_utf8_is_400()
   with_request("POST", { body = '{"a":"\xff"}', content_type = "application/json" }, function(req: Web.Request)
     local bad = Input.json(req).invalid
-    assert(bad ~= nil and bad.status == 400 and bad.errors[1].code == "utf8")
+    assert(bad ~= nil and bad.status == 400 and first_error(bad).code == "utf8")
   end)
 end
 
 local function test_a_bad_percent_escape_is_400_for_a_form_and_a_query()
   with_request("POST", { body = "a=%zz", content_type = "application/x-www-form-urlencoded" }, function(req: Web.Request)
     local bad = Input.form(req).invalid
-    assert(bad ~= nil and bad.status == 400 and bad.errors[1].source == "form")
+    assert(bad ~= nil and bad.status == 400 and first_error(bad).source == "form")
   end)
   local app = Web.app{ routes = { Web.get("/q", function(req: Web.Request): Web.Response
     local bad = Input.query(req).invalid
-    assert(bad ~= nil and bad.status == 400 and bad.errors[1].source == "query" and bad.errors[1].code == "malformed")
+    assert(bad ~= nil and bad.status == 400 and first_error(bad).source == "query" and first_error(bad).code == "malformed")
     return Web.text("seen")
   end) } }
   assert(Web.test_client(app):get("/q?a=%zz"):text() == "seen")
@@ -598,7 +608,7 @@ local function test_a_json_body_reports_where_it_failed()
   e = json_error('[1]')
   assert(e.field == "" and e.pointer == "" and e.code == "type")
   e = json_error('{"title":"t","qty":1.5}')
-  assert(e.code == "integer" and e.message:find("1.5", 1, true))
+  assert(e.code == "integer" and e.message:find("1.5", 1, true) ~= nil)
 end
 
 local function test_a_json_pointer_with_escapes_is_one_dotted_field()
@@ -612,7 +622,7 @@ local function test_a_json_pointer_with_escapes_is_one_dotted_field()
     end }
   with_request("POST", { json = { ["a/b"] = { ["c~d"] = "x" } } }, function(req: Web.Request)
     local read = Input.json_into(req, typed)
-    local e = assert(read.invalid).errors[1]
+    local e = first_error(assert(read.invalid))
     assert(e.pointer == "/a~1b/c~0d" and e.field == "a/b.c~d", tostring(e.pointer) .. " " .. tostring(e.field))
   end)
 end
@@ -657,7 +667,7 @@ end
 local function test_fail_builds_a_refusal_over_the_submitted_form()
   with_request("POST", { form = { email = "a@b", password = "pw" } }, function(req: Web.Request)
     local bad = Input.fail(req, "email", "is already registered")
-    assert(bad.status == 422 and bad.errors[1].code == "invalid" and bad.submitted == nil)
+    assert(bad.status == 422 and first_error(bad).code == "invalid" and bad.submitted == nil)
     local form = Input.form(req)
     assert(form.invalid == nil)
     bad = Input.fail(req, "email", "is already registered", { secret = { "password" } })
@@ -672,9 +682,9 @@ local function test_form_into_and_query_into_bind_a_request()
     assert(q.invalid == nil and assert(q.value).n == 4)
     local f = Input.form_into(req, COUNTS)
     local invalid = f.invalid
-    assert(invalid ~= nil and invalid.errors[1].source == "form")
-    local g: Web.Invalid = Input.form_into(req, COUNTS, { source = "path" }).invalid
-    assert(g.errors[1].source == "form", "the entry points choose the source")
+    assert(invalid ~= nil and first_error(invalid).source == "form")
+    local g = assert(Input.form_into(req, COUNTS, { source = "path" }).invalid, "the form's n is not an integer")
+    assert(first_error(g).source == "form", "the entry points choose the source")
     return Web.text("ok")
   end) } }
   assert(Web.test_client(app):post("/x?n=4", { form = { n = "z" } }).status == 200)

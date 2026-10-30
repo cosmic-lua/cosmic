@@ -307,7 +307,7 @@ end
 local function ipv6_bytes(text: string): {integer}?, string
   local bytes = text:find(":", 1, true) and Grant.address(text) or nil
   if bytes == nil or #bytes ~= 16 then
-    if text:find("[^%x:%.]") or not text:find(":", 1, true) then
+    if text:find("[^%x:%.]") ~= nil or text:find(":", 1, true) == nil then
       return nil, "not an IPv6 address (a zone, or a character an address does not hold)"
     end
     return nil, "not an IPv6 address"
@@ -463,7 +463,7 @@ function relay_wire.connect_reader(): relay_wire.ConnectReader
         return finish(refused("plain HTTP is not relayed: only CONNECT host:port is accepted", 405))
       end
       local target, version = content:match("^CONNECT ([^ ]*) ([^ ]*)$")
-      if target == nil then
+      if target == nil or version == nil then
         return finish(refused("malformed request line (expected CONNECT host:port HTTP/1.1)", 400))
       end
       if version ~= "HTTP/1.1" and version ~= "HTTP/1.0" then
@@ -488,7 +488,7 @@ function relay_wire.connect_reader(): relay_wire.ConnectReader
       return finish(refused(("more than %s"):format(String.counted(MAX_HEADERS, "header")), 431))
     end
     local name, value = content:match("^([^:]*):(.*)$")
-    if name == nil then
+    if name == nil or value == nil then
       return finish(refused("a header line without a colon", 400))
     end
     if not name:find(TOKEN) then
@@ -885,7 +885,10 @@ function relay_wire.socks_client_request(host: string, port: integer): string?, 
   local tail = string.pack(">I2", port)
   local four = octets(host)
   if four ~= nil then
-    return "\5\1\0\1" .. string.char(four[1], four[2], four[3], four[4]) .. tail, ""
+    local a, b, c, d = four[1], four[2], four[3], four[4]
+    if a ~= nil and b ~= nil and c ~= nil and d ~= nil then
+      return "\5\1\0\1" .. string.char(a, b, c, d) .. tail, ""
+    end
   end
   local six, _ = ipv6_bytes(host)
   if six ~= nil then

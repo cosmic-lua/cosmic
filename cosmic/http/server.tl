@@ -673,6 +673,8 @@ function Server.serve(spec: Server.ServeSpec): boolean, string
   if Poll.in_task() then
     error("http: serve runs a Poll.run of its own, and cannot be called in a task of another", 2)
   end
+  local listeners = spec.listeners
+  assert(listeners, "http: checked_spec refuses a spec without listeners")
   local limits = spec.limits or {}
   local s: Serving = {
     spec = spec,
@@ -685,7 +687,7 @@ function Server.serve(spec: Server.ServeSpec): boolean, string
     idle = {},
   }
   return Net.serve{
-    listeners = spec.listeners,
+    listeners = listeners,
     serve = function(conn: Net.Conn) serve_conn(s, conn) end,
     limits = { connections = limits.connections or 256 },
     timeout_ns = s.timeout_ns,
@@ -803,7 +805,7 @@ function Server.range(header: string?, size: integer): Server.Range
   end
   if spec == nil then return unranged end
   local first_digits, last_digits = spec:match("^([0-9]+)%-([0-9]*)$")
-  if first_digits ~= nil then
+  if first_digits ~= nil and last_digits ~= nil then
     local first_count, last_count = significant(first_digits), significant(last_digits)
     if last_digits ~= "" and fewer(last_count, first_count) then return unranged end
     local first = count(first_count)

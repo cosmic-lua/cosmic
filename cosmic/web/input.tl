@@ -173,7 +173,7 @@ end
 
 --- The line that stands for `errors`: the first, and how many more.
 local function summary(errors: {Types.FieldError}): string
-  local first = errors[1]
+  local first = assert(errors[1], "an Invalid carries at least one error")
   local line = if first.field ~= "" then (first.field .. ": " .. first.message) else first.message end
   if #errors > 1 then line = line .. (" (and %d more)"):format(#errors - 1) end
   return line
@@ -218,12 +218,14 @@ end
 function Input.media_type(req: Types.Request): Input.MediaType
   local value = req.headers["content-type"]
   if value == nil then return { essence = "", params = {} } end
-  local head, rest = value:match("^([^;]*)(.*)$")
+  local semicolon = value:find(";", 1, true)
+  local head = if semicolon == nil then value else value:sub(1, semicolon - 1) end
+  local rest = if semicolon == nil then "" else value:sub(semicolon) end
   local params: mut {string:string} = {}
   local pos = 1
   while true do
     local from, to, name = rest:find("^;[ \t]*([%w!#$%%&'*+.^_`|~-]+)=", pos)
-    if from == nil then break end
+    if from == nil or to == nil or name == nil then break end
     pos = to + 1
     local text: string
     if rest:sub(pos, pos) == '"' then
@@ -244,9 +246,9 @@ function Input.media_type(req: Types.Request): Input.MediaType
       end
       text = table.concat(parts)
       local _, blanks = rest:find("^[ \t]*", math.min(pos, #rest + 1))
-      pos = blanks + 1
+      pos = assert(blanks, "the pattern ^[ \\t]* matches the empty text") + 1
     else
-      local token = rest:match("^[^;]*", pos)
+      local token = assert(rest:match("^[^;]*", pos), "the pattern ^[^;]* matches the empty text")
       pos = pos + #token
       text = trim(token)
     end
@@ -601,7 +603,9 @@ local function read_multipart(req: Types.Request, limit: integer, opts: Types.In
       local value = table.concat(pieces)
       local charset = part_charset(part.content_type)
       if charset == "iso-8859-1" or charset == "latin1" then
-        value = value:gsub("[\128-\255]", function(c: string): string return utf8.char(c:byte()) end)
+        value = value:gsub("[\128-\255]", function(c: string): string
+          return utf8.char(String.byte_at(c, 1))
+        end)
       elseif charset ~= "" and charset ~= "utf-8" and charset ~= "us-ascii" then
         return stop_with(stop(415, "body", "", "content_type",
           ("the field %s is in a charset other than UTF-8 and ISO-8859-1"):format(shown(part.name))))
@@ -749,8 +753,6 @@ function Input.json(req: Types.Request, opts?: Types.InputOptions): Types.Parsed
   return { value = value }
 end
 
-local ints <const> = "^[+-]?%d+$"
-
 --- `text` without leading and trailing spaces and tabs.
 local function trimmed(text: string): string
   local first = text:find("[^ \t]")
@@ -763,8 +765,8 @@ end
 --- The integer `text` spells, or nil.
 local function parse_integer(text: string): integer?
   local s = trimmed(text)
-  if not s:find(ints) then return nil end
   local sign, digits = s:match("^([+-]?)(%d+)$")
+  if sign == nil or digits == nil then return nil end
   digits = digits:gsub("^0+", "")
   local top = if sign == "-" then "9223372036854775808" else "9223372036854775807" end
   if #digits > #top or (#digits == #top and digits > top) then return nil end
@@ -943,7 +945,7 @@ bind_record = function(w: Walk, prefix: string, spec: Shape.Spec, depth: integer
   local out: mut {string:any} = {}
   for _, name in ipairs(names) do
     local field = prefix == "" and name or (prefix .. "." .. name)
-    out[name] = bind_node(w, field, fields[name], depth)
+    out[name] = bind_node(w, field, assert(fields[name], "a record spec's names are all in its fields"), depth)
   end
   return out
 end
@@ -971,7 +973,8 @@ local function check_node(spec: Shape.Spec, field: string, source: string, depth
     end
     local fields = assert(spec.fields)
     for _, name in ipairs(assert(spec.names)) do
-      local trouble = check_node(fields[name], field == "" and name or (field .. "." .. name), source, depth + 1)
+      local child = assert(fields[name], "a record spec's names are all in its fields")
+      local trouble = check_node(child, field == "" and name or (field .. "." .. name), source, depth + 1)
       if trouble ~= "" then return trouble end
     end
   elseif kind == "list" then
@@ -1069,7 +1072,9 @@ local function failure_code(reason: string): string
   if reason:find("^unknown key") then return "unknown" end
   if reason == "missing" then return "required" end
   local wanted = reason:match("^want (%a+)")
-  if wanted == "integer" or wanted == "number" or wanted == "boolean" then return wanted end
+  if wanted ~= nil and (wanted == "integer" or wanted == "number" or wanted == "boolean") then
+    return wanted
+  end
   if reason:find("^want one of") then return "one_of" end
   return "type"
 end
@@ -1198,14 +1203,13 @@ end
 --- @param opts Types.InputOptions | nil `secret`
 --- @return Types.Parsed<T> The record, or status 422
 function Input.path_into<T>(req: Types.Request, typed: Shape.Typed<T>, opts?: Types.InputOptions): Types.Parsed<T>
-  local names: mut {string} = {}
-  for name in pairs(req.params) do names[#names + 1] = name end
-  table.sort(names)
+  local sorted: mut {Url.Pair} = {}
+  for name, value in pairs(req.params) do sorted[#sorted + 1] = { name = name, value = value } end
+  table.sort(sorted, function(a: Url.Pair, b: Url.Pair): boolean return a.name < b.name end)
   local q: Url.Query = { pairs = {}, by_name = {} }
-  for _, name in ipairs(names) do
-    local value = req.params[name]
-    q.pairs[#q.pairs + 1] = { name = name, value = value }
-    q.by_name[name] = { value }
+  for _, pair in ipairs(sorted) do
+    q.pairs[#q.pairs + 1] = pair
+    q.by_name[pair.name] = { pair.value }
   end
   local out: Types.Parsed<T> = Input.bind_strings(q, typed.spec, with_source(opts, "path"))
   return out
