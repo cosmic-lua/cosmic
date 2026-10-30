@@ -340,9 +340,8 @@ local record Ctx
   --- The field reads that only ask whether a method is there (`a.cb ~= nil`, `if a.cb then`): nothing of the method
   --- escapes through them, so they are no use of it as a value.
   probes: mut {integer: boolean}
-  --- The nodes a left-leaning chain visits, and how many are in use.
+  --- The nodes a left-leaning chain visits and has not yet applied, the innermost last.
   spine: mut {Ast.Exp}
-  mut top: integer
   --- The overloads the callee last found, and the node that found them.
   mut cands: {Type}?
   mut cand_node: Ast.Node?
@@ -660,7 +659,7 @@ local function listed(items: {string}, joiner?: string): string
   end
   local head: mut {string} = {}
   for i = 1, #items - 1 do
-    head[i] = items[i]
+    head[i] = assert(items[i])
   end
   return table.concat(head, ", ") .. " " .. (joiner or "or") .. " " .. items[#items]
 end
@@ -673,12 +672,12 @@ local function nearest(name: string, names: {string}): string
     if la - lb > limit or lb - la > limit then
       return limit + 1
     end
-    local previous: mut {integer} = {}
+    local previous: mut {integer: integer} = {}
     for j = 0, lb do
       previous[j] = j
     end
     for i = 1, la do
-      local row: mut {integer} = { [0] = i }
+      local row: mut {integer: integer} = { [0] = i }
       local least = i
       for j = 1, lb do
         local cost = if a:byte(i) == b:byte(j) then 0 else 1 end
@@ -1331,7 +1330,7 @@ end
 
 --- The types of the expressions of `list`, each checked with the type its position expects (`wants[i]`, else
 --- `rest_want`), the last expanded when it is a call or `...`.
-local function values_of(ctx: Ctx, list: {Ast.Exp}, wants: {Type}?, rest_want: Type?): Values
+local function values_of(ctx: Ctx, list: {Ast.Exp}, wants: {integer: Type}?, rest_want: Type?): Values
   local out: Values = { types = {} }
   local n = #list
   for i, e in ipairs(list) do
@@ -1340,7 +1339,8 @@ local function values_of(ctx: Ctx, list: {Ast.Exp}, wants: {Type}?, rest_want: T
       want = wants[i]
     end
     if i < n then
-      out.types[i] = expr(ctx, e, want)
+      local t = expr(ctx, e, want)
+      out.types[#out.types + 1] = t
     elseif (e.kind == "Call") or (e.kind == "MethodCall") then
       local alts = lists_of(ctx, e, want)
       out.last = e
@@ -1358,7 +1358,8 @@ local function values_of(ctx: Ctx, list: {Ast.Exp}, wants: {Type}?, rest_want: T
       out.last = e
       out.tail = vararg_rest(ctx, e)
     else
-      out.types[i] = expr(ctx, e, want)
+      local t = expr(ctx, e, want)
+      out.types[#out.types + 1] = t
     end
   end
   return out
@@ -2129,8 +2130,8 @@ local function member_read(ctx: Ctx, node: Ast.Node, t: Type, name: string): Typ
     end
     if #list > 1 then
       local all: mut {Type} = {}
-      for i, m in ipairs(list) do
-        all[i] = m.type
+      for _, m in ipairs(list) do
+        all[#all + 1] = m.type
       end
       ctx.cands = all
       ctx.cand_node = node
@@ -3821,7 +3822,7 @@ local function function_type(ctx: Ctx, fn: Ast.Fn, expected: Type?, name: string
     if p.variadic then
       rest = t
     else
-      params[j] = { type = t, omittable = omittable }
+      params[#params + 1] = { type = t, omittable = omittable }
     end
   end
   local alts: {Alt}? = nil
@@ -4339,7 +4340,8 @@ end
 
 --- The steps of a generic call.
 local record Calls
-  prepare: function(ctx: Ctx, args: {Ast.Exp}, wants: {Type}?): Prepared
+  prepare: function(ctx: Ctx, args: {Ast.Exp}, wants: {integer: Type}?): Prepared
+  replace_type: function(list: mut {Type}, at: integer, t: Type)
   hooks: function(ctx: Ctx): Generics.Hooks
   source: function(at: integer): string
   typed_literal: function(e: Ast.Exp): boolean
@@ -4380,9 +4382,17 @@ function Calls.expect_argument(ctx: Ctx, node: Ast.Node, got: Type, want: Type, 
   return ok
 end
 
+--- Overwrites the element `at` of `list`, which must have it: `table.insert` refuses a position past the end, so no
+--- hole can come of a position that is wrong.
+function Calls.replace_type(list: mut {Type}, at: integer, t: Type)
+  assert(at >= 1 and at <= #list)
+  table.remove(list, at)
+  table.insert(list, at, t)
+end
+
 --- Types the arguments of a call that are not literals, and notes the literals. `wants` are the types a position expects
 --- where the callee is known to expect one.
-function Calls.prepare(ctx: Ctx, args: {Ast.Exp}, wants: {Type}?): Prepared
+function Calls.prepare(ctx: Ctx, args: {Ast.Exp}, wants: {integer: Type}?): Prepared
   local n = #args
   local last = args[n]
   local open = last ~= nil and ((last.kind == "Call") or (last.kind == "MethodCall") or (last.kind == "Vararg"))
@@ -4399,7 +4409,13 @@ function Calls.prepare(ctx: Ctx, args: {Ast.Exp}, wants: {Type}?): Prepared
     end
   end
   if open and last ~= nil then
-    local vals = values_of(ctx, { last }, if wants ~= nil then { wants[n] } else nil end, nil)
+    -- The last argument stands alone, so what its position wants is the first want.
+    local alone: mut {integer: Type} = {}
+    local lone = if wants ~= nil then wants[n] else nil end
+    if lone ~= nil then
+      alone[1] = lone
+    end
+    local vals = values_of(ctx, { last }, if wants ~= nil then alone else nil end, nil)
     for j, t in ipairs(vals.types) do
       prep.known[written + j] = t
     end
@@ -4446,7 +4462,7 @@ local function apply_function(ctx: Ctx, node: Ast.Node, callee: string, f: Fn, a
   if given ~= nil then
     vals = given
   else
-    local wants: mut {Type} = {}
+    local wants: mut {integer: Type} = {}
     for i = 1, #args do
       local w = parameter_at(f, off, i)
       if w ~= nil then
@@ -4632,9 +4648,9 @@ function Calls.solve(ctx: Ctx, node: Ast.Node, callee: string, c: Fn, args: {Ast
   for i = 1, #c.tparams do
     local held = Generics.value(solver, i)
     if held ~= nil then
-      given[i] = held
+      given[#given + 1] = held
     else
-      given[i] = ctx.invalid
+      given[#given + 1] = ctx.invalid
       if solver.tainted[i] ~= true and not solver.invalid then
         unbound[#unbound + 1] = i
       elseif solver.tainted[i] == true and not solver.invalid then
@@ -4656,7 +4672,7 @@ function Calls.solve(ctx: Ctx, node: Ast.Node, callee: string, c: Fn, args: {Ast
         "have no common type" end)
     problems[#problems + 1] = msg
     -- The parameter is none: the arguments are not held to a type they disagree on, so the mistake is the one error.
-    given[k.index] = ctx.invalid
+    Calls.replace_type(given, k.index, ctx.invalid)
     if loud then
       report(ctx, "infer_conflict", args[k.second_at] or node, msg,
         if same then "narrow " .. Calls.source(k.first_at) .. " to one of its types first (`if v is ... then`), or declare the " ..
@@ -4688,7 +4704,7 @@ function Calls.solve(ctx: Ctx, node: Ast.Node, callee: string, c: Fn, args: {Ast
           "list the interface in the declaration of " .. tq(ctx, held) .. " (`is " .. show(ctx, bound) .. "`), or pass a " ..
             "type that does", { show(ctx, held), show(ctx, bound) })
       end
-      given[i] = ctx.invalid
+      Calls.replace_type(given, i, ctx.invalid)
     end
   end
   if #problems > 0 and not loud then
@@ -4765,7 +4781,7 @@ function Calls.generic(ctx: Ctx, node: Ast.Node, callee: string, c: Fn, args: {A
                        recv_node: Ast.Node?, expected: Type?): {Alt}
   local off = if recv ~= nil then 1 else 0 end
   -- A position that names no type parameter of the function expects its type of the argument there.
-  local wants: mut {Type} = {}
+  local wants: mut {integer: Type} = {}
   for i = 1, #args do
     local w = parameter_at(c, off, i)
     if w ~= nil and w.open == 0 then
@@ -4787,7 +4803,7 @@ function Calls.generic(ctx: Ctx, node: Ast.Node, callee: string, c: Fn, args: {A
   end
   local vals: Values = { types = {}, tail = prep.tail, lists = prep.lists, last = prep.last }
   for i = 1, prep.count do
-    vals.types[i] = prep.known[i] or ctx.invalid
+    vals.types[#vals.types + 1] = prep.known[i] or ctx.invalid
   end
   local alts = apply_function(ctx, node, callee, made, args, recv, recv_node, vals, c)
   Calls.holes(ctx, node, callee, c, solved, before)
@@ -4910,10 +4926,11 @@ local function apply_overloads(ctx: Ctx, node: Ast.Node, callee: string, cands: 
   for i = 1, count do
     local t = known[i]
     if t ~= nil then
-      shown[i] = show(ctx, t)
+      local text = show(ctx, t)
+      shown[#shown + 1] = text
     else
       local literal = args[i]
-      shown[i] = if (literal.kind == "String") then "string" elseif (literal.kind == "Boolean") then "boolean" elseif
+      shown[#shown + 1] = if (literal.kind == "String") then "string" elseif (literal.kind == "Boolean") then "boolean" elseif
         (literal.kind == "FunctionLit") then "function" else "table" end
     end
   end
@@ -5593,7 +5610,7 @@ end
 
 --- The type of `e`, and the lists it answers where `wants_lists` and it is a call.
 local function evaluate(ctx: Ctx, e: Ast.Exp, expected: Type?, wants_lists: boolean): Type, {Alt}?
-  local base = ctx.top
+  local base = #ctx.spine
   local node: Ast.Exp = e
   while true do
     local nxt = spine_child(node)
@@ -5612,20 +5629,19 @@ local function evaluate(ctx: Ctx, e: Ast.Exp, expected: Type?, wants_lists: bool
         ctx.probes[right.id] = true
       end
     end
-    ctx.top = ctx.top + 1
-    ctx.spine[ctx.top] = node
+    ctx.spine[#ctx.spine + 1] = node
     node = nxt
   end
-  local t = leaf(ctx, node, ctx.top == base and expected or nil)
+  local t = leaf(ctx, node, #ctx.spine == base and expected or nil)
   local types = ctx.types
   local typed = ctx.typed
   if typed then
     types[base_of(node).id] = t
   end
   local alts: {Alt}? = nil
-  for i = ctx.top, base + 1, -1 do
+  for i = #ctx.spine, base + 1, -1 do
     local n = ctx.spine[i]
-    ctx.top = i - 1
+    ctx.spine[#ctx.spine] = nil
     t, alts = apply(ctx, n, t, i == base + 1 and expected or nil, wants_lists and i == base + 1)
     if typed then
       types[base_of(n).id] = t
@@ -5793,7 +5809,7 @@ end
 --- `local a, b: T, U = f(), g()`.
 local function local_statement(ctx: Ctx, s: Ast.Local)
   local n = #s.bindings
-  local wants: mut {Type} = {}
+  local wants: mut {integer: Type} = {}
   for i, t in ipairs(s.types) do
     wants[i] = ctx.lowered.types[t.id] or ctx.invalid
   end
@@ -6465,8 +6481,8 @@ local function check_assignment(ctx: Ctx, s: Ast.Assign): Values?
   end
   local outer_assigning = ctx.assigning
   ctx.assigning = named
-  local wants: mut {Type} = {}
-  local deletes: mut {boolean} = {}
+  local wants: mut {integer: Type} = {}
+  local deletes: mut {integer: boolean} = {}
   local pending: mut {Pending} = {}
   local first = s.values[1]
   local removes = #s.targets == 1 and #s.values == 1 and first ~= nil and peel(first).kind == "Nil"
@@ -6621,7 +6637,7 @@ local function check_return(ctx: Ctx, s: Ast.Return)
     return
   end
   -- What each position wants: the item of the one list that has the length, else the union of those that have it.
-  local wants: mut {Type} = {}
+  local wants: mut {integer: Type} = {}
   local rest_want: Type? = nil
   local candidates: mut {Alt} = {}
   for _, alt in ipairs(alts) do
@@ -6652,7 +6668,7 @@ local function check_return(ctx: Ctx, s: Ast.Return)
     for i, e in ipairs(s.values) do
       local literal = peel(e)
       if (literal.kind == "Boolean") and vals.types[i] == ctx.store.boolean then
-        vals.types[i] = ctx.store:atom(if literal.value then "true" else "false" end)
+        Calls.replace_type(vals.types, i, ctx.store:atom(if literal.value then "true" else "false" end))
       end
     end
   end
@@ -6979,8 +6995,8 @@ local function declaration_bodies(ctx: Ctx, node: Ast.Node, decl: Decl?)
   local binder = decl ~= nil and body ~= nil and #body.tparams > 0
   if binder and decl ~= nil and body ~= nil then
     local names: mut {string} = {}
-    for i, p in ipairs(body.tparams) do
-      names[i] = p.name
+    for _, p in ipairs(body.tparams) do
+      names[#names + 1] = p.name
     end
     local tparams = Relation.binder(decl)
     ctx.judge:enter(tparams)
@@ -7223,7 +7239,7 @@ local function match_statement(ctx: Ctx, s: Ast.Match)
   end
   local start = ctx.flow
   local ends: mut {Flow.State} = {}
-  local taken: mut {boolean} = {}
+  local taken: mut {integer: boolean} = {}
   for _, arm in ipairs(s.arms) do
     ctx.flow = start
     local mine: mut {Alt} = {}
@@ -7402,7 +7418,7 @@ function Check.check(program: Declarations.Program, input: Declarations.Input, l
       return false
     end, function(_node: Ast.Node, _spelled: string, _found: LoadOrder.Found) end),
     literals = {}, declared = {}, union_fields = {}, spine = {},
-    top = 0, ternaries = {}, invalid = store.invalid, nil_type = store:atom("nil"), flow = Flow.start(), unfixed_now = {}, assigning = {}, quiet = 0, closers = 0, callee_module = "", member_module = "", moves = {},
+    ternaries = {}, invalid = store.invalid, nil_type = store:atom("nil"), flow = Flow.start(), unfixed_now = {}, assigning = {}, quiet = 0, closers = 0, callee_module = "", member_module = "", moves = {},
     loops = {}, keys = {}, edges = {}, guards = {}, reads = {}, unfixed = {}, narrowed = {}, boundaries = {}, types = {}, callees = {}, consts = {}, library = {}, typed = typed ~= false, warnings = {},
     unite = function(a: Type, b: Type): Type
       return store:union({ a, b })

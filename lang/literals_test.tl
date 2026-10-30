@@ -121,8 +121,9 @@ local function test_a_pattern_the_walk_takes_never_makes_lua_raise_whatever_the_
   local taken, refused = 0, 0
   for _ = 1, 3000 do
     local pieces: mut {string} = {}
-    for i = 1, draw(6) do
-      pieces[i] = parts[draw(#parts)]
+    for _ = 1, draw(6) do
+      local piece = assert(parts[draw(#parts)])
+      pieces[#pieces + 1] = piece
     end
     local pattern = table.concat(pieces)
     if Literals.pattern(pattern).problem == nil then
@@ -178,8 +179,9 @@ local function test_a_format_the_walk_takes_is_the_one_lua_takes_and_the_other_w
   local agreed, refused = 0, 0
   for _ = 1, 4000 do
     local pieces: mut {string} = {}
-    for i = 1, draw(7) do
-      pieces[i] = parts[draw(#parts)]
+    for _ = 1, draw(7) do
+      local piece = assert(parts[draw(#parts)])
+      pieces[#pieces + 1] = piece
     end
     local format = table.concat(pieces)
     local read = Literals.format(format)
@@ -224,8 +226,9 @@ local function test_a_pack_format_the_walk_takes_is_the_one_lua_takes_and_the_ot
   local refused = 0
   for _ = 1, 4000 do
     local pieces: mut {string} = {}
-    for i = 1, draw(6) do
-      pieces[i] = parts[draw(#parts)]
+    for _ = 1, draw(6) do
+      local piece = assert(parts[draw(#parts)])
+      pieces[#pieces + 1] = piece
     end
     local format = table.concat(pieces)
     local read = Literals.pack(format)

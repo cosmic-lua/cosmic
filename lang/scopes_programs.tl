@@ -51,13 +51,13 @@ end
 
 local function declare(g: Gen, name: string, readonly: boolean)
   g.seen[#g.seen + 1] = name
-  g.readonly[#g.seen] = readonly
+  g.readonly[#g.readonly + 1] = readonly
 end
 
 local function forget(g: Gen, mark: integer)
-  for i = #g.seen, mark + 1, -1 do
-    g.seen[i] = nil
-    g.readonly[i] = nil
+  for _ = #g.seen, mark + 1, -1 do
+    g.seen[#g.seen] = nil
+    g.readonly[#g.readonly] = nil
   end
 end
 
@@ -136,8 +136,9 @@ local function gen_statement(g: Gen, depth: integer, loop: boolean)
   local mark = #g.seen
   if k <= 3 then
     local names: mut {string} = {}
-    for i = 1, g.draw(1, 3) do
-      names[i] = pick(g, POOL)
+    for _ = 1, g.draw(1, 3) do
+      local picked = pick(g, POOL)
+      names[#names + 1] = picked
     end
     -- `local x = x`, the copy that does not shadow.
     local copy = #g.seen > 0 and g.draw(1, 5) == 1

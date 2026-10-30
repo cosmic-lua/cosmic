@@ -214,9 +214,9 @@ local record Declarations
   --- made optional (`X?`, or the type of a `name?:` field), and which pass themselves on to the parameter of
   --- another declaration.
   record Requires
-    dense: mut {boolean}
-    key: mut {boolean}
-    optional: mut {boolean}
+    dense: mut {integer: boolean}
+    key: mut {integer: boolean}
+    optional: mut {integer: boolean}
     flows: mut {Flow}
   end
 
@@ -865,7 +865,7 @@ local function parameter_list(e: Entry, count: integer): string
   for i = 1, count do
     local held = body ~= nil and body.tparams[i] or nil
     local from_alias = alias ~= nil and alias.tparams[i] or nil
-    names[i] = held ~= nil and held.name or from_alias ~= nil and from_alias.name or (if count == 1 then "T" else "T" .. tostring(i) end)
+    names[#names + 1] = held ~= nil and held.name or from_alias ~= nil and from_alias.name or (if count == 1 then "T" else "T" .. tostring(i) end)
   end
   return "<" .. table.concat(names, ", ") .. ">"
 end
@@ -1305,8 +1305,9 @@ local function lower_function(ctx: Ctx, t: Ast.TypeFunction): Type
   local before = #ctx.errors
   push_frame(ctx, false, t.typeparams)
   local tparams: mut {Types.TParam} = {}
-  for i, p in ipairs(t.typeparams) do
-    tparams[i] = { bound = lower_bound(ctx, p) }
+  for _, p in ipairs(t.typeparams) do
+    local bound = lower_bound(ctx, p)
+    tparams[#tparams + 1] = { bound = bound }
   end
   local params: mut {Types.Param} = {}
   local names: mut {string} = {}
@@ -1317,7 +1318,7 @@ local function lower_function(ctx: Ctx, t: Ast.TypeFunction): Type
       rest = lowered
     else
       params[#params + 1] = { type = lowered, omittable = p.optional }
-      names[#params] = p.name or ""
+      names[#names + 1] = p.name or ""
     end
   end
   local alts: {Types.Alt}?
@@ -1413,8 +1414,9 @@ lower_type = function(ctx: Ctx, t: Ast.Type): Type
     ctx.types[t.inner.id] = out
   elseif (t.kind == "TypeUnion") then
     local members: mut {Type} = {}
-    for i, m in ipairs(t.members) do
-      members[i] = lower_type(ctx, m)
+    for _, m in ipairs(t.members) do
+      local lowered = lower_type(ctx, m)
+      members[#members + 1] = lowered
     end
     if tallest(members) >= MAX_DEPTH then
       out = attempt(ctx, t, function(): Type
@@ -1522,8 +1524,8 @@ local function declare_one(ctx: Ctx, node: Ast.Node, place: Place, seen: mut {st
   local name = binding.name
   local module = place.module
   local names: mut {string} = {}
-  for i, n in ipairs(place.names) do
-    names[i] = n
+  for _, n in ipairs(place.names) do
+    names[#names + 1] = n
   end
   names[#names + 1] = name
   -- The library record of a primitive (`global record string`) is a value only, for `string.format` and `s:upper()`:
@@ -1585,7 +1587,6 @@ local function declare_all(ctx: Ctx)
   local seen: {string: boolean} = {}
   local nodes: mut {Ast.Node} = { ctx.input.chunk }
   local places: mut {Place} = { { names = {}, module = ctx.module, top = true } }
-  local top = 1
   local kids = ctx.kids
   -- TODO: hold this in a `Cell<integer>` once ci/cosmic-driver.pin names a release whose store holds cosmic.cell: the boot compiler loads this module from the pinned seed, which lacks it, and `bin/zig build boot` fails with "module 'cosmic.cell' not found".
   local held = { count = 0 }
@@ -1593,10 +1594,10 @@ local function declare_all(ctx: Ctx)
     held.count = held.count + 1
     kids[held.count] = child
   end
-  while top > 0 do
-    local node, place = assert(nodes[top]), assert(places[top])
-    nodes[top], places[top] = nil, nil
-    top = top - 1
+  while #nodes > 0 do
+    local node, place = assert(nodes[#nodes]), assert(places[#places])
+    nodes[#nodes] = nil
+    places[#places] = nil
     if DECLARATIONS[node.kind] == true then
       local inside = declare_one(ctx, node, place, seen)
       if inside ~= nil then
@@ -1604,11 +1605,9 @@ local function declare_all(ctx: Ctx)
         for i = #members, 1, -1 do
           local m = assert(members[i])
           if DECLARATIONS[m.kind] == true then
-            top = top + 1
-            nodes[top], places[top] = m, inside
+            nodes[#nodes + 1], places[#places + 1] = m, inside
           elseif (m.kind == "Method") then
-            top = top + 1
-            nodes[top], places[top] = m.body, { names = {}, module = "", top = false }
+            nodes[#nodes + 1], places[#places + 1] = m.body, { names = {}, module = "", top = false }
           end
         end
       end
@@ -1621,8 +1620,7 @@ local function declare_all(ctx: Ctx)
       held.count = 0
       Ast.children(node, collect)
       for i = held.count, 1, -1 do
-        top = top + 1
-        nodes[top], places[top] = kids[i], below
+        nodes[#nodes + 1], places[#places + 1] = kids[i], below
       end
     end
   end
@@ -1668,8 +1666,8 @@ local function find_export(ctx: Ctx): Entry?
         end
         if base ~= nil then
           local names: mut {string} = {}
-          for i, n in ipairs(base.names) do
-            names[i] = n
+          for _, n in ipairs(base.names) do
+            names[#names + 1] = n
           end
           for i = 2, #annotation.path do
             names[#names + 1] = assert(annotation.path[i])
@@ -1734,7 +1732,7 @@ local function lower_fn(ctx: Ctx, fn: Ast.Fn, tparams: {Types.TParam}, typeparam
     else
       params[#params + 1] = { type = lowered, omittable = p.optional }
       local binding = p.name
-      names[#params] = binding ~= nil and binding.name or ""
+      names[#names + 1] = binding ~= nil and binding.name or ""
     end
   end
   local alts: {Types.Alt}?
@@ -1833,7 +1831,7 @@ local function lower_method(ctx: Ctx, build: Build, m: Ast.Method)
     local pname = binding ~= nil and binding.name or ""
     if i == 1 then
       params[1] = { type = build.self_type }
-      names[1] = pname
+      names[#names + 1] = pname
     else
       local given = p.type
       local lowered: Type = store.invalid
@@ -1848,7 +1846,7 @@ local function lower_method(ctx: Ctx, build: Build, m: Ast.Method)
         rest = lowered
       else
         params[#params + 1] = { type = lowered, omittable = p.optional }
-        names[#params] = pname
+        names[#names + 1] = pname
       end
     end
   end
@@ -2065,8 +2063,8 @@ local function finish_build(ctx: Ctx, build: Build, frames_names: {{string}})
     report_at(ctx, "store_refused", build.node, "the type store refused the declaration " .. quoted(build.decl.name) .. ": " ..
         tostring(why), "report the program")
     local bare: Types.Body = { tparams = {}, supers = {}, fields = {}, methods = {}, values = {} }
-    for i, p in ipairs(build.tparams) do
-      bare.tparams[i] = { name = p.name }
+    for _, p in ipairs(build.tparams) do
+      bare.tparams[#bare.tparams + 1] = { name = p.name }
     end
     local _ = pcall(function()
       store:define(build.decl, bare)
@@ -2091,8 +2089,9 @@ local function enter_declaration(ctx: Ctx, node: Ast.Node): {Ast.Node}
     node = node, decl = decl, self_type = store:named(decl, identity(store, #params)), tparams = {},
     supers = {}, fields = {}, methods = {}, first_of = {}, overloads = {},
   }
-  for i, p in ipairs(params) do
-    build.tparams[i] = { name = p.name.name, bound = lower_bound(ctx, p) }
+  for _, p in ipairs(params) do
+    local bound = lower_bound(ctx, p)
+    build.tparams[#build.tparams + 1] = { name = p.name.name, bound = bound }
   end
   local supers: {Ast.TypeName} = {}
   if (node.kind == "Record") or (node.kind == "Interface") or (node.kind == "Class") then
@@ -2887,7 +2886,6 @@ end
 local function walk(ctx: Ctx)
   local nodes: mut {Ast.Node} = { ctx.input.chunk }
   local leaves: mut {boolean} = { false }
-  local top = 1
   local kids = ctx.kids
   -- TODO: hold this in a `Cell<integer>` once ci/cosmic-driver.pin names a release whose store holds cosmic.cell: the boot compiler loads this module from the pinned seed, which lacks it, and `bin/zig build boot` fails with "module 'cosmic.cell' not found".
   local held = { count = 0 }
@@ -2895,29 +2893,26 @@ local function walk(ctx: Ctx)
     held.count = held.count + 1
     kids[held.count] = child
   end
-  while top > 0 do
-    local node, leaving = nodes[top], leaves[top]
-    nodes[top], leaves[top] = nil, nil
-    top = top - 1
+  while #nodes > 0 do
+    local node, leaving = nodes[#nodes], leaves[#leaves]
+    nodes[#nodes] = nil
+    leaves[#leaves] = nil
     if leaving == true then
       pop_frame(ctx)
     else
       local given, framed = enter(ctx, node)
       if framed then
-        top = top + 1
-        nodes[top], leaves[top] = node, true
+        nodes[#nodes + 1], leaves[#leaves + 1] = node, true
       end
       if given ~= nil then
         for i = #given, 1, -1 do
-          top = top + 1
-          nodes[top], leaves[top] = given[i], false
+          nodes[#nodes + 1], leaves[#leaves + 1] = given[i], false
         end
       else
         held.count = 0
         Ast.children(node, collect)
         for i = held.count, 1, -1 do
-          top = top + 1
-          nodes[top], leaves[top] = kids[i], false
+          nodes[#nodes + 1], leaves[#leaves + 1] = kids[i], false
         end
       end
     end

@@ -1812,10 +1812,11 @@ local function parse_members(owner: string, open: integer, desc: string): {Ast.M
   local seen: {string: boolean} = {}
   while S.text ~= "end" and S.kind ~= "$EOF$" and not begins_statement(open) do
     local before = S.pos
-    members[#members + 1] = parse_member(owner, seen)
+    local member = parse_member(owner, seen)
     if S.pos == before then
-      members[#members] = skip_junk(before, true)
+      member = skip_junk(before, true)
     end
+    members[#members + 1] = member
   end
   close("end", open, desc)
   return members
@@ -2609,12 +2610,12 @@ parse_block = function(mode: integer): Ast.Block
       returned = 0
     end
     local stat = parse_statement()
-    stats[#stats + 1] = stat
     if S.pos == before then
-      stats[#stats] = skip_junk(before, true)
+      stat = skip_junk(before, true)
     elseif t == "return" then
       returned = before
     end
+    stats[#stats + 1] = stat
   end
   S.depth = S.depth - 1
   S.nesting = S.nesting - 1

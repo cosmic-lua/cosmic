@@ -1476,8 +1476,9 @@ end
 
 function Ast.number(chunk: Ast.Chunk): integer
   local pending: mut {Ast.Node} = { chunk }
+  local kids: mut {Ast.Node} = {}
   local function push(child: Ast.Node)
-    pending[#pending + 1] = child
+    kids[#kids + 1] = child
   end
   local count = 0
   while true do
@@ -1487,16 +1488,14 @@ function Ast.number(chunk: Ast.Chunk): integer
     end
     count = count + 1
     number_node(node, count)
-    -- The children go on in source order and are then turned about, so that the first is the next node taken.
-    local low = #pending + 1
+    -- The children are met in source order and go on in the reverse, so that the first is the next node taken.
     children(node, push)
-    local high = #pending
-    while low < high do
-      local held = pending[low]
-      pending[low] = pending[high]
-      pending[high] = held
-      low = low + 1
-      high = high - 1
+    while true do
+      local child = table.remove(kids)
+      if child == nil then
+        break
+      end
+      pending[#pending + 1] = child
     end
   end
   return count

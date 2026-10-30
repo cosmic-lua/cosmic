@@ -41,22 +41,20 @@ local function lines_of(source: string): Lines
   local starts: mut {integer} = { 1 }
   local columns: mut {integer} = {}
   local wide: mut {integer} = {}
-  local n = 1
   local p = 1
   while true do
     local q = find(source, "[\r\n]", p)
     if not q then
-      columns[n] = #source - p + 2
-      wide[n] = #source - p + 1
+      columns[#columns + 1] = #source - p + 2
+      wide[#wide + 1] = #source - p + 1
       return { starts = starts, columns = columns, wide = wide }
     end
     local c, d = byte(source, q), byte(source, q + 1)
     local next_p = if (d == 10 or d == 13) and d ~= c then q + 2 else q + 1 end
-    columns[n] = q - p + 1
-    wide[n] = next_p - p
+    columns[#columns + 1] = q - p + 1
+    wide[#wide + 1] = next_p - p
     p = next_p
-    n = n + 1
-    starts[n] = p
+    starts[#starts + 1] = p
   end
 end
 

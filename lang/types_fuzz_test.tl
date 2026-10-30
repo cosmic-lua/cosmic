@@ -355,7 +355,7 @@ local function shuffled(list: {Types.Type}, by: integer): {Types.Type}
   local out: mut {Types.Type} = {}
   local n = #list
   for i = 0, n - 1 do
-    out[i + 1] = list[(i + by) % n + 1]
+    out[#out + 1] = assert(list[(i + by) % n + 1])
   end
   local odd: mut {Types.Type} = {}
   local even: mut {Types.Type} = {}

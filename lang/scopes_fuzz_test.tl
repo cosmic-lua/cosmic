@@ -343,9 +343,12 @@ local function gen_mutated(src: Fuzz.Source): string
       elseif edit == 2 then
         table.insert(tokens, at, tokens[at])
       elseif edit == 3 and at < n then
-        tokens[at], tokens[at + 1] = tokens[at + 1], tokens[at]
+        local after = table.remove(tokens, at + 1)
+        table.insert(tokens, at, assert(after))
       else
-        tokens[at] = Fuzz.pick(src, PIECES)
+        local picked = Fuzz.pick(src, PIECES)
+        table.remove(tokens, at)
+        table.insert(tokens, at, picked)
       end
     end
   end

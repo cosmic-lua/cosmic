@@ -262,23 +262,21 @@ local function flatten(root: Output): string
   local pieces: mut {string} = {}
   local stack: mut {Output} = { root }
   local at: mut {integer} = { 1 }
-  local top = 1
-  while top > 0 do
-    local out = stack[top]
-    local i = at[top]
+  while #stack > 0 do
+    local out = stack[#stack]
+    local i = at[#at]
     local part = out.parts[i]
     if part == nil then
-      stack[top] = nil
-      at[top] = nil
-      top = top - 1
+      stack[#stack] = nil
+      at[#at] = nil
     else
-      at[top] = i + 1
+      at[#at] = nil
+      at[#at + 1] = i + 1
       if part is string then
         pieces[#pieces + 1] = part
       else
-        top = top + 1
-        stack[top] = part
-        at[top] = 1
+        stack[#stack + 1] = part
+        at[#at + 1] = 1
       end
     end
   end
@@ -1595,7 +1593,11 @@ stat = function(s: Ast.Stat): Output
   elseif s.kind == "Break" then
     return text(line_of(first), "break")
   elseif s.kind == "Continue" then
-    G.loops[#G.loops] = true
+    -- A `continue` outside a loop is refused where the loop is parsed; it marks nothing here.
+    if #G.loops > 0 then
+      G.loops[#G.loops] = nil
+      G.loops[#G.loops + 1] = true
+    end
     return text(line_of(first), "goto continue")
   elseif (s.kind == "While") then
     return while_statement(s)
