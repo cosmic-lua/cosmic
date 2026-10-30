@@ -10,11 +10,18 @@ local confine = require("build.confine")
 local host_names = require("build.host_names")
 local host_requires = require("build.host_requires")
 
+--- The element of `list` at `index`, which the case knows is there.
+local function nth<T>(list: {T}, index: integer): T
+  local found = list[index]
+  assert(found ~= nil, "the list has an element at " .. tostring(index))
+  return found
+end
+
 --- A run's probes with a stand-in for the runner's sandbox probe.
 local function host_with(answer: host_requires.Sandbox, path?: string, system?: {string},
                          host_only?: function(): boolean): host_requires.Host
   local given = system
-  if given == nil and path ~= nil then given = { path, (Fs.absolute(path)) } end
+  if given == nil and path ~= nil then given = { path, (assert(Fs.absolute(path))) } end
   return host_requires.new({ sandbox = function(): host_requires.Sandbox return answer end,
     path = path, system = given, host_only = host_only })
 end
@@ -110,12 +117,12 @@ local function test_a_bad_name_is_refused_naming_the_rule()
     { "root:yes", "takes no argument" },
   }
   for _, case in ipairs(cases) do
-    local spec, why = host_names.parse(case[1])
+    local spec, why = host_names.parse(nth(case, 1))
     assert(spec == nil, string.format("%q was read", case[1]))
-    assert(why:find(case[2], 1, true), string.format("%q: %s", case[1], why))
-    local answer = ask(host_requires.new(), case[1])
+    assert(why:find(nth(case, 2), 1, true), string.format("%q: %s", case[1], why))
+    local answer = ask(host_requires.new(), nth(case, 1))
     assert(answer.kind == "refused" and answer.key == "" and answer.why == why)
-    assert(host_names.class(case[1]) == nil)
+    assert(host_names.class(nth(case, 1)) == nil)
   end
 end
 
@@ -332,7 +339,7 @@ end
 --- Each answer carries its class.
 local function test_an_answer_carries_its_class()
   local answers = host_requires.answer(host_requires.new(), { "root", "proc", "bogus" })
-  assert(answers[1].class == "host" and answers[2].class == "platform" and answers[3].class == "host")
+  assert(nth(answers, 1).class == "host" and nth(answers, 2).class == "platform" and nth(answers, 3).class == "host")
 end
 
 --- A portable artifact is `runtime_context` "portable-v1", and where this
@@ -478,9 +485,9 @@ local function test_a_platform_that_is_not_linux_is_not_applicable()
   local host = host_requires.new({ linux = false })
   local answers = host_requires.answer(host, { "proc", "nest", "landlock:2", "root" })
   for i = 1, 3 do
-    assert(answers[i].kind == "na" and answers[i].class == "platform", answers[i].name)
+    assert(nth(answers, i).kind == "na" and nth(answers, i).class == "platform", nth(answers, i).name)
   end
-  assert(answers[4].class == "host" and answers[4].kind ~= "na")
+  assert(nth(answers, 4).class == "host" and nth(answers, 4).kind ~= "na")
 end
 
 --- `all_cores` is present unless the runner says the tool lacks a core, which

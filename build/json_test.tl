@@ -5,6 +5,13 @@
 local Fs = require("cosmic.fs")
 local json = require("build.json")
 
+--- The element of `list` at `index`, which the case knows is there.
+local function nth<T>(list: {T}, index: integer): T
+  local found = list[index]
+  assert(found ~= nil, "the list has an element at " .. tostring(index))
+  return found
+end
+
 local DOC <const> = [[
 {"name": "cosmic", "n": 3, "tags": ["lua", "teal"], "nothing": null,
  "a key": {"x y": true}, "users": [{"name": "ann", "id": 1}, {"name": "bo", "id": 2}], "empty": {}, "none": []}
@@ -197,9 +204,9 @@ local function test_a_filter_slice_or_union_is_refused_by_name(tmp: string)
       { "$.users[:1]", "JSONPath byte 9: slices (`start:end:step`) are not in the subset cosmic reads" },
       { "$.users[0, 1]", "JSONPath byte 10: unions (`[a, b]`) are not in the subset cosmic reads" },
   }) do
-    local ran = run({ case[1], file(tmp) })
-    assert(ran.code == 2 and ran.out == "", case[1] .. ": " .. ran.out)
-    assert(ran.err:find("cosmic: json: " .. case[2], 1, true), ran.err)
+    local ran = run({ nth(case, 1), file(tmp) })
+    assert(ran.code == 2 and ran.out == "", nth(case, 1) .. ": " .. ran.out)
+    assert(ran.err:find("cosmic: json: " .. nth(case, 2), 1, true), ran.err)
   end
 end
 
@@ -375,7 +382,7 @@ end
 local function test_flat_over_a_query_flattens_each_match(tmp: string)
   local ran = run({ "--flat", "$.users[*]", file(tmp) })
   assert(ran.code == 0, ran.err)
-  assert(ran.out == table.concat({ FLAT_DOC[9], FLAT_DOC[10], FLAT_DOC[11], FLAT_DOC[12] }, "\n") .. "\n", ran.out)
+  assert(ran.out == table.concat({ nth(FLAT_DOC, 9), nth(FLAT_DOC, 10), nth(FLAT_DOC, 11), nth(FLAT_DOC, 12) }, "\n") .. "\n", ran.out)
   local none = run({ "--flat", "$..zip", file(tmp) })
   assert(none.code == 1 and none.out == "", none.out)
 end

@@ -13,6 +13,13 @@ local shared_compiles = require("build.shared_compiles")
 local work = require("build.work")
 local parses_fixture = require("build.parses_fixture")
 
+--- The element of `list` at `index`, which the case knows is there.
+local function nth<T>(list: {T}, index: integer): T
+  local found = list[index]
+  assert(found ~= nil, "the list has an element at " .. tostring(index))
+  return found
+end
+
 --- Every row `sql` answers of the database at `path`, a line each, and
 --- every row of every parse table of a working database.
 local dump = parses_fixture.dump
@@ -38,6 +45,13 @@ local analyzer_tree: {string:string} = {
   ["build/counter.d.tl"] = "global count: integer\n",
 }
 
+--- The source `analyzer_tree` holds for `name`, which the case knows is there.
+local function analyzer_source(name: string): string
+  local source = analyzer_tree[name]
+  assert(source ~= nil, name .. " is a file of the analyzer tree")
+  return source
+end
+
 --- What a boot of the tree at `root` derives, sharing through the cache
 --- at `path` ("0" for none): what it parsed, the analyzer it recorded,
 --- and every row of every parse table. Run as a boot runs, with no
@@ -61,7 +75,7 @@ local function boot(root: string, path: string): importer.Parses, string, string
     "SELECT value FROM meta WHERE key = 'analyzer'"))
   local rows = parse_rows(handle.db)
   work.close(handle)
-  return parses, recorded[1]:text(1), rows
+  return parses, nth(recorded, 1):text(1), rows
 end
 
 --- A tree like `analyzer_tree` at `root`, with `changed` written over it.
@@ -96,7 +110,7 @@ local function test_a_boot_takes_only_the_parses_its_own_analyzer_made(tmp: stri
   -- An analyzer module edited that no root is: the roots' parses are
   -- the cache's, but the rows they name the analyzer by reach the edit,
   -- so the name is another, and nothing is taken.
-  local edited = { ["build/thing.tl"] = analyzer_tree["build/thing.tl"] .. "-- edited\n" }
+  local edited = { ["build/thing.tl"] = analyzer_source("build/thing.tl") .. "-- edited\n" }
   analyzer_checkout(tmp .. "/edited", edited)
   local declined, declined_named, declined_rows = boot(tmp .. "/edited", path)
   assert(declined.parsed == count and declined.shared == 0,
@@ -175,7 +189,7 @@ local function test_a_boot_the_cache_knows_nothing_of_parses_the_tree(tmp: strin
   analyzer_checkout(tmp .. "/first", { ["build/other.tl"] = "local x = 1\nreturn x\n" })
   local _, named = boot(tmp .. "/first", path)
   analyzer_checkout(tmp .. "/second", {
-    ["build/derivation.tl"] = analyzer_tree["build/derivation.tl"] .. "-- another\n",
+    ["build/derivation.tl"] = analyzer_source("build/derivation.tl") .. "-- another\n",
   })
   local parses, second_named = boot(tmp .. "/second", path)
   assert(parses.shared == 0 and second_named ~= named)
@@ -216,7 +230,7 @@ local function test_a_kept_parse_comes_back_whole(tmp: string)
   assert(shared_compiles.settle(cache, { kept = { kept }, used = {} }, 5))
   local sizes = assert(Sqlite.text_rows(cache.db,
     "SELECT (SELECT size FROM compiled_v2), (SELECT size FROM parsed_v1)"))
-  local parse_size = math.tointeger(tonumber(sizes[1]:text(2))) or 0
+  local parse_size = math.tointeger(tonumber(nth(sizes, 1):text(2))) or 0
   assert(parse_size > 0)
   assert(shared_compiles.settle(cache, { kept = {}, used = {},
     parses = { { key = { analyzer = "y", source_hash = "ab", mapped = false }, made = made } },
@@ -224,5 +238,5 @@ local function test_a_kept_parse_comes_back_whole(tmp: string)
   local left = assert(Sqlite.text_rows(cache.db,
     "SELECT (SELECT count(*) FROM compiled_v2), (SELECT count(*) FROM parsed_v1)"))
   shared_compiles.close(cache)
-  assert(left[1]:text(1) == "0" and left[1]:text(2) == "2", left[1]:text(1) .. " " .. left[1]:text(2))
+  assert(nth(left, 1):text(1) == "0" and nth(left, 1):text(2) == "2", nth(left, 1):text(1) .. " " .. nth(left, 1):text(2))
 end

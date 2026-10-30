@@ -24,8 +24,9 @@ local function scopes_at(source: string, places: {string}): {string}
   for _, place in ipairs(places) do
     local y, x, doc = place:match("^(%d+):(%d+)(:?d?o?c?)$")
     local names: mut {string} = {}
-    for name, module in pairs(Lexical.in_scope(bindings, math.tointeger(tonumber(y)), math.tointeger(tonumber(x)),
-        doc == ":doc")) do
+    local line = assert(math.tointeger(tonumber(y)), place .. " has a line")
+    local column = assert(math.tointeger(tonumber(x)), place .. " has a column")
+    for name, module in pairs(Lexical.in_scope(bindings, line, column, doc == ":doc")) do
       names[#names + 1] = if module ~= "" then name .. "=" .. module else name end
     end
     table.sort(names)
@@ -137,10 +138,14 @@ local function test_the_bindings_say_which_are_the_chunks_which_are_aliases_and_
   }))) do
     found[each.name .. (if each.top then "" else "!" end)] = each
   end
-  assert(found["Fs"].module == "cosmic.fs" and found["Fs"].top and not found["Fs"].annotated)
-  assert(found["B"].module == "cosmic.b" and found["B"].annotated)
-  assert(found["Fs!"].module == "" and not found["Fs!"].top)
-  assert(found["f"].head == Lexical.position(3, 0) and found["Fs!"].head == Lexical.position(4, 0))
+  local outer = assert(found["Fs"], "the module-level Fs is bound")
+  local typed = assert(found["B"], "B is bound")
+  local inner = assert(found["Fs!"], "the local Fs is bound")
+  local func = assert(found["f"], "f is bound")
+  assert(outer.module == "cosmic.fs" and outer.top and not outer.annotated)
+  assert(typed.module == "cosmic.b" and typed.annotated)
+  assert(inner.module == "" and not inner.top)
+  assert(func.head == Lexical.position(3, 0) and inner.head == Lexical.position(4, 0))
 end
 
 local function test_a_member_is_read_through_an_alias_and_through_a_require()

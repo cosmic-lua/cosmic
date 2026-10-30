@@ -18,6 +18,13 @@ local harness_epoch = require("build.harness_epoch")
 local test_key = require("build.test_key")
 local TypeWatch = require("build.type_watch")
 
+--- The element of `list` at `index`, which the case knows is there.
+local function nth<T>(list: {T}, index: integer): T
+  local found = list[index]
+  assert(found ~= nil, "the list has an element at " .. tostring(index))
+  return found
+end
+
 --- The harness is read from the projection, in the tree's build
 --- directory (`o/cosmic.db`, as a grant names it): its modules
 --- are the tree's, most of them outside this module's closure, and so
@@ -43,7 +50,7 @@ end
 --- digits ("N-xxxxxxxx"), or nil where it has another.
 local function epoch_parts(epoch: string): integer?, string?
   local count, token = epoch:match("^(%d+)%-(%x%x%x%x%x%x%x%x)$")
-  if count == nil or token:find("%u") ~= nil then return nil, nil end
+  if count == nil or token == nil or token:find("%u") ~= nil then return nil, nil end
   return math.tointeger(tonumber(count)), token
 end
 
@@ -103,7 +110,7 @@ local function epoch_trouble(epoch: string, retired: {string}): string?
     seen[token] = true
   end
   local count, token = epoch_parts(epoch)
-  if count == nil then
+  if count == nil or token == nil then
     return string.format("`epoch` is %q, not a count, a dash and 8 lower-case hex digits",
       epoch)
   end
@@ -149,7 +156,7 @@ local function unacknowledged(found: {string:string}, acknowledged: {string:stri
     out[#out + 1] = if acknowledged[name] == nil then
       "no entry for " .. name .. "; add this line, in its place by name, between blank lines" else
       "moved: " .. name .. "; set its line to" end
-    out[#out + 1] = entry(name, found[name])
+    out[#out + 1] = entry(name, (assert(found[name], name .. " is found")))
   end
   for _, name in ipairs(stale) do
     out[#out + 1] = "stale entry: " .. name .. " is no module of the harness; delete its line"
@@ -360,14 +367,14 @@ local function test_the_file_holds_its_entries_as_the_guard_prints_them()
   local rows = assert(Sqlite.rows(db, "SELECT source FROM modules WHERE path = ?1",
     { { text = "build.harness_epoch" } }))
   db:close()
-  local text = assert(Compress.inflate("raw", rows[1]:blob(1)))
+  local text = assert(Compress.inflate("raw", nth(rows, 1):blob(1)))
   local names: mut {string} = {}
   for name in pairs(harness_epoch.acknowledged) do names[#names + 1] = name end
   assert(#names > 0)
   table.sort(names)
   local last = 0
   for _, name in ipairs(names) do
-    local at = text:find("\n\n" .. entry(name, harness_epoch.acknowledged[name]) .. "\n\n", 1,
+    local at = text:find("\n\n" .. entry(name, (assert(harness_epoch.acknowledged[name], name .. " is acknowledged"))) .. "\n\n", 1,
       true)
     assert(at ~= nil, name .. "'s entry is not one line as the guard prints it, between " ..
         "blank lines")
@@ -555,8 +562,9 @@ local function test_type_only_imports_is_what_value_imports_drops()
   end
   local erased = assert(test_key.type_only_imports(db))
   db:close()
-  assert(erased["build.x"] ~= nil and erased["build.x"]["cosmic.child"] == true, "a type-only edge was kept")
-  assert(erased["build.x"]["cosmic.fs"] ~= true, "a value edge was dropped")
+  local edges = assert(erased["build.x"], "a type-only edge was kept")
+  assert(edges["cosmic.child"] == true, "a type-only edge was kept")
+  assert(edges["cosmic.fs"] ~= true, "a value edge was dropped")
   assert(erased["build.y"] == nil, "an importer with no bytecode lost an edge")
   assert(erased["build.t_test"] == nil, "a test's own edge was dropped")
 end

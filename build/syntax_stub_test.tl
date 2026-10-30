@@ -4,6 +4,13 @@ local Programs = require("lang.check_programs")
 local Stub = require("build.syntax_stub")
 local Test = require("cosmic.test")
 
+--- The element of `list` at `index`, which the case knows is there.
+local function nth<T>(list: {T}, index: integer): T
+  local found = list[index]
+  assert(found ~= nil, "the list has an element at " .. tostring(index))
+  return found
+end
+
 Test.policy{}
 
 local function source(...: string): string
@@ -60,9 +67,9 @@ local function test_a_stub_leaves_out_bodies_and_comments_and_keeps_positions()
   for i, line in ipairs(want) do
     if i == 12 then
       -- The one-line function keeps its `end` at the column it had.
-      assert(stubbed[i]:match("^M%.g = function%(s: string%): string +end$") ~= nil, "line 12: " .. stubbed[i])
+      assert(nth(stubbed, i):match("^M%.g = function%(s: string%): string +end$") ~= nil, "line 12: " .. nth(stubbed, i))
     else
-      assert(stubbed[i] == line, "line " .. tostring(i) .. ": " .. stubbed[i])
+      assert(stubbed[i] == line, "line " .. tostring(i) .. ": " .. nth(stubbed, i))
     end
   end
   local text = stub_of(source("local record M", "end", "M.g = function(s: string): string return s end", "return (M)"))
@@ -107,7 +114,7 @@ local function test_a_module_returning_its_record_keeps_only_what_its_type_names
   }
   assert(#stubbed == #want, table.concat(stubbed, "\n"))
   for i, line in ipairs(want) do
-    assert(stubbed[i] == line, "line " .. tostring(i) .. ": " .. stubbed[i])
+    assert(stubbed[i] == line, "line " .. tostring(i) .. ": " .. nth(stubbed, i))
   end
 end
 
@@ -362,7 +369,7 @@ local function test_a_stub_that_changes_or_drops_a_function_written_as_a_static_
     { "function M.items(): {M.Item}", "function M.items(): {integer}" },
   }
   for i, plant in ipairs(plants) do
-    local changed = STATICS:gsub(plant[1]:gsub("[%(%)%?%.%-%+%*%[%]%^%$%%]", "%%%0"), (plant[2]:gsub("%%", "%%%%")), 1)
+    local changed = STATICS:gsub(nth(plant, 1):gsub("[%(%)%?%.%-%+%*%[%]%^%$%%]", "%%%0"), (nth(plant, 2):gsub("%%", "%%%%")), 1)
     assert(changed ~= STATICS, "plant " .. tostring(i) .. " changes nothing")
     local found = difference_of(STATICS, changed)
     assert(found ~= nil and found:find("^M%.%a+: ") ~= nil, "plant " .. tostring(i) .. ": " .. tostring(found))
