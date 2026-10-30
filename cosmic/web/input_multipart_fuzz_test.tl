@@ -75,7 +75,7 @@ local function test_any_multipart_body_is_bounded_and_leaves_no_file(tmp: string
     shares = { bound = 0.1 },
     check = function(input: string): boolean, string
       local f = Fuzz.unpack(input)
-      local text = f[1]
+      local text = assert(f[1], "the input packs the body first")
       local max_file_bytes = assert(math.tointeger(tonumber(f[2])))
       local max_field_bytes = assert(math.tointeger(tonumber(f[3])))
       local max_files = assert(math.tointeger(tonumber(f[4])))

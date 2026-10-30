@@ -381,6 +381,11 @@ function wire.read_head(input: wire.Input, limits: wire.Limits): wire.Read
   local start = input.taken
   -- Why the head is refused, once a line says so.
   local stopped: mut {wire.Read} = {}
+  --- The refusal `next_line` has recorded: it answers nil only after one, and
+  --- a connection that ended is the answer should it ever not.
+  local function halted(): wire.Read
+    return stopped[1] or refused(0, "")
+  end
   --- The next line of the head, without its CR; nil, `stopped` set, where
   --- there is none.
   local function next_line(): string?
@@ -405,11 +410,12 @@ function wire.read_head(input: wire.Input, limits: wire.Limits): wire.Read
   -- 9112 2.2).
   local request_line: string
   repeat
-    request_line = next_line()
-    if request_line == nil then return stopped[1] end
+    local got_line = next_line()
+    if got_line == nil then return halted() end
+    request_line = got_line
   until request_line ~= ""
   local method, target, version = request_line:match("^([^ ]+) ([^ ]+) ([^ ]+)$")
-  if method == nil then
+  if method == nil or target == nil or version == nil then
     return refused(400, "the request line is not method, target and version")
   end
   if not method:find(TOKEN) then return refused(400, "the method is no token") end
@@ -425,7 +431,7 @@ function wire.read_head(input: wire.Input, limits: wire.Limits): wire.Read
   local names: mut {string} = {}
   while true do
     local text = next_line()
-    if text == nil then return stopped[1] end
+    if text == nil then return halted() end
     if text == "" then break end
     local got, why = field(text)
     if got == nil then return refused(400, why) end
@@ -440,14 +446,18 @@ function wire.read_head(input: wire.Input, limits: wire.Limits): wire.Read
   local headers: mut {string:string} = {}
   for _, name in ipairs(names) do
     -- Cookie pairs are separated by "; " (RFC 6265 5.4, RFC 9113 8.2.3).
-    headers[name] = table.concat(values[name], if name == "cookie" then "; " else ", " end)
+    local list = values[name]
+    if list ~= nil then
+      headers[name] = table.concat(list, if name == "cookie" then "; " else ", " end)
+    end
   end
   local spent = input.taken - start
-  local hosts = if values["host"] ~= nil then #values["host"] else 0 end
+  local host_values = values["host"]
+  local hosts = if host_values ~= nil then #host_values else 0 end
   if hosts > 1 or (version == "HTTP/1.1" and hosts == 0) then
     return refused(400, "an HTTP/1.1 request names exactly one Host")
   end
-  local length: integer = 0
+  local length: integer? = 0
   local chunked = false
   local te = headers["transfer-encoding"]
   local cl = headers["content-length"]
@@ -474,13 +484,14 @@ function wire.read_head(input: wire.Input, limits: wire.Limits): wire.Read
     local lengths = members(cl)
     if #lengths == 0 then return refused(400, "Content-Length is empty") end
     local first = decimal(lengths[1])
+    if first == nil then return refused(400, "Content-Length is not digits") end
     for _, value in ipairs(lengths) do
       local n = decimal(value)
       if n == nil then return refused(400, "Content-Length is not digits") end
       if n ~= first then return refused(400, "Content-Length's values differ") end
     end
     length = first
-    if length > limits.body_bytes then
+    if first > limits.body_bytes then
       return refused(413, "the body is longer than limits.body_bytes")
     end
   end
@@ -554,7 +565,9 @@ local function next_chunk(self: BodyReader): boolean, string
   local text, why = meta_line(self)
   if text == nil then return false, why end
   local hex, rest = text:match("^(%x+)(.*)$")
-  if hex == nil then return stopped(self, "bad", "http: a chunk's size is not hex") end
+  if hex == nil or rest == nil then
+    return stopped(self, "bad", "http: a chunk's size is not hex")
+  end
   if rest ~= "" and (not rest:find("^[ \t]*;") or rest:find(VALUE_CONTROL) ~= nil) then
     return stopped(self, "bad", "http: a chunk's extension is malformed")
   end
@@ -745,6 +758,7 @@ local function given_length(headers: {string: string | {string}}): integer?, str
   if value is {string} then
     return nil, ("header %s: Content-Length is one value, not a list"):format(name)
   end
+  assert(value, "wire: a name collected from the headers holds a value")
   local size = decimal(value)
   if size == nil then return nil, ("header %s: %q is not digits"):format(name, value) end
   if size == math.maxinteger then return nil, ("header %s: %s is too large"):format(name, value) end
@@ -834,7 +848,7 @@ local function head_text(reply: wire.Reply, length: integer?, chunked: boolean,
     local value = headers[name]
     if value is string then
       lines[#lines + 1] = name .. ": " .. value
-    else
+    elseif value ~= nil then
       for _, entry in ipairs(value) do lines[#lines + 1] = name .. ": " .. entry end
     end
   end

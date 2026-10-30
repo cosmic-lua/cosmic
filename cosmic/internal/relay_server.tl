@@ -497,7 +497,10 @@ local function is_token(run: Running, given: string): boolean
   local want = assert(run.token_digest)
   local diff = #have ~ #want
   for i = 1, #want do
-    diff = diff | (have:byte(i) ~ want:byte(i))
+    local given_byte, wanted_byte = have:byte(i), want:byte(i)
+    -- Digests of unequal length differ already, in `diff`.
+    if given_byte == nil or wanted_byte == nil then return false end
+    diff = diff | (given_byte ~ wanted_byte)
   end
   return diff == 0
 end
@@ -507,7 +510,7 @@ end
 local function basic_password(authorization: string?): string?, string
   if authorization == nil then return nil, "no Proxy-Authorization" end
   local scheme, rest = authorization:match("^(%S+)%s+(.*)$")
-  if scheme == nil or lower(scheme) ~= "basic" then
+  if scheme == nil or rest == nil or lower(scheme) ~= "basic" then
     return nil, "Proxy-Authorization is not Basic"
   end
   local decoded, _ = Codec.unbase64(String.trim(rest))
@@ -575,7 +578,8 @@ local function read_connect(run: Running, conn: Net.Conn, first: string, deadlin
   local all = ""
   local pending = first
   while true do
-    local data, why: string, string
+    local data: string?
+    local why = ""
     if pending ~= "" then
       data, why, pending = pending, "", ""
     else
@@ -642,7 +646,8 @@ local function read_socks(run: Running, conn: Net.Conn, authenticated: function(
   local greeted: Wire.SocksGreeting
   local pending = first
   while true do
-    local data, why: string, string
+    local data: string?
+    local why = ""
     if pending ~= "" then
       data, why, pending = pending, "", ""
     else
@@ -733,8 +738,12 @@ local function read_socks(run: Running, conn: Net.Conn, authenticated: function(
       return early(assert(answer.reason), assert(answer.reply), true)
     end
     if answer.status == "done" then
-      return { status = "done", reason = "", reply = "succeeded", host = answer.host, kind = answer.kind,
-        port = answer.port, leftover = held:sub(answer.consumed + 1), answer = true }
+      local host, kind, port = answer.host, answer.kind, answer.port
+      if host == nil or kind == nil or port == nil then
+        return early("the request names no target", "failure", true)
+      end
+      return { status = "done", reason = "", reply = "succeeded", host = host, kind = kind,
+        port = port, leftover = held:sub(answer.consumed + 1), answer = true }
     end
     if #held >= cap then return early("request longer than the relay's cap", "failure", true) end
   end
@@ -1145,7 +1154,12 @@ local function serve_connection(run: Running, protocol: string, client: Net.Conn
       end
       authenticated()
     end
-    req.host, req.kind, req.port, req.leftover = head.host, head.kind, head.port, rest
+    local host, kind, port = head.host, head.kind, head.port
+    if host == nil or kind == nil or port == nil then
+      reject(refusal("the request names no target", 400, "failure"), true)
+      return
+    end
+    req.host, req.kind, req.port, req.leftover = host, kind, port, rest
   else
     local asked = read_socks(run, client, authenticated, sniffed, reading_until)
     if asked.status == "refused" then
