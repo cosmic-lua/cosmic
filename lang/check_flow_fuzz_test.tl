@@ -555,6 +555,198 @@ local function test_a_program_over_locals_the_flow_takes_does_not_fail_at_a_narr
   })
 end
 
+-- programs over arrays ------------------------------------------------------------------------------------------------
+
+--- What every array program starts with: `shared`, which a function reaches as a view `v` and as a `mut` array `o` at once,
+--- and the code that shortens it: `shorten`, a `table.remove`, and the `__tostring` of an `Eater`, which `tostring` runs.
+local ARRAYS_HEAD <const> = [[
+local record Counter
+  mut n: integer
+end
+local st: Counter = { n = 0 }
+local shared: mut {string} = { "a", "b", "c", "d" }
+local function reset(n: integer)
+  while #shared > n do
+    table.remove(shared)
+  end
+  while #shared < n do
+    shared[#shared + 1] = "s"
+  end
+end
+local function touch()
+  st.n = st.n + 1
+end
+local function shorten()
+  table.remove(shared)
+end
+local class Eater
+  n: integer
+  function __tostring(self): string
+    table.remove(shared)
+    return "x"
+  end
+end
+local eater: Eater = { n = 0 }
+]]
+
+--- Statements that run no code of the program, or that may shorten `shared`, written over `v` and `o`.
+local ARRAY_EFFECTS <const>: {string} = {
+  "touch()", "shorten()", "table.remove(shared)", "table.remove(o)", "o[#o] = nil", "shared[#shared] = nil", "reset(0)",
+  "pcall(shorten)", "total = total + #tostring(eater)", "total = total + #tostring(total)", "total = total + #tostring(#v)",
+  "total = total + #string.upper(\"a\")", "total = total + #(\"b\"):upper()", "total = total + math.max(1, 2)",
+  "total = total + #table.concat(v)", "o[#o + 1] = \"q\"", "table.insert(o, \"q\")", "for _ in ipairs(v) do end",
+  "local cut = function() table.remove(shared) end\n  cut()", "total = total + #string.format(\"%d\", total)",
+}
+
+--- A test that `v` has an element, of the forms the checker reads, some with a call in the test.
+local function length_test(g: Gen): string
+  local n = g.src:int(1, 3)
+  local k, below = tostring(n), tostring(n - 1)
+  return Fuzz.pick(g.src, {
+    "#v >= " .. k, "#v > " .. below, "#v == " .. k, k .. " <= #v", "#v >= " .. k .. " and #v < 9",
+    "#v >= " .. k .. " and #tostring(eater) > 0", "#v ~= 0", "#v >= " .. k .. " and #tostring(total) > 0",
+  })
+end
+
+--- The read of an element of `v`, of `loop` where a numeric `for` has one. A statement passes it to `tostring`, which takes the
+--- optional element a read the checker cannot prove is, so that only the reads it proves can fail.
+local function array_read(g: Gen, loop: string?): string
+  if loop ~= nil and g.src:int(0, 2) > 0 then
+    return "v[" .. loop .. "]"
+  end
+  return Fuzz.pick(g.src, { "v[1]", "v[2]", "v[3]", "v[#v]" })
+end
+
+--- The statements of a function over arrays, which call each other.
+local record Arrays
+end
+
+function Arrays.statement(g: Gen, loop: string?)
+  local k = g.src:int(0, if g.depth >= 2 then 5 else 9 end)
+  if k <= 1 then
+    add(g, "total = total + #tostring(" .. array_read(g, loop) .. ")")
+  elseif k == 2 then
+    add(g, "assert(" .. length_test(g) .. Fuzz.pick(g.src, { "", ", \"assertion failed: m\"", ", \"assertion failed: \" .. tostring(#v)",
+      ", \"assertion failed: \" .. tostring(eater)" }) .. ")")
+  elseif k == 3 then
+    add(g, "if " .. length_test(g) .. " then")
+    g.depth = g.depth + 1
+    Arrays.block(g, loop, g.src:int(1, 3))
+    g.depth = g.depth - 1
+    add(g, "end")
+  elseif k == 4 then
+    add(g, "if #v " .. Fuzz.pick(g.src, { "< 1", "== 0", "< 2", "<= 2" }) .. " then return total end")
+  elseif k == 5 then
+    add(g, Fuzz.pick(g.src, ARRAY_EFFECTS))
+  elseif k == 6 then
+    local i = fresh(g, "i")
+    add(g, Fuzz.pick(g.src, { "for " .. i .. " = 1, #v do", "for " .. i .. " = #v, 1, -1 do", "for " .. i .. " = 2, #v do" }))
+    g.depth = g.depth + 1
+    Arrays.block(g, i, g.src:int(1, 3))
+    g.depth = g.depth - 1
+    add(g, "end")
+  elseif k == 7 then
+    -- Bounded by a counter, since a body that shortens nothing would not end.
+    local w = fresh(g, "w")
+    add(g, "local " .. w .. " = 0")
+    add(g, "while " .. length_test(g) .. " and " .. w .. " < 3 do")
+    g.depth = g.depth + 1
+    add(g, w .. " = " .. w .. " + 1")
+    Arrays.block(g, loop, g.src:int(1, 3))
+    g.depth = g.depth - 1
+    add(g, "end")
+  elseif k == 8 then
+    add(g, "if " .. length_test(g) .. " then")
+    g.depth = g.depth + 1
+    Arrays.block(g, loop, g.src:int(1, 2))
+    g.depth = g.depth - 1
+    add(g, "else")
+    g.depth = g.depth + 1
+    Arrays.block(g, loop, g.src:int(1, 2))
+    g.depth = g.depth - 1
+    add(g, "end")
+  else
+    add(g, "total = total + #tostring(" .. array_read(g, loop) .. ")")
+    add(g, Fuzz.pick(g.src, ARRAY_EFFECTS))
+    add(g, "total = total + #tostring(" .. array_read(g, loop) .. ")")
+  end
+end
+
+function Arrays.block(g: Gen, loop: string?, n: integer)
+  for _ = 1, n do
+    if g.fuel > 0 then
+      Arrays.statement(g, loop)
+    end
+  end
+end
+
+--- A program of [`ARRAYS_HEAD`] and functions of statements over `v` and `o`, called with `shared` at every length from four
+--- to none.
+local function gen_arrays(src: Fuzz.Source): string
+  local out: mut {string} = { ARRAYS_HEAD }
+  for count = 1, src:int(1, 3) do
+    local n = tostring(count)
+    local g: Gen = { src = src, lines = {}, id = 0, fuel = 30, depth = 0, in_loop = false, fixed = false }
+    Arrays.block(g, nil, src:int(3, 8))
+    out[#out + 1] = "local function f" .. n .. "(v: {string}, o: mut {string}): integer\n  local total = 0"
+    out[#out + 1] = table.concat(g.lines, "\n")
+    out[#out + 1] = "  return total\nend"
+    -- A failed `assert` ends a call, not the program; a violated fact is raised again.
+    out[#out + 1] = "for n = 4, 0, -1 do\n  reset(n)\n  local ok, why = pcall(f" .. n ..
+      ", shared, shared)\n  if not ok and tostring(why):find(\"fact violated\", 1, true) ~= nil then\n    error(why)\n  end\nend"
+  end
+  return table.concat(out, "\n") .. "\n"
+end
+
+local ARRAY_CONSTRUCTS <const>: {Construct} = {
+  { label = "numeric for", pattern = "for i%d+ = " }, { label = "while", pattern = "while " },
+  { label = "message call", pattern = "assert%([^\n]*%.%. tostring" }, { label = "class tostring", pattern = "tostring%(eater%)" },
+  { label = "removal", pattern = "table%.remove" }, { label = "nil write", pattern = "%] = nil" },
+}
+
+local function check_arrays(source: string): boolean, string
+  local x = execute(source)
+  if not x.ran then
+    local first = x.run.errors[1]
+    if first ~= nil then
+      Fuzz.label("refused for " .. first.code)
+    end
+    Fuzz.label(if #x.run.before > 0 then "not a program" else "refused" end)
+    return true, ""
+  end
+  Fuzz.label("accepted")
+  for _, n in ipairs(x.run.result.narrowed) do
+    if n.text:find("[", 1, true) ~= nil then
+      Fuzz.label("length read")
+      break
+    end
+  end
+  local fault = x.fault
+  if fault == nil or fault:find("assertion failed", 1, true) ~= nil then
+    Fuzz.label(if fault == nil then "ran" else "stopped by assert" end)
+    for _, c in ipairs(ARRAY_CONSTRUCTS) do
+      if source:find(c.pattern) then
+        Fuzz.label("ran with " .. c.label)
+      end
+    end
+    return true, ""
+  end
+  return false, "the checker took a program that fails at run time: " .. fault .. "\n--- program ---\n" .. source ..
+    "\n--- lua ---\n" .. x.lua
+end
+
+local function test_a_program_over_arrays_the_flow_takes_does_not_read_nil_where_a_length_fact_said_it_was_not(tmp: string)
+  Fuzz.run({
+    name = "flow sound arrays",
+    dir = tmp,
+    iters = iterations(32),
+    gen = gen_arrays,
+    check = check_arrays,
+    requires = { "accepted", "ran", "length read" },
+    shares = { accepted = 0.05 },
+  })
+end
+
 -- programs of shapes over enums, classes, tags, tables and closures -----------------------------------------------------
 
 --- What every shaped program starts with: sources of values that vary with a counter, an enum, two classes, two tagged

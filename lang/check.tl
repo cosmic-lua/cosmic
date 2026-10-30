@@ -96,7 +96,7 @@ local record Check
   -- a string that an `==` test narrowed (no read is wrapped), and `true` against `false` of a boolean. A run misses a
   -- false conclusion of these and refuses nothing valid. Once a full `cosmic test --check-types` run (CI's `checked-narrowing`
   -- job) has a time to compare, so that the cost of a call per read of each decides which are worth it.
-  --- A read of a local, or of a path of fixed fields from one, whose type a test narrowed. The checker took the value
+  --- A read of a local, of a path of fixed fields from one, or of an element a length test proved, whose type a test narrowed. The checker took the value
   --- to have none of the kinds of Lua value in `taken`, and the values of the enums, classes and tags the other fields
   --- name, which a run can check at the read.
   record Narrowed
@@ -2943,7 +2943,7 @@ local function note_narrowed(ctx: Ctx, node: Ast.Node, declared: Type, narrowed:
   local tokens = ctx.tokens
   local first, last = b.first, math.max(b.first, b.last)
   local start = Lexer.offset(tokens, first)
-  ctx.narrowed[start] = {
+  ctx.narrowed[b.id] = {
     id = b.id, offset = start, length = math.max(0, Lexer.stop(tokens, last) - start), text = text_of(ctx, node),
     taken = taken, strings = strings, classes = classes, tag = tag, tags = tags,
   }
@@ -3204,10 +3204,13 @@ local function index_read(ctx: Ctx, node: Ast.Index, object: Type): Type
     if not t.mut then
       element = view(store, element)
     end
+    local maybe = store:optional(element)
     if Tests.length_proves(ctx, node.object, node.key) then
+      -- Checked at run time like a narrowed local: a length fact has no other check.
+      note_narrowed(ctx, node, maybe, element)
       return element
     end
-    return store:optional(element)
+    return maybe
   elseif (t.tag == "map") then
     local k = expr(ctx, node.key, t.key)
     local _ = key_ok(ctx, node.key, k, t.key, subject(ctx, node.object))
@@ -7510,7 +7513,10 @@ function Check.check(program: Declarations.Program, input: Declarations.Input, l
     narrowed[#narrowed + 1] = n
   end
   table.sort(narrowed, function(a: Check.Narrowed, b: Check.Narrowed): boolean
-    return a.offset < b.offset
+    if a.offset ~= b.offset then
+      return a.offset < b.offset
+    end
+    return a.id < b.id
   end)
   local warnings = ctx.warnings
   for _, w in ipairs(Warnings.usage(ctx.filename, ctx.tokens, ctx.scoped, ctx.vars, function(t: Type): string
