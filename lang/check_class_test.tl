@@ -253,7 +253,8 @@ end
 local function test_a_close_method_takes_the_value_and_a_tostring_method_answers_a_string()
   accepted("local class G\n  n: integer\n  function __close(self)\n  end\n  function __tostring(self): string\n" ..
       "    return \"g\"\n  end\nend\n")
-  declared_wrong("local class G\n  function __close(self, err: any)\n  end\nend\n", "metamethod_signature",
+  accepted("local class G\n  function __close(self, err: any)\n  end\nend\n")
+  declared_wrong("local class G\n  function __close(self, by: integer)\n  end\nend\n", "metamethod_signature",
     "the method `__close` of `G` takes more than the value")
   declared_wrong("local class G\n  function __tostring(self, indent: integer): string\n    return \"\"\n  end\nend\n",
     "metamethod_signature", "takes more than the value")
@@ -314,6 +315,10 @@ local DEV <const> = "local record dev\n" ..
   "  record Odd\n    userdata\n    __close: integer\n  end\n" ..
   "  record Maybe\n    userdata\n    __close?: function(self: Maybe)\n  end\n" ..
   "  record NoSelf\n    userdata\n    __close: function()\n  end\n" ..
+  "  record AnySelf\n    userdata\n    __close: function(self: any)\n  end\n" ..
+  "  record Super\n    userdata\n    __close: function(self: Closer)\n  end\n" ..
+  "  record MutSelf\n    userdata\n    __close: function(self: mut MutSelf)\n  end\n" ..
+  "  record Over\n    userdata\n    __close: function(self: Over, a: integer)\n    __close: function(self: Over)\n  end\n" ..
   "  record Other\n    userdata\n    __close: function(other: Bare)\n  end\n" ..
   "  record TwoMore\n    userdata\n    __close: function(self: TwoMore, a: integer, b: integer)\n  end\n" ..
   "  record Err\n    userdata\n    __close: function(self: Err, err: any)\n  end\n" ..
@@ -323,7 +328,7 @@ local DEV <const> = "local record dev\n" ..
   "  record Inherits\n    userdata\n    is Closer\n    fd: function(self: Inherits): integer\n  end\n" ..
   "  open: function(): Handle?\n  make: function(): Handle\n  bare: function(): Bare\n  empty: function(): Empty\n" ..
   "  odd: function(): Odd\n  maybe: function(): Maybe\n  noself: function(): NoSelf\n  other: function(): Other\n" ..
-  "  twomore: function(): TwoMore\n  err: function(): Err\n  errint: function(): ErrInt\n  answers: function(): Answers\n" ..
+  "  anyself: function(): AnySelf\n  super: function(): Super\n  mutself: function(): MutSelf\n  over: function(): Over\n  twomore: function(): TwoMore\n  err: function(): Err\n  errint: function(): ErrInt\n  answers: function(): Answers\n" ..
   "  closer: function(): Closer\n  inherits: function(): Inherits\n" ..
   "end\nreturn dev\n"
 
@@ -348,10 +353,13 @@ local function test_a_userdata_record_without_a_close_method_is_not_closable()
   bad("bare", "the userdata record `dev.Bare` declares no `__close` method")
   bad("empty", "declares no `__close` method")
   -- a field of that name is no method: not a function, or optional, or without the record first
-  bad("odd", "declares no `__close` method")
-  bad("maybe", "declares no `__close` method")
-  bad("noself", "declares no `__close` method")
-  bad("other", "declares no `__close` method")
+  bad("odd", "as a field and not a method")
+  bad("maybe", "as a field and not a method")
+  bad("noself", "as a field and not a method")
+  bad("other", "as a field and not a method")
+  bad("anyself", "as a field and not a method")
+  bad("super", "as a field and not a method")
+  bad("mutself", "as a field and not a method")
   -- an interface's `__close` is no metatable's, whether the local is typed by the interface or the record lists it
   bad("inherits", "declares no `__close` method")
   refused(with_dev("dev", "local x <close> = dev.closer()\n"), "close_not_closable", "is not a class", nil, declared)
@@ -360,12 +368,13 @@ end
 local function test_a_close_method_must_take_the_value_alone_and_answer_nothing()
   local declared = { dev = DEV }
   accepted(with_dev("dev", "local x <close> = dev.err()\n"), nil, declared)
-  for _, call in ipairs({ "twomore", "errint", "answers" }) do
+  -- every overload must be one, not just one of them
+  for _, call in ipairs({ "twomore", "errint", "answers", "over" }) do
     refused(with_dev("dev", "local x <close> = dev." .. call .. "()\n"), "close_not_closable",
-      "declares a `__close` that is not a function taking the value, and the error object as `any` at most, and answering nothing", nil, declared)
+      "declares a `__close` that is not what Lua calls", nil, declared)
   end
   declared_wrong("local class G\n  function __close(self): integer\n    return 1\n  end\nend\n", "metamethod_signature",
-    "answers a value")
+    "or answers a value")
 end
 
 local function test_a_union_with_a_member_that_is_not_closable_is_refused_naming_it()
