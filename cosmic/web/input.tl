@@ -816,7 +816,7 @@ end
 
 --- The value `text` spells for the scalar `spec`, or nil with the error
 --- recorded.
-local function coerce(w: Walk, field: string, spec: Shape.Spec, text: string): any
+local function coerce(w: Walk, field: string, spec: Shape.Spec, text: string): Json.Value?
   local kind = spec.kind
   if kind == "string" or kind == "any" then
     if text:find("\0", 1, true) then
@@ -858,7 +858,7 @@ local function coerce(w: Walk, field: string, spec: Shape.Spec, text: string): a
 end
 
 --- The value of the scalar `field`, given the text sent for it or nil.
-local function scalar(w: Walk, field: string, spec: Shape.Spec, text: string?): any
+local function scalar(w: Walk, field: string, spec: Shape.Spec, text: string?): Json.Value?
   local kind = spec.kind
   if text == nil or (text == "" and kind ~= "string" and kind ~= "any") then
     if spec.optional then return nil end
@@ -869,7 +869,7 @@ local function scalar(w: Walk, field: string, spec: Shape.Spec, text: string?): 
   return coerce(w, field, spec, text)
 end
 
-local bind_record: function(w: Walk, prefix: string, spec: Shape.Spec, depth: integer): {string:any}
+local bind_record: function(w: Walk, prefix: string, spec: Shape.Spec, depth: integer): {string: Json.Value}
 
 --- Whether some name starts with `prefix` and a dot.
 local function nested_present(q: Url.Query, prefix: string): boolean
@@ -880,21 +880,22 @@ local function nested_present(q: Url.Query, prefix: string): boolean
   return false
 end
 
-local function bind_list(w: Walk, field: string, spec: Shape.Spec): any
+local function bind_list(w: Walk, field: string, spec: Shape.Spec): Json.Value?
   local values = w.q.by_name[field]
   if values == nil then
     if spec.optional then return nil end
     return Json.array({})
   end
-  local out: mut {any} = {}
+  local out: mut {Json.Value} = {}
   local of = assert(spec.of)
   for i, text in ipairs(values) do
-    out[i] = scalar(w, field .. "." .. tostring((i - 1)), of, text)
+    local item = scalar(w, field .. "." .. tostring((i - 1)), of, text)
+    if item ~= nil then out[#out + 1] = item end
   end
   return Json.array(out)
 end
 
-local function bind_node(w: Walk, field: string, spec: Shape.Spec, depth: integer): any
+local function bind_node(w: Walk, field: string, spec: Shape.Spec, depth: integer): Json.Value?
   local kind = spec.kind
   if kind == "record" then
     if spec.optional and not nested_present(w.q, field) then return nil end
@@ -924,7 +925,7 @@ local function component(name: string, prefix: string): string?
   return (rest:match("^([^.]*)"))
 end
 
-bind_record = function(w: Walk, prefix: string, spec: Shape.Spec, depth: integer): {string:any}
+bind_record = function(w: Walk, prefix: string, spec: Shape.Spec, depth: integer): {string: Json.Value}
   local fields, names = assert(spec.fields), assert(spec.names)
   if spec.strict == true then
     local unknown: mut {string} = {}
@@ -939,10 +940,11 @@ bind_record = function(w: Walk, prefix: string, spec: Shape.Spec, depth: integer
     table.sort(unknown)
     for _, name in ipairs(unknown) do refuse(w, name, "unknown", "is not a known field") end
   end
-  local out: mut {string:any} = {}
+  local out: mut {string: Json.Value} = {}
   for _, name in ipairs(names) do
     local field = prefix == "" and name or (prefix .. "." .. name)
-    out[name] = bind_node(w, field, fields[name], depth)
+    local node = bind_node(w, field, fields[name], depth)
+    if node ~= nil then out[name] = node end
   end
   return out
 end

@@ -680,3 +680,19 @@ local function test_form_into_and_query_into_bind_a_request()
   end) } }
   assert(Web.test_client(app):post("/x?n=4", { form = { n = "z" } }).status == 200)
 end
+
+local record Gaps
+  xs: {integer}
+end
+
+local function test_a_list_item_that_is_absent_is_left_out_not_a_hole()
+  local spec = Shape.record({ xs = Shape.list(Shape.optional(Shape.integer)) })
+  local r: Types.Parsed<Gaps> = Input.bind_strings(decoded("xs=1&xs=&xs=3"), spec)
+  assert(r.invalid == nil, message_of(r.invalid))
+  local xs = assert(r.value).xs
+  assert(#xs == 2 and xs[1] == 1 and xs[2] == 3, "the list holds the items given, without a hole")
+  r = Input.bind_strings(decoded("xs=1&xs=x"), spec)
+  local invalid = r.invalid
+  assert(invalid ~= nil and #invalid.errors == 1 and assert(invalid.errors[1]).field == "xs.1",
+    "a bad item is still refused by its position")
+end

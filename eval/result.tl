@@ -66,14 +66,22 @@ local function decode(line: string): {string: any}?
   return nil
 end
 
---- `event[key]`, [`Json.null`] where there is no event or no such key
---- (a `false` is a value).
-local function reported_field(event: {string: any}?, key: string): any
-  if event == nil or event[key] == nil then return Json.null end
-  return event[key]
+--- `value` as a [`Json.Value`] where it is one, else [`Json.null`]: a field
+--- the transcript lacks, or holds as something JSON cannot say, is unavailable.
+local function available(value: any): Json.Value
+  local checked, _ = Json.to_value(value)
+  if checked == nil then return Json.null end
+  return checked
 end
 
-local function number(value: any): any
+--- `event[key]`, [`Json.null`] where there is no event or no such key
+--- (a `false` is a value).
+local function reported_field(event: {string: any}?, key: string): Json.Value
+  if event == nil then return Json.null end
+  return available(event[key])
+end
+
+local function number(value: any): Json.Value
   if value is number then return value end
   return Json.null
 end
@@ -107,7 +115,7 @@ end
 
 --- The grade's verdict word for its exit status: PASS, FAIL, TIMEOUT
 --- (the grader's deadline) or ERROR for any other (a usage error).
-function Result.verdict(code: integer?): any
+function Result.verdict(code: integer?): Json.Value
   if code == nil then return Json.null end
   if code == 0 then return "PASS" end
   if code == 1 then return "FAIL" end
@@ -115,16 +123,11 @@ function Result.verdict(code: integer?): any
   return "ERROR"
 end
 
--- TODO: type the fields below as [`Json.Value`] (`{string: Json.Value}` and [`Json.Value`] returns), validating the ones read from
--- the transcript with [`cosmic.shape`] first, once a decoded field can be narrowed to a [`Json.Value`] (a test that tells an
--- array from a map, [`Json.is_array`], narrows for the checker): the fields are `any` because some come from decoded events, and a
--- [`Json.null`] or a string stored in an `any` slot is `any_use`, which [`build/ceilings.txt`] holds for this file.
-
 --- The result.json fields, as a table with [`Json.null`] for each value
 --- that is unavailable, for a transcript's text (nil when there is
 --- none), the arena's `files`, the `grade` and what the caller knows.
 function Result.build(transcript: string?, files: Result.Files, grade: Result.Grade,
-                      meta?: Result.Meta): {string: any}
+                      meta?: Result.Meta): {string: Json.Value}
   meta = meta or {}
   local init: {string: any}? = nil
   local result: {string: any}? = nil
@@ -159,17 +162,17 @@ function Result.build(transcript: string?, files: Result.Files, grade: Result.Gr
   end
   local detailed: any = usage["output_tokens_details"]
   local details: {string: any} = detailed is {string: any} and detailed or {}
-  local function from_init(key: string): any
-    if init == nil or init[key] == nil then return Json.null end
-    return init[key]
+  local function from_init(key: string): Json.Value
+    if init == nil then return Json.null end
+    return available(init[key])
   end
   local exit_code = integer_of(files.exit_code)
   local started, finished = stamp(files.started_at), stamp(files.finished_at)
-  local elapsed: any = Json.null
+  local elapsed: Json.Value = Json.null
   if started ~= nil and finished ~= nil and finished >= started then
     elapsed = (finished - started) // 1000000000
   end
-  local contamination: any = Json.null
+  local contamination: Json.Value = Json.null
   local summary = files.summary
   if summary ~= nil then
     local flagged: mut {string} = {}
@@ -180,13 +183,14 @@ function Result.build(transcript: string?, files: Result.Files, grade: Result.Gr
     end
     contamination = Json.array(flagged)
   end
-  local function text_or_null(value: string?): any
+  local function text_or_null(value: string?): Json.Value
     if value == nil then return Json.null end
     return (value:gsub("%s+$", ""))
   end
-  local out: {string: any} = {
+  local init_model = from_init("model")
+  local out: {string: Json.Value} = {
     runner = "claude",
-    model = from_init("model") ~= Json.null and from_init("model") or meta.model or Json.null,
+    model = init_model ~= Json.null and init_model or meta.model or Json.null,
     reasoning_effort = Json.null,
     claude_code_version = from_init("claude_code_version"),
     commit = meta.commit or Json.null,
@@ -224,12 +228,12 @@ function Result.build(transcript: string?, files: Result.Files, grade: Result.Gr
 end
 
 --- `fields` as JSON text in the README's order, one field a line.
-function Result.encode(fields: {string: any}): string?, string
+function Result.encode(fields: {string: Json.Value}): string?, string
   local lines: mut {string} = {}
   for _, key in ipairs(ORDER) do
     local value = fields[key]
     if value == nil then value = Json.null end
-    local text, why = Json.encode_any(value, { max_depth = 100 })
+    local text, why = Json.encode(value, { max_depth = Json.depth_limit })
     if text == nil then return nil, key .. ": " .. why end
     lines[#lines + 1] = "  " .. (assert(Json.encode(key))) .. ": " .. text
   end
