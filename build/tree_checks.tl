@@ -2596,7 +2596,6 @@ local packagers: {string: string} = {
   ["build/raw_tables.tl"] = "hands the core's raw tables, which the store's searchers give, a type",
   ["build/removed_fix.tl"] = "reads the catalog from `package.loaded`",
   ["build/sandbox.tl"] = "asks whether the core preloads a module",
-  ["build/sandbox_probe.tl"] = "asks the searchers whether a sandbox can be made",
   ["build/test_worker.tl"] = "holds `require` to a test's closure through the searchers and `package.loaded`",
   ["cosmic/store.tl"] = "reads the store's searcher",
 }
@@ -2613,8 +2612,8 @@ function tree_checks.package_readers(root: string, files?: {string: string}): {s
   local out: mut {string} = {}
   for _, entry in ipairs(sources) do
     local file, text = entry[1], entry[2]
-    -- A test is held to its closure by the worker, which makes the case of the many that read the core's raw tables through
-    -- the searchers to test a binding; it is no module a program carries.
+    -- A test is exempt: the worker holds it to its closure, so a test that reads `package` can load nothing the build
+    -- does not follow, and it is no module a program carries.
     if file ~= nil and text ~= nil and permitted[file] == nil and file:match("_test%.tl$") == nil and
         text:find("package", 1, true) ~= nil then
       local tokens = Lexer.lex(text, file).tokens

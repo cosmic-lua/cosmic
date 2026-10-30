@@ -278,6 +278,7 @@ end
 test_child.register("raw_refusals", function(args: {string}): integer
   local probe, tmp = args[1], args[2]
   if probe == nil or tmp == nil then return 2 end
+  local process = RawTables.process("build.confine")
   refusing_sandboxes(function()
     print(said("passed_over", confine.call(function(...: any): any...
       confine.must_confine({ reads = { probe } })
@@ -295,18 +296,18 @@ test_child.register("raw_refusals", function(args: {string}): integer
   local pledge: raw_process.Sandbox = { pledge = {} }
   print(said("pledged_alone", confine.call(function(...: any): any...
     confine.must_confine({ reads = { probe } })
-    local _, _ = RawTables.process("build.confine").spawn(probe, { probe, "exit 0" }, nil, nil, nil, nil, nil, false, nil, pledge)
+    local _, _ = process.spawn(probe, { probe, "exit 0" }, nil, nil, nil, nil, nil, false, nil, pledge)
     confine.confine(nil)
   end, nil, { tmp })))
   local grants: raw_process.Sandbox = { grants = {}, promises = {} }
   print(said("grants_alone", confine.call(function(...: any): any...
     confine.must_confine({ reads = { probe } })
-    local _, _ = RawTables.process("build.confine").spawn(probe, { probe, "exit 0" }, nil, nil, nil, nil, nil, false, nil, grants)
+    local _, _ = process.spawn(probe, { probe, "exit 0" }, nil, nil, nil, nil, nil, false, nil, grants)
     confine.confine(nil)
   end, nil, { tmp })))
-  local held = { taken = RawTables.process("build.confine").spawn }
+  local held = { taken = process.spawn }
   local _ = confine.call(function(...: any): any...
-    held["taken"] = RawTables.process("build.confine").spawn
+    held["taken"] = process.spawn
   end, nil, { tmp })
   local stale = assert(held["taken"])
   print(said("stale", confine.call(function(...: any): any...
