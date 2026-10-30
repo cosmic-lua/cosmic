@@ -328,32 +328,28 @@ static float squared_l2_f16 (const _Float16 *a, const float *b, size_t n) {
   return total;
 }
 
-/* The integer sums below are exact, so every kernel of them answers the
- * same, whatever order it sums in. They cannot overflow 32 bits:
- * 16000 * 127 * 127 < 2^31, and with the query biased by 128, below
- * 16000 * 255 * 127. */
+/* The int8 dot product of a row and the query. `biased` is the query's
+ * codes plus 128, as unsigned bytes, and `sum` the sum of the row's codes:
+ * VNNI multiplies an unsigned operand by a signed one, and
+ * sum(row * query) = sum(row * (query + 128)) - 128 * sum(row).
+ *
+ * The integer sums are exact, so every kernel answers the same, whatever
+ * order it sums in. They cannot overflow 32 bits: 16000 * 127 * 127 <
+ * 2^31, and with the query biased by 128, below 16000 * 255 * 127. */
+typedef int32_t (*dot_i8_fn) (const int8_t *row, int32_t sum, const int8_t *codes,
+                              const uint8_t *biased, size_t n);
+
 /* TODO: once a caller runs int8 corpora on x86-64 hosts without VNNI: the
  * compiler makes this loop 128-bit `vpmaddwd`s, and a 256-bit loop of
  * intrinsics measured about 20% faster at 768 dimensions in cache (130
  * against 156 ns a row). Write that loop under `__AVX2__`. */
-static int32_t dot_i8 (const int8_t *a, const int8_t *b, size_t n) {
-  int32_t total = 0;
-  for (size_t i = 0; i < n; i++) total += (int32_t)a[i] * (int32_t)b[i];
-  return total;
-}
-
-/* The int8 dot product of a row and the query. `biased` is the query's
- * codes plus 128, as unsigned bytes, and `sum` the sum of the row's codes:
- * VNNI multiplies an unsigned operand by a signed one, and
- * sum(row * query) = sum(row * (query + 128)) - 128 * sum(row). */
-typedef int32_t (*dot_i8_fn) (const int8_t *row, int32_t sum, const int8_t *codes,
-                              const uint8_t *biased, size_t n);
-
 static int32_t dot_i8_generic (const int8_t *row, int32_t sum, const int8_t *codes,
                                const uint8_t *biased, size_t n) {
   (void)sum;
   (void)biased;
-  return dot_i8(row, codes, n);
+  int32_t total = 0;
+  for (size_t i = 0; i < n; i++) total += (int32_t)row[i] * (int32_t)codes[i];
+  return total;
 }
 
 #ifdef INT8_VNNI
