@@ -483,6 +483,64 @@ local quick = assert(corpus:search(asked, 2, { allow = in_pets, candidates = 5 }
 print("corpus", table.concat(exact.ids, " "), "candidates", table.concat(quick.ids, " "))
 ```
 
+## smaller storage
+
+A corpus holds its vectors as 32-bit floats unless `storage` says
+otherwise, to [`Vector.load`] or [`Vector.corpus`]. `"f16"` keeps 16-bit
+floats and `"int8"` keeps one signed byte per dimension with a scale per
+vector. `corpus:add` converts the f32 vector it is given, and
+the query stays f32. Every option of `search` works as before. A scan
+reads fewer bytes, so it is faster.
+
+On 100,000 chunks of 768 dimensions on the Xeon above, with clustered
+synthetic vectors and 20 queries, best of five (the buffers double as a
+corpus grows, so a corpus built by many adds holds up to twice its
+rows' size, and these held 100,000 of 131,072):
+
+| storage | held per vector | exact search, inner product | top-10 shared with f32 |
+| ------- | --------------- | --------------------------- | ---------------------- |
+| `"f32"` | 4,138 bytes     | 71 ms                       | all                    |
+| `"f16"` | 2,155 bytes     | 20 ms                       | 99.5% to 100%          |
+| `"int8"`| 1,159 bytes     | 4 to 8 ms (12 to 18 without VNNI) | 97.5% to 98%     |
+
+The f16 and int8 corpora fit this processor's 260 MB cache and the f32
+one does not, so part of their lead is the machine's.
+
+Choose by what the corpus costs and what a missed neighbour costs:
+
+- **`"f32"`** is exact. Keep it when the corpus is small, when the
+  program ranks by a score it shows to the digit, or when its numbers
+  are large (see f16).
+- **`"f16"`** halves the memory and finds the same neighbours. A half
+  has 11 significant bits, which an embedding rarely needs. It holds magnitudes up to 65504, and `add` raises on a
+  number of 65520 or more instead of storing infinity, as pgvector's
+  `halfvec` refuses it. Numbers under 2.9e-8 become zero. It is the usual
+  choice for a corpus that is too big for f32.
+- **`"int8"`** is a quarter of the memory and the fastest scan, and
+  loses a few of the top 10. Each vector is stored as `round(x / scale)`
+  with `scale = max|x| / 127`, so its error is under half a scale in each
+  number, and the query is quantized the same way. Scores are then close
+  to f32's but not equal (the cosine of a vector with itself is 1 to
+  about six digits). Use it for a corpus that must fit in memory or for
+  speed, and measure the recall on real queries (next sections). When a
+  missed neighbour matters, ask it for several times the `k` and rank
+  those rows again in SQL with `inner_product(embedding, ?1)` on the
+  f32 blobs, which `WHERE id IN (...)` limits to a few rows.
+
+A corpus of `"f16"` or `"int8"` makes the bit vectors of `candidates`
+when a row is added, from the f32 vector, because it keeps no f32 vector
+to make them from later. They take one bit per dimension (96 bytes at 768
+dimensions) in every row, where an f32 corpus builds them on the first
+search that asks. [`Vector.kmeans`] clusters a corpus of any storage.
+
+```teal continue
+local small = assert(Vector.load(db,
+  "SELECT id, embedding FROM chunks WHERE model = ?1 AND embedding IS NOT NULL",
+  { { integer = model } }, { storage = "int8" }))
+local approx = assert(small:search(asked, 2, { allow = in_pets }))
+print("int8", table.concat(approx.ids, " "), small.storage)
+```
+
 ## a large corpus
 
 Past about 100,000 chunks the in-memory scan costs tens to hundreds
@@ -662,6 +720,7 @@ late	false	true
 hybrid	5 6 4
 like 1	8 2
 corpus	1 3	candidates	1 3
+int8	1 3	int8
 ivf, 1 probes: 0.85
 ivf, 2 probes: 0.97
 ivf, 4 probes: 1.00
@@ -675,6 +734,7 @@ sign bits, 400 candidates: 0.91
 [`cosmic.json`]: ../../cosmic/json.tl
 [`cosmic.sqlite`]: ../../cosmic/sqlite.tl
 [`cosmic.vector`]: ../../cosmic/vector.tl
+[`Vector.corpus`]: ../../cosmic/vector.tl
 [`Vector.kmeans`]: ../../cosmic/vector.tl
 [`Vector.load`]: ../../cosmic/vector.tl
 [`Vector.nearest_n`]: ../../cosmic/vector.tl

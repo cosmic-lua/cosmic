@@ -2105,7 +2105,7 @@ cosmic/web/dev_supervise_test.tl index_may_be_nil 1
 
 cosmic/web/headers.tl index_may_be_nil 3
 
-cosmic/web/htmx.tl index_may_be_nil 7
+cosmic/web/htmx.tl index_may_be_nil 2
 
 cosmic/web/input.tl index_may_be_nil 2
 
@@ -3445,7 +3445,7 @@ cosmic/web/dev.tl map_field 2
 
 cosmic/web/htmx.tl map_field 2
 
-cosmic/web/htmx_test.tl map_field 21
+cosmic/web/htmx_test.tl map_field 17
 
 cosmic/web/input_multipart_fuzz_test.tl map_field 5
 
@@ -4532,7 +4532,7 @@ cosmic/web/dev_supervise_test.tl cast_refused 1
 
 cosmic/web/dev_test.tl cast_refused 4
 
-cosmic/web/htmx_test.tl cast_refused 5
+cosmic/web/htmx_test.tl cast_refused 4
 
 cosmic/web/input_fuzz_test.tl cast_refused 1
 

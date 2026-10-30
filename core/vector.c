@@ -11,6 +11,12 @@
 #include "lauxlib.h"
 #include "process.h"
 
+#if defined(__x86_64__)
+#include <cpuid.h>
+#include <immintrin.h>
+#define INT8_VNNI 1
+#endif
+
 /* The functions are DETERMINISTIC and may back an expression index, so a
  * result must not depend on whether the compiler fused a*b+c into one
  * rounding. */
@@ -271,6 +277,165 @@ static void cosine_parts (const float *a, const float *b, size_t n,
     *bb += b[i] * b[i];
   }
 }
+
+/* The corpus's stored forms. A half is widened to a float in a register
+ * and summed in the same eight lanes as above; the widening is exact, so
+ * the sums are those of the floats the halves stand for. The lanes are
+ * written as vectors: the loops above, with a half read in each, are
+ * vectorized as eight scalar chains and shuffled into place. */
+typedef float lanes_f __attribute__((vector_size(LANES * sizeof(float))));
+typedef _Float16 lanes_h __attribute__((vector_size(LANES * sizeof(_Float16))));
+
+static float sum_vector (lanes_f v) {
+  float s[LANES];
+  memcpy(s, &v, sizeof s);
+  return sum_lanes(s);
+}
+
+static lanes_f load_f (const float *p) {
+  lanes_f v;
+  memcpy(&v, p, sizeof v);
+  return v;
+}
+
+static lanes_f load_h (const _Float16 *p) {
+  lanes_h h;
+  memcpy(&h, p, sizeof h);
+  return __builtin_convertvector(h, lanes_f);
+}
+
+static float dot_f16 (const _Float16 *a, const float *b, size_t n) {
+  lanes_f s = {0};
+  size_t i = 0;
+  for (; i + LANES <= n; i += LANES) s += load_h(a + i) * load_f(b + i);
+  float total = sum_vector(s);
+  for (; i < n; i++) total += (float)a[i] * b[i];
+  return total;
+}
+
+static float squared_l2_f16 (const _Float16 *a, const float *b, size_t n) {
+  lanes_f s = {0};
+  size_t i = 0;
+  for (; i + LANES <= n; i += LANES) {
+    lanes_f d = load_h(a + i) - load_f(b + i);
+    s += d * d;
+  }
+  float total = sum_vector(s);
+  for (; i < n; i++) {
+    float d = (float)a[i] - b[i];
+    total += d * d;
+  }
+  return total;
+}
+
+/* The int8 dot product of a row and the query. `biased` is the query's
+ * codes plus 128, as unsigned bytes, and `sum` the sum of the row's codes:
+ * VNNI multiplies an unsigned operand by a signed one, and
+ * sum(row * query) = sum(row * (query + 128)) - 128 * sum(row).
+ *
+ * The integer sums are exact, so every kernel answers the same, whatever
+ * order it sums in. They cannot overflow 32 bits: 16000 * 127 * 127 <
+ * 2^31, and with the query biased by 128, below 16000 * 255 * 127. */
+typedef int32_t (*dot_i8_fn) (const int8_t *row, int32_t sum, const int8_t *codes,
+                              const uint8_t *biased, size_t n);
+
+/* TODO: once a caller runs int8 corpora on x86-64 hosts without VNNI: the
+ * compiler makes this loop 128-bit `vpmaddwd`s, and a 256-bit loop of
+ * intrinsics measured about 20% faster at 768 dimensions in cache (130
+ * against 156 ns a row). Write that loop under `__AVX2__`. */
+static int32_t dot_i8_generic (const int8_t *row, int32_t sum, const int8_t *codes,
+                               const uint8_t *biased, size_t n) {
+  (void)sum;
+  (void)biased;
+  int32_t total = 0;
+  for (size_t i = 0; i < n; i++) total += (int32_t)row[i] * (int32_t)codes[i];
+  return total;
+}
+
+#ifdef INT8_VNNI
+/* VNNI multiplies 32 unsigned bytes by 32 signed ones and adds each four
+ * products into a 32-bit lane in one instruction. It comes in two
+ * encodings of the same operation: AVX-512 VNNI with the 256-bit forms of
+ * AVX-512 VL (Skylake-SP and Cascade Lake servers onward), and AVX-VNNI
+ * (Alder Lake and Sapphire Rapids onward). The 512-bit form scans no
+ * faster: the scan is bound by memory. */
+__attribute__((target("avx512f,avx512vl,avx512vnni")))
+static int32_t dot_i8_avx512_vnni (const int8_t *row, int32_t sum, const int8_t *codes,
+                                   const uint8_t *biased, size_t n) {
+  (void)codes;
+  __m256i first = _mm256_setzero_si256(), second = _mm256_setzero_si256();
+  size_t i = 0;
+  for (; i + 64 <= n; i += 64) {
+    first = _mm256_dpbusd_epi32(first,
+        _mm256_loadu_si256((const __m256i *)(const void *)(biased + i)),
+        _mm256_loadu_si256((const __m256i *)(const void *)(row + i)));
+    second = _mm256_dpbusd_epi32(second,
+        _mm256_loadu_si256((const __m256i *)(const void *)(biased + i + 32)),
+        _mm256_loadu_si256((const __m256i *)(const void *)(row + i + 32)));
+  }
+  int32_t lanes[8];
+  _mm256_storeu_si256((__m256i *)(void *)lanes, _mm256_add_epi32(first, second));
+  int32_t total = ((lanes[0] + lanes[1]) + (lanes[2] + lanes[3]))
+                  + ((lanes[4] + lanes[5]) + (lanes[6] + lanes[7]));
+  for (; i < n; i++) total += (int32_t)row[i] * (int32_t)biased[i];
+  return total - 128 * sum;
+}
+
+__attribute__((target("avx2,avxvnni")))
+static int32_t dot_i8_avx_vnni (const int8_t *row, int32_t sum, const int8_t *codes,
+                                const uint8_t *biased, size_t n) {
+  (void)codes;
+  __m256i first = _mm256_setzero_si256(), second = _mm256_setzero_si256();
+  size_t i = 0;
+  for (; i + 64 <= n; i += 64) {
+    first = _mm256_dpbusd_avx_epi32(first,
+        _mm256_loadu_si256((const __m256i *)(const void *)(biased + i)),
+        _mm256_loadu_si256((const __m256i *)(const void *)(row + i)));
+    second = _mm256_dpbusd_avx_epi32(second,
+        _mm256_loadu_si256((const __m256i *)(const void *)(biased + i + 32)),
+        _mm256_loadu_si256((const __m256i *)(const void *)(row + i + 32)));
+  }
+  int32_t lanes[8];
+  _mm256_storeu_si256((__m256i *)(void *)lanes, _mm256_add_epi32(first, second));
+  int32_t total = ((lanes[0] + lanes[1]) + (lanes[2] + lanes[3]))
+                  + ((lanes[4] + lanes[5]) + (lanes[6] + lanes[7]));
+  for (; i < n; i++) total += (int32_t)row[i] * (int32_t)biased[i];
+  return total - 128 * sum;
+}
+
+/* The register state the operating system saves (xgetbv's XCR0), or 0
+ * when it does not say. A CPU feature is usable only if its registers
+ * are saved. */
+static unsigned saved_state (void) {
+  unsigned a, b, c, d;
+  if (!__get_cpuid(1, &a, &b, &c, &d) || (c & (1u << 27)) == 0) return 0;
+  unsigned low, high;
+  __asm__ volatile ("xgetbv" : "=a"(low), "=d"(high) : "c"(0));
+  return low;
+}
+
+/* AVX-512 F and VL (leaf 7's ebx bits 16, 31) and VNNI (ecx bit 11),
+ * with the opmask and vector state saved (XCR0 bits 1, 2, 5, 6, 7). */
+static bool has_avx512_vnni (void) {
+  unsigned a, b, c, d;
+  if ((saved_state() & 0xE6u) != 0xE6u || !__get_cpuid_count(7, 0, &a, &b, &c, &d)) return false;
+  const unsigned need = (1u << 16) | (1u << 31);
+  return (b & need) == need && (c & (1u << 11)) != 0;
+}
+
+/* AVX-VNNI (leaf 7 subleaf 1's eax bit 4), with the 256-bit state saved
+ * (XCR0 bits 1, 2). The core is built for x86-64-v3, so it has AVX2. */
+static bool has_avx_vnni (void) {
+  unsigned a, b, c, d;
+  return (saved_state() & 0x6u) == 0x6u && __get_cpuid_count(7, 1, &a, &b, &c, &d)
+         && (a & (1u << 4)) != 0;
+}
+#endif
+
+/* The int8 kernel in use, chosen once when the module opens and changed
+ * only by [`vector_kernel`] (the tests'). */
+static dot_i8_fn dot_i8_kernel = dot_i8_generic;
+static const char *dot_i8_name = "generic";
 
 /* The same sums in double, for the vectors whose float sums leave the
  * range of a float: the squares of numbers past 1.8e19, or the products
@@ -694,15 +859,31 @@ int cosmic_vector_functions (sqlite3 *db) {
 #define CORPUS_TYPE "cosmic.vector.corpus"
 
 /* The user value each buffer is held in. */
-enum { SLOT_DATA = 1, SLOT_INVERSE, SLOT_IDS, SLOT_BITS, SLOTS = SLOT_BITS };
+enum { SLOT_DATA = 1, SLOT_INVERSE, SLOT_IDS, SLOT_BITS, SLOT_CODES, SLOTS = SLOT_CODES };
+
+/* How a corpus holds its vectors. A vector is quantized once, in `add`;
+ * a query stays f32 (an int8 corpus quantizes it once per search). */
+enum storage { F32, F16, INT8 };
+
+/* What an int8 vector keeps beside its codes: the scale (the largest
+ * magnitude over 127; 0 for a vector with no direction), the sum of the
+ * squares of its codes, which is exact in 32 bits at 16000 dimensions
+ * (16000 * 127 * 127), and the sum of the codes. */
+struct code_row {
+  float scale;
+  uint32_t sumsq;
+  int32_t sum;
+};
 
 struct corpus {
   size_t dims;
   size_t count;
   size_t capacity;
-  float *data;         /* count * dims floats */
-  float *inverse;      /* 1 / length of each vector, 0 for a zero vector */
+  enum storage storage;
+  void *data;          /* count * dims floats, halves or int8 codes */
+  float *inverse;      /* 1 / length of each stored vector, 0 for no direction */
   int64_t *ids;
+  struct code_row *codes; /* int8 only: count rows */
   unsigned char *bits; /* bits_built rows of bytes each, as binary_quantize */
   size_t bits_built;
   size_t bytes;
@@ -763,12 +944,54 @@ static double length_of (const float *v, size_t n) {
   return sqrt(squares);
 }
 
+/* Quantizes `v` to int8 codes with one scale: the largest magnitude over
+ * 127, each code the value over the scale rounded to nearest (ties to
+ * even). Answers the scale and sets the sum of the squares of the codes
+ * and the sum of the codes.
+ * A vector whose scale is below a normal float's has no direction worth
+ * keeping and becomes all zero codes, as the f32 corpus treats a length
+ * it cannot invert. */
+static float quantize_i8 (const float *v, size_t n, int8_t *codes, uint32_t *sumsq,
+                          int32_t *sum) {
+  float largest = 0.0f;
+  for (size_t i = 0; i < n; i++) {
+    float magnitude = fabsf(v[i]);
+    if (magnitude > largest) largest = magnitude;
+  }
+  float scale = largest / 127.0f;
+  if (!(scale >= FLT_MIN)) {
+    memset(codes, 0, n);
+    *sumsq = 0;
+    *sum = 0;
+    return 0.0f;
+  }
+  uint32_t squares = 0;
+  int32_t total = 0;
+  for (size_t i = 0; i < n; i++) {
+    float r = rintf(v[i] / scale);
+    int code = (int)(r > 127.0f ? 127.0f : r < -127.0f ? -127.0f : r);
+    codes[i] = (int8_t)code;
+    squares += (uint32_t)(code * code);
+    total += code;
+  }
+  *sumsq = squares;
+  *sum = total;
+  return scale;
+}
+
 static int vector_corpus (lua_State *L) {
   lua_Integer dims = luaL_checkinteger(L, 1);
   luaL_argcheck(L, dims >= 1 && dims <= MAX_DIMS, 1,
                 "dimensions are from 1 to 16000");
+  const char *name = luaL_optstring(L, 2, "f32");
+  enum storage storage;
+  if (strcmp(name, "f32") == 0) storage = F32;
+  else if (strcmp(name, "f16") == 0) storage = F16;
+  else if (strcmp(name, "int8") == 0) storage = INT8;
+  else return luaL_argerror(L, 2, "a storage is f32, f16 or int8");
   struct corpus *c = lua_newuserdatauv(L, sizeof *c, SLOTS);
   memset(c, 0, sizeof *c);
+  c->storage = storage;
   c->dims = (size_t)dims;
   c->bytes = ((size_t)dims + 7) / 8;
   luaL_setmetatable(L, CORPUS_TYPE);
@@ -782,40 +1005,109 @@ static bool fits (size_t n, size_t size) {
   return n <= SIZE_MAX / size;
 }
 
+/* Half precision's largest magnitude is 65504; a float of 65520 or more
+ * rounds to infinity. */
+#define HALF_LIMIT 65520.0f
+
+/* Binary quantization by the sign of each dimension of the f32 input,
+ * the same bits for every storage. */
+static void quantize (const float *v, size_t dims, unsigned char *bits) {
+  memset(bits, 0, (dims + 7) / 8);
+  for (size_t i = 0; i < dims; i++) {
+    if (v[i] > 0.0f) bits[i / 8] |= (unsigned char)(0x80u >> (i % 8));
+  }
+}
+
+/* Stores `v`, which holds finite numbers, as row `row`. Answers the length
+ * of what was stored, in double, and sets an int8 row's header. */
+static double store_row (struct corpus *c, size_t row, const float *v) {
+  size_t dims = c->dims;
+  switch (c->storage) {
+    case F32: {
+      float *out = (float *)c->data + row * dims;
+      memcpy(out, v, dims * sizeof *out);
+      return length_of(v, dims);
+    }
+    case F16: {
+      _Float16 *out = (_Float16 *)c->data + row * dims;
+      double squares = 0.0;
+      for (size_t i = 0; i < dims; i++) {
+        out[i] = (_Float16)v[i];
+        squares += (double)(float)out[i] * (double)(float)out[i];
+      }
+      return sqrt(squares);
+    }
+    default: {
+      struct code_row *header = c->codes + row;
+      header->scale = quantize_i8(v, dims, (int8_t *)c->data + row * dims, &header->sumsq,
+                                   &header->sum);
+      return (double)header->scale * sqrt((double)header->sumsq);
+    }
+  }
+}
+
 static int corpus_add (lua_State *L) {
   struct corpus *c = check_corpus(L, 1);
   lua_Integer id = luaL_checkinteger(L, 2);
   float *v = check_floats(L, 3, c->dims);
+  if (c->storage == F16) {
+    for (size_t i = 0; i < c->dims; i++) {
+      luaL_argcheck(L, fabsf(v[i]) < HALF_LIMIT, 3,
+                    "a half-precision vector holds numbers under 65520 in magnitude");
+    }
+  }
   if (c->count == c->capacity) {
     size_t grown = c->capacity == 0 ? 64 : c->capacity * 2;
     if (!fits(grown, (c->dims + 2) * sizeof(int64_t))) {
       return luaL_error(L, "not enough memory");
     }
-    /* All three first, each held on the stack and so safe from the
+    /* All of them first, each held on the stack and so safe from the
      * collector the next allocation may run; the corpus is changed only
      * once none can be refused. */
-    float *data = lua_newuserdatauv(L, grown * c->dims * sizeof *data, 0);
+    size_t element = c->storage == F32 ? sizeof(float) : c->storage == F16 ? sizeof(_Float16) : 1;
+    int slots[SLOTS], pushed = 0;
+    void *data = lua_newuserdatauv(L, grown * c->dims * element, 0);
+    slots[pushed++] = SLOT_DATA;
     float *inverse = lua_newuserdatauv(L, grown * sizeof *inverse, 0);
+    slots[pushed++] = SLOT_INVERSE;
     int64_t *ids = lua_newuserdatauv(L, grown * sizeof *ids, 0);
+    slots[pushed++] = SLOT_IDS;
+    struct code_row *codes = NULL;
+    if (c->storage == INT8) {
+      codes = lua_newuserdatauv(L, grown * sizeof *codes, 0);
+      slots[pushed++] = SLOT_CODES;
+    }
+    /* A quantized corpus no longer has the floats a lazy build would read,
+     * so each row's bits are made as it is added. */
+    unsigned char *bits = NULL;
+    if (c->storage != F32) {
+      bits = lua_newuserdatauv(L, grown * c->bytes, 0);
+      slots[pushed++] = SLOT_BITS;
+    }
     if (c->count > 0) {
-      memcpy(data, c->data, c->count * c->dims * sizeof *data);
+      memcpy(data, c->data, c->count * c->dims * element);
       memcpy(inverse, c->inverse, c->count * sizeof *inverse);
       memcpy(ids, c->ids, c->count * sizeof *ids);
+      if (codes != NULL) memcpy(codes, c->codes, c->count * sizeof *codes);
+      if (bits != NULL) memcpy(bits, c->bits, c->count * c->bytes);
     }
-    lua_setiuservalue(L, 1, SLOT_IDS);
-    lua_setiuservalue(L, 1, SLOT_INVERSE);
-    lua_setiuservalue(L, 1, SLOT_DATA);
+    while (pushed > 0) lua_setiuservalue(L, 1, slots[--pushed]);
     c->data = data;
     c->inverse = inverse;
     c->ids = ids;
     c->capacity = grown;
+    if (codes != NULL) c->codes = codes;
+    if (bits != NULL) c->bits = bits;
   }
-  memcpy(c->data + c->count * c->dims, v, c->dims * sizeof *v);
-  double length = length_of(v, c->dims);
+  double length = store_row(c, c->count, v);
   /* A length too small to invert in a float is a vector with no direction. */
   float inverse = length == 0.0 ? 0.0f : (float)(1.0 / length);
   c->inverse[c->count] = isfinite(inverse) ? inverse : 0.0f;
   c->ids[c->count] = id;
+  if (c->storage != F32) {
+    quantize(v, c->dims, c->bits + c->count * c->bytes);
+    c->bits_built = c->count + 1;
+  }
   c->count++;
   return 0;
 }
@@ -825,25 +1117,19 @@ static int corpus_count (lua_State *L) {
   return 1;
 }
 
-static void quantize (const float *v, size_t dims, unsigned char *bits) {
-  memset(bits, 0, (dims + 7) / 8);
-  for (size_t i = 0; i < dims; i++) {
-    if (v[i] > 0.0f) bits[i / 8] |= (unsigned char)(0x80u >> (i % 8));
-  }
-}
-
 /* Brings the bit vectors up to every vector added so far; the corpus is
- * at stack index 1. Answers false, with the corpus as it was, when a
- * signal interrupted it. A new buffer is made each time rather than grown in
- * place: the rows already built are copied, which costs less than the
- * scan that follows. */
+ * at stack index 1. Only an f32 corpus builds them here, from its floats:
+ * a quantized one made each row's as the row was added. Answers false,
+ * with the corpus as it was, when a signal interrupted it. A new buffer
+ * is made each time rather than grown in place: the rows already built
+ * are copied, which costs less than the scan that follows. */
 static bool ensure_bits (lua_State *L, struct corpus *c) {
   if (c->bits_built == c->count) return true;
   unsigned char *bits = lua_newuserdatauv(L, c->count * c->bytes, 0);
   if (c->bits_built > 0) memcpy(bits, c->bits, c->bits_built * c->bytes);
   for (size_t i = c->bits_built; i < c->count; i++) {
     if ((i & CHECK_EVERY) == 0 && check_interrupt()) return false;
-    quantize(c->data + i * c->dims, c->dims, bits + i * c->bytes);
+    quantize((const float *)c->data + i * c->dims, c->dims, bits + i * c->bytes);
   }
   lua_setiuservalue(L, 1, SLOT_BITS);
   c->bits = bits;
@@ -958,6 +1244,75 @@ static unsigned char *allow_mask (lua_State *L, const struct corpus *c,
   return mask;
 }
 
+/* A query as the stored form of a corpus compares it: the floats always
+ * (an f32 or f16 row is scored against them, and the first pass reads
+ * their signs), and for an int8 corpus also the codes the query
+ * quantizes to. `inverse` is 1 over the length of what the rows are
+ * compared with: the floats, or the codes' dequantized length. */
+struct query {
+  const float *floats;
+  const int8_t *codes;
+  const uint8_t *biased;
+  float scale;
+  uint32_t sumsq;
+  float inverse;
+};
+
+/* The key a row ranks by under `metric`, higher better. An int8 row is
+ * scored by an exact integer dot product of the codes, scaled by both
+ * scales; its cosine uses the stored length of the codes' dequantized
+ * vector, and its distance the identity
+ * |a - b|^2 = |a|^2 + |b|^2 - 2 a.b over the dequantized vectors, summed
+ * in double and clamped at zero. The identity is exact for a vector
+ * against its own codes, which score 0. */
+static float row_key (const struct corpus *c, size_t row, const struct query *q,
+                      enum metric metric) {
+  size_t dims = c->dims;
+  switch (c->storage) {
+    case F32: {
+      const float *v = (const float *)c->data + row * dims;
+      switch (metric) {
+        case INNER_PRODUCT: return dot(v, q->floats, dims);
+        case COSINE:
+        /* A zero vector has no direction, and SQL's cosine_distance of
+         * one is NULL: it ranks below every row that has one. */
+        if (c->inverse[row] == 0.0f || q->inverse == 0.0f) return -INFINITY;
+        return dot(v, q->floats, dims) * c->inverse[row] * q->inverse;
+        default: return -squared_l2(v, q->floats, dims);
+      }
+    }
+    case F16: {
+      const _Float16 *v = (const _Float16 *)c->data + row * dims;
+      switch (metric) {
+        case INNER_PRODUCT: return dot_f16(v, q->floats, dims);
+        case COSINE:
+        if (c->inverse[row] == 0.0f || q->inverse == 0.0f) return -INFINITY;
+        return dot_f16(v, q->floats, dims) * c->inverse[row] * q->inverse;
+        default: return -squared_l2_f16(v, q->floats, dims);
+      }
+    }
+    default: {
+      const int8_t *v = (const int8_t *)c->data + row * dims;
+      double scale = c->codes[row].scale;
+      double both = scale * (double)q->scale;
+      double product = (double)dot_i8_kernel(v, c->codes[row].sum, q->codes, q->biased, dims);
+      switch (metric) {
+        case INNER_PRODUCT: return (float)(product * both);
+        case COSINE:
+        if (c->inverse[row] == 0.0f || q->inverse == 0.0f) return -INFINITY;
+        return (float)(product * both * (double)c->inverse[row] * (double)q->inverse);
+        default: {
+          double mine = scale * scale;
+          double theirs = (double)q->scale * (double)q->scale;
+          double squares = mine * (double)c->codes[row].sumsq
+                           + theirs * (double)q->sumsq - 2.0 * (both * product);
+          return squares > 0.0 ? -(float)squares : -0.0f;
+        }
+      }
+    }
+  }
+}
+
 /* search(corpus, query, k, metric, candidates, allow): the ids and
  * scores of the k best, best first; `nil, "interrupted"` when a signal
  * stopped it. */
@@ -985,8 +1340,23 @@ static int corpus_search (lua_State *L) {
   }
 
   size_t dims = c->dims;
-  double qlen = length_of(q, dims);
-  float qinverse = qlen == 0.0 ? 0.0f : (float)(1.0 / qlen);
+  struct query query = {q, NULL, NULL, 0.0f, 0, 0.0f};
+  if (c->storage == INT8) {
+    int8_t *codes = lua_newuserdatauv(L, 2 * dims + 1, 0);
+    uint8_t *biased = (uint8_t *)codes + dims;
+    int32_t sum;
+    query.codes = codes;
+    query.biased = biased;
+    query.scale = quantize_i8(q, dims, codes, &query.sumsq, &sum);
+    for (size_t i = 0; i < dims; i++) biased[i] = (uint8_t)(codes[i] + 128);
+    double qlen = (double)query.scale * sqrt((double)query.sumsq);
+    query.inverse = qlen == 0.0 ? 0.0f : (float)(1.0 / qlen);
+    if (!isfinite(query.inverse)) query.inverse = 0.0f;
+  }
+  else {
+    double qlen = length_of(q, dims);
+    query.inverse = qlen == 0.0 ? 0.0f : (float)(1.0 / qlen);
+  }
 
   size_t limit = (size_t)k < eligible ? (size_t)k : eligible;
   struct heap heap = {0};
@@ -1037,18 +1407,7 @@ static int corpus_search (lua_State *L) {
     if ((at & CHECK_EVERY) == 0 && check_interrupt()) return interrupted(L);
     size_t row = rows != NULL ? rows[at] : at;
     if (rows == NULL && mask != NULL && !mask[row]) continue;
-    const float *v = c->data + row * dims;
-    float key;
-    switch (metric) {
-      case INNER_PRODUCT: key = dot(v, q, dims); break;
-      case COSINE:
-      /* A zero vector has no direction, and SQL's cosine_distance of
-       * one is NULL: it ranks below every row that has one. */
-      if (c->inverse[row] == 0.0f || qinverse == 0.0f) key = -INFINITY;
-      else key = dot(v, q, dims) * c->inverse[row] * qinverse;
-      break;
-      default: key = -squared_l2(v, q, dims); break;
-    }
+    float key = row_key(c, row, &query, metric);
     /* TODO: once the corpus kernels redo a non-finite (or underflowed)
      * sum in double, as the SQL distance functions do, behind a hot-path
      * cost check: they sum in float, so a row can score infinity or be
@@ -1173,9 +1532,29 @@ static uint64_t splitmix (uint64_t *state) {
   return z ^ (z >> 31);
 }
 
+/* Row i as floats: the row itself for f32, else the stored form widened
+ * into `scratch`, which holds `dims` floats. */
+static const float *row_floats (const struct corpus *c, size_t i, float *scratch) {
+  size_t dims = c->dims;
+  switch (c->storage) {
+    case F32: return (const float *)c->data + i * dims;
+    case F16: {
+      const _Float16 *v = (const _Float16 *)c->data + i * dims;
+      for (size_t d = 0; d < dims; d++) scratch[d] = (float)v[d];
+      return scratch;
+    }
+    default: {
+      const int8_t *v = (const int8_t *)c->data + i * dims;
+      float scale = c->codes[i].scale;
+      for (size_t d = 0; d < dims; d++) scratch[d] = (float)v[d] * scale;
+      return scratch;
+    }
+  }
+}
+
 /* Writes row i scaled to length 1 into out. */
 static void unit_row (const struct corpus *c, size_t i, float *out) {
-  const float *x = c->data + i * c->dims;
+  const float *x = row_floats(c, i, out);
   for (size_t d = 0; d < c->dims; d++) out[d] = x[d] * c->inverse[i];
 }
 
@@ -1196,9 +1575,10 @@ static float score (const float *a, const float *b, size_t n) {
 /* The k-means++ weight of row i against a unit centroid: its squared
  * distance, from 0 to 4. A row without a direction has weight 0, so it
  * is never drawn. */
-static float seed_weight (const struct corpus *c, size_t i, const float *cent) {
+static float seed_weight (const struct corpus *c, size_t i, const float *cent,
+                          float *scratch) {
   if (c->inverse[i] == 0.0f) return 0.0f;
-  float m = 2.0f - 2.0f * c->inverse[i] * score(c->data + i * c->dims, cent, c->dims);
+  float m = 2.0f - 2.0f * c->inverse[i] * score(row_floats(c, i, scratch), cent, c->dims);
   if (!(m > 0.0f)) return 0.0f;
   return m > 4.0f ? 4.0f : m;
 }
@@ -1232,18 +1612,19 @@ static int corpus_kmeans (lua_State *L) {
   size_t directed = 0;
   for (size_t i = 0; i < n; i++) if (c->inverse[i] != 0.0f) directed++;
   if (directed == 0) return luaL_error(L, "no vector has a direction to cluster");
-  size_t words = 2 * kk * dims + n + n + kk;
+  size_t words = 2 * kk * dims + n + n + kk + dims;
   float *scratch = lua_newuserdatauv(L, words * sizeof(float), 0);
   float *cent = scratch;
   float *sums = cent + kk * dims;
   float *best = sums + kk * dims;
   int32_t *assign = (int32_t *)(best + n);
   uint32_t *counts = (uint32_t *)(assign + n);
+  float *rowbuf = (float *)(counts + kk);
 
   /* k-means++: each next centroid is drawn in proportion to its
    * squared distance (2 - 2 * similarity) from the nearest chosen. */
   unit_row(c, nth_directed(c, splitmix(&rng) % directed), cent);
-  for (size_t i = 0; i < n; i++) best[i] = seed_weight(c, i, cent);
+  for (size_t i = 0; i < n; i++) best[i] = seed_weight(c, i, cent, rowbuf);
   for (size_t j = 1; j < kk; j++) {
     if (check_interrupt()) return interrupted(L);
     double total = 0;
@@ -1266,7 +1647,7 @@ static int corpus_kmeans (lua_State *L) {
     float *cj = cent + j * dims;
     unit_row(c, pick, cj);
     for (size_t i = 0; i < n; i++) {
-      float m = seed_weight(c, i, cj);
+      float m = seed_weight(c, i, cj, rowbuf);
       if (m < best[i]) best[i] = m;
     }
   }
@@ -1278,7 +1659,7 @@ static int corpus_kmeans (lua_State *L) {
     for (size_t i = 0; i < n; i++) {
       if ((i & 63u) == 0 && check_interrupt()) return interrupted(L);
       if (c->inverse[i] == 0.0f) { best[i] = 1.0f; continue; }
-      const float *x = c->data + i * dims;
+      const float *x = row_floats(c, i, rowbuf);
       float top = -INFINITY;
       int32_t at = 0;
       for (size_t j = 0; j < kk; j++) {
@@ -1294,7 +1675,7 @@ static int corpus_kmeans (lua_State *L) {
     for (size_t i = 0; i < n; i++) {
       if (assign[i] < 0) continue;
       float *sum = sums + (size_t)assign[i] * dims;
-      const float *x = c->data + i * dims;
+      const float *x = row_floats(c, i, rowbuf);
       for (size_t d = 0; d < dims; d++) sum[d] += x[d] * c->inverse[i];
       counts[assign[i]]++;
     }
@@ -1378,6 +1759,34 @@ static int vector_nearest (lua_State *L) {
   return 1;
 }
 
+/* vector_kernel(name?): the int8 dot product in use, "generic",
+ * "avx512_vnni" or "avx_vnni"; given a name, switches to it and answers
+ * it. Raises on a name this CPU cannot run. It is a member of
+ * [`cosmic.internal.testing`], for tests that compare the kernels: a
+ * corpus answers the same under each. */
+static int vector_kernel (lua_State *L) {
+  if (!lua_isnoneornil(L, 1)) {
+    const char *name = luaL_checkstring(L, 1);
+    if (strcmp(name, "generic") == 0) {
+      dot_i8_kernel = dot_i8_generic;
+      dot_i8_name = "generic";
+    }
+#ifdef INT8_VNNI
+    else if (strcmp(name, "avx512_vnni") == 0 && has_avx512_vnni()) {
+      dot_i8_kernel = dot_i8_avx512_vnni;
+      dot_i8_name = "avx512_vnni";
+    }
+    else if (strcmp(name, "avx_vnni") == 0 && has_avx_vnni()) {
+      dot_i8_kernel = dot_i8_avx_vnni;
+      dot_i8_name = "avx_vnni";
+    }
+#endif
+    else return luaL_argerror(L, 1, "a kernel is generic or one this CPU has");
+  }
+  lua_pushstring(L, dot_i8_name);
+  return 1;
+}
+
 static const luaL_Reg corpus_methods[] = {
   {"kmeans", corpus_kmeans},
   {"add", corpus_add},
@@ -1396,7 +1805,24 @@ static const luaL_Reg module[] = {
   {NULL, NULL},
 };
 
+void cosmic_add_vector_kernel (lua_State *L) {
+  lua_pushcfunction(L, vector_kernel);
+  lua_setfield(L, -2, "vector_kernel");
+}
+
 int cosmic_open_vector (lua_State *L) {
+#ifdef INT8_VNNI
+  /* The widest the CPU has; the integer sums are exact, so the choice
+   * changes no answer. */
+  if (has_avx512_vnni()) {
+    dot_i8_kernel = dot_i8_avx512_vnni;
+    dot_i8_name = "avx512_vnni";
+  }
+  else if (has_avx_vnni()) {
+    dot_i8_kernel = dot_i8_avx_vnni;
+    dot_i8_name = "avx_vnni";
+  }
+#endif
   luaL_newmetatable(L, CORPUS_TYPE);
   lua_newtable(L);
   luaL_setfuncs(L, corpus_methods, 0);

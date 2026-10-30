@@ -45,6 +45,7 @@
 #include "lauxlib.h"
 #include "memory.h"
 #include "namespace_calls.h"
+#include "vector.h"
 #include "sqlite3.h"
 #include "store.h"
 #include "syscalls.h"
@@ -347,8 +348,9 @@ static int testing_mountinfo_local_flock (lua_State *L) {
 
 /* Every other core registers these names as stand-ins that raise
  * (core/testing.c): edit the two lists together. The raw namespace
- * calls are no instruments: core/namespace_calls.c adds them to every
- * core's table. */
+ * calls and the vector kernel selector are no instruments:
+ * core/namespace_calls.c and core/vector.c add them to every core's
+ * table. */
 static const luaL_Reg instruments[] = {
   {"fail_allocations", testing_fail_allocations},
   {"allow_allocations", testing_allow_allocations},
@@ -367,6 +369,7 @@ static const luaL_Reg instruments[] = {
 int cosmic_open_testing (lua_State *L) {
   luaL_newlib(L, instruments);
   cosmic_add_namespace_calls(L);
+  cosmic_add_vector_kernel(L);
   lua_pushliteral(L, COSMIC_CONFIGURATION_NAME);
   lua_setfield(L, -2, "configuration");
   return 1;

@@ -1,3 +1,4 @@
+local Cell = require("cosmic.cell")
 local Codec = require("cosmic.codec")
 local Fs = require("cosmic.fs")
 local Hash = require("cosmic.hash")
@@ -32,8 +33,7 @@ local function header(res: Web.Response, name: string): string?
 end
 
 local function test_request_reads_the_hx_headers()
-  -- TODO: hold this in Cell<Htmx.Request?> once cosmic.web.htmx declares `target` and `prompt` of Htmx.Request optional: they are nil when the header is absent, and typed, `second.target == nil` is refused as never true (compare_disjoint).
-  local seen = { value = nil as Htmx.Request? }
+  local seen: Cell<Htmx.Request?> = { value = nil }
   through(function(req: Web.Request): Web.Response
     seen.value = Htmx.request(req)
     return Web.text("")
@@ -49,6 +49,19 @@ local function test_request_reads_the_hx_headers()
   end)
   local second = assert(seen.value, "the handler never ran")
   assert(not second.active and second.target == nil and second.prompt == nil)
+  assert(second.trigger == nil and second.trigger_name == nil and second.current_url == nil)
+end
+
+local function test_an_htmx_request_without_the_optional_headers_leaves_them_nil()
+  local seen: Cell<Htmx.Request?> = { value = nil }
+  through(function(req: Web.Request): Web.Response
+    seen.value = Htmx.request(req)
+    return Web.text("")
+  end, { ["HX-Request"] = "true" })
+  local only = assert(seen.value, "the handler never ran")
+  assert(only.active)
+  assert(only.target == nil and only.prompt == nil and only.trigger == nil)
+  assert(only.trigger_name == nil and only.current_url == nil)
 end
 
 local function test_only_the_literal_true_sets_a_flag()

@@ -712,7 +712,8 @@ end
 
 --- The features `cpu_features` can answer, by machine.
 local KNOWN_FEATURES <const>: {string:{string:boolean}} = {
-  x86_64 = { aes = true, pclmulqdq = true, sse4_1 = true, ssse3 = true },
+  x86_64 = { aes = true, avx512_vnni = true, avx512f = true, avx512vl = true, avx_vnni = true,
+    pclmulqdq = true, sse4_1 = true, ssse3 = true },
   aarch64 = { aes = true, asimd = true, crc32 = true, pmull = true },
   arm64 = { aes = true, asimd = true, crc32 = true, pmull = true },
 }

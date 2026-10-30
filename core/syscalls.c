@@ -5801,8 +5801,9 @@ COSMIC_SYSCALL(cpu_count, 0) {
 
 /* The features `cpu_features` answers, by /proc/cpuinfo's names, in
  * byte order, each with where this processor says it has it: a bit of
- * cpuid leaf 1's ECX on x86_64, and of the auxiliary vector's AT_HWCAP
- * on Linux's aarch64; a name sysctlbyname answers 1 for on Darwin's. */
+ * a register of a cpuid leaf on x86_64, and of the auxiliary vector's
+ * AT_HWCAP on Linux's aarch64; a name sysctlbyname answers 1 for on
+ * Darwin's. */
 #if defined(__aarch64__) && defined(__APPLE__)
 struct cpu_feature {
   const char *name;
@@ -5813,21 +5814,34 @@ static const struct cpu_feature cpu_features[] = {
   { "aes", "hw.optional.arm.FEAT_AES" }, { "asimd", "hw.optional.AdvSIMD" },
   { "crc32", "hw.optional.armv8_crc32" }, { "pmull", "hw.optional.arm.FEAT_PMULL" },
 };
-#elif defined(__x86_64__) || (defined(__aarch64__) && defined(__linux__))
+#elif defined(__x86_64__)
+struct cpu_feature {
+  const char *name;
+  unsigned leaf;
+  unsigned subleaf;
+  unsigned reg; /* 0 eax, 1 ebx, 2 ecx */
+  unsigned bit;
+};
+
+/* core/vector.c chooses its int8 kernel by the last four of leaf 7 (and
+ * by the operating system's saved vector state, which cpuid does not say:
+ * a kernel that saves none lists fewer in /proc/cpuinfo than cpuid does,
+ * and the kernels answer alike, so a key that holds the cpuid bits is
+ * enough). */
+static const struct cpu_feature cpu_features[] = {
+  { "aes", 1, 0, 2, 25 }, { "avx512_vnni", 7, 0, 2, 11 }, { "avx512f", 7, 0, 1, 16 },
+  { "avx512vl", 7, 0, 1, 31 }, { "avx_vnni", 7, 1, 0, 4 }, { "pclmulqdq", 1, 0, 2, 1 },
+  { "sse4_1", 1, 0, 2, 19 }, { "ssse3", 1, 0, 2, 9 },
+};
+#elif defined(__aarch64__) && defined(__linux__)
 struct cpu_feature {
   const char *name;
   unsigned bit;
 };
 
-#if defined(__x86_64__)
-static const struct cpu_feature cpu_features[] = {
-  { "aes", 25 }, { "pclmulqdq", 1 }, { "sse4_1", 19 }, { "ssse3", 9 },
-};
-#else
 static const struct cpu_feature cpu_features[] = {
   { "aes", 3 }, { "asimd", 1 }, { "crc32", 7 }, { "pmull", 4 },
 };
-#endif
 #endif
 
 COSMIC_SYSCALL(cpu_features, 0) {
@@ -5842,14 +5856,21 @@ COSMIC_SYSCALL(cpu_features, 0) {
     lua_pushstring(L, cpu_features[f].name);
     lua_rawseti(L, -2, ++count);
   }
-#elif defined(__x86_64__) || (defined(__aarch64__) && defined(__linux__))
-  unsigned long bits = 0;
-#if defined(__x86_64__)
-  unsigned int eax, ebx, ecx, edx;
-  if (__get_cpuid(1, &eax, &ebx, &ecx, &edx)) bits = ecx;
-#else
-  bits = getauxval(AT_HWCAP);
-#endif
+#elif defined(__x86_64__)
+  lua_Integer count = 0;
+  for (size_t f = 0; f < sizeof cpu_features / sizeof *cpu_features; f++) {
+    unsigned int registers[4];
+    /* A leaf the processor lacks answers none of its features. */
+    if (!__get_cpuid_count(cpu_features[f].leaf, cpu_features[f].subleaf, &registers[0],
+                           &registers[1], &registers[2], &registers[3])) {
+      continue;
+    }
+    if (((registers[cpu_features[f].reg] >> cpu_features[f].bit) & 1) == 0) continue;
+    lua_pushstring(L, cpu_features[f].name);
+    lua_rawseti(L, -2, ++count);
+  }
+#elif defined(__aarch64__) && defined(__linux__)
+  unsigned long bits = getauxval(AT_HWCAP);
   lua_Integer count = 0;
   for (size_t f = 0; f < sizeof cpu_features / sizeof *cpu_features; f++) {
     if (((bits >> cpu_features[f].bit) & 1) == 0) continue;

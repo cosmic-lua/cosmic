@@ -32,7 +32,8 @@ local Store = require("cosmic.store")
 local Types = require("cosmic.web.types")
 
 local record Htmx
-  --- What an htmx request says of itself, from its `HX-*` headers.
+  --- What an htmx request says of itself, from its `HX-*` headers. A
+  --- string field is nil when its header is absent.
   record Request
     --- `HX-Request: true`: htmx made the request.
     active: boolean
@@ -42,16 +43,16 @@ local record Htmx
     --- asks for the whole document.
     history_restore: boolean
     --- `HX-Target`: the id of the target element.
-    target: string
+    target: string?
     --- `HX-Trigger`: the id of the element that triggered the request.
-    trigger: string
+    trigger: string?
     --- `HX-Trigger-Name`: the name of that element.
-    trigger_name: string
+    trigger_name: string?
     --- `HX-Current-URL`: the URL of the page, untrusted text: take it
     --- through [`Html.local_href`] before redirecting to it.
-    current_url: string
+    current_url: string?
     --- `HX-Prompt`: the answer to an `hx-prompt`.
-    prompt: string
+    prompt: string?
   end
 
   --- A named browser event for a `HX-Trigger` header.
