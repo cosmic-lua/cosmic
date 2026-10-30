@@ -230,6 +230,8 @@ local record Privacy
   end
   --- The locals declared with a table literal, by the id of the binding.
   literal: mut {integer: boolean}
+  --- The locals declared with a table literal that has no item (`{}`).
+  empty: mut {integer: boolean}
   --- The first token of each read of such a local that [`Writes.stays_private`] does not allow, by the id of the binding.
   escapes: mut {integer: mut {integer}}
   --- The first and last token of each loop.
@@ -245,6 +247,16 @@ local record Fill
   object: Ast.Exp
 end
 
+--- What a loop whose index counts 1, 2, 3 and so on, and writes `a[i]` in every pass before any `continue`, knows of the
+--- arrays `a` it fills ([`Writes.grow_in`]): at each write the array has the keys 1 to `i - 1` at least, so a value that is
+--- not nil written at `i` overwrites a key or appends ([`Writes.leaves_no_hole`]).
+local record Grow
+  --- The id of the binding of `i`.
+  var: integer
+  --- The ids of the bindings of the arrays the loop fills.
+  arrays: {integer: boolean}
+end
+
 --- A loop being walked: where its `break`s and `continue`s leave from.
 local record Loop
   --- The states at the `break`s, met: nil where none.
@@ -253,6 +265,8 @@ local record Loop
   continues: Flow.State?
   --- What the loop knows of the keys it counts, where it counts the keys of an array.
   fill: Fill?
+  --- What the loop knows of the arrays it fills in order, where it counts from 1 by 1.
+  grow: Grow?
 end
 
 --- A call that tests a value: the argument it narrows, and the type it takes it to ([`Types.Narrows`]).
@@ -5986,7 +6000,7 @@ function Writes.privacy(ctx: Ctx): Privacy
   if held ~= nil then
     return held
   end
-  local made: Privacy = { literal = {}, escapes = {}, loops = {} }
+  local made: Privacy = { literal = {}, empty = {}, escapes = {}, loops = {} }
   local waiting: mut {Ast.Node} = { ctx.input.chunk }
   while #waiting > 0 do
     local node = assert(waiting[#waiting])
@@ -5994,8 +6008,14 @@ function Writes.privacy(ctx: Ctx): Privacy
     if node.kind == "Local" then
       for i, binding in ipairs(node.bindings) do
         local value = node.values[i]
-        if value ~= nil and peel(value).kind == "Table" and binding.attr ~= "close" then
-          made.literal[binding.id] = true
+        if value ~= nil and binding.attr ~= "close" then
+          local made_of = peel(value)
+          if made_of.kind == "Table" then
+            made.literal[binding.id] = true
+            if #made_of.items == 0 then
+              made.empty[binding.id] = true
+            end
+          end
         end
       end
     elseif node.kind == "While" or node.kind == "Repeat" or node.kind == "ForNum" or node.kind == "ForIn" then
@@ -6017,25 +6037,42 @@ function Writes.privacy(ctx: Ctx): Privacy
   return made
 end
 
+--- Whether the table that the local `id` holds can be named by no code but its own function's while the tokens `first` to `last`
+--- run: the local is declared with a table literal, is never assigned or read by a function nested in its own, and has not
+--- been let out ([`Writes.stays_private`]) by a read at or before `last`, nor by a read in a loop that holds the tokens (the
+--- next pass would find the table out). Code that runs there then has no way to name the table.
+function Writes.unreachable(ctx: Ctx, id: integer, first: integer, last: integer): boolean
+  local v = ctx.scoped.vars[id]
+  local privacy = Writes.privacy(ctx)
+  if v == nil or v.kind ~= "local" or v.assigned or #v.captures > 0 or privacy.literal[id] ~= true then
+    return false
+  end
+  -- The tokens and the loops that hold them, inside the scope of the local: where a read lets the table out in time.
+  local from, to = first, last
+  for _, loop in ipairs(privacy.loops) do
+    if loop.first <= first and last <= loop.last and loop.first >= v.from then
+      from, to = math.min(from, loop.first), math.max(to, loop.last)
+    end
+  end
+  for _, at in ipairs(privacy.escapes[id] or {}) do
+    if at <= last or (at >= from and at <= to) then
+      return false
+    end
+  end
+  return true
+end
+
 --- Whether the statement `s`, which writes `object[#object + 1]` and runs code, may find `object` shortened by that code
---- between computing the key and writing the element. It may not where `object` is a local that no code but its own function
---- can name when the statement runs: the local is declared with a table literal, is never assigned or read by a function
---- nested in its own, and has not been let out ([`Writes.stays_private`]) by a read at or before the statement, nor by a
---- read in a loop that holds the statement (the next pass would find the table out). Code that runs in the statement then
---- has no way to name the table. A parameter, a local made from a call or from another name, a field and a local read by a
---- closure may be named from elsewhere, and no call is known not to.
+--- between computing the key and writing the element. It may not where `object` is a local that [`Writes.unreachable`] says
+--- no code but its own function's can name when the statement runs. A parameter, a local made from a call or from another
+--- name, a field and a local read by a closure may be named from elsewhere, and no call is known not to.
 function Writes.may_shorten(ctx: Ctx, object: Ast.Exp, s: Ast.Assign): boolean
   local array = peel(object)
   local id: integer? = nil
   if array.kind == "Name" then
     id = array.binding
   end
-  if id == nil then
-    return true
-  end
-  local v = ctx.scoped.vars[id]
-  local privacy = Writes.privacy(ctx)
-  if v == nil or v.kind ~= "local" or v.assigned or #v.captures > 0 or privacy.literal[id] ~= true then
+  if id == nil or not Writes.unreachable(ctx, id, s.first, s.last) then
     return true
   end
   -- A read of the local by the code the statement runs (`xs[#xs + 1] = table.remove(xs)`, `g(xs)`) reaches the table in the
@@ -6064,22 +6101,165 @@ function Writes.may_shorten(ctx: Ctx, object: Ast.Exp, s: Ast.Assign): boolean
   for _, value in ipairs(s.values) do
     look(value)
   end
-  if #used > 0 then
+  return #used > 0
+end
+
+--- Whether the statement `stat` holds a `continue`, which skips the rest of the pass of the loop that holds it. A `continue`
+--- of an inner loop or of a function made in `stat` is counted too: no other statement is read for it.
+function Writes.holds_continue(stat: Ast.Node): boolean
+  local found: mut {boolean} = {}
+  local waiting: mut {Ast.Node} = { stat }
+  while #waiting > 0 and #found == 0 do
+    local node = assert(waiting[#waiting])
+    waiting[#waiting] = nil
+    if node.kind == "Continue" then
+      found[#found + 1] = true
+    end
+    Ast.children(node, function(child: Ast.Node)
+      waiting[#waiting + 1] = child
+    end)
+  end
+  return #found > 0
+end
+
+--- Whether the statements `body` of a loop write the array held by the local `array`, or take elements from it, other
+--- than by a write at the index `var` of the loop: a write at another key, `table.remove`, or `table.insert` (which may
+--- append past the key `var` is on, and says no more than that write). The reads of `array` that [`Writes.unreachable`]
+--- allows are those of [`Writes.stays_private`] (an index, a length, `return`, `ipairs`, `pairs` and five functions of
+--- `table`), and of these only a write of an index and `table.remove` change the keys the array has, and `table.insert`
+--- and `table.sort` leave the keys it had.
+function Writes.rewrites_array(ctx: Ctx, body: Ast.Node, array: integer, var: integer): boolean
+  local marks: mut {boolean} = {}
+  local waiting: mut {Ast.Node} = { body }
+  while #waiting > 0 and #marks == 0 do
+    local node = assert(waiting[#waiting])
+    waiting[#waiting] = nil
+    if node.kind == "Assign" then
+      for _, target in ipairs(node.targets) do
+        local held = peel(target)
+        if held.kind == "Index" then
+          local object = peel(held.object)
+          local key = peel(held.key)
+          if object.kind == "Name" and object.binding == array and not (key.kind == "Name" and key.binding == var) then
+            marks[#marks + 1] = true
+          end
+        end
+      end
+    elseif node.kind == "Call" then
+      local callee = peel(node.callee)
+      local first = node.args[1]
+      if callee.kind == "Field" and callee.name == "remove" and first ~= nil then
+        local library = peel(callee.object)
+        local taken = peel(first)
+        if library.kind == "Name" and library.text == "table" and ctx.scoped.resolved[library.id] == nil and
+            taken.kind == "Name" and taken.binding == array then
+          marks[#marks + 1] = true
+        end
+      end
+    end
+    Ast.children(node, function(child: Ast.Node)
+      waiting[#waiting + 1] = child
+    end)
+  end
+  return #marks > 0
+end
+
+--- What the loop `loop` knows of the arrays it fills, if its index `var` counts 1, 2, 3 and so on (the caller has seen that
+--- it does: [`Writes.counts_from_one`]). An array `a` is filled where
+---   - a statement of the body, before any statement that holds a `continue`, assigns `a[var]`, so every pass that reaches
+---     its end has written the key it is on,
+---   - `a` is a local declared before the loop (a local made in the body is a new array in each pass) that holds a table
+---     literal with no item, and [`Writes.unreachable`] says no code but the function's
+---     own can name it while the loop runs (so a call in the loop, or in the value written, cannot shorten it), and
+---   - nothing in the body writes `a` at another key or takes an element out ([`Writes.rewrites_array`]),
+---   - nothing assigns `var`.
+---
+--- Why a write at `var` leaves no hole. A `mut` array has the keys 1 to its length. Before the pass on `var`, every pass
+--- before it ran to its end (a `break` or a `return` leaves the loop, and an error raises) and wrote `a[1]` to `a[var - 1]`, and
+--- nothing took an element out, so `a` has at least the keys 1 to `var - 1`: the write at `var` overwrites a key or is the
+--- append. A loop left at a `break` at the pass on `k` has the keys 1 to `k - 1`, as every array has the keys 1 to its length.
+--- A pass cannot skip its write: the write is in a statement of the body itself (not in an `if`, an inner loop or a
+--- function), and no statement before it can `continue`. The value written is not nil ([`Writes.leaves_no_hole`]), so the key
+--- is a key afterwards. The array may hold elements before the loop (a loop inside a loop, or a loop after an append): it
+--- only has more keys.
+function Writes.grow_in(ctx: Ctx, loop: Ast.Node, var: Ast.Binding, body: Ast.Block): Grow?
+  local v = ctx.scoped.vars[var.id]
+  if v == nil or v.assigned then
+    return nil
+  end
+  local arrays: mut {integer: boolean} = {}
+  local count = 0
+  for _, stat in ipairs(body.stats) do
+    if stat.kind == "Assign" then
+      for _, target in ipairs(stat.targets) do
+        local held = peel(target)
+        if held.kind == "Index" then
+          local object = peel(held.object)
+          local key = peel(held.key)
+          local id: integer? = nil
+          if object.kind == "Name" then
+            id = object.binding
+          end
+          if id ~= nil and key.kind == "Name" and key.binding == var.id and arrays[id] == nil then
+            arrays[id] = true
+            count = count + 1
+          end
+        end
+      end
+    end
+    if Writes.holds_continue(stat) then
+      break
+    end
+  end
+  if count == 0 then
+    return nil
+  end
+  local privacy = Writes.privacy(ctx)
+  local filled: mut {integer: boolean} = {}
+  local live = 0
+  for id in pairs(arrays) do
+    local declared = ctx.scoped.vars[id]
+    -- A local made in the body is a new array in each pass, with no key from the passes before.
+    if declared ~= nil and declared.from <= loop.first and privacy.empty[id] == true and
+        Writes.unreachable(ctx, id, loop.first, loop.last) and not Writes.rewrites_array(ctx, body, id, var.id) then
+      filled[id] = true
+      live = live + 1
+    end
+  end
+  if live == 0 then
+    return nil
+  end
+  return { var = var.id, arrays = filled }
+end
+
+--- Whether the numeric loop `s` counts 1, 2, 3 and so on: it starts at a literal of 1 and steps by a literal of 1 or by
+--- nothing, so the pass `k` has the index `k`. The limit may be any number.
+function Writes.counts_from_one(s: Ast.ForNum): boolean
+  local from = peel(s.from)
+  if not (from.kind == "Integer" and from.value == 1) then
+    return false
+  end
+  local step = s.step
+  if step == nil then
     return true
   end
-  -- The statement and the loops that hold it, inside the scope of the local: where a read lets the table out in time.
-  local from, to = s.first, s.last
-  for _, loop in ipairs(privacy.loops) do
-    if loop.first <= s.first and s.last <= loop.last and loop.first >= v.from then
-      from, to = math.min(from, loop.first), math.max(to, loop.last)
-    end
+  local given = peel(step)
+  return given.kind == "Integer" and given.value == 1
+end
+
+--- Whether the generic loop `s` is `for i, v in ipairs(t) do`: `ipairs` of the library, called with one array, answers the
+--- keys 1, 2, 3 and so on in turn, whatever the body does to `t`.
+function Writes.counts_ipairs(ctx: Ctx, s: Ast.ForIn): boolean
+  local only = s.iterators[1]
+  if #s.iterators ~= 1 or only == nil or #s.vars < 1 then
+    return false
   end
-  for _, at in ipairs(privacy.escapes[id] or {}) do
-    if at <= s.last or (at >= from and at <= to) then
-      return true
-    end
+  local call = peel(only)
+  if call.kind ~= "Call" or #call.args ~= 1 then
+    return false
   end
-  return false
+  local callee = peel(call.callee)
+  return callee.kind == "Name" and callee.text == "ipairs" and ctx.scoped.resolved[callee.id] == nil
 end
 
 --- The type of `object` to write a member of, after reporting what it may not be.
@@ -6200,6 +6380,8 @@ end
 --- elements from 1 to its length, so a write that puts a value that is not nil
 ---   - at 1 appends (the array is empty) or overwrites (it is not),
 ---   - at the index of a loop over `1` to the length of the array ([`Writes.fill_of`]), which has that element,
+---   - at the index of a loop that counts from 1 by 1 and writes the array in every pass ([`Writes.grow_in`]), which has
+---     the keys before it,
 --- overwrites an element and leaves the others where they are. A nil would take an element out of the middle, and a write at
 --- the length (`t[#t] = v`) is at 0 where the array is empty, which is no key of an array.
 ---
@@ -6217,9 +6399,18 @@ function Writes.leaves_no_hole(ctx: Ctx, vals: Values, p: Pending): boolean
     return true
   end
   if (key.kind == "Name") then
+    local object = peel(target.object)
+    local array: integer? = nil
+    if object.kind == "Name" then
+      array = object.binding
+    end
     for _, loop in ipairs(ctx.loops) do
       local fill = loop.fill
       if fill ~= nil and key.binding == fill.var and Writes.same_place(fill.object, target.object) then
+        return true
+      end
+      local grow = loop.grow
+      if grow ~= nil and array ~= nil and key.binding == grow.var and grow.arrays[array] == true then
         return true
       end
     end
@@ -6581,8 +6772,8 @@ local function run_loop(ctx: Ctx, entry: Flow.State, walk: function(head: Flow.S
 end
 
 --- Opens a loop: where its `break`s and `continue`s are met.
-local function open_loop(ctx: Ctx, fill?: Fill): Loop
-  local loop: Loop = { fill = fill }
+local function open_loop(ctx: Ctx, fill?: Fill, grow?: Grow): Loop
+  local loop: Loop = { fill = fill, grow = grow }
   ctx.loops[#ctx.loops + 1] = loop
   return loop
 end
@@ -6623,9 +6814,13 @@ local function for_numeric(ctx: Ctx, s: Ast.ForNum)
   ctx.vars[s.var.id] = (from == 1 and step == 1) and ctx.store.integer or ctx.store.number
   local entry = ctx.flow
   local fill = Writes.fill_of(s)
+  local grow: Grow? = nil
+  if Writes.counts_from_one(s) then
+    grow = Writes.grow_in(ctx, s, s.var, s.body)
+  end
   ctx.flow = run_loop(ctx, entry, function(head: Flow.State): Flow.State, Flow.State
     ctx.flow = head
-    local loop = open_loop(ctx, fill)
+    local loop = open_loop(ctx, fill, grow)
     declare_local(ctx, s.var.id, false)
     block(ctx, s.body)
     local back, breaks = close_loop(ctx, loop, ctx.flow)
@@ -6749,11 +6944,16 @@ local function for_generic(ctx: Ctx, s: Ast.ForIn)
     ctx.vars[v.id] = types[i]
   end
   local entry = ctx.flow
+  local grow: Grow? = nil
+  local index = s.vars[1]
+  if index ~= nil and Writes.counts_ipairs(ctx, s) then
+    grow = Writes.grow_in(ctx, s, index, s.body)
+  end
   ctx.flow = run_loop(ctx, entry, function(head: Flow.State): Flow.State, Flow.State
     -- The iterator runs before each pass and when the loop ends, and may shorten an array.
     local ran = Flow.forget_lengths(head)
     ctx.flow = ran
-    local loop = open_loop(ctx)
+    local loop = open_loop(ctx, nil, grow)
     for _, v in ipairs(s.vars) do
       declare_local(ctx, v.id, false)
     end

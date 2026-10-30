@@ -1127,6 +1127,73 @@ local function test_a_loop_over_the_keys_of_an_array_writes_them_only_while_it_l
   assert(has(codes_of(head .. "for n = 1, #xs do\nend\nlocal n: integer = 1\nxs[n] = v\n"), "array_hole"))
 end
 
+local function test_a_loop_that_counts_from_one_and_writes_an_array_it_alone_names_in_every_pass_fills_it()
+  local head = "local n: integer = 3\nlocal c: boolean = true\nlocal m: integer? = nil\nlocal src: {integer} = { 4, 5 }\n" ..
+    "local function f(k: integer): integer\n  return k * 2\nend\n" ..
+    "local out: mut {integer} = {}\n"
+  local function fills(loop: string): string
+    return codes_of(head .. loop .. "return out\n")
+  end
+  -- accepted: a numeric loop from 1 by 1, or `ipairs`, with a call in the value and the write in a statement of the body
+  assert(fills("for i = 1, n do\n  out[i] = f(i)\nend\n") == "")
+  assert(fills("for i = 1, n, 1 do\n  out[i] = i\nend\n") == "")
+  assert(fills("for i = 1, #src do\n  out[i] = f(i + #src)\nend\n") == "")
+  assert(fills("for i, v in ipairs(src) do\n  out[i] = f(v)\nend\n") == "")
+  assert(fills("for i, v in ipairs(src) do\n  local w = f(v)\n  out[i] = w + i\nend\n") == "")
+  -- a `break` or a `return` leaves the keys before it, a `continue` after the write skips nothing
+  assert(fills("for i = 1, n do\n  out[i] = i\n  if c then\n    break\n  end\nend\n") == "")
+  assert(fills("for i = 1, n do\n  if c then\n    return out\n  end\n  out[i] = i\nend\n") == "")
+  assert(fills("for i = 1, n do\n  out[i] = i\n  if c then\n    continue\n  end\n  out[i] = f(i)\nend\n") == "")
+  -- an overwrite, a read of an element, a second write in the pass and an append are not in the way
+  assert(fills("for i = 1, n do\n  out[i] = i\n  out[i] = i + 1\n  table.insert(out, 1)\nend\n") == "")
+  assert(fills("for i = 1, n do\n  out[i] = i\n  if c then\n    out[i] = f(i)\n  end\nend\n") == "")
+  -- two arrays, an inner loop, and a loop in a loop that fills the same array again
+  assert(codes_of(head .. "local other: mut {integer} = {}\nfor i = 1, n do\n  out[i] = i\n  other[i] = f(i)\n  for j = 1, 2 do\n    other[i] = j\n  end\nend\n") == "")
+  assert(fills("for r = 1, 2 do\n  for i = 1, n do\n    out[i] = f(r)\n  end\nend\n") == "")
+  assert(fills("while c do\n  local row: mut {integer} = {}\n  for i = 1, n do\n    row[i] = i\n  end\n  c = false\nend\n") == "")
+  -- a write at a key that is not the index of the loop is what it was
+  assert(has(fills("for i = 1, n do\n  out[i] = i\n  out[i + 1] = i\nend\n"), "array_hole"))
+  -- a loop that does not count 1, 2, 3
+  assert(has(fills("for i = 1, n, 2 do\n  out[i] = i\nend\n"), "array_hole"))
+  assert(has(fills("for i = 0, n do\n  out[i] = i\nend\n"), "array_hole"))
+  assert(has(fills("for i = 2, n do\n  out[i] = i\nend\n"), "array_hole"))
+  assert(has(fills("for i = n, 1, -1 do\n  out[i] = i\nend\n"), "array_hole"))
+  assert(has(fills("for i, v in pairs(src) do\n  out[i] = v\nend\n"), "array_hole"))
+  assert(has(fills("for i, v in ipairs(src) do\n  out[i * 2] = v\nend\n"), "array_hole"))
+  -- a pass that may not write: the write is under a test, in an inner loop, or after a `continue`
+  assert(has(fills("for i = 1, n do\n  if c then\n    out[i] = i\n  end\nend\n"), "array_hole"))
+  assert(has(fills("for i = 1, n do\n  for j = 1, 2 do\n    out[i] = j\n  end\nend\n"), "array_hole"))
+  assert(has(fills("for i = 1, n do\n  if c then\n    continue\n  end\n  out[i] = i\nend\n"), "array_hole"))
+  assert(has(fills("for i = 1, n do\n  while c do\n    continue\n  end\n  out[i] = i\nend\n"), "array_hole"))
+  assert(has(fills("for i = 1, n do\n  out[i] = m\nend\n"), "array_hole"))
+  assert(has(fills("for i = 1, n do\n  out[i] = nil\nend\n"), "array_hole"))
+  -- a body that takes an element out or writes the array at another key
+  assert(has(fills("for i = 1, n do\n  out[i] = i\n  table.remove(out)\nend\n"), "array_hole"))
+  assert(has(fills("for i = 1, n do\n  out[i] = i\n  out[#out] = nil\nend\n"), "array_hole"))
+  assert(has(fills("for i = 1, n do\n  out[i] = i\n  out[#out + 1] = i\nend\n"), "array_hole"))
+  assert(has(fills("for i = 1, n do\n  out[i] = i\n  out[1] = i\nend\n"), "array_hole"))
+  assert(has(fills("for i = 1, n do\n  for j = 1, 2 do\n    out[j] = j\n  end\n  out[i] = i\nend\n"), "array_hole"))
+  -- an array another name or another function can reach: a call in the loop may shorten it
+  local shrinks = "local function shrink(): integer\n  table.remove(out)\n  return 1\nend\n"
+  assert(has(fills(shrinks .. "for i = 1, n do\n  out[i] = shrink()\nend\n"), "array_hole"))
+  assert(has(fills("local alias = out\nfor i = 1, n do\n  out[i] = i\nend\n"), "array_hole"))
+  assert(has(fills("local function take(a: mut {integer}): integer\n  table.remove(a)\n  return 1\nend\nfor i = 1, n do\n  out[i] = take(out)\nend\n"), "array_hole"))
+  assert(has(fills("for i = 1, n do\n  out[i] = i\n  local alias = out\n  alias[#alias] = nil\nend\n"), "array_hole"))
+  assert(has(codes_of(head .. "local keep: mut {mut {integer}} = {}\nkeep[1] = out\nfor i = 1, n do\n  out[i] = f(i)\nend\n"), "array_hole"))
+  assert(has(codes_of(head .. "local keep: mut {mut {integer}} = {}\nfor r = 1, 2 do\n  for i = 1, n do\n    out[i] = f(i)\n  end\n  keep[r] = out\nend\n"), "array_hole"))
+  assert(has(fills("for i = 1, n do\n  out[i] = f(i)\nend\nout = {}\n"), "array_hole"))
+  assert(has(codes_of("local function fill(out: mut {integer}, n: integer)\n  for i = 1, n do\n    out[i] = i\n  end\nend\n"), "array_hole"))
+  assert(has(codes_of("local function make(): mut {integer}\n  return {}\nend\nlocal out = make()\nfor i = 1, 3 do\n  out[i] = i\nend\n"), "array_hole"))
+  -- a closure that names the array, made before or in the loop
+  assert(has(fills("local function size(): integer\n  return #out\nend\nfor i = 1, n do\n  out[i] = size()\nend\n"), "array_hole"))
+  assert(has(fills("for i = 1, n do\n  local get = function(): integer\n    return #out\n  end\n  out[i] = get()\nend\n"), "array_hole"))
+  -- an array made in the body is empty at the start of every pass
+  assert(has(codes_of(head .. "for i = 1, n do\n  local row: mut {integer} = {}\n  row[i] = i\nend\n"), "array_hole"))
+  -- a literal with items has no proof here, and neither has a write that a closure makes
+  assert(has(codes_of("local out: mut {integer} = { 1 }\nfor i = 1, 3 do\n  out[i] = i\nend\n"), "array_hole"))
+  assert(has(fills("for i = 1, n do\n  local put = function()\n    out[i] = i\n  end\n  out[i] = i\nend\n"), "array_hole"))
+end
+
 -- An array holds the keys 1 to `#t`, so a test of its length against a literal shows the elements a read of it names, until
 -- code runs that may shorten an array.
 local LENGTH_HEAD <const> = "local xs: {integer} = { 1, 2, 3 }\nlocal ys: {integer} = {}\nlocal zs: mut {integer} = { 1, 2 }\n" ..
