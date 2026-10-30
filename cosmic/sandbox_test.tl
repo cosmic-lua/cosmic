@@ -29,6 +29,21 @@ local function test_a_loopback_conflict_of_the_merged_policy_is_named_by_its_pat
   assert(not ok and own:find("^sandbox: %$%.loopback%[1%]: ") ~= nil, own)
 end
 
+local function test_check_reads_each_loopback_octet_as_a_number_up_to_255()
+  for _, address in ipairs({ "127.0.0.1", "127.255.255.255", "127.0.0.255" }) do
+    local ok, why = Sandbox.check({ loopback = { address } })
+    assert(ok, address .. ": " .. tostring(why))
+  end
+  -- Octets past 255, of any length (one is more digits than an integer holds),
+  -- or with a leading zero, or not digits, are refused with the address named.
+  for _, address in ipairs({ "127.0.0.256", "127.0.0.1000", "127.0.0.99999999999999999999",
+      "127.0.0.01", "127.0.0.", "127.0.0.x" }) do
+    local ok, why = Sandbox.check({ loopback = { address } })
+    assert(not ok, address)
+    assert(why:find("is not an address of 127/8", 1, true), why)
+  end
+end
+
 local function test_check_takes_an_ipv6_connect_host_in_brackets_only()
   for _, target in ipairs({ "[::1]:80", "[::]:80", "[1::]:80", "[1:2:3:4:5:6:7:8]:80", "[::ffff:1.2.3.4]:80", "[2001:db8::1]:*", "1.2.3.4:80", "example.com:443", "*:*", "*:443" }) do
     local ok, why = Sandbox.check({ connect = { target } })

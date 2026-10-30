@@ -680,9 +680,15 @@ and the globals the chunk uses. its rules:
   declared if one is within an edit or two, and a note where the name is
   declared later in its scope. a declaration file's `global` is not a local:
   any function may assign it.
-- **captures.** a function that assigns a local of the code around it is
-  `captured_assigned`. for each local a function reads from outside,
-  [`Capture.after`] says whether an assignment may run after that function is
+- **captures.** a function may assign a local of the code around it; the
+  builder marks the local ([`Var.closure_assigned`]) and the checker never
+  narrows it, so no test of it is open to a function that runs between the
+  test and a use. the mark is known when the build ends, before the checker's
+  first test, so it covers a function made after the test, inside a loop or
+  inside another function as it does one made before. a declaration's value
+  and a later assignment give such a local nothing either, and its reads
+  inside a function take its declared type. for each other local a function
+  reads from outside, [`Capture.after`] says whether an assignment may run after that function is
   made: one later in the source, one in the same statement, or one in a loop
   that holds both inside the local's scope. a test of the local inside the
   function narrows it only where this is false ([narrowing only what nothing
@@ -838,8 +844,8 @@ returns as the production named, when a use appears.
   second way to say it). a release that carries the flag compiles the
   checker's own translated source once the switch's hand steps are made
   ([the switch]), which is what lets the pin move before it.
-- the scope builder, [`lang/scopes.tl`], against the fork's `shadows`,
-  `captured_assigned` and `unknown_variable` over the checker's corpora and
+- the scope builder, [`lang/scopes.tl`], against the fork's `shadows`
+  and `unknown_variable` over the checker's corpora and
   generated programs, and over the tree: [`build/tree_checks.tl`]'s `scoped`
   scopes every `.tl` file in `fix --check .` and holds it to the errors the tree
   has, pinned by file and code.
@@ -948,4 +954,5 @@ returns as the production named, when a use appears.
 [`lang/scopes.tl`]: ../../lang/scopes.tl
 [`Name.binding`]: ../../lang/ast.tl
 [`Stream.Reader`]: ../../cosmic/stream.tl
+[`Var.closure_assigned`]: ../../lang/scopes.tl
 [`Var.copies`]: ../../lang/scopes.tl

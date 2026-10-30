@@ -3,6 +3,8 @@
 --- sealed by [`Store.seal`] whose main is a fixture module of the test's, and
 --- the reading of what that program prints.
 
+-- TODO: make this `local type Cell = require("cosmic.cell")` once the store keeps a module that only a `local type` require names; today that drops cosmic.cell from the binary and build/link_index_test fails.
+local Cell = require("cosmic.cell")
 local Sqlite = require("cosmic.sqlite")
 local Store = require("cosmic.store")
 local Proc = require("cosmic.proc")
@@ -116,7 +118,7 @@ return function(args)
 end
 ]==]
 
-local attached = { value = false }
+local attached: Cell<boolean> = { value = false }
 
 --- Attaches a database holding `fixture.main`, which requires two modules
 --- of the binary, once; a fixture module is never in the binary.

@@ -2624,7 +2624,8 @@ local PLACE_KINDS <const>: {Scopes.Kind: boolean} = {
 --- The place the expression `e` names in the state `f`, or nil: a local, or `a.b.c` from one with each field fixed
 --- (not declared `mut`) of a record, class or interface, read through the type the facts hold of what is before it.
 --- A global, a `mut` field, an index and a field of anything else are not places: code that runs between a test and a
---- use can change them.
+--- use can change them. Nor is a local that any function assigns ([`Scopes.Var.closure_assigned`], known for the whole
+--- scope before the first test, wherever the function is made): a call between a test and a use may run the assignment.
 local function place_of(ctx: Ctx, f: Flow.State, e: Ast.Node): Place?
   local at = peel(e)
   if (at.kind == "Name") then
@@ -2635,7 +2636,8 @@ local function place_of(ctx: Ctx, f: Flow.State, e: Ast.Node): Place?
     local v = ctx.scoped.vars[id]
     local declared = ctx.vars[id]
     local key = path_key(ctx, at)
-    if v == nil or declared == nil or key == nil or PLACE_KINDS[v.kind] ~= true or ctx.unfixed_now[id] == true then
+    if v == nil or declared == nil or key == nil or PLACE_KINDS[v.kind] ~= true or v.closure_assigned or
+        ctx.unfixed_now[id] == true then
       return nil
     end
     return { key = key, declared = declared }
@@ -5846,7 +5848,8 @@ local function local_statement(ctx: Ctx, s: Ast.Local)
       ctx.vars[b.id] = ctx.invalid
     end
     declare_local(ctx, b.id, false)
-    local given = want ~= nil and t ~= nil and counted and value_narrowing(ctx, t, want) or nil
+    local given = want ~= nil and t ~= nil and counted and not (held ~= nil and held.closure_assigned) and
+      value_narrowing(ctx, t, want) or nil
     if given ~= nil and want ~= nil then
       ctx.flow = Flow.narrow(ctx.flow, id_key(ctx, b.id), given, want)
     end
@@ -6557,7 +6560,8 @@ local function assign_statement(ctx: Ctx, s: Ast.Assign)
       local v = ctx.scoped.vars[id]
       local declared = ctx.vars[id]
       local t = vals ~= nil and value_at(ctx, vals, i) or nil
-      local given = t ~= nil and declared ~= nil and v ~= nil and PLACE_KINDS[v.kind] and value_narrowing(ctx, t, declared) or nil
+      local given = t ~= nil and declared ~= nil and v ~= nil and PLACE_KINDS[v.kind] and not v.closure_assigned and
+        value_narrowing(ctx, t, declared) or nil
       if given ~= nil and declared ~= nil then
         ctx.flow = Flow.narrow(ctx.flow, id_key(ctx, id), given, declared)
       end

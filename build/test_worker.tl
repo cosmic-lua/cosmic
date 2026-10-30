@@ -379,6 +379,7 @@ local checks: mut {string:Check} = {}
 local facts: mut {string:Fact} = {}
 local malformed: mut {string:boolean} = {}
 local found: mut {worker.Violation} = {}
+-- TODO: hold this in a `Cell<integer>` once a change to the harness that bumps the epoch for another reason can add cosmic.cell to [`worker.loads`] and `library` in build/harness_epoch.tl: a harness module may not require it before, and a bump for this alone reruns every test.
 local tally = { dropped = 0 }
 -- The place that sent a value is asked of the stack for every violation of
 -- a parameter, in constant time, so the report names it however often a

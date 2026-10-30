@@ -128,7 +128,6 @@ local CLOSED_CODES <const>: {string} = {
   "bound_not_interface",
   "bound_not_met",
   "bound_unmet",
-  "captured_assigned",
   "class_scope",
   "concat_type",
   "const_assigned",
