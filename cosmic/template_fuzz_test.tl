@@ -20,6 +20,8 @@ local MARKUP <const> = {
   " x=y ", "=", "/", " ", "\t", "\r\n", "\n", "text", "&", "é", "\0", "\\", "{", "}", "<img src=\"",
   "<script src=\"", "<meta content=\"", "<TITLE>", "</title>", "<a ", "<a b", "<a b=\"c\"", "<a b=c", "<div class=\"",
   "<a href=\"/x/", "<br/>", "<a href=\"http://h\">",
+  -- Bytes Lua's %s reads as space and HTML's attribute names do not.
+  "\v", "\f", "<a b\vc", "<a b\fc=", "<svg a\vb>",
 }
 
 --- What may follow a body to end it in text, as a template must end.

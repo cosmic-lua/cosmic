@@ -759,7 +759,7 @@ local function join(a: Place, b: Place)
   end
   local set: mut {string: boolean} = { [alt_key(a)] = true, [alt_key(b)] = true }
   for _, alts in ipairs({ a.alts, b.alts }) do
-    for k in alts:gmatch("%S+") do
+    for k in alts:gmatch("[^ ]+") do
       set[k] = true
     end
   end
@@ -931,8 +931,8 @@ local function count(p: Place, selfclosed: boolean)
     return
   end
   if p.closing then
-    if p.stack:match("%S+$") == tag then
-      p.stack = p.stack:gsub(" %S+$", "")
+    if p.stack:match("[^ ]+$") == tag then
+      p.stack = p.stack:gsub(" [^ ]+$", "")
     else
       p.murky = true
     end
@@ -1398,7 +1398,7 @@ local function settle(p: Place, text: string, line: integer, col: integer): inte
   while p.alts ~= "" and i <= #text do
     local c = text:sub(i, i)
     local places: mut {Place} = { p }
-    for k in p.alts:gmatch("%S+") do
+    for k in p.alts:gmatch("[^ ]+") do
       places[#places + 1] = as_alt(p, k)
     end
     p.alts = ""
@@ -1581,13 +1581,11 @@ local function wrote(p: Place, ctx: types.Slot, line: integer, col: integer)
 end
 
 local function ending(p: Place): string
-  local innermost = p.stack:match("%S+")
+  local innermost = p.stack:match("[^ ]+")
   if p.murky then
     return "in markup in <svg>, <math>, <noscript>, <select> or <frameset> that the tracker could not follow"
   elseif p.stack ~= "" then
-    if innermost == nil then
-      error("cosmic.template: the tracker's stack holds no tag: \"" .. p.stack .. "\"")
-    end
+    if innermost == nil then return "inside a foreign element" end
     return "inside <" .. innermost .. ">"
   elseif p.select then
     return "inside <select>"
