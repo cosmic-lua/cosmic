@@ -80,7 +80,8 @@ local function test_a_change_replaces_the_program_with_a_counted_boot(tmp: strin
   assert(ok and why == "")
   assert(edited and #pids == 2 and pids[1] ~= pids[2])
   assert(not alive(pids[1]), "the first program was ended before the second began")
-  assert(not alive(pids[2]), "the program is ended with the supervisor")
+  local pids_2 = assert(pids[2], "expected pids[2]")
+  assert(not alive(pids_2), "the program is ended with the supervisor")
   assert(Fs.read(tmp .. "/marks/2") == "1", "COSMIC_WEB_DEV is set")
   local told = table.concat(lines, "\n")
   assert(told:find("starting (boot 1)", 1, true) and told:find("a.tl changed", 1, true))
@@ -103,7 +104,7 @@ local function test_a_program_that_exits_is_not_started_again_until_a_change(tmp
     stop = function(): boolean
       give_up()
       rounds = rounds + 1
-      if not fixed and table.concat(lines, "\n"):find("exited with status 3", 1, true) then
+      if not fixed and table.concat(lines, "\n"):find("exited with status 3", 1, true) ~= nil then
         quiet_rounds = quiet_rounds + 1
         assert(boots == 1, "no restart loop")
         if quiet_rounds == 30 then
