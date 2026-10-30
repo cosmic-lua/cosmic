@@ -689,7 +689,7 @@ local function test_create_with_only_its_own_output_leaves_that_file_alone(tmp: 
   local ran = in_dir(src, { "create", "a.tar", "a.tar" })
   assert(ran.code == 2, tostring(ran.code) .. " " .. ran.err)
   assert(ran.err:find("a.tar: the archive being written is the only path given, and it is left out of itself; " ..
-    "name a file or directory to put in it", 1, true) ~= nil, ran.err)
+      "name a file or directory to put in it", 1, true) ~= nil, ran.err)
   assert(Fs.read(src .. "/a.tar") == before, "the existing archive was rewritten")
   local both = in_dir(src, { "create", "a.tar", "a.tar", "loose.txt" })
   assert(both.code == 0 and both.out == "loose.txt\n", both.out .. both.err)

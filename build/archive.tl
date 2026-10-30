@@ -775,7 +775,7 @@ local function gather(paths: {string}, skip_file: string?): {Item}?, Outcome
   local own_output = left_out[1]
   if #names == 0 and own_output ~= nil then
     return nil, fail(bare.refused, own_output .. ": the archive being written is the only path given, and it is left out of itself; " ..
-      "name a file or directory to put in it")
+        "name a file or directory to put in it")
   end
   local items: mut {Item} = {}
   for _, name in ipairs(names) do
