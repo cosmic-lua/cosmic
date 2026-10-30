@@ -3,11 +3,12 @@
 --- wrappers asked are required, so that the store's searchers answer.
 local RawTables = require("build.raw_tables")
 local Test = require("cosmic.test")
+local sys = require("cosmic.sys")
 local _child = require("cosmic.child")
 local _hash = require("cosmic.hash")
 local _net = require("cosmic.net")
 
-Test.policy{}
+Test.policy{ loopback = { "127.0.0.1" } }
 
 --- The message `body` raises, or "" when it raises none.
 local function refused(body: function()): string
@@ -20,6 +21,28 @@ local function test_each_accessor_hands_the_table_of_its_wrapper_by_default()
   assert(type(RawTables.process().spawn) == "function")
   assert(type(RawTables.socket().listen) == "function")
   assert(type(RawTables.hash().digest) == "function")
+end
+
+local function test_a_connector_pair_is_held_as_its_two_ends()
+  local made = RawTables.connector_pair()
+  assert(made.controller ~= made.connector)
+  assert(sys.close(made.controller))
+  assert(sys.close(made.connector))
+  local held = RawTables.pair_ends({ 7, 8 })
+  assert(held.controller == 7 and held.connector == 8)
+  assert(refused(function() local _ = RawTables.pair_ends({ 7 }) end):find("holds two descriptors", 1, true) ~= nil)
+  assert(refused(function() local _ = RawTables.pair_ends({}) end):find("holds two descriptors", 1, true) ~= nil)
+  assert(refused(function() local _ = RawTables.connector_pair("cosmic.nothing_of_the_kind") end):find(
+    "is handed no raw table", 1, true) ~= nil)
+end
+
+local function test_the_port_of_a_listener_is_the_one_the_kernel_gave()
+  local socket = RawTables.socket()
+  local listener <close> = assert(socket.listen({ kind = "tcp", host = "127.0.0.1", port = 0 }, 1))
+  local port = RawTables.bound_port(listener)
+  assert(port > 0 and port < 65536)
+  local address = assert(socket.bound(listener:fd()))
+  assert(address.port == port)
 end
 
 local function test_the_table_is_the_core_s_own_and_not_a_copy()

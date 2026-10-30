@@ -31,11 +31,27 @@ local type raw_process = require("cosmic.internal.process")
 local type raw_socket = require("cosmic.internal.socket")
 
 local record raw_tables
+  --- The two descriptors of a connector pair: the controller's, which asks and is answered, and the connector's, which
+  --- the connector is started on.
+  record Ends
+    controller: integer
+    connector: integer
+  end
   --- The table core/store.c hands `wrapper`'s loader, by name. A reflection
   --- test reads the members of a table no declaration describes through
   --- it. Raises where `wrapper` is handed no table or one with a key that
   --- is no name.
   fields: function(wrapper: string): {string: any}
+  --- The two descriptors of `pair`, a connector pair ([`cosmic.internal.process`]'s [`connector_pair`]): the controller's
+  --- first, the connector's second. Raises where `pair` holds fewer. It allocates nothing but its results' frames, so it
+  --- may run in a walk that fails allocations once the pair is made.
+  pair_ends: function(pair: {integer}): raw_tables.Ends
+  --- A new connector pair, made by `wrapper`'s process table ([`cosmic.child`]'s by default), as its two ends. Raises
+  --- where the core cannot make one. It looks the table up on each call, so a test that fails allocations makes the
+  --- pair by the table itself and holds it with [`pair_ends`].
+  connector_pair: function(wrapper?: string): raw_tables.Ends
+  --- The port the kernel gave `bound`, a socket that listens or was accepted. Raises where it has none.
+  bound_port: function(bound: raw_socket.Socket): integer
   --- The hash table (cosmic/internal/hash.d.tl) handed `wrapper`, [`cosmic.hash`]'s
   --- by default.
   hash: function(wrapper?: string): raw_hash
@@ -77,6 +93,23 @@ end
 
 function raw_tables.fields(wrapper: string): {string: any}
   return table_behind(wrapper, {})
+end
+
+function raw_tables.pair_ends(pair: {integer}): raw_tables.Ends
+  local controller, connector = pair[1], pair[2]
+  assert(controller and connector, "a connector pair holds two descriptors")
+  return { controller = controller, connector = connector }
+end
+
+function raw_tables.connector_pair(wrapper?: string): raw_tables.Ends
+  local pair = assert(raw_tables.process(wrapper).connector_pair())
+  return raw_tables.pair_ends(pair)
+end
+
+function raw_tables.bound_port(bound: raw_socket.Socket): integer
+  local address = assert(raw_tables.socket().bound(bound:fd()))
+  local port = assert(address.port, "a bound TCP socket has a port")
+  return port
 end
 
 function raw_tables.hash(wrapper?: string): raw_hash
