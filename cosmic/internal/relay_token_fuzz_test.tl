@@ -4,6 +4,7 @@
 --- upstream, answers no request, and counts no connection as served.
 --- `FUZZ_SEED` and `FUZZ_ITERS` pick the inputs (build/fuzz/init.tl).
 
+local Cell = require("cosmic.cell")
 local Clock = require("cosmic.clock")
 local Codec = require("cosmic.codec")
 local Fixture = require("build.relay_wire_fixture")
@@ -80,11 +81,11 @@ local function test_no_bytes_but_the_token_reach_the_upstream(tmp: string)
     check = function(input: string): boolean, string
       -- The one input class outside the property: a credential that is right.
       if input:find(TOKEN, 1, true) then return true, "" end
-      local trouble = { value = "" }
+      local trouble: Cell<string> = { value = "" }
       Poll.run(function()
         local http = assert(Net.listen(Net.tcp("127.0.0.1", 0)))
         local socks = assert(Net.listen(Net.tcp("127.0.0.1", 0)))
-        local asked = { value = 0 }
+        local asked: Cell<integer> = { value = 0 }
         local server = Relay.start({
           http = http, socks = socks, grants = { "127.0.0.1:80" }, token = TOKEN,
           timeouts = { auth = Clock.ms(300) }, log = function(_: string) end,

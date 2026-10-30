@@ -55,6 +55,10 @@ local connector_only <const> =
   "runs only in the native connector, whose filter forbids coverage files and whose inherited descriptors are " ..
   "closed: the connector's live kernel probes and TCP handoff tests enter it, but it cannot report coverage"
 
+local vnni_only <const> =
+  "runs only on a CPU with that encoding of VNNI, which not every x86_64 host has (an aarch64 core builds neither); " ..
+  "cosmic/vector_storage_test.tl's kernel comparison enters each a host has"
+
 --- The C functions no test can enter, by [`key_of`], and why.
 local exempt: {string: string} = {
   ["core/connector.c:connector_attack"] = connector_only,
@@ -97,6 +101,12 @@ local exempt: {string: string} = {
   ["core/syscalls.c:make_mirrored"] = sandbox_only,
   ["core/syscalls.c:cosmic_mountinfo_local_flock"] = "a release core calls it only for a file on NFS, which no " ..
     "test's host has; the checked core's testing table reaches it (`mountinfo_local_flock`), and its run enters it",
+  -- TODO: once build/host_names.tl names a CPU feature a module can require
+  -- (`avx512_vnni`, `avx_vnni`), move these two to `prerequisites`, so that
+  -- a host which has the feature is held to entering the kernel; today
+  -- the host that has it only reports the exemption as entered.
+  ["core/vector.c:dot_i8_avx512_vnni"] = vnni_only,
+  ["core/vector.c:dot_i8_avx_vnni"] = vnni_only,
   ["core/store.c:die_unreadable"] = "the store's own database cannot be read, and the process ends",
   ["core/crypto.c:mbedtls_psa_external_get_random"] = "mbedtls asks for randomness only to make keys, which the core never does",
   ["core/vfs.c:vfs_delete"] = forwarded,

@@ -1,3 +1,4 @@
+local Cell = require("cosmic.cell")
 local Shape = require("cosmic.shape")
 local Web = require("cosmic.web")
 
@@ -67,7 +68,7 @@ local function test_a_json_body_binds_and_a_key_the_record_lacks_is_dropped()
 end
 
 local function test_a_bad_path_value_is_422_before_the_query_or_body_is_read()
-  local called = { value = false }
+  local called: Cell<boolean> = { value = false }
   local app = Web.app{ routes = {
     Web.put_typed("/items/:id", Web.input(PATH, QUERY, Web.json_body(NEW)),
       function(_req: Web.Request, _p: ItemPath, _q: Listing, _b: NewItem): Web.Response
@@ -131,8 +132,8 @@ local function test_a_form_route_prefers_a_page_and_lists_all_errors_as_json_whe
 end
 
 local function test_on_invalid_re_renders_in_place_of_the_handler()
-  local called = { value = false }
-  local seen = { value = nil as Web.Invalid? }
+  local called: Cell<boolean> = { value = false }
+  local seen: Cell<Web.Invalid?> = { value = nil }
   local app = Web.app{ routes = {
     Web.post_typed("/settings", Web.input(Web.NONE, Web.NONE, Web.form_body(SETTINGS)),
       function(_req: Web.Request, _p: Web.None, _q: Web.None, _b: Settings): Web.Response
@@ -155,7 +156,7 @@ local function test_on_invalid_re_renders_in_place_of_the_handler()
 end
 
 local function test_a_checkbox_form_binds_and_unknown_names_bind_nothing()
-  local got = { value = nil as Settings? }
+  local got: Cell<Settings?> = { value = nil }
   local app = Web.app{ routes = {
     Web.post_typed("/settings", Web.input(Web.NONE, Web.NONE, Web.form_body(SETTINGS)),
       function(_req: Web.Request, _p: Web.None, _q: Web.None, b: Settings): Web.Response

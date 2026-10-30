@@ -575,7 +575,7 @@ COSMIC_SYSCALL(fd_flags, 1);
 COSMIC_SYSCALL(cpu_count, 0);
 
 /*
- * --- The processor's features the core's vendored code may choose code by, each by the name Linux's /proc/cpuinfo lists it under, in byte order: on x86_64 "aes", "pclmulqdq", "sse4_1" and "ssse3", from cpuid; on aarch64 "aes", "asimd", "crc32" and "pmull", from the auxiliary vector's hardware capabilities on Linux and sysctlbyname's hw.optional names on Darwin. Those this processor lacks are left out, and every one on any other machine.
+ * --- The processor's features the core's own and vendored code may choose code by, each by the name Linux's /proc/cpuinfo lists it under, in byte order: on x86_64 "aes", "avx512_vnni", "avx512f", "avx512vl", "avx_vnni", "pclmulqdq", "sse4_1" and "ssse3", from cpuid; on aarch64 "aes", "asimd", "crc32" and "pmull", from the auxiliary vector's hardware capabilities on Linux and sysctlbyname's hw.optional names on Darwin. Those this processor lacks are left out, and every one on any other machine.
  * ---@return {string} features the features this processor has
  */
 COSMIC_SYSCALL(cpu_features, 0);

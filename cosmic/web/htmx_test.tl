@@ -32,6 +32,7 @@ local function header(res: Web.Response, name: string): string?
 end
 
 local function test_request_reads_the_hx_headers()
+  -- TODO: hold this in Cell<Htmx.Request?> once cosmic.web.htmx declares `target` and `prompt` of Htmx.Request optional: they are nil when the header is absent, and typed, `second.target == nil` is refused as never true (compare_disjoint).
   local seen = { value = nil as Htmx.Request? }
   through(function(req: Web.Request): Web.Response
     seen.value = Htmx.request(req)
@@ -51,6 +52,7 @@ local function test_request_reads_the_hx_headers()
 end
 
 local function test_only_the_literal_true_sets_a_flag()
+  -- TODO: hold this list in Cell<mut {boolean}> once its read tests each flag (`flags.value[1] == true`): typed, `not flags.value[1]` is a condition_type error.
   local flags = { value = {} as {boolean} }
   through(function(req: Web.Request): Web.Response
     local seen = Htmx.request(req)

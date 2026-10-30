@@ -18,6 +18,7 @@
 local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
 local Net = require("cosmic.net")
+local Number = require("cosmic.number")
 local Poll = require("cosmic.poll")
 local Stream = require("cosmic.stream")
 local Time = require("cosmic.time")
@@ -740,7 +741,7 @@ local MOST <const> = tostring(math.maxinteger)
 --- one comes out the same either way.
 local function count(digits: string): integer
   if fewer(MOST, digits) then return math.maxinteger end
-  return math.tointeger(tonumber(digits))
+  return Number.integer(digits)
 end
 
 --- Reads the Range `header` of a GET (nil where it sent none) against

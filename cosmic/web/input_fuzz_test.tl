@@ -3,6 +3,7 @@
 --- accepts or a refusal that lists its errors; a Content-Type header of
 --- any bytes parses to something total.
 
+local Cell = require("cosmic.cell")
 local Fuzz = require("build.fuzz")
 local Input = require("cosmic.web.input")
 local Shape = require("cosmic.shape")
@@ -147,7 +148,7 @@ local function test_json_refusals_point_at_the_field_they_name(tmp: string)
   local TEXTS <const>: {string} = { '{"title":"t","qty":1}', '{"qty":"x"}', '{"title":null}', "[]", "null", '"s"',
     '{"title":1,"qty":1.5,"tags":[1]}', '{"address":{"city":3}}', "{", "", '{"tags":{"a":1}}',
     '{"title":"t","qty":1,"address":{"city":"c","zip":"z"}}' }
-  local last = { value = nil as Types.Parsed<Doc>? }
+  local last: Cell<Types.Parsed<Doc>?> = { value = nil }
   local app = Web.app{ routes = { Web.post("/x", function(req: Web.Request): Web.Response
     last.value = Input.json_into(req, DOC)
     return Web.empty()
@@ -176,8 +177,10 @@ local function test_json_refusals_point_at_the_field_they_name(tmp: string)
         return true, ""
       end
       local bad = invalid
-      if bad.status ~= 400 and bad.status ~= 422 then return false, "status " .. bad.status end
-      local e = bad.errors[1]
+      if bad.status ~= 400 and bad.status ~= 422 then
+        return false, "status " .. tostring(bad.status)
+      end
+      local e = assert(bad.errors[1])
       if #bad.errors ~= 1 or e.message == "" or e.source ~= "body" then return false, "errors" end
       if bad.status == 400 then
         Fuzz.label("unreadable")

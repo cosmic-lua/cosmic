@@ -6,6 +6,7 @@
 --- this one is the name server, on a loopback port it listens at for TCP
 --- and binds for UDP, to see each query and that no datagram is sent.
 
+local Cell = require("cosmic.cell")
 local Child = require("cosmic.child")
 local Clock = require("cosmic.clock")
 local Connector = require("cosmic.internal.connector")
@@ -106,7 +107,7 @@ local function test_a_public_connect_that_hangs_holds_up_no_other()
     local wait = Clock.seconds(1)
     local public = assert(Net.connector({}, { timeout_ns = wait, public = { deny = { "10.0.0.0/8" } } }))
     local connect = Relay.handed({ connector = public })
-    local hung = { value = nil as string? }
+    local hung: Cell<string?> = { value = nil }
     local hanging = Poll.spawn(function()
       local _, why = connect("127.0.0.1", stuck, wait)
       hung.value = why
@@ -258,7 +259,7 @@ end
 local function test_the_upstream_is_resolved_once_and_an_ungranted_name_never(tmp: string)
   require_native_connector()
   local queries: mut {string} = {}
-  local datagrams = { value = 0 }
+  local datagrams: Cell<integer> = { value = 0 }
   local lines: mut {string} = {}
   Poll.run(function()
     local listener = assert(Net.listen(Net.tcp("127.0.0.1", 0)))
@@ -320,5 +321,5 @@ local function test_the_upstream_is_resolved_once_and_an_ungranted_name_never(tm
       "ungranted.test:443 403|direct.test:443 403", table.concat(lines, "|"))
   assert(table.concat(queries, ",") == "1 direct.test,1 proxy.test,28 direct.test,28 proxy.test",
     table.concat(queries, ","))
-  assert(datagrams.value == 0, datagrams.value .. " datagrams were sent")
+  assert(datagrams.value == 0, tostring(datagrams.value) .. " datagrams were sent")
 end

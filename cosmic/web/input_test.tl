@@ -1,3 +1,4 @@
+local Cell = require("cosmic.cell")
 local Input = require("cosmic.web.input")
 local Json = require("cosmic.json")
 local Poll = require("cosmic.poll")
@@ -335,14 +336,15 @@ end
 
 local function test_media_type_parses_parameters()
   local function of(content_type: string?): Input.MediaType
-    local got = { value = nil as Input.MediaType? }
+    local got: Cell<Input.MediaType?> = { value = nil }
     local headers: mut {string:string} = {}
     local opts: Web.TestOptions = { headers = headers }
     if content_type ~= nil then headers["content-type"] = content_type end
     with_request("GET", opts, function(req: Web.Request)
       got.value = Input.media_type(req)
     end)
-    return got.value
+    local read = assert(got.value, "the handler never ran")
+    return read
   end
   local m = of('Multipart/Form-Data; Boundary="a b\\"c"; charset=UTF-8')
   assert(m.essence == "multipart/form-data" and m.params.boundary == 'a b"c' and m.params.charset == "UTF-8")
@@ -377,7 +379,7 @@ end
 
 local function test_a_wrong_content_type_is_415()
   local function status_of(content_type: string?, body: string, kind: string): integer
-    local got = { value = 0 }
+    local got: Cell<integer> = { value = 0 }
     local opts: Web.TestOptions = { body = body, content_type = content_type }
     with_request("POST", opts, function(req: Web.Request)
       local bad: Types.Invalid
@@ -422,7 +424,7 @@ local function test_a_body_over_the_limit_is_413()
 end
 
 local function test_a_chunked_body_over_the_limit_is_413_without_reading_it_all()
-  local pulled = { value = 0 }
+  local pulled: Cell<integer> = { value = 0 }
   local reader: Stream.Reader = {
     read = function(_self: Stream.Reader, max_bytes?: integer): string?, string
       pulled.value = pulled.value + 1
@@ -433,7 +435,7 @@ local function test_a_chunked_body_over_the_limit_is_413_without_reading_it_all(
       return true, ""
     end,
   }
-  local status = { value = 0 }
+  local status: Cell<integer> = { value = 0 }
   local app = Web.app{ routes = { Web.post("/x", function(req: Web.Request): Web.Response
     local bad = Input.form(req, { max_bytes = 25 }).invalid
     status.value = bad and bad.status or 0
@@ -458,8 +460,8 @@ local function failing_body(why: string): integer, integer
       return true, ""
     end,
   }
-  local first = { value = 0 }
-  local second = { value = 0 }
+  local first: Cell<integer> = { value = 0 }
+  local second: Cell<integer> = { value = 0 }
   local app = Web.app{ routes = { Web.post("/x", function(req: Web.Request): Web.Response
     local bad = Input.form(req).invalid
     first.value = bad and bad.status or 0
@@ -484,7 +486,7 @@ local function test_a_body_read_that_times_out_is_408()
 end
 
 local function test_a_body_read_over_the_limit_stays_failed_for_a_later_reader()
-  local pulled = { value = 0 }
+  local pulled: Cell<integer> = { value = 0 }
   local reader: Stream.Reader = {
     read = function(_self: Stream.Reader, max_bytes?: integer): string?, string
       pulled.value = pulled.value + 1
@@ -496,7 +498,7 @@ local function test_a_body_read_over_the_limit_stays_failed_for_a_later_reader()
     end,
   }
   local statuses: {integer} = {}
-  local bytes_status = { value = "" }
+  local bytes_status: Cell<string> = { value = "" }
   local app = Web.app{ routes = { Web.post("/x", function(req: Web.Request): Web.Response
     statuses[1] = assert(Input.form(req, { max_bytes = 25 }).invalid).status
     local larger = Input.form(req, { max_bytes = 1 << 20 }).invalid
@@ -570,7 +572,7 @@ end
 local ITEM <const> = Shape.record_of("Item")
 
 local function json_error(text: string): Types.FieldError
-  local got = { value = nil as Types.FieldError? }
+  local got: Cell<Types.FieldError?> = { value = nil }
   with_request("POST", { body = text, content_type = "application/json" }, function(req: Web.Request)
     local read = Input.json_into(req, ITEM)
     local invalid = read.invalid
@@ -578,7 +580,8 @@ local function json_error(text: string): Types.FieldError
     assert(#invalid.errors == 1 and invalid.submitted == nil)
     got.value = invalid.errors[1]
   end)
-  return got.value
+  local read = assert(got.value, "the handler never ran")
+  return read
 end
 
 local function test_a_json_body_reports_where_it_failed()

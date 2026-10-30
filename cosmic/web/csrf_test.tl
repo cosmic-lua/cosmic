@@ -1,3 +1,4 @@
+local Cell = require("cosmic.cell")
 local Csrf = require("cosmic.web.csrf")
 local Cors = require("cosmic.web.cors")
 local Html = require("cosmic.html")
@@ -11,7 +12,7 @@ local SELF <const> = "http://testserver"
 --- A revocable store that keeps sessions in a table, under ids.
 local function memory_store(): Session.Store
   local rows: mut {string:Session.Data} = {}
-  local count = { value = 0 }
+  local count: Cell<integer> = { value = 0 }
   local store: Session.Store = {
     revocable = true,
     load = function(_self: Session.Store, token: string, now: integer, _cookie: string): Session.Data?, string
@@ -26,7 +27,7 @@ local function memory_store(): Session.Store
       local id = previous
       if id == "" or changes.regenerated then
         count.value = count.value + 1
-        id = "id" .. count.value
+        id = "id" .. tostring(count.value)
         rows[previous] = nil
       end
       local values: mut {string:any} = {}
@@ -43,6 +44,7 @@ local function memory_store(): Session.Store
 end
 
 --- The lines the app's sink received.
+-- TODO: hold this list in Cell<mut {string}> once its reads (`lines.value[1]:find`) test the element they index: typed, they add index_may_be_nil errors.
 local lines = { value = {} as {string} }
 
 --- An app with a form page, state-changing routes and a login, behind the
@@ -438,7 +440,7 @@ local function test_a_multipart_token_anywhere_but_first_is_refused_and_a_header
 end
 
 local function test_a_cookieless_post_is_refused_before_its_body_is_read()
-  local read = { value = 0 }
+  local read: Cell<integer> = { value = 0 }
   local app = make_app({ exempt = function(req: Web.Request): boolean
     local inner = req.raw.body
     req.raw.body = { read = function(_self: Stream.Reader, max_bytes?: integer): string?, string
@@ -456,7 +458,7 @@ local function test_a_cookieless_post_is_refused_before_its_body_is_read()
   local form = Web.test_client(app):post("/form", { body = "csrf_token=" .. token,
     content_type = "application/x-www-form-urlencoded" })
   assert(form.status == 403)
-  assert(read.value == 0, "no secret, no read: " .. read.value)
+  assert(read.value == 0, "no secret, no read: " .. tostring(read.value))
 end
 
 local function test_a_big_urlencoded_form_carries_its_token_within_the_peek()

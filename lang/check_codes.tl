@@ -318,8 +318,11 @@ Codes.catalog = {
     code = "array_hole", rule = "index writes append, or overwrite what is there",
     why = "`t[#t + 1] = v` and `table.insert` grow an array, `t[#t] = nil` and `table.remove` shorten it, and a value that " ..
       "is not nil written at `1`, or at the index of a `for i = 1, #t do` that leaves the length of `t` alone, overwrites " ..
-      "an element or appends to an empty array, so no write makes a hole and `#`, `ipairs` and `table.insert` stay " ..
-      "defined on a sequence. `table.move(a, f, e, t, b)` is the same write for a range of elements: it copies only " ..
+      "an element or appends to an empty array, as does the write of `a[i]` in every pass of a loop that counts " ..
+      "`i` from 1 by 1 (`for i = 1, n` or `for i in ipairs(t)`) over a list `a` made from `{}` before the loop that " ..
+      "nothing else names, in a statement of the body that no `continue` precedes, so no write makes a hole and `#`, " ..
+      "`ipairs` and `table.insert` stay defined on a sequence. " ..
+      "`table.move(a, f, e, t, b)` is the same write for a range of elements: it copies only " ..
       "elements `a` has when `f` is a literal of 1 or more and `e` is at most `#a`, and writes them at `1` or `#b + 1`",
     fix = "append with `<t>[#<t> + 1] = <v>` or `table.insert`, copy with `table.move(<a>, 1, #<a>, 1, <b>)` (or to " ..
       "`#<b> + 1`), remove with `table.remove`, or key a map `{integer: T}` for sparse data",

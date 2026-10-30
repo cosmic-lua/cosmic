@@ -1,3 +1,4 @@
+local Cell = require("cosmic.cell")
 local Clock = require("cosmic.clock")
 local Net = require("cosmic.net")
 local Server = require("cosmic.http.server")
@@ -58,7 +59,7 @@ local function test_text_refuses_a_body_that_is_not_utf8()
 end
 
 local function test_a_failed_body_read_answers_nil_and_why()
-  local req = { value = nil as Web.Request? }
+  local req: Cell<Web.Request?> = { value = nil }
   local app = Web.app{ routes = { Web.post("/", function(r: Web.Request): Web.Response
     req.value = r
     return Web.text("ok")
@@ -73,7 +74,7 @@ local function test_a_failed_body_read_answers_nil_and_why()
     headers = { host = "x" }, body = broken, length = 5 }
   assert(app.handle(raw).status == 200)
   local data, why = assert(req.value, "the handler never ran"):bytes()
-  assert(data == nil and why:find("over the limit", 1, true), why)
+  assert(data == nil and why:find("over the limit", 1, true) ~= nil, why)
 end
 
 local function test_query_decodes_once_and_refuses_a_malformed_escape()
@@ -140,7 +141,7 @@ local function test_client_info_ignores_forwarded_headers_unless_the_proxy_is_tr
 end
 
 local function test_a_connection_without_a_peer_has_no_client()
-  local seen = { value = nil as Web.Request? }
+  local seen: Cell<Web.Request?> = { value = nil }
   local app = Web.app{ routes = { Web.get("/", function(r: Web.Request): Web.Response
     seen.value = r
     return Web.text("ok")
@@ -216,8 +217,8 @@ local function test_a_trusted_host_with_a_port_or_no_host_raises_when_the_app_is
 end
 
 local function test_a_failed_body_read_is_remembered()
-  local reads = { value = 0 }
-  local seen = { value = nil as Web.Request? }
+  local reads: Cell<integer> = { value = 0 }
+  local seen: Cell<Web.Request?> = { value = nil }
   local app = Web.app{ routes = { Web.post("/", function(r: Web.Request): Web.Response
     seen.value = r
     return Web.text("ok")

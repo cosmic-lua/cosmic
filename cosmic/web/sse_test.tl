@@ -2,6 +2,7 @@
 --- heartbeats, a hub's fan-out and replay, a slow subscriber, the stop,
 --- and the stream budget.
 
+local Cell = require("cosmic.cell")
 local Channel = require("cosmic.channel")
 local Clock = require("cosmic.clock")
 local Html = require("cosmic.html")
@@ -149,7 +150,7 @@ local function test_event_helpers_name_the_event_and_escape_nothing_themselves()
 end
 
 local function test_a_stream_sends_retry_events_and_heartbeats_then_ends_with_its_source()
-  local queue = { value = nil as Channel.Queue<Sse.Event>? }
+  local queue: Cell<Channel.Queue<Sse.Event>?> = { value = nil }
   local closed: mut {string} = {}
   local app = Web.app{ routes = { Web.get("/s", function(req: Web.Request): Web.Response
     local source: Channel.Queue<Sse.Event> = Channel.new()
@@ -202,7 +203,7 @@ local function test_a_source_that_fails_ends_the_stream_and_says_why()
 end
 
 local function test_max_age_ends_a_stream_cleanly()
-  local queue = { value = nil as Channel.Queue<Sse.Event>? }
+  local queue: Cell<Channel.Queue<Sse.Event>?> = { value = nil }
   local app = Web.app{ routes = { Web.get("/s", function(req: Web.Request): Web.Response
     local source: Channel.Queue<Sse.Event> = Channel.new()
     queue.value = source
@@ -456,7 +457,7 @@ end
 local function test_the_budget_is_half_the_connections_unless_the_app_says()
   local hub = Sse.new_hub({})
   local app = hub_app(hub)
-  local seen = { value = nil as integer? }
+  local seen: Cell<integer?> = { value = nil }
   local ok, why = Web.serve(app, { listeners = { Net.tcp("127.0.0.1", 0) }, limits = { connections = 10 },
     on_ready = function(_addresses: {Net.Address}, server: Net.Server)
       seen.value = app.stream_limit
@@ -469,7 +470,7 @@ end
 
 --- Serves `app` with a grace of `grace_ns`, and calls `fn` with the address and the server.
 local function serving(app: Web.App, grace_ns: integer, fn: function(host: string, server: Net.Server))
-  local failure = { value = nil as string? }
+  local failure: Cell<string?> = { value = nil }
   local ok, why = Web.serve(app, { listeners = { Net.tcp("127.0.0.1", 0) }, grace_ns = grace_ns,
     on_ready = function(addresses: {Net.Address}, server: Net.Server)
       local ran, trouble = pcall(function()
@@ -485,7 +486,7 @@ end
 
 local function test_stopping_the_server_ends_every_stream_long_before_the_grace()
   local hub = Sse.new_hub({})
-  local queue = { value = nil as Channel.Queue<Sse.Event>? }
+  local queue: Cell<Channel.Queue<Sse.Event>?> = { value = nil }
   local ended: mut {string} = {}
   local app = hub_app(hub, { heartbeat_ns = Clock.seconds(30), retry_ms = 100 }, { hubs = { hub } })
   local routes = assert(app.spec.routes)
@@ -537,7 +538,7 @@ local function test_a_stream_that_ignores_its_close_is_killed_at_the_grace_and_r
 end
 
 local function test_a_stream_asked_for_while_the_app_is_stopping_is_refused()
-  local queue = { value = nil as Channel.Queue<Sse.Event>? }
+  local queue: Cell<Channel.Queue<Sse.Event>?> = { value = nil }
   local app = Web.app{ routes = { Web.get("/s", function(req: Web.Request): Web.Response
     local source: Channel.Queue<Sse.Event> = Channel.new()
     queue.value = source
@@ -616,7 +617,7 @@ end
 local function test_a_quiet_stream_with_heartbeats_outlives_the_servers_timeouts()
   local hub = Sse.new_hub({})
   local app = hub_app(hub, { heartbeat_ns = Clock.ms(25), retry_ms = 100 })
-  local failure = { value = nil as string? }
+  local failure: Cell<string?> = { value = nil }
   local ok, why = Web.serve(app, { listeners = { Net.tcp("127.0.0.1", 0) },
     timeout_ns = Clock.ms(100), idle_ns = Clock.ms(100), grace_ns = Clock.seconds(1),
     on_ready = function(addresses: {Net.Address}, server: Net.Server)

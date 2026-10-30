@@ -6,6 +6,7 @@
 --- other run the test skips.
 --- Until a compile writes the boundary checks (build/type_watch.tl), they skip in a checked run too.
 
+local Cell = require("cosmic.cell")
 local Net = require("cosmic.net")
 local Server = require("cosmic.http.server")
 local Test = require("cosmic.test")
@@ -14,7 +15,7 @@ local TypeWatch = require("build.type_watch")
 Test.policy{ loopback = { "127.0.0.1" } }
 
 local function test_a_handler_that_answers_nothing_is_a_500_the_server_declares()
-  local answered = { value = "" }
+  local answered: Cell<string> = { value = "" }
   local found = TypeWatch.during(function()
     Server.serve({
       listeners = { Net.tcp("127.0.0.1", 0) },

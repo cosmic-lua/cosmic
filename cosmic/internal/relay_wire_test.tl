@@ -1,3 +1,4 @@
+local Cell = require("cosmic.cell")
 local Clock = require("cosmic.clock")
 local Fixture = require("build.relay_wire_fixture")
 local Wire = require("cosmic.internal.relay_wire")
@@ -842,7 +843,7 @@ end
 --- (Time cannot tell the two apart on a small input without flaking on a
 --- loaded host.)
 local function string_work(work: function()): integer
-  local total = { value = 0 }
+  local total: Cell<integer> = { value = 0 }
   local record Patched
     host: {string: any}
     name: string
@@ -905,7 +906,7 @@ local function test_a_head_fed_a_byte_at_a_time_costs_its_length()
   end
   local input = head(16384)
   assert(#input == 16384)
-  local answer = { value = nil as Wire.Connect? }
+  local answer: Cell<Wire.Connect?> = { value = nil }
   local work = string_work(function()
     local reader = Wire.connect_reader()
     answer.value = dribbled(function(chunk: string): Wire.Connect
@@ -951,7 +952,7 @@ local function test_a_hello_fed_a_byte_at_a_time_costs_its_length()
     sizes[i] = 1
   end
   for _, input in ipairs({ Fixture.records(hello, { 16000 }), Fixture.records(hello, sizes), Fixture.records(hello, { 300, 400 }) }) do
-    local answer = { value = nil as Wire.Hello? }
+    local answer: Cell<Wire.Hello?> = { value = nil }
     local work = string_work(function()
       local reader = Wire.hello_reader()
       answer.value = dribbled(function(chunk: string): Wire.Hello
@@ -975,7 +976,7 @@ local function test_blanks_around_a_header_value_cost_its_length()
   for _, blank in ipairs({ " ", "\t", " \t" }) do
     local value = "a" .. blank:rep(1500) .. "b" .. blank:rep(1500)
     local input = Fixture.connect("example.com:80", { "Proxy-Authorization: " .. blank:rep(100) .. value })
-    local answer = { value = nil as Wire.Connect? }
+    local answer: Cell<Wire.Connect?> = { value = nil }
     local took = seconds(function()
       answer.value = connect_head(input)
     end)
