@@ -96,9 +96,9 @@ local record Check
   -- a string that an `==` test narrowed (no read is wrapped), and `true` against `false` of a boolean. A run misses a
   -- false conclusion of these and refuses nothing valid. Once a full `cosmic test --check-types` run (CI's `checked-narrowing`
   -- job) has a time to compare, so that the cost of a call per read of each decides which are worth it.
-  --- A read of a local, of a path of fixed fields from one, or of an element a length test proved, whose type a test narrowed. The checker took the value
-  --- to have none of the kinds of Lua value in `taken`, and the values of the enums, classes and tags the other fields
-  --- name, which a run can check at the read.
+  --- A read of a local, of a path of fixed fields from one, or of an element a length test proved, whose type a test
+  --- narrowed. The checker took the value to have none of the kinds of Lua value in `taken`, and the values of the enums,
+  --- classes and tags the other fields name, which a run can check at the read.
   record Narrowed
     --- The id of the node of the read, and where the place is read: the offset of its first token, and its length in bytes.
     id: integer
@@ -386,8 +386,11 @@ local record Ctx
   --- What the program does with the locals that hold a table literal ([`Writes.privacy`]), worked out the first time a write
   --- asks.
   mut privacy: Privacy?
-  --- The reads of narrowed places, by the offset of the place.
+  --- The reads of narrowed places, by the id of the node of the read.
   narrowed: mut {integer: Check.Narrowed}
+  --- The calls, by the id of the node, that run no code of the program ([`Tests.inert_callee`]): the facts about the length of
+  --- an array stand through them.
+  inert: mut {integer: boolean}
   --- The parameters of the functions checked, by the id of the binding of the parameter.
   boundaries: mut {integer: Check.Boundary}
   --- The type of each expression typed, by the id of its node, and the warnings found.
@@ -2695,11 +2698,18 @@ local record Tests
   --- Whether the read `object[key]` of an array is an element it has: `key` is an integer literal, or `#object`, and the
   --- flow has the array at least that long.
   length_proves: function(ctx: Ctx, object: Ast.Exp, key: Ast.Exp): boolean
-  --- Whether a call of `callee` runs no code of the program: `assert` and `type` of the standard library.
+  --- Whether a call of `callee` runs no code of the program whatever it is given: `assert` and `type` of the standard library.
   quiet_callee: function(callee: Ast.Exp?): boolean
-  --- Whether the code of `node` holds a call. It reads the tree with a list, so that a chain of any depth is read without
-  --- recursion.
-  has_call: function(node: Ast.Node): boolean
+  --- Whether `t` holds no value that code of the program can run through a function of the standard library: scalars, enums,
+  --- and arrays and maps of them. A class value may have a `__tostring`, which `tostring` and `string.format` run.
+  plain: function(ctx: Ctx, t: Type): boolean
+  --- Whether the call of `callee` (nil for a method call) names a function of the standard library that runs code of the
+  --- program only through a value or a function it is given: `tostring`, `tonumber`, `select`, `rawlen`, `string.*`,
+  --- `math.*`, `utf8.*`, `table.concat` and `table.unpack`. A name a program declares is never one.
+  inert_callee: function(callee: Ast.Exp?): boolean
+  --- Whether the code of `node` holds a call that is not inert (the `inert` of the context, set where the call is checked).
+  --- It reads the tree with a list, so that a chain of any depth is read without recursion.
+  has_call: function(ctx: Ctx, node: Ast.Node): boolean
   --- A `<close>` local is declared: nothing is known of the length of an array until its scope ends.
   closes: function(ctx: Ctx)
   --- A scope entered with `closers` open is left: the handlers of its `<close>` locals have run.
@@ -3063,10 +3073,10 @@ end
 -- An array holds the keys 1 to `#t` and no others (`array_of_optional` and `array_hole` keep it so), so `t[n]` is an element
 -- wherever `#t` is at least `n`. A test of `#place` against an integer literal gives the flow that fact for the first
 -- indexes ([`Flow.know_length`]) of a place that holds an array: a local, or fixed fields from one. The fact stands until
--- code runs that may shorten an array: a call (but `assert` and `type`, which run no code of the program), a write of a
--- literal nil to an index (the array may be under another name), the iterator of a generic `for` and the scope of a `<close>`
--- local, whose handler runs when it ends. A function made at the point does not inherit it ([`Flow.enter`]), and an
--- assignment to the place takes it away like any fact of the place.
+-- code runs that may shorten an array: a call (but `assert`, `type` and an inert call [`Tests.inert_callee`], which run no
+-- code of the program), a write of a literal nil to an index (the array may be under another name), the iterator of a
+-- generic `for` and the scope of a `<close>` local, whose handler runs when it ends. A function made at the point does not
+-- inherit it ([`Flow.enter`]), and an assignment to the place takes it away like any fact of the place.
 --
 -- A `table.move` that may copy a nil or leave a hole is refused (`array_hole`, [`Writes.move_dense`]), so a move keeps the
 -- density this relies on.
@@ -3157,7 +3167,53 @@ function Tests.quiet_callee(callee: Ast.Exp?): boolean
   return callee ~= nil and (callee.kind == "Name") and callee.binding == nil and (callee.text == "assert" or callee.text == "type")
 end
 
-function Tests.has_call(node: Ast.Node): boolean
+function Tests.plain(ctx: Ctx, t: Type): boolean
+  if t.atom then
+    return t.tag ~= "any" and t.tag ~= "invalid"
+  end
+  -- A recursive alias reaches itself through an array, so a type met twice is not looked at again: it is plain if the rest is.
+  local seen: mut {integer: boolean} = {}
+  local waiting: mut {Type} = { t }
+  while #waiting > 0 do
+    local at = assert(waiting[#waiting])
+    waiting[#waiting] = nil
+    for _, m in ipairs(members_of(ctx.store, at)) do
+      if seen[m.id] ~= true then
+        seen[m.id] = true
+        if (m.tag == "array") then
+          waiting[#waiting + 1] = m.element
+        elseif (m.tag == "map") then
+          waiting[#waiting + 1] = m.key
+          waiting[#waiting + 1] = m.value
+        elseif (m.tag == "named") then
+          if m.decl.kind ~= "enum" or m.value then
+            return false
+          end
+        elseif not m.atom or m.tag == "any" or m.tag == "invalid" then
+          -- A function or a type variable, and any form not listed here, is not trusted.
+          return false
+        end
+      end
+    end
+  end
+  return true
+end
+
+function Tests.inert_callee(callee: Ast.Exp?): boolean
+  if callee == nil then
+    return true
+  elseif (callee.kind == "Name") then
+    local name = callee.text
+    return callee.binding == nil and (name == "tostring" or name == "tonumber" or name == "select" or name == "rawlen")
+  elseif (callee.kind == "Field") and (callee.object.kind == "Name") and callee.object.binding == nil then
+    local library = callee.object.text
+    return library == "string" or library == "math" or library == "utf8" or
+      (library == "table" and (callee.name == "concat" or callee.name == "unpack"))
+  end
+  return false
+end
+
+function Tests.has_call(ctx: Ctx, node: Ast.Node): boolean
   local waiting: mut {Ast.Node} = { node }
   local found = false
   local function wait(child: Ast.Node)
@@ -3166,7 +3222,7 @@ function Tests.has_call(node: Ast.Node): boolean
   while #waiting > 0 and not found do
     local at = assert(waiting[#waiting])
     waiting[#waiting] = nil
-    if (at.kind == "Call") or (at.kind == "MethodCall") then
+    if (at.kind == "Call" or at.kind == "MethodCall") and ctx.inert[at.id] ~= true then
       found = true
     elseif at.kind ~= "FunctionLit" then
       -- A function made here runs when it is called, and that call is a call.
@@ -4344,6 +4400,9 @@ end
 --- The steps of a generic call.
 local record Calls
   prepare: function(ctx: Ctx, args: {Ast.Exp}, wants: {integer: Type}?): Prepared
+  --- Notes that the call `node` runs no code of the program through the standard library: it was given a `string` receiver
+  --- or none, and arguments of the types `types` and the `tail` an expanding last one gives, all plain ([`Tests.plain`]).
+  note_plain: function(ctx: Ctx, node: Ast.Node, recv: Type?, types: {Type}, tail: Type?, lists: {Alt}?)
   replace_type: function(list: mut {Type}, at: integer, t: Type)
   hooks: function(ctx: Ctx): Generics.Hooks
   source: function(at: integer): string
@@ -4452,6 +4511,18 @@ function Calls.shown(ctx: Ctx, declared: Fn, t: Type): string
   return Types.display(t, binders)
 end
 
+function Calls.note_plain(ctx: Ctx, node: Ast.Node, recv: Type?, types: {Type}, tail: Type?, lists: {Alt}?)
+  if lists ~= nil or (recv ~= nil and recv ~= ctx.store.string) or (tail ~= nil and not Tests.plain(ctx, tail)) then
+    return
+  end
+  for _, t in ipairs(types) do
+    if not Tests.plain(ctx, t) then
+      return
+    end
+  end
+  ctx.inert[base_of(node).id] = true
+end
+
 --- A call of the function `f`, with the arguments checked against its parameters. Answers its return lists. `given`
 --- holds the values of the arguments when the caller typed them already (a generic call types its arguments to solve the
 --- function's type parameters).
@@ -4506,6 +4577,7 @@ local function apply_function(ctx: Ctx, node: Ast.Node, callee: string, f: Fn, a
   if why == "too few" or (why == "too many" and not reported) then
     arity_error(ctx, node, quoted(callee), f, off, n, why)
   end
+  Calls.note_plain(ctx, node, recv, vals.types, vals.tail, vals.lists)
   local tail = vals.tail
   if tail ~= nil and last ~= nil and why == nil then
     local pos, want, missing = tail_problem(ctx, f, off, n, tail, strict)
@@ -4898,6 +4970,7 @@ local function apply_overloads(ctx: Ctx, node: Ast.Node, callee: string, cands: 
           if pending[i] == true then
             local want = parameter_at(c, off, i)
             local t = expr(ctx, a, want)
+            known[i] = t
             if want ~= nil then
               local _ = Calls.expect_argument(ctx, a, t, want, callee, i, nil, #declared.tparams > 0)
             end
@@ -4906,6 +4979,11 @@ local function apply_overloads(ctx: Ctx, node: Ast.Node, callee: string, cands: 
         if key ~= nil then
           Calls.gsub_key(ctx, c, args, off, key)
         end
+        local given: mut {Type} = {}
+        for i = 1, count do
+          given[i] = known[i] or ctx.invalid
+        end
+        Calls.note_plain(ctx, node, recv, given, tail, prep.lists)
         if ctx.typed and (node.kind == "Call") then
           -- The callee is the overload taken (instantiated, for a generic one), not the first the name has.
           ctx.types[base_of(node.callee).id] = c
@@ -5285,11 +5363,16 @@ end
 local function after_call(ctx: Ctx, node: Ast.Node, callee: Ast.Exp?, alts: {Alt}, args: {Ast.Exp},
                           receiver: Ast.Exp?)
   ctx.guards[base_of(node).id] = nil
+  local id = base_of(node).id
   if #alts == 0 then
+    ctx.inert[id] = nil
     ctx.flow = Flow.dead(ctx.flow)
     return
   end
-  if not Tests.quiet_callee(callee) then
+  if Tests.quiet_callee(callee) or (ctx.inert[id] == true and Tests.inert_callee(callee)) then
+    ctx.inert[id] = true
+  else
+    ctx.inert[id] = nil
     ctx.flow = Flow.forget_lengths(ctx.flow)
   end
   local first = args[1]
@@ -5299,7 +5382,7 @@ local function after_call(ctx: Ctx, node: Ast.Node, callee: Ast.Exp?, alts: {Alt
     -- shortened an array the test showed to be long: the facts of lengths are what the arguments leave, none that the
     -- test adds.
     for _, given in ipairs(args) do
-      if Tests.has_call(given) then
+      if Tests.has_call(ctx, given) then
         yes = Flow.forget_lengths(yes)
         break
       end
@@ -5575,6 +5658,7 @@ local function apply(ctx: Ctx, n: Ast.Exp, t: Type, expected: Type?, wants_lists
     if ctx.field_node == n.callee then
       object = ctx.field_base
     end
+    ctx.inert[n.id] = nil
     local alts = apply_call(ctx, n, t, expected)
     ctx.lenient = saved
     if ctx.moves[n.callee.id] ~= nil then
@@ -5594,6 +5678,7 @@ local function apply(ctx: Ctx, n: Ast.Exp, t: Type, expected: Type?, wants_lists
   elseif (n.kind == "MethodCall") then
     local saved = ctx.lenient
     ctx.lenient = 0
+    ctx.inert[n.id] = nil
     local alts = apply_method(ctx, n, t, expected)
     ctx.lenient = saved
     after_call(ctx, n, nil, alts, n.args, n.object)
@@ -5912,6 +5997,31 @@ end
 --- a class declare only `__close` and `__tostring` (both reached by the forms above), `setmetatable_call` refuses
 --- `setmetatable`, and `operand_type` refuses an operator on a record. The loop rule must be revisited if any of the three is
 --- relaxed; lang/check_test.tl pins them beside the loop tests.
+function Writes.scalar_math(call: Ast.Call, var: integer): boolean
+  local callee = call.callee
+  if not ((callee.kind == "Field") and (callee.object.kind == "Name") and callee.object.binding == nil and callee.object.text == "math") then
+    return false
+  end
+  for _, given in ipairs(call.args) do
+    if not Writes.scalar(given, var) then
+      return false
+    end
+  end
+  return true
+end
+
+function Writes.scalar(e: Ast.Exp, var: integer): boolean
+  local at = peel(e)
+  if (at.kind == "Name") then
+    return at.binding == var
+  elseif (at.kind == "Binary") then
+    return at.op ~= "and" and at.op ~= "or"
+  elseif (at.kind == "Unary") then
+    return true
+  end
+  return at.kind == "Integer" or at.kind == "Float" or at.kind == "String" or at.kind == "Boolean"
+end
+
 function Writes.keeps_length(body: Ast.Node, array: integer, var: integer): boolean
   -- A closure may not assign a local of its function, so a way the body may change the length is a mark in a list. The
   -- statements wait in a list too, so that a body of any depth is read without recursion.
@@ -5923,9 +6033,7 @@ function Writes.keeps_length(body: Ast.Node, array: integer, var: integer): bool
   while #waiting > 0 and #marks == 0 do
     local node = assert(waiting[#waiting])
     waiting[#waiting] = nil
-    if (node.kind == "Call") or (node.kind == "MethodCall") or (node.kind == "ForIn") then
-      -- TODO: let a call that cannot change the length of an array (a function of the standard library that is passed
-      -- no function, `string.format`, `math.max`) stand in the body, once the checker says which calls those are.
+    if (node.kind == "Call" and not Writes.scalar_math(node, var)) or (node.kind == "MethodCall") or (node.kind == "ForIn") then
       marks[#marks + 1] = true
     elseif (node.kind == "Local") then
       for _, binding in ipairs(node.bindings) do
@@ -7422,7 +7530,7 @@ function Check.check(program: Declarations.Program, input: Declarations.Input, l
     end, function(_node: Ast.Node, _spelled: string, _found: LoadOrder.Found) end),
     literals = {}, declared = {}, union_fields = {}, spine = {},
     ternaries = {}, invalid = store.invalid, nil_type = store:atom("nil"), flow = Flow.start(), unfixed_now = {}, assigning = {}, quiet = 0, closers = 0, callee_module = "", member_module = "", moves = {},
-    loops = {}, keys = {}, edges = {}, guards = {}, reads = {}, unfixed = {}, narrowed = {}, boundaries = {}, types = {}, callees = {}, consts = {}, library = {}, typed = typed ~= false, warnings = {},
+    loops = {}, keys = {}, edges = {}, guards = {}, reads = {}, unfixed = {}, narrowed = {}, inert = {}, boundaries = {}, types = {}, callees = {}, consts = {}, library = {}, typed = typed ~= false, warnings = {},
     unite = function(a: Type, b: Type): Type
       return store:union({ a, b })
     end,
