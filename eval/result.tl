@@ -33,20 +33,20 @@ local record Result
 
   --- What the grader said: its exit status, nil when it did not run.
   record Grade
-    exit_code?: integer
+    mut exit_code?: integer
     --- The log that holds its lines, as a path under the arena.
-    log?: string
+    mut log?: string
   end
 
   --- What the caller knows that the arena does not.
   record Meta
-    model?: string
-    max_turns?: integer
-    timeout?: integer
+    mut model?: string
+    mut max_turns?: integer
+    mut timeout?: integer
     --- The commit of the binary under test.
-    commit?: string
+    mut commit?: string
     --- The commit of this harness.
-    harness_commit?: string
+    mut harness_commit?: string
   end
 end
 
@@ -60,28 +60,29 @@ local ORDER <const>: {string} = {
   "tools", "skills", "mcp_servers",
 }
 
-local function decode(line: string): {string: any}?
-  local value, _ = Json.decode(line, { max_depth = 1000, lone_surrogates = true })
-  if value is {string: any} then return value end
-  return nil
+--- `line` as a JSON object, or nil: a `null` stays [`Json.null`], so a transcript event that holds
+--- one in an array is read whole.
+local function decode(line: string): {string: Json.Value}?
+  local value, _ = Json.decode(line, { max_depth = 1000, lone_surrogates = true, null_value = Json.null })
+  local object, _ = Json.to_object(value)
+  return object
 end
 
 --- `value` as a [`Json.Value`] where it is one, else [`Json.null`]: a field
 --- the transcript lacks, or holds as something JSON cannot say, is unavailable.
-local function available(value: any): Json.Value
-  local checked, _ = Json.to_value(value)
-  if checked == nil then return Json.null end
-  return checked
+local function available(value: Json.Value?): Json.Value
+  if value == nil then return Json.null end
+  return value
 end
 
 --- `event[key]`, [`Json.null`] where there is no event or no such key
 --- (a `false` is a value).
-local function reported_field(event: {string: any}?, key: string): Json.Value
+local function reported_field(event: {string: Json.Value}?, key: string): Json.Value
   if event == nil then return Json.null end
   return available(event[key])
 end
 
-local function number(value: any): Json.Value
+local function number(value: Json.Value?): Json.Value
   if value is number then return value end
   return Json.null
 end
@@ -102,12 +103,12 @@ end
 --- under any other status (a crash), `turn_cap` when the CLI stopped at
 --- --max-turns, `api_error` when it reports an error of any other kind,
 --- else `completed`.
-local function status_of(exit_code: integer?, result: {string: any}?): string
+local function status_of(exit_code: integer?, result: {string: Json.Value}?): string
   if exit_code == 124 then return "timeout" end
   if result == nil then return "no_result" end
   if result["subtype"] == "error_max_turns" then return "turn_cap" end
   local subtype = result["subtype"]
-  if result["is_error"] == true or (subtype ~= nil and subtype ~= "success") then
+  if result["is_error"] == true or (subtype ~= nil and subtype ~= Json.null and subtype ~= "success") then
     return "api_error"
   end
   return "completed"
@@ -129,8 +130,8 @@ end
 function Result.build(transcript: string?, files: Result.Files, grade: Result.Grade,
                       meta?: Result.Meta): {string: Json.Value}
   meta = meta or {}
-  local init: {string: any}? = nil
-  local result: {string: any}? = nil
+  local init: {string: Json.Value}? = nil
+  local result: {string: Json.Value}? = nil
   local tool_calls = 0
   if transcript ~= nil then
     for line in transcript:gsub("\r\n?", "\n"):gmatch("[^\n]+") do
@@ -142,11 +143,14 @@ function Result.build(transcript: string?, files: Result.Files, grade: Result.Gr
         elseif kind == "result" then
           result = event
         elseif kind == "assistant" then
-          local message = event["message"]
-          local content: any = message is {string: any} and message["content"] or nil
-          if content is {any} then
-            for _, part in ipairs(content) do
-              if part is {string: any} and part["type"] == "tool_use" then
+          local message, _ = Json.to_object(event["message"])
+          local content: Json.Value? = nil
+          if message ~= nil then content = message["content"] end
+          local parts, _ = Json.to_array(content)
+          if parts ~= nil then
+            for _, part in ipairs(parts) do
+              local entry, _ = Json.to_object(part)
+              if entry ~= nil and entry["type"] == "tool_use" then
                 tool_calls = tool_calls + 1
               end
             end
@@ -155,13 +159,14 @@ function Result.build(transcript: string?, files: Result.Files, grade: Result.Gr
       end
     end
   end
-  local usage: {string: any} = {}
-  local reported: any = result ~= nil and result["usage"] or nil
-  if reported is {string: any} then
-    usage = reported
+  local usage: {string: Json.Value} = {}
+  if result ~= nil then
+    local reported, _ = Json.to_object(result["usage"])
+    if reported ~= nil then usage = reported end
   end
-  local detailed: any = usage["output_tokens_details"]
-  local details: {string: any} = detailed is {string: any} and detailed or {}
+  local details: {string: Json.Value} = {}
+  local detailed, _ = Json.to_object(usage["output_tokens_details"])
+  if detailed ~= nil then details = detailed end
   local function from_init(key: string): Json.Value
     if init == nil then return Json.null end
     return available(init[key])
@@ -193,9 +198,19 @@ function Result.build(transcript: string?, files: Result.Files, grade: Result.Gr
     return value
   end
   local init_model = from_init("model")
+  local model: Json.Value = init_model
+  if init_model == Json.null then model = or_null(meta.model) end
+  local turns: Json.Value = Json.null
+  local cost: Json.Value = Json.null
+  if result ~= nil then
+    turns = number(result["num_turns"])
+    cost = number(result["total_cost_usd"])
+  end
+  local calls: Json.Value = Json.null
+  if transcript ~= nil then calls = tool_calls end
   local out: {string: Json.Value} = {
     runner = "claude",
-    model = init_model ~= Json.null and init_model or meta.model or Json.null,
+    model = model,
     reasoning_effort = Json.null,
     claude_code_version = from_init("claude_code_version"),
     commit = or_null(meta.commit),
@@ -215,9 +230,9 @@ function Result.build(transcript: string?, files: Result.Files, grade: Result.Gr
     grade_log = or_null(grade.log),
     contamination = contamination,
     transcript = if transcript ~= nil then "transcript.jsonl" else Json.null end,
-    turns = result ~= nil and number(result["num_turns"]) or Json.null,
-    tool_calls = transcript ~= nil and tool_calls or Json.null,
-    cost_usd = result ~= nil and number(result["total_cost_usd"]) or Json.null,
+    turns = turns,
+    tool_calls = calls,
+    cost_usd = cost,
     input_tokens = number(usage["input_tokens"]),
     output_tokens = number(usage["output_tokens"]),
     -- output_tokens includes thinking; the CLI breaks it out in
@@ -260,7 +275,8 @@ function Result.git_head(repo: string, path?: string): string?
   if git == nil then return nil end
   local ran, _ = Child.run({ git, "-C", repo, "rev-parse", "HEAD" },
     { stdout = "capture", stderr = "null", stdin = "null", timeout_ns = Clock.seconds(10) })
-  local sha = ran ~= nil and ran.ok and (ran.stdout or ""):match("^(%x+)\n$") or nil
+  local sha: string? = nil
+  if ran ~= nil and ran.ok then sha = (ran.stdout or ""):match("^(%x+)\n$") end
   return sha
 end
 

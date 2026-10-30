@@ -115,11 +115,13 @@ local function test_the_harness_commit_comes_from_the_git_on_the_path(dir: strin
   assert(Result.git_head("/anywhere", dir .. "/nowhere") == nil)
 end
 
-local function test_a_transcript_field_json_cannot_say_is_unavailable()
+local function test_a_null_in_a_transcript_list_is_kept_not_dropped()
   local holed = line({ type = "system", subtype = "init", model = "claude-x", tools = { 1, 2 } })
     :gsub('"tools":%[1,2%]', '"tools":[1,null,3]')
   local fields = Result.build(lines({ holed }), files, {})
-  assert(fields["tools"] == Json.null, "a hole in a transcript list is unavailable, not an encode failure later")
+  local tools = assert(Json.to_array(fields["tools"]), "the list is read whole, as the transcript wrote it")
+  assert(#tools == 3 and tools[2] == Json.null and tools[3] == 3)
   assert(fields["model"] == "claude-x")
-  assert(Result.encode(fields) ~= nil)
+  local text = assert(Result.encode(fields))
+  assert(text:find('"tools": [1,null,3]', 1, true), text)
 end

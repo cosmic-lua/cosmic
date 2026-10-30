@@ -281,7 +281,7 @@ local function test_four_times_the_input_costs_about_four_times_the_time_for_eac
       form(SMALL)
     end, function()
       form(LARGE)
-    end, 8, 5)
+    end, 8, 20)
     assert(ok, name .. ": four times the input " .. why)
   end
 end

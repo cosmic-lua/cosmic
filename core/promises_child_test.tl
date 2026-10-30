@@ -10,6 +10,7 @@
 --- The refusals of what no start could keep, which need no filter, are
 --- core/promises_refused_test.tl's.
 
+local RawTables = require("build.raw_tables")
 local Fs = require("cosmic.fs")
 local Test = require("cosmic.test")
 local sys = require("cosmic.sys")
@@ -27,18 +28,7 @@ Test.policy{
   requires = { "sandbox" },
 }
 
-local type Searcher = function(string): any, any
-
---- The raw table the store's searcher hands `wrapper`'s loader.
-local function raw_behind(wrapper: string): any
-  for _, searcher in ipairs(package.searchers as {Searcher}) do -- cast: searchers' loaders take an extra
-    local loader, extra = searcher(wrapper)
-    if type(loader) == "function" and type(extra) == "table" then return extra end
-  end
-  error(wrapper .. " is handed no raw table")
-end
-
-local process = raw_behind("cosmic.child") as raw_process -- cast: the table core/process.h declares
+local process = RawTables.process()
 
 --- What a script left on stdout and stderr, and how its program ended.
 local record Outcome
@@ -90,7 +80,7 @@ local function test_a_signal_to_itself_ends_it_and_to_another_is_refused(tmp: st
   -- Another process, one of this test's own: the filter answers EPERM, and it lives.
   local sleeper = assert(process.spawn(probe, { probe, "sleep-forever" }, nil, nil, nil, nil, nil,
     false))
-  local other = under(tmp, {}, "signal KILL " .. sleeper, probe)
+  local other = under(tmp, {}, "signal KILL " .. tostring(sleeper), probe)
   assert(sys.kill(sleeper, 0), "the other process is still there")
   assert(sys.kill(sleeper, sys.SIGKILL))
   assert(assert(process.waitpid(sleeper, false)).signal == sys.SIGKILL)

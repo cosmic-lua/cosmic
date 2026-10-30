@@ -39,7 +39,9 @@ local record Call
   id: string
   name: string
   given: string
-  input: {string: any}
+  --- What the call was given: nil in the transcript is [`Json.null`]. Read it only through
+  --- [`Json.to_object`]; an input that is no object is reported, not defaulted.
+  input: Json.Value
 end
 
 --- What a tool call answered: whether it failed, and its text.
@@ -113,7 +115,11 @@ local function read_word(src: string, from: integer): Word, integer
       literal = literal and not is_prose(piece)
       spaced = spaced or piece:find("%s") ~= nil
       quoted = true
-      buf[#buf + 1] = ch == '"' and (piece:gsub("\\([\"\\$`])", "%1")) or piece
+      if ch == '"' then
+        buf[#buf + 1] = (piece:gsub("\\([\"\\$`])", "%1"))
+      else
+        buf[#buf + 1] = piece
+      end
       i = close + 1
     elseif ch == "\\" then
       if src:sub(i + 1, i + 1) ~= "\n" then
@@ -431,7 +437,8 @@ local function shell_words(src: string, found: mut {string}, nested: boolean)
       scripts[1] = table.concat(parts, " ")
     end
     for k, word in ipairs(words) do
-      local path = not skipped[k] and candidate(word) or nil
+      local path: string? = nil
+      if skipped[k] ~= true then path = candidate(word) end
       if path ~= nil then
         found[#found + 1] = path
       end
@@ -512,9 +519,11 @@ local function resolve(word: string, project: string): string
   local found = home_rest(word)
   if found ~= nil then
     local tail = normalize(found.rest)
-    return tail == "/" and found.home or found.home .. tail
+    if tail == "/" then return found.home end
+    return found.home .. tail
   end
-  return normalize(word:sub(1, 1) == "/" and word or project .. "/" .. word)
+  if word:sub(1, 1) == "/" then return normalize(word) end
+  return normalize(project .. "/" .. word)
 end
 
 --- The paths a tool call names, in order, resolved: what its input says
@@ -522,11 +531,14 @@ end
 --- a file; Glob a directory, and a pattern if absolute; Grep a directory
 --- (its pattern is a regex, its glob may name a place); Bash a command, whose words are read as a
 --- shell would split them.
-function Summarize.paths(name: string, input: {string: any}, project: string): {string}
+function Summarize.paths(name: string, input: Json.Value, project: string): {string}
   local raw: mut {string} = {}
+  local fields, _ = Json.to_object(input)
+  if fields == nil then return raw end
   local function field(key: string): string
-    local value = input[key]
-    return value is string and value or ""
+    local value = fields[key]
+    if value is string then return value end
+    return ""
   end
   if name == "Bash" then
     shell_words(field("command"), raw, false)
@@ -558,10 +570,12 @@ end
 --- One line's value, or nil. A lone surrogate, which Python's
 --- json.loads also reads and Claude Code writes when it cuts a tool's
 --- output in the middle of an emoji, is read as U+FFFD.
-local function decode(line: string): any
-  -- A line that does not decode is nil, and skipped.
-  local value, _ = Json.decode(line, { max_depth = max_depth, lone_surrogates = true })
-  return value
+local function decode(line: string): {string: Json.Value}?
+  -- A line that does not decode is nil, and skipped. A `null` stays [`Json.null`]: an array that
+  -- holds one is read whole.
+  local value, _ = Json.decode(line, { max_depth = max_depth, lone_surrogates = true, null_value = Json.null })
+  local object, _ = Json.to_object(value)
+  return object
 end
 
 local function is_system(path: string): boolean
@@ -604,8 +618,8 @@ local function tier_of(path: string, arena: string, repo: string): string?
 end
 
 --- A value as text, for a field whose value need not be a string.
-local function as_text(value: any): string
-  if value == nil then
+local function as_text(value: Json.Value?): string
+  if value == nil or value == Json.null then
     return ""
   elseif value is string then
     return value
@@ -613,13 +627,13 @@ local function as_text(value: any): string
     return tostring(value)
   end
   -- A value too deep to encode reads as nothing.
-  local encoded, _ = Json.encode_any(value, { max_depth = max_depth })
+  local encoded, _ = Json.encode(value, { max_depth = max_depth })
   return encoded or ""
 end
 
 --- A tool call's id as a key: a number that is a whole one names the
 --- same call whether it is written `1` or `1.0`, as it would in Python.
-local function id_key(value: any): string
+local function id_key(value: Json.Value?): string
   if value is number and math.tointeger(value) ~= nil then
     return tostring(math.tointeger(value))
   end
@@ -628,15 +642,25 @@ end
 
 --- Whether a value is true as Python's `bool` takes it: not nil,
 --- false, zero, or an empty string or table.
-local function truthy(value: any): boolean
-  if value is string then
+local function truthy(value: Json.Value?): boolean
+  if value == nil or value == Json.null or value == false then
+    return false
+  elseif value is string then
     return value ~= ""
   elseif value is number then
     return value ~= 0
-  elseif value is table then
-    return next(value) ~= nil
   end
-  return value ~= nil and value ~= false
+  local object, _ = Json.to_object(value)
+  if object ~= nil then return next(object) ~= nil end
+  local array, _ = Json.to_array(value)
+  if array ~= nil then return #array > 0 end
+  return true
+end
+
+--- `value` where it is a number, else 0.
+local function number_or_zero(value: Json.Value?): number
+  if value is number then return value end
+  return 0
 end
 
 --- Whether a call wrote the journal: its input names JOURNAL.md, and it
@@ -656,37 +680,50 @@ end
 function Summarize.report(transcript: string, arena: string, repo: string): string
   local calls: mut {Call} = {}
   local results: mut {string: Answer} = {}
-  local result: {string: any}? = nil
+  local result: {string: Json.Value}? = nil
   -- Lines end as Python's universal newlines end them.
   for line in transcript:gsub("\r\n?", "\n"):gmatch("[^\n]+") do
     local event = decode(line)
-    if event is {string: any} then
+    if event ~= nil then
       local kind = event["type"]
-      local message = event["message"]
-      local content: any = message is {string: any} and message["content"] or nil
-      if kind == "assistant" and content is {any} then
-        for _, part in ipairs(content) do
-          if part is {string: any} and part["type"] == "tool_use" then
-            local input = part["input"]
+      local message, _ = Json.to_object(event["message"])
+      local content: Json.Value? = nil
+      if message ~= nil then content = message["content"] end
+      local parts, _ = Json.to_array(content)
+      if kind == "assistant" and parts ~= nil then
+        for _, each in ipairs(parts) do
+          local part, _ = Json.to_object(each)
+          if part ~= nil and part["type"] == "tool_use" then
+            local input: Json.Value = Json.null
+            local given_input = part["input"]
+            if given_input ~= nil then input = given_input end
             -- Input too deep to encode is given as nothing.
-            local given, _ = Json.encode_any(input, { max_depth = max_depth })
+            local encoded, _ = Json.encode(input, { max_depth = max_depth })
+            local given = encoded or ""
             calls[#calls + 1] = {
               id = id_key(part["id"]),
               name = as_text(part["name"]),
-              given = given or "",
-              input = input is {string: any} and input or {},
+              given = given,
+              input = input,
             }
           end
         end
-      elseif kind == "user" and content is {any} then
-        for _, part in ipairs(content) do
-          if part is {string: any} and part["type"] == "tool_result" then
+      elseif kind == "user" and parts ~= nil then
+        for _, each in ipairs(parts) do
+          local part, _ = Json.to_object(each)
+          if part ~= nil and part["type"] == "tool_result" then
             local body = part["content"]
             local text: string
-            if body is {any} then
+            local items, _ = Json.to_array(body)
+            if items ~= nil then
               local pieces: mut {string} = {}
-              for _, piece in ipairs(body) do
-                pieces[#pieces + 1] = piece is {string: any} and as_text(piece["text"]) or ""
+              for _, piece in ipairs(items) do
+                local entry, _ = Json.to_object(piece)
+                if entry ~= nil then
+                  pieces[#pieces + 1] = as_text(entry["text"])
+                else
+                  pieces[#pieces + 1] = ""
+                end
               end
               text = table.concat(pieces, "\n")
             else
@@ -710,20 +747,28 @@ function Summarize.report(transcript: string, arena: string, repo: string): stri
   local sandbox_tmp: mut {string: boolean} = {}
   local outside: mut {string: boolean} = {}
   local tainted: mut {string: boolean} = {}
+  local unread: mut {string} = {}
   for index, call in ipairs(calls) do
     local answer = results[call.id]
-    local text = answer ~= nil and answer.text or ""
+    local text = ""
+    if answer ~= nil then text = answer.text end
     if answer ~= nil and answer.error then
       failed = failed + 1
     end
     -- `docs: FAIL` is a tool built from an older commit's summary of a miss.
     docs_misses = docs_misses + count(text, "No exact symbol match") + count(text, "docs: FAIL") +
       count(text, "docs: nothing named or documented as ")
-    if first_green == nil and call.name == "Bash" and answer ~= nil and
+    local fields, _ = Json.to_object(call.input)
+    if fields == nil then
+      -- What it acts on is unknown, so it is reported, never read as nothing.
+      unread[#unread + 1] = "input-not-an-object: call " .. tostring(index) .. " (" .. call.name ..
+        ") input is not an object: " .. call.given:sub(1, 80)
+    end
+    if fields ~= nil and first_green == nil and call.name == "Bash" and answer ~= nil and
         not answer.error and says_passed(text, false) then
       -- A command that holds the line itself (an echo, a heredoc, a
       -- script) may have printed it.
-      local command = as_text(call.input["command"])
+      local command = as_text(fields["command"])
       if runs_cosmic_test(command, false) and not says_passed(command, true) then
         first_green = index
       end
@@ -756,8 +801,8 @@ function Summarize.report(transcript: string, arena: string, repo: string): stri
     local ms = result["duration_ms"]
     local cost = result["total_cost_usd"]
     out[#out + 1] = string.format("turns=%s tools=%d minutes=%.1f cost=$%.2f",
-      if turns == nil then "null" else as_text(turns) end, #calls,
-      (ms is number and ms or 0) / 60000, cost is number and cost or 0)
+      if turns == nil or turns == Json.null then "null" else as_text(turns) end, #calls,
+      number_or_zero(ms) / 60000, number_or_zero(cost))
   else
     out[#out + 1] = string.format(
       "turns=null tools=%d minutes=null cost=null (no result event: timed out?)", #calls)
@@ -786,6 +831,9 @@ function Summarize.report(transcript: string, arena: string, repo: string): stri
   end
   for _, mark in ipairs(sorted(tainted)) do
     out[#out + 1] = "CONTAMINATION: a tool call named " .. mark
+  end
+  for _, line in ipairs(unread) do
+    out[#out + 1] = line
   end
   return table.concat(out, "\n") .. "\n"
 end
