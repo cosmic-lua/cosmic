@@ -531,9 +531,9 @@ Codes.catalog = {
   {
     code = "close_not_closable", rule = "compiler-written classes",
     why = "`<close>` calls the `__close` of the value's metatable at the end of the block and raises where there " ..
-      "is none, so the local holds nil, a class that declares `__close`, or a userdata record of the core's " ..
-      "checked declarations (`cosmic.internal.*`, which core/declarations_test.tl compares with the core) that does",
-    fix = "hold a class that declares `function __close(self)` in <name>, or release the value by hand",
+      "is none, so the local holds nil, or a class or userdata record that declares `__close` as a method " ..
+      "(taking the value alone and answering nothing)",
+    fix = "declare `function __close(self)` as a method on the type <name> holds, or release the value by hand",
   },
   {
     code = "setmetatable_call", rule = "dispatch only through declared types",

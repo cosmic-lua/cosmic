@@ -831,8 +831,7 @@ way. a class's fields and methods
 have distinct names, since an absent field would read as the method of
 its name through `__index`. `__close` takes the value and `__tostring`
 returns a string, both checked; a `<close>` local holds a class that
-declares `__close`, a userdata record of the core's checked declarations
-(`cosmic.internal.*`) that does, or nil. there is no inheritance. the compiler emits
+declares `__close` as a method, or a userdata record that does, or nil. there is no inheritance. the compiler emits
 the literal as one reserved form, which the patched parser compiles to a
 table made with its metatable in one opcode.
 

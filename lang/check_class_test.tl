@@ -310,66 +310,84 @@ end
 local DEV <const> = "local record dev\n" ..
   "  record Handle\n    userdata\n    __close: function(self: Handle)\n    fd: function(self: Handle): integer\n  end\n" ..
   "  record Bare\n    userdata\n    fd: function(self: Bare): integer\n  end\n" ..
+  "  record Empty\n    userdata\n  end\n" ..
   "  record Odd\n    userdata\n    __close: integer\n  end\n" ..
   "  record Maybe\n    userdata\n    __close?: function(self: Maybe)\n  end\n" ..
   "  record NoSelf\n    userdata\n    __close: function()\n  end\n" ..
+  "  record Other\n    userdata\n    __close: function(other: Bare)\n  end\n" ..
+  "  record TwoMore\n    userdata\n    __close: function(self: TwoMore, a: integer, b: integer)\n  end\n" ..
+  "  record Err\n    userdata\n    __close: function(self: Err, err: any)\n  end\n" ..
+  "  record ErrInt\n    userdata\n    __close: function(self: ErrInt, err: integer)\n  end\n" ..
+  "  record Answers\n    userdata\n    __close: function(self: Answers): integer\n  end\n" ..
   "  interface Closer\n    __close: function(self: Closer)\n  end\n" ..
   "  record Inherits\n    userdata\n    is Closer\n    fd: function(self: Inherits): integer\n  end\n" ..
-  "  open: function(): Handle?\n  make: function(): Handle\n  bare: function(): Bare\n  odd: function(): Odd\n" ..
-  "  maybe: function(): Maybe\n  noself: function(): NoSelf\n  closer: function(): Closer\n  inherits: function(): Inherits\n" ..
+  "  open: function(): Handle?\n  make: function(): Handle\n  bare: function(): Bare\n  empty: function(): Empty\n" ..
+  "  odd: function(): Odd\n  maybe: function(): Maybe\n  noself: function(): NoSelf\n  other: function(): Other\n" ..
+  "  twomore: function(): TwoMore\n  err: function(): Err\n  errint: function(): ErrInt\n  answers: function(): Answers\n" ..
+  "  closer: function(): Closer\n  inherits: function(): Inherits\n" ..
   "end\nreturn dev\n"
 
---- `source`'s program, with `dev` the module `module` of `DEV`'s declaration.
+--- `body`, a program that requires the module `module` as `dev`.
 local function with_dev(module: string, body: string): string
   return "local dev = require(\"" .. module .. "\")\n" .. body
 end
 
-local function test_a_close_local_holds_a_userdata_record_of_the_core_that_declares_close()
-  local core = { ["cosmic.internal.dev"] = DEV }
-  accepted(with_dev("cosmic.internal.dev", "local h <close> = dev.open()\nlocal g <close> = dev.make()\n" ..
-      "local function f(handle: dev.Handle)\n  local x <close> = handle\nend\n"), nil, core)
+local function test_a_close_local_holds_a_userdata_record_that_declares_close_as_a_method()
+  -- from any module: the declaration is taken as true, in the core's or a program's
+  for _, module in ipairs({ "dev", "cosmic.internal.dev" }) do
+    accepted(with_dev(module, "local h <close> = dev.open()\nlocal g <close> = dev.make()\n" ..
+        "local function f(handle: dev.Handle)\n  local x <close> = handle\nend\n"), nil, { [module] = DEV })
+  end
 end
 
-local function test_a_userdata_record_declared_outside_the_core_is_not_closable()
-  local outside = { dev = DEV }
-  -- the probe: a declaration file of a program that promises a `__close` its userdata lacks
-  refused(with_dev("dev", "local h <close> = dev.make()\n"), "close_not_closable",
-    "declared outside the core's checked declarations", nil, outside)
-  refused(with_dev("dev", "local h <close> = dev.open()\n"), "close_not_closable", nil, nil, outside)
-end
-
-local function test_a_userdata_record_of_the_core_without_a_close_method_is_not_closable()
-  local core = { ["cosmic.internal.dev"] = DEV }
-  local function bad(declaration: string, why: string)
-    refused(with_dev("cosmic.internal.dev", "local x <close> = dev." .. declaration .. "()\n"), "close_not_closable", why, nil, core)
+local function test_a_userdata_record_without_a_close_method_is_not_closable()
+  local declared = { dev = DEV }
+  local function bad(call: string, why: string)
+    refused(with_dev("dev", "local x <close> = dev." .. call .. "()\n"), "close_not_closable", why, nil, declared)
   end
   bad("bare", "the userdata record `dev.Bare` declares no `__close` method")
+  bad("empty", "declares no `__close` method")
+  -- a field of that name is no method: not a function, or optional, or without the record first
   bad("odd", "declares no `__close` method")
   bad("maybe", "declares no `__close` method")
   bad("noself", "declares no `__close` method")
+  bad("other", "declares no `__close` method")
   -- an interface's `__close` is no metatable's, whether the local is typed by the interface or the record lists it
   bad("inherits", "declares no `__close` method")
-  refused(with_dev("cosmic.internal.dev", "local x <close> = dev.closer()\n"), "close_not_closable", "is not a class", nil, core)
+  refused(with_dev("dev", "local x <close> = dev.closer()\n"), "close_not_closable", "is not a class", nil, declared)
+end
+
+local function test_a_close_method_must_take_the_value_alone_and_answer_nothing()
+  local declared = { dev = DEV }
+  accepted(with_dev("dev", "local x <close> = dev.err()\n"), nil, declared)
+  for _, call in ipairs({ "twomore", "errint", "answers" }) do
+    refused(with_dev("dev", "local x <close> = dev." .. call .. "()\n"), "close_not_closable",
+      "declares a `__close` that is not a function taking the value, and the error object as `any` at most, and answering nothing", nil, declared)
+  end
+  declared_wrong("local class G\n  function __close(self): integer\n    return 1\n  end\nend\n", "metamethod_signature",
+    "answers a value")
 end
 
 local function test_a_union_with_a_member_that_is_not_closable_is_refused_naming_it()
-  local core = { ["cosmic.internal.dev"] = DEV }
+  local declared = { dev = DEV }
   for _, other in ipairs({ "false", "boolean", "integer" }) do
-    refused(with_dev("cosmic.internal.dev", "local function f(h: dev.Handle | " .. other .. ")\n  local x <close> = h\nend\n"),
-      "close_not_closable", "of the union is not closable", nil, core)
+    refused(with_dev("dev", "local function f(h: dev.Handle | " .. other .. ")\n  local x <close> = h\nend\n"),
+      "close_not_closable", "of the union is not closable", nil, declared)
   end
-  refused(with_dev("cosmic.internal.dev", "local function f(h: dev.Handle | dev.Bare)\n  local x <close> = h\nend\n"),
-    "close_not_closable", "the member `dev.Bare` of the union", nil, core)
+  refused(with_dev("dev", "local function f(h: dev.Handle | dev.Bare)\n  local x <close> = h\nend\n"),
+    "close_not_closable", "the member `dev.Bare` (of dev) of the union", nil, declared)
 end
 
-local function test_the_standard_library_s_userdata_are_not_closable()
+local function test_the_standard_library_s_userdata_are_closable_where_they_declare_close()
   local checks = Programs.session((assert(Fs.read("lang/prelude.d.tl"))), (assert(Fs.read("lang/stdlib.d.tl"))))
   local sources = {
-    "local x <close> = io.stdout\n",
     "local function f(v: debug.Userdata)\n  local x <close> = v\nend\n",
     "local function f(v: Coroutine<integer, nil, nil>)\n  local x <close> = v\nend\n",
     "local function f(v: Yielder<integer, nil>)\n  local x <close> = v\nend\n",
   }
+  -- a file declares `__close`, as Lua's do
+  local file = checks("local x <close> = io.stdout\n", "std0")
+  assert(#file.before == 0 and Programs.codes(file) == "", Programs.codes(file))
   for i, source in ipairs(sources) do
     local r = checks(source, "std" .. tostring(i))
     assert(#r.before == 0, table.concat(r.before, " ") .. " in\n" .. source)

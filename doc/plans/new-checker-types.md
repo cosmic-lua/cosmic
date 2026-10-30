@@ -904,7 +904,7 @@ reading's looser form, named here.
   (`metamethod_signature`). *not adopted:* the names with two underscores a class may use for other things.
 - **`is` of a generic class is refused:** the metatable tells the class and not its arguments, so `v is Box<integer>`
   would narrow `Box<string>`. *not adopted:* the test with the arguments unchecked.
-- **a `<close>` local holds nil, a class that declares `__close`, or a userdata record of the core's checked declarations (`cosmic.internal.*`) that does** (`close_not_closable`). *not adopted:* an
+- **a `<close>` local holds nil, or a class or userdata record that declares `__close` as a method** (`close_not_closable`). *not adopted:* an
   interface that declares one: a record may list it too, and its `__close` is a field no metatable holds. the
   rewrite that brings the ceiling to zero turns such a record into a class.
 - **a method of an interface is called as `v:m(...)` and never read as a value** (`interface_method_value`): agreement
