@@ -1,4 +1,3 @@
-local Cell = require("cosmic.cell")
 local Shape = require("cosmic.shape")
 local Web = require("cosmic.web")
 
@@ -68,17 +67,17 @@ local function test_a_json_body_binds_and_a_key_the_record_lacks_is_dropped()
 end
 
 local function test_a_bad_path_value_is_422_before_the_query_or_body_is_read()
-  local called: Cell<boolean> = { value = false }
+  local called: boolean = false
   local app = Web.app{ routes = {
     Web.put_typed("/items/:id", Web.input(PATH, QUERY, Web.json_body(NEW)),
       function(_req: Web.Request, _p: ItemPath, _q: Listing, _b: NewItem): Web.Response
-        called.value = true
+        called = true
         return Web.empty()
       end),
   } }
   local client = Web.test_client(app)
   local reply = client:put("/items/abc?page=x", { json = { title = 1 } })
-  assert(reply.status == 422 and not called.value)
+  assert(reply.status == 422 and not called)
   local errors = problem(reply).errors as {{string:any}}
   assert(#errors == 1 and errors[1].source == "path" and errors[1].field == "id" and errors[1].code == "integer")
   assert(errors[1].pointer == nil, "only a JSON body has a pointer")
@@ -88,7 +87,7 @@ local function test_a_bad_path_value_is_422_before_the_query_or_body_is_read()
   reply = client:put("/items/1", { json = { title = 1 } })
   errors = problem(reply).errors as {{string:any}}
   assert(errors[1].source == "body" and errors[1].pointer == "/qty", "then the body")
-  assert(not called.value)
+  assert(not called)
 end
 
 local function test_a_json_route_answers_a_problem_body_with_every_error_listed()
@@ -132,17 +131,17 @@ local function test_a_form_route_prefers_a_page_and_lists_all_errors_as_json_whe
 end
 
 local function test_on_invalid_re_renders_in_place_of_the_handler()
-  local called: Cell<boolean> = { value = false }
-  local seen: Cell<Web.Invalid?> = { value = nil }
+  local called: boolean = false
+  local seen: Web.Invalid? = nil
   local app = Web.app{ routes = {
     Web.post_typed("/settings", Web.input(Web.NONE, Web.NONE, Web.form_body(SETTINGS)),
       function(_req: Web.Request, _p: Web.None, _q: Web.None, _b: Settings): Web.Response
-        called.value = true
+        called = true
         return Web.empty()
       end, {
         input_options = { secret = { "secret" } },
         on_invalid = function(req: Web.Request, bad: Web.Invalid): Web.Response
-          seen.value = bad
+          seen = bad
           return Web.text(("%s:%s:%s"):format(req.method, bad.errors[1].field, assert(bad.submitted).by_name.name[1]),
             { status = bad.status })
         end,
@@ -150,23 +149,23 @@ local function test_on_invalid_re_renders_in_place_of_the_handler()
   } }
   local reply = Web.test_client(app):post("/settings", { form = { name = "Ada", notify = "perhaps", secret = "s3" } })
   assert(reply.status == 422 and reply:text() == "POST:notify:Ada", reply:text())
-  assert(not called.value and assert(assert(seen.value).submitted).by_name.secret == nil, "the secret is not sent back")
+  assert(not called and assert(assert(seen).submitted).by_name.secret == nil, "the secret is not sent back")
   local ok = Web.test_client(app):post("/settings", { form = { name = "Ada" } })
-  assert(ok.status == 204 and called.value, "an absent checkbox is false")
+  assert(ok.status == 204 and called, "an absent checkbox is false")
 end
 
 local function test_a_checkbox_form_binds_and_unknown_names_bind_nothing()
-  local got: Cell<Settings?> = { value = nil }
+  local got: Settings? = nil
   local app = Web.app{ routes = {
     Web.post_typed("/settings", Web.input(Web.NONE, Web.NONE, Web.form_body(SETTINGS)),
       function(_req: Web.Request, _p: Web.None, _q: Web.None, b: Settings): Web.Response
-        got.value = b
+        got = b
         return Web.empty()
       end),
   } }
   local client = Web.test_client(app)
   assert(client:post("/settings", { form = { name = "Ada", notify = { "0", "1" }, is_admin = "1" } }).status == 204)
-  local bound = assert(got.value, "the handler never ran")
+  local bound = assert(got, "the handler never ran")
   assert(bound.name == "Ada" and bound.notify == true and bound.secret == nil)
   assert((bound as {string:any})["is_admin"] == nil)
 end

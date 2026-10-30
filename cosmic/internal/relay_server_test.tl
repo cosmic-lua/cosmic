@@ -1,4 +1,3 @@
-local Cell = require("cosmic.cell")
 local Clock = require("cosmic.clock")
 local Codec = require("cosmic.codec")
 local Fixture = require("build.relay_wire_fixture")
@@ -639,14 +638,14 @@ local function test_a_lookup_that_is_not_answered_stalls_only_its_own_connection
     local rig = start(tmp, { grants = { "slow.test:80", "127.0.0.1:" .. tostring(port) },
       timeouts = { resolve = Clock.seconds(2) },
       resolve = { hosts_file = tmp .. "/hosts", servers = { { host = "127.0.0.1", port = silent.address.port } } } })
-    local slow_answered: Cell<boolean> = { value = false }
+    local slow_answered: boolean = false
     local began = Clock.monotonic_ns()
     local waiting = Poll.spawn(function()
       local conn = dial(rig.http)
       assert(conn:write(Fixture.connect("slow.test:80")))
       -- Answered, or ended by the relay's stop.
       local _, _ = conn:read(1)
-      slow_answered.value = true
+      slow_answered = true
       local _, _ = conn:close()
     end)
     -- Let the lookup start, then use the relay for something else.
@@ -657,7 +656,7 @@ local function test_a_lookup_that_is_not_answered_stalls_only_its_own_connection
     assert(read_exact(conn, 9) == "meanwhile")
     local meanwhile = (Clock.monotonic_ns() - began) // 1000000
     assert(meanwhile < 1000, "a tunnel waited " .. tostring(meanwhile) .. " ms behind another connection's lookup")
-    assert(not slow_answered.value, "the lookup ended before its time")
+    assert(not slow_answered, "the lookup ended before its time")
     -- The relay stops while the lookup is pending, and does not wait it out.
     local _, _ = conn:close()
     local stopping = Clock.monotonic_ns()
@@ -679,10 +678,10 @@ local function test_a_lookup_out_of_time_is_refused_while_another_is_answered(tm
     local rig = start(tmp, { grants = { "slow.test:80", "svc.test:" .. tostring(port), "127.0.0.1:" .. tostring(port) },
       timeouts = { resolve = Clock.ms(300) },
       resolve = { hosts_file = tmp .. "/hosts", servers = { { host = "127.0.0.1", port = silent.address.port } } } })
-    local head: Cell<string> = { value = "" }
+    local head: string = ""
     local waiting = Poll.spawn(function()
       local conn, answer = connect_to(rig, "slow.test:80")
-      head.value = answer
+      head = answer
       local _, _ = conn:close()
     end)
     -- A name the hosts file answers needs no server.
@@ -690,9 +689,9 @@ local function test_a_lookup_out_of_time_is_refused_while_another_is_answered(tm
     assert(status_line(answer):find("^HTTP/1.1 200 "), answer)
     assert(conn:write("hosts"))
     assert(read_exact(conn, 5) == "hosts")
-    assert(head.value == "", "the slow lookup ended before its time")
-    until_it(function(): boolean return head.value ~= "" end)
-    local line = status_line(head.value)
+    assert(head == "", "the slow lookup ended before its time")
+    until_it(function(): boolean return head ~= "" end)
+    local line = status_line(head)
     assert(line:find("^HTTP/1.1 504 ") and line:find("resolving slow.test timed out after 300 milliseconds", 1, true), line)
     assert(waiting:join())
     local _, _ = conn:close()
