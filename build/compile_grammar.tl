@@ -161,9 +161,7 @@ local function type_facts(program: Declarations.Program, result: Driver.Outcome,
     elseif (node.kind == "IsTest") then
       local t = lowered.types[node.type.id]
       local why: string?
-      if t == nil then
-        why = "no type was lowered for it"
-      elseif (t.tag == "named") and t.decl.kind ~= "enum" and not (library ~= nil and library.decl == t.decl) then
+      if t ~= nil and (t.tag == "named") and t.decl.kind ~= "enum" and not (library ~= nil and library.decl == t.decl) then
         local tested = node.type
         if counted == true and (t.decl.kind == "record" or t.decl.kind == "interface" or t.decl.kind == "userdata") and
             (tested.kind == "TypeName") then
@@ -177,6 +175,11 @@ local function type_facts(program: Declarations.Program, result: Driver.Outcome,
         end
       end
       local tokens, at = result.chunk.tokens, node.first
+      if t == nil then
+        -- Reported with its position where the token has one, and without it where not: never dropped.
+        local where = if tokens.y[at] ~= nil then tostring(Lexer.y(tokens, at)) .. ":" .. tostring(Lexer.x(tokens, at)) .. ": " else "" end
+        refused[#refused + 1] = where .. "no type was lowered for this test"
+      end
       if why ~= nil and tokens.y[at] ~= nil then
         refused[#refused + 1] = tostring(Lexer.y(tokens, at)) .. ":" .. tostring(Lexer.x(tokens, at)) ..
           ": a test the Lua cannot tell: " .. why ..

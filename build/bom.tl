@@ -126,6 +126,10 @@ function bom.parse(name: string, source: string): bom.Component?, string
   local seen: mut {string:boolean} = {}
   for line in String.lines(source) do
     local key, value = line:match("^([%w_%-]+)%s+(.-)%s*$")
+    if key == nil then
+      -- A bare key (`sha256`, no space after it) names no value, which is refused like `sha256 `.
+      key, value = line:match("^([%w_%-]+)$"), ""
+    end
     -- A key given twice counts the first time only.
     local repeated = key ~= nil and key ~= "notice" and seen[key] == true
     if key ~= nil and not repeated then
@@ -376,23 +380,45 @@ function bom.rows(db: Sqlite.Handle): {bom.Row}?, string
   return out, ""
 end
 
+--- What a component's `patches` text lists: the `patched` records under `patch/`, and the files cosmic `modified` (a
+--- descendant of the component), each line as written.
+local record Patches
+  patched: {string}
+  modified: {string}
+end
+
+--- `row`'s patches text read into its two lists, or nil and why when a line of it names no path.
+local function patches_in(row: bom.Row): Patches?, string
+  local patched: mut {string} = {}
+  local modified: mut {string} = {}
+  for entry in String.lines(row.patches) do
+    if entry:sub(1, 6) == "patch/" then
+      patched[#patched + 1] = entry
+    elseif entry:match("^%S") == nil then
+      return nil, row.name .. ": a line of its patches names no path: " .. ("%q"):format(entry)
+    else
+      modified[#modified + 1] = entry
+    end
+  end
+  return { patched = patched, modified = modified }, ""
+end
+
 --- One line per component: name, version, license, and whether cosmic
 --- patches it or carries a modified descendant of it -- or, for data upstream releases on its own schedule (the
 --- CA roots, the time zones), that `cosmic refresh` updates it.
-function bom.lines(rows: {bom.Row}): {string}
+function bom.lines(rows: {bom.Row}): {string}?, string
   local lines: mut {string} = {}
   for _, row in ipairs(rows) do
     local line = row.name .. " " .. row.version .. "  " .. row.license
     if row.patches ~= "" then
-      local patched: mut {string} = {}
+      local listed, listed_trouble = patches_in(row)
+      if listed == nil then
+        return nil, listed_trouble
+      end
+      local patched = listed.patched
       local modified: mut {string} = {}
-      for entry in String.lines(row.patches) do
-        if entry:sub(1, 6) == "patch/" then
-          patched[#patched + 1] = entry
-        else
-          -- A line of the patches text names a path; one that does not is a malformed record.
-          modified[#modified + 1] = assert(entry:match("^(%S+)"), "a patch line names a path")
-        end
+      for _, entry in ipairs(listed.modified) do
+        modified[#modified + 1] = assert(entry:match("^(%S+)"), "patches_in refused a line naming no path")
       end
       if #patched > 0 then
         line = line .. "  (" .. plural.count(#patched, "patch", "patches") .. ")"
@@ -405,7 +431,7 @@ function bom.lines(rows: {bom.Row}): {string}
     end
     lines[#lines + 1] = line
   end
-  return lines
+  return lines, ""
 end
 
 --- Every notice `db` holds, each under a heading naming its component
@@ -470,15 +496,11 @@ function bom.cyclonedx(rows: {bom.Row}, subject: string, version: string): strin
       externalReferences = { reference },
     }
     if row.patches ~= "" then
-      local patched: mut {string} = {}
-      local modified: mut {string} = {}
-      for entry in String.lines(row.patches) do
-        if entry:sub(1, 6) == "patch/" then
-          patched[#patched + 1] = entry
-        else
-          modified[#modified + 1] = entry
-        end
+      local listed, listed_trouble = patches_in(row)
+      if listed == nil then
+        return nil, listed_trouble
       end
+      local patched, modified = listed.patched, listed.modified
       local notes: mut {string} = {}
       if #modified > 0 then
         notes[#notes + 1] = "modified by cosmic, a descendant of this component:\n" ..
@@ -557,7 +579,12 @@ local function run(argv: {string}): integer
     end
     return passed(plural.count(#rows, "component") .. " written to " .. path)
   end
-  for _, line in ipairs(bom.lines(rows)) do
+  local lines, lines_trouble = bom.lines(rows)
+  if lines == nil then
+    log:complain("bom: " .. lines_trouble)
+    return 1
+  end
+  for _, line in ipairs(lines) do
     log:say(line)
   end
   return passed(plural.count(#rows, "component"))
