@@ -25,6 +25,8 @@ local function test_pair_allocation_refusals_leave_no_descriptors(tmp: string)
   local refused_count = 0
   local pair: Made = { value = nil }
   local function work(): any
+    -- By the core's own table and no `connector_pair` of `RawTables`: that looks the table up and copies it, and the walk
+    -- would fail those allocations instead of the core's.
     pair.value = assert(process.connector_pair())
     return true
   end

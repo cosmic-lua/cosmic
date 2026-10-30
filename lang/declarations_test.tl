@@ -181,7 +181,7 @@ local CASES <const>: {Case} = {
     code = "metamethod_signature",
     source = "local class C\n  function __close(self, by: integer)\n  end\nend\n",
     msg = "the method `__close` of `C` takes more than the value",
-    fix = "write `function __close(self)`",
+    fix = "write `function __close(self)` or `function __close(self, err: any)`, and answer nothing",
   },
   {
     code = "class_metamethod",

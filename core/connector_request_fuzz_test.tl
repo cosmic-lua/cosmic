@@ -142,8 +142,8 @@ local function test_every_request_is_answered_once_with_its_own_tag(tmp: string)
       local passes: mut {integer: boolean} = {}
       local stream: mut {string} = {}
       local count = 0
-      local requests = assert(fields[1], "the generator packs the requests pair.controller")
-      local cuts = assert(fields[2], "the generator packs the cuts pair.connector")
+      local requests = assert(fields[1], "the generator packs the requests first")
+      local cuts = assert(fields[2], "the generator packs the cuts second")
       for at = 1, #requests, 36 do
         local request = requests:sub(at, at + 35)
         local tag, index, drawn = string.unpack(">I4I4I4", request)

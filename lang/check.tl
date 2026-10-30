@@ -5750,11 +5750,11 @@ local function check_counts(ctx: Ctx, node: Ast.Node, n: integer, vals: Values, 
 end
 
 --- Whether a value of type `t` is nil or a value of a class or userdata record that declares `__close` as a method that
---- takes the value (and the error object, `any`) and answers nothing ([`Declarations.close_is_callable`], the one check
---- a class's declaration is held to, which takes the value alone), which is what a `<close>` local holds ("compiler-written classes" in doc/plans/strict-teal.md). The
---- declaration of a userdata record is taken as true: whether any declaration matches its implementation is not this
---- rule's to ask. A record or interface is made by a table literal and may lack the member. `invalid` and `never`
---- stand for a mistake already reported.
+--- is what Lua calls ([`Declarations.close_is_callable`], the one check a class's declaration is held to as well): the
+--- value, and the error object if it likes, answering nothing. Every overload must be one. That is what a `<close>`
+--- local holds ("compiler-written classes" in doc/plans/strict-teal.md). The declaration of a userdata record is
+--- taken as true: whether any declaration matches its implementation is not this rule's to ask. A record or interface
+--- is made by a table literal and may lack the member. `invalid` and `never` stand for a mistake already reported.
 local function closable(t: Type): boolean
   local tag = t.tag
   if tag == "nil" or tag == "invalid" or tag == "never" then
@@ -5765,12 +5765,16 @@ local function closable(t: Type): boolean
     if t.value or body == nil or (kind ~= "class" and kind ~= "userdata") then
       return false
     end
+    local found = false
     for _, m in ipairs(body.methods) do
-      if m.name == "__close" and Declarations.close_is_callable(m.type, true) then
-        return true
+      if m.name == "__close" then
+        if not Declarations.close_is_callable(m.type) then
+          return false
+        end
+        found = true
       end
     end
-    return false
+    return found
   elseif (t.tag == "union") then
     for _, m in ipairs(t.members) do
       if not closable(m) then
@@ -5805,12 +5809,18 @@ local function check_closable(ctx: Ctx, b: Ast.Binding, t: Type)
         return what .. tq(ctx, held) .. " has no declared body, so it declares no `__close`"
       end
       for _, m in ipairs(body.methods) do
-        if m.name == "__close" then
-          return what .. tq(ctx, held) .. " declares a `__close` that is not a function taking the value, and the error object " ..
-            "as `any` at most, and answering nothing"
+        if m.name == "__close" and not Declarations.close_is_callable(m.type) then
+          return what .. tq(ctx, held) .. " declares a `__close` that is not what Lua calls: it must take the value, " ..
+            "and the error object as `any` if it likes, and answer nothing"
         end
       end
-      return what .. tq(ctx, held) .. " declares no `__close` method (a field of that name is not one)"
+      for _, f in ipairs(body.fields) do
+        if f.name == "__close" then
+          return what .. tq(ctx, held) .. " declares `__close` as a field and not a method: a method's first parameter is " ..
+            "the record itself (not `any`, a supertype or `mut`), and the member is neither optional nor `mut`"
+        end
+      end
+      return what .. tq(ctx, held) .. " declares no `__close` method"
     end
     return tq(ctx, held) .. " is not a class or a userdata record"
   end

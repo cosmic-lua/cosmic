@@ -8,8 +8,8 @@
 -- `Coroutine<Y, R, S>`, which the language has no other form for.
 --
 -- TODO: declare [`Fs.Scratch`], [`Signal.Guard`] and [`Child.Handle`] as classes in cosmic/fs.tl, cosmic/signal.tl and
--- cosmic/child.tl (each declares `__close` as a record field and builds its metatable by hand today), so that a `<close>`
--- local is a class, which the checker requires, and the TODOs in build/patch.tl, build/zig.tl, build/zig_fetch.tl and ci/ that wait on
+-- cosmic/child.tl (each declares `__close` as a record field and builds its metatable by hand today), which `<close>` refuses
+-- (it takes a class or userdata record that declares `__close` as a method), so that a `<close>` local can hold one, and the TODOs in build/patch.tl, build/zig.tl, build/zig_fetch.tl and ci/ that wait on
 -- ci/cosmic-driver.pin naming a release that declares them cannot be undone until a release does.
 do
   -- What a coroutine's body is given to yield through, since `coroutine.yield` is dynamically scoped and no type says

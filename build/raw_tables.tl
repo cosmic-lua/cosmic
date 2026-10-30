@@ -43,8 +43,8 @@ local record raw_tables
   --- is no name.
   fields: function(wrapper: string): {string: any}
   --- The two descriptors of `pair`, a connector pair ([`cosmic.internal.process`]'s [`connector_pair`]): the controller's
-  --- first, the connector's second. Raises where `pair` holds fewer. It allocates nothing but its results' frames, so it
-  --- may run in a walk that fails allocations once the pair is made.
+  --- first, the connector's second. Raises where `pair` holds fewer. It makes one small table for its answer, so a test
+  --- that fails allocations holds a pair with it only once allocations are allowed again.
   pair_ends: function(pair: {integer}): raw_tables.Ends
   --- A new connector pair, made by `wrapper`'s process table ([`cosmic.child`]'s by default), as its two ends. Raises
   --- where the core cannot make one. It looks the table up on each call, so a test that fails allocations makes the

@@ -532,7 +532,7 @@ Codes.catalog = {
     code = "close_not_closable", rule = "compiler-written classes",
     why = "`<close>` calls the `__close` of the value's metatable at the end of the block and raises where there " ..
       "is none, so the local holds nil, or a class or userdata record that declares `__close` as a method " ..
-      "(taking the value alone and answering nothing)",
+      "(taking the value, and the error object as `any` if it likes, and answering nothing)",
     fix = "declare `function __close(self)` as a method on the type <name> holds, or release the value by hand",
   },
   {
