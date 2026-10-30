@@ -199,7 +199,8 @@ local function read_pattern(pattern: string): Literals.PatternRead
         end
         i = stopped
       elseif d:find("^%d") ~= nil then
-        local k = d:byte() - 48
+        local digit = assert(d:byte(), "`d` matched `^%d`, so it holds a digit")
+        local k = digit - 48
         -- `closed` holds the captures a `)` has closed, so `%0` and an index past the captures are none
         if closed[k] ~= true then
           return stop(shown("%" .. d) .. " refers to a capture that is not closed before it (" .. at(i) .. "), and Lua " ..
@@ -239,7 +240,8 @@ local function read_replacement(replacement: string, captures: integer): Literal
     if replacement:sub(i, i) == "%" then
       local d = replacement:sub(i + 1, i + 1)
       if d:find("^%d") ~= nil then
-        local k = d:byte() - 48
+        local digit = assert(d:byte(), "`d` matched `^%d`, so it holds a digit")
+        local k = digit - 48
         -- `%1` is the whole match when the pattern has no capture
         if k > 1 and k > captures then
           return problem("`%" .. d .. "` is used, and the pattern has " .. (if captures == 0 then "no capture" else
@@ -390,16 +392,32 @@ local SIZES <const>: {string: integer} = {
   b = 1, B = 1, h = 2, H = 2, l = 8, L = 8, j = 8, J = 8, T = 8, f = 4, n = 8, d = 8,
 }
 
+--- The value of the digit at `i` of the format, or nil where it holds none.
+local function digit_at(s: PackState, i: integer): integer?
+  if s.format:sub(i, i):find("^%d") == nil then
+    return nil
+  end
+  local byte = s.format:byte(i)
+  if byte == nil then
+    return nil
+  end
+  return byte - 48
+end
+
 local function has_digit(s: PackState, i: integer): boolean
-  return s.format:sub(i, i):find("^%d") ~= nil
+  return digit_at(s, i) ~= nil
 end
 
 --- The number at the walk, or `default`; the walk moves past it.
 local function pack_number(s: PackState, default: integer): integer
   local value = 0
   local j = s.i
-  while has_digit(s, j) do
-    value = value * 10 + (s.format:byte(j) - 48)
+  while true do
+    local digit = digit_at(s, j)
+    if digit == nil then
+      break
+    end
+    value = value * 10 + digit
     if value > 1000000 then
       value = 1000000
     end
@@ -431,7 +449,7 @@ local function pack_option(s: PackState): Option?
   if fixed ~= nil then
     return plain(c, fixed, true)
   elseif c == "i" or c == "I" or c == "s" or c == "!" then
-    local size = pack_number(s, if c == "s" then 8 else c == "!" and NATIVE_ALIGN end or 4)
+    local size = pack_number(s, if c == "s" then 8 elseif c == "!" then NATIVE_ALIGN else 4 end)
     if size < 1 or size > MAX_INT_SIZE then
       pack_stop(s, "`" .. c .. tostring(size) .. "` is out of range (" .. at(at_i) .. "), and Lua raises \"integral size (" ..
           tostring(size) .. ") out of limits [1,16]\"", "write a size from 1 to 16 after `" .. c .. "`")

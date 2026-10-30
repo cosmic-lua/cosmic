@@ -33,7 +33,8 @@ local gen_exp: function(g: Gen, depth: integer)
 local gen_block: function(g: Gen, depth: integer, loop: boolean, keep?: boolean)
 
 local function pick(g: Gen, choices: {string}): string
-  return choices[g.draw(1, #choices)]
+  local choice = assert(choices[g.draw(1, #choices)], "the draw is within the choices")
+  return choice
 end
 
 --- Whether a list that holds `have` elements of at most `max` takes one more: a draw before
@@ -43,8 +44,7 @@ local function more(g: Gen, have: integer, max: integer): boolean
 end
 
 local function add(g: Gen, ...: string)
-  for i = 1, select("#", ...) do
-    local appended = (select(i, ...))
+  for _, appended in ipairs({ ... }) do
     g.out[#g.out + 1] = appended
   end
 end
@@ -65,7 +65,8 @@ end
 local function use(g: Gen): string
   local n = #g.seen
   if n > 0 and g.draw(1, 10) <= 8 then
-    return g.seen[g.draw(1, n)]
+    local name = assert(g.seen[g.draw(1, n)], "the draw is within the names in scope")
+    return name
   end
   local name = pick(g, POOL)
   if not g.options.unknown then
@@ -143,11 +144,13 @@ local function gen_statement(g: Gen, depth: integer, loop: boolean)
     -- `local x = x`, the copy that does not shadow.
     local copy = #g.seen > 0 and g.draw(1, 5) == 1
     if copy then
-      names = { g.seen[g.draw(1, #g.seen)] }
+      local source_name = assert(g.seen[g.draw(1, #g.seen)], "the draw is within the names in scope")
+      names = { source_name }
     end
     add(g, "local", table.concat(names, ", "), "=")
     if copy then
-      add(g, names[1])
+      local copied = assert(names[1], "the copy has a name")
+      add(g, copied)
     else
       gen_list(g, depth, 3)
     end

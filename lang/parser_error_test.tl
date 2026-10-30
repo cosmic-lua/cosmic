@@ -221,7 +221,7 @@ end
 local function test_a_missing_end_names_the_construct_it_closes_and_its_line()
   local parsed = parse("local function f()\n  while x do\n    y()\n  end\n", "tl")
   local e = parsed.errors[1]
-  assert(#parsed.errors == 1 and e.code == "unclosed")
+  assert(e ~= nil and #parsed.errors == 1 and e.code == "unclosed")
   assert(e.msg:find("function `f` on line 1", 1, true), e.msg)
   assert(e.y == 5 and e.x == 1, "at the end of the file")
 end
@@ -254,7 +254,7 @@ local function test_the_errors_of_the_lexer_and_the_parser_come_in_source_order_
   end
   assert(table.concat(codes, " ") == "stray_byte unterminated_string expected_expression", table.concat(codes, " "))
   local expected = parsed.chunk.body.stats[4]
-  assert((expected.kind == "Local"), "the statement after the errors is intact")
+  assert(expected ~= nil and expected.kind == "Local", "the statement after the errors is intact")
 end
 
 local function test_input_nested_past_the_limit_is_refused_not_overflowed()
@@ -271,7 +271,8 @@ local function test_input_nested_past_the_limit_is_refused_not_overflowed()
   }
   for i, source in ipairs(sources) do
     local parsed = parse(source, "tl")
-    assert(parsed.errors[1] ~= nil and parsed.errors[1].code == "too_deep", "source " .. tostring(i) .. " is refused")
+    local first = parsed.errors[1]
+    assert(first ~= nil and first.code == "too_deep", "source " .. tostring(i) .. " is refused")
     assert(#parsed.errors == 1, "source " .. tostring(i) .. ": " .. tostring(#parsed.errors) .. " errors, the rest is not reported")
   end
   local ok = parse("local x = " .. ("("):rep(150) .. "1" .. (")"):rep(150), "tl")
@@ -296,5 +297,6 @@ local function test_a_declaration_file_holds_only_what_the_draft_lists()
   end
   assert(#parse("local x = 1\nreturn x", "tl").errors == 0, "a program may")
   local body = parse("global f <const> = function() end", "decl")
-  assert(body.errors[1].code == "body_in_declaration", "no body in a declaration file")
+  local refusal = body.errors[1]
+  assert(refusal ~= nil and refusal.code == "body_in_declaration", "no body in a declaration file")
 end

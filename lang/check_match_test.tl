@@ -92,7 +92,7 @@ local function test_a_match_must_take_every_list_the_call_may_answer()
   refused("match ok() do\n  | (true, n) then print(n)\nend\n", "match_missing")
   refused("match ok() do\n  | (false, why) then print(why)\nend\n", "match_missing")
   local r = Programs.run(HEAD .. "match ok() do\n  | (true, n) then print(n)\nend\n")
-  local e = r.errors[#r.errors]
+  local e = assert(r.errors[#r.errors], "an error for the match")
   assert(e.code == "match_missing" and e.msg:find("takes no arm for the list `(false, string)`", 1, true) ~= nil, e.msg)
   assert(e.fix:find("add the arm `| (false, v2) then ...`", 1, true) ~= nil, e.fix)
   -- An arm with no test takes what is left.
@@ -177,8 +177,9 @@ local function test_a_refused_protected_call_names_the_limits_of_the_overloads()
   local r = Programs.run(HEAD .. "local function many(): (integer, integer, integer, integer)\n  return 1, 2, 3, 4\nend\n" ..
       "local okay, v = pcall(many)\n")
   assert(#r.errors == 1 and r.errors[1].code == "overload_none", Programs.codes(r))
-  assert(r.errors[1].fix:find("`pcall` passes on at most 6 values", 1, true) ~= nil, r.errors[1].fix)
-  assert(r.errors[1].fix:find("answers at most 3 values and none that answers `T...`", 1, true) ~= nil, r.errors[1].fix)
+  local refusal = assert(r.errors[1], "the refusal of the call")
+  assert(refusal.fix:find("`pcall` passes on at most 6 values", 1, true) ~= nil, refusal.fix)
+  assert(refusal.fix:find("answers at most 3 values and none that answers `T...`", 1, true) ~= nil, refusal.fix)
 end
 
 local function test_a_protected_call_is_no_value_to_one_name_and_its_failure_is_untrusted_data()

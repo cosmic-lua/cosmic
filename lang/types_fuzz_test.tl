@@ -151,7 +151,7 @@ local function union_not_normal(t: Types.Union): string
   if tags["true"] and tags["false"] then
     return "true beside false in " .. Types.display(t)
   end
-  if enum and tags["string"] then
+  if enum and tags["string"] == true then
     return "an enum beside string in " .. Types.display(t)
   end
   return ""
@@ -335,7 +335,8 @@ local function several(w: World, draws: {integer}): {Types.Type}
   for i = 1, count do
     local slice: mut {integer} = {}
     for j = (i - 1) * 11 + 2, #draws do
-      slice[#slice + 1] = draws[j]
+      local draw = assert(draws[j], "`j` is within the draws")
+      slice[#slice + 1] = draw
     end
     out[i] = Programs.generate(w.store, w.fixture, slice)
   end
@@ -345,7 +346,8 @@ end
 local function reversed(list: {Types.Type}): {Types.Type}
   local out: mut {Types.Type} = {}
   for i = #list, 1, -1 do
-    out[#out + 1] = list[i]
+    local item = assert(list[i], "`i` is within the list")
+    out[#out + 1] = item
   end
   return out
 end

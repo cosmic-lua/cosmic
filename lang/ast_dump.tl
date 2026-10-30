@@ -43,15 +43,15 @@ end
 
 local function write_node(node: {string: any}, kind: string, out: mut {string})
   out[#out + 1] = "(" .. kind
-  local names = Ast.fields[kind]
+  local names = assert(Ast.fields[kind], "every node the parser makes has a kind that Ast.fields lists")
   local used = #out
-  for i = 1, #names do
-    local field = node[names[i]]
+  for _, name in ipairs(names) do
+    local field = node[name]
     out[#out + 1] = " "
-    if is_blank(field, names[i]) then
+    if is_blank(field, name) then
       out[#out + 1] = "_"
     else
-      write(field, names[i], out)
+      write(field, name, out)
       used = #out
     end
   end

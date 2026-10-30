@@ -27,18 +27,21 @@ end
 
 local function prepare(source: string): Prepared
   local parsed = Parser.parse(Lexer.lex(source, "t.tl"), "t.tl", "tl")
-  assert(#parsed.errors == 0, parsed.errors[1] and parsed.errors[1].msg or "")
+  local parse_error = parsed.errors[1]
+  assert(#parsed.errors == 0, if parse_error ~= nil then parse_error.msg else "" end)
   local scoped = Scopes.build(parsed.chunk, "t.tl", {})
   local program = Declarations.new()
   local input: Declarations.Input = { module = "t", filename = "t.tl", chunk = parsed.chunk, scoped = scoped, dialect = "tl" }
   local lowered = program:lower(input)
-  assert(#lowered.errors == 0 and #scoped.errors == 0, lowered.errors[1] and lowered.errors[1].msg or "")
+  local lower_error = lowered.errors[1]
+  assert(#lowered.errors == 0 and #scoped.errors == 0, if lower_error ~= nil then lower_error.msg else "" end)
   return { program = program, input = input, lowered = lowered }
 end
 
 local function check(p: Prepared)
   local result = Check.check(p.program, p.input, p.lowered)
-  assert(#result.errors == 0, result.errors[1] and result.errors[1].msg or "")
+  local first = result.errors[1]
+  assert(#result.errors == 0, if first ~= nil then first.msg else "" end)
 end
 
 local FORMS <const>: {string: function(n: integer): string} = {
@@ -198,7 +201,7 @@ local FORMS <const>: {string: function(n: integer): string} = {
 --- Holds each of `names` to four times the input costing about four times the time.
 local function hold(names: {string})
   for _, name in ipairs(names) do
-    local form = FORMS[name]
+    local form = assert(FORMS[name], "a form named " .. name)
     local small = prepare(form(5))
     local large = prepare(form(20))
     local ok, why = Speed.within(function()
