@@ -5997,6 +5997,31 @@ end
 --- a class declare only `__close` and `__tostring` (both reached by the forms above), `setmetatable_call` refuses
 --- `setmetatable`, and `operand_type` refuses an operator on a record. The loop rule must be revisited if any of the three is
 --- relaxed; lang/check_test.tl pins them beside the loop tests.
+function Writes.scalar_math(call: Ast.Call, var: integer): boolean
+  local callee = call.callee
+  if not ((callee.kind == "Field") and (callee.object.kind == "Name") and callee.object.binding == nil and callee.object.text == "math") then
+    return false
+  end
+  for _, given in ipairs(call.args) do
+    if not Writes.scalar(given, var) then
+      return false
+    end
+  end
+  return true
+end
+
+function Writes.scalar(e: Ast.Exp, var: integer): boolean
+  local at = peel(e)
+  if (at.kind == "Name") then
+    return at.binding == var
+  elseif (at.kind == "Binary") then
+    return at.op ~= "and" and at.op ~= "or"
+  elseif (at.kind == "Unary") then
+    return true
+  end
+  return at.kind == "Integer" or at.kind == "Float" or at.kind == "String" or at.kind == "Boolean"
+end
+
 function Writes.keeps_length(body: Ast.Node, array: integer, var: integer): boolean
   -- A closure may not assign a local of its function, so a way the body may change the length is a mark in a list. The
   -- statements wait in a list too, so that a body of any depth is read without recursion.
@@ -6008,9 +6033,7 @@ function Writes.keeps_length(body: Ast.Node, array: integer, var: integer): bool
   while #waiting > 0 and #marks == 0 do
     local node = assert(waiting[#waiting])
     waiting[#waiting] = nil
-    if (node.kind == "Call") or (node.kind == "MethodCall") or (node.kind == "ForIn") then
-      -- TODO: let a call that cannot change the length of an array (a function of the standard library that is passed
-      -- no function, `string.format`, `math.max`) stand in the body, once the checker says which calls those are.
+    if (node.kind == "Call" and not Writes.scalar_math(node, var)) or (node.kind == "MethodCall") or (node.kind == "ForIn") then
       marks[#marks + 1] = true
     elseif (node.kind == "Local") then
       for _, binding in ipairs(node.bindings) do
