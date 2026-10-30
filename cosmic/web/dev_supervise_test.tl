@@ -2,6 +2,7 @@
 --- it fails, told its boot, and stopped with the supervisor. Each program
 --- is this one again running a chunk (`lua`).
 
+local Cell = require("cosmic.cell")
 local Child = require("cosmic.child")
 local Clock = require("cosmic.clock")
 local Dev = require("cosmic.web.dev")
@@ -60,7 +61,7 @@ local function test_a_change_replaces_the_program_with_a_counted_boot(tmp: strin
   local pids: {integer} = {}
   local lines: mut {string} = {}
   local give_up = deadline()
-  local edited = { value = false }
+  local edited: Cell<boolean> = { value = false }
   local ok, why = Dev.supervise{
     start = program(marking(tmp)), watch = { tmp .. "/src" }, interval_ns = Clock.ms(10),
     log = function(text: string) lines[#lines + 1] = text end,
@@ -90,10 +91,10 @@ end
 local function test_a_program_that_exits_is_not_started_again_until_a_change(tmp: string)
   assert(Fs.mkdirs(tmp .. "/src"))
   assert(Fs.write(tmp .. "/src/a.tl", "broken"))
-  local boots = { value = 0 }
-  local rounds = { value = 0 }
-  local quiet_rounds = { value = 0 }
-  local fixed = { value = false }
+  local boots: Cell<integer> = { value = 0 }
+  local rounds: Cell<integer> = { value = 0 }
+  local quiet_rounds: Cell<integer> = { value = 0 }
+  local fixed: Cell<boolean> = { value = false }
   local lines: mut {string} = {}
   local give_up = deadline()
   local ok = Dev.supervise{
@@ -123,8 +124,8 @@ local function test_the_ignored_files_and_the_static_directory_do_not_restart(tm
   local root = tmp .. "/w"
   assert(Fs.mkdirs(root .. "/static") and Fs.mkdirs(root .. "/.git") and Fs.mkdirs(tmp .. "/marks"))
   assert(Fs.write(root .. "/app.tl", "x"))
-  local boots = { value = 0 }
-  local rounds = { value = 0 }
+  local boots: Cell<integer> = { value = 0 }
+  local rounds: Cell<integer> = { value = 0 }
   local give_up = deadline()
   local ok = Dev.supervise{
     start = program(marking(tmp)), watch = { root }, interval_ns = Clock.ms(5),
@@ -156,8 +157,8 @@ end
 local function test_a_burst_of_changes_restarts_once(tmp: string)
   assert(Fs.mkdirs(tmp .. "/src") and Fs.mkdirs(tmp .. "/marks"))
   assert(Fs.write(tmp .. "/src/a.tl", "one"))
-  local boots = { value = 0 }
-  local rounds = { value = 0 }
+  local boots: Cell<integer> = { value = 0 }
+  local rounds: Cell<integer> = { value = 0 }
   local lines: mut {string} = {}
   local give_up = deadline()
   local ok = Dev.supervise{
@@ -185,8 +186,8 @@ local function test_a_static_directory_named_by_the_option_is_ignored(tmp: strin
   local root = tmp .. "/w"
   assert(Fs.mkdirs(root .. "/public") and Fs.mkdirs(root .. "/static") and Fs.mkdirs(tmp .. "/marks"))
   assert(Fs.write(root .. "/app.tl", "x"))
-  local boots = { value = 0 }
-  local rounds = { value = 0 }
+  local boots: Cell<integer> = { value = 0 }
+  local rounds: Cell<integer> = { value = 0 }
   local give_up = deadline()
   local ok = Dev.supervise{
     start = program(marking(tmp)), watch = { root }, static = "public", interval_ns = Clock.ms(5),
@@ -212,8 +213,8 @@ end
 local function sigterm_the_supervisor(tmp: string, chunk: string, ready: string, grace_ns?: integer): integer
   assert(Fs.mkdirs(tmp .. "/src") and Fs.mkdirs(tmp .. "/marks"))
   assert(Fs.write(tmp .. "/src/a.tl", "one"))
-  local pid = { value = 0 }
-  local sent = { value = false }
+  local pid: Cell<integer> = { value = 0 }
+  local sent: Cell<boolean> = { value = false }
   local give_up = deadline()
   local ok = Dev.supervise{
     start = program(chunk), watch = { tmp .. "/src" }, interval_ns = Clock.ms(10), grace_ns = grace_ns,

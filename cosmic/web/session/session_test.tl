@@ -293,6 +293,7 @@ end
 local function test_a_value_that_is_not_json_raises_at_the_set()
   local client = Web.test_client(make_app(options(cookie_store())))
   assert(client:post("/bad").status == 500)
+  -- TODO: hold this list in Cell<mut {string}> once its reads test the element they index: typed, they add index_may_be_nil errors.
   local reasons = { value = {} as {string} }
   local app = Web.app{
     middleware = { Session.middleware(options(cookie_store())) },

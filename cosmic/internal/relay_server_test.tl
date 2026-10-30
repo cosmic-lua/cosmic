@@ -1,3 +1,4 @@
+local Cell = require("cosmic.cell")
 local Clock = require("cosmic.clock")
 local Codec = require("cosmic.codec")
 local Fixture = require("build.relay_wire_fixture")
@@ -638,7 +639,7 @@ local function test_a_lookup_that_is_not_answered_stalls_only_its_own_connection
     local rig = start(tmp, { grants = { "slow.test:80", "127.0.0.1:" .. tostring(port) },
       timeouts = { resolve = Clock.seconds(2) },
       resolve = { hosts_file = tmp .. "/hosts", servers = { { host = "127.0.0.1", port = silent.address.port } } } })
-    local slow_answered = { value = false }
+    local slow_answered: Cell<boolean> = { value = false }
     local began = Clock.monotonic_ns()
     local waiting = Poll.spawn(function()
       local conn = dial(rig.http)
@@ -678,7 +679,7 @@ local function test_a_lookup_out_of_time_is_refused_while_another_is_answered(tm
     local rig = start(tmp, { grants = { "slow.test:80", "svc.test:" .. tostring(port), "127.0.0.1:" .. tostring(port) },
       timeouts = { resolve = Clock.ms(300) },
       resolve = { hosts_file = tmp .. "/hosts", servers = { { host = "127.0.0.1", port = silent.address.port } } } })
-    local head = { value = "" }
+    local head: Cell<string> = { value = "" }
     local waiting = Poll.spawn(function()
       local conn, answer = connect_to(rig, "slow.test:80")
       head.value = answer

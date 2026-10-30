@@ -1,3 +1,4 @@
+local Cell = require("cosmic.cell")
 local Json = require("cosmic.json")
 local Server = require("cosmic.http.server")
 local Stream = require("cosmic.stream")
@@ -196,7 +197,7 @@ end
 
 local function test_a_raise_is_a_500_that_tells_the_client_nothing()
   local sink, lines = recording()
-  local seen_status = { value = nil as integer? }
+  local seen_status: Cell<integer?> = { value = nil }
   local app = Web.app{
     routes = { Web.get("/boom", function(_req: Web.Request): Web.Response
       error("secret detail <b>")

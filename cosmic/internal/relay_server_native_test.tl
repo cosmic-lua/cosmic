@@ -2,6 +2,7 @@
 --- `Net.connector`: a public-only connector, whose process connects the
 --- numeric endpoint the relay has checked and returns the socket over
 --- the control stream.
+local Cell = require("cosmic.cell")
 local Clock = require("cosmic.clock")
 local Fixture = require("build.relay_wire_fixture")
 local Net = require("cosmic.net")
@@ -80,7 +81,7 @@ local function test_the_relay_connects_through_the_native_connector()
     local free = assert(Net.listen(Net.tcp("127.0.0.1", 0)))
     local closed = assert(free.address.port)
     local _, _ = free:close()
-    local asked = { value = 0 }
+    local asked: Cell<integer> = { value = 0 }
     local connector = assert(Net.connector({}, { public = { deny = {} } }))
     local log: mut {string} = {}
     local relay = Relay.start({

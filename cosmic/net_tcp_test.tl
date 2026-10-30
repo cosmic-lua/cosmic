@@ -152,6 +152,7 @@ end
 --- and on_ready is told the port the kernel chose for one at port 0.
 local function test_a_server_names_what_it_bound_and_serves_every_listener(tmp: string)
   if unix_socket.skipped(tmp) then return end
+  -- TODO: hold this list in Cell<mut {Net.Address}> once its reads test the element they index: typed, they add nil_not_allowed errors.
   local bound = { value = {} as {Net.Address} }
   local answers: mut {string} = {}
   assert(Net.serve{
@@ -181,6 +182,7 @@ end
 
 --- The same for two TCP listeners, which need no socket file.
 local function test_a_server_names_what_it_bound_and_serves_two_tcp_listeners()
+  -- TODO: hold this list in Cell<mut {Net.Address}> once its reads test the element they index: typed, they add nil_not_allowed errors.
   local bound = { value = {} as {Net.Address} }
   local answers: mut {string} = {}
   assert(Net.serve{

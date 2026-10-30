@@ -1,6 +1,7 @@
 --- cosmic.http.multipart: browser-shaped bodies, the delimiter split across
 --- reads, and each way a hostile body is refused.
 
+local Cell = require("cosmic.cell")
 local Clock = require("cosmic.clock")
 local Multipart = require("cosmic.http.multipart")
 local Stream = require("cosmic.stream")
@@ -273,7 +274,7 @@ local function test_a_failed_parser_stays_failed_and_a_part_body_reports_it()
 end
 
 local function test_a_source_failure_is_passed_on_as_it_was_given()
-  local sent = { value = false }
+  local sent: Cell<boolean> = { value = false }
   local source: Stream.Reader = {
     read = function(_self: Stream.Reader, _max?: integer): string?, string
       if sent.value then return nil, "boom" end

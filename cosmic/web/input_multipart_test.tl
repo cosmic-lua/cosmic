@@ -2,6 +2,7 @@
 --- fields do, file parts are spooled under random names and removed when
 --- the request ends, and each limit and each malformed body has its status.
 
+local Cell = require("cosmic.cell")
 local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
 local Input = require("cosmic.web.input")
@@ -57,6 +58,7 @@ end
 
 --- The refusal reading `body` with `opts` gives, failing where it is read.
 local function refusal(body: string, opts?: Types.InputOptions, content_type?: string, chunked?: boolean): Types.Invalid
+  -- TODO: hold the `nil as T?` cells of this file (Types.Invalid?, Input.Multipart?, Signup?, {string}?, Types.Parsed<Url.Query>?) in Cell<T?> once the reads they type assert what they index (`files[name][1]`, `errors[1]`, `by_name[name][1]`): typed, they add 19 nil_not_allowed to a file pinned at 25.
   local got = { value = nil as Types.Invalid? }
   local reply = post(body, function(req: Web.Request): Web.Response
     local read = Input.multipart(req, opts)
@@ -71,9 +73,9 @@ end
 
 local function test_text_and_file_parts_are_read_and_the_file_is_spooled(tmp: string)
   local seen = { value = nil as Input.Multipart? }
-  local contents = { value = nil as string? }
+  local contents: Cell<string?> = { value = nil }
   local listing = { value = nil as {string}? }
-  local stat_mode = { value = nil as integer? }
+  local stat_mode: Cell<integer?> = { value = nil }
   local reply = post(body_of(
     field("email", "a@b.test"), field("tags", "x"), field("tags", "y"),
     file("avatar", "../../etc/passwd", "PNG\0\r\n--data", "image/png")), function(req: Web.Request): Web.Response
@@ -104,7 +106,7 @@ local function test_text_and_file_parts_are_read_and_the_file_is_spooled(tmp: st
 end
 
 local function test_without_a_dir_a_private_directory_is_made_and_removed()
-  local where = { value = nil as string? }
+  local where: Cell<string?> = { value = nil }
   post(body_of(file("f", "a.txt", "hello")), function(req: Web.Request): Web.Response
     local up = assert(Input.multipart(req).value).files["f"][1]
     where.value = up.path
@@ -114,7 +116,7 @@ local function test_without_a_dir_a_private_directory_is_made_and_removed()
   local made = assert(where.value, "the handler never ran")
   assert(made:find("cosmic%-upload%-") ~= nil, made)
   assert(Fs.exists(made) == false)
-  local dir = made:match("^(.*)/[^/]+$")
+  local dir = assert(made:match("^(.*)/[^/]+$"))
   assert(Fs.exists(dir) == false, "the directory went with its files")
 end
 
@@ -197,7 +199,7 @@ end
 
 local function test_a_typed_multipart_route_binds_and_answers_problems(tmp: string)
   local got = { value = nil as Signup? }
-  local files = { value = 0 }
+  local files: Cell<integer> = { value = 0 }
   local app = Web.app{ routes = {
     Web.post_typed("/up", Web.input(Web.NONE, Web.NONE, Web.multipart_body(SIGNUP)),
       function(req: Web.Request, _p: Web.None, _q: Web.None, b: Signup): Web.Response
@@ -238,7 +240,7 @@ end
 
 local function test_a_form_route_takes_multipart_within_its_own_small_limit(tmp: string)
   local text = body_of(field("email", "e"), file("f", "a", ("x"):rep(70000)))
-  local status = { value = 0 }
+  local status: Cell<integer> = { value = 0 }
   post(text, function(req: Web.Request): Web.Response
     status.value = assert(Input.form(req, { dir = tmp }).invalid).status
     return Web.empty()
@@ -296,7 +298,7 @@ local function test_the_total_is_capped_by_length_and_when_chunked(tmp: string)
 end
 
 local function test_a_body_not_read_by_length_is_not_pulled_past_the_limit()
-  local pulled = { value = 0 }
+  local pulled: Cell<integer> = { value = 0 }
   local body: Stream.Reader = {
     read = function(_self: Stream.Reader, max?: integer): string?, string
       pulled.value = pulled.value + (max or 0)
@@ -395,7 +397,7 @@ end
 
 local function test_a_slow_or_failing_source_is_408_or_400(tmp: string)
   local function with_source(why: string): Types.Invalid
-    local sent = { value = false }
+    local sent: Cell<boolean> = { value = false }
     local body: Stream.Reader = {
       read = function(_self: Stream.Reader, _max?: integer): string?, string
         if sent.value then return nil, why end
@@ -496,7 +498,7 @@ local function test_trailing_blanks_in_parameters_cost_time_linear_in_their_run(
     parts[i] = "--" .. B .. '\r\nContent-Disposition: form-data; name="n' .. tostring(i) .. '"; x=a' .. spaces .. "y\r\n\r\nv\r\n"
   end
   local start = Clock.monotonic_ns()
-  local count = { value = 0 }
+  local count: Cell<integer> = { value = 0 }
   post(body_of(table.concat(parts)), function(req: Web.Request): Web.Response
     count.value = #assert(Input.multipart(req).value).fields.pairs
     return Web.empty()
@@ -521,7 +523,7 @@ local function killed_while_waiting(fn: function(req: Web.Request), first: strin
     local _, _ = Poll.delay(Clock.seconds(30))
     return Web.empty()
   end) } }
-  local at = { value = 0 }
+  local at: Cell<integer> = { value = 0 }
   local body: Stream.Reader = {
     read = function(_self: Stream.Reader, _max?: integer): string?, string
       at.value = at.value + 1

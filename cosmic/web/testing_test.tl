@@ -1,3 +1,4 @@
+local Cell = require("cosmic.cell")
 local Clock = require("cosmic.clock")
 local Poll = require("cosmic.poll")
 local Stream = require("cosmic.stream")
@@ -119,7 +120,7 @@ local function test_redirects_are_followed_when_asked_with_the_methods_rule()
 end
 
 local function test_a_reader_body_is_read_whole_or_left_as_a_stream_or_closed_for_head()
-  local closed = { value = 0 }
+  local closed: Cell<integer> = { value = 0 }
   local function reader(): Stream.Reader
     local inner = Stream.from_string("streamed")
     return {
@@ -147,7 +148,7 @@ local function test_a_reader_body_is_read_whole_or_left_as_a_stream_or_closed_fo
 end
 
 local function test_the_client_fails_a_reply_the_server_would_answer_500_for()
-  local closed = { value = false }
+  local closed: Cell<boolean> = { value = false }
   local app = Web.app{ routes = {
     Web.get("/header", function(_req: Web.Request): Web.Response
       return { status = 200, headers = { ["X-A"] = "a\r\nSet-Cookie: x=1" }, body = "x" }
@@ -231,7 +232,7 @@ local function test_a_failed_lifespan_fails_the_first_request()
 end
 
 local function test_a_lifespan_that_failed_is_run_again_by_the_next_request()
-  local starts = { value = 0 }
+  local starts: Cell<integer> = { value = 0 }
   local app = Web.app{ routes = { Web.get("/", function(_req: Web.Request): Web.Response
     return Web.text("up")
   end) }, lifespan = function(_app: Web.App): Web.Shutdown?, string
