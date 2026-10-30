@@ -59,13 +59,19 @@ local function declare_all(store: Types.Store): {string: Types.Decl}
   return d
 end
 
+--- The declaration the fixture makes under `name`.
+local function declared(decls: {string: Types.Decl}, name: string): Types.Decl
+  local decl = assert(decls[name], "the fixture declares " .. name)
+  return decl
+end
+
 function Programs.fixture(store: Types.Store): Programs.Fixture
   local d = declare_all(store)
   local function use(name: string, args?: {Types.Type}): Types.Type
-    return store:named(d[name], args)
+    return store:named(declared(d, name), args)
   end
   local node = use("Node")
-  store:define(d["Node"], {
+  store:define(declared(d, "Node"), {
     tparams = {}, supers = {}, methods = {}, values = {},
     fields = {
       { name = "name", type = store.string },
@@ -73,27 +79,27 @@ function Programs.fixture(store: Types.Store): Programs.Fixture
     },
     array = node,
   })
-  store:define(d["Tree"], {
+  store:define(declared(d, "Tree"), {
     tparams = {}, supers = {}, methods = {}, values = {},
     fields = { { name = "kids", type = use("Forest") } },
   })
-  store:define(d["Forest"], {
+  store:define(declared(d, "Forest"), {
     tparams = {}, supers = {}, fields = {}, methods = {}, values = {},
     array = use("Tree"),
   })
-  store:define(d["List"], {
+  store:define(declared(d, "List"), {
     tparams = { { name = "T" } }, supers = {}, methods = {}, values = {},
     fields = {
       { name = "items", type = store:array(store:var(0, 0)) },
       { name = "size", type = store.integer, mut = true },
     },
   })
-  store:define(d["Pair"], {
+  store:define(declared(d, "Pair"), {
     tparams = { { name = "A" }, { name = "B" } }, supers = {}, methods = {}, values = {},
     fields = { { name = "first", type = store:var(0, 0) }, { name = "second", type = store:var(0, 1) } },
   })
   local reader = use("Stream.Reader")
-  store:define(d["Stream.Reader"], {
+  store:define(declared(d, "Stream.Reader"), {
     tparams = {}, supers = {}, methods = {}, values = {},
     fields = {
       { name = "read", type = store:fn({
@@ -103,23 +109,23 @@ function Programs.fixture(store: Types.Store): Programs.Fixture
     },
   })
   local file = use("File")
-  store:define(d["File"], {
+  store:define(declared(d, "File"), {
     tparams = {}, supers = { reader }, fields = { { name = "path", type = store.string },
       { name = "open", type = store.boolean, mut = true } }, values = {},
     methods = { { name = "close", type = store:fn({ params = { { type = file } },
       rets = { { items = { store.boolean } } } }) } },
   })
   for _, name in ipairs({ "T", "T_1" }) do
-    store:define(d[name], { tparams = {}, supers = {}, fields = {}, methods = {}, values = {} })
+    store:define(declared(d, name), { tparams = {}, supers = {}, fields = {}, methods = {}, values = {} })
   end
-  store:define(d["Color"], {
+  store:define(declared(d, "Color"), {
     tparams = {}, supers = {}, fields = {}, methods = {}, values = { "red", "green", "blue" },
   })
   -- Values are any strings, as Lua's are: the text must carry bytes that are not UTF-8.
-  store:define(d["Odd"], {
+  store:define(declared(d, "Odd"), {
     tparams = {}, supers = {}, fields = {}, methods = {}, values = { "\255", "ok", "a\"b" },
   })
-  store:define(d["Handle"], {
+  store:define(declared(d, "Handle"), {
     tparams = {}, supers = {}, fields = {}, values = {},
     methods = { { name = "release", type = store:fn({ params = { { type = use("Handle") } } }) } },
   })
@@ -157,8 +163,8 @@ local build: function(c: Cursor, depth: integer): Types.Type
 
 local function plain_named(c: Cursor): Types.Type
   local names = c.fixture.plain
-  local name = names[pick(c, #names) + 1]
-  return c.store:named(c.fixture.decls[name])
+  local name = assert(names[pick(c, #names) + 1], "a draw is within the names")
+  return c.store:named(declared(c.fixture.decls, name))
 end
 
 local function a_variable(c: Cursor): Types.Type?
@@ -167,6 +173,9 @@ local function a_variable(c: Cursor): Types.Type?
   end
   local depth = pick(c, #c.binders)
   local count = c.binders[#c.binders - depth]
+  if count == nil then
+    return nil
+  end
   return c.store:var(depth, pick(c, count))
 end
 
@@ -217,7 +226,7 @@ a_function = function(c: Cursor, depth: integer): Types.Type
   for i = 1, pick(c, 3) do
     local bound: Types.Type?
     if pick(c, 3) == 0 then
-      bound = store:named(c.fixture.decls["Stream.Reader"])
+      bound = store:named(declared(c.fixture.decls, "Stream.Reader"))
     end
     tparams[i] = { bound = bound }
   end
@@ -233,11 +242,12 @@ a_function = function(c: Cursor, depth: integer): Types.Type
     rest = build(c, depth + 1)
   end
   local rets: mut {Types.Alt}?
+  local listed: mut {Types.Alt} = {}
   local shape = pick(c, 5)
   if shape == 1 then
     rets = {}
   elseif shape >= 2 then
-    rets = {}
+    rets = listed
     local alts = shape - 1
     for k = 1, alts do
       local alt: Types.Alt = { items = {} }
@@ -265,7 +275,7 @@ a_function = function(c: Cursor, depth: integer): Types.Type
           alt.tail = build(c, depth + 1)
         end
       end
-      rets[#rets + 1] = alt
+      listed[#listed + 1] = alt
     end
   end
   if #tparams > 0 then
@@ -305,12 +315,12 @@ build = function(c: Cursor, depth: integer): Types.Type
   elseif n <= 17 then
     return store:optional(build(c, depth + 1))
   elseif n == 18 then
-    return store:named(c.fixture.decls["List"], { build(c, depth + 1) })
+    return store:named(declared(c.fixture.decls, "List"), { build(c, depth + 1) })
   elseif n == 19 then
     local a = build(c, depth + 1)
     -- Often the same type twice, which a type that shares its parts is made of.
     local b = pick(c, 3) == 0 and a or build(c, depth + 1)
-    return store:named(c.fixture.decls["Pair"], { a, b })
+    return store:named(declared(c.fixture.decls, "Pair"), { a, b })
   end
   return a_function(c, depth)
 end
@@ -353,7 +363,7 @@ function Programs.parse(store: Types.Store, fixture: Programs.Fixture, source: s
   end
   local stats = whole.chunk.body.stats
   local alias = stats[#stats]
-  if not ((alias.kind == "Alias")) then
+  if alias == nil or alias.kind ~= "Alias" then
     return nil, "not an alias"
   end
   local lowered = whole.lowered.aliases[alias.id]

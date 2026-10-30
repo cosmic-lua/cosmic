@@ -262,11 +262,12 @@ local function gen_statement(g: Gen, depth: integer, indent: string)
     end
     local name = fresh(g, "f")
     local ret = pick(g, TYPES)
-    local params = { pick(g, TYPES), pick(g, TYPES) }
-    add(g, "local function " .. name .. "(a: " .. params[1] .. ", b: " .. params[2] .. "): " .. ret)
+    local first_type, second_type = pick(g, TYPES), pick(g, TYPES)
+    local params = { first_type, second_type }
+    add(g, "local function " .. name .. "(a: " .. first_type .. ", b: " .. second_type .. "): " .. ret)
     local saved = #g.vars
-    g.vars[#g.vars + 1] = { name = "a", type = params[1] }
-    g.vars[#g.vars + 1] = { name = "b", type = params[2] }
+    g.vars[#g.vars + 1] = { name = "a", type = first_type }
+    g.vars[#g.vars + 1] = { name = "b", type = second_type }
     add(g, "  return " .. gen_expr(g, ret, 3))
     for _ = #g.vars, saved + 1, -1 do
       g.vars[#g.vars] = nil
@@ -335,10 +336,11 @@ local function gen_mistaken(src: Fuzz.Source): string
   local lines = g.lines
   local choice = src:int(1, #MISTAKES + 1)
   if choice > #MISTAKES and #g.inits > 0 then
-    local init = g.inits[src:int(1, #g.inits)]
+    local init = assert(g.inits[src:int(1, #g.inits)], "an initial value is one of the program's")
     local at, t = init[1], init[2]
     if at is integer and t is string then
-      local name = lines[at]:match("^local ([%w_]+):")
+      local line = assert(lines[at], "an initial value is on a line of the program")
+      local name = line:match("^local ([%w_]+):")
       local replaced = "local " .. tostring(name) .. ": " .. t .. " = " .. wrong(t)
       table.remove(lines, at)
       table.insert(lines, at, replaced)

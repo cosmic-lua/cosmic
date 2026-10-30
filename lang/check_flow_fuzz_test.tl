@@ -25,17 +25,23 @@ local worker = require("build.test_worker")
 
 Test.policy{}
 
+--- A construct a program may hold: its name, and a Lua pattern that finds it in the source.
+local record Construct
+  label: string
+  pattern: string
+end
+
 --- Constructs of a program that ran.
-local CONSTRUCTS <const>: {{string}} = {
-  { "while", "while " },
-  { "repeat", "repeat" },
-  { "numeric for", "for %w+ = " },
-  { "break", "break" },
-  { "continue", "continue" },
-  { "assert", "assert%(" },
-  { "function literal", "local function [pfg]%d" },
-  { "early exit", "then return st.sink end" },
-  { "elseif", "elseif " },
+local CONSTRUCTS <const>: {Construct} = {
+  { label = "while", pattern = "while " },
+  { label = "repeat", pattern = "repeat" },
+  { label = "numeric for", pattern = "for %w+ = " },
+  { label = "break", pattern = "break" },
+  { label = "continue", pattern = "continue" },
+  { label = "assert", pattern = "assert%(" },
+  { label = "function literal", pattern = "local function [pfg]%d" },
+  { label = "early exit", pattern = "then return st.sink end" },
+  { label = "elseif", pattern = "elseif " },
 }
 
 --- `source` checked and run with every read of a narrowed place checked by the worker's hook.
@@ -63,11 +69,8 @@ local function check_source(source: string): boolean, string
   if fault == nil then
     Fuzz.label("ran")
     for _, c in ipairs(CONSTRUCTS) do
-      for i = 2, #c do
-        if source:find(c[i]) then
-          Fuzz.label("ran with " .. c[1])
-          break
-        end
+      if source:find(c.pattern) then
+        Fuzz.label("ran with " .. c.label)
       end
     end
     return true, ""
@@ -459,18 +462,18 @@ local function gen_fixed(src: Fuzz.Source): string
   }, "\n")
 end
 
-local LOCAL_CONSTRUCTS <const>: {{string}} = {
-  { "while", "while " },
-  { "repeat", "repeat\n" },
-  { "for", "for c%d+ = " },
-  { "break", "break" },
-  { "continue", "continue" },
-  { "assert", "assert%(" },
-  { "function literal", "= function%(%)" },
-  { "elseif", "elseif " },
-  { "early exit", "== nil then return" },
-  { "const", "<const>" },
-  { "copy", "local v%d+: integer%? = [abv]%d*\n" },
+local LOCAL_CONSTRUCTS <const>: {Construct} = {
+  { label = "while", pattern = "while " },
+  { label = "repeat", pattern = "repeat\n" },
+  { label = "for", pattern = "for c%d+ = " },
+  { label = "break", pattern = "break" },
+  { label = "continue", pattern = "continue" },
+  { label = "assert", pattern = "assert%(" },
+  { label = "function literal", pattern = "= function%(%)" },
+  { label = "elseif", pattern = "elseif " },
+  { label = "early exit", pattern = "== nil then return" },
+  { label = "const", pattern = "<const>" },
+  { label = "copy", pattern = "local v%d+: integer%? = [abv]%d*\n" },
 }
 
 local function check_locals(source: string): boolean, string
@@ -488,11 +491,11 @@ local function check_locals(source: string): boolean, string
     Fuzz.label("narrowed read")
   end
   local fault = x.fault
-  if fault == nil or fault:find("assertion failed", 1, true) then
+  if fault == nil or fault:find("assertion failed", 1, true) ~= nil then
     Fuzz.label(if fault == nil then "ran" else "stopped by assert" end)
     for _, c in ipairs(LOCAL_CONSTRUCTS) do
-      if source:find(c[2]) then
-        Fuzz.label("ran with " .. c[1])
+      if source:find(c.pattern) then
+        Fuzz.label("ran with " .. c.label)
       end
     end
     return true, ""
@@ -641,7 +644,8 @@ local ENUM_PARAMS <const>: {{string}} = {
 
 --- An argument for the parameter type `param` of [`ENUM_PARAMS`].
 local function argument(g: Gen, param: {string}): string
-  return param[g.src:int(2, #param)]
+  local choice = assert(param[g.src:int(2, #param)], "the argument is one of the parameter's")
+  return choice
 end
 
 --- A shape: a function with a test and a call that runs it, drawn over the sources of [`SHAPES_HEAD`].
@@ -654,7 +658,8 @@ local function gen_shape(g: Gen)
   end
   if k <= 1 then
     local param = Fuzz.pick(g.src, ENUM_PARAMS)
-    line("local function " .. n .. "(v: " .. param[1] .. "): string")
+    local declared = assert(param[1], "a parameter type")
+    line("local function " .. n .. "(v: " .. declared .. "): string")
     if test == "is" or param[1] == "Color | integer" or param[1] == "Color?" then
       line("  if v is Color then")
       line("    return paint(v)")
@@ -796,10 +801,10 @@ local function gen_shapes(src: Fuzz.Source): string
   return SHAPES_HEAD .. table.concat(g.lines, "\n") .. "\n"
 end
 
-local SHAPE_CONSTRUCTS <const>: {{string}} = {
-  { "enum", "is Color" }, { "type test", "type%(v%) == " }, { "class", "v is A" }, { "tag", "v.kind" }, { "table", "is table" },
-  { "closure", "local g = function" }, { "coroutine", "coroutine.wrap" }, { "assignment", "o = " }, { "declaration", "v is string" },
-  { "assignment after closure", "  x = " },
+local SHAPE_CONSTRUCTS <const>: {Construct} = {
+  { label = "enum", pattern = "is Color" }, { label = "type test", pattern = "type%(v%) == " }, { label = "class", pattern = "v is A" }, { label = "tag", pattern = "v.kind" }, { label = "table", pattern = "is table" },
+  { label = "closure", pattern = "local g = function" }, { label = "coroutine", pattern = "coroutine.wrap" }, { label = "assignment", pattern = "o = " }, { label = "declaration", pattern = "v is string" },
+  { label = "assignment after closure", pattern = "  x = " },
 }
 
 local function check_shapes(source: string): boolean, string
@@ -820,8 +825,8 @@ local function check_shapes(source: string): boolean, string
   if fault == nil then
     Fuzz.label("ran")
     for _, c in ipairs(SHAPE_CONSTRUCTS) do
-      if source:find(c[2]) then
-        Fuzz.label("ran with " .. c[1])
+      if source:find(c.pattern) then
+        Fuzz.label("ran with " .. c.label)
       end
     end
     return true, ""

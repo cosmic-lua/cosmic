@@ -357,7 +357,8 @@ local function test_table_sort_without_a_comparator_takes_numbers_and_strings_on
   -- The fix says what to pass.
   local bad = run("local record P n: integer end\nlocal ps: mut {P} = {}\ntable.sort(ps)\n")
   assert(#bad.errors == 1 and bad.errors[1].code == "overload_none", Programs.codes(bad))
-  assert(bad.errors[1].fix:find("pass a comparator", 1, true) ~= nil, bad.errors[1].fix)
+  local refusal = assert(bad.errors[1], "the refusal of the sort")
+  assert(refusal.fix:find("pass a comparator", 1, true) ~= nil, refusal.fix)
 end
 
 local function test_the_typed_coroutine_records_can_be_written_against_the_real_declarations()

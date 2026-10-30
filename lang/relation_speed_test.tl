@@ -72,14 +72,16 @@ local function test_a_pair_that_is_settled_costs_no_more_than_its_lookup()
     wider[#wider + 1] = wide
   end
   local function settle()
-    for i = 1, #views do
-      assert(judge:subtype(views[i], wider[i]))
+    for i, view in ipairs(views) do
+      local wide = assert(wider[i], "a wider view for each view")
+      assert(judge:subtype(view, wide))
     end
   end
   local first = Speed.least(function()
     local fresh = Relation.new(store)
-    for i = 1, #views do
-      assert(fresh:subtype(views[i], wider[i]))
+    for i, view in ipairs(views) do
+      local wide = assert(wider[i], "a wider view for each view")
+      assert(fresh:subtype(view, wide))
     end
   end)
   settle()
@@ -209,7 +211,8 @@ local FORMS <const>: {string: function(n: integer)} = {
     for _, interface in ipairs(interfaces) do
       assert(judge:subtype(class, interface))
     end
-    assert(not judge:subtype(interfaces[1], class))
+    local first = assert(interfaces[1], "the class lists interfaces")
+    assert(not judge:subtype(first, class))
   end,
   ["a record with an array part against a deep nest"] = function(n: integer)
     local store = Types.new()

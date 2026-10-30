@@ -70,7 +70,7 @@ local function blank(source: string, from: integer, to: integer): boolean
     return b ~= nil and BLANK[b] == true
   end
   local _, e = find(source, "^[ \t\r\n\v\f]*", from)
-  return e >= to
+  return e ~= nil and e >= to
 end
 
 --- Whether `y`:`x` is a place of `lines` and where in the source it is, or
@@ -123,12 +123,14 @@ function Cover.check(source: string, lexed: Lexer.Lexed): boolean, string
       return false, "token at " .. tostring(y) .. ":" .. tostring(x) .. " is not the bytes it names"
     end
     local start = lines.starts[y]
-    if start == nil or x < 1 or x > lines.columns[y] or start + x - 1 ~= offset then
+    local columns = lines.columns[y]
+    if start == nil or columns == nil or x < 1 or x > columns or start + x - 1 ~= offset then
       return false, "token at offset " .. tostring(offset) .. " is placed at " .. tostring(y) .. ":" .. tostring(x)
     end
     if length > 0 then
       local yend, xend = Lexer.yend(tokens, i), Lexer.xend(tokens, i)
-      local right = yend == y and offset + length - 1 == start + xend - 1 and xend <= lines.wide[y]
+      local wide = lines.wide[y]
+      local right = yend == y and offset + length - 1 == start + xend - 1 and wide ~= nil and xend <= wide
       if not right and placed(lines, yend, xend, true) ~= offset + length - 1 then
         return false, "token at " .. tostring(y) .. ":" .. tostring(x) .. " ends at " .. tostring(yend) .. ":" .. tostring(xend)
       end
