@@ -40,18 +40,18 @@ local function elapsed(work: function(), runs: integer): integer
   return Clock.monotonic_ns() - started
 end
 
---- How many runs of `work` make a sample long enough to read. Its first run, which is cold, is
---- not a sample.
-local function plan(work: function()): integer
-  local first = elapsed(work, 1)
-  if first < FLOOR then
-    return math.min(MOST_RUNS, FLOOR // math.max(first, 1) + 1)
-  end
-  return 1
+--- The time of the first run of `work`, which is cold and is not a sample.
+local function first_run(work: function()): integer
+  return math.max(elapsed(work, 1), 1)
+end
+
+--- How many runs of `work`, whose first took `first`, make a sample of at least `target`.
+local function runs_for(first: integer, target: integer): integer
+  return math.min(MOST_RUNS, target // first + 1)
 end
 
 function Speed.least(work: function()): integer
-  local runs = plan(work)
+  local runs = runs_for(first_run(work), FLOOR)
   local best = math.maxinteger
   for _ = 1, SAMPLES do
     best = math.min(best, elapsed(work, runs) // runs)
@@ -60,7 +60,12 @@ function Speed.least(work: function()): integer
 end
 
 function Speed.within(base: function(), scaled: function(), limit: integer, most_pairs?: integer): boolean, string
-  local base_runs, scaled_runs = plan(base), plan(scaled)
+  -- A sample of each side lasts as long as one run of the scaled side or the floor: a stretch of
+  -- load that preempts a long sample then preempts a short one as often, and the ratio is not
+  -- raised by the scaled side being the longer to hit.
+  local base_first, scaled_first = first_run(base), first_run(scaled)
+  local target = math.max(FLOOR, scaled_first)
+  local base_runs, scaled_runs = runs_for(base_first, target), runs_for(scaled_first, target)
   local small, large = math.maxinteger, math.maxinteger
   -- The samples of the two sides alternate, so that a stretch of load falls on both: the side
   -- read all at once would take it whole, and the other side none. Load only adds time, so each
