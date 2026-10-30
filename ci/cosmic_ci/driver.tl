@@ -35,9 +35,8 @@ local function run(argv: {string}): integer
   assert(timeout and timeout >= 0, "timeout must be a non-negative integer")
   local context = Context.read()
   local command: mut {string} = { executable }
-  for i = 4, #argv do
-    local argument = argv[i]
-    if argument ~= nil then command[#command + 1] = argument end
+  for i, argument in ipairs(argv) do
+    if i >= 4 then command[#command + 1] = argument end
   end
   local runner: Runner.Context = { database = context.db, worker = context.worker,
     run = context.run, attempt = context.attempt, candidate = context.root }

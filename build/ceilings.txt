@@ -347,7 +347,7 @@ lang/declarations.tl 1
 
 lang/relation.tl 1
 
-lang/scopes.tl 3
+lang/scopes.tl 2
 
 lang/lexer.tl 67
 
@@ -574,13 +574,13 @@ build/codec_tool_test.tl nil_not_allowed 1
 build/compile_tool_test.tl nil_not_allowed 1
 
 
-build/confine.tl nil_not_allowed 6
+build/confine.tl nil_not_allowed 4
 
 build/confine_declared_types_test.tl nil_not_allowed 3
 
 build/confine_forbid_tool_test.tl nil_not_allowed 2
 
-build/confine_test.tl nil_not_allowed 5
+build/confine_test.tl nil_not_allowed 4
 
 build/core_image.tl nil_not_allowed 10
 
@@ -637,7 +637,7 @@ build/fetch_tool_test.tl nil_not_allowed 1
 
 build/flow_test.tl nil_not_allowed 2
 
-build/fuzz/fuzz_test.tl nil_not_allowed 2
+build/fuzz/fuzz_test.tl nil_not_allowed 1
 
 build/fuzz/init.tl nil_not_allowed 2
 
@@ -842,7 +842,7 @@ build/work_test.tl nil_not_allowed 1
 
 build/work_tool_test.tl nil_not_allowed 1
 
-build/workflows_test.tl nil_not_allowed 41
+build/workflows_test.tl nil_not_allowed 40
 
 
 
@@ -991,7 +991,7 @@ cosmic/http_unix_test.tl nil_not_allowed 1
 
 cosmic/json.tl nil_not_allowed 46
 
-cosmic/json_fuzz_test.tl nil_not_allowed 33
+cosmic/json_fuzz_test.tl nil_not_allowed 30
 
 cosmic/json_path_fuzz_test.tl nil_not_allowed 8
 
@@ -1241,7 +1241,7 @@ lang/declarations_test.tl nil_not_allowed 30
 
 
 
-lang/parser.tl nil_not_allowed 57
+lang/parser.tl nil_not_allowed 55
 
 
 
@@ -1257,7 +1257,7 @@ lang/relation_refused_test.tl nil_not_allowed 16
 
 lang/relation_test.tl nil_not_allowed 16
 
-lang/scopes.tl nil_not_allowed 59
+lang/scopes.tl nil_not_allowed 55
 
 
 lang/scopes_fuzz_test.tl nil_not_allowed 1
@@ -1474,7 +1474,7 @@ build/patch_test.tl index_may_be_nil 2
 
 
 
-build/positions_test.tl index_may_be_nil 2
+build/positions_test.tl index_may_be_nil 1
 
 
 
@@ -1556,11 +1556,10 @@ build/time_test.tl index_may_be_nil 1
 
 build/tree_root.tl index_may_be_nil 1
 
-build/verb_list_test.tl index_may_be_nil 2
 
 
 
-build/workflows_test.tl index_may_be_nil 8
+build/workflows_test.tl index_may_be_nil 6
 
 
 
@@ -1581,7 +1580,7 @@ cosmic/archive_fuzz_test.tl index_may_be_nil 7
 
 cosmic/archive_test.tl index_may_be_nil 1
 
-cosmic/child.tl index_may_be_nil 21
+cosmic/child.tl index_may_be_nil 19
 
 cosmic/child_lua_strays_test.tl index_may_be_nil 1
 
@@ -1751,7 +1750,7 @@ lang/codegen.tl index_may_be_nil 15
 
 lang/codegen_fuzz_test.tl index_may_be_nil 1
 
-lang/declarations.tl index_may_be_nil 13
+lang/declarations.tl index_may_be_nil 11
 
 lang/declarations_test.tl index_may_be_nil 7
 
@@ -3265,7 +3264,7 @@ lang/check_programs.tl overload_none 2
 lang/literals_test.tl overload_none 3
 
 
-lang/scopes.tl overload_none 3
+lang/scopes.tl overload_none 2
 
 lang/scopes_fuzz_test.tl overload_none 1
 
