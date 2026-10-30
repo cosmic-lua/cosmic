@@ -67,7 +67,7 @@ local function test_canonical_never_raises_and_is_idempotent(tmp: string)
         return false, ("canonical path %q has not one leading slash"):format(canon.path)
       end
       for _, segment in ipairs(canon.segments) do
-        if segment == "" or segment == "." or segment == ".." or segment:find("[/%z]") then
+        if segment == "" or segment == "." or segment == ".." or segment:find("[/%z]") ~= nil then
           return false, ("segment %q"):format(segment)
         end
       end
@@ -100,7 +100,8 @@ local function test_lookup_is_total_and_redirects_stay_local(tmp: string)
     shares = { match = 0.05, not_found = 0.05 },
     check = function(input: string): boolean, string
       local fields = Fuzz.unpack(input)
-      local method, path = fields[1], fields[2]
+      local method = assert(fields[1], "the generator packs a method")
+      local path = assert(fields[2], "the generator packs a path")
       local outcome = router:match(method, path)
       if not KINDS[outcome.kind] then return false, "kind " .. tostring(outcome.kind) end
       Fuzz.label(outcome.kind)
@@ -110,7 +111,7 @@ local function test_lookup_is_total_and_redirects_stay_local(tmp: string)
         end
       elseif outcome.kind == "redirect" then
         local location = assert(outcome.location)
-        if location:sub(1, 1) ~= "/" or location:sub(2, 2) == "/" or location:find("[%z\1-\31\127\\]") then
+        if location:sub(1, 1) ~= "/" or location:sub(2, 2) == "/" or location:find("[%z\1-\31\127\\]") ~= nil then
           return false, ("redirect to %q"):format(location)
         end
         local next_outcome = router:match(method, location)
@@ -181,7 +182,7 @@ local function reescaped(path: string, salt: integer): string
   local at = 1
   while at <= #path do
     local byte = path:sub(at, at)
-    if byte == "%" and path:sub(at + 1, at + 2):find("^%x%x$") then
+    if byte == "%" and path:sub(at + 1, at + 2):find("^%x%x$") ~= nil then
       out[#out + 1] = path:sub(at, at + 2)
       at = at + 3
     else
@@ -220,7 +221,7 @@ local function test_a_path_and_its_reescaped_spelling_reach_the_same_outcome(tmp
     sink = { line = function(_self: Web.Sink, _text: string) end },
   }
   local function answer(path: string): string
-    for i = #seen, 1, -1 do seen[i] = nil end
+    seen = {}
     local raw: Server.Request = { method = "GET", target = path, path = path, query = "", version = "HTTP/1.1",
       headers = { host = "x" }, body = Stream.from_string(""), length = 0 }
     local res = app.handle(raw)
@@ -236,7 +237,7 @@ local function test_a_path_and_its_reescaped_spelling_reach_the_same_outcome(tmp
     shares = { same = 0.3, encoded = 0.3 },
     check = function(input: string): boolean, string
       local fields = Fuzz.unpack(input)
-      local path = fields[1]
+      local path = assert(fields[1], "expected fields[1]")
       local variant = reescaped(path, math.tointeger(tonumber(fields[2])) or 0)
       local plain, other = answer(path), answer(variant)
       if variant ~= path then Fuzz.label("encoded") end

@@ -110,9 +110,9 @@ end
 
 local function test_a_weak_or_missing_key_is_refused_when_the_store_is_made()
   local ok, why = pcall(SessionCookie.store, { keys = { "short" } })
-  assert(not ok and tostring(why):find("key 1", 1, true) and not tostring(why):find("short,", 1, true))
+  assert(not ok and tostring(why):find("key 1", 1, true) ~= nil and tostring(why):find("short,", 1, true) == nil)
   ok, why = pcall(SessionCookie.store, { keys = {} })
-  assert(not ok and tostring(why):find("one to five keys", 1, true))
+  assert(not ok and tostring(why):find("one to five keys", 1, true) ~= nil)
   local six: mut {string} = {}
   for i = 1, 6 do six[i] = Secret.generate() end
   ok = pcall(SessionCookie.store, { keys = six })
@@ -137,7 +137,7 @@ local function test_save_refuses_what_load_cannot_read()
   local at = sign(store, { deep = nest(Session.MAX_DEPTH - 1) })
   assert(store:load(at, 1500, "session") ~= nil, "a value at the limit loads back")
   local token, why = store:save("", data({ deep = nest(Session.MAX_DEPTH) }), unchanged(), 1500, "session")
-  assert(token == nil and why:find("cannot encode", 1, true), why)
+  assert(token == nil and why:find("cannot encode", 1, true) ~= nil, why)
 end
 
 local function test_the_keys_are_copied_and_checked_as_strings_when_the_store_is_made()
@@ -148,5 +148,5 @@ local function test_the_keys_are_copied_and_checked_as_strings_when_the_store_is
   assert(store:load(token, 1500, "session") ~= nil, "changing the list afterwards changes no key")
   assert(sign(store, { user = "ada" }) == token)
   local ok, why = pcall(SessionCookie.store, { keys = { NEW, 42 as any as string } })
-  assert(not ok and tostring(why):find("key 2 is a number", 1, true), tostring(why))
+  assert(not ok and tostring(why):find("key 2 is a number", 1, true) ~= nil, tostring(why))
 end

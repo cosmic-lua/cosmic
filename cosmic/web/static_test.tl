@@ -123,13 +123,15 @@ local function test_gzip_is_sent_to_a_client_that_takes_it_with_its_own_tag()
   assert(zipped.status == 200 and zipped.headers["content-encoding"] == "gzip")
   assert(Compress.inflate("gzip", zipped.body) == CSS and #zipped.body < #CSS)
   assert(zipped.headers["vary"] == "Accept-Encoding")
-  assert(zipped.headers["etag"] == plain.headers["etag"]:sub(1, -2) .. '-gzip"')
+  local plain_headers_etag = assert(plain.headers["etag"], "expected plain.headers[\"etag\"]")
+  assert(zipped.headers["etag"] == plain_headers_etag:sub(1, -2) .. '-gzip"')
   assert(zipped.headers["content-type"] == "text/css; charset=utf-8")
+  local zipped_headers_etag = assert(zipped.headers["etag"], "expected zipped.headers[\"etag\"]")
   local again = client:get("/static/css/app.css", { headers = { ["Accept-Encoding"] = "gzip",
-    ["If-None-Match"] = zipped.headers["etag"] } })
+    ["If-None-Match"] = zipped_headers_etag } })
   assert(again.status == 304 and again.headers["vary"] == "Accept-Encoding")
   local wrong = client:get("/static/css/app.css", { headers = { ["Accept-Encoding"] = "gzip",
-    ["If-None-Match"] = plain.headers["etag"] } })
+    ["If-None-Match"] = plain_headers_etag } })
   assert(wrong.status == 200, "the identity tag does not name the gzip bytes")
 end
 
@@ -190,7 +192,7 @@ end
 local function test_url_for_an_asset_the_source_lacks_says_so()
   local app = app_of()
   local url, why = app:url_for("static", { path = "nope.css" })
-  assert(url == nil and why:find("no such asset", 1, true))
+  assert(url == nil and why:find("no such asset", 1, true) ~= nil)
   local bare, bare_why = app:url_for("static", {})
   assert(bare == nil and bare_why ~= "")
   assert(StaticFiles.url(files(), "/", "LICENSE") ==

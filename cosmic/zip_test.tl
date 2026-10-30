@@ -4,7 +4,6 @@
 --- this file has no binary bytes of its own and no test spawns an
 --- external program.
 
-local Cell = require("cosmic.cell")
 local Codec = require("cosmic.codec")
 local Fs = require("cosmic.fs")
 local Stream = require("cosmic.stream")
@@ -499,12 +498,12 @@ end
 --- A Reader over `rounds` copies of `chunk`, that calls `each(n)` before
 --- its n-th read.
 local function repeating(chunk: string, rounds: integer, each?: function(integer)): Stream.Reader
-  local n: Cell<integer> = { value = 0 }
+  local n: integer = 0
   local r: Stream.Reader = {}
   r.read = function(_self: Stream.Reader, _max_bytes?: integer): string?, string
-    if n.value >= rounds then return nil, "" end
-    n.value = n.value + 1
-    if each ~= nil then each(n.value) end
+    if n >= rounds then return nil, "" end
+    n = n + 1
+    if each ~= nil then each(n) end
     return chunk, ""
   end
   r.close = function(_self: Stream.Reader): boolean, string return true, "" end
@@ -654,10 +653,10 @@ local function test_a_streamed_body_takes_bounded_memory()
   local rounds = 48 -- 3 MiB through each method
   local warm = 6
   for _, method in ipairs({ "deflate", "store" } as {Zip.Method}) do
-    local written: Cell<integer> = { value = 0 }
+    local written: integer = 0
     local sink: Stream.Writer = {}
     sink.write = function(_self: Stream.Writer, data: string): boolean, string
-      written.value = written.value + #data
+      written = written + #data
       return true, ""
     end
     sink.close = function(_self: Stream.Writer): boolean, string return true, "" end
@@ -665,24 +664,24 @@ local function test_a_streamed_body_takes_bounded_memory()
     collectgarbage()
     collectgarbage()
     local base = collectgarbage("count")
-    local early: Cell<number> = { value = 0.0 }
-    local late: Cell<number> = { value = 0.0 }
+    local early: number = 0.0
+    local late: number = 0.0
     local body = repeating(chunk, rounds, function(n: integer)
       collectgarbage()
       local grown = collectgarbage("count") - base
       if n <= warm then
-        early.value = math.max(early.value, grown)
+        early = math.max(early, grown)
       else
-        late.value = math.max(late.value, grown)
+        late = math.max(late, grown)
       end
     end)
     local w = Zip.writer(sink)
     assert(w:add_file("big", body, { method = method }))
     assert(w:close())
-    assert(written.value > 0 and (method == "deflate" or written.value > #chunk * rounds), method)
-    assert(early.value < 512 and late.value < early.value + 128,
+    assert(written > 0 and (method == "deflate" or written > #chunk * rounds), method)
+    assert(early < 512 and late < early + 128,
       ("%s grew %.0f KiB, then %.0f KiB, over %d KiB of input"):format(
-        method, early.value, late.value, #chunk * rounds // 1024))
+        method, early, late, #chunk * rounds // 1024))
   end
 end
 

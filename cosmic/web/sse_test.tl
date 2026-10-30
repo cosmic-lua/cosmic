@@ -60,7 +60,8 @@ end
 --- Sends a GET to `host` (`ip:port`) and reads the head of the reply.
 local function open(host: string, path: string, headers?: {string:string}): Feed
   local ip, port = host:match("^(.-):(%d+)$")
-  local conn = assert(Net.connect(Net.tcp(ip, math.tointeger(tonumber(port))), { timeout_ns = WAIT_NS }))
+  assert(ip and port, "expected a host of the form ip:port")
+  local conn = assert(Net.connect(Net.tcp(ip, assert(math.tointeger(tonumber(port)))), { timeout_ns = WAIT_NS }))
   conn:set_timeout(WAIT_NS)
   local lines = { "GET " .. path .. " HTTP/1.1", "Host: " .. host }
   for name, value in pairs(headers or {}) do lines[#lines + 1] = name .. ": " .. value end
@@ -71,6 +72,7 @@ local function open(host: string, path: string, headers?: {string:string}): Feed
     local header = line(feed)
     if header == "" then break end
     local name, value = header:match("^([^:]+):%s*(.*)$")
+    assert(name and value, "expected a header line: " .. header)
     feed.headers[name:lower()] = value
   end
   return feed
@@ -164,7 +166,8 @@ local function test_a_stream_sends_retry_events_and_heartbeats_then_ends_with_it
     local feed = open(client.host, "/s")
     assert(feed.status == 200)
     assert(feed.headers["content-type"] == "text/event-stream", feed.headers["content-type"])
-    assert(feed.headers["cache-control"]:find("no-cache", 1, true))
+    local feed_headers_cache_control = assert(feed.headers["cache-control"], "expected feed.headers[\"cache-control\"]")
+    assert(feed_headers_cache_control:find("no-cache", 1, true))
     assert(feed.headers["x-accel-buffering"] == "no" and feed.headers["x-extra"] == "1")
     assert(feed.headers["transfer-encoding"] == "chunked" and feed.headers["content-length"] == nil)
     assert(chunk(feed) == "retry: 250\n\nid: 0\ndata: first\n\n")
@@ -346,7 +349,8 @@ local function test_a_hub_reaches_every_subscriber_of_a_topic_and_only_them()
     local feeds: mut {Feed} = {}
     for i = 1, 3 do
       feeds[i] = open(client.host, "/events/news")
-      assert(chunk(feeds[i]) == "retry: 100\n\n")
+      local feeds_i = assert(feeds[i], "expected feeds[i]")
+      assert(chunk(feeds_i) == "retry: 100\n\n")
     end
     local other = open(client.host, "/events/sport")
     assert(chunk(other) == "retry: 100\n\n")
@@ -356,7 +360,8 @@ local function test_a_hub_reaches_every_subscriber_of_a_topic_and_only_them()
       assert(chunk(feed) == "event: headline\nid: 1\ndata: hello\n\n")
     end
     assert(chunk(other) == ": ping\n\n", "the other topic saw only its heartbeat")
-    feeds[1].conn:close()
+    local feeds_1 = assert(feeds[1], "expected feeds[1]")
+    feeds_1.conn:close()
     other.conn:close()
     assert(until_true(function(): boolean return hub:subscribers() == 2 end),
       "a gone client is noticed by a heartbeat's failed write")
@@ -473,7 +478,8 @@ local function serving(app: Web.App, grace_ns: integer, fn: function(host: strin
   local ok, why = Web.serve(app, { listeners = { Net.tcp("127.0.0.1", 0) }, grace_ns = grace_ns,
     on_ready = function(addresses: {Net.Address}, server: Net.Server)
       local ran, trouble = pcall(function()
-        fn("127.0.0.1:" .. tostring(assert(addresses[1].port)), server)
+        local addresses_1 = assert(addresses[1], "expected addresses[1]")
+        fn("127.0.0.1:" .. tostring(assert(addresses_1.port)), server)
       end)
       if not ran then failure = tostring(trouble) end
       server:stop()
@@ -609,7 +615,9 @@ local function test_a_bad_option_closes_the_source_it_was_given()
   end) }, sink = { line = function(_self: Web.Sink, _text: string) end } }
   Web.with_client(app, function(client: Web.TestClient)
     assert(client:get("/s").status == 500 and client:get("/s").status == 500)
-    assert(queues[1]:closed() and queues[2]:closed() and app.stream_count == 0)
+    local queues_1 = assert(queues[1], "expected queues[1]")
+    local queues_2 = assert(queues[2], "expected queues[2]")
+    assert(queues_1:closed() and queues_2:closed() and app.stream_count == 0)
   end)
 end
 
@@ -621,7 +629,8 @@ local function test_a_quiet_stream_with_heartbeats_outlives_the_servers_timeouts
     timeout_ns = Clock.ms(100), idle_ns = Clock.ms(100), grace_ns = Clock.seconds(1),
     on_ready = function(addresses: {Net.Address}, server: Net.Server)
       local ran, trouble = pcall(function()
-        local feed = open("127.0.0.1:" .. tostring(assert(addresses[1].port)), "/events/t")
+        local addresses_1 = assert(addresses[1], "expected addresses[1]")
+        local feed = open("127.0.0.1:" .. tostring(assert(addresses_1.port)), "/events/t")
         assert(chunk(feed) == "retry: 100\n\n")
         local beats = 0
         local started = Clock.monotonic_ns()

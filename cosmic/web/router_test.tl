@@ -139,7 +139,7 @@ local function test_a_path_that_climbs_or_hides_a_separator_is_a_bad_request()
   for _, path in ipairs({ "/a/../b", "/a/%2e%2e/b", "/a/%2E%2e", "/..", "/a%2fb", "/a%2Fb", "/a%00b",
       "/a/%zz", "/a/%" }) do
     local outcome = router:match("GET", path)
-    assert(outcome.kind == "bad_path" and assert(outcome.detail):find("url:", 1, true), path .. ": " .. outcome.kind)
+    assert(outcome.kind == "bad_path" and assert(outcome.detail):find("url:", 1, true) ~= nil, path .. ": " .. outcome.kind)
   end
   assert(router:match("GET", "a/b").kind == "bad_path")
   assert(router:match("GET", "").kind == "bad_path")
@@ -199,8 +199,10 @@ local function test_a_pattern_that_is_not_valid_raises_naming_it()
     { "/_web/x", "reserved" }, { "/_web", "reserved" },
   }
   for _, case in ipairs(cases) do
-    local message = raised(function() Web.router({ Web.get(case[1], ok) }) end)
-    assert(message:find(case[2], 1, true), case[1] .. ": " .. message)
+    local case_1 = assert(case[1], "expected case[1]")
+    local message = raised(function() Web.router({ Web.get(case_1, ok) }) end)
+    local case_2 = assert(case[2], "expected case[2]")
+    assert(message:find(case_2, 1, true), case_1 .. ": " .. message)
     assert(message:find(("%q"):format(case[1]), 1, true), "names the pattern: " .. message)
   end
 end
