@@ -187,10 +187,8 @@ end
 --- list [`Proc.exec`] takes.
 local function reentry(program: string, argv: {string}): {string}
   local arguments: mut {string} = { program }
-  local at = 1
-  while argv[at] ~= nil do
-    arguments[#arguments + 1] = argv[at]
-    at = at + 1
+  for _, argument in ipairs(argv) do
+    arguments[#arguments + 1] = argument
   end
   return arguments
 end
@@ -333,7 +331,11 @@ local function into(handle: work.Handle, argv: {string}, settle: boolean): strin
   -- The zones and web assets it carries, which only a boot reads from
   -- the tree.
   local databases = Store.databases()
-  local zones, zones_trouble = work.zoneinfo_of(databases[#databases])
+  local own_database = databases[#databases]
+  if own_database == nil then
+    return closing(handle, "this binary carries no database"), false
+  end
+  local zones, zones_trouble = work.zoneinfo_of(own_database)
   if zones == nil then
     return closing(handle, "the zones in this binary: " .. zones_trouble), false
   end
@@ -341,7 +343,7 @@ local function into(handle: work.Handle, argv: {string}, settle: boolean): strin
   if not zoned then
     return closing(handle, zoned_trouble), false
   end
-  local web, web_trouble = reboot.web_assets(databases[#databases], handle.root)
+  local web, web_trouble = reboot.web_assets(own_database, handle.root)
   if web == nil then
     return closing(handle, "the web assets in this binary: " .. web_trouble), false
   end
@@ -658,17 +660,22 @@ end
 --- Returns only when it cannot, saying why.
 function reboot.boot_into(root: string, argv: {string},
                           environment?: mut {string:string}): string
-  environment = environment or sys.environ()
-  if environment[marker] ~= nil then
+  local run_in: mut {string:string} = {}
+  if environment ~= nil then
+    run_in = environment
+  else
+    for name, value in pairs(sys.environ()) do run_in[name] = value end
+  end
+  if run_in[marker] ~= nil then
     return "the tool is still stale after a reboot"
   end
   local command = table.concat(reboot.boot_command("bin/zig", host_only_tool()), " ")
   log:complain("the core is stale; running " .. command)
   -- The boot takes the rebuild lock (build/zig.tl), which a guard
   -- calling this holds: handed on, rather than waited for.
-  local boot_environment = environment
+  local boot_environment: {string:string} = run_in
   if rebuild_lock.holds(root) then
-    boot_environment = rebuild_lock.hand(environment, root)
+    boot_environment = rebuild_lock.hand(run_in, root)
   end
   local result, trouble = Child.run(reboot.boot_command(root .. "/bin/zig", host_only_tool()),
     { cwd = root, env = boot_environment, stdout = 2 })
@@ -678,9 +685,9 @@ function reboot.boot_into(root: string, argv: {string},
   if not result.ok then
     return command .. " failed; fix what it reports and run this again"
   end
-  environment[marker] = "1"
+  run_in[marker] = "1"
   local _, exec_trouble = Proc.exec(reentry(build_paths.resolve(root).tool, argv),
-    { env = environment })
+    { env = run_in })
   return exec_trouble
 end
 

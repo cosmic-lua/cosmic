@@ -139,8 +139,9 @@ local function derive_syscalls(db: Sqlite.Handle): boolean, string
     if headers == nil then
       return false, trouble
     end
-    if #headers > 0 then
-      local header, from_hash = headers[1]:text(1), headers[1]:text(2)
+    local found = headers[1]
+    if found ~= nil then
+      local header, from_hash = found:text(1), found:text(2)
       local source, generate_trouble = gen_syscalls.declaration(header, target.target)
       if source == nil then
         return false, file .. ": " .. generate_trouble
@@ -165,9 +166,10 @@ local function duplicate_import_paths(db: Sqlite.Handle): boolean, string
   if doubled == nil then
     return false, trouble
   end
-  if #doubled > 0 then
-    return false, doubled[1]:text(2) .. " both compile to import path '" ..
-      doubled[1]:text(1) .. "'; rename one"
+  local first = doubled[1]
+  if first ~= nil then
+    return false, first:text(2) .. " both compile to import path '" ..
+      first:text(1) .. "'; rename one"
   end
   return true, ""
 end
@@ -210,7 +212,9 @@ function derivation.table_widths(db: Sqlite.Handle): {string:integer}?, string
     local rows, trouble = Sqlite.text_rows(db,
       "SELECT count(*) FROM pragma_table_info(?1)", { text(name) })
     if rows == nil then return nil, trouble end
-    widths[name] = (math.tointeger(tonumber(rows[1]:text(1))) or 1) - 1
+    local counted = rows[1]
+    if counted == nil then return nil, "pragma_table_info(" .. name .. ") answered no row" end
+    widths[name] = (math.tointeger(tonumber(counted:text(1))) or 1) - 1
   end
   return widths, ""
 end
@@ -267,10 +271,12 @@ function derivation.packed_parses(db: Sqlite.Handle,
         end
       end
     end
+    local width = widths[name]
+    if width == nil then return nil, "no width was measured for " .. name end
     for _, hash in ipairs(hashes) do
       local of = pieces[hash] or {}
       pieces[hash] = of
-      table.insert(of, name .. " " .. widths[name] .. " " .. tostring((counts[hash] or 0)) .. "\n")
+      table.insert(of, name .. " " .. tostring(width) .. " " .. tostring((counts[hash] or 0)) .. "\n")
       table.insert(of, table.concat(by_hash[hash] or {}))
     end
   end
@@ -280,8 +286,12 @@ function derivation.packed_parses(db: Sqlite.Handle,
   local out: mut {string:derivation.Parse} = {}
   for _, row in ipairs(present) do
     local hash = row:text(1)
+    local packed = pieces[hash]
+    if packed == nil then
+      return nil, hash .. ": a parsed source was asked for but none of its cells were gathered"
+    end
     if unpackable[hash] ~= true then
-      out[hash] = { requires = requires[hash] or {}, rows = table.concat(pieces[hash]) }
+      out[hash] = { requires = requires[hash] or {}, rows = table.concat(packed) }
     end
   end
   return out, ""
@@ -298,7 +308,9 @@ function derivation.unpacked_parse(rows: string,
     local header, width_text, count_text, after = rows:match("^([%w_]+) (%d+) (%d+)\n()", at)
     local width = math.tointeger(tonumber(width_text))
     local count = math.tointeger(tonumber(count_text))
-    if header ~= name or width ~= widths[name] or count == nil or after == nil then return nil end
+    if header ~= name or width == nil or width ~= widths[name] or count == nil or after == nil then
+      return nil
+    end
     at = math.tointeger(after) or 0
     local table_rows: mut {{Sqlite.Value}} = {}
     for _ = 1, count do
@@ -347,7 +359,9 @@ function derivation.put_parse(db: Sqlite.Handle, hash: string, requires: {string
       if not ok then return false, why end
     end
     for _, name in ipairs(packed_tables) do
-      for _, cells in ipairs(rows[name]) do
+      local table_rows = rows[name]
+      if table_rows == nil then return false, "the parse has no rows of " .. name end
+      for _, cells in ipairs(table_rows) do
         local marks: mut {string} = { "?1" }
         local values: mut {Sqlite.Value} = { text(hash) }
         for index, cell in ipairs(cells) do

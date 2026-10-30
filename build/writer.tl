@@ -430,7 +430,11 @@ local function signed(handle: work.Handle, result: importer.Result, pending: lin
   if rows == nil then
     return nil, trouble
   end
-  return rows[1]:text(1), ""
+  local row = rows[1]
+  if row == nil then
+    return nil, "the signature query answered no row"
+  end
+  return row:text(1), ""
 end
 
 --- What the links of the tree at `root` may name beside its own

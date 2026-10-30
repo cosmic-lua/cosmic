@@ -126,38 +126,45 @@ function bom.parse(name: string, source: string): bom.Component?, string
   local seen: mut {string:boolean} = {}
   for line in String.lines(source) do
     local key, value = line:match("^([%w_%-]+)%s+(.-)%s*$")
-    if key ~= nil and key ~= "notice" then
-      if seen[key] == true then
-        key = nil
-      else
-        seen[key] = true
-      end
+    if key == nil then
+      -- A bare key (`sha256`, no space after it) names no value, which is refused like `sha256 `.
+      key, value = line:match("^([%w_%-]+)$"), ""
     end
-    if key == "notice" then
-      local notice, trouble = notice_of(value)
-      if notice == nil then
-        return nil, name .. ": " .. trouble
+    -- A key given twice counts the first time only.
+    local repeated = key ~= nil and key ~= "notice" and seen[key] == true
+    if key ~= nil and not repeated then
+      seen[key] = true
+    end
+    if key ~= nil and value ~= nil and not repeated then
+      if key == "notice" then
+        local notice, trouble = notice_of(value)
+        if notice == nil then
+          return nil, name .. ": " .. trouble
+        end
+        component.notices[#component.notices + 1] = notice
+      elseif key == "license" then
+        component.license = value
+      elseif key == "version" or key == "url" or key == "sha256" or key == "sha3-256" then
+        -- The first word, as [`bin/vendor`] reads these.
+        local word = value:match("^%S+")
+        if word == nil then
+          return nil, name .. ": " .. key .. " has no value"
+        end
+        if key == "version" then
+          component.version = word
+        elseif key == "url" then
+          component.url = word
+        elseif key == "sha256" then
+          component.sha256 = word:lower()
+        else
+          component.sha3_256 = word:lower()
+        end
+      elseif key == "kind" then
+        if kinds[value] ~= true then
+          return nil, name .. ": kind " .. value .. " is none of library, data and test"
+        end
+        component.kind = value
       end
-      component.notices[#component.notices + 1] = notice
-    elseif key == "license" then
-      component.license = value
-    elseif key == "version" or key == "url" or key == "sha256" or key == "sha3-256" then
-      -- The first word, as [`bin/vendor`] reads these.
-      local word = value:match("^%S+")
-      if key == "version" then
-        component.version = word
-      elseif key == "url" then
-        component.url = word
-      elseif key == "sha256" then
-        component.sha256 = word:lower()
-      else
-        component.sha3_256 = word:lower()
-      end
-    elseif key == "kind" then
-      if kinds[value] ~= true then
-        return nil, name .. ": kind " .. value .. " is none of library, data and test"
-      end
-      component.kind = value
     end
   end
   local missing = if component.version == "" then "version" elseif
@@ -255,10 +262,18 @@ local function entries(directory: string): {string}?, string
   return Fs.list(directory)
 end
 
---- Where the records sit, as `{name, record path, notice directory}`,
---- sorted by name: every `vendor/*/PIN`, then every `build/bom/*.pin`.
-local function records(root: string): {{string}}?, string
-  local found: mut {{string}} = {}
+--- Where one record sits: the component's `name`, the `path` of its
+--- record, and the `directory` its notice files are named relative to.
+local record Record
+  name: string
+  path: string
+  directory: string
+end
+
+--- Where the records sit, sorted by name: every `vendor/*/PIN`, then
+--- every `build/bom/*.pin`.
+local function records(root: string): {Record}?, string
+  local found: mut {Record} = {}
   local vendored, trouble = entries(root .. "/vendor")
   if vendored == nil then
     return nil, trouble
@@ -270,7 +285,7 @@ local function records(root: string): {{string}}?, string
       return nil, pin_trouble
     end
     if pinned then
-      found[#found + 1] = { name, directory .. "/PIN", directory }
+      found[#found + 1] = { name = name, path = directory .. "/PIN", directory = directory }
     end
   end
   local linked, linked_trouble = entries(root .. "/build/bom")
@@ -280,16 +295,18 @@ local function records(root: string): {{string}}?, string
   for _, file in ipairs(linked) do
     local name = file:match("^(.+)%.pin$")
     if name ~= nil then
-      found[#found + 1] = { name, root .. "/build/bom/" .. file, root .. "/build/bom" }
+      found[#found + 1] = { name = name, path = root .. "/build/bom/" .. file, directory = root .. "/build/bom" }
     end
   end
-  table.sort(found, function(a: {string}, b: {string}): boolean
-    return a[1] < b[1]
+  table.sort(found, function(a: Record, b: Record): boolean
+    return a.name < b.name
   end)
-  for index = 2, #found do
-    if found[index][1] == found[index - 1][1] then
-      return nil, "two records name " .. found[index][1]
+  local previous: string? = nil
+  for _, record in ipairs(found) do
+    if record.name == previous then
+      return nil, "two records name " .. record.name
     end
+    previous = record.name
   end
   return found, ""
 end
@@ -305,7 +322,7 @@ function bom.fill(db: Sqlite.Handle, root: string, qualifier: string): boolean, 
     return false, trouble
   end
   for _, entry in ipairs(found) do
-    local name, path, directory = entry[1], entry[2], entry[3]
+    local name, path, directory = entry.name, entry.path, entry.directory
     local source, read_trouble = Fs.read(path)
     if source == nil then
       return false, read_trouble
@@ -363,22 +380,45 @@ function bom.rows(db: Sqlite.Handle): {bom.Row}?, string
   return out, ""
 end
 
+--- What a component's `patches` text lists: the `patched` records under `patch/`, and the files cosmic `modified` (a
+--- descendant of the component), each line as written.
+local record Patches
+  patched: {string}
+  modified: {string}
+end
+
+--- `row`'s patches text read into its two lists, or nil and why when a line of it names no path.
+local function patches_in(row: bom.Row): Patches?, string
+  local patched: mut {string} = {}
+  local modified: mut {string} = {}
+  for entry in String.lines(row.patches) do
+    if entry:sub(1, 6) == "patch/" then
+      patched[#patched + 1] = entry
+    elseif entry:match("^%S") == nil then
+      return nil, row.name .. ": a line of its patches names no path: " .. ("%q"):format(entry)
+    else
+      modified[#modified + 1] = entry
+    end
+  end
+  return { patched = patched, modified = modified }, ""
+end
+
 --- One line per component: name, version, license, and whether cosmic
 --- patches it or carries a modified descendant of it -- or, for data upstream releases on its own schedule (the
 --- CA roots, the time zones), that `cosmic refresh` updates it.
-function bom.lines(rows: {bom.Row}): {string}
+function bom.lines(rows: {bom.Row}): {string}?, string
   local lines: mut {string} = {}
   for _, row in ipairs(rows) do
     local line = row.name .. " " .. row.version .. "  " .. row.license
     if row.patches ~= "" then
-      local patched: mut {string} = {}
+      local listed, listed_trouble = patches_in(row)
+      if listed == nil then
+        return nil, listed_trouble
+      end
+      local patched = listed.patched
       local modified: mut {string} = {}
-      for entry in String.lines(row.patches) do
-        if entry:sub(1, 6) == "patch/" then
-          patched[#patched + 1] = entry
-        else
-          modified[#modified + 1] = (entry:match("^(%S+)"))
-        end
+      for _, entry in ipairs(listed.modified) do
+        modified[#modified + 1] = assert(entry:match("^(%S+)"), "patches_in refused a line naming no path")
       end
       if #patched > 0 then
         line = line .. "  (" .. plural.count(#patched, "patch", "patches") .. ")"
@@ -391,7 +431,7 @@ function bom.lines(rows: {bom.Row}): {string}
     end
     lines[#lines + 1] = line
   end
-  return lines
+  return lines, ""
 end
 
 --- Every notice `db` holds, each under a heading naming its component
@@ -423,7 +463,7 @@ end
 --- written as `%XX`.
 local function escaped(value: string): string
   return (value:gsub("[^%w%-%._~]", function(c: string): string
-    return string.format("%%%02X", c:byte())
+    return string.format("%%%02X", (assert(c:byte(), "gsub hands over one byte")))
   end))
 end
 
@@ -456,15 +496,11 @@ function bom.cyclonedx(rows: {bom.Row}, subject: string, version: string): strin
       externalReferences = { reference },
     }
     if row.patches ~= "" then
-      local patched: mut {string} = {}
-      local modified: mut {string} = {}
-      for entry in String.lines(row.patches) do
-        if entry:sub(1, 6) == "patch/" then
-          patched[#patched + 1] = entry
-        else
-          modified[#modified + 1] = entry
-        end
+      local listed, listed_trouble = patches_in(row)
+      if listed == nil then
+        return nil, listed_trouble
       end
+      local patched, modified = listed.patched, listed.modified
       local notes: mut {string} = {}
       if #modified > 0 then
         notes[#notes + 1] = "modified by cosmic, a descendant of this component:\n" ..
@@ -543,7 +579,12 @@ local function run(argv: {string}): integer
     end
     return passed(plural.count(#rows, "component") .. " written to " .. path)
   end
-  for _, line in ipairs(bom.lines(rows)) do
+  local lines, lines_trouble = bom.lines(rows)
+  if lines == nil then
+    log:complain("bom: " .. lines_trouble)
+    return 1
+  end
+  for _, line in ipairs(lines) do
     log:say(line)
   end
   return passed(plural.count(#rows, "component"))
