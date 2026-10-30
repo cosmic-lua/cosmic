@@ -162,6 +162,25 @@ local function test_an_element_a_length_test_proves_is_a_narrowed_read_like_a_lo
   assert(table.concat(seen, " ") == "xs:nil xs:nil xs[1]:nil", table.concat(seen, " "))
 end
 
+local function test_a_write_to_an_element_a_length_test_proves_is_not_a_read()
+  local source = table.concat({
+    "local xs: mut {string} = { \"a\" }",
+    "if #xs >= 1 then",
+    "  xs[1] = \"b\"",
+    "end",
+    "print(xs[1])",
+    "",
+  }, "\n")
+  local run = Programs.run(source)
+  assert(Programs.codes(run) == "", Programs.codes(run))
+  for _, n in ipairs(run.result.narrowed) do
+    assert(n.text:find("[", 1, true) == nil, n.text)
+  end
+  local done = Programs.execute(source, true)
+  assert(done.fault == nil, done.fault)
+  assert(done.printed[1] == "b", done.printed[1])
+end
+
 local function test_a_read_in_a_branch_that_may_not_run_is_not_covered_by_one_after_it()
   local count = facts_of(table.concat({
     "local function f(u: U, c: boolean): integer",

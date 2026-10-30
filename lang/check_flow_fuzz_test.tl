@@ -722,7 +722,7 @@ local function check_arrays(source: string): boolean, string
     end
   end
   local fault = x.fault
-  if fault == nil or fault:find("assertion failed", 1, true) ~= nil then
+  if fault == nil or fault:find("fact violated", 1, true) == nil and fault:find("assertion failed", 1, true) ~= nil then
     Fuzz.label(if fault == nil then "ran" else "stopped by assert" end)
     for _, c in ipairs(ARRAY_CONSTRUCTS) do
       if source:find(c.pattern) then
