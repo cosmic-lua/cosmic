@@ -81,7 +81,7 @@ function json_query.flatten(value: any, opts?: json_query.FlattenOptions): {Json
   end
   local leaves: mut {Json.Match} = {}
   local open: {any:boolean} = {}
-  local steps: Json.Steps = table.move(root, 1, #root, 1, {})
+  local steps: mut {integer | string} = table.move(root, 1, #root, 1, {})
   local function leaf(v: any)
     table.insert(leaves, { steps = table.move(steps, 1, #steps, 1, {}), value = v })
   end
@@ -109,7 +109,7 @@ function json_query.flatten(value: any, opts?: json_query.FlattenOptions): {Json
       if member == nil then return nil end
       steps[#steps + 1] = step
       local why = walk(member, depth + 1)
-      steps[#steps] = nil
+      table.remove(steps)
       return why
     end
     local failed: string? = nil
@@ -265,8 +265,10 @@ local function render(node: Node): string
     else
       local members: mut {string} = {}
       for _, name in ipairs(sorted_keys(node.fields)) do
-        local optional = if node.seen[name] < node.objects then "?" else "" end
-        members[#members + 1] = (name:match("^[%a_][%w_]*$") and name or Json.quote(name)) .. optional .. ": " .. render(node.fields[name])
+        local seen = assert(node.seen[name], "a field of the node was counted")
+        local field = assert(node.fields[name], "a name listed is a field")
+        local optional = if seen < node.objects then "?" else "" end
+        members[#members + 1] = (name:match("^[%a_][%w_]*$") and name or Json.quote(name)) .. optional .. ": " .. render(field)
       end
       table.insert(parts, "{" .. table.concat(members, ", ") .. "}")
     end

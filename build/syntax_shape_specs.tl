@@ -86,7 +86,7 @@ local spec_of: function(t: Type, path: string, shape: string, holding: {Types.De
 --- `T?` as `Shape.optional(T)`: the one union a spec has a word for.
 local function optional_of(t: Types.Union, path: string, shape: string, holding: {Types.Decl: boolean},
                            store: Types.Store): string?, string
-  local present = t.members[1]
+  local present = assert(t.members[1], "a union has a member")
   if #t.members > 1 then
     return nil, path .. ": a union of more than one type has no shape; " ..
       "`T?` is the one it has, and `Shape.one_of` an enumeration"
@@ -276,6 +276,9 @@ local function resolve_name(build: Driver.Build, outcome: Driver.Outcome, name: 
                             required_by: {string: string}): Target?, string
   local program = build.program
   local first = name:match("^[^.]+")
+  if first == nil then
+    return nil, "the name must start with a module or record name"
+  end
   local rest = name:sub(#first + 2)
   local lowered = outcome.lowered
   local here = Scopes.in_scope(outcome.scoped, at)[first]
@@ -307,7 +310,8 @@ local function resolve_name(build: Driver.Build, outcome: Driver.Outcome, name: 
   if found == nil then
     return nil, ("module %q declares no record %q"):format(longest, inside)
   end
-  return entry_target(program.store, found, required_by[longest] .. "." .. inside)
+  local module_name = assert(required_by[longest], "the module found is one the file requires")
+  return entry_target(program.store, found, module_name .. "." .. inside)
 end
 
 local type Splice = ShapeSpecs.Splice
@@ -344,8 +348,8 @@ function ShapeSpecs.splices(build: Driver.Build, module: string, file: string, s
   for _, hit in ipairs(calls) do
     local span = Node.span(chunk, hit.node)
     local where = ("%s:%d: %s.record_of"):format(file, span.y, shape)
-    local named = hit.caps["_N"]
-    local literal = named ~= nil and named.nodes[1] or nil
+    local named = assert(hit.caps["_N"], "the pattern captures _N")
+    local literal = named.nodes[1]
     if literal == nil or not ((literal.kind == "String")) then
       return { splices = none, line = span.y,
         refusal = where .. ": the name must be a string literal, which the build reads" }

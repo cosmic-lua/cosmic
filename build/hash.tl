@@ -377,7 +377,7 @@ function verb.run(argv: {string}, io?: verb.Io): integer
     end
     text = read
   end
-  local sums = verb.parse_sums(text, SIZE[request.algorithm])
+  local sums = verb.parse_sums(text, (assert(SIZE[request.algorithm], "every algorithm has its digest size")))
   for _, bad in ipairs(sums.bad) do
     complain((if sums_name == "-" then "standard input" else sums_name end) .. ":" .. tostring(bad.line) .. ": " .. bad.why)
   end

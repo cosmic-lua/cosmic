@@ -89,8 +89,9 @@ local function loopback_trouble(host: string): string
   local refused = string.format("loopback %q: %s", host, LOOPBACK_ONLY)
   local a, b, c, d = host:match("^(%d+)%.(%d+)%.(%d+)%.(%d+)$")
   if a ~= "127" then return refused end
+  assert(b ~= nil and c ~= nil and d ~= nil, "a match sets every capture")
   for _, part in ipairs({ b, c, d }) do
-    if #part > 3 or (#part > 1 and part:sub(1, 1) == "0") or tonumber(part) > 255 then
+    if #part > 3 or (#part > 1 and part:sub(1, 1) == "0") or assert(tonumber(part), "digits spell a number") > 255 then
       return refused
     end
   end

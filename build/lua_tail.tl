@@ -51,6 +51,7 @@ local function at_source_line(trouble: string, file: string): string
   if line == nil then
     return file .. ": " .. trouble
   end
+  assert(said ~= nil, "a match sets every capture")
   return file .. ":" .. line .. ": " .. said
 end
 

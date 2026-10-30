@@ -206,10 +206,11 @@ local function unneeded(chunk: Ast.Chunk, bodies: {Span}): {Span}?
   local owners: mut {string} = {}
   local typed = false
   for i, s in ipairs(statements) do
-    declares[i], owners[i] = names_of(s)
+    local declared, owner = names_of(s)
+    declares[i], owners[i] = declared, owner
     writes[i] = written_names(s)
     -- The returned name's last top-level declaration decides what it is.
-    for _, name in ipairs(declares[i]) do
+    for _, name in ipairs(declared) do
       if name == returned then
         typed = spells_its_type(s)
       end
@@ -241,19 +242,20 @@ local function unneeded(chunk: Ast.Chunk, bodies: {Span}): {Span}?
   while grew do
     grew = false
     for i in pairs(kept) do
-      for name in pairs(spelt[i]) do
+      for name in pairs((assert(spelt[i], "a kept statement was spelt"))) do
         wanted[name] = true
       end
     end
     for i, s in ipairs(statements) do
       if kept[i] == nil then
-        local keep = not droppable(s) or wanted[owners[i]] == true
-        for _, name in ipairs(declares[i]) do
+        local owner = assert(owners[i], "every statement has its owner")
+        local keep = not droppable(s) or wanted[owner] == true
+        for _, name in ipairs((assert(declares[i], "every statement has its declarations"))) do
           keep = keep or wanted[name] == true
         end
         -- The assignment of a name a kept statement spells stays: a local declared with no value is read in the stub
         -- only if the stub assigns it, as the source does.
-        for _, name in ipairs(writes[i]) do
+        for _, name in ipairs((assert(writes[i], "every statement has its writes"))) do
           keep = keep or wanted[name] == true
         end
         if keep then
@@ -265,7 +267,8 @@ local function unneeded(chunk: Ast.Chunk, bodies: {Span}): {Span}?
   local out: mut {Span} = {}
   for i = 1, #statements - 1 do
     if kept[i] == nil then
-      out[#out + 1] = { first = Node.base(statements[i]).first, last = Node.base(statements[i]).last, instead = nil }
+      local base = Node.base((assert(statements[i], "i is within statements")))
+      out[#out + 1] = { first = base.first, last = base.last, instead = nil }
     end
   end
   return out
@@ -320,10 +323,11 @@ function Stub.made(chunk: Ast.Chunk, every?: boolean): Stub.Made
     if kind == "$EOF$" then
       break
     end
+    local replacement = instead[k]
     if out_of[k] ~= true then
       put(Lexer.y(tokens, k), Lexer.x(tokens, k), Lexer.text(tokens, k))
-    elseif instead[k] ~= nil then
-      put(Lexer.y(tokens, k), Lexer.x(tokens, k), instead[k])
+    elseif replacement ~= nil then
+      put(Lexer.y(tokens, k), Lexer.x(tokens, k), replacement)
     end
   end
   return { text = table.concat(out) .. "\n", pruned = dropped ~= nil }
@@ -398,8 +402,9 @@ local function reached(program: Declarations.Program, module: string): Reached
     table.sort(names)
     local texts: mut {string: string} = {}
     for _, name in ipairs(names) do
-      walk(statics[name].type)
-      texts[name] = Types.encode(statics[name].type)
+      local static = assert(statics[name], "the names are the keys of statics")
+      walk(static.type)
+      texts[name] = Types.encode(static.type)
     end
     out.statics[d.name] = texts
   end
@@ -468,12 +473,13 @@ function Stub.difference(source: Declarations.Program, stubbed: Declarations.Pro
       end
       table.sort(static_names)
       for _, static in ipairs(static_names) do
-        if theirs[static] == nil then
+        local source_text, stub_text = theirs[static], ours[static]
+        if source_text == nil then
           return name .. "." .. static .. ": a function of the source and not of the stub"
-        elseif ours[static] == nil then
+        elseif stub_text == nil then
           return name .. "." .. static .. ": a function of the stub and not of the source"
-        elseif ours[static] ~= theirs[static] then
-          return name .. "." .. static .. ": " .. first_difference(ours[static], theirs[static])
+        elseif stub_text ~= source_text then
+          return name .. "." .. static .. ": " .. first_difference(stub_text, source_text)
         end
       end
     end

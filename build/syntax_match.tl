@@ -246,7 +246,8 @@ local function match_list(st: State, pl: {any}, nl: {any}, depth: integer): bool
     end
     local first, last = 0, -1
     if #taken > 0 then
-      first, last = Node.base(taken[1]).first, Node.base(taken[#taken]).last
+      first = Node.base((assert(taken[1], "taken is not empty"))).first
+      last = Node.base((assert(taken[#taken], "taken is not empty"))).last
     end
     local held = st.caps[rest]
     if held ~= nil then
@@ -292,10 +293,11 @@ match_node = function(st: State, p: Ast.Node, n: Ast.Node): boolean
   if kind == "If" and pf["else_body"] == nil and nf["else_body"] ~= nil then
     return false
   end
-  local names, depths = Ast.fields[kind], Ast.depths[kind]
-  for i = 1, #names do
-    local pv = pf[names[i]]
-    if pv ~= nil and not match_field(st, kind, names[i], depths[i], pv, nf[names[i]], n) then
+  local names = assert(Ast.fields[kind], "a node's kind has its fields")
+  local depths = assert(Ast.depths[kind], "a node's kind has its depths")
+  for i, name in ipairs(names) do
+    local pv = pf[name]
+    if pv ~= nil and not match_field(st, kind, name, assert(depths[i], "a field has its depth"), pv, nf[name], n) then
       return false
     end
   end

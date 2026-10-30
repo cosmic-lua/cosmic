@@ -63,7 +63,7 @@ function c_tokens.lex(s: string): {c_tokens.Token}
     local stop: integer
     local kind: string
     if line_start and s:match("^[ \t]*#", i) ~= nil then
-      local hash = s:find("#", i, true)
+      local hash = assert(s:find("#", i, true), "the line holds the # its match saw")
       if hash > i then
         out[#out + 1] = { kind = "space", text = s:sub(i, hash - 1) }
       end
@@ -82,7 +82,7 @@ function c_tokens.lex(s: string): {c_tokens.Token}
       stop, kind = literal_end(s, i), "literal"
     elseif c:match("[%a_]") then
       stop, kind = (s:find("[^%w_]", i) or #s + 1) - 1, "word"
-    elseif c:match("%d") or (c == "." and s:sub(i + 1, i + 1):match("%d") ~= nil) then
+    elseif c:match("%d") ~= nil or (c == "." and s:sub(i + 1, i + 1):match("%d") ~= nil) then
       local j = i + 1
       while j <= #s do
         local d = s:sub(j, j)

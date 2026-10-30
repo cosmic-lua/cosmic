@@ -312,7 +312,7 @@ function rebuild_lock.holder(root: string): string
       who = "another cosmic run (pid " .. tostring(pid) .. ")"
     end
   end
-  return who .. " in this checkout " .. doing[role]
+  return who .. " in this checkout " .. assert(doing[role], "a role held is one with what it is doing")
 end
 
 --- What a waiting run's line ends with: the lock it waits for.

@@ -103,7 +103,8 @@ local function to_items(blocks: {Block}): {Item}?, string
       current = nil
     else
       -- b.lang is "teal" or "lua": markdown.parse_tag refuses anything else.
-      local shebang_here = b.modifiers.file == nil and is_shebang(b.content)
+      local file_modifier = b.modifiers.file
+      local shebang_here = file_modifier == nil and is_shebang(b.content)
       if b.modifiers.skip ~= nil or shebang_here then
         local reason: string
         if shebang_here then
@@ -115,13 +116,13 @@ local function to_items(blocks: {Block}): {Item}?, string
         items[#items + 1] = { kind = "comment", text = "-- skipped: " .. reason }
         pending_files = {}
         current = nil
-      elseif b.modifiers.file ~= nil then
+      elseif file_modifier ~= nil then
         -- A `file=` block attaches to the open example, so a later
         -- `continue` or `output` still finds that example open. With
         -- none open (before any entry in its run, or after the run
         -- closed) it waits in `pending_files` for the next entry, and is
         -- refused below if none follows.
-        local write: FileWrite = { path = b.modifiers.file, content = b.content,
+        local write: FileWrite = { path = file_modifier, content = b.content,
           line = b.line }
         if current ~= nil then
           current.files[#current.files + 1] = write

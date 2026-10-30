@@ -142,7 +142,7 @@ function Node.walk_until(root: Ast.Node, visit: function(Ast.Node): boolean)
     if visit(node) then
       local kids = Node.children(node)
       for i = #kids, 1, -1 do
-        stack[#stack + 1] = kids[i]
+        stack[#stack + 1] = assert(kids[i], "i is within kids")
       end
     end
   end
@@ -168,7 +168,7 @@ end
 function Node.range(chunk: Ast.Chunk, node: Ast.Node): Node.Range
   local base = Node.base(node)
   local tokens = chunk.tokens
-  local first = tokens.offset[base.first]
+  local first = assert(tokens.offset[base.first], "every token has an offset")
   if base.last < base.first then
     return { first = first, last = first - 1 }
   end

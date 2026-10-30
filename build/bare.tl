@@ -133,7 +133,7 @@ function bare.escape(text: string, options?: bare.EscapeOptions): string
       if byte == "\n" then return "\\n" end
       if byte == "\r" then return "\\r" end
     end
-    return string.format("\\x%02X", byte:byte())
+    return string.format("\\x%02X", (assert(byte:byte(), "gsub hands over one byte")))
   end)
   return safe
 end
@@ -142,8 +142,11 @@ end
 --- prints one: a password in a URL must not reach a log.
 function bare.redact_url(url: string): string
   local scheme, authority, rest = url:match("^(%a+://)([^/?#]*)(.*)$")
-  if scheme == nil or not authority:find("@", 1, true) then return url end
-  return scheme .. "***@" .. authority:match("([^@]*)$") .. rest
+  if scheme == nil then return url end
+  assert(authority ~= nil and rest ~= nil, "a match sets every capture")
+  if not authority:find("@", 1, true) then return url end
+  local host = assert(authority:match("([^@]*)$"), "the pattern matches an empty tail at worst")
+  return scheme .. "***@" .. host .. rest
 end
 
 return bare

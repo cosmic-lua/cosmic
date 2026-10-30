@@ -135,7 +135,8 @@ function positions.check(modules: {positions.Module}, own_tree: boolean,
         local open = home == "" or (not home:find("/", 1, true) and entries[home] == nil) or
           (own_tree and (home == "cosmic/internal" or OPEN_MEMBERS[name] == true))
         if not open and not Fs.within(m.file, home) then
-          local entry = if entries[home] ~= nil then ("its entry is " .. entries[home]) else
+          local home_entry = entries[home]
+          local entry = if home_entry ~= nil then ("its entry is " .. home_entry) else
             (home .. "/ has no init.tl entry") end
           return false, m.file .. ": " .. name .. " is private to " .. home ..
             "/; only a file inside it may import it (" .. entry .. ")"

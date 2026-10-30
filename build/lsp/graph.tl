@@ -98,7 +98,7 @@ local function reaching(edges: {string:{string}}, target: string): {string:boole
   local seen: mut {string:boolean} = {}
   local stack: mut {string} = { target }
   while #stack > 0 do
-    local at = table.remove(stack)
+    local at = assert(table.remove(stack), "the stack is not empty")
     for _, from in ipairs(into[at] or {}) do
       if seen[from] == nil then
         seen[from] = true

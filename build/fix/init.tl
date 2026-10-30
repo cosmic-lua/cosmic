@@ -1543,9 +1543,10 @@ local function kind_list(picked: fix.Chosen): string
   local counts = { #picked.files, #picked.c_files, #picked.flow_files, markdown, zig, #picked.templates }
   local names = { "Teal", "C", "YAML", "Markdown", "Zig", "template" }
   local parts: mut {string} = {}
-  for i, count in ipairs(counts) do
+  for i, name in ipairs(names) do
+    local count = assert(counts[i], "a count for each kind named")
     if count > 0 then
-      parts[#parts + 1] = tostring(count) .. " " .. names[i]
+      parts[#parts + 1] = tostring(count) .. " " .. name
     end
   end
   return table.concat(parts, " + ")

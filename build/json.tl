@@ -114,10 +114,11 @@ local function arguments(argv: {string}): verb.Request?, string
   -- when it comes after the `--`.
   local before = 0
   local slot = 2
-  while argv[slot] ~= nil and argv[slot] ~= "--" do
-    local word = argv[slot]
-    if word == "-" or word:sub(1, 1) ~= "-" then before = before + 1 end
+  local seen = argv[slot]
+  while seen ~= nil and seen ~= "--" do
+    if seen == "-" or seen:sub(1, 1) ~= "-" then before = before + 1 end
     slot = slot + 1
+    seen = argv[slot]
   end
   local after_dashes = argv[slot] == "--" and before == 0
   local request: verb.Request = {
@@ -220,16 +221,17 @@ local function outermost(found: {Json.Match}): {Json.Match}
   local pointers: mut {string} = {}
   local matched: mut {string:boolean} = {}
   for i, hit in ipairs(found) do
-    pointers[i] = assert(Json.pointer(hit.steps))
-    matched[pointers[i]] = true
+    local pointer = assert(Json.pointer(hit.steps))
+    pointers[i] = pointer
+    matched[pointer] = true
   end
   local kept: mut {Json.Match} = {}
   for i, hit in ipairs(found) do
-    local pointer = pointers[i]
-    local inside = pointer ~= "" and matched[""]
+    local pointer = assert(pointers[i], "each hit was given its pointer")
+    local inside = pointer ~= "" and matched[""] == true
     local slash = pointer:find("/", 2, true)
     while not inside and slash ~= nil do
-      inside = matched[pointer:sub(1, slash - 1)]
+      inside = matched[pointer:sub(1, slash - 1)] == true
       slash = pointer:find("/", slash + 1, true)
     end
     if not inside then kept[#kept + 1] = hit end
@@ -336,7 +338,7 @@ function verb.run(argv: {string}, io?: verb.Io): integer
       local steps: Json.Steps = {}
       for i, segment in ipairs(request.query.segments) do
         if segment.kind == "name" then
-          steps[i] = segment.name
+          steps[i] = assert(segment.name, "a name segment names one")
         else
           local index = assert(segment.index)
           steps[i] = if index >= 0 then index + 1 else index end

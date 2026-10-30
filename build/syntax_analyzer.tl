@@ -363,19 +363,21 @@ end
 local function failure_message(stat: Ast.Return, which: string): Ast.Exp?
   local values = stat.values
   if which == "refuse" then
-    local call = values[1]
-    if #values == 1 and (call.kind == "Call") and #call.args == 1 then
-      local callee = call.callee
-      if (callee.kind == "Name") and callee.text == "refuse" then
-        return call.args[1]
+    if #values == 1 then
+      local call = assert(values[1], "a list of one has its element")
+      if (call.kind == "Call") and #call.args == 1 then
+        local callee = call.callee
+        if (callee.kind == "Name") and callee.text == "refuse" then
+          return call.args[1]
+        end
       end
     end
     return nil
   end
-  local head = values[1]
   if #values ~= 2 then
     return nil
   end
+  local head = assert(values[1], "a list of two has its first")
   if (which == "nil" and (head.kind == "Nil")) or (which == "false" and (head.kind == "Boolean") and not head.value) then
     return values[2]
   end
@@ -1421,9 +1423,13 @@ local function inputs_of(chunk: Ast.Chunk, name: string): PolicyRules.Declared?,
   if found == nil then
     return nil, ""
   end
-  local value = found.args[1]
-  if #found.args ~= 1 or not ((value.kind == "Table")) then
-    return nil, at(found_line) .. "hand it one table written out as a literal: Test.policy { grants = { ... } }"
+  local hand_a_table = at(found_line) .. "hand it one table written out as a literal: Test.policy { grants = { ... } }"
+  if #found.args ~= 1 then
+    return nil, hand_a_table
+  end
+  local value = assert(found.args[1], "one argument was counted")
+  if not ((value.kind == "Table")) then
+    return nil, hand_a_table
   end
   local data, why = policy_data(chunk, value)
   if data == nil then

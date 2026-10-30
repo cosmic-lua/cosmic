@@ -97,17 +97,23 @@ function Derivation.rows_of(chunk: Ast.Chunk, source: string, file: string, mapp
     links = links }, ""
 end
 
+--- A row of `test_inputs`: a `field` of the declaration and its `value`.
+local record InputRow
+  field: string
+  value: string
+end
+
 --- The rows `test_inputs` keeps of one parse (see [`build.work`]): its `policy` declaration, as the `needs` it stands
 --- for, field by field.
 local function insert_test_inputs(db: Sqlite.Handle, source_hash: string, declared: Analyzer.Declared?): boolean, string
-  local rows: mut {{string}} = {}
+  local rows: mut {InputRow} = {}
   local function each(field: string, list: {string})
     for _, value in ipairs(list) do
-      rows[#rows + 1] = { field, value }
+      rows[#rows + 1] = { field = field, value = value }
     end
   end
   if declared ~= nil then
-    table.insert(rows, { "line", tostring(declared.line) })
+    table.insert(rows, { field = "line", value = tostring(declared.line) })
     each("reads", declared.reads)
     each("host", declared.host)
     each("env", declared.env)
@@ -116,7 +122,7 @@ local function insert_test_inputs(db: Sqlite.Handle, source_hash: string, declar
       local set: {string: boolean} = { tool = declared.tool, lua = declared.lua, nests = declared.nests,
         noexec = declared.noexec, store = declared.store, system = declared.system }
       if set[flag] == true then
-        rows[#rows + 1] = { flag, "true" }
+        rows[#rows + 1] = { field = flag, value = "true" }
       end
     end
     each("caches", declared.caches)
@@ -126,7 +132,7 @@ local function insert_test_inputs(db: Sqlite.Handle, source_hash: string, declar
   for ordinal, row in ipairs(rows) do
     local ok, why = Sqlite.run(db,
       "INSERT INTO test_inputs (source_hash, ordinal, field, value) VALUES (?1, ?2, ?3, ?4)",
-      { text(source_hash), { integer = ordinal }, text(row[1]), text(row[2]) })
+      { text(source_hash), { integer = ordinal }, text(row.field), text(row.value) })
     if not ok then
       return false, why
     end

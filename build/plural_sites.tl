@@ -61,6 +61,7 @@ end
 local function plural_after_space(text: string, counted: boolean): string?
   local first, rest = text:match("^ (%a+)(.*)$")
   if first == nil then return nil end
+  assert(rest ~= nil, "a match sets every capture")
   if is_plural_noun(first) then
     if counted or UNITS[first] == true then return first end
     return nil
@@ -83,6 +84,7 @@ local function format_plurals(text: string): {string}
   while true do
     local first, last = string.find(text, "%d ", at, true)
     if first == nil then break end
+    assert(last ~= nil, "a find sets both ends")
     at = last
     local noun = plural_after_space(text:sub(last, last + 60), true)
     local label = text:sub(math.max(1, first - 12), first - 1):match("(%l+) $")
