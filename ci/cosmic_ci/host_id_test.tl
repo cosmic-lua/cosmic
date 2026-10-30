@@ -166,11 +166,11 @@ end
 local function test_the_workflows_legs_are_named_as_the_script_named_them(tmp: string)
   local _, platform = named(tmp, "this", { "linux-x86_64", IMAGE, "ubuntu-24.04", STARTED }, {}, "28.0.4")
   assert(platform == "prefix=verdicts-linux-x86_64-cd38a6c7ffd72fed-\n" ..
-      "verdicts=verdicts-linux-x86_64-cd38a6c7ffd72fed-76038305182e5556-\n", platform)
+      "verdicts=verdicts-linux-x86_64-cd38a6c7ffd72fed-1fb2d453f1c0545e-\n", platform)
   local env, checked = named(tmp, "this", { "linux-x86_64-checked", IMAGE, "ubuntu-24.04", STARTED }, {}, "28.0.4")
   assert(env == "COSMIC_HOST_ID=" .. IMAGE .. " " .. STARTED .. " docker-28.0.4\n", env)
   assert(checked == "prefix=verdicts-linux-x86_64-checked-cd38a6c7ffd72fed-\n" ..
-      "verdicts=verdicts-linux-x86_64-checked-cd38a6c7ffd72fed-76038305182e5556-\n", checked)
+      "verdicts=verdicts-linux-x86_64-checked-cd38a6c7ffd72fed-1fb2d453f1c0545e-\n", checked)
   local none, light = named(tmp, "this", { "linux-x86_64", IMAGE, "ubuntu-24.04", STARTED },
     { GITHUB_ENV = "/dev/null" }, "28.0.4")
   assert(none == nil, "the environment file is /dev/null's")
@@ -183,10 +183,10 @@ local function test_the_workflows_legs_are_named_as_the_script_named_them(tmp: s
   -- is taken as given.
   local _, odd = named(tmp, "this", { "a b", "i", "r", "s" }, {}, "28.0.4")
   assert(odd == "prefix=verdicts-a b-561229c72f9f67eb-\nverdicts=verdicts-a b-561229c72f9f67eb-" ..
-      "76038305182e5556-\n", odd)
+      "1fb2d453f1c0545e-\n", odd)
   local _, bare = named(tmp, "this", { "alpine-x86_64", "img", "", "abc" }, {}, "28.0.4")
   assert(bare == "prefix=verdicts-alpine-x86_64-2b06a98f2cd61c3a-\nverdicts=verdicts-alpine-x86_64-" ..
-      "2b06a98f2cd61c3a-76038305182e5556-\n", bare)
+      "2b06a98f2cd61c3a-1fb2d453f1c0545e-\n", bare)
 end
 
 --- The macOS leg, with no image, is named by its runner, and names the
