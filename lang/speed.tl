@@ -26,6 +26,8 @@ local FLOOR <const> = 5000000
 local SAMPLES <const> = 5
 --- The most pairs of samples `within` takes by default: a pass ends it sooner.
 local PAIRS <const> = 12
+--- The longest a sample of the base side of `within` is made, in nanoseconds, to cap its time.
+local LONGEST <const> = 20000000
 --- The fewest pairs of samples `within` takes before it passes.
 local FEWEST_PAIRS <const> = 3
 --- The most runs a sample makes, for work that takes almost no time.
@@ -59,11 +61,11 @@ function Speed.least(work: function()): integer
 end
 
 function Speed.within(base: function(), scaled: function(), limit: integer, most_pairs?: integer): boolean, string
-  -- A sample of each side lasts as long as one run of the scaled side or the floor: a stretch of
-  -- load that preempts a long sample then preempts a short one as often, and the ratio is not
-  -- raised by the scaled side being the longer to hit.
+  -- A sample of each side lasts about as long as one run of the scaled side, within a limit: a
+  -- stretch of load that preempts a long sample preempts a short one as often, and the ratio is
+  -- not raised by the scaled side being the longer to hit.
   local base_first, scaled_first = first_run(base), first_run(scaled)
-  local target = math.max(FLOOR, scaled_first)
+  local target = math.min(math.max(FLOOR, scaled_first), LONGEST)
   local base_runs, scaled_runs = runs_for(base_first, target), runs_for(scaled_first, target)
   local small, large = math.maxinteger, math.maxinteger
   -- The samples of the two sides alternate, so that a stretch of load falls on both: the side
