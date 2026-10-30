@@ -109,7 +109,8 @@ local function test_a_json_route_answers_a_problem_body_with_every_error_listed(
   reply = client:post("/items", { json = { title = "t", qty = 1 }, headers = { Accept = "text/html" } })
   assert(reply.status == 204)
   reply = client:post("/items", { json = { title = 5 }, headers = { Accept = "text/html" } })
-  assert(reply.status == 422 and reply.headers["content-type"]:find("text/html", 1, true), "a browser is given a page")
+  local reply_headers_content_type = assert(reply.headers["content-type"], "expected reply.headers[\"content-type\"]")
+  assert(reply.status == 422 and reply_headers_content_type:find("text/html", 1, true) ~= nil, "a browser is given a page")
   assert(reply:text():find("title", 1, true))
 end
 
@@ -122,7 +123,8 @@ local function test_a_form_route_prefers_a_page_and_lists_all_errors_as_json_whe
   } }
   local client = Web.test_client(app)
   local reply = client:post("/items", { form = { qty = "two" } })
-  assert(reply.status == 422 and reply.headers["content-type"]:find("text/html", 1, true))
+  local reply_headers_content_type = assert(reply.headers["content-type"], "expected reply.headers[\"content-type\"]")
+  assert(reply.status == 422 and reply_headers_content_type:find("text/html", 1, true) ~= nil)
   reply = client:post("/items", { form = { qty = "two" }, headers = { Accept = "application/json" } })
   assert(reply.status == 422)
   local errors = problem(reply).errors as {{string:any}}
@@ -142,7 +144,8 @@ local function test_on_invalid_re_renders_in_place_of_the_handler()
         input_options = { secret = { "secret" } },
         on_invalid = function(req: Web.Request, bad: Web.Invalid): Web.Response
           seen = bad
-          return Web.text(("%s:%s:%s"):format(req.method, bad.errors[1].field, assert(bad.submitted).by_name.name[1]),
+          local bad_errors_1 = assert(bad.errors[1], "expected bad.errors[1]")
+          return Web.text(("%s:%s:%s"):format(req.method, bad_errors_1.field, assert(bad.submitted).by_name.name[1]),
             { status = bad.status })
         end,
       }),

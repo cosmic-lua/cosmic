@@ -3134,7 +3134,7 @@ end
 
 function Tests.length_proves(ctx: Ctx, object: Ast.Exp, key: Ast.Exp): boolean
   local f = ctx.flow
-  if f.paths == 0 then
+  if next(f.lens) == nil then
     return false
   end
   local p = place_of(ctx, f, object)
@@ -6552,7 +6552,7 @@ local function assign_statement(ctx: Ctx, s: Ast.Assign)
     if id ~= nil then
       -- The drop is told to a later use only where it took away a test that showed the value was not nil.
       local fact = ctx.flow.facts[id_key(ctx, id)]
-      local told = (fact ~= nil and not nilable(fact.type)) or ctx.flow.paths > 0
+      local told = (fact ~= nil and not nilable(fact.type)) or ctx.flow.paths > 0 or next(ctx.flow.lens) ~= nil
       local tokens, at = ctx.tokens, base_of(target).first
       ctx.flow = Flow.assign(ctx.flow, id, if told then
         { y = Lexer.y(tokens, at), x = Lexer.x(tokens, at), offset = Lexer.offset(tokens, at),
@@ -6754,7 +6754,7 @@ local ROUNDS <const> = 6
 --- entry knows nothing has no head to settle.
 local function run_loop(ctx: Ctx, entry: Flow.State, walk: function(head: Flow.State): Flow.State, Flow.State): Flow.State
   local head = entry
-  if next(entry.facts) ~= nil or entry.unsets > 0 then
+  if next(entry.facts) ~= nil or next(entry.lens) ~= nil or entry.unsets > 0 then
     ctx.quiet = ctx.quiet + 1
     local round = 0
     while true do

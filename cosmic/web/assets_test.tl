@@ -34,7 +34,7 @@ local function test_a_missing_or_malformed_path_is_a_miss_with_a_reason()
   for _, path in ipairs({ "b.txt", "", "/a.txt", "../a.txt", "x/../a.txt", "./a.txt", "a//b",
       "a.txt/", "a\\b", "a\0b" }) do
     local asset, why = source:get(path)
-    assert(asset == nil and why:find("no such asset", 1, true), path)
+    assert(asset == nil and why:find("no such asset", 1, true) ~= nil, path)
   end
 end
 
@@ -106,7 +106,7 @@ end
 local function test_directory_refuses_a_file_past_the_embedded_limit(tmp: string)
   assert(Fs.write(tmp .. "/big.bin", ("x"):rep(16 * 1024 * 1024 + 1)))
   local asset, why = Assets.directory(tmp):get("big.bin")
-  assert(asset == nil and why:find("16 MiB", 1, true))
+  assert(asset == nil and why:find("16 MiB", 1, true) ~= nil)
 end
 
 --- Calls `fn` as a program whose database records `main` as its main
@@ -133,7 +133,7 @@ local function test_default_reads_the_directory_in_dev_and_for_a_program_not_bui
     local dev = Assets.default({ dev = true, root = tmp, log = logged })
     assert(dev:dynamic() and #lines == 0 and assert(dev:get("a.txt")).data == "x")
     local fallback = Assets.default({ root = tmp, log = logged })
-    assert(fallback:dynamic() and #lines == 1 and lines[1]:find("not a built program", 1, true))
+    assert(fallback:dynamic() and #lines == 1 and lines[1]:find("not a built program", 1, true) ~= nil)
     assert(assert(fallback:get("a.txt")).data == "x")
   end)
 end
@@ -161,7 +161,7 @@ local function test_directory_refuses_a_hidden_file_as_paths_does(tmp: string)
   assert(source:get("a.txt") ~= nil)
   for _, path in ipairs({ ".env", ".git/config" }) do
     local asset, why = source:get(path)
-    assert(asset == nil and why:find("hidden", 1, true), path)
+    assert(asset == nil and why:find("hidden", 1, true) ~= nil, path)
   end
 end
 

@@ -63,7 +63,8 @@ local function test_format_event_makes_one_event_with_the_fields_given_and_no_ot
     shares = { formatted = 0.3, refused = 0.05 },
     check = function(input: string): boolean, string
       local fields = Fuzz.unpack(input)
-      local present, retry = fields[1], math.tointeger(tonumber(fields[6]))
+      local present = assert(fields[1], "the generator packs which fields are present")
+      local retry = math.tointeger(tonumber(fields[6]))
       local ev: Sse.Event = { retry = retry }
       if present:sub(1, 1) == "1" then ev.data = fields[2] end
       if present:sub(2, 2) == "1" then ev.event = fields[3] end

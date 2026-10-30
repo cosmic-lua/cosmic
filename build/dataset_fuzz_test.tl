@@ -14,10 +14,13 @@ local KEYS <const> = { "a", "A", "id", "type", "value", "_json", "_JSON", "_json
   '"', 'a"b', "select", "\n", "\x7f", "\xc3\xa9", "\xff", "1", "a_2" }
 
 --- Values by index: each SQLite type, a boolean, null, nested and edge.
-local function value_at(index: integer): any
-  local values: {any} = { 1, -7, 2.5, 1e300, "x", "", "a\0b", true, false, Json.null,
-    Json.array({ 1, "two" }), { k = { "deep" } }, Json.array(), {} }
-  return values[index]
+local function value_at(index: integer): Json.Value
+  local none: {string: Json.Value} = {}
+  local values: {Json.Value} = { 1, -7, 2.5, 1e300, "x", "", "a\0b", true, false, Json.null,
+    Json.array({ 1, "two" }), { k = { "deep" } }, Json.array(), none }
+  local value = values[index]
+  if value == nil then error("no fixture value " .. tostring(index)) end
+  return value
 end
 
 --- Rows as packed triples: `r` starts a row; `p`, a key and a value index
@@ -178,7 +181,7 @@ local record Expected
 end
 
 --- What [`dataset.load`] stores for `value`, as the cell a query reads.
-local function expected_cell(value: any): Expected
+local function expected_cell(value: Json.Value?): Expected
   if value == nil or value == Json.null then return { kind = "null" } end
   if value is boolean then return { kind = "integer", integer = if value then 1 else 0 end } end
   if value is integer then return { kind = "integer", integer = value } end

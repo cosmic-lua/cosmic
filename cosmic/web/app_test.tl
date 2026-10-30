@@ -65,10 +65,10 @@ local function test_a_miss_passes_through_the_middleware_around_where_it_happene
   local client = Web.test_client(app)
   assert(client:get("/api/missing").status == 404)
   assert(table.concat(trace, " ") == "A M /M /A", "a 404 inside a mount passes through its middleware")
-  for _ = #trace, 1, -1 do trace[#trace] = nil end
+  for _ = 1, #trace do table.remove(trace) end
   assert(client:get("/missing").status == 404)
   assert(table.concat(trace, " ") == "A /A", "a 404 beside the mount does not")
-  for _ = #trace, 1, -1 do trace[#trace] = nil end
+  for _ = 1, #trace do table.remove(trace) end
   assert(client:post("/api/x").status == 405)
   assert(table.concat(trace, " ") == "A M /M /A", "nor does a 405 inside it")
 end
@@ -191,7 +191,7 @@ end
 local function test_a_path_that_climbs_is_a_400_with_the_reason()
   local app = Web.app{ routes = { Web.get("/a", hello) } }
   local res = Web.test_client(app):get("/a/../a")
-  assert(res.status == 400 and res.body:find("climbs out of the path", 1, true), res.body)
+  assert(res.status == 400 and res.body:find("climbs out of the path", 1, true) ~= nil, res.body)
 end
 
 local function test_a_raise_is_a_500_that_tells_the_client_nothing()
@@ -215,8 +215,9 @@ local function test_a_raise_is_a_500_that_tells_the_client_nothing()
   assert(res.body:find("500 Internal Server Error", 1, true))
   assert(not res.body:find("secret", 1, true) and not res.body:find("traceback", 1, true), res.body)
   assert(not res.body:find("router_test", 1, true) and not res.body:find("app_test", 1, true))
-  assert(#lines == 1 and lines[1]:find("GET /boom", 1, true) and lines[1]:find("secret detail", 1, true))
-  assert(lines[1]:find("stack traceback", 1, true), "the sink has the stack")
+  local lines_1 = assert(lines[1], "expected lines[1]")
+  assert(#lines == 1 and lines[1]:find("GET /boom", 1, true) ~= nil and lines_1:find("secret detail", 1, true) ~= nil)
+  assert(lines_1:find("stack traceback", 1, true), "the sink has the stack")
   local json = Web.test_client(app):get("/boom", { headers = { accept = "application/json" } })
   assert(json.status == 500 and not json.body:find("secret", 1, true))
 end
@@ -230,7 +231,7 @@ local function test_debug_shows_the_fault_and_its_stack_escaped()
     debug = true, sink = sink,
   }
   local res = Web.test_client(app):get("/boom")
-  assert(res.status == 500 and res.body:find("secret detail &lt;b&gt;", 1, true), res.body)
+  assert(res.status == 500 and res.body:find("secret detail &lt;b&gt;", 1, true) ~= nil, res.body)
   assert(res.body:find("stack traceback", 1, true) and res.body:find("debug is on", 1, true))
   assert(not res.body:find("<b>", 1, true))
   local json = Web.test_client(app):get("/boom", { headers = { accept = "application/json" } })
@@ -249,7 +250,7 @@ local function test_debug_is_off_unless_asked_and_a_bad_response_is_a_fault_only
   assert(raised(function() Web.test_client(plain):get("/bad") end):find("would answer 500", 1, true))
   local debugging = Web.app{ routes = { Web.get("/bad", bad) }, debug = true, sink = recording() }
   local res = Web.test_client(debugging):get("/bad")
-  assert(res.status == 500 and res.body:find("cannot be sent", 1, true), res.body)
+  assert(res.status == 500 and res.body:find("cannot be sent", 1, true) ~= nil, res.body)
 end
 
 local function test_in_debug_a_handler_that_returns_nothing_is_told_as_the_server_tells_it()
@@ -258,7 +259,7 @@ local function test_in_debug_a_handler_that_returns_nothing_is_told_as_the_serve
   end
   local debugging = Web.app{ routes = { Web.get("/nothing", nothing) }, debug = true, sink = recording() }
   local res = Web.test_client(debugging):get("/nothing")
-  assert(res.status == 500 and res.body:find("the handler answered nil, not a Server.Reply", 1, true), res.body)
+  assert(res.status == 500 and res.body:find("the handler answered nil, not a Server.Reply", 1, true) ~= nil, res.body)
 end
 
 local function test_abort_answers_its_status_and_detail_in_the_negotiated_form()
@@ -272,7 +273,7 @@ local function test_abort_answers_its_status_and_detail_in_the_negotiated_form()
   }, sink = recording() }
   local client = Web.test_client(app)
   local page = client:get("/gone")
-  assert(page.status == 410 and page.body:find("removed &lt;b&gt;", 1, true) and not page.body:find("<b>", 1, true))
+  assert(page.status == 410 and page.body:find("removed &lt;b&gt;", 1, true) ~= nil and not page.body:find("<b>", 1, true))
   local json = client:get("/gone", { headers = { accept = "application/json" } })
   local body = assert(Json.decode_object(json:text()))
   assert(json.status == 410 and body.detail == "removed <b>" and body.reason == "x")
@@ -310,7 +311,7 @@ local function test_a_page_that_raises_falls_back_to_a_plain_500()
     sink = sink,
   }
   local res = Web.test_client(app):get("/missing")
-  assert(res.status == 500 and res.body:find("500 Internal Server Error", 1, true), res.body)
+  assert(res.status == 500 and res.body:find("500 Internal Server Error", 1, true) ~= nil, res.body)
   local both = Web.app{
     routes = { Web.get("/x", hello) },
     error_pages = { [404] = function(_req: Web.Request): Web.Response
@@ -346,10 +347,13 @@ local function test_access_log_writes_one_line_without_the_query()
   client:get("/items/42?token=secret")
   client:get("/missing")
   client:get("/stream")
-  assert(lines[1]:find("^GET /items/42 200 %d+ms 5B client=127%.0%.0%.1$"), lines[1])
-  assert(not lines[1]:find("secret", 1, true))
-  assert(lines[2]:find("^GET /missing 404 ", 1) ~= nil, lines[2])
-  assert(lines[3]:find(" stream client=", 1, true), lines[3])
+  local lines_1 = assert(lines[1], "expected lines[1]")
+  assert(lines_1:find("^GET /items/42 200 %d+ms 5B client=127%.0%.0%.1$"), lines[1])
+  assert(not lines_1:find("secret", 1, true))
+  local lines_2 = assert(lines[2], "expected lines[2]")
+  assert(lines_2:find("^GET /missing 404 ", 1) ~= nil, lines[2])
+  local lines_3 = assert(lines[3], "expected lines[3]")
+  assert(lines_3:find(" stream client=", 1, true), lines[3])
 end
 
 local function test_access_log_options_choose_the_sink_format_and_what_to_skip()
@@ -370,7 +374,8 @@ local function test_access_log_options_choose_the_sink_format_and_what_to_skip()
   client:get("/big")
   assert(#own_lines == 2 and #default_lines == 0)
   assert(own_lines[1]:find("^GET /items%?a=1 200 "), own_lines[1])
-  assert(own_lines[2]:find(" 2%.9KB ", 1), own_lines[2])
+  local own_lines_2 = assert(own_lines[2], "expected own_lines[2]")
+  assert(own_lines_2:find(" 2%.9KB ", 1), own_lines[2])
   local formatted, formatted_lines = recording()
   local custom = Web.app{
     routes = { Web.get("/items", hello) },
@@ -392,14 +397,14 @@ local function test_a_missing_handler_or_bad_registration_raises_when_the_app_is
     Web.app{ routes = { Web.get("/a", hello), Web.get("/a", hello) } }
     return nil
   end)
-  assert(not ok and tostring(err):find("already answered", 1, true), tostring(err))
+  assert(not ok and tostring(err):find("already answered", 1, true) ~= nil, tostring(err))
 end
 
 local function test_url_for_resolves_names_on_the_app()
   local app = Web.app{ routes = { Web.get("/items/:id", hello, { name = "item" }) } }
   assert(app:url_for("item", { id = 3 }) == "/items/3")
   local none, why = app:url_for("nope")
-  assert(none == nil and why:find("no route named", 1, true), why)
+  assert(none == nil and why:find("no route named", 1, true) ~= nil, why)
 end
 
 local function test_stopping_starts_false()
@@ -430,7 +435,7 @@ local function test_abort_from_app_middleware_is_answered_and_seen_by_the_middle
   local body = assert(res:json()) as {string:any}
   assert(body.detail == "no entry" and body.status == 403)
   assert(table.concat(trace, " ") == "A abort /A", table.concat(trace, " "))
-  assert(#lines == 1 and lines[1]:find("^GET / 403 "), table.concat(lines, "|"))
+  assert(#lines == 1 and lines[1]:find("^GET / 403 ") ~= nil, table.concat(lines, "|"))
   assert(Web.test_client(app):get("/").status == 403, "an error page, negotiated like any")
 end
 
@@ -483,5 +488,6 @@ local function test_access_log_escapes_control_bytes_of_the_query()
     body = Stream.from_string(""), length = 0 }
   assert(app.handle(raw).status == 200)
   assert(#lines == 1 and not lines[1]:find("[\r\n\127]"), lines[1])
-  assert(lines[1]:find("?a=1%0D%0AFAKE 200 line%7F", 1, true), lines[1])
+  local lines_1 = assert(lines[1], "expected lines[1]")
+  assert(lines_1:find("?a=1%0D%0AFAKE 200 line%7F", 1, true), lines[1])
 end

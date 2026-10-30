@@ -92,7 +92,7 @@ local record dataset
   --- One row: a column name's key to its value. A value is a string, a
   --- number, a boolean, [`Json.null`], or a table (a nested object or
   --- array, stored as JSON text).
-  type Row = {string:any}
+  type Row = {string: Json.Value}
 
   --- The rows a reader made, and the order of their keys when the format
   --- has one (a CSV's header): `load` puts the columns in it.
@@ -142,32 +142,48 @@ local record dataset
 end
 
 --- A row for one JSON value: an object is the row; anything else (a
---- number, a string, a nested array) is a row of one column, `value`.
-local function row_of(element: any): dataset.Row
-  if element is dataset.Row and Json.layout(element) == "object" then
-    return element
+--- number, a string, a nested array) is a row of one column, `value`. nil
+--- and why when a part of the value is none JSON can say.
+local function row_of(element: any): dataset.Row?, string
+  local row, _ = Json.to_object(element)
+  if row ~= nil then
+    return row, ""
   end
-  return { value = element }
+  local value, why = Json.to_value(element)
+  if value == nil then
+    return nil, why
+  end
+  return { value = value }, ""
 end
 
 --- The rows of a JSON value: each element of an array is a row as
---- [`row_of`] makes it; a value that is not an array is one row.
-local function rows_of(value: any): dataset.Rows
+--- [`row_of`] makes it; a value that is not an array is one row. Each
+--- element is checked as an element and again as a row.
+local function rows_of(value: any): dataset.Rows?, string
   local rows: dataset.Rows = {}
-  if not (value is {any} and Json.layout(value) == "array") then
-    rows[1] = row_of(value)
-    return rows
+  local elements, _ = Json.to_array(value)
+  if elements == nil then
+    local row, why = row_of(value)
+    if row == nil then
+      return nil, why
+    end
+    rows[1] = row
+    return rows, ""
   end
-  for index, element in ipairs(value) do
-    rows[index] = row_of(element)
+  for index, element in ipairs(elements) do
+    local row, why = row_of(element)
+    if row == nil then
+      return nil, why
+    end
+    rows[index] = row
   end
-  return rows
+  return rows, ""
 end
 
 --- The value of one CSV cell: an integer or a real when it is plainly a
 --- number (see the module comment), [`Json.null`] when empty, and the text
 --- otherwise.
-local function cell_of(text: string): any
+local function cell_of(text: string): Json.Value
   if text == "" then
     return Json.null
   end
@@ -251,7 +267,7 @@ local formats: {string:dataset.Format} = {
       if missing ~= "" then
         return nil, missing
       end
-      return rows_of(value), ""
+      return rows_of(value)
     end,
   },
   ndjson = {
@@ -268,7 +284,7 @@ local formats: {string:dataset.Format} = {
       if values == nil then
         return nil, trouble
       end
-      return rows_of(values), ""
+      return rows_of(values)
     end,
   },
   csv = {

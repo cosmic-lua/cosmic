@@ -37,7 +37,7 @@ local function test_parse_never_raises_and_keeps_to_its_limits(tmp: string)
       local n = 0
       for name, value in pairs(got) do
         n = n + 1
-        if name == "" or name:find("[;,=]") then return false, ("name %q"):format(name) end
+        if name == "" or name:find("[;,=]") ~= nil then return false, ("name %q"):format(name) end
         if value:find("[;,]") then
           return false, ("value %q of %s holds a separator"):format(value, name)
         end
@@ -63,7 +63,9 @@ local function test_what_format_writes_is_read_back_by_both_parsers(tmp: string)
     shares = { written = 0.3, refused = 0.02 },
     check = function(input: string): boolean, string
       local fields = Fuzz.unpack(input)
-      local name, value, bits = fields[1], fields[2], math.tointeger(tonumber(fields[3])) or 0
+      local name = assert(fields[1], "the generator packs a name")
+      local value = assert(fields[2], "the generator packs a value")
+      local bits = math.tointeger(tonumber(fields[3])) or 0
       local line = Cookies.format(name, value, {
         secure = bits & 1 ~= 0, http_only = bits & 2 ~= 0, max_age = if bits & 4 ~= 0 then 30 else nil end,
         same_site = if bits & 1 ~= 0 then "None" else "Lax" end, path = "/",

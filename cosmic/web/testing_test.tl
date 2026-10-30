@@ -60,7 +60,7 @@ local function test_a_response_reads_as_text_json_and_header_lines()
   local value = assert(res:json())
   assert(value is {string:any} and value.ok == true)
   local none, why = client:get("/plain"):json()
-  assert(none == nil and why:find("json:", 1, true), why)
+  assert(none == nil and why:find("json:", 1, true) ~= nil, why)
 end
 
 local function test_the_jar_keeps_cookies_between_calls_and_drops_a_deleted_one()
@@ -215,7 +215,7 @@ local function test_the_lifespan_runs_at_the_first_request_and_cleans_up_on_clos
     assert(#events == 3)
   end
   assert(table.concat(events, " ") == "start request request stop", table.concat(events, " "))
-  for _ = #events, 1, -1 do events[#events] = nil end
+  for _ = 1, #events do table.remove(events) end
   Web.with_client(make(), function(client: Web.TestClient)
     assert(#events == 1)
     client:get("/")

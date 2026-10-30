@@ -67,6 +67,8 @@ function SessionCookie.store(opts: SessionCookie.Options): Session.Store
     if not ok then error(("session: key %d: %s"):format(i, why), 2) end
     keys[#keys + 1] = key
   end
+  -- The newest key signs; the count was checked above.
+  local newest = assert(keys[1])
   local max_bytes = opts.max_bytes or 3800
   local context = opts.context or "cosmic.web.session"
 
@@ -78,7 +80,7 @@ function SessionCookie.store(opts: SessionCookie.Options): Session.Store
     load = function(_: Session.Store, token: string, now: integer, cookie: string): Session.Data?, string
       if #token > max_bytes then return nil, "" end
       local payload, sent = token:match("^([^.]+)%.([^.]+)$")
-      if payload == nil then return nil, "" end
+      if payload == nil or sent == nil then return nil, "" end
       local given, _ = Codec.unbase64url(sent)
       if given == nil then return nil, "" end
       local verified: integer? = nil
@@ -106,7 +108,7 @@ function SessionCookie.store(opts: SessionCookie.Options): Session.Store
         { max_depth = DEPTH })
       if text == nil then return nil, "cannot encode the session: " .. why end
       local payload = Codec.base64url(text)
-      local token = payload .. "." .. Codec.base64url(mac(keys[1], cookie, payload))
+      local token = payload .. "." .. Codec.base64url(mac(newest, cookie, payload))
       if #token > max_bytes then
         return nil, ("cookie would be %s (limit %d); keep ids, not objects, in the session or use the SQLite store"):
           format(String.counted(#token, "byte"), max_bytes)

@@ -53,10 +53,11 @@ function Example.field()
     end) },
   }
   Web.test_client(app):get("/")
-  print(seen[1])
-  assert(seen[1]:find('<input type="hidden" name="csrf_token" value="', 1, true))
-  assert(seen[2]:find('<meta name="csrf-token" content="', 1, true))
-  assert(seen[3]:find('{"X-CSRF-Token":"', 1, true))
+  local field, meta, headers = seen[1], seen[2], seen[3]
+  print(field)
+  assert(field and field:find('<input type="hidden" name="csrf_token" value="', 1, true))
+  assert(meta and meta:find('<meta name="csrf-token" content="', 1, true))
+  assert(headers and headers:find('{"X-CSRF-Token":"', 1, true))
 end
 
 --- A site with no session relies on the Origin check alone: a POST from

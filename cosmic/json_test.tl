@@ -917,6 +917,39 @@ local function test_to_value_leaves_its_argument_alone()
   assert(copy ~= source and same(source, decoded('{"a": [1, {"b": 2}]}')))
 end
 
+local function test_to_object_and_to_array_name_the_kind_they_wanted()
+  local object = assert(Json.to_object(decoded('{"a": [1, {"b": null}]}')))
+  assert(encoded(object) == '{"a":[1,{}]}')
+  assert(encoded((assert(Json.to_object(decoded("{}"))))) == "{}")
+  local items = assert(Json.to_array(decoded('[1, "x", {"k": true}]')))
+  assert(encoded(items) == '[1,"x",{"k":true}]' and #items == 3)
+  assert(Json.is_array((assert(Json.to_array(decoded("[]"))))), "an empty array stays an array")
+  local _, array = Json.to_object(decoded("[1]"))
+  assert(array == "json: expected a JSON object, got array", array)
+  local _, scalar = Json.to_object("x")
+  assert(scalar == "json: expected a JSON object, got string", scalar)
+  local _, empty = Json.to_object(decoded("[]"))
+  assert(empty == "json: expected a JSON object, got array", empty)
+  local _, object_for_array = Json.to_array(decoded('{"a": 1}'))
+  assert(object_for_array == "json: expected a JSON array, got object", object_for_array)
+  local _, null = Json.to_array(nil)
+  assert(null == "json: expected a JSON array, got null", null)
+  local _, inner = Json.to_object(decoded('{"a": [1, null, 3]}'))
+  assert(inner:find('the array at pointer "/a" has a hole', 1, true), inner)
+  local _, unmarked = Json.to_array({ a = 1 })
+  assert(unmarked == "json: expected a JSON array, got object", unmarked)
+  local _, unmarked_empty = Json.to_array({ [1] = 1, [3] = 3 })
+  assert(unmarked_empty:find("has a hole", 1, true), unmarked_empty)
+  local _, bad_name = Json.to_object({ ["\xff"] = 1 })
+  assert(bad_name == 'json: a name at pointer "" is not UTF-8', bad_name)
+  local _, bad_item = Json.to_array({ "ok", "\xff" })
+  assert(bad_item == 'json: the string at pointer "/1" is not UTF-8', bad_item)
+  local _, nan = Json.to_object({ x = 0 / 0 })
+  assert(nan == 'json: the number at pointer "/x" is NaN or an infinity', nan)
+  local _, holed = Json.to_array(decoded("[null, 1, null, null]"))
+  assert(holed:find('the array at pointer "" has a hole', 1, true), holed)
+end
+
 local function test_to_value_refuses_a_table_that_holds_itself()
   local single: mut {Json.Value} = {}
   single[1] = single
@@ -943,4 +976,16 @@ local function test_to_value_copies_a_shared_table_once()
   local pair: {Json.Value} = { 1 }
   local twice = assert(Json.to_value({ pair, pair }))
   assert(encoded(twice) == "[[1],[1]]")
+end
+
+local function test_to_object_and_to_array_refuse_a_table_that_holds_itself()
+  local list: mut {Json.Value} = {}
+  list[1] = list
+  list[#list + 1] = list
+  local _, in_array = Json.to_array(list)
+  assert(in_array == 'json: the table at pointer "/0" contains itself', in_array)
+  local map: mut {string: Json.Value} = {}
+  map["me"] = map
+  local _, in_object = Json.to_object(map)
+  assert(in_object == 'json: the table at pointer "/me" contains itself', in_object)
 end

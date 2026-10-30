@@ -195,8 +195,12 @@ local function descend(root: Types.Node, segments: {Types.Segment}, what: string
       end
       node = child
     elseif segment.kind == "param" then
-      if node.param == nil then node.param = new_node() end
-      node = node.param
+      local param = node.param
+      if param == nil then
+        param = new_node()
+        node.param = param
+      end
+      node = param
     else
       return node
     end
@@ -229,7 +233,8 @@ end
 --- the reserved segment.
 local function reserved(prefix: {string}, segments: {Types.Segment}): boolean
   if prefix[1] ~= nil then return prefix[1] == RESERVED end
-  return segments[1] ~= nil and segments[1].kind == "literal" and segments[1].text == RESERVED
+  local first = segments[1]
+  return first ~= nil and first.kind == "literal" and first.text == RESERVED
 end
 
 local compile: function(routes: {Types.Route}, ctx: Router.Context, root: Types.Node)
@@ -252,11 +257,19 @@ local function add_leaf(route: Types.Route, ctx: Router.Context, root: Types.Nod
   local node = descend(root, segments, what)
   local slot: Types.Methods
   if wild then
-    if node.wild == nil then node.wild = { by_method = {} } end
-    slot = node.wild
+    local held = node.wild
+    if held == nil then
+      held = { by_method = {} }
+      node.wild = held
+    end
+    slot = held
   else
-    if node.exact == nil then node.exact = { by_method = {} } end
-    slot = node.exact
+    local held = node.exact
+    if held == nil then
+      held = { by_method = {} }
+      node.exact = held
+    end
+    slot = held
   end
   local full_segments = joined(ctx.prefix, segments)
   local full_pattern = pattern_text(full_segments, slash)
@@ -270,9 +283,9 @@ local function add_leaf(route: Types.Route, ctx: Router.Context, root: Types.Nod
     if not method:find(METHOD) then
       refuse(what, ("%q is not a method in capitals"):format(method))
     end
-    if slot.by_method[method] ~= nil then
-      refuse(what, ("%s is already answered for the same paths by %s"):format(method,
-        slot.by_method[method].info.pattern))
+    local taken = slot.by_method[method]
+    if taken ~= nil then
+      refuse(what, ("%s is already answered for the same paths by %s"):format(method, taken.info.pattern))
     end
     slot.by_method[method] = { info = info, names = names, slash = slash, handler = handler }
     ctx.verbs[method] = true
@@ -399,6 +412,7 @@ local function walk(node: Types.Node, segments: {string}, i: integer, values: mu
     return nil
   end
   local segment = segments[i]
+  assert(segment, "web: the walk stays within the request's segments")
   local child = node.literal[segment]
   if child ~= nil then
     local hit = walk(child, segments, i + 1, values, state)
@@ -482,8 +496,9 @@ function Router.lookup(router: Types.Router, method: string, segments: {string},
   end
   local params: mut {string:string} = {}
   for i, name in ipairs(terminal.names) do
-    if i <= #hit.values then
-      params[name] = hit.values[i]
+    local value = hit.values[i]
+    if value ~= nil then
+      params[name] = value
     else
       params[name] = table.concat(segments, "/", hit.rest_from, #segments)
     end
@@ -575,7 +590,10 @@ local function reverse(self: Types.Router, name: string, params?: {string: strin
     for key in pairs(query) do names[#names + 1] = key end
     table.sort(names)
     local entries: mut {{string}} = {}
-    for i, key in ipairs(names) do entries[i] = { key, query[key] } end
+    for _, key in ipairs(names) do
+      local value = query[key]
+      if value ~= nil then entries[#entries + 1] = { key, value } end
+    end
     local part, why = Html.url_query(entries)
     if part == nil then return nil, "url_for: " .. why end
     path = path .. (if path:find("?", 1, true) then "&" else "?" end) .. Html.raw_url_part(part)

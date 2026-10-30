@@ -318,7 +318,7 @@ local record Body is Stream.Reader
   source: Sse.EventSource
   heartbeat_ns: integer
   mut deadline?: integer
-  on_close: function(why: string)
+  on_close?: function(why: string)
   mut pending: string
   mut started: boolean
   mut held: boolean
@@ -585,8 +585,8 @@ local record State is Sse.Hub
   replay: integer
   queue_size: integer
   overflow: Channel.Overflow
-  max_per_topic: integer
-  max_total: integer
+  max_per_topic?: integer
+  max_total?: integer
   max_event_bytes: integer
   topics: mut {string: Topic}
   mut total: integer
@@ -613,6 +613,14 @@ local function topic_of(self: State, name: string): Topic
     self.topics[name] = topic
   end
   return topic
+end
+
+--- The event the ring of `topic` holds at `at`, which lies from `first` to
+--- `last`, where it holds one for each.
+local function entry_at(topic: Topic, at: integer): Entry
+  local entry = topic.ring[at]
+  assert(entry, "sse: a topic's ring holds an event at each position from first to last")
+  return entry
 end
 
 --- Forgets the topic `name` when it has no subscriber and holds no event,
@@ -647,7 +655,7 @@ function State.publish(self: State, name: string, ev: Sse.Event): integer
     topic.last = topic.last + 1
     topic.ring[topic.last] = { seq = self.seq, event = kept }
     while topic.last - topic.first + 1 > self.replay do
-      topic.evicted = topic.ring[topic.first].seq
+      topic.evicted = entry_at(topic, topic.first).seq
       topic.ring[topic.first] = nil
       topic.first = topic.first + 1
     end
@@ -675,7 +683,7 @@ local function replayed(self: State, names: {string}, after: string): {Sse.Event
     local topic = self.topics[name]
     if topic ~= nil then
       for at = topic.last, topic.first, -1 do
-        local entry = topic.ring[at]
+        local entry = entry_at(topic, at)
         if entry.event.id == after then
           if found == nil or entry.seq > found then found = entry.seq end
           break
@@ -695,7 +703,8 @@ local function replayed(self: State, names: {string}, after: string): {Sse.Event
     local topic = self.topics[name]
     if topic ~= nil then
       for at = topic.first, topic.last do
-        if topic.ring[at].seq > found then later[#later + 1] = topic.ring[at] end
+        local entry = entry_at(topic, at)
+        if entry.seq > found then later[#later + 1] = entry end
       end
     end
   end
@@ -711,7 +720,7 @@ local function head_id(self: State, names: {string}): string?
   for _, name in ipairs(names) do
     local topic = self.topics[name]
     if topic ~= nil and topic.last >= topic.first then
-      local entry = topic.ring[topic.last]
+      local entry = entry_at(topic, topic.last)
       if best == nil or entry.seq > best.seq then best = entry end
     end
   end
