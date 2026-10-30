@@ -4,6 +4,7 @@
 --- starts this very program to run a chunk. They run on every platform,
 --- as the cases that unveil a child's root are Linux's alone.
 
+local RawTables = require("build.raw_tables")
 local sys = require("cosmic.sys")
 local Test = require("cosmic.test")
 local type raw_process = require("cosmic.internal.process")
@@ -21,19 +22,7 @@ Test.policy{
   promises = { "nest" },
 }
 
-local type Searcher = function(string): any, any
-
---- The raw table the store's searcher hands `wrapper`'s loader, as
---- `require` would hand it.
-local function raw_behind(wrapper: string): any
-  for _, searcher in ipairs(package.searchers as {Searcher}) do -- cast: searchers' loaders take an extra
-    local loader, extra = searcher(wrapper)
-    if type(loader) == "function" and type(extra) == "table" then return extra end
-  end
-  error(wrapper .. " is handed no raw table")
-end
-
-local process = raw_behind("cosmic.child") as raw_process -- cast: the table core/process.h declares
+local process = RawTables.process()
 
 --- The descriptors [`this_program.program`] hands its child, as
 --- [`process.spawn`] takes them: each a descriptor of this process, as
@@ -67,11 +56,12 @@ end
 local function test_a_user_is_refused_unless_given_with_its_group_and_unveil(tmp: string)
   local probe = probe_in(tmp)
   local user = if sys.getuid() == 65533 then 65531 else 65533 end
-  for _, sandbox in ipairs({
-      { unveil = { reads = { probe }, writes = {} }, user = 0, group = user },
-      { unveil = { reads = { probe }, writes = {} }, user = user },
-      { offline = true, user = user, group = user },
-  } as {raw_process.Sandbox}) do
+  local sandboxes: {raw_process.Sandbox} = {
+    { unveil = { reads = { probe }, writes = {} }, user = 0, group = user },
+    { unveil = { reads = { probe }, writes = {} }, user = user },
+    { offline = true, user = user, group = user },
+  }
+  for _, sandbox in ipairs(sandboxes) do
     assert(raises(probe, sandbox), "a user is refused unless given with its group and unveil, and not as root")
   end
 end
@@ -144,7 +134,7 @@ local function test_an_exit_watch_is_readable_once_its_child_exits()
   local ends = assert(process.pipe())
   local started = this_program.program({ "-e",
     'local Fs = require("cosmic.fs") while assert(Fs.take(0, 4096)) ~= "" do end' })
-  local pid = process.spawn(started.argv[1], started.argv, started.options.env, nil,
+  local pid = process.spawn(assert(started.argv[1], "this_program.program puts the executable first"), started.argv, started.options.env, nil,
     ends.reader, nil, nil, false, spawn_fds(started))
   sys.close(ends.reader)
   assert(pid, "the child did not start")

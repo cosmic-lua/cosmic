@@ -35,7 +35,7 @@ local function test_four_times_the_linear_work_is_within_ten_times()
 end
 
 local function test_eight_times_the_input_of_a_quadratic_form_is_over_ten_times()
-  -- 64 times the steps: a slow moment on the small side in one attempt does not bring it under ten.
+  -- 64 times the steps: a slow moment on the small side in one pair of samples does not bring it under ten.
   local ok, why = Speed.within(quadratic(50), quadratic(400), 10)
   assert(not ok and why:find("over 10 times", 1, true) ~= nil, why)
 end

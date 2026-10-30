@@ -95,7 +95,6 @@ cosmic/web/sse.tl key_type 1
 
 cosmic/web/types.tl key_type 3
 
-eval/check/grade.tl key_type 2
 
 # a type named through a field of a record ([`importer.Module`] is the field `Module: Module`): write `type Module = ...`
 # inside the record, where the grammar declares a nested type
@@ -338,7 +337,6 @@ cosmic/web/testing.tl 4
 
 cosmic/zip.tl 1
 
-eval/summarize.tl 1
 
 lang/check.tl 1
 
@@ -1200,7 +1198,7 @@ cosmic/zip_test.tl nil_not_allowed 16
 
 
 
-eval/check/grade.tl nil_not_allowed 65
+
 
 
 
@@ -1743,7 +1741,7 @@ cosmic/zip_fuzz_test.tl index_may_be_nil 3
 
 
 
-eval/check/grade.tl index_may_be_nil 10
+
 
 
 
@@ -2549,11 +2547,8 @@ cosmic/zip.tl field_fixed 2
 
 cosmic/zip_test.tl field_fixed 13
 
-eval/check/grade.tl field_fixed 2
 
-eval/result.tl field_fixed 7
 
-eval/round.tl field_fixed 1
 
 lang/ast.tl field_fixed 2
 
@@ -2881,7 +2876,6 @@ core/launcher_cache_test.tl map_field 3
 
 core/noexec_nested_test.tl map_field 3
 
-core/promises_test.tl map_field 8
 
 core/socket_test.tl map_field 5
 
@@ -3046,7 +3040,6 @@ cosmic/zip_fuzz_test.tl map_field 9
 
 cosmic/zip_test.tl map_field 1
 
-eval/check/grade.tl map_field 16
 
 
 
@@ -3055,7 +3048,6 @@ eval/result_test.tl map_field 37
 
 eval/round_test.tl map_field 10
 
-eval/solve.tl map_field 5
 
 eval/solve_test.tl map_field 6
 
@@ -3271,7 +3263,6 @@ cosmic/web/typed_test.tl overload_none 1
 
 eval/arena_test.tl overload_none 1
 
-eval/summarize.tl overload_none 1
 
 lang/check.tl overload_none 1
 
@@ -3640,15 +3631,13 @@ cosmic/zip.tl any_use 2
 
 cosmic/zip_fuzz_test.tl any_use 43
 
-eval/check/grade.tl any_use 49
 
-eval/declared_types_test.tl any_use 12
-
+eval/declared_types_test.tl any_use 11
 
 
-eval/round.tl any_use 1
 
-eval/summarize_test.tl any_use 52
+
+eval/summarize_test.tl any_use 50
 
 lang/check_programs.tl any_use 14
 
@@ -3800,20 +3789,17 @@ core/connector_filter_test.tl cast_refused 1
 
 core/declarations_test.tl cast_refused 10
 
-core/grants_child_test.tl cast_refused 4
 
 core/grants_refused_test.tl cast_refused 1
 
 
 
-core/promises_child_test.tl cast_refused 2
 
-core/promises_held_child_test.tl cast_refused 4
 
 core/promises_refused_test.tl cast_refused 3
 
 
-core/promises_test.tl cast_refused 4
+core/promises_test.tl cast_refused 2
 
 core/rlimits_child_test.tl cast_refused 2
 
@@ -3843,9 +3829,7 @@ core/syscalls_sigpipe_proc_test.tl cast_refused 1
 
 core/syscalls_test.tl cast_refused 14
 
-core/syscalls_tool_test.tl cast_refused 5
 
-core/syscalls_tool_unsandboxed_test.tl cast_refused 3
 
 cosmic/archive_fuzz_test.tl cast_refused 3
 
@@ -4184,13 +4168,9 @@ cosmic/web/testing_test.tl is_on_record 7
 
 cosmic/web/typed.tl is_on_record 3
 
-eval/check/grade.tl is_on_record 3
 
-eval/result.tl is_on_record 6
 
-eval/round.tl is_on_record 2
 
-eval/summarize.tl is_on_record 9
 
 lang/ast_dump.tl is_on_record 3
 
@@ -4345,7 +4325,6 @@ cosmic/web/testing_test.tl close_not_closable 1
 
 doc/guides/quickstart.md close_not_closable 1
 
-eval/solve.tl close_not_closable 1
 
 test/sqlite_query_test.tl close_not_closable 1
 
@@ -4554,7 +4533,6 @@ core/database_start_test.tl condition_type 2
 
 core/declarations_test.tl condition_type 3
 
-core/grants_child_test.tl condition_type 7
 
 core/linkage_test.tl condition_type 1
 
@@ -4569,7 +4547,6 @@ core/syscalls_namespace_refusal_test.tl condition_type 1
 
 core/syscalls_test.tl condition_type 2
 
-core/syscalls_tool_test.tl condition_type 2
 
 
 cosmic/archive_test.tl condition_type 1
@@ -4711,7 +4688,6 @@ cosmic/zip.tl condition_type 1
 
 eval/arena_test.tl condition_type 3
 
-eval/check/grade.tl condition_type 1
 
 eval/check/grade_test.tl condition_type 9
 
@@ -4721,7 +4697,6 @@ eval/round_test.tl condition_type 2
 
 eval/solve_test.tl condition_type 2
 
-eval/summarize.tl condition_type 1
 
 eval/summarize_test.tl condition_type 1
 
@@ -5127,7 +5102,7 @@ cosmic/zip_test.tl or_mix 4
 
 
 
-eval/check/grade.tl or_mix 2
+
 
 
 
@@ -5576,14 +5551,10 @@ cosmic/zip.tl and_ternary 5
 
 cosmic/zip_fuzz_test.tl and_ternary 4
 
-eval/check/grade.tl and_ternary 10
-
-eval/result.tl and_ternary 8
-
-eval/round.tl and_ternary 9
 
 
-eval/summarize.tl and_ternary 11
+
+
 
 lang/ast_dump.tl and_ternary 1
 
@@ -5948,7 +5919,6 @@ cosmic/web/testing.tl compare_disjoint 1
 
 cosmic/zip_fuzz_test.tl compare_disjoint 1
 
-eval/check/grade.tl compare_disjoint 7
 
 lang/parser.tl compare_disjoint 3
 
@@ -6145,11 +6115,10 @@ core/declarations_test.tl literal_needs_type 4
 
 core/promises_refused_test.tl literal_needs_type 1
 
-core/promises_test.tl literal_needs_type 10
+core/promises_test.tl literal_needs_type 7
 
 core/syscalls_test.tl literal_needs_type 14
 
-core/syscalls_tool_unsandboxed_test.tl literal_needs_type 2
 
 cosmic/archive.tl literal_needs_type 1
 
@@ -6334,16 +6303,12 @@ cosmic/zip_example.tl literal_needs_type 1
 
 cosmic/zip_test.tl literal_needs_type 1
 
-eval/check/grade.tl literal_needs_type 1
 
 eval/declared_types_test.tl literal_needs_type 1
 
-eval/result.tl literal_needs_type 1
 
 
-eval/round.tl literal_needs_type 1
 
-eval/summarize.tl literal_needs_type 1
 
 lang/declarations.tl literal_needs_type 2
 
@@ -6483,20 +6448,19 @@ core/connector_test.tl arms_differ 7
 
 core/declarations_test.tl arms_differ 5
 
-core/grants_child_test.tl arms_differ 1
 
 core/grants_refused_test.tl arms_differ 1
 
 core/proc_user_test.tl arms_differ 5
 
-core/promises_test.tl arms_differ 2
+core/promises_test.tl arms_differ 1
 
 
 core/syscalls_test.tl arms_differ 7
 
-core/syscalls_tool_test.tl arms_differ 9
+core/syscalls_tool_test.tl arms_differ 1
 
-core/syscalls_tool_unsandboxed_test.tl arms_differ 6
+core/syscalls_tool_unsandboxed_test.tl arms_differ 1
 
 cosmic/child.tl arms_differ 3
 
@@ -6586,7 +6550,6 @@ cosmic/web/testing.tl arms_differ 2
 
 cosmic/zip.tl arms_differ 1
 
-eval/check/grade.tl arms_differ 5
 
 eval/declared_types_test.tl arms_differ 2
 

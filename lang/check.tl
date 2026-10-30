@@ -35,8 +35,8 @@
 --- every field, `?` ones as `name = nil` ([`Check.Checked.literals`] tells the code generator which literals make
 --- one); there is no other way to make one, so a declaration used as a value is a type of its own, no `setmetatable`
 --- call is typed (`setmetatable_call`), and a literal or an `is` of a class is allowed only where the class's table
---- is in reach (`class_scope`). A `<close>` local holds nil or a class or userdata record that declares
---- `__close` (`close_not_closable`).
+--- is in reach (`class_scope`). A `<close>` local holds nil, or a class or userdata record that declares
+--- `__close` as a method (`close_not_closable`).
 ---
 --- **Flow.** The walk keeps what is known at the point it has reached ([`lang.flow`]): a place a test narrowed, a local
 --- not yet assigned, and whether control reaches the point. A place is a local, or a path of fixed fields (not `mut`) of
@@ -5749,11 +5749,12 @@ local function check_counts(ctx: Ctx, node: Ast.Node, n: integer, vals: Values, 
   return true
 end
 
---- Whether a value of type `t` is nil or a value of a class or userdata record that declares `__close`, which is what a
---- `<close>` local holds ("compiler-written classes" in doc/plans/strict-teal.md). A userdata record is made by the
---- core and no Teal literal, so its declared `__close` is the metamethod the core's userdata has, which
---- core/declarations_test.tl holds the declaration to; a record or interface is made by a table literal and may lack
---- it. `invalid` and `never` stand for a mistake already reported.
+--- Whether a value of type `t` is nil or a value of a class or userdata record that declares `__close` as a method that
+--- takes the value (and the error object, `any`) and answers nothing ([`Declarations.close_is_callable`], the one check
+--- a class's declaration is held to, which takes the value alone), which is what a `<close>` local holds ("compiler-written classes" in doc/plans/strict-teal.md). The
+--- declaration of a userdata record is taken as true: whether any declaration matches its implementation is not this
+--- rule's to ask. A record or interface is made by a table literal and may lack the member. `invalid` and `never`
+--- stand for a mistake already reported.
 local function closable(t: Type): boolean
   local tag = t.tag
   if tag == "nil" or tag == "invalid" or tag == "never" then
@@ -5761,13 +5762,11 @@ local function closable(t: Type): boolean
   elseif (t.tag == "named") then
     local body = t.decl.body
     local kind = t.decl.kind
-    if t.value or (kind ~= "class" and kind ~= "userdata") then
+    if t.value or body == nil or (kind ~= "class" and kind ~= "userdata") then
       return false
-    elseif body == nil then
-      return kind == "class"
     end
     for _, m in ipairs(body.methods) do
-      if m.name == "__close" then
+      if m.name == "__close" and Declarations.close_is_callable(m.type, true) then
         return true
       end
     end
@@ -5783,19 +5782,42 @@ local function closable(t: Type): boolean
   return false
 end
 
---- Reports the `<close>` local `b`, of type `t`, unless it holds nil or a class that declares `__close`.
+--- Reports the `<close>` local `b`, of type `t`, unless it holds nil or a class or userdata record that declares `__close`
+--- as a method.
 local function check_closable(ctx: Ctx, b: Ast.Binding, t: Type)
   if closable(t) then
     return
   end
-  local what = if (t.tag == "named") and not t.value and t.decl.kind == "class" then "the class " .. tq(ctx, t) .. " declares no `__close`"
-    elseif (t.tag == "named") and not t.value and t.decl.kind == "userdata" then
-    "the userdata record " .. tq(ctx, t) .. " declares no `__close`" else
-    tq(ctx, t) .. " is not a class" end
-  report(ctx, "close_not_closable", b, quoted(b.name) .. " is a `<close>` local of " .. tq(ctx, t) .. ", and " .. what ..
-      ": Lua would raise at the declaration, since the value has no `__close` to call at the end of the block",
-    "hold a class that declares `function __close(self)` (or nil) in " .. quoted(b.name) .. ", or release the value by " ..
-      "hand and make " .. quoted(b.name) .. " an ordinary local", { show(ctx, t) })
+  -- Why `held`, which `closable` refused, is no type of a `<close>` local: for a union, its first member that is none.
+  local function because(held: Type): string
+    if held.tag == "union" then
+      for _, m in ipairs(held.members) do
+        if not closable(m) then
+          return "the member " .. tq(ctx, m) .. (if m.tag == "named" then " (of " .. m.decl.module .. ")" else "" end) ..
+            " of the union is not closable: " .. because(m)
+        end
+      end
+    end
+    if (held.tag == "named") and not held.value and (held.decl.kind == "class" or held.decl.kind == "userdata") then
+      local what = if held.decl.kind == "class" then "the class " else "the userdata record " end
+      local body = held.decl.body
+      if body == nil then
+        return what .. tq(ctx, held) .. " has no declared body, so it declares no `__close`"
+      end
+      for _, m in ipairs(body.methods) do
+        if m.name == "__close" then
+          return what .. tq(ctx, held) .. " declares a `__close` that is not a function taking the value, and the error object " ..
+            "as `any` at most, and answering nothing"
+        end
+      end
+      return what .. tq(ctx, held) .. " declares no `__close` method (a field of that name is not one)"
+    end
+    return tq(ctx, held) .. " is not a class or a userdata record"
+  end
+  report(ctx, "close_not_closable", b, quoted(b.name) .. " is a `<close>` local of " .. tq(ctx, t) .. ", and " ..
+      because(t) .. ": Lua would raise at the declaration, since the value has no `__close` to call at the end of the block",
+    "declare `function __close(self)` as a method on the class or userdata record " .. quoted(b.name) .. " holds (or hold " ..
+      "nil), or release the value by hand and make " .. quoted(b.name) .. " an ordinary local", { show(ctx, t) })
 end
 
 --- The type a local declared `declared` has after it is given a value of type `t`: the view of `t` where that is below

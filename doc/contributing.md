@@ -255,7 +255,7 @@ the second stage compiles everything up to [`build.boot`]. The seed's source
 may use only what that release parses; a boot whose seed refuses it fails
 naming the file and line, and the pin must move to a release that parses it.
 a change to what the generator in [`lang/codegen.tl`] writes also differs from
-the seed, which the bridge refuses unless the change adds [`lang/SEED_DIFFERS`]
+the seed, which the bridge refuses unless the change adds `lang/SEED_DIFFERS`
 naming, one a line, each seed source whose Lua differs ([`lang/codegen.tl`], ...):
 source paths, no comments. a difference in a file not listed still fails the
 boot, as does a listed file that does not differ; the pin move that takes a
@@ -293,5 +293,4 @@ the tool named can be older than the tree's generator.
 [`doc/testing.md`]: testing.md
 [`doc/writing.md`]: writing.md
 [`lang/codegen.tl`]: ../lang/codegen.tl
-[`lang/SEED_DIFFERS`]: ../lang/SEED_DIFFERS
 [`Proc.find`]: ../cosmic/proc.tl
