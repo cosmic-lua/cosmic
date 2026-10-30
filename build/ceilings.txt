@@ -641,7 +641,6 @@ build/derivation.tl nil_not_allowed 5
 
 build/digest_test.tl nil_not_allowed 3
 
-build/dispatch.tl nil_not_allowed 27
 
 build/dispatched_features_test.tl nil_not_allowed 1
 
@@ -688,7 +687,6 @@ build/fix/near_test.tl nil_not_allowed 3
 
 build/fix/notes_test.tl nil_not_allowed 1
 
-build/flow.tl nil_not_allowed 21
 
 build/flow_test.tl nil_not_allowed 2
 
@@ -853,7 +851,6 @@ build/syntax_analyzer.tl nil_not_allowed 4
 
 build/syntax_analyzer_test.tl nil_not_allowed 23
 
-build/syntax_contracts.tl nil_not_allowed 38
 
 build/syntax_contracts_test.tl nil_not_allowed 1
 
@@ -942,7 +939,6 @@ build/todos_git_test.tl nil_not_allowed 22
 
 build/todos_test.tl nil_not_allowed 49
 
-build/tree_checks.tl nil_not_allowed 71
 
 build/tree_checks_test.tl nil_not_allowed 36
 
@@ -1416,7 +1412,7 @@ lang/types_test.tl nil_not_allowed 28
 # a value that may be nil because an assignment dropped what a test showed: the assignment is of a value that is itself
 # optional (`owner, why = find()` after `if owner == nil`), so it narrows nothing; the rewrite tests again after the assignment
 
-build/tree_checks.tl narrowing_dropped 7
+
 
 # a local declared with no value and read, or named by a function made, before every path assigns it: the functions declared
 # ahead for mutual recursion (`local expr: function(...)`), which the rewrite makes the functions of a record
@@ -1574,7 +1570,6 @@ build/declared_key_fuzz_test.tl index_may_be_nil 8
 
 build/derivation.tl index_may_be_nil 2
 
-build/dispatch.tl index_may_be_nil 6
 
 build/dispatched_features_test.tl index_may_be_nil 1
 
@@ -1601,7 +1596,6 @@ build/fix/fix_test.tl index_may_be_nil 2
 
 build/fix/near.tl index_may_be_nil 2
 
-build/flow.tl index_may_be_nil 5
 
 build/fuzz/init.tl index_may_be_nil 2
 
@@ -1692,7 +1686,6 @@ build/symbol_index.tl index_may_be_nil 1
 
 build/syntax_analyzer_test.tl index_may_be_nil 1
 
-build/syntax_contracts.tl index_may_be_nil 17
 
 build/syntax_derivation.tl index_may_be_nil 2
 
@@ -1755,7 +1748,6 @@ build/todos_git_test.tl index_may_be_nil 3
 
 build/todos_test.tl index_may_be_nil 1
 
-build/tree_checks.tl index_may_be_nil 11
 
 build/tree_program.tl index_may_be_nil 1
 
@@ -5487,7 +5479,7 @@ build/declared_key_test.tl and_ternary 2
 
 build/derivation.tl and_ternary 1
 
-build/dispatch.tl and_ternary 2
+
 
 build/docs.tl and_ternary 12
 
@@ -5607,7 +5599,7 @@ build/todo_scan.tl and_ternary 2
 
 build/todos.tl and_ternary 7
 
-build/tree_checks.tl and_ternary 11
+build/tree_checks.tl and_ternary 10
 
 build/tree_program_test.tl and_ternary 1
 
