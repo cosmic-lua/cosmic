@@ -2882,7 +2882,6 @@ core/launcher_cache_test.tl map_field 3
 
 core/noexec_nested_test.tl map_field 3
 
-core/promises_test.tl map_field 8
 
 core/socket_test.tl map_field 5
 
@@ -3804,20 +3803,17 @@ core/connector_test.tl cast_refused 3
 
 core/declarations_test.tl cast_refused 10
 
-core/grants_child_test.tl cast_refused 4
 
 core/grants_refused_test.tl cast_refused 1
 
 
 
-core/promises_child_test.tl cast_refused 2
 
-core/promises_held_child_test.tl cast_refused 4
 
 core/promises_refused_test.tl cast_refused 3
 
 
-core/promises_test.tl cast_refused 4
+core/promises_test.tl cast_refused 2
 
 core/rlimits_child_test.tl cast_refused 2
 
@@ -3848,9 +3844,7 @@ core/syscalls_sigpipe_proc_test.tl cast_refused 1
 
 core/syscalls_test.tl cast_refused 17
 
-core/syscalls_tool_test.tl cast_refused 5
 
-core/syscalls_tool_unsandboxed_test.tl cast_refused 3
 
 cosmic/archive_fuzz_test.tl cast_refused 3
 
@@ -4566,7 +4560,6 @@ core/database_start_test.tl condition_type 2
 
 core/declarations_test.tl condition_type 3
 
-core/grants_child_test.tl condition_type 7
 
 core/linkage_test.tl condition_type 1
 
@@ -4582,7 +4575,6 @@ core/syscalls_relay_test.tl condition_type 1
 
 core/syscalls_test.tl condition_type 2
 
-core/syscalls_tool_test.tl condition_type 2
 
 
 cosmic/archive_test.tl condition_type 1
@@ -6163,11 +6155,10 @@ core/declarations_test.tl literal_needs_type 4
 
 core/promises_refused_test.tl literal_needs_type 1
 
-core/promises_test.tl literal_needs_type 10
+core/promises_test.tl literal_needs_type 7
 
 core/syscalls_test.tl literal_needs_type 14
 
-core/syscalls_tool_unsandboxed_test.tl literal_needs_type 2
 
 cosmic/archive.tl literal_needs_type 1
 
@@ -6503,20 +6494,19 @@ core/connector_test.tl arms_differ 26
 
 core/declarations_test.tl arms_differ 5
 
-core/grants_child_test.tl arms_differ 1
 
 core/grants_refused_test.tl arms_differ 1
 
 core/proc_user_test.tl arms_differ 5
 
-core/promises_test.tl arms_differ 2
+core/promises_test.tl arms_differ 1
 
 
 core/syscalls_test.tl arms_differ 7
 
-core/syscalls_tool_test.tl arms_differ 9
+core/syscalls_tool_test.tl arms_differ 1
 
-core/syscalls_tool_unsandboxed_test.tl arms_differ 6
+core/syscalls_tool_unsandboxed_test.tl arms_differ 1
 
 cosmic/child.tl arms_differ 3
 

@@ -7,6 +7,7 @@
 --- Landlock they are skipped (`requires`). The filter's own rules, on both
 --- architectures, are core/promises_test.tl's.
 
+local RawTables = require("build.raw_tables")
 local Fs = require("cosmic.fs")
 local Net = require("cosmic.net")
 local Test = require("cosmic.test")
@@ -34,18 +35,7 @@ Test.policy{
   requires = { "landlock", "nest" },
 }
 
-local type Searcher = function(string): any, any
-
---- The raw table the store's searcher hands `wrapper`'s loader.
-local function raw_behind(wrapper: string): any
-  for _, searcher in ipairs(package.searchers as {Searcher}) do -- cast: searchers' loaders take an extra
-    local loader, extra = searcher(wrapper)
-    if type(loader) == "function" and type(extra) == "table" then return extra end
-  end
-  error(wrapper .. " is handed no raw table")
-end
-
-local process = raw_behind("cosmic.child") as raw_process -- cast: the table core/process.h declares
+local process = RawTables.process()
 
 --- What a script left on stdout and stderr, and how its program ended.
 local record Outcome
@@ -290,11 +280,14 @@ local function test_a_descriptor_that_opens_a_directory_or_a_socket_is_not_held_
   -- an O_PATH descriptor of a socket file is a way to connect to it.
   local directory = assert(sys.open(tmp .. "/socks", sys.O_RDONLY))
   local named = assert(sys.open(socket, O_PATH))
-  local ways: {{integer | string}} = { { directory, "/proc/self/fd/3/host.sock" },
-    { named, "/proc/self/fd/3" } }
+  local record Way
+    fd: integer
+    path: string
+  end
+  local ways: {Way} = { { fd = directory, path = "/proc/self/fd/3/host.sock" },
+    { fd = named, path = "/proc/self/fd/3" } }
   for _, way in ipairs(ways) do
-    local result = in_sandbox(tmp, probe, rooted_with(probe, {}), "connect " .. (way[2] as string),
-      { [3] = way[1] as integer })
+    local result = in_sandbox(tmp, probe, rooted_with(probe, {}), "connect " .. way.path, { [3] = way.fd })
     assert(result.said ~= "connected\n", "not reached: " .. result.said)
     if abi < 9 then
       assert(refused(result.said), "socket() refused below ABI 9: " .. result.said)
@@ -312,8 +305,9 @@ local function start(probe: string, sandbox: raw_process.Sandbox): integer?, str
   local pid, trouble = process.spawn(probe, { probe, "print started" }, nil, "/", nil, null, null, false,
     nil, sandbox)
   sys.close(null)
-  if pid ~= nil then assert(process.waitpid(pid, false)) end
-  return pid, trouble or ""
+  if pid == nil then return nil, trouble end
+  assert(process.waitpid(pid, false))
+  return pid, ""
 end
 
 local function test_a_unix_socket_below_abi_9_fails_a_start_that_binds_a_directory(tmp: string)
