@@ -3,7 +3,6 @@
 --- out, the binary's own database among them, and the binary's alone
 --- inside [`Store.alone`] (cosmic/store_tool_test.tl starts this program).
 
-local Cell = require("cosmic.cell")
 local Sqlite = require("cosmic.sqlite")
 local Store = require("cosmic.store")
 local Test = require("cosmic.test")
@@ -98,16 +97,16 @@ end
 local function test_alone_searches_only_the_binarys_own_database()
   local before = #Store.databases()
   assert(before >= 2, "a test's tree is attached ahead of the binary's")
-  local inside: Cell<integer> = { value = 0 }
-  local attached: Cell<boolean> = { value = true }
-  local nested: Cell<boolean> = { value = true }
+  local inside: integer = 0
+  local attached: boolean = true
+  local nested: boolean = true
   Store.alone(function()
-    inside.value = #Store.databases()
-    attached.value = pcall(Store.attach, "/nonexistent/cosmic.db")
-    nested.value = pcall(Store.alone, function() end)
+    inside = #Store.databases()
+    attached = pcall(Store.attach, "/nonexistent/cosmic.db")
+    nested = pcall(Store.alone, function() end)
   end)
-  assert(inside.value == 1, tostring(inside.value))
-  assert(not attached.value and not nested.value)
+  assert(inside == 1, tostring(inside))
+  assert(not attached and not nested)
   assert(#Store.databases() == before)
   local ok, trouble = pcall(function(): string
     Store.alone(function() error("boom", 0) end)
