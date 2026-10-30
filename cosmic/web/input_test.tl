@@ -682,7 +682,7 @@ local function test_form_into_and_query_into_bind_a_request()
 end
 
 local record Gaps
-  xs: {integer?}
+  xs: {integer}
 end
 
 local function test_a_list_item_that_is_absent_stays_a_hole_at_its_position()
