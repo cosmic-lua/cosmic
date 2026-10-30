@@ -14,6 +14,13 @@ local _net = require("cosmic.net")
 local _http = require("cosmic.http")
 local _sandbox = require("cosmic.sandbox")
 
+--- The element of `list` at `index`, which the case knows is there.
+local function nth<T>(list: {T}, index: integer): T
+  local found = list[index]
+  assert(found ~= nil, "the list has an element at " .. tostring(index))
+  return found
+end
+
 local function source(...: string): string
   return table.concat({ ... }, "\n") .. "\n"
 end
@@ -88,15 +95,15 @@ local function test_a_removed_member_answers_its_replacement(dir: string)
   local view = assert(docs.view({ fixture.database(dir, tree()) }))
   for _, query in ipairs({ "Net.pair", "net.pair", "cosmic.net.pair" }) do
     local found = assert(docs.lookup(view, query))
-    assert(found.exact and #found == 1 and found[1].kind == "removed", query)
-    assert(found[1].module == "cosmic.net", found[1].module)
+    assert(found.exact and #found == 1 and nth(found, 1).kind == "removed", query)
+    assert(nth(found, 1).module == "cosmic.net", nth(found, 1).module)
     local shown = page(view, found)
     assert(shown:find(query .. " was removed: listen at a socket file", 1, true), shown)
     assert(shown:find("Net.listen(Net.unix(path))", 1, true), shown)
     assert(not shown:find("Net.unix(path): string", 1, true), shown)
   end
   local found = assert(docs.lookup(view, "Codec.encoder"))
-  assert(found.exact and #found == 1 and found[1].kind == "removed")
+  assert(found.exact and #found == 1 and nth(found, 1).kind == "removed")
   local shown = page(view, found)
   assert(shown:find("Codec.encoder was removed: the streaming coders are", 1, true), shown)
   assert(not shown:find("verb.encoder", 1, true), shown)
@@ -107,7 +114,7 @@ end
 local function test_a_removed_type_answers_its_replacement(dir: string)
   local view = assert(docs.view({ fixture.database(dir, tree()) }))
   local found = assert(docs.lookup(view, "Net.Pair"))
-  assert(found.exact and #found == 1 and found[1].kind == "removed")
+  assert(found.exact and #found == 1 and nth(found, 1).kind == "removed")
   local shown = page(view, found)
   assert(shown:find("Net.Pair was removed: Net.pair is gone, and so its record", 1, true), shown)
   assert(not shown:find("Net.unix", 1, true), shown)
@@ -124,8 +131,8 @@ end
 local function test_a_removed_global_s_field_answers_its_replacement(dir: string)
   local view = assert(docs.view({ fixture.database(dir, tree()) }))
   local found = assert(docs.lookup(view, "os.getenv"))
-  assert(found.exact and #found == 1 and found[1].kind == "removed")
-  assert(found[1].module == "cosmic.removed", found[1].module)
+  assert(found.exact and #found == 1 and nth(found, 1).kind == "removed")
+  assert(nth(found, 1).module == "cosmic.removed", nth(found, 1).module)
   local shown = page(view, found)
   assert(shown:find("os.getenv is not available: use Env.get(name)", 1, true), shown)
   assert(not shown:find("One variable", 1, true), shown)
@@ -136,7 +143,7 @@ end
 local function test_a_removed_package_field_answers_its_replacement(dir: string)
   local view = assert(docs.view({ fixture.database(dir, tree()) }))
   local found = assert(docs.lookup(view, "package.path"))
-  assert(found.exact and #found == 1 and found[1].kind == "removed")
+  assert(found.exact and #found == 1 and nth(found, 1).kind == "removed")
   assert(page(view, found):find("package.path is not available: there is no file search path",
     1, true))
 end
@@ -153,11 +160,11 @@ local function test_a_live_name_keeps_its_page(dir: string)
     ""))
   local view = assert(docs.view({ fixture.database(dir, tree({ ["cosmic/net.tl"] = live })) }))
   local found = assert(docs.lookup(view, "Net.pair"))
-  assert(found.exact and #found == 1 and found[1].kind == "function", found[1].kind)
-  assert(found[1].source_symbol == "Net.pair", found[1].source_symbol)
+  assert(found.exact and #found == 1 and nth(found, 1).kind == "function", nth(found, 1).kind)
+  assert(nth(found, 1).source_symbol == "Net.pair", nth(found, 1).source_symbol)
   assert(not page(view, found):find("was removed", 1, true))
   local unlisted = assert(docs.lookup(view, "Net.unix"))
-  assert(unlisted[1].kind == "function" and unlisted[1].source_symbol == "Net.unix")
+  assert(nth(unlisted, 1).kind == "function" and nth(unlisted, 1).source_symbol == "Net.unix")
   local searched = assert(docs.lookup(view, "Net.nothing_of_the_kind"))
   for _, entry in ipairs(searched) do
     assert(entry.kind ~= "removed", entry.source_symbol)
@@ -208,6 +215,6 @@ local function test_a_removed_member_is_answered_without_its_module(dir: string)
     ["cosmic/codec.tl"] = module("codec", "Codec"),
   }) }))
   local found = assert(docs.lookup(view, "Net.pair"))
-  assert(found.exact and #found == 1 and found[1].kind == "removed")
+  assert(found.exact and #found == 1 and nth(found, 1).kind == "removed")
   assert(page(view, found):find("Net.pair was removed: listen at a socket file", 1, true))
 end
