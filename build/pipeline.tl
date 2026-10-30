@@ -267,11 +267,11 @@ function Pipeline.alone(): Pipeline.Options?, string
 end
 
 function Pipeline.options(root: string): Pipeline.Options?, string
-  local own, own_why = tree.is_own(root)
-  if own == nil then
-    return nil, own_why
+  local standing, standing_why = tree.standing(root)
+  if standing == nil then
+    return nil, standing_why
   end
-  if not own then
+  if not standing.own then
     return Pipeline.alone()
   end
   local prelude, prelude_why = Fs.read(root .. "/" .. CheckerDeclarations.prelude_file())

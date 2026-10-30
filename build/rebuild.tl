@@ -23,7 +23,7 @@ local record rebuild
   record Where
     --- Whether it is one to build ([`where`]).
     project: boolean
-    --- Whether it is cosmic's own tree ([`tree.is_own`]).
+    --- Whether it is cosmic's own tree ([`tree.standing`]).
     own_tree: boolean
     --- Its build directory, or nil where it can have none.
     directory: string?
@@ -66,9 +66,9 @@ end
 --- holds: a lookup never starts a tree of its own in a directory that has
 --- a stray `.tl`, nor below the home directory.
 local function where(root: string): rebuild.Where?, string
-  local own, own_trouble = tree.is_own(root)
-  if own == nil then return nil, own_trouble end
-  local own_tree = own == true
+  local standing, own_trouble = tree.standing(root)
+  if standing == nil then return nil, own_trouble end
+  local own_tree = standing.own
   local directory, directory_trouble = build_paths.optional(root)
   if directory == nil then
     if directory_trouble ~= "" and not own_tree then return nil, directory_trouble end

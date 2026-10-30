@@ -4399,7 +4399,7 @@ build/dispatched_features_test.tl condition_type 2
 
 build/fetch.tl condition_type 3
 
-build/fix/init.tl condition_type 16
+build/fix/init.tl condition_type 15
 
 
 build/flow.tl condition_type 1

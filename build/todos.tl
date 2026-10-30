@@ -713,9 +713,9 @@ function todos.run(argv: {string}, at?: string, seen?: reboot.Seen): integer
   local paths, words = arguments.paths, arguments.words
   local query = table.concat(words, " ")
 
-  local own_tree, own_trouble = tree.is_own(root)
-  if own_tree == nil then
-    log:complain(own_trouble)
+  local standing, standing_trouble = tree.standing(root)
+  if standing == nil then
+    log:complain(standing_trouble)
     return 1
   end
   -- Made again where it is of another schema and no run holds it, as a
@@ -741,7 +741,7 @@ function todos.run(argv: {string}, at?: string, seen?: reboot.Seen): integer
     -- on [`todos.list`] split in two: a read of the rows and their blame
     -- by git with no transaction held, then one short write of what git
     -- said, made again where the rows moved meanwhile.
-    local staged, stage_trouble = work.stage(handle, own_tree)
+    local staged, stage_trouble = work.stage(handle, standing.own)
     if staged == nil then
       local _, _ = work.abort(handle)
       log:complain(stage_trouble)
