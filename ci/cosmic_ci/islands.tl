@@ -1,18 +1,26 @@
---- `check-islands`, which type-checks the bootstrap scripts, the files of `build/` that `bin/cosmic-bootstrap` runs
---- on the release ci/cosmic-driver.pin names, in the new checker's grammar (it sets COSMIC_GRAMMAR=new), on that
---- release, the one running this driver:
+--- `check-islands`, which type-checks the files `bin/cosmic-bootstrap` runs standalone on the release
+--- ci/cosmic-driver.pin names, in the new checker's grammar (it sets COSMIC_GRAMMAR=new), on that release, the one
+--- running this driver:
 ---
 ---     cosmic-driver cosmic_ci/driver.tl check-islands [ROOT]
 ---
---- ROOT is the checkout (default `..`, as CI runs the driver from `ci/`). The scripts are the ones [`Islands.scripts`]
---- finds by reading the checkout for what runs a file `--standalone` on `bin/cosmic-bootstrap`, and the standalone runs
---- of `build/zig.tl`, so a new runner is checked with no list to edit. Each is run
+--- ROOT is the checkout (default `..`, as CI runs the driver from `ci/`). The files are those ci/bootstrap-files.txt
+--- lists. The list is enforced where the run happens: bin/cosmic-bootstrap refuses `--standalone` on a file of its
+--- checkout that is not listed, so a file cannot run on the pinned release unlisted, however its caller spells the
+--- command, and every listed file is run here. Each is run
 --- standalone as the bootstrap runs it, with `--help`, so that the release reads it in the new grammar and holds it to
 --- its checker with the standard library it carries and no ceiling: a script that has a finding is refused before
 --- it runs and says so on standard error as `file:line:column: message`, and one that has none prints its usage.
 --- `compile --grammar new` is not used: a lone file has no `cosmic.*` module to read (each is typed `invalid`), and the
 --- globals come from declaration files the release's own standalone does not read, so what it finds is not what the
 --- scripts meet.
+---
+--- What the wrapper cannot see is the pinned binary run directly (the CI driver, `$driver --standalone ...`). The
+--- tracked files of `.github/` and `ci/` that spell `--standalone` outside the wrapper are held to
+--- [`Islands.driver_uses`], so a new one fails here until it is named. A file of those directories that spells the
+--- flag through a variable (`flag="--standalone"`, or a list built a word at a time) is not seen, and a test's own
+--- fixtures are exempt: the escape is accepted because it takes deliberate indirection in a directory CI owns, review
+--- sees it, and the wrapper, where the tree's own scripts run, is not subject to it.
 --
 -- TODO: stop running the scripts, once ci/cosmic-driver.pin names a release whose `compile --grammar new` types the
 -- `cosmic.*` modules it carries: `build/zig.tl --help` is zig's own, which needs zig installed, where a compile would
@@ -23,6 +31,7 @@ local Clock = require("cosmic.clock")
 local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
 local Plural = require("cosmic_ci.plural")
+local Proc = require("cosmic.proc")
 local String = require("cosmic.string")
 
 local record Islands
@@ -32,40 +41,33 @@ local record Islands
     checked: integer
   end
 
-  --- A Teal file the pinned release runs standalone, by its path from the root of the checkout, and the files that
-  --- run it: the wrappers of `bin/` and `eval/`, or `build/zig.tl`.
-  record Script
-    path: string
-    wrappers: {string}
-  end
-
   --- The exit status of `--help` for each script that does not give 0.
   mut help_exits: {string:integer}
 
-  --- The directories [`Islands.scripts`] does not read.
-  mut left_out: {string:boolean}
+  --- The tracked files of `.github/` and `ci/` that run a file standalone on the pinned binary other than through
+  --- bin/cosmic-bootstrap, each with why it is allowed.
+  mut driver_uses: {string:string}
 end
 
 --- The exit status each script gives `--help`, where it is not 0: the scripts that answer a usage error (`patch`,
 --- `zig_fetch`, and the scripts of `eval/`, which take arguments) and those that print usage and fail (`paths`, `perf`,
---- and `summarize`, which takes it for a file). Any other status is a crash the check must not take for a clean script.
+--- `summarize`, which takes it for a file, and `run_local_proof`, whose assertion on its arguments is that failure).
+--- Any other status is a crash the check must not take for a clean script.
 Islands.help_exits = {
   ["build/patch.tl"] = 2, ["build/paths.tl"] = 1, ["build/perf.tl"] = 1, ["build/zig_fetch.tl"] = 2,
   ["eval/arena.tl"] = 2, ["eval/check/grade.tl"] = 2, ["eval/result.tl"] = 2, ["eval/round.tl"] = 2,
-  ["eval/solve.tl"] = 2, ["eval/summarize.tl"] = 1,
+  ["eval/solve.tl"] = 2, ["eval/summarize.tl"] = 1, ["ci/run_local_proof.tl"] = 1,
 }
 
---- The directories the scan of [`Islands.scripts`] leaves out, by path from the root, with why: `.git` and `vendor/`
---- (third-party trees, edited only by patch records), `o/` (a stale build directory, never read) and `ci/`, a
---- project of its own that `cosmic-driver test cosmic_ci` compiles on the pinned release, as ci/README.md says, so
---- ci/run-local's `ci/run_local.tl` is held to it there, where a run with `--help` would start the platform job.
-Islands.left_out = { [".git"] = true, vendor = true, o = true, ci = true }
-
---- Where a file is `--standalone` run on the bootstrap, in the text after `--standalone`: a shell word
---- `"$root/<file>.tl"`, or Teal `root .. "/<file>.tl"`.
-local function standalone_file(after: string): string?
-  return after:match('"%$root/([%w_/%.%-]+%.tl)"') or after:match('root %.%. "/([%w_/%.%-]+%.tl)"')
-end
+Islands.driver_uses = {
+  [".github/scripts/run-local-proof.sh"] = "runs ci/run_local_proof.tl, which ci/bootstrap-files.txt lists",
+  ["ci/run_local_proof.tl"] = "starts ci/run_local.tl, which the driver's own tests compile (run_local_test.tl requires " ..
+    "it) and which `--help` would not stop: it would start the platform job",
+  ["ci/run_local.tl"] = "starts build/paths.tl, which ci/bootstrap-files.txt lists",
+  ["ci/cosmic_ci/build_paths.tl"] = "starts build/paths.tl, which ci/bootstrap-files.txt lists",
+  ["ci/cosmic_ci/islands.tl"] = "starts each file ci/bootstrap-files.txt lists",
+  ["ci/cosmic_ci/driver.tl"] = "names the flag in the help of check-islands",
+}
 
 --- Whether `line` is a comment of a shell, YAML, Lua or Teal file.
 local function is_comment(line: string): boolean
@@ -73,8 +75,8 @@ local function is_comment(line: string): boolean
 end
 
 --- The `standalone(root, "<file>.tl", ...)` calls of build/zig.tl, which run `<file>` on the pinned release's binary,
---- by path. Nil with why where a call is not one this reads: its file not a string literal on the call's
---- own line, which would leave the file unchecked. Every call site is counted, not only the ones that match.
+--- by path. Nil with why where a call is not one this reads: its file not a string literal on the call's own line,
+--- which would leave the file unchecked. Every call site is counted, not only the ones that match.
 local function zig_runs(zig: string): {string}?, string
   local runs: mut {string} = {}
   local number = 0
@@ -96,94 +98,8 @@ local function zig_runs(zig: string): {string}?, string
   return runs, ""
 end
 
---- The scripts the pinned release runs, found where they say so. Every file of the checkout (but [`Islands.left_out`],
---- binary files and Markdown, which only describes) is read for a line, other than a comment, that names
---- `bin/cosmic-bootstrap`: where it and the two lines after it have `--standalone` it must give the file run there
---- (`"$root/<file>.tl"` in a shell script, `root .. "/<file>.tl"` in Teal), and one that does not is refused. A file of
---- `bin/` or `eval/` that names the bootstrap with no `--standalone` is refused too, whatever its first line says, so
---- that no wrapper escapes the check; elsewhere such a line is a verb that runs no file (`compile`), a cache key or a
---- sparse checkout. `build/zig.tl` runs `build/patch.tl` and `build/zig_fetch.tl` on that release's binary, which
---- zig_runs reads. The scripts are in the order of their paths. Nil with why where a file cannot be read, a line
---- is of a form this cannot read, or none is found.
-function Islands.scripts(root: string): {Islands.Script}?, string
-  local found: mut {string:mut {string}} = {}
-  local function add(path: string, wrapper: string)
-    local known = found[path]
-    if known ~= nil then
-      known[#known + 1] = wrapper
-    else
-      found[path] = { wrapper }
-    end
-  end
-  local files, walk_why = Fs.walk(root, function(relative: string, _: string, kind: Fs.Kind): boolean
-    return kind == "dir" and Islands.left_out[relative] == true
-  end)
-  if files == nil then return nil, walk_why end
-  for _, file in ipairs(files) do
-    local text, read_why = Fs.read(root .. "/" .. file)
-    if text == nil then return nil, file .. ": " .. tostring(read_why) end
-    -- bin/cosmic-bootstrap is the script they all exec, not a wrapper of one.
-    if file ~= "bin/cosmic-bootstrap" and file:sub(-3) ~= ".md" and text:find("\0", 1, true) == nil and
-        text:find("cosmic-bootstrap", 1, true) ~= nil then
-      local lines: mut {string} = {}
-      for line in (text .. "\n"):gmatch("([^\n]*)\n") do lines[#lines + 1] = line end
-      for number, line in ipairs(lines) do
-        if line:find("cosmic-bootstrap", 1, true) ~= nil and not is_comment(line) then
-          local window = line .. "\n" .. (lines[number + 1] or "") .. "\n" .. (lines[number + 2] or "")
-          local at = window:find("--standalone", 1, true)
-          if at ~= nil then
-            local path = standalone_file(window:sub(at))
-            if path == nil then
-              return nil, file .. ":" .. tostring(number) .. ": runs a file standalone on bin/cosmic-bootstrap in a " ..
-                "form check-islands cannot read, which would leave it unchecked; write it as `exec " ..
-                "\"$root/bin/cosmic-bootstrap\" --standalone \"$root/<file>.tl\" ...` in a shell script, or " ..
-                "`root .. \"/<file>.tl\"` after `--standalone` in Teal: " .. String.trim(line)
-            end
-            add(path, file)
-          elseif file:find("^bin/") ~= nil or file:find("^eval/") ~= nil then
-            return nil, file .. ":" .. tostring(number) .. ": names bin/cosmic-bootstrap without --standalone, " ..
-              "so check-islands cannot tell which file it runs on the pinned release; write it as `exec " ..
-              "\"$root/bin/cosmic-bootstrap\" --standalone \"$root/<file>.tl\" ...`: " .. String.trim(line)
-          end
-        end
-      end
-    end
-  end
-  local zig, zig_why = Fs.read(root .. "/build/zig.tl")
-  if zig == nil then return nil, "build/zig.tl: " .. tostring(zig_why) end
-  local runs, runs_why = zig_runs(zig)
-  if runs == nil then return nil, runs_why end
-  for _, run in ipairs(runs) do add(run, "build/zig.tl") end
-  local scripts: mut {Islands.Script} = {}
-  for path, wrappers in pairs(found) do
-    scripts[#scripts + 1] = { path = path, wrappers = wrappers }
-  end
-  if #scripts == 0 then
-    return nil, "no file of the checkout runs a file standalone on bin/cosmic-bootstrap"
-  end
-  table.sort(scripts, function(a: Islands.Script, b: Islands.Script): boolean
-    return a.path < b.path
-  end)
-  return scripts, ""
-end
-
---- The scripts of `scripts` that `listed`, the paths ci/strict-files.txt holds, leaves out: the pinned release runs
---- them with no ceiling, so they are listed there to be held to none.
-function Islands.unlisted(scripts: {Islands.Script}, listed: {string}): {string}
-  local known: mut {string:boolean} = {}
-  for _, path in ipairs(listed) do known[path] = true end
-  local missing: mut {string} = {}
-  for _, script in ipairs(scripts) do
-    if known[script.path] ~= true then
-      missing[#missing + 1] = script.path .. " (run by " .. table.concat(script.wrappers, ", ") .. ")"
-    end
-  end
-  return missing
-end
-
---- The paths `text`, the list ci/islands.txt holds, names: one a line, with
---- what a `#` starts and blank lines left out. The list holds none now: the pinned release
---- reads a file it lists as Teal, which these are not.
+--- The paths `text`, a list such as ci/bootstrap-files.txt, names: one a line, with what a `#` starts and blank lines
+--- left out.
 function Islands.paths(text: string): {string}
   local paths: mut {string} = {}
   for line in text:gmatch("[^\n]+") do
@@ -193,12 +109,80 @@ function Islands.paths(text: string): {string}
   return paths
 end
 
+--- The files ci/bootstrap-files.txt of `root` lists, each checked to be there (build/ci_tree_test.tl holds them to
+--- ci/strict-files.txt, since the pinned release runs them with no ceiling), and the files build/zig.tl runs on that release's binary,
+--- each checked to be listed. Nil with why where the lists cannot be read or one disagrees.
+function Islands.files(root: string): {string}?, string
+  local text, trouble = Fs.read(root .. "/ci/bootstrap-files.txt")
+  if text == nil then return nil, "ci/bootstrap-files.txt: " .. tostring(trouble) end
+  local listed = Islands.paths(text)
+  local known: mut {string:boolean} = {}
+  for _, path in ipairs(listed) do
+    known[path] = true
+    local there, _ = Fs.exists(root .. "/" .. path)
+    if there ~= true then
+      return nil, "ci/bootstrap-files.txt lists " .. path .. ", which is not in the checkout: remove the stale entry"
+    end
+  end
+  local zig, zig_trouble = Fs.read(root .. "/build/zig.tl")
+  if zig == nil then return nil, "build/zig.tl: " .. tostring(zig_trouble) end
+  local runs, runs_why = zig_runs(zig)
+  if runs == nil then return nil, runs_why end
+  for _, path in ipairs(runs) do
+    if known[path] ~= true then
+      return nil, "build/zig.tl runs " .. path .. " on the pinned release's binary and ci/bootstrap-files.txt does not " ..
+        "list it: add it, so it is type-checked there"
+    end
+  end
+  return listed, ""
+end
+
+--- The tracked files of `root`, by path, from git; nil with why where git cannot list them.
+local function tracked(root: string): {string}?, string
+  local git, git_why = Proc.find("git")
+  if git == nil then return nil, "git: " .. git_why end
+  local answer, why = Child.run({ git, "-C", root, "ls-files", "-z" }, { stdout = "capture", stderr = "capture",
+    stdin = "null", timeout_ns = Clock.seconds(30) })
+  if answer == nil then return nil, "git ls-files: " .. why end
+  if answer.code ~= 0 then
+    return nil, "git ls-files failed in " .. root .. ": " .. String.trim(answer.stderr or "")
+  end
+  local files: mut {string} = {}
+  for file in (answer.stdout or ""):gmatch("[^%z]+") do files[#files + 1] = file end
+  return files, ""
+end
+
+--- Nil where every file of `files`, the tracked ones, of `.github/` and `ci/` that spells `--standalone` on a line that is no comment and does
+--- not run it through bin/cosmic-bootstrap is a test (`_test.tl`, whose fixtures it runs) or named in
+--- [`Islands.driver_uses`]; else why not, naming the file and line. Markdown only describes and is not read.
+function Islands.driver_use_refusal(root: string, files: {string}): string?
+  for _, file in ipairs(files) do
+    if (file:find("^%.github/") ~= nil or file:find("^ci/") ~= nil) and file:sub(-3) ~= ".md" and
+        file:sub(-8) ~= "_test.tl" and Islands.driver_uses[file] == nil then
+      local text, read_why = Fs.read(root .. "/" .. file)
+      if text == nil then return file .. ": " .. tostring(read_why) end
+      if text:find("\0", 1, true) == nil and text:find("--standalone", 1, true) ~= nil then
+        local number = 0
+        for line in (text .. "\n"):gmatch("([^\n]*)\n") do
+          number = number + 1
+          if line:find("--standalone", 1, true) ~= nil and not is_comment(line) and
+              line:find("bin/cosmic-bootstrap", 1, true) == nil then
+            return file .. ":" .. tostring(number) .. ": runs a file standalone on the pinned binary without " ..
+              "bin/cosmic-bootstrap, which refuses unlisted files; name the file in Islands.driver_uses " ..
+              "(ci/cosmic_ci/islands.tl) with why it is allowed, and list what it runs in ci/bootstrap-files.txt: " ..
+              String.trim(line)
+          end
+        end
+      end
+    end
+  end
+  return nil
+end
+
 --- What is wrong with `path`, a script of the checkout `root`, as the running driver reads it in the new grammar: nil
 --- where it says no `file:line:column:` of a finding or a syntax error and exits as its `--help` does
 --- ([`Islands.help_exits`]) when run standalone with `--help`, else what it said or why it did not run.
 function Islands.complaint(root: string, path: string, env: {string:string}): string?
-  local there, _ = Fs.exists(root .. "/" .. path)
-  if there ~= true then return "is not there" end
   local values: mut {string:string} = {}
   for name, value in pairs(env) do values[name] = value end
   values["COSMIC_GRAMMAR"] = "new"
@@ -228,24 +212,34 @@ function Islands.complaint(root: string, path: string, env: {string:string}): st
   return nil
 end
 
---- The complaints about `scripts` under `root`, each naming the script and the files that run it, and how many files
---- were checked.
-function Islands.check(root: string, scripts: {Islands.Script}, env: {string:string}): Islands.Report
+--- The complaints about the files of `paths` under `root`, each named, and how many were checked.
+function Islands.check(root: string, paths: {string}, env: {string:string}): Islands.Report
   local complaints: mut {string} = {}
   local checked = 0
-  for _, script in ipairs(scripts) do
-    local name = script.path .. " (run by " .. table.concat(script.wrappers, ", ") .. ")"
+  for _, path in ipairs(paths) do
     checked = checked + 1
-    local complaint = Islands.complaint(root, script.path, env)
-    if complaint ~= nil then complaints[#complaints + 1] = name .. ": " .. complaint end
+    local complaint = Islands.complaint(root, path, env)
+    if complaint ~= nil then
+      complaints[#complaints + 1] = path .. " (listed in ci/bootstrap-files.txt): " .. complaint
+    end
   end
   return { complaints = complaints, checked = checked }
 end
 
---- `driver.tl check-islands [ROOT]`: the scripts [`Islands.scripts`] finds under ROOT, and that
+--- `driver.tl check-islands [ROOT]`: the files ci/bootstrap-files.txt lists under ROOT, and that
 --- ci/islands.txt lists none, since the pinned release would read a file it lists as Teal.
 function Islands.command(argv: {string}): integer
   local root = argv[1] or ".."
+  local files, why = tracked(root)
+  if files == nil then
+    local _, _ = Fs.put(Fs.stderr, "check-islands: " .. why .. "\n")
+    return 2
+  end
+  return Islands.verdict(root, files)
+end
+
+--- What [`Islands.command`] answers for the checkout `root` whose tracked files are `tracked_files`.
+function Islands.verdict(root: string, tracked_files: {string}): integer
   local list = root .. "/ci/islands.txt"
   local text, trouble = Fs.read(list)
   if text == nil then
@@ -258,29 +252,22 @@ function Islands.command(argv: {string}): integer
         ", which the pinned release would read as Teal; the list is empty now\n")
     return 1
   end
-  local scripts, why = Islands.scripts(root)
-  if scripts == nil then
+  local files, why = Islands.files(root)
+  if files == nil then
     local _, _ = Fs.put(Fs.stderr, "check-islands: " .. why .. "\n")
-    return 2
+    return 1
+  end
+  local refusal = Islands.driver_use_refusal(root, tracked_files)
+  if refusal ~= nil then
+    local _, _ = Fs.put(Fs.stderr, "check-islands: " .. refusal .. "\n")
+    return 1
   end
   local pin, pin_trouble = Fs.read(root .. "/ci/cosmic-driver.pin")
   if pin == nil then
     local _, _ = Fs.put(Fs.stderr, "check-islands: " .. root .. "/ci/cosmic-driver.pin: " .. tostring(pin_trouble) .. "\n")
     return 2
   end
-  local strict, strict_trouble = Fs.read(root .. "/ci/strict-files.txt")
-  if strict == nil then
-    local _, _ = Fs.put(Fs.stderr, "check-islands: " .. root .. "/ci/strict-files.txt: " .. tostring(strict_trouble) .. "\n")
-    return 2
-  end
-  local unlisted = Islands.unlisted(scripts, Islands.paths(strict))
-  if #unlisted > 0 then
-    local _, _ = Fs.put(Fs.stderr, "check-islands: " .. Plural.count(#unlisted, "file") .. " run on the pinned release " ..
-        "and not in ci/strict-files.txt, which holds the files run with no ceiling; add " ..
-        table.concat(unlisted, ", ") .. "\n")
-    return 1
-  end
-  local report = Islands.check(root, scripts, Env.all())
+  local report = Islands.check(root, files, Env.all())
   local complaints, checked = report.complaints, report.checked
   if #complaints > 0 then
     -- A complaint holds the compiler's lines: each is indented under its file.

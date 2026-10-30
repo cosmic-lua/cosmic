@@ -35,21 +35,28 @@ lists as Teal. CI's `check-islands` command (`cosmic-driver
 cosmic_ci/driver.tl check-islands`) runs each of those scripts with `--help`
 on the running driver, which refuses a script that has a finding before it
 runs, and fails on a syntax error or any finding; `ci/` is compiled by the
-driver's own tests. The scripts are found, not listed: every file of the
-checkout that runs one on `bin/cosmic-bootstrap` with `--standalone` names it
-(`eval/result` runs `eval/result.tl`; `eval/round.tl` and
-`.github/scripts/credentials-build.sh` run `build/paths.tl`), so a new runner
-is checked as it lands, wherever it is. Such a line in a form that cannot be
-read, a file of `bin/` or `eval/` that names the bootstrap with no
-`--standalone`, and a `standalone(` call in `build/zig.tl` that does not name
-its file in a string literal on its line are refused rather than skipped.
-`vendor/`, `.git`, `o/` and Markdown are not read, and `ci/` is left out
-because the driver's own tests compile it (`ci/run_local.tl` would start the
-platform job on `--help`). A refusal names the file, the wrappers that run
-it and the pinned release, and says to use only that release's APIs or move
-the pin; a `--help` exit status that is not 0 is in [`Islands.help_exits`],
-and the hint then says to add it there. `ci/strict-files.txt` must list each
-script, which the same command checks.
+driver's own tests. Which files those are is `ci/bootstrap-files.txt`, a list
+that is enforced where the run happens: `bin/cosmic-bootstrap` refuses
+`--standalone` on a file of its checkout that the list does not name (the file
+and the target are compared as `pwd -P` resolves them, a link in the file's
+name followed, in the pin's branch and `COSMIC_BOOTSTRAP`'s alike; a file
+outside the checkout is not held), so a new runner fails the first time it
+runs, however its caller spells the command, and a listed file is one
+`check-islands` type-checks. `check-islands` also fails on an entry whose file
+is gone, on a `standalone(` call in `build/zig.tl` that names a file the list
+lacks or does not name it in a string literal on its line, and on a tracked
+file of `.github/` or `ci/` that spells `--standalone` outside the wrapper
+and is not named in [`Islands.driver_uses`] (a test's own fixtures are exempt).
+That last check is a text scan, and the one escape it leaves is a file of
+`.github/` or `ci/` that spells the flag through a variable; it is accepted
+because that takes deliberate indirection in directories CI owns, where review
+sees it, and the wrapper, the path the tree's scripts take, is closed at run
+time. A refusal of a type error names the file, the list and the pinned
+release, and says to use only that release's APIs or move the pin; a `--help`
+exit status that is not 0 is in [`Islands.help_exits`], and the hint then says
+to add it there. `build/ci_tree_test.tl` holds the list to
+`ci/strict-files.txt`. `ci/run_local.tl` is not on the list: `--help` would
+start the platform job, so the driver's own tests compile it instead.
 
 ## running the platform job locally
 
@@ -922,5 +929,6 @@ alone.
 [`cosmic_ci/zig_prune.tl`]: cosmic_ci/zig_prune.tl
 
 [`cosmic_ci/host_id.tl`]: cosmic_ci/host_id.tl
+[`Islands.driver_uses`]: cosmic_ci/islands.tl
 [`Islands.help_exits`]: cosmic_ci/islands.tl
 [`Runner.phase`]: cosmic_ci/runner.tl

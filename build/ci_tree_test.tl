@@ -23,6 +23,7 @@ Test.policy{
     { path = "ci/cosmic_ci/run_names.json", letters = "r" },
     { path = "ci/darwin-tests.txt", letters = "r" },
     { path = "ci/strict-files.txt", letters = "r" },
+    { path = "ci/bootstrap-files.txt", letters = "r" },
     { path = "ci/cosmic_ci/runtime_setup.tl", letters = "r" },
     { path = "ci/testdata/portable/", letters = "r" },
   },
@@ -256,6 +257,23 @@ local function strings_of(path: string, opening: string, pattern: string): {stri
   local out: mut {string} = {}
   for found in text:sub(from, to):gmatch(pattern) do out[#out + 1] = found end
   return out
+end
+
+--- Every file ci/bootstrap-files.txt lists is listed in ci/strict-files.txt too: the pinned release runs it with no
+--- ceiling. (`check-islands` holds the same list to the checkout and to build/zig.tl's runs; this is the half the
+--- tree's own suite, which CI and a local `bin/cosmic test` both run, can hold.)
+local function test_every_file_the_bootstrap_may_run_is_listed_as_strict()
+  local listed: mut {string:boolean} = {}
+  for _, file in ipairs(strict_files()) do listed[file] = true end
+  local count = 0
+  for line in (assert(Fs.read("ci/bootstrap-files.txt"))):gmatch("[^\n]+") do
+    local file = String.trim((line:gsub("#.*$", "")))
+    if file ~= "" then
+      count = count + 1
+      assert(listed[file], file .. " is in ci/bootstrap-files.txt and not in ci/strict-files.txt")
+    end
+  end
+  assert(count > 0, "ci/bootstrap-files.txt lists no file")
 end
 
 --- The file that stands for a module of the tree in the probe's packed tree (`RuntimeSetup.artifact_row`) is listed.

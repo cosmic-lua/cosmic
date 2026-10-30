@@ -10,10 +10,11 @@
 #
 # What this runs is written in the new checker's grammar, and the release
 # reads that grammar when COSMIC_GRAMMAR=new, which this script sets for
-# whatever it runs (a stand-in too). ci.yml's checked job type-checks the
-# scripts on the pinned driver (`cosmic-driver cosmic_ci/driver.tl
-# check-islands`), and `cosmic-driver test cosmic_ci` compiles ci/ on the
-# pinned release.
+# whatever it runs (a stand-in too). `--standalone` on a file of this
+# checkout is refused unless ci/bootstrap-files.txt lists it (below); ci.yml's
+# checked job type-checks the listed files on the pinned driver
+# (`cosmic-driver cosmic_ci/driver.tl check-islands`), and `cosmic-driver
+# test cosmic_ci` compiles ci/ on the pinned release.
 #
 # COSMIC_BOOTSTRAP, when set, names another cosmic to stand in for the
 # pin's -- the tree's own tool, say -- for every one of them, and
@@ -48,6 +49,41 @@ die() {
   printf 'bin/cosmic-bootstrap: %s\n' "$1" >&2
   exit 1
 }
+
+# `--standalone <file>` on a file of this checkout runs it on a cosmic the tree
+# does not control, so its Teal must read under that release's checker. Only
+# the files ci/bootstrap-files.txt lists may: `check-islands` (ci/README.md)
+# type-checks exactly those on the pinned release, so a file run through here,
+# however its caller spells the command, is a checked one. Target and root are
+# compared as `pwd -P` resolves them, a link in the file's own name followed,
+# so a link from outside into the checkout does not get around it. A file
+# outside the checkout is not this script's to hold.
+if [ "${1-}" = --standalone ] && [ "$#" -ge 2 ]; then
+  target=$2
+  hops=0
+  while [ -L "$target" ] && [ "$hops" -lt 40 ]; do
+    link=$(readlink "$target")
+    case $link in
+      /*) target=$link ;;
+      *) target=$(dirname -- "$target")/$link ;;
+    esac
+    hops=$((hops + 1))
+  done
+  if tdir=$(CDPATH= cd -- "$(dirname -- "$target")" 2>/dev/null && pwd -P); then
+    physical=$(CDPATH= cd -- "$root" && pwd -P)
+    full=$tdir/$(basename -- "$target")
+    case $full in
+      "$physical"/*)
+        relative=${full#"$physical"/}
+        [ -f "$root/ci/bootstrap-files.txt" ] ||
+          die "no $root/ci/bootstrap-files.txt, which lists the files of the checkout that may run --standalone"
+        if ! sed -e 's/#.*//' -e 's/[[:space:]]*$//' "$root/ci/bootstrap-files.txt" | grep -Fxq -- "$relative"; then
+          die "$relative is not in ci/bootstrap-files.txt, so it is not type-checked on the pinned release: list it there, then run \`cosmic-driver cosmic_ci/driver.tl check-islands\` from ci/"
+        fi
+        ;;
+    esac
+  fi
+fi
 
 if [ -n "${COSMIC_BOOTSTRAP:-}" ]; then
   if [ -n "${COSMIC_BOOTSTRAP_VERIFY:-}" ]; then
