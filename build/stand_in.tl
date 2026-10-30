@@ -195,6 +195,12 @@ local main_module <const> = "stand_in.main"
 --- it runs, beside its main module (see the requires above).
 local core_requires <const>: {string} = { "cosmic.errors" }
 
+--- One row of the `meta` table a stand-in's database is given.
+local record MetaRow
+  key: string
+  value: string
+end
+
 --- One module the stand-in carries, with what it requires.
 local record Carried
   name: string
@@ -214,7 +220,7 @@ local function carried(): {Carried}?, string
   local pending: mut {string} = { probe_module }
   for _, name in ipairs(core_requires) do pending[#pending + 1] = name end
   while #pending > 0 do
-    local name = table.remove(pending, 1)
+    local name = assert(table.remove(pending, 1), "pending is not empty")
     local row, _ = Store.bytecode(name)
     local raw = String.starts_with(name, "cosmic.internal.") and row == nil
     if seen[name] ~= true and not raw then
@@ -277,12 +283,12 @@ local function database(path: string): string?, string
         if not edge then return false, edge_trouble end
       end
     end
-    local meta: {{string}} = {
-      { "main", main_module }, { "runtime_basis", basis },
+    local meta: {MetaRow} = {
+      { key = "main", value = main_module }, { key = "runtime_basis", value = basis },
     }
-    for _, pair in ipairs(meta) do
+    for _, row in ipairs(meta) do
       local ok, meta_trouble = Sqlite.run(db, "INSERT INTO meta (key, value) VALUES (?1, ?2)",
-        { text(pair[1]), text(pair[2]) })
+        { text(row.key), text(row.value) })
       if not ok then return false, meta_trouble end
     end
     return true, ""

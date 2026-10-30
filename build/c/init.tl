@@ -387,6 +387,8 @@ local function outcome(root: string, file: string, result: Child.Result?, troubl
         ", the most that is read of one" }, nil
   end
   local decls = tree.parse(tostring(result.stdout or ""), root)
+  local unreadable = rules.unreadable(decls)
+  if unreadable ~= nil then return { file = file, trouble = unreadable }, nil end
   return { file = file, findings = rules.check(decls, file, declared) },
     rules.unit(decls, file, declared)
 end
@@ -409,6 +411,16 @@ local function whole(cwd: string, files: {string}): boolean
   return true
 end
 
+--- Element `position` of `list`, a position the caller's own loop or count keeps within it.
+local function nth<T>(list: {T}, position: integer): T
+  return (assert(list[position], "a position is within the list"))
+end
+
+--- The value kept under `key` in `map`, a key this file set before it reads it.
+local function held_in<K, V>(map: {K: V}, key: K): V
+  return (assert(map[key], "the key was set before it is read"))
+end
+
 --- Whether the tree of `file` (a path relative to `cwd`) can differ under
 --- `variant` from the first's: its text, or that of a header of the tree it
 --- includes, names one of the variant's `tells`. A header is found as the compiler finds one of the
@@ -417,7 +429,8 @@ end
 local function sensitive(root: string, cwd: string, file: string, variant: c.Variant,
                          memo: mut {string: boolean}): boolean
   local function visit(path: string, stack: mut {string: boolean}): boolean
-    if memo[path] ~= nil then return memo[path] end
+    local remembered = memo[path]
+    if remembered ~= nil then return remembered end
     if stack[path] then return false end
     stack[path] = true
     local text, _ = Fs.read(path)
@@ -481,8 +494,9 @@ function c.check(root: string, files: {string}, cwd?: string, limit?: integer, s
   for v = 2, #c.variants do
     memo[v] = {}
     for i, file in ipairs(files) do
-      if sensitive(root, cwd, file, c.variants[v], memo[v]) then
-        ran[i][#ran[i] + 1] = v
+      if sensitive(root, cwd, file, nth(c.variants, v), held_in(memo, v)) then
+        local used = held_in(ran, i)
+        used[#used + 1] = v
         jobs[#jobs + 1] = { file = i, variant = v }
       end
     end
@@ -551,16 +565,16 @@ function c.check(root: string, files: {string}, cwd?: string, limit?: integer, s
     local next_job = 1
     while next_job <= #jobs or #running > 0 do
       while next_job <= #jobs and #running < parallel do
-        local job = jobs[next_job]
+        local job = nth(jobs, next_job)
         -- A compile the memo answered is not run.
         if results[next_job] == nil then
           local handle, trouble = Child.start(
-            command(root, files[job.file], cwd, c.variants[job.variant]), {
+            command(root, nth(files, job.file), cwd, nth(c.variants, job.variant)), {
               cwd = cwd, env = env, stdout = "capture", stderr = "capture",
               capture_limit = limit or dump_limit,
             })
           if handle == nil then
-            results[next_job] = { file = files[job.file], trouble = trouble }
+            results[next_job] = { file = nth(files, job.file), trouble = trouble }
           else
             running[#running + 1] = handle
             which[handle] = next_job
@@ -574,18 +588,20 @@ function c.check(root: string, files: {string}, cwd?: string, limit?: integer, s
           if trouble == Poll.TIMEOUT then trouble = "clang gave no answer in 120 seconds" end
           for _, handle in ipairs(running) do
             local _, _ = handle:close()
-            results[which[handle]] = { file = files[jobs[which[handle]].file], trouble = trouble }
+            local stopped = held_in(which, handle)
+            results[stopped] = { file = nth(files, nth(jobs, stopped).file), trouble = trouble }
           end
           running = {}
         else
           local result, wait_trouble = done:wait()
-          local job = jobs[which[done]]
-          local made, unit = outcome(root, files[job.file], result,
+          local finished = held_in(which, done)
+          local job = nth(jobs, finished)
+          local made, unit = outcome(root, nth(files, job.file), result,
             wait_trouble, declared, limit or dump_limit)
-          results[which[done]] = made
-          if unit ~= nil then units[which[done]] = unit end
+          results[finished] = made
+          if unit ~= nil then units[finished] = unit end
           local made_findings = made.findings
-          local made_key = keys[which[done]]
+          local made_key = keys[finished]
           -- A compile that made findings made a unit too.
           if store ~= nil and made_key ~= nil and made_findings ~= nil and unit ~= nil then
             check_memo.put(store, "c", made_key, encoded(made_findings, unit))
@@ -656,7 +672,7 @@ function c.check(root: string, files: {string}, cwd?: string, limit?: integer, s
     local findings: mut {rules.Finding} = {}
     local out: c.Outcome = { file = file, variants = variants }
     outcomes[i] = out
-    for _, v in ipairs(ran[i]) do
+    for _, v in ipairs(held_in(ran, i)) do
       local job = 0
       for j, candidate in ipairs(jobs) do
         if candidate.file == i and candidate.variant == v then
@@ -664,8 +680,8 @@ function c.check(root: string, files: {string}, cwd?: string, limit?: integer, s
           break
         end
       end
-      local result = results[job]
-      local name = c.variants[v].name
+      local result = held_in(results, job)
+      local name = nth(c.variants, v).name
       variants[#variants + 1] = name
       local reported = result.findings
       if reported == nil then
@@ -675,7 +691,8 @@ function c.check(root: string, files: {string}, cwd?: string, limit?: integer, s
       end
       if v == 1 then
         out.findings = findings
-        first_unit[i] = units[job]
+        local first = units[job]
+        if first ~= nil then first_unit[i] = first end
       end
       for _, f in ipairs(reported) do
         local key = f.file .. ":" .. tostring(f.line) .. ":" .. f.rule .. ":" .. f.within
@@ -698,8 +715,10 @@ function c.check(root: string, files: {string}, cwd?: string, limit?: integer, s
     local every: mut {rules.Unit} = {}
     local by_file: mut {string: c.Outcome} = {}
     for i = 1, #files do
-      if first_unit[i] ~= nil then every[#every + 1] = first_unit[i] end
-      by_file[outcomes[i].file] = outcomes[i]
+      local unit = first_unit[i]
+      if unit ~= nil then every[#every + 1] = unit end
+      local own = nth(outcomes, i)
+      by_file[own.file] = own
     end
     -- A file that could not be read refers to what is not known: its
     -- own trouble is the finding, rather than guesses about the rest.
@@ -707,10 +726,10 @@ function c.check(root: string, files: {string}, cwd?: string, limit?: integer, s
     for _, f in ipairs(known and rules.single_file(every) or {}) do
       for _, u in ipairs(every) do
         local o = by_file[u.file]
-        if u.defines[f.within] ~= nil then
+        if o ~= nil and u.defines[f.within] ~= nil then
           local findings = o.findings
           if findings ~= nil then
-            f.variants = { c.variants[1].name }
+            f.variants = { nth(c.variants, 1).name }
             findings[#findings + 1] = f
           end
         end
