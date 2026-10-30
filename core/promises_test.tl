@@ -8,24 +8,13 @@
 --- with the program, are core/promises_child_test.tl's, and a dynamic
 --- program's core/promises_system_test.tl's.
 
+local RawTables = require("build.raw_tables")
 local type raw_process = require("cosmic.internal.process")
 -- Required, so the module whose loader is handed the raw table is of this
 -- test's import closure, and the store has it to hand it from.
 local type _ = require("cosmic.child")
 
-local type Searcher = function(string): any, any
-
---- The raw table the store's searcher hands `wrapper`'s loader, as
---- `require` would hand it.
-local function raw_behind(wrapper: string): any
-  for _, searcher in ipairs(package.searchers as {Searcher}) do -- cast: searchers' loaders take an extra
-    local loader, extra = searcher(wrapper)
-    if type(loader) == "function" and type(extra) == "table" then return extra end
-  end
-  error(wrapper .. " is handed no raw table")
-end
-
-local process = raw_behind("cosmic.child") as raw_process -- cast: the table core/process.h declares
+local process = RawTables.process()
 
 local AUDIT: {string: integer} = { x86_64 = 0xc000003e, aarch64 = 0xc00000b7 }
 
@@ -388,16 +377,18 @@ local function test_a_call_above_the_reviewed_table_answers_ENOSYS()
     local reviewed = process.PROMISE_CALLS_REVIEWED
     for _, number in ipairs({ reviewed, reviewed + 1, 1000, 0x7fffffff, 0xffffffff }) do
       local got = verdict(run(insns, audit_of(arch), number, {}))
-      assert(got == "ENOSYS", arch .. " call " .. number .. " is " .. got)
+      assert(got == "ENOSYS", arch .. " call " .. tostring(number) .. " is " .. got)
     end
     -- The highest call reviewed is within the table, so a call there is
     -- judged, not answered as unknown.
     local last = verdict(run(insns, audit_of(arch), reviewed - 1, {}))
-    assert(last == "EPERM", arch .. " call " .. (reviewed - 1) .. " is " .. last)
+    assert(last == "EPERM", arch .. " call " .. tostring(reviewed - 1) .. " is " .. last)
   end
   -- x32's calls share x86_64's architecture and set a high bit.
   local insns = decode(process.promise_filter({ "fork", "jit", "fattr" }, "x86_64"))
-  assert(verdict(run(insns, AUDIT.x86_64, 0x40000000 + numbers.read[1], {})) == "ENOSYS")
+  local read_calls = assert(numbers["read"], "numbers names read")
+  local read = assert(read_calls[1], "read has a number on x86_64")
+  assert(verdict(run(insns, audit_of("x86_64"), 0x40000000 + read, {})) == "ENOSYS")
 end
 
 local function test_clone3_and_openat2_answer_ENOSYS_whatever_was_promised()
@@ -410,7 +401,7 @@ end
 local function test_a_call_of_another_architecture_ends_the_process()
   for _, arch in ipairs(ARCHES) do
     local insns = decode(process.promise_filter({}, arch))
-    local other = arch == "x86_64" and AUDIT.aarch64 or AUDIT.x86_64
+    local other = if arch == "x86_64" then audit_of("aarch64") else audit_of("x86_64") end
     assert(verdict(run(insns, other, 0, {})) == "kill")
     assert(verdict(run(insns, 0x40000003, 0, {})) == "kill", "i386 on x86_64 is another architecture")
   end
@@ -418,11 +409,11 @@ end
 
 local function test_the_same_number_is_another_call_on_the_other_architecture()
   -- x86_64's open is 2, which aarch64 has as io_submit: not a call it allows.
-  assert(verdict(run(decode(process.promise_filter({}, "x86_64")), AUDIT.x86_64, 2, { 0, 0, 0 })) == "allow")
-  assert(verdict(run(decode(process.promise_filter({}, "aarch64")), AUDIT.aarch64, 2, { 0, 0, 0 })) == "EPERM")
+  assert(verdict(run(decode(process.promise_filter({}, "x86_64")), audit_of("x86_64"), 2, { 0, 0, 0 })) == "allow")
+  assert(verdict(run(decode(process.promise_filter({}, "aarch64")), audit_of("aarch64"), 2, { 0, 0, 0 })) == "EPERM")
   -- And aarch64's read, 63, is x86_64's uname, which it allows too; its openat, 56, is x86_64's clone.
-  assert(verdict(run(decode(process.promise_filter({}, "x86_64")), AUDIT.x86_64, 56, { 0, 0, 0 })) == "EPERM")
-  assert(verdict(run(decode(process.promise_filter({}, "aarch64")), AUDIT.aarch64, 56, { 0, 0, 0 })) == "allow")
+  assert(verdict(run(decode(process.promise_filter({}, "x86_64")), audit_of("x86_64"), 56, { 0, 0, 0 })) == "EPERM")
+  assert(verdict(run(decode(process.promise_filter({}, "aarch64")), audit_of("aarch64"), 56, { 0, 0, 0 })) == "allow")
 end
 
 local function test_a_refused_ioctl_answers_ENOTTY()
@@ -934,8 +925,8 @@ end
 local function test_the_headers_name_no_call_beyond_the_reviewed_table()
   local headers = process.PROMISE_CALLS_HEADERS
   assert(headers <= process.PROMISE_CALLS_REVIEWED,
-    "the headers name system calls up to " .. (headers - 1) .. ", past the " ..
-      (process.PROMISE_CALLS_REVIEWED - 1) .. " core/promises_calls.h is reviewed to: judge them, " ..
+    "the headers name system calls up to " .. tostring(headers - 1) .. ", past the " ..
+      tostring(process.PROMISE_CALLS_REVIEWED - 1) .. " core/promises_calls.h is reviewed to: judge them, " ..
       "add them to its tables and core/promises.c's, and raise PROMISE_CALLS_REVIEWED")
 end
 
