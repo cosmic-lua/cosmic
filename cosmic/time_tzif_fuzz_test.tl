@@ -8,7 +8,6 @@
 --- and arbitrary bytes. `FUZZ_SEED` and `FUZZ_ITERS` pick the inputs
 --- (build/fuzz/init.tl).
 
-local Cell = require("cosmic.cell")
 local Fuzz = require("build.fuzz")
 local Store = require("cosmic.store")
 local Time = require("cosmic.time")
@@ -137,9 +136,9 @@ end
 --- cost that grows faster than the length, which the reference would
 --- share, still leaves it short of the largest drawn read. Taken the
 --- first time a read is slow enough to ask.
-local reference_ns: Cell<integer?> = { value = nil }
+local reference_ns: integer? = nil
 local function reference(): integer
-  if reference_ns.value == nil then
+  if reference_ns == nil then
     local count = 4000
     local data = table.concat({ "TZif", "\0", ("\0"):rep(15),
       string.pack(">I4I4I4I4I4I4", 0, 0, 0, 0, count, count * 6),
@@ -150,9 +149,9 @@ local function reference(): integer
       pcall(Time.zone_from_tzif, data, "Fuzz/Zone")
       least = math.min(least, Time.monotonic_ns() - started)
     end
-    reference_ns.value = 10 * least
+    reference_ns = 10 * least
   end
-  return assert(reference_ns.value)
+  return assert(reference_ns)
 end
 
 --- Whatever `data` is, reading it and asking the zone about moments

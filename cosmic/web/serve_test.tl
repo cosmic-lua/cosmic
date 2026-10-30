@@ -85,7 +85,7 @@ local function test_two_set_cookie_lines_arrive_as_two_lines()
   Web.with_server(app, function(client: Web.LoopbackClient)
     local res = assert(client:get("/"))
     local lines = res:header_list("set-cookie")
-    assert(#lines == 2 and lines[1]:find("^a=1; Expires=") and lines[2] == "b=2")
+    assert(#lines == 2 and lines[1]:find("^a=1; Expires=") ~= nil and lines[2] == "b=2")
     assert(res.headers["vary"] == "Cookie")
   end)
 end
@@ -107,7 +107,7 @@ local function test_a_path_the_router_refuses_is_the_apps_400_and_the_connection
   end) } }
   Web.with_server(app, function(client: Web.LoopbackClient)
     local bad = assert(client:raw("GET /a/../a HTTP/1.1\r\nHost: x\r\n\r\n"))
-    assert(bad.status == 400 and bad.body:find("climbs out of the path", 1, true), bad.body)
+    assert(bad.status == 400 and bad.body:find("climbs out of the path", 1, true) ~= nil, bad.body)
     local slash = assert(client:raw("GET //a HTTP/1.1\r\nHost: x\r\n\r\n"))
     assert(slash.status == 308 and slash.headers["location"] == "/a")
     assert(assert(client:get("/a")).body == "a")
@@ -159,7 +159,8 @@ local function test_stopping_ends_a_stream_and_runs_the_stop_functions_in_order(
   local ok, why = Web.serve(app, {
     listeners = { Net.tcp("127.0.0.1", 0) },
     on_ready = function(addresses: {Net.Address}, server: Net.Server)
-      local conn <close> = assert(Net.connect(addresses[1], { timeout_ns = Clock.seconds(5) }))
+      local addresses_1 = assert(addresses[1], "expected addresses[1]")
+      local conn <close> = assert(Net.connect(addresses_1, { timeout_ns = Clock.seconds(5) }))
       assert(conn:write("GET /events HTTP/1.1\r\nHost: x\r\n\r\n"))
       local got = ""
       while not got:find("data: hello", 1, true) do got = got .. assert(conn:read()) end
@@ -172,7 +173,7 @@ local function test_stopping_ends_a_stream_and_runs_the_stop_functions_in_order(
   assert(Clock.monotonic_ns() - started < Clock.seconds(5), "the stream ended at once, not at the grace")
   assert(table.concat(events, ", ") == "lifespan start, app stop 1, app stop 2, app stop 3, caller stop, " ..
       "stream saw stopping, lifespan stop", table.concat(events, ", "))
-  assert(app:stopping() and #lines == 1 and lines[1]:find("a failing stop function", 1, true), table.concat(lines, "|"))
+  assert(app:stopping() and #lines == 1 and lines[1]:find("a failing stop function", 1, true) ~= nil, table.concat(lines, "|"))
 end
 
 local function test_a_lifespan_that_fails_stops_serve_before_it_listens()
@@ -191,7 +192,7 @@ local function test_serve_warns_when_debug_meets_a_listener_beyond_the_loopback(
   -- Not an address of this host: the bind fails, after the warning.
   local ok = Web.serve(app, { listeners = { Net.tcp("10.255.255.1", 0) } })
   assert(not ok)
-  assert(#lines >= 1 and lines[1]:find("debug is on", 1, true), table.concat(lines, "|"))
+  assert(#lines >= 1 and lines[1]:find("debug is on", 1, true) ~= nil, table.concat(lines, "|"))
   local quiet_sink, quiet = recording()
   local local_app = Web.app{ routes = {}, debug = true, sink = quiet_sink }
   assert(Web.serve(local_app, { listeners = { Net.tcp("127.0.0.1", 0) },
@@ -209,7 +210,8 @@ local function test_serve_gives_the_server_a_grace_of_ten_seconds_unless_told_ot
   local graces: mut {integer} = {}
   local real = Server.serve
   Server.serve = function(spec: Server.ServeSpec): boolean, string
-    graces[#graces + 1] = spec.grace_ns
+    local spec_grace_ns = assert(spec.grace_ns, "expected spec.grace_ns")
+    graces[#graces + 1] = spec_grace_ns
     return true, ""
   end
   local ran, err = pcall(function()
@@ -238,7 +240,8 @@ local function test_a_handler_that_ignores_stopping_is_cut_off_at_the_grace()
     listeners = { Net.tcp("127.0.0.1", 0) },
     grace_ns = Clock.ms(200),
     on_ready = function(addresses: {Net.Address}, server: Net.Server)
-      local conn <close> = assert(Net.connect(addresses[1], { timeout_ns = Clock.seconds(5) }))
+      local addresses_1 = assert(addresses[1], "expected addresses[1]")
+      local conn <close> = assert(Net.connect(addresses_1, { timeout_ns = Clock.seconds(5) }))
       assert(conn:write("GET /forever HTTP/1.1\r\nHost: x\r\n\r\n"))
       assert(conn:read())
       server:stop()
@@ -264,10 +267,10 @@ local function test_the_loopback_client_refuses_a_chunk_size_that_is_garbage()
   Web.with_server(app, function(client: Web.LoopbackClient)
     scripted(client, "HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\nzz\r\nabc\r\n0\r\n\r\n")
     local res, why = client:get("/")
-    assert(res == nil and why:find("not a chunk size: zz", 1, true), tostring(why))
+    assert(res == nil and why:find("not a chunk size: zz", 1, true) ~= nil, tostring(why))
     scripted(client, "HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n3x\r\nabc\r\n0\r\n\r\n")
     local second, second_why = client:get("/")
-    assert(second == nil and second_why:find("not a chunk size: 3x", 1, true), tostring(second_why))
+    assert(second == nil and second_why:find("not a chunk size: 3x", 1, true) ~= nil, tostring(second_why))
     scripted(client, "HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n3;ext=1\r\nabc\r\n0\r\n\r\n")
     local fine = assert(client:get("/"))
     assert(fine:text() == "abc")

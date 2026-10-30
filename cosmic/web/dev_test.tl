@@ -102,10 +102,11 @@ local function test_the_tag_carries_the_nonce_the_headers_middleware_drew()
     middleware = { Headers.middleware{ csp = policy, nonce = true } } }, { enabled = true })
   Web.with_client(app, function(client: Web.TestClient)
     local page = get(client, "/")
-    local nonce = assert(page.headers["content-security-policy"]:match("'nonce%-([%w_-]+)'"))
+    local page_headers_content_security_policy = assert(page.headers["content-security-policy"], "expected page.headers[\"content-security-policy\"]")
+    local nonce = assert(page_headers_content_security_policy:match("'nonce%-([%w_-]+)'"))
     -- A byte that is no letter or digit is written as a character reference.
     local written = nonce:gsub("[_-]", function(byte: string): string
-      return ("&#%d;"):format(byte:byte())
+      return ("&#%d;"):format(assert(byte:byte()))
     end)
     assert(page.body == '<html><body><p>hi</p><script src="/_web/dev.js" nonce="' .. written ..
         '" defer></script></body></html>', page.body)
@@ -147,7 +148,8 @@ local function test_the_script_is_served_without_an_inline_script()
   local app = Dev.app({ routes = routes(), sink = quiet() }, { enabled = true })
   Web.with_client(app, function(client: Web.TestClient)
     local res = get(client, "/_web/dev.js")
-    assert(res.status == 200 and res.headers["content-type"]:find("^text/javascript") ~= nil)
+    local res_headers_content_type = assert(res.headers["content-type"], "expected res.headers[\"content-type\"]")
+    assert(res.status == 200 and res_headers_content_type:find("^text/javascript") ~= nil)
     assert(res.headers["cache-control"] == "no-store")
     assert(res.body:find("/_web/dev/events", 1, true) and res.body:find("EventSource", 1, true))
     assert(not res.body:find("<script", 1, true))
@@ -159,7 +161,7 @@ local function test_a_fault_shows_its_stack_in_development_mode_only()
   local app = Dev.app({ routes = routes(), sink = quiet() }, { enabled = true })
   Web.with_client(app, function(client: Web.TestClient)
     local boom = get(client, "/boom")
-    assert(boom.status == 500 and boom.body:find("kaboom", 1, true))
+    assert(boom.status == 500 and boom.body:find("kaboom", 1, true) ~= nil)
   end)
 end
 
@@ -228,10 +230,10 @@ local function test_a_development_app_serves_the_loopback_only()
   local app = Dev.app({ routes = routes(), sink = quiet() }, { enabled = true })
   for _, host in ipairs({ "0.0.0.0", "10.0.0.5", "127.evil.example", "::", "::2", "127.0.0" }) do
     local ok, why = Web.serve(app, { listeners = { Net.tcp(host, 0) } })
-    assert(ok == false and why:find("loopback", 1, true), host .. ": " .. tostring(why))
+    assert(ok == false and why:find("loopback", 1, true) ~= nil, host .. ": " .. tostring(why))
   end
   local ok, why = Web.serve(app, { listeners = { Net.tcp("127.0.0.1", 0), Net.tcp("10.1.2.3", 0) } })
-  assert(ok == false and why:find("loopback", 1, true), "one address beyond the loopback is enough")
+  assert(ok == false and why:find("loopback", 1, true) ~= nil, "one address beyond the loopback is enough")
 end
 
 local function test_the_plain_app_and_a_debug_app_are_left_to_the_caller()
@@ -313,7 +315,7 @@ end
 local function test_a_development_app_with_a_trusted_proxy_is_refused()
   local app = Dev.app({ routes = routes(), sink = quiet(), trusted_proxy = true }, { enabled = true })
   local ok, why = Web.serve(app, { listeners = { Net.tcp("127.0.0.1", 0) } })
-  assert(ok == false and why:find("trusted_proxy", 1, true), tostring(why))
+  assert(ok == false and why:find("trusted_proxy", 1, true) ~= nil, tostring(why))
 end
 
 local function test_a_missing_static_directory_is_watched_without_a_spurious_reload(tmp: string)

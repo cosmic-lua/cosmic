@@ -2,8 +2,9 @@
 --- times the time, for each shape that could cost more than its length: a chain of operators, a record of many fields
 --- read many times and given in a literal, a literal of many items, a union of many tagged records read by a field
 --- they share, a union of records with two tag values each told apart by a fixed number of tests (checked, and declared in
---- the second guard at the end), an `if` expression of many arms, and a function of many parameters called with all of
---- them. A chain of tests over every tag of a union, and a test of every tag joined by `or`, are held to four times the
+--- the second guard at the end), an `if` expression of many arms, a function of many parameters called with all of
+--- them, and a run of calls each after a test of an array's length, among many narrowed places (checked, and declared in
+--- the guard before the last). A chain of tests over every tag of a union, and a test of every tag joined by `or`, are held to four times the
 --- members costing about the square of four (16 times) and not its cube, since each test reads what the one before
 --- left.
 --- The guards of [`lang.relation`] are in [`lang.relation_speed_test`]; this module does not time it apart.
@@ -157,6 +158,24 @@ local FORMS <const>: {string: function(n: integer): string} = {
     out[#out + 1] = "end\n"
     return table.concat(out)
   end,
+  ["a run of calls where the state changes between them and many places are narrowed"] = function(n: integer): string
+    -- The narrowed fields stay, but each call is preceded by a test of the length of an array that the call before it took
+    -- away: the state is another one at each call and holds a fact of a length, so a flag kept on the state would be of no use
+    -- and a walk of the facts at each call is the product of the calls and the narrowed places.
+    local out: mut {string} = { "local record R\n" }
+    local tests: mut {string} = {}
+    for i = 1, n * 10 do
+      out[#out + 1] = "  f" .. tostring(i) .. "?: integer\n"
+      tests[#tests + 1] = "r.f" .. tostring(i) .. " ~= nil"
+    end
+    out[#out + 1] = "end\nlocal function touch()\nend\nlocal function run(xs: {integer}, r: R)\n  if " ..
+      table.concat(tests, " and ") .. " then\n"
+    for _ = 1, n * 100 do
+      out[#out + 1] = "    if #xs == 0 then\n      return\n    end\n    touch()\n"
+    end
+    out[#out + 1] = "  end\nend\n"
+    return table.concat(out)
+  end,
   ["an if expression of many arms"] = function(n: integer): string
     local arms: mut {string} = {}
     for i = 1, n * 50 do
@@ -235,4 +254,19 @@ local function test_four_times_the_input_costs_about_four_times_the_time_for_dec
     prepare(large)
   end, 10)
   assert(ok, "four times the members " .. why)
+end
+
+local function test_four_times_the_calls_costs_about_four_times_the_time_where_the_state_changes_between_them()
+  -- Each call forgets the facts of lengths that the test before it gave, so the state is another one at each, and the
+  -- narrowed places are held beside. The facts of lengths are kept apart from the others: a walk of all the facts at each
+  -- call costs about eight times for four times the calls, the limit lies between that and the four of a linear check.
+  local form = assert(FORMS["a run of calls where the state changes between them and many places are narrowed"])
+  local small = prepare(form(5))
+  local large = prepare(form(20))
+  local ok, why = Speed.within(function()
+    check(small)
+  end, function()
+    check(large)
+  end, 6)
+  assert(ok, "four times the input " .. why)
 end

@@ -1,4 +1,3 @@
-local Cell = require("cosmic.cell")
 local Signal = require("cosmic.signal")
 local Net = require("cosmic.net")
 local Poll = require("cosmic.poll")
@@ -111,9 +110,9 @@ local function test_in_a_run_a_tcp_connect_waits_through_the_run()
   local server <close> = assert(Net.listen(Net.tcp("127.0.0.1", 0),
     { backlog = 1, timeout_ns = Clock.seconds(5) }))
   local held: mut {Net.Conn} = {}
-  local ticks: Cell<integer> = { value = 0 }
-  local ticks_at_end: Cell<integer> = { value = -1 }
-  local why: Cell<string> = { value = "" }
+  local ticks: integer = 0
+  local ticks_at_end: integer = -1
+  local why: string = ""
   Poll.run(function()
     local first = assert(Net.connect(server.address, { timeout_ns = Clock.seconds(5) }))
     held[#held + 1] = first
@@ -123,37 +122,36 @@ local function test_in_a_run_a_tcp_connect_waits_through_the_run()
       for _ = 1, 16 do
         local conn, trouble = Net.connect(server.address, { timeout_ns = Clock.ms(200) })
         if conn == nil then
-          why.value = trouble
+          why = trouble
           break
         end
         held[#held + 1] = conn
       end
-      ticks_at_end.value = ticks.value
+      ticks_at_end = ticks
     end)
-    while ticks_at_end.value < 0 do
+    while ticks_at_end < 0 do
       assert(Poll.delay(Clock.ms(5)))
-      ticks.value = ticks.value + 1
+      ticks = ticks + 1
     end
     assert(filling:join())
   end)
   for _, conn in ipairs(held) do assert(conn:close()) end
-  assert(why.value == "127.0.0.1:" .. tostring(assert(server.address.port)) .. ": " .. Poll.TIMEOUT, why.value)
-  assert(ticks_at_end.value > 0, "no other task ran while a connection waited")
+  assert(why == "127.0.0.1:" .. tostring(assert(server.address.port)) .. ": " .. Poll.TIMEOUT, why)
+  assert(ticks_at_end > 0, "no other task ran while a connection waited")
   local port = assert(server.address.port)
   assert(server:close())
-  local refused: Cell<Net.Conn?> = { value = nil }
+  local refused: Net.Conn? = nil
   Poll.run(function()
-    refused.value, why.value = Net.connect(Net.tcp("127.0.0.1", port), { timeout_ns = Clock.seconds(5) })
+    refused, why = Net.connect(Net.tcp("127.0.0.1", port), { timeout_ns = Clock.seconds(5) })
   end)
-  assert(refused.value == nil and why.value == "127.0.0.1:" .. tostring(port) .. ": Connection refused", why.value)
+  assert(refused == nil and why == "127.0.0.1:" .. tostring(port) .. ": Connection refused", why)
 end
 
 --- One protocol serves every listener, a TCP one and a unix one alike,
 --- and on_ready is told the port the kernel chose for one at port 0.
 local function test_a_server_names_what_it_bound_and_serves_every_listener(tmp: string)
   if unix_socket.skipped(tmp) then return end
-  -- TODO: hold this list in Cell<mut {Net.Address}> once its reads test the element they index: typed, they add nil_not_allowed errors.
-  local bound = { value = {} as {Net.Address} }
+  local bound = {} as {Net.Address}
   local answers: mut {string} = {}
   assert(Net.serve{
     listeners = { Net.tcp("127.0.0.1", 0), Net.unix(tmp .. "/s.sock") },
@@ -162,7 +160,7 @@ local function test_a_server_names_what_it_bound_and_serves_every_listener(tmp: 
       assert(conn:write(line:upper() .. "\n"))
     end,
     on_ready = function(addresses: {Net.Address}, server: Net.Server)
-      bound.value = addresses
+      bound = addresses
       assert(server.addresses == addresses)
       for _, address in ipairs(addresses) do
         local conn <close> = assert(Net.connect(address, { timeout_ns = Clock.seconds(5) }))
@@ -173,17 +171,16 @@ local function test_a_server_names_what_it_bound_and_serves_every_listener(tmp: 
       server:stop()
     end,
   })
-  assert(bound.value[1].kind == "tcp" and bound.value[1].host == "127.0.0.1", bound.value[1].host)
-  local first_port = assert(bound.value[1].port)
+  assert(bound[1].kind == "tcp" and bound[1].host == "127.0.0.1", bound[1].host)
+  local first_port = assert(bound[1].port)
   assert(first_port > 0 and first_port <= 65535, tostring(first_port))
-  assert(bound.value[2].kind == "unix" and bound.value[2].path == tmp .. "/s.sock", bound.value[2].path)
+  assert(bound[2].kind == "unix" and bound[2].path == tmp .. "/s.sock", bound[2].path)
   assert(table.concat(answers, ",") == "TCP,UNIX", table.concat(answers, ","))
 end
 
 --- The same for two TCP listeners, which need no socket file.
 local function test_a_server_names_what_it_bound_and_serves_two_tcp_listeners()
-  -- TODO: hold this list in Cell<mut {Net.Address}> once its reads test the element they index: typed, they add nil_not_allowed errors.
-  local bound = { value = {} as {Net.Address} }
+  local bound = {} as {Net.Address}
   local answers: mut {string} = {}
   assert(Net.serve{
     listeners = { Net.tcp("127.0.0.1", 0), Net.tcp("127.0.0.1", 0) },
@@ -192,7 +189,7 @@ local function test_a_server_names_what_it_bound_and_serves_two_tcp_listeners()
       assert(conn:write(line:upper() .. "\n"))
     end,
     on_ready = function(addresses: {Net.Address}, server: Net.Server)
-      bound.value = addresses
+      bound = addresses
       assert(server.addresses == addresses)
       for _, address in ipairs(addresses) do
         local conn <close> = assert(Net.connect(address, { timeout_ns = Clock.seconds(5) }))
@@ -204,10 +201,10 @@ local function test_a_server_names_what_it_bound_and_serves_two_tcp_listeners()
     end,
   })
   for i = 1, 2 do
-    assert(bound.value[i].kind == "tcp" and bound.value[i].host == "127.0.0.1", bound.value[i].host)
-    local listening = assert(bound.value[i].port)
+    assert(bound[i].kind == "tcp" and bound[i].host == "127.0.0.1", bound[i].host)
+    local listening = assert(bound[i].port)
     assert(listening > 0 and listening <= 65535, tostring(listening))
   end
-  assert(bound.value[1].port ~= bound.value[2].port)
+  assert(bound[1].port ~= bound[2].port)
   assert(table.concat(answers, ",") == "TCP,TCP", table.concat(answers, ","))
 end
