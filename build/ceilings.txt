@@ -5445,7 +5445,6 @@ build/syntax_contracts.tl and_ternary 3
 
 build/syntax_contracts_test.tl and_ternary 1
 
-build/syntax_derivation_test.tl and_ternary 1
 
 build/syntax_match.tl and_ternary 2
 
@@ -6754,7 +6753,6 @@ test/sqlite_parameter_test.tl arms_differ 1
 # an array or map literal whose elements or values may be nil
 build/c/rules.tl array_of_optional 1
 
-build/declared_key_test.tl array_of_optional 1
 
 build/links_test.tl array_of_optional 1
 
