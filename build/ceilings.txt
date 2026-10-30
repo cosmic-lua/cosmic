@@ -3085,6 +3085,8 @@ build/database_start_fixture.tl map_field 2
 
 build/dataset_test.tl map_field 7
 
+build/declared_key.tl map_field 3
+
 build/declared_key_fuzz_test.tl map_field 19
 
 build/declared_key_test.tl map_field 8
@@ -3247,7 +3249,7 @@ build/test_standing_test.tl map_field 10
 
 build/test_test.tl map_field 1
 
-build/test_worker.tl map_field 7
+build/test_worker.tl map_field 10
 
 build/test_worker_test.tl map_field 7
 

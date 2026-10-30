@@ -156,8 +156,6 @@
 --- each hash by what `lstat` said of the file, its change time included,
 --- and build.db keeps them from run to run.
 
--- TODO: make this `local type Cell = require("cosmic.cell")` once the store keeps a module that only a `local type` require names; today that drops cosmic.cell from the binary and build/link_index_test fails.
-local Cell = require("cosmic.cell")
 local Fs = require("cosmic.fs")
 local build_paths = require("build.paths")
 local Sqlite = require("cosmic.sqlite")
@@ -1284,7 +1282,8 @@ end
 local function walk_system(paths: {string}): string, {string}, integer
   local lines: mut {string} = {}
   local directories: mut {string} = {}
-  local newest_mtime_ns: Cell<integer> = { value = 0 }
+  -- TODO: hold this in a `Cell<integer>` once a change to the harness that bumps the epoch for another reason can add cosmic.cell to [`worker.loads`] and `library` in build/harness_epoch.tl: a harness module may not require it before, and a bump for this alone reruns every test.
+  local newest = { mtime_ns = 0 }
   local function walk(path: string, dev: integer?)
     local st, trouble = sys.lstat(path)
     if st == nil then
@@ -1298,7 +1297,7 @@ local function walk_system(paths: {string}): string, {string}, integer
     if st.kind == "dir" then
       table.insert(lines, path .. " dir " .. tostring(st.mode))
       table.insert(directories, path .. "\t" .. signature(st))
-      newest_mtime_ns.value = math.max(newest_mtime_ns.value, st.mtime * 1000000000 + st.mtime_ns)
+      newest.mtime_ns = math.max(newest.mtime_ns, st.mtime * 1000000000 + st.mtime_ns)
     else
       local line = path .. " " .. st.kind .. " " .. tostring(st.mode) .. " " ..
         tostring(st.size) .. " " .. tostring(st.mtime) .. "." .. tostring(st.mtime_ns)
@@ -1320,7 +1319,7 @@ local function walk_system(paths: {string}): string, {string}, integer
     for _, name in ipairs(names) do walk(path .. "/" .. name, st.dev) end
   end
   for _, path in ipairs(paths) do walk(path, nil) end
-  return hex_sha256(table.concat(lines, "\n")), directories, newest_mtime_ns.value
+  return hex_sha256(table.concat(lines, "\n")), directories, newest.mtime_ns
 end
 
 --- The walk of `paths` ([`walk_system`]), remembered in `digests` as a
