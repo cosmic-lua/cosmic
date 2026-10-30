@@ -195,7 +195,7 @@ local function bindings(p: Parser, item: types.Item): Bound?, string
       local at = two or after
       return nil, refuse(p, at.line, at.col, "expected a variable to bind after ',', as {{range $i, $x := .list}}")
     end
-    names[2] = two
+    names[#names + 1] = two
     local declare = tokens[5]
     if declare == nil or declare.kind ~= "declare" then
       local at = declare or two

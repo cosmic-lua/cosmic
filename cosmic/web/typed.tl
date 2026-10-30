@@ -136,8 +136,8 @@ end
 --- The errors of `inv` as the `errors` member of a problem body.
 local function problem_errors(inv: Types.Invalid): any
   local list: mut {any} = {}
-  for i, e in ipairs(inv.errors) do
-    list[i] = { source = e.source, field = e.field, pointer = e.pointer, message = e.message, code = e.code }
+  for _, e in ipairs(inv.errors) do
+    list[#list + 1] = { source = e.source, field = e.field, pointer = e.pointer, message = e.message, code = e.code }
   end
   return Json.array(list)
 end

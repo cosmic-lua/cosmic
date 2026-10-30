@@ -125,13 +125,13 @@ function App.new(spec: Types.AppSpec): Types.App
     trusted = seen
     local hosts: mut {string} = {}
     kept.trusted_hosts = hosts
-    for i, host in ipairs(trusted_hosts) do
+    for _, host in ipairs(trusted_hosts) do
       local parsed = type(host) == "string" and Request.parse_host(host) or nil
       if parsed == nil or parsed.port ~= nil then
         error(("web: trusted_hosts: %q is not a host name without a port"):format(tostring(host)), 2)
       end
       seen[parsed.host] = true
-      hosts[i] = parsed.host
+      hosts[#hosts + 1] = parsed.host
     end
   end
   local router = Router.build(routes, Errors.terminal, kept.trailing_slash, kept.builtin)

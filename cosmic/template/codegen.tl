@@ -115,6 +115,8 @@ end
 --- the name counter.
 local record Gen
   pieces: mut {string}
+  --- The pieces a header finished after its body replaces, by place in `pieces`.
+  patched: mut {integer: string}
   mut line: integer
   mut started: boolean
   mode: types.Mode
@@ -337,7 +339,7 @@ local function block(g: Gen, node: types.Node, dot: Dot)
     g.vars[arm.index] = nil
     g.vars[arm.element] = nil
     local held = assert(g.pieces[head], "put made the piece at this place")
-    g.pieces[head] = held .. opening .. "for " .. (index.used and index.name or "_") .. ", " ..
+    g.patched[head] = held .. opening .. "for " .. (index.used and index.name or "_") .. ", " ..
       (inner.used and inner.name or "_") .. " in ipairs(" .. source .. ") do"
     if other ~= nil then
       to_line(g, other.line)
@@ -491,7 +493,7 @@ end
 --- literal that no declaration describes.
 --- @return string Source that has as many lines as the template
 function Codegen.generate(template: types.Template): string
-  local g: Gen = { pieces = {}, line = template.line, started = false, mode = template.mode,
+  local g: Gen = { pieces = {}, patched = {}, line = template.line, started = false, mode = template.mode,
     imports = { order = {}, alias_of = {}, taken = {}, as_value = {} }, html = "", helpers = {}, staged = false,
     dots = 0, root = { name = "d", used = false }, vars = {}, bound = {} }
   local type_alias = alias_for(g, template.import_path)
@@ -525,8 +527,12 @@ function Codegen.generate(template: types.Template): string
   to_line(g, template.lines)
   put(g, "return " .. (if template.mode == "html" then g.html .. ".trust(table.concat(parts))" else
     "table.concat(parts)" end) .. ending)
+  local body: mut {string} = {}
+  for i, piece in ipairs(g.pieces) do
+    body[#body + 1] = g.patched[i] or piece
+  end
   return string.rep("\n", template.line - 1) .. table.concat(head, " ") .. " " ..
-    table.concat(g.pieces) .. "\n"
+    table.concat(body) .. "\n"
 end
 
 return Codegen

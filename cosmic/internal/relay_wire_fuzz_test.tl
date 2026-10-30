@@ -135,8 +135,9 @@ local OCTETS <const> = { "0", "1", "127", "255", "256", "010", "08", "9", "300",
 
 local function gen_ipv4(src: Fuzz.Source, sound: boolean): string
   local parts: mut {string} = {}
-  for i = 1, 4 do
-    parts[i] = (not sound and src:int(0, 3) == 0) and Fuzz.pick(src, OCTETS) or tostring(src:int(0, 255))
+  for _ = 1, 4 do
+    local part = (not sound and src:int(0, 3) == 0) and Fuzz.pick(src, OCTETS) or tostring(src:int(0, 255))
+    parts[#parts + 1] = part
   end
   while not sound and Fuzz.more(src, #parts - 4, 2) do
     parts[#parts + 1] = tostring(src:int(0, 255))
@@ -153,9 +154,10 @@ local GROUPS <const> = { "0", "0", "0", "1", "ff", "FFFF", "abcd", "0000", "1234
 --- (full, `::` for a run, a dotted tail) and some it does not.
 local function gen_ipv6(src: Fuzz.Source, sound: boolean): string
   local groups: mut {string} = {}
-  for i = 1, 8 do
-    groups[i] = (not sound and src:int(0, 4) == 0) and Fuzz.pick(src, GROUPS) or
+  for _ = 1, 8 do
+    local group = (not sound and src:int(0, 4) == 0) and Fuzz.pick(src, GROUPS) or
       ("%x"):format(src:int(0, 3) == 0 and src:int(0, 65535) or 0)
+    groups[#groups + 1] = group
   end
   while not sound and Fuzz.more(src, #groups - 8, 2) do
     groups[#groups + 1] = "1"

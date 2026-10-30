@@ -291,12 +291,12 @@ local function events_of(what: string, events: {Htmx.Event}): string?, string
     if event.detail ~= nil then detailed = true end
   end
   local parts: mut {string} = {}
-  for i, event in ipairs(events) do
+  for _, event in ipairs(events) do
     if not detailed then
       if event.name:find("[\128-\255]") then
         return nil, "htmx: " .. what .. ": an event name without a detail holds a byte past ASCII"
       end
-      parts[i] = event.name
+      parts[#parts + 1] = event.name
     else
       local key, key_why = header_json(what, event.name)
       if key == nil then return nil, key_why end
@@ -307,7 +307,7 @@ local function events_of(what: string, events: {Htmx.Event}): string?, string
         if encoded == nil then return nil, why end
         body = encoded
       end
-      parts[i] = key .. ":" .. body
+      parts[#parts + 1] = key .. ":" .. body
     end
   end
   if not detailed then return table.concat(parts, ", "), "" end

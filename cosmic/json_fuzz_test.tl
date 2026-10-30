@@ -205,11 +205,11 @@ local function holds_key_twice(compact: string?): boolean?
       i = j
     elseif c == "{" then
       open[#open + 1] = {}
-      objects[#open] = true
+      objects[#objects + 1] = true
       expecting = true
     elseif c == "[" then
       open[#open + 1] = {}
-      objects[#open] = false
+      objects[#objects + 1] = false
       expecting = false
     elseif c == "}" or c == "]" then
       open[#open] = nil
@@ -874,7 +874,10 @@ local function recipe_value(r: Recipe, depth: integer, parent?: {any: any}): any
   if op == 5 then return next_bytes(r, next_byte(r) % 12) end
   if op == 6 then
     local parts: mut {string} = {}
-    for i = 1, next_byte(r) % 8 do parts[i] = CHARS[next_byte(r) % #CHARS + 1] end
+    for _ = 1, next_byte(r) % 8 do
+      local char = assert(CHARS[next_byte(r) % #CHARS + 1])
+      parts[#parts + 1] = char
+    end
     return table.concat(parts)
   end
   if op == 7 then

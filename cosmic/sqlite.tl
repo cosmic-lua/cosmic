@@ -543,7 +543,7 @@ function Stored.texts(self: Stored): {string}
   for index = 1, #self // 2 do
     local kind, held = cell_at(self, index, "texts")
     if kind == "text" and held is string then
-      out[index] = held
+      out[#out + 1] = held
     else
       error(mismatch("texts", index, kind, "text"), 2)
     end
@@ -630,7 +630,7 @@ function TextStored.texts(self: TextStored): {string}
   local out: mut {string} = {}
   for index = 1, #self do
     local held = self[index]
-    if held is string then out[index] = held end
+    if held is string then out[#out + 1] = held end
   end
   return out
 end

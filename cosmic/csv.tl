@@ -178,13 +178,13 @@ local function read(text: string, delimiter: string): Scan?, string
       -- A blank line: a record of no fields, which `parse` leaves out and
       -- `table` reads by the header's width.
       records[#records + 1] = {}
-      lines[#records] = line
+      lines[#lines + 1] = line
       pos = pos + (if first == 10 then 1 else 2 end)
       line = line + 1
       line_start = pos
     else
       local fields: mut {string} = {}
-      lines[#records + 1] = line
+      lines[#lines + 1] = line
       local ended = false
       local broke = false
       while not ended do
@@ -389,7 +389,8 @@ function Csv.table(text: string, opts?: Csv.Options): Csv.Table?, string
         row[name] = record[index]
       end
       rows[#rows + 1] = row
-      began[#rows] = lines[number]
+      local began_at = assert(lines[number])
+      began[#began + 1] = began_at
     end
   end
   return { columns = names, rows = rows, lines = began }, ""
@@ -524,7 +525,8 @@ function Csv.load(handle: Sqlite.Handle, name: string, source: Csv.Source): Csv.
     if #names == 1 then
       cell = "coalesce(" .. cell .. ", '')"
     end
-    cells[index] = source.raw and cell or typed(cell)
+    local entry = source.raw and cell or typed(cell)
+    cells[#cells + 1] = entry
   end
   -- Blank lines are read as `table` reads them, and a record short of the
   -- header's fields is refused, as `table` refuses one, so no row is

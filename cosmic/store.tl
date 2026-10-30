@@ -280,7 +280,7 @@ function Store.closure(roots: {string}, opts?: Store.ClosureOptions): {string}
   local seen: mut {string:boolean} = {}
   local names: mut {string} = {}
   local stack: mut {string} = {}
-  local required_by: mut {string} = {}
+  local required_by: mut {integer: string} = {}
   for _, root in ipairs(roots) do
     stack[#stack + 1] = root
   end

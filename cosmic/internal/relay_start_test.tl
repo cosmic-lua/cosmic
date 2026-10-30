@@ -63,14 +63,14 @@ local function test_plan_normalizes_and_limits_endpoints_and_table_bytes_togethe
   local v4: mut {string} = {}
   for i = 1, 32 do v4[i] = "10.0.0." .. tostring(i) .. ":*" end
   assert(SandboxRelay.plan(v4, {}) ~= nil)
-  v4[33] = "10.0.0.33:*"
+  v4[#v4 + 1] = "10.0.0.33:*"
   local none, why = SandboxRelay.plan(v4, {})
   assert(none == nil and why:find("connect names addresses whose port tables take 33 MiB, more than the " ..
       "32 MiB a connector holds", 1, true) ~= nil, tostring(why))
   local v6: mut {string} = {}
   for i = 1, 16 do v6[i] = "[2001:db8::" .. tostring(i) .. "]:*" end
   assert(SandboxRelay.plan(v6, {}) ~= nil)
-  v6[17] = "[2001:db8::17]:*"
+  v6[#v6 + 1] = "[2001:db8::17]:*"
   local none6, why6 = SandboxRelay.plan(v6, {})
   assert(none6 == nil and why6:find("take 34 MiB", 1, true) ~= nil, tostring(why6))
   -- The upstream's address at a port its any-port grant covers adds nothing; at another, a slot of its own.
@@ -176,12 +176,12 @@ local function test_the_plan_and_the_core_count_the_port_tables_alike()
   local v4: mut {string} = {}
   for i = 1, 32 do v4[i] = "10.0.0." .. tostring(i) .. ":*" end
   agree(v4, true)
-  v4[33] = "10.0.0.33:*"
+  v4[#v4 + 1] = "10.0.0.33:*"
   agree(v4, false)
   local v6: mut {string} = {}
   for i = 1, 16 do v6[i] = "[2001:db8::" .. tostring(i) .. "]:*" end
   agree(v6, true)
-  v6[17] = "[2001:db8::17]:*"
+  v6[#v6 + 1] = "[2001:db8::17]:*"
   agree(v6, false)
   -- An IPv4 slot before each IPv6 range pads it by 16 bytes: the 16 pairs are exactly 32 MiB, a 17th slot over.
   local padded: mut {string} = {}
