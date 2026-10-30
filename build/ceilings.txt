@@ -1198,13 +1198,13 @@ cosmic/relay/grant.tl nil_not_allowed 5
 
 cosmic/removed_test.tl nil_not_allowed 7
 
-cosmic/sandbox/init.tl nil_not_allowed 1
 
-cosmic/sandbox/policy.tl nil_not_allowed 2
 
-cosmic/sandbox/seatbelt.tl nil_not_allowed 1
 
-cosmic/sandbox/seatbelt_test.tl nil_not_allowed 4
+
+
+
+
 
 cosmic/sandbox_restrict_seatbelt_test.tl nil_not_allowed 1
 
@@ -1952,9 +1952,9 @@ cosmic/relay/address_fuzz_test.tl index_may_be_nil 9
 
 cosmic/relay/grant.tl index_may_be_nil 1
 
-cosmic/sandbox/policy.tl index_may_be_nil 3
 
-cosmic/sandbox/seatbelt.tl index_may_be_nil 7
+
+
 
 cosmic/sandbox_restrict_test.tl index_may_be_nil 1
 
@@ -5406,7 +5406,7 @@ cosmic/removed_test.tl or_mix 15
 
 
 
-cosmic/sandbox/seatbelt_test.tl or_mix 11
+
 
 cosmic/sandbox_test.tl or_mix 32
 
@@ -6302,7 +6302,6 @@ cosmic/removed_test.tl compare_disjoint 2
 
 cosmic/sandbox/policy.tl compare_disjoint 2
 
-cosmic/sandbox/seatbelt_test.tl compare_disjoint 1
 
 cosmic/seatbelt_network_probe_test.tl compare_disjoint 2
 
