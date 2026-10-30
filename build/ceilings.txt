@@ -3802,11 +3802,8 @@ build/confine_tool_test.tl any_use 3
 
 build/coverage_hits.tl any_use 1
 
-build/dataset.tl any_use 8
 
-build/dataset_fuzz_test.tl any_use 14
 
-build/dataset_test.tl any_use 5
 
 build/declared_key_test.tl any_use 3
 
@@ -4585,7 +4582,6 @@ test/sqlite_row_test.tl cast_refused 1
 
 build/compile_grammar_test.tl is_on_record 3
 
-build/dataset.tl is_on_record 2
 
 build/flow.tl is_on_record 7
 
@@ -6656,7 +6652,6 @@ build/compile.tl literal_needs_type 1
 
 build/confine_tool_test.tl literal_needs_type 1
 
-build/dataset_fuzz_test.tl literal_needs_type 1
 
 build/dataset_test.tl literal_needs_type 2
 

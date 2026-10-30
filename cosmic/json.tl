@@ -773,9 +773,59 @@ local function pointer_of(steps: Json.Steps): string
   return table.concat(parts)
 end
 
+--- The checks [`Json.to_value`] makes, which call each other.
+local record Check
+end
+
+--- The elements of the array `v`, whose members are `m`, checked, and "".
+function Check.items(v: any, m: Json.Members, pointer: string, depth: integer): {Json.Value}?, string
+  local t = table_of(v)
+  if t == nil then return refuse("the value at " .. at_pointer(pointer) .. " is not a table") end
+  local items: mut {Json.Value} = {}
+  for i = 1, m.extent do
+    local item, why = Check.value(t[i], pointer .. "/" .. tostring(i - 1), depth + 1)
+    if item == nil then return nil, why end
+    items[i] = item
+  end
+  return Json.array(items), ""
+end
+
+--- The object `v`, whose members are `m`, checked, and "".
+function Check.members(v: any, m: Json.Members, pointer: string, depth: integer): {string: Json.Value}?, string
+  local t = table_of(v)
+  if t == nil then return refuse("the value at " .. at_pointer(pointer) .. " is not a table") end
+  local members: mut {string: Json.Value} = {}
+  for _, key in ipairs(m.keys) do
+    if key is string then
+      if utf8.len(key) == nil then
+        return refuse("a name at " .. at_pointer(pointer) .. " is not UTF-8")
+      end
+      local member, why = Check.value(t[key], pointer .. "/" .. pointer_segment(key), depth + 1)
+      if member == nil then return nil, why end
+      members[key] = member
+    end
+  end
+  return members, ""
+end
+
+--- Why the table `t`, whose members are `m`, is not an array or an object
+--- JSON can say, or "" when it is one; nesting past the limit is refused too.
+local function table_why(m: Json.Members, pointer: string, depth: integer): string
+  if depth > Json.depth_limit then
+    return ("nesting at %s is deeper than %d"):format(at_pointer(pointer), Json.depth_limit)
+  end
+  if m.layout == "mixed" then
+    return "the table at " .. at_pointer(pointer) .. " has keys that are neither all names nor all positions from 1"
+  end
+  if m.layout == "hole" or (m.layout == "array" and #m.keys > 0) then
+    return "the array at " .. at_pointer(pointer) .. " has a hole; decode with null_value = Json.null to keep a null"
+  end
+  return ""
+end
+
 --- `v` as a [`Json.Value`] with its parts checked, and "". nil and a
 --- message naming the first part that is none, by its JSON Pointer.
-local function value_at(v: any, pointer: string, depth: integer): Json.Value?, string
+function Check.value(v: any, pointer: string, depth: integer): Json.Value?, string
   if v is string then
     if utf8.len(v) == nil then
       return refuse("the string at " .. at_pointer(pointer) .. " is not UTF-8")
@@ -795,37 +845,11 @@ local function value_at(v: any, pointer: string, depth: integer): Json.Value?, s
     if v == nil then return refuse("no value at " .. at_pointer(pointer)) end
     return refuse(("the value at %s is a %s, which JSON cannot say"):format(at_pointer(pointer), type(v)))
   end
-  if depth > Json.depth_limit then
-    return refuse(("nesting at %s is deeper than %d"):format(at_pointer(pointer), Json.depth_limit))
-  end
   local m = Json.members(t, true)
-  if m.layout == "mixed" then
-    return refuse("the table at " .. at_pointer(pointer) .. " has keys that are neither all names nor all positions from 1")
-  end
-  if m.layout == "hole" or (m.layout == "array" and #m.keys > 0) then
-    return refuse("the array at " .. at_pointer(pointer) .. " has a hole; decode with null_value = Json.null to keep a null")
-  end
-  if m.layout == "array" then
-    local items: mut {Json.Value} = {}
-    for i = 1, m.extent do
-      local item, why = value_at(t[i], pointer .. "/" .. tostring(i - 1), depth + 1)
-      if item == nil then return nil, why end
-      items[i] = item
-    end
-    return Json.array(items), ""
-  end
-  local members: mut {string: Json.Value} = {}
-  for _, key in ipairs(m.keys) do
-    if key is string then
-      if utf8.len(key) == nil then
-        return refuse("a name at " .. at_pointer(pointer) .. " is not UTF-8")
-      end
-      local member, why = value_at(t[key], pointer .. "/" .. pointer_segment(key), depth + 1)
-      if member == nil then return nil, why end
-      members[key] = member
-    end
-  end
-  return members, ""
+  local why = table_why(m, pointer, depth)
+  if why ~= "" then return refuse(why) end
+  if m.layout == "array" then return Check.items(v, m, pointer, depth) end
+  return Check.members(v, m, pointer, depth)
 end
 
 --- `value`, a decoded value or any other, as a [`Json.Value`], and "": the
@@ -846,7 +870,36 @@ end
 ---     local decoded = assert(Json.decode('{"tools": ["a", "b"]}'))
 ---     local value = assert(Json.to_value(decoded))
 function Json.to_value(value: any): Json.Value?, string
-  return value_at(value, "", 1)
+  return Check.value(value, "", 1)
+end
+
+--- `value` as an object, a map of [`Json.Value`], and "": [`Json.to_value`]
+--- for what must be an object. nil and a message when it is not one -- an
+--- array, a scalar, a nil -- or when a part of it is none, as [`to_value`]
+--- says.
+function Json.to_object(value: any): {string: Json.Value}?, string
+  local t = table_of(value)
+  if t == nil then return refuse("expected a JSON object, got " .. kind(value)) end
+  local m = Json.members(t, true)
+  local why = table_why(m, "", 1)
+  if why ~= "" then return refuse(why) end
+  if m.layout ~= "object" then return refuse("expected a JSON object, got " .. kind(value)) end
+  return Check.members(value, m, "", 1)
+end
+
+--- `value` as an array, a list of [`Json.Value`], and "": [`Json.to_value`]
+--- for what must be an array. nil and a message when it is not one -- an
+--- object, a scalar, a nil -- or when a part of it is none, as [`to_value`]
+--- says. A table with no keys is an array only where [`Json.is_array`]
+--- marks it, as `decode` does for `[]`.
+function Json.to_array(value: any): {Json.Value}?, string
+  local t = table_of(value)
+  if t == nil then return refuse("expected a JSON array, got " .. kind(value)) end
+  local m = Json.members(t, true)
+  local why = table_why(m, "", 1)
+  if why ~= "" then return refuse(why) end
+  if m.layout ~= "array" then return refuse("expected a JSON array, got " .. kind(value)) end
+  return Check.items(value, m, "", 1)
 end
 
 --- The highest position of the array `t`, holes and all.
