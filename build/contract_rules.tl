@@ -55,18 +55,6 @@ local casts: {string: string} = {
     "a stored row is a record with an array part for its slots, and the grammar has no record " ..
     "with an array part that also implements Sqlite.Row",
 
-  ["build/sandbox_probe.tl:raw_process_table"] =
-    "the store's searcher hands cosmic.child's loader the raw process " ..
-    "table as its extra value, untyped as package.searchers returns it; " ..
-    "cosmic.internal.process declares that table, core/process.h defines it",
-  ["build/unix_socket.tl:raw_table"] =
-    "the store's searcher hands cosmic.net's loader the raw socket " ..
-    "table as its extra value, untyped as package.searchers returns it; " ..
-    "cosmic.internal.socket declares that table, core/socket.h defines it",
-  ["build/udp_fixture.tl:raw_table"] =
-    "the store's searcher hands cosmic.net's loader the raw socket " ..
-    "table as its extra value, untyped as package.searchers returns it; " ..
-    "cosmic.internal.socket declares that table, core/socket.h defines it",
   ["build/confine.tl:policy_kind"] =
     "a record read raw, as the core reads it, so no metamethod answers for a field",
   ["build/confine.tl:plain_sandbox"] =

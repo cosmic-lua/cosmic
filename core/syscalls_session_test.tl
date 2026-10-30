@@ -2,6 +2,7 @@
 --- tests: the one of them that starts a host program, setsid, to run in
 --- a session of its own, and so the one that needs the system's paths.
 
+local RawTables = require("build.raw_tables")
 local sys = require("cosmic.sys")
 local Test = require("cosmic.test")
 local confine = require("build.confine")
@@ -21,18 +22,7 @@ Test.policy{
 }
 
 local type raw_process = require("cosmic.internal.process")
-local type Searcher = function(string): any, any
-
---- The raw process table `require` hands [`cosmic.child`]'s loader.
-local function raw_behind_child(): any
-  for _, searcher in ipairs(package.searchers as {Searcher}) do -- cast: searchers' loaders take an extra
-    local loader, extra = searcher("cosmic.child")
-    if type(loader) == "function" and type(extra) == "table" then return extra end
-  end
-  error("cosmic.child is handed no raw table")
-end
-
-local process = raw_behind_child() as raw_process -- cast: the table core/process.h declares
+local process = RawTables.process()
 
 local function create(path: string): integer
   local fd, trouble = sys.open(path, sys.O_CREAT | sys.O_RDWR | sys.O_TRUNC, 420)

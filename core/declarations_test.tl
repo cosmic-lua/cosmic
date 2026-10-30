@@ -15,6 +15,7 @@
 -- function, nothing of a function's signature, and never looks inside
 -- a declared value such as json.null.
 
+local RawTables = require("build.raw_tables")
 local Fs = require("cosmic.fs")
 local Ast = require("lang.ast")
 local gen_syscalls = require("build.gen_syscalls")
@@ -25,7 +26,7 @@ local Test = require("cosmic.test")
 
 -- Every wrapper core/store.c hands a raw module to (`wrappers`, below),
 -- required so it is of the closure: the store's searcher, asked by hand
--- ([`raw_behind`]), hands its raw value only for a module the closure
+-- ([`RawTables`]), hands its raw value only for a module the closure
 -- holds.
 local type _artifact = require("build.artifact")
 local type _digest = require("build.digest")
@@ -70,7 +71,6 @@ local function members(value: any): {string: any}
   return value as {string: any} -- cast: checked above to be indexable
 end
 
-local type Searcher = function(string): any, any
 local type Call = function(...: any): any...
 
 --- Calls a function of the core's, whatever its declared signature.
@@ -235,18 +235,6 @@ local function nothing() end
 
 local preloaded <const>: {string: boolean} = { errors = true, globals = true, testing = true }
 
---- The raw value the store's searcher hands `wrapper`'s loader, the
---- way `require` hands it, or nil when it hands none.
-local function raw_behind(wrapper: string): any
-  for _, searcher in ipairs(package.searchers as {Searcher}) do -- cast: searchers' loaders take an extra
-    local loader, extra = searcher(wrapper)
-    if type(loader) == "function" and type(extra) == "table" then
-      return extra
-    end
-  end
-  return nil
-end
-
 local function reply(): string
   return "HTTP/1.1 200 OK\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
 end
@@ -362,14 +350,13 @@ local function raw_module(name: string): any
   end
   assert(wrapper ~= nil, "cosmic/internal/" .. name .. ".d.tl declares a module " ..
       "this test does not know how to reach")
-  local raw = assert(raw_behind(wrapper), wrapper .. " is handed no raw value " ..
-      "(require it with `local type` at the top so it is in the closure)")
+  local raw = RawTables.fields(wrapper)
   local joined = merged[wrapper]
   if joined == nil then return raw end
   -- The wrapper is handed the fields of all its raw modules in one
   -- table: leave this one's own, the fields of no other.
   local own: mut {string: any} = {}
-  for key, value in pairs(raw as {string: any}) do -- cast: a raw value is a table of fields
+  for key, value in pairs(raw) do
     own[key] = value
   end
   for _, other in ipairs(joined) do
@@ -475,12 +462,11 @@ local function test_every_raw_module_has_a_declaration()
   end
   for wrapper in pairs(wrappers) do
     assert(in_c[wrapper] ~= nil, wrapper .. " is no wrapper of core/store.c's raw_modules")
-    assert(raw_behind(wrapper) ~= nil, wrapper .. " is handed no raw value " ..
-        "(require it with `local type` at the top so it is in the closure)")
+    local _ = RawTables.fields(wrapper)
   end
   for wrapper, names in pairs(merged) do
     assert(in_c[wrapper] ~= nil, wrapper .. " is no wrapper of core/store.c's raw_modules")
-    local combined = assert(raw_behind(wrapper), wrapper .. " is handed no raw value") as {string: any} -- cast: a raw value is a table of fields
+    local combined = RawTables.fields(wrapper)
     -- A name two of the raw values share must be one value, or the
     -- combined table (core/store.c's wrapper_raw) refuses to load.
     local first_name = assert(names[1], wrapper .. " merges two raw values")

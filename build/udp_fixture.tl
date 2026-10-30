@@ -3,23 +3,12 @@
 --- server or receive a resolver's query. [`cosmic.net`] has no UDP socket
 --- of its own; these few calls go to the raw socket module's instead.
 
-local _ = require("cosmic.net") -- in the closure: [`raw_table`] searches for it by hand
+local RawTables = require("build.raw_tables")
+local _ = require("cosmic.net") -- in the closure: [`RawTables`] searches for it by hand
 local Poll = require("cosmic.poll")
 local type raw_socket = require("cosmic.internal.socket")
 
---- The raw socket table the store's searcher hands [`cosmic.net`]'s
---- loader, which carries the UDP calls [`cosmic.net`] itself does not.
-local function raw_table(): raw_socket
-  for _, searcher in ipairs(package.searchers) do
-    local loader, extra = searcher("cosmic.net")
-    if type(loader) == "function" and type(extra) == "table" then
-      return extra as raw_socket -- cast: the table core/socket.h declares
-    end
-  end
-  error("cosmic.net is handed no raw table")
-end
-
-local raw = raw_table()
+local raw = RawTables.socket()
 
 local record udp_fixture
   --- A UDP socket bound by [`udp_fixture.bind`].

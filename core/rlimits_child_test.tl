@@ -4,29 +4,18 @@
 --- that refuses to set one (ENOSYS: anything but Linux) skips the test
 --- (Test.skip).
 
+local RawTables = require("build.raw_tables")
 local Fs = require("cosmic.fs")
 local Test = require("cosmic.test")
 local sys = require("cosmic.sys")
 local stand_in = require("build.stand_in")
-local type raw_process = require("cosmic.internal.process")
 -- Required, so the module whose loader is handed the raw table is of this
 -- test's import closure, and the store has it to hand it from.
 local type _ = require("cosmic.child")
 
 Test.policy{}
 
-local type Searcher = function(string): any, any
-
---- The raw table the store's searcher hands `wrapper`'s loader.
-local function raw_behind(wrapper: string): any
-  for _, searcher in ipairs(package.searchers as {Searcher}) do -- cast: searchers' loaders take an extra
-    local loader, extra = searcher(wrapper)
-    if type(loader) == "function" and type(extra) == "table" then return extra end
-  end
-  error(wrapper .. " is handed no raw table")
-end
-
-local process = raw_behind("cosmic.child") as raw_process -- cast: the table core/process.h declares
+local process = RawTables.process()
 
 --- What `script` printed in a stand-in started with `rlimits`, or nil and why
 --- the start was refused.

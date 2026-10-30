@@ -2,6 +2,7 @@
 --- sandboxed worker is given, and where a path leads as the sandbox
 --- binds it.
 
+local RawTables = require("build.raw_tables")
 local Fs = require("cosmic.fs")
 local Proc = require("cosmic.proc")
 local sys = require("cosmic.sys")
@@ -10,7 +11,6 @@ local confine = require("build.confine")
 local stand_in = require("build.stand_in")
 local test_child = require("build.test_child")
 local this_program = require("build.this_program")
-local type raw_process = require("cosmic.internal.process")
 
 --- What a sandboxed worker of this very program reads: /proc, where the
 --- stand-in it starts finds itself, and the program itself, which its
@@ -23,26 +23,12 @@ Test.policy{
   env = { "COSMIC_SANDBOX" },
 }
 
-local type Searcher = function(string): any, any
-
 --- A stand-in program built under `tmp` (build/stand_in.tl), which runs
 --- the script its first argument holds: a static executable that reads
 --- only itself (and /proc, where it finds itself), so one confined needs
 --- nothing of the system's own.
 local function probe_in(tmp: string): string
   return (assert(stand_in.build(tmp .. "/stand-in")))
-end
-
---- The raw process table build.confine stands in for the spawn of, as
---- `require` hands it to its loader.
-local function raw_process_table(): raw_process
-  for _, searcher in ipairs(package.searchers as {Searcher}) do -- cast: searchers' loaders take an extra
-    local loader, extra = searcher("build.confine")
-    if type(loader) == "function" and type(extra) == "table" then
-      return extra as raw_process -- cast: the table core/process.h defines
-    end
-  end
-  error("build.confine is handed no raw table")
 end
 
 --- What a sandboxed worker's child says: whether its
@@ -67,7 +53,7 @@ test_child.register("worker", function(args: {string}): integer
     said[#said + 1] = if line == string.format("%d|%d|%d|%d\n", st.size, st.ino, st.mtime, st.ctime)
       then "stamped" else "unstamped" end
   end
-  local process = raw_process_table()
+  local process = RawTables.process("build.confine")
   local reads = { given, probe, "/proc" }
   local report = assert(sys.open(given .. "/../report", sys.O_CREAT | sys.O_RDWR | sys.O_TRUNC, 420))
   local pid, trouble, errno = process.spawn(probe, { probe,
@@ -120,7 +106,7 @@ local function sandboxed_worker(tmp: string): {string}?
     { env = {} })
   local argv, opts = worker.argv, worker.options
   local output = assert(sys.open(tmp .. "/said", sys.O_CREAT | sys.O_RDWR | sys.O_TRUNC, 420))
-  local process = raw_process_table()
+  local process = RawTables.process("build.confine")
   local pid, trouble, errno = process.spawn(argv[1], argv, opts.env, tree, nil, output,
     output, false, spawn_fds(worker),
     { unveil = unveil, offline = true })

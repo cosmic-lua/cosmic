@@ -2,27 +2,15 @@
 --- the way cosmic/internal/relay_resolv.tl runs one, against a hosts file and
 --- against connects parked for a socket the test supplies.
 
+local RawTables = require("build.raw_tables")
 local Fs = require("cosmic.fs")
 local Net = require("cosmic.net")
 local sys = require("cosmic.sys")
 local Test = require("cosmic.test")
-local type raw_socket = require("cosmic.internal.socket")
 
 Test.policy{ loopback = { "127.0.0.1" } }
 
-local type Searcher = function(string): any, any
-
-local function socket_table(): raw_socket
-  for _, searcher in ipairs(package.searchers as {Searcher}) do -- cast: searchers' loaders take an extra
-    local loader, extra = searcher("cosmic.net")
-    if type(loader) == "function" and type(extra) == "table" then
-      return extra as raw_socket -- cast: the table core/socket.h declares
-    end
-  end
-  error("cosmic.net is handed no raw table")
-end
-
-local socket = socket_table()
+local socket = RawTables.socket()
 
 local function require_linux()
   if assert(sys.uname()).sysname ~= "Linux" then

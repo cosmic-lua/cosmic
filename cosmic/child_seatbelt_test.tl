@@ -8,6 +8,7 @@
 --- spawn's `seatbelt` is no argument where there is none -- runs on all of
 --- them.
 
+local RawTables = require("build.raw_tables")
 local Child = require("cosmic.child")
 local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
@@ -16,24 +17,10 @@ local Sandbox = require("cosmic.sandbox")
 local Seatbelt = require("cosmic.sandbox.seatbelt")
 local Test = require("cosmic.test")
 local sys = require("cosmic.sys")
-local type raw_process = require("cosmic.internal.process")
 
 --- The system's own paths, which the child's program, its loader and its
 --- libraries are read and run from, and the temporary directory.
 Test.policy{ env = { "TMPDIR" }, profiles = { "system" } }
-
-local type Searcher = function(string): any, any
-
---- The process table cosmic.child starts a child through.
-local function process_table(): raw_process
-  for _, searcher in ipairs(package.searchers as {Searcher}) do -- cast: searchers' loaders take an extra
-    local loader, extra = searcher("cosmic.child")
-    if type(loader) == "function" and type(extra) == "table" then
-      return extra as raw_process -- cast: the table core/process.h declares
-    end
-  end
-  error("cosmic.child has no process table")
-end
 
 --- Ends the test where Seatbelt does not hold a child.
 local function macos_only()
@@ -271,7 +258,7 @@ end
 local function test_a_profile_the_system_refuses_fails_the_start_and_never_runs_the_program(tmp: string)
   macos_only()
   local marker = tmp .. "/ran"
-  local process = process_table()
+  local process = RawTables.process()
   local argv = { SH, "-c", "echo ran > \"$1\"", "sh", marker }
   local pid, why, errno = process.spawn(SH, argv, nil, nil, nil, nil, nil, false, nil,
     { seatbelt = { profile = "(version 1)\n(allow default\n", parameters = {} } })
@@ -283,7 +270,7 @@ end
 
 local function test_a_profile_the_system_accepts_holds_the_program_by_its_parameters(tmp: string)
   macos_only()
-  local process = process_table()
+  local process = RawTables.process()
   local marker = tmp .. "/marker"
   local profile = "(version 1)\n(allow default)\n(deny file-write* (literal (param \"MARKER\")))\n"
   local real_tmp = assert(sys.realpath(tmp))
@@ -335,7 +322,7 @@ end
 --- The process table a test starts a child through hands its twelfth
 --- argument on: a terminal asked of a path that is none starts nothing.
 local function test_a_terminal_asked_of_no_terminal_starts_nothing()
-  local process = process_table()
+  local process = RawTables.process()
   local function start(...: any): integer?, string, integer
     return (process.spawn as function(...: any): integer?, string, integer)(...)
   end
@@ -353,7 +340,7 @@ end
 --- "terminal" rather than giving the program a terminal that is not its stdin.
 local function test_a_terminal_that_is_not_stdins_fails_the_start_at_the_terminal_step()
   macos_only()
-  local process = process_table()
+  local process = RawTables.process()
   local function start(...: any): integer?, string, integer
     return (process.spawn as function(...: any): integer?, string, integer)(...)
   end
@@ -381,7 +368,7 @@ local function test_a_seatbelt_profile_is_no_argument_where_there_is_no_seatbelt
   if assert(sys.uname()).sysname == "Darwin" then
     Test.skip("macOS takes a profile: the tests above start a child under one")
   end
-  local process = process_table()
+  local process = RawTables.process()
   local ok, why = pcall(process.spawn, "/nowhere", { "/nowhere" }, nil, nil, nil, nil, nil, false, nil,
     { seatbelt = { profile = "(version 1)\n", parameters = {} } })
   assert(not ok and tostring(why):find("seatbelt is macOS's", 1, true), tostring(why))

@@ -3687,9 +3687,8 @@ build/codec_test.tl cast_refused 6
 
 build/confine.tl cast_refused 3
 
-build/confine_test.tl cast_refused 2
 
-build/confine_tool_test.tl cast_refused 9
+build/confine_tool_test.tl cast_refused 7
 
 build/coverage_hits.tl cast_refused 1
 
@@ -3751,11 +3750,9 @@ build/sandbox_connect_test.tl cast_refused 11
 
 build/sandbox_connect_tool_test.tl cast_refused 6
 
-build/sandbox_probe.tl cast_refused 1
 
 build/sandbox_test.tl cast_refused 4
 
-build/stand_in_test.tl cast_refused 2
 
 build/standalone.tl cast_refused 1
 
@@ -3769,9 +3766,7 @@ build/time_input_fuzz_test.tl cast_refused 1
 
 build/todos_test.tl cast_refused 3
 
-build/udp_fixture.tl cast_refused 1
 
-build/unix_socket.tl cast_refused 1
 
 build/verbs_store_test.tl cast_refused 4
 
@@ -3785,55 +3780,49 @@ build/zig_caches_test.tl cast_refused 1
 
 build/zig_test.tl cast_refused 3
 
-core/allocation_children_test.tl cast_refused 3
+core/allocation_children_test.tl cast_refused 1
 
 core/allocation_store_test.tl cast_refused 1
 
-core/allocation_test.tl cast_refused 11
+core/allocation_test.tl cast_refused 7
 
-core/allocation_tool_test.tl cast_refused 6
+core/allocation_tool_test.tl cast_refused 4
 
 core/artifact_fd_test.tl cast_refused 8
 
-core/artifact_fd_tool_test.tl cast_refused 10
+core/artifact_fd_tool_test.tl cast_refused 8
 
 core/connector_allocation_test.tl cast_refused 5
 
-core/connector_filter_test.tl cast_refused 3
+core/connector_filter_test.tl cast_refused 1
 
-core/connector_public_fuzz_test.tl cast_refused 2
 
-core/connector_public_test.tl cast_refused 2
 
 core/connector_request_fuzz_test.tl cast_refused 3
 
 core/connector_test.tl cast_refused 3
 
-core/declarations_test.tl cast_refused 13
+core/declarations_test.tl cast_refused 10
 
 core/grants_child_test.tl cast_refused 4
 
-core/grants_refused_test.tl cast_refused 3
+core/grants_refused_test.tl cast_refused 1
 
-core/lookup_test.tl cast_refused 2
 
-core/noexec_tool_test.tl cast_refused 1
 
 core/promises_child_test.tl cast_refused 2
 
 core/promises_held_child_test.tl cast_refused 4
 
-core/promises_refused_test.tl cast_refused 5
+core/promises_refused_test.tl cast_refused 3
 
-core/promises_system_test.tl cast_refused 2
 
 core/promises_test.tl cast_refused 4
 
-core/rlimits_child_test.tl cast_refused 4
+core/rlimits_child_test.tl cast_refused 2
 
-core/socket_sigpipe_checked_test.tl cast_refused 2
 
-core/socket_test.tl cast_refused 3
+core/socket_test.tl cast_refused 1
 
 core/sqlite_documented_test.tl cast_refused 4
 
@@ -3843,25 +3832,19 @@ core/sqlite_test.tl cast_refused 7
 
 core/surface_test.tl cast_refused 5
 
-core/syscalls_grants_refusal_test.tl cast_refused 2
 
-core/syscalls_landlock_test.tl cast_refused 3
+core/syscalls_landlock_test.tl cast_refused 1
 
-core/syscalls_namespace_refusal_test.tl cast_refused 2
 
-core/syscalls_pledge_test.tl cast_refused 2
 
-core/syscalls_proc_children_test.tl cast_refused 2
 
 core/syscalls_relay_test.tl cast_refused 3
 
-core/syscalls_restrict_refusal_test.tl cast_refused 3
+core/syscalls_restrict_refusal_test.tl cast_refused 1
 
-core/syscalls_session_test.tl cast_refused 2
 
-core/syscalls_sigpipe_proc_test.tl cast_refused 3
+core/syscalls_sigpipe_proc_test.tl cast_refused 1
 
-core/syscalls_sigpipe_test.tl cast_refused 2
 
 core/syscalls_test.tl cast_refused 17
 
@@ -3881,13 +3864,11 @@ cosmic/child_lua_test.tl cast_refused 9
 
 cosmic/child_policy_anywhere_test.tl cast_refused 6
 
-cosmic/child_policy_isolate_test.tl cast_refused 2
 
-cosmic/child_relay_seatbelt_test.tl cast_refused 2
 
 cosmic/child_sandbox_tool_test.tl cast_refused 1
 
-cosmic/child_seatbelt_test.tl cast_refused 4
+cosmic/child_seatbelt_test.tl cast_refused 2
 
 cosmic/child_task_tool_test.tl cast_refused 8
 
@@ -3991,7 +3972,7 @@ cosmic/policy_test.tl cast_refused 2
 
 cosmic/poll_example.tl cast_refused 1
 
-cosmic/poll_test.tl cast_refused 16
+cosmic/poll_test.tl cast_refused 14
 
 cosmic/proc.tl cast_refused 1
 
@@ -4009,11 +3990,9 @@ cosmic/sandbox/init.tl cast_refused 1
 
 cosmic/sandbox/seatbelt_test.tl cast_refused 2
 
-cosmic/sandbox_restrict_test.tl cast_refused 2
 
 cosmic/sandbox_test.tl cast_refused 6
 
-cosmic/seatbelt_network_probe_test.tl cast_refused 2
 
 cosmic/shape.tl cast_refused 1
 

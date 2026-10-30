@@ -11,27 +11,16 @@
 --- the kernel refuses is the report, not a failure.
 local Fs = require("cosmic.fs")
 local sys = require("cosmic.sys")
+local RawTables = require("build.raw_tables")
 local type raw_process = require("cosmic.internal.process")
 -- In the closure, so the store the worker is given carries it for the
--- store's searcher ([`raw_process_table`]).
+-- store's searcher ([`RawTables`]).
 local _ = require("cosmic.child")
 
---- The raw process table, as the store's searcher hands it to
---- [`cosmic.child`]'s loader (core/syscalls_test.tl finds it the same
---- way): no module requires it by name but under boot.
--- TODO: start each child with cosmic.child's sandbox option and drop
--- this function and its cast (build/contract_rules.tl's `casts`), once
--- cosmic.child offers spawn's sandbox as a Child option (the TODO in
--- cosmic/child.tl's start).
-local function raw_process_table(): raw_process
-  for _, searcher in ipairs(package.searchers) do
-    local loader, extra = searcher("cosmic.child")
-    if type(loader) == "function" and type(extra) == "table" then return extra as raw_process end
-  end
-  error("cosmic.child is handed no raw table")
-end
-
-local process = raw_process_table()
+-- TODO: start each child with cosmic.child's sandbox option and drop this
+-- module's use of build.raw_tables, once cosmic.child offers spawn's
+-- sandbox as a Child option (the TODO in cosmic/child.tl's start).
+local process = RawTables.process()
 
 local record SandboxProbe
   main: function({string}): integer

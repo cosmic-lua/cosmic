@@ -2,6 +2,7 @@
 --- process a test confines in a root of its own is given, and what
 --- starts where the kernel can confine none.
 
+local RawTables = require("build.raw_tables")
 local Child = require("cosmic.child")
 local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
@@ -31,19 +32,6 @@ local function probe_in(tmp: string): string
   return (assert(stand_in.build(tmp .. "/stand-in")))
 end
 
-local type Searcher = function(string): any, any
-
---- The raw process table build.confine stands in for the spawn of.
-local function raw_process_table(): raw_process
-  for _, searcher in ipairs(package.searchers as {Searcher}) do -- cast: searchers' loaders take an extra
-    local loader, extra = searcher("build.confine")
-    if type(loader) == "function" and type(extra) == "table" then
-      return extra as raw_process -- cast: the table core/process.h defines
-    end
-  end
-  error("build.confine is handed no raw table")
-end
-
 --- Whether a process `probe` confined to itself alone, started under
 --- `own`'s stand-in, sees `hidden`, which it was not given: false where
 --- the kernel confined it, true where it could not and it ran
@@ -63,7 +51,7 @@ end
 --- `call` answers what its call returned, the very table, and puts back
 --- the stand-in it made, whether the call returned or raised.
 local function test_a_run_answers_what_its_call_made_and_puts_the_spawn_back(tmp: string)
-  local process = raw_process_table()
+  local process = RawTables.process("build.confine")
   local before = process.spawn
   local produced = { answer = 42 }
   local ran = confine.call(function(argument: any): any
@@ -196,7 +184,7 @@ end
 --- with no user namespaces for this user does, every spawn given a
 --- sandbox, and answers how many it refused.
 local function refusing_sandboxes(fn: function()): integer
-  local process = raw_process_table()
+  local process = RawTables.process("build.confine")
   local spawn = process.spawn
   local refused = { value = 0 }
   process.spawn = function(path: string, argv: {string}, environment: {string:string}?,
@@ -290,6 +278,7 @@ end
 test_child.register("raw_refusals", function(args: {string}): integer
   local probe, tmp = args[1], args[2]
   if probe == nil or tmp == nil then return 2 end
+  local process = RawTables.process("build.confine")
   refusing_sandboxes(function()
     print(said("passed_over", confine.call(function(...: any): any...
       confine.must_confine({ reads = { probe } })
@@ -307,17 +296,19 @@ test_child.register("raw_refusals", function(args: {string}): integer
   local pledge: raw_process.Sandbox = { pledge = {} }
   print(said("pledged_alone", confine.call(function(...: any): any...
     confine.must_confine({ reads = { probe } })
-    local _, _ = raw_process_table().spawn(probe, { probe, "exit 0" }, nil, nil, nil, nil, nil, false, nil, pledge)
+    local _, _ = process.spawn(probe, { probe, "exit 0" }, nil, nil, nil, nil, nil, false, nil, pledge)
     confine.confine(nil)
   end, nil, { tmp })))
   local grants: raw_process.Sandbox = { grants = {}, promises = {} }
   print(said("grants_alone", confine.call(function(...: any): any...
     confine.must_confine({ reads = { probe } })
-    local _, _ = raw_process_table().spawn(probe, { probe, "exit 0" }, nil, nil, nil, nil, nil, false, nil, grants)
+    local _, _ = process.spawn(probe, { probe, "exit 0" }, nil, nil, nil, nil, nil, false, nil, grants)
     confine.confine(nil)
   end, nil, { tmp })))
-  local held = { taken = raw_process_table().spawn }
-  local _ = confine.call(function(...: any): any... held["taken"] = raw_process_table().spawn end, nil, { tmp })
+  local held = { taken = process.spawn }
+  local _ = confine.call(function(...: any): any...
+    held["taken"] = process.spawn
+  end, nil, { tmp })
   local stale = assert(held["taken"])
   print(said("stale", confine.call(function(...: any): any...
     confine.must_confine({ reads = { probe } })
