@@ -869,7 +869,7 @@ local function scalar(w: Walk, field: string, spec: Shape.Spec, text: string?): 
   return coerce(w, field, spec, text)
 end
 
-local bind_record: function(w: Walk, prefix: string, spec: Shape.Spec, depth: integer): {string: Json.Value}
+local bind_record: function(w: Walk, prefix: string, spec: Shape.Spec, depth: integer): {string:any}
 
 --- Whether some name starts with `prefix` and a dot.
 local function nested_present(q: Url.Query, prefix: string): boolean
@@ -880,22 +880,24 @@ local function nested_present(q: Url.Query, prefix: string): boolean
   return false
 end
 
-local function bind_list(w: Walk, field: string, spec: Shape.Spec): Json.Value?
+local function bind_list(w: Walk, field: string, spec: Shape.Spec): any
   local values = w.q.by_name[field]
   if values == nil then
     if spec.optional then return nil end
     return Json.array({})
   end
-  local out: mut {Json.Value} = {}
+  -- An item that is absent without an error (an optional element read
+  -- from empty text) stays a hole: shape admits it for a
+  -- `list(optional(...))` and handlers see it at its position.
+  local out: mut {any} = {}
   local of = assert(spec.of)
   for i, text in ipairs(values) do
-    local item = scalar(w, field .. "." .. tostring((i - 1)), of, text)
-    if item ~= nil then out[#out + 1] = item end
+    out[i] = scalar(w, field .. "." .. tostring((i - 1)), of, text)
   end
   return Json.array(out)
 end
 
-local function bind_node(w: Walk, field: string, spec: Shape.Spec, depth: integer): Json.Value?
+local function bind_node(w: Walk, field: string, spec: Shape.Spec, depth: integer): any
   local kind = spec.kind
   if kind == "record" then
     if spec.optional and not nested_present(w.q, field) then return nil end
@@ -925,7 +927,7 @@ local function component(name: string, prefix: string): string?
   return (rest:match("^([^.]*)"))
 end
 
-bind_record = function(w: Walk, prefix: string, spec: Shape.Spec, depth: integer): {string: Json.Value}
+bind_record = function(w: Walk, prefix: string, spec: Shape.Spec, depth: integer): {string:any}
   local fields, names = assert(spec.fields), assert(spec.names)
   if spec.strict == true then
     local unknown: mut {string} = {}
@@ -940,11 +942,10 @@ bind_record = function(w: Walk, prefix: string, spec: Shape.Spec, depth: integer
     table.sort(unknown)
     for _, name in ipairs(unknown) do refuse(w, name, "unknown", "is not a known field") end
   end
-  local out: mut {string: Json.Value} = {}
+  local out: mut {string:any} = {}
   for _, name in ipairs(names) do
     local field = prefix == "" and name or (prefix .. "." .. name)
-    local node = bind_node(w, field, fields[name], depth)
-    if node ~= nil then out[name] = node end
+    out[name] = bind_node(w, field, fields[name], depth)
   end
   return out
 end

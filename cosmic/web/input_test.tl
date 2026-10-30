@@ -685,14 +685,14 @@ local record Gaps
   xs: {integer}
 end
 
-local function test_a_list_item_that_is_absent_is_left_out_not_a_hole()
+local function test_a_list_item_that_is_absent_stays_a_hole_at_its_position()
   local spec = Shape.record({ xs = Shape.list(Shape.optional(Shape.integer)) })
   local r: Types.Parsed<Gaps> = Input.bind_strings(decoded("xs=1&xs=&xs=3"), spec)
   assert(r.invalid == nil, message_of(r.invalid))
   local xs = assert(r.value).xs
-  assert(#xs == 2 and xs[1] == 1 and xs[2] == 3, "the list holds the items given, without a hole")
+  assert(xs[1] == 1 and xs[2] == nil and xs[3] == 3, "the third item keeps its position")
   r = Input.bind_strings(decoded("xs=1&xs=x"), spec)
   local invalid = r.invalid
   assert(invalid ~= nil and #invalid.errors == 1 and assert(invalid.errors[1]).field == "xs.1",
-    "a bad item is still refused by its position")
+    "a bad item is refused by its position")
 end
