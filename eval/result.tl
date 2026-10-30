@@ -187,27 +187,32 @@ function Result.build(transcript: string?, files: Result.Files, grade: Result.Gr
     if value == nil then return Json.null end
     return (value:gsub("%s+$", ""))
   end
+  --- `value`, or JSON null when there is none.
+  local function or_null(value: (string | integer)?): Json.Value
+    if value == nil then return Json.null end
+    return value
+  end
   local init_model = from_init("model")
   local out: {string: Json.Value} = {
     runner = "claude",
     model = init_model ~= Json.null and init_model or meta.model or Json.null,
     reasoning_effort = Json.null,
     claude_code_version = from_init("claude_code_version"),
-    commit = meta.commit or Json.null,
-    harness_commit = meta.harness_commit or Json.null,
+    commit = or_null(meta.commit),
+    harness_commit = or_null(meta.harness_commit),
     started_at = text_or_null(files.started_at),
     finished_at = text_or_null(files.finished_at),
     elapsed_seconds = elapsed,
     status = status_of(exit_code, result),
     deadline_method = "eval/solve",
-    max_turns = meta.max_turns or Json.null,
-    timeout_seconds = meta.timeout or Json.null,
-    exit_code = exit_code or Json.null,
+    max_turns = or_null(meta.max_turns),
+    timeout_seconds = or_null(meta.timeout),
+    exit_code = or_null(exit_code),
     result_subtype = reported_field(result, "subtype"),
     is_error = reported_field(result, "is_error"),
-    grade_exit_code = grade.exit_code or Json.null,
+    grade_exit_code = or_null(grade.exit_code),
     grade_verdict = Result.verdict(grade.exit_code),
-    grade_log = grade.log or Json.null,
+    grade_log = or_null(grade.log),
     contamination = contamination,
     transcript = if transcript ~= nil then "transcript.jsonl" else Json.null end,
     turns = result ~= nil and number(result["num_turns"]) or Json.null,
@@ -266,8 +271,9 @@ local function run(argv: {string}, program: string): integer
   local grade: Result.Grade = {}
   local meta: Result.Meta = {}
   local i = 1
-  while argv[i] ~= nil do
+  while true do
     local word = argv[i]
+    if word == nil then break end
     if word:sub(1, 2) == "--" then
       local value = argv[i + 1]
       if value == nil then

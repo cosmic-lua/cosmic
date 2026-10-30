@@ -1327,7 +1327,7 @@ cosmic/zip_fuzz_test.tl nil_not_allowed 14
 
 cosmic/zip_test.tl nil_not_allowed 16
 
-eval/arena.tl nil_not_allowed 9
+
 
 eval/arena_test.tl nil_not_allowed 2
 
@@ -1335,17 +1335,17 @@ eval/check/grade.tl nil_not_allowed 65
 
 eval/check/grade_test.tl nil_not_allowed 1
 
-eval/result.tl nil_not_allowed 5
+
 
 eval/result_test.tl nil_not_allowed 1
 
-eval/round.tl nil_not_allowed 15
+
 
 eval/round_test.tl nil_not_allowed 17
 
-eval/solve.tl nil_not_allowed 5
 
-eval/summarize.tl nil_not_allowed 14
+
+
 
 eval/summarize_test.tl nil_not_allowed 2
 
@@ -1996,13 +1996,13 @@ cosmic/url_fuzz_test.tl index_may_be_nil 3
 
 cosmic/zip_fuzz_test.tl index_may_be_nil 3
 
-eval/arena.tl index_may_be_nil 2
+
 
 eval/check/grade.tl index_may_be_nil 10
 
-eval/round.tl index_may_be_nil 2
 
-eval/solve.tl index_may_be_nil 1
+
+
 
 lang/ast_dump.tl index_may_be_nil 3
 
@@ -5034,7 +5034,7 @@ eval/round_test.tl condition_type 2
 
 eval/solve_test.tl condition_type 2
 
-eval/summarize.tl condition_type 2
+eval/summarize.tl condition_type 1
 
 eval/summarize_test.tl condition_type 1
 
@@ -5466,14 +5466,14 @@ eval/check/grade_test.tl or_mix 2
 
 eval/check/testdata_test.tl or_mix 1
 
-eval/result.tl or_mix 7
+
 
 eval/round_test.tl or_mix 1
 
 
 eval/solve_test.tl or_mix 1
 
-eval/summarize.tl or_mix 2
+
 
 lang/check.tl or_mix 5
 
@@ -5931,7 +5931,7 @@ eval/round.tl and_ternary 9
 
 eval/round_test.tl and_ternary 1
 
-eval/summarize.tl and_ternary 13
+eval/summarize.tl and_ternary 11
 
 lang/ast_dump.tl and_ternary 1
 

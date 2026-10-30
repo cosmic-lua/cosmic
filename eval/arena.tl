@@ -46,6 +46,12 @@ function Arena.task_text(eval: string, task: string): string?, string
   return task_text .. journal, ""
 end
 
+--- A file of an arena, by its path under the arena.
+local record Laid
+  path: string
+  bytes: string
+end
+
 --- Lays out a new arena at `dir` for `task`, with eval/ at `eval`,
 --- answering the arena's absolute path. `dir` must not exist yet, and
 --- must be outside the repository eval/ sits in, links resolved.
@@ -62,6 +68,9 @@ function Arena.lay(eval: string, task: string, binary: string, dir: string): str
     return nil, binary .. " is not an executable"
   end
   local repo = eval:match("^(.*)/[^/]+$")
+  if repo == nil then
+    return nil, eval .. " is not a path to eval/: it holds no /"
+  end
   if repo == "" then
     repo = "/"
   end
@@ -93,7 +102,11 @@ function Arena.lay(eval: string, task: string, binary: string, dir: string): str
       return nil, existing .. ": " .. exists_trouble
     end
     if exists then break end
-    rest = "/" .. existing:match("([^/]+)$") .. rest
+    local leaf = existing:match("([^/]+)$")
+    if leaf == nil then
+      return nil, existing .. ": no directory of the path exists"
+    end
+    rest = "/" .. leaf .. rest
     existing = existing:match("^(.*)/[^/]+$") or "."
     if existing == "" then
       existing = "/"
@@ -107,13 +120,15 @@ function Arena.lay(eval: string, task: string, binary: string, dir: string): str
   if Fs.within(dir, real_repo) then
     return nil, "put the arena outside the repository"
   end
-  local made, mtrouble = Fs.mkdirs(dir:match("^(.*)/[^/]+$"))
+  -- `dir` is its physical parent, the rest not yet made, and its name.
+  local made_parent = (if physical == "/" then "" else physical end) .. rest
+  local made, mtrouble = Fs.mkdirs(made_parent)
   if not made then
     return nil, mtrouble
   end
   -- Again, now the parent is there: a `..` in what did not exist yet is
   -- resolved only now.
-  physical, ptrouble = Fs.absolute(dir:match("^(.*)/[^/]+$"))
+  physical, ptrouble = Fs.absolute(made_parent)
   if physical == nil then
     return nil, ptrouble
   end
@@ -129,10 +144,10 @@ function Arena.lay(eval: string, task: string, binary: string, dir: string): str
   if binary_bytes == nil then
     return nil, btrouble
   end
-  local files: {{string}} = {
-    { "bin/cosmic", binary_bytes },
-    { "project/TASK.md", task_text },
-    { "PROMPT.md", Arena.prompt(dir) },
+  local files: {Laid} = {
+    { path = "bin/cosmic", bytes = binary_bytes },
+    { path = "project/TASK.md", bytes = task_text },
+    { path = "PROMPT.md", bytes = Arena.prompt(dir) },
   }
   for _, sub in ipairs({ "bin", "project", "tmp" }) do
     local ok, why = sys.mkdir(dir .. "/" .. sub)
@@ -143,11 +158,11 @@ function Arena.lay(eval: string, task: string, binary: string, dir: string): str
   -- These records are for the evaluator, not the solver.
   local hashes: mut {string} = {}
   for _, file in ipairs(files) do
-    local wrote, wtrouble = Fs.write(dir .. "/" .. file[1], file[2])
+    local wrote, wtrouble = Fs.write(dir .. "/" .. file.path, file.bytes)
     if not wrote then
       return nil, wtrouble
     end
-    hashes[#hashes + 1] = Hash.hex_sha256(file[2]) .. "  " .. file[1] .. "\n"
+    hashes[#hashes + 1] = Hash.hex_sha256(file.bytes) .. "  " .. file.path .. "\n"
   end
   -- The binary is 0755 whatever the umask.
   local executable, etrouble = Fs.chmod(dir .. "/bin/cosmic", 0x1ed)

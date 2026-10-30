@@ -61,7 +61,7 @@ local function count(text: string, needle: string): integer
   local at = 1
   while true do
     local s, e = text:find(needle, at, true)
-    if s == nil then
+    if s == nil or e == nil then
       return n
     end
     n = n + 1
@@ -311,10 +311,10 @@ local function candidate(word: Word): string?
   if text == "/" and (word.quoted or assigned) then
     return nil
   end
-  if text:find("://", 1, true) or (word.arith and (text == "/" or text:find("^/%d+$") ~= nil)) then
+  if text:find("://", 1, true) ~= nil or (word.arith and (text == "/" or text:find("^/%d+$") ~= nil)) then
     return nil
   end
-  if word.spaced and not (text:find("^/") or home_rest(text) ~= nil) then
+  if word.spaced and not (text:find("^/") ~= nil or home_rest(text) ~= nil) then
     return nil
   end
   if home_rest(text) ~= nil or text:find("^/") ~= nil or text == ".." or text:find("^%.%./") ~= nil or
@@ -324,34 +324,54 @@ local function candidate(word: Word): string?
   return nil
 end
 
+--- Whether the word at `at` of `words` has text that `pattern` finds; no
+--- word past the end does.
+local function word_matches(words: {Word}, at: integer, pattern: string): boolean
+  local word = words[at]
+  return word ~= nil and word.text:find(pattern) ~= nil
+end
+
+--- The part of `path` after its last `/`.
+local function leaf(path: string): string
+  local last = path:match("[^/]*$")
+  if last == nil then return path end
+  return last
+end
+
+--- The program the word at `at` of `words` names, without its directory,
+--- or "" past the end.
+local function program_at(words: {Word}, at: integer): string
+  local word = words[at]
+  if word == nil then return "" end
+  return leaf(word.text)
+end
+
 --- Where the command starts in `words` from `first`: past assignments
 --- and the wrappers that run what follows (`timeout 5`, `env F=1`,
 --- `nohup`, `xargs`, ...) and their options.
 local function after_wrappers(words: {Word}, first: integer): integer
   while true do
-    while words[first] ~= nil and words[first].text:find("^[%w_]+=") ~= nil do
+    while word_matches(words, first, "^[%w_]+=") do
       first = first + 1
     end
-    local word = words[first]
-    local program = word ~= nil and word.text:match("[^/]*$") or ""
+    local program = program_at(words, first)
     if program == "timeout" then
       first = first + 1
-      while words[first] ~= nil and words[first].text:find("^%-") ~= nil do
+      while word_matches(words, first, "^%-") do
         first = first + 1
       end
-      if words[first] ~= nil and words[first].text:find("^%d") ~= nil then
+      if word_matches(words, first, "^%d") then
         first = first + 1
       end
     elseif program == "env" then
       first = first + 1
-      while words[first] ~= nil and
-          (words[first].text:find("^%-") or words[first].text:find("^[%w_]+=")) ~= nil do
+      while word_matches(words, first, "^%-") or word_matches(words, first, "^[%w_]+=") do
         first = first + 1
       end
     elseif program == "nohup" or program == "xargs" or program == "nice" or
         program == "time" or program == "exec" or program == "command" then
       first = first + 1
-      while words[first] ~= nil and words[first].text:find("^%-") ~= nil do
+      while word_matches(words, first, "^%-") do
         first = first + 1
       end
     else
@@ -370,8 +390,7 @@ end
 local function shell_words(src: string, found: mut {string}, nested: boolean)
   for _, words in ipairs(lex(src)) do
     local first = after_wrappers(words, 1)
-    local head = words[first]
-    local program = head ~= nil and head.text:match("[^/]*$") or ""
+    local program = program_at(words, first)
     local letters = script_flags[program]
     local skipped: mut {integer: boolean} = {}
     local scripts: mut {string} = {}
@@ -380,12 +399,15 @@ local function shell_words(src: string, found: mut {string}, nested: boolean)
     if letters ~= nil then
       local k = first + 1
       while k <= #words do
-        local text = words[k].text
+        local current = words[k]
+        if current == nil then break end
+        local text = current.text
         local group = text:match("^%-(%a+)$")
-        if group ~= nil and letters:find(group:sub(-1), 1, true) ~= nil and words[k + 1] ~= nil then
+        local script_word = words[k + 1]
+        if group ~= nil and letters:find(group:sub(-1), 1, true) ~= nil and script_word ~= nil then
           flagged = true
           skipped[k + 1] = true
-          scripts[#scripts + 1] = words[k + 1].text
+          scripts[#scripts + 1] = script_word.text
           k = k + 1
         elseif script_first[program] == true and (text == "--file" or text == "--files" or
             text:find("^%-%-file=") ~= nil or (group ~= nil and group:find("f", 1, true) ~= nil)) then
@@ -403,8 +425,8 @@ local function shell_words(src: string, found: mut {string}, nested: boolean)
       end
     elseif program == "eval" then
       local parts: mut {string} = {}
-      for k = first + 1, #words do
-        parts[#parts + 1] = words[k].text
+      for k, word in ipairs(words) do
+        if k > first then parts[#parts + 1] = word.text end
       end
       scripts[1] = table.concat(parts, " ")
     end
@@ -451,13 +473,14 @@ local function runs_cosmic_test(command: string, nested: boolean): boolean
     for k, word in ipairs(words) do
       texts[k] = bare_word(word.text)
     end
-    for k = 1, #texts do
-      local program = texts[k]:match("[^/]*$")
+    for k, each in ipairs(texts) do
+      local program = leaf(each)
       if program == "cosmic" and texts[k + 1] == "test" then
         return true
       elseif shells[program] == true and not nested then
         for j = k + 1, #texts - 1 do
-          if texts[j]:find("^%-%a*c$") and runs_cosmic_test(words[j + 1].text, true) then
+          local flag, script = texts[j], words[j + 1]
+          if flag ~= nil and script ~= nil and flag:find("^%-%a*c$") ~= nil and runs_cosmic_test(script.text, true) then
             return true
           end
         end

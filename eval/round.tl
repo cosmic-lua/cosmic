@@ -107,8 +107,9 @@ function Round.parse(argv: {string}): Round.Options?, string
   local out: string? = nil
   local run, jobs, max_turns, timeout = 1, 3, 150, 600
   local i = 1
-  while argv[i] ~= nil do
+  while true do
     local word = argv[i]
+    if word == nil then break end
     if word:sub(1, 2) == "--" then
       local value = argv[i + 1]
       if value == nil then return nil, word .. " needs a value" end
@@ -137,7 +138,8 @@ function Round.parse(argv: {string}): Round.Options?, string
     elseif tasks ~= nil then
       return nil, "one list of tasks only: " .. word
     else
-      tasks = {}
+      local picked: mut {string} = {}
+      tasks = picked
       local seen: mut {string: boolean} = {}
       local names: mut {string} = word == "all" and Round.all_tasks or {}
       if word ~= "all" then
@@ -149,7 +151,7 @@ function Round.parse(argv: {string}): Round.Options?, string
         if not known then return nil, "no task " .. name end
         if seen[name] ~= true then
           seen[name] = true
-          tasks[#tasks + 1] = name
+          picked[#picked + 1] = name
         end
       end
       i = i + 1
@@ -261,7 +263,8 @@ function Round.execute(plan: Round.Plan, system: Round.System): integer
   local owner: mut {integer: Round.Entry} = {}
   while #waiting > 0 or #running > 0 do
     while #waiting > 0 and #running < plan.jobs do
-      local entry = table.remove(waiting, 1)
+      local removed = table.remove(waiting, 1)
+      local entry = assert(removed, "the loop runs while an entry waits")
       local handle = system.start(entry.solve, entry.arena .. "/solve.log")
       if handle ~= nil then
         running[#running + 1] = handle
@@ -279,7 +282,8 @@ function Round.execute(plan: Round.Plan, system: Round.System): integer
           break
         end
       end
-      say("round: " .. owner[done.id].task .. ": solver exit " .. tostring(done.code))
+      local finished_entry = assert(owner[done.id], "a solver that finished was started by this round")
+      say("round: " .. finished_entry.task .. ": solver exit " .. tostring(done.code))
     end
   end
   local failures = 0
@@ -350,7 +354,9 @@ local function real_system(): Round.System
     end,
     wait = function(numbers: {integer}): Round.Done
       local live: mut {Child.Handle} = {}
-      for _, number in ipairs(numbers) do live[#live + 1] = handles[number] end
+      for _, number in ipairs(numbers) do
+        live[#live + 1] = assert(handles[number], "start handed out this number")
+      end
       local done, _ = Child.wait_any(live)
       assert(done, "wait_any")
       local finished = 0
@@ -358,7 +364,8 @@ local function real_system(): Round.System
         if handles[number] == done then finished = number end
       end
       local result, _ = done:wait()
-      local _, _ = Fs.close(streams[finished])
+      local stream = assert(streams[finished], "wait_any answered a handle that start made")
+      local _, _ = Fs.close(stream)
       return { id = finished, code = result ~= nil and Child.shell_status(result) or 127 }
     end,
     read = function(path: string): string?
