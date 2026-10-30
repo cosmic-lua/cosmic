@@ -39,7 +39,9 @@ local record Call
   id: string
   name: string
   given: string
-  input: {string: Json.Value}
+  --- What the call was given: nil in the transcript is [`Json.null`]. Read it only through
+  --- [`Json.to_object`]; an input that is no object is reported, not defaulted.
+  input: Json.Value
 end
 
 --- What a tool call answered: whether it failed, and its text.
@@ -529,10 +531,12 @@ end
 --- a file; Glob a directory, and a pattern if absolute; Grep a directory
 --- (its pattern is a regex, its glob may name a place); Bash a command, whose words are read as a
 --- shell would split them.
-function Summarize.paths(name: string, input: {string: Json.Value}, project: string): {string}
+function Summarize.paths(name: string, input: Json.Value, project: string): {string}
   local raw: mut {string} = {}
+  local fields, _ = Json.to_object(input)
+  if fields == nil then return raw end
   local function field(key: string): string
-    local value = input[key]
+    local value = fields[key]
     if value is string then return value end
     return ""
   end
@@ -690,21 +694,17 @@ function Summarize.report(transcript: string, arena: string, repo: string): stri
         for _, each in ipairs(parts) do
           local part, _ = Json.to_object(each)
           if part ~= nil and part["type"] == "tool_use" then
-            local input = part["input"]
+            local input: Json.Value = Json.null
+            local given_input = part["input"]
+            if given_input ~= nil then input = given_input end
             -- Input too deep to encode is given as nothing.
-            local given = ""
-            local fields: {string: Json.Value} = {}
-            if input ~= nil then
-              local encoded, _ = Json.encode(input, { max_depth = max_depth })
-              given = encoded or ""
-              local object, _ = Json.to_object(input)
-              if object ~= nil then fields = object end
-            end
+            local encoded, _ = Json.encode(input, { max_depth = max_depth })
+            local given = encoded or ""
             calls[#calls + 1] = {
               id = id_key(part["id"]),
               name = as_text(part["name"]),
               given = given,
-              input = fields,
+              input = input,
             }
           end
         end
@@ -747,6 +747,7 @@ function Summarize.report(transcript: string, arena: string, repo: string): stri
   local sandbox_tmp: mut {string: boolean} = {}
   local outside: mut {string: boolean} = {}
   local tainted: mut {string: boolean} = {}
+  local unread: mut {string} = {}
   for index, call in ipairs(calls) do
     local answer = results[call.id]
     local text = ""
@@ -757,11 +758,17 @@ function Summarize.report(transcript: string, arena: string, repo: string): stri
     -- `docs: FAIL` is a tool built from an older commit's summary of a miss.
     docs_misses = docs_misses + count(text, "No exact symbol match") + count(text, "docs: FAIL") +
       count(text, "docs: nothing named or documented as ")
-    if first_green == nil and call.name == "Bash" and answer ~= nil and
+    local fields, _ = Json.to_object(call.input)
+    if fields == nil then
+      -- What it acts on is unknown, so it is reported, never read as nothing.
+      unread[#unread + 1] = "input-not-an-object: call " .. tostring(index) .. " (" .. call.name ..
+        ") input is not an object: " .. call.given:sub(1, 80)
+    end
+    if fields ~= nil and first_green == nil and call.name == "Bash" and answer ~= nil and
         not answer.error and says_passed(text, false) then
       -- A command that holds the line itself (an echo, a heredoc, a
       -- script) may have printed it.
-      local command = as_text(call.input["command"])
+      local command = as_text(fields["command"])
       if runs_cosmic_test(command, false) and not says_passed(command, true) then
         first_green = index
       end
@@ -824,6 +831,9 @@ function Summarize.report(transcript: string, arena: string, repo: string): stri
   end
   for _, mark in ipairs(sorted(tainted)) do
     out[#out + 1] = "CONTAMINATION: a tool call named " .. mark
+  end
+  for _, line in ipairs(unread) do
+    out[#out + 1] = line
   end
   return table.concat(out, "\n") .. "\n"
 end

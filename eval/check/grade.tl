@@ -41,6 +41,9 @@ local record Grader
     tests: integer
     examples: integer
   end
+
+  --- A solver's JSON output as a [`Json.Value`], or nil and why.
+  mut decoded: function(string): Json.Value?, string
 end
 
 --- One grading run: the arena, the task's executable and the empty
@@ -152,9 +155,7 @@ function Grader.built(output: string, name: string): boolean
 end
 
 local function first_line(text: string): string
-  local line = text:match("^[^\n]*")
-  if line == nil then return text end
-  return line
+  return (assert(text:match("^[^\n]*"), "the pattern matches the empty string at least"))
 end
 
 --- Text as `$(...)` gives it: without its trailing newlines.
@@ -590,13 +591,18 @@ local function is_executable(path: string): boolean
   return st ~= nil and st.kind == "file" and st.mode & 0x49 ~= 0
 end
 
---- `text` decoded as a [`Json.Value`], or nil and why. A decoded `null` is none: it is the
---- same as an absent member.
+--- `text` decoded as a [`Json.Value`], or nil and why. A `null` stays [`Json.null`], in a list
+--- as in an object, so `[1,null,3]` is valid JSON here as it is anywhere.
 local function decoded(text: string): Json.Value?, string
-  local value, trouble = Json.decode(text)
-  if value == nil then return nil, trouble end
+  local value, trouble = Json.decode(text, { null_value = Json.null })
+  if value == nil then
+    if trouble == "" then trouble = "no value" end
+    return nil, trouble
+  end
   return Json.to_value(value)
 end
+
+Grader.decoded = decoded
 
 --- The member `key` of `value` where it is a JSON object that has one, else nil.
 local function field(value: Json.Value?, key: string): Json.Value?
@@ -729,7 +735,8 @@ local function receive(conn: Net.Conn, head_only: boolean, to_close: boolean): A
   while true do
     if answer == nil then
       local head, rest = got:match("^(.-)\r\n\r\n(.*)$")
-      if head ~= nil and rest ~= nil then
+      if head ~= nil then
+        assert(rest, "the pattern captures both parts or neither")
         local code = math.tointeger(tonumber(head:match("^HTTP/1%.[01] (%d%d%d)")))
         if code == nil then
           return nil, "no status line: " .. first_line(head)
@@ -813,8 +820,7 @@ local function notes_expect(g: Grade, want: string?, args: {string}, env?: {stri
   end
   table.sort(names)
   for _, name in ipairs(names) do
-    local value = vars[name]
-    if value ~= nil then shown_args[#shown_args + 1] = name .. "=" .. value end
+    shown_args[#shown_args + 1] = name .. "=" .. assert(vars[name], "name is a key of vars")
   end
   shown_args[#shown_args + 1] = "./notes"
   for _, word in ipairs(args) do
@@ -1238,6 +1244,7 @@ local function each_job(g: Grade, report: {string: Json.Value}, key: string, wan
   local wrong: mut {string} = {}
   for _, name in ipairs(names) do
     local got = field(report[name], key)
+    if got == Json.null then got = nil end
     local expected = want[name]
     if expected == Json.null then expected = nil end
     if got ~= expected then
@@ -1505,8 +1512,7 @@ local function request(port: integer, method: string, target: string,
   for name in pairs(given) do names[#names + 1] = name end
   table.sort(names)
   for _, name in ipairs(names) do
-    local value = given[name]
-    if value ~= nil then lines[#lines + 1] = name .. ": " .. value end
+    lines[#lines + 1] = name .. ": " .. assert(given[name], "name is a key of given")
   end
   return exchange(port, table.concat(lines, "\r\n") .. "\r\n\r\n", method == "HEAD", true)
 end
@@ -1601,13 +1607,11 @@ local function mirror_listings(g: Grade, site: Site)
   }
   for _, want in ipairs(wants) do
     local target, entries = want.target, want.entries
-    do
-      local answer = asks(g, site, "GET", target, {}, { 200 })
-      if answer ~= nil then
-        local got, trouble = decoded(answer.body)
-        check(g, got ~= nil and same(got, entries), "GET " .. target ..
-            " lists its entries by name", if got == nil then trouble else "got " .. answer.body end)
-      end
+    local answer = asks(g, site, "GET", target, {}, { 200 })
+    if answer ~= nil then
+      local got, trouble = decoded(answer.body)
+      check(g, got ~= nil and same(got, entries), "GET " .. target ..
+          " lists its entries by name", if got == nil then trouble else "got " .. answer.body end)
     end
   end
 end

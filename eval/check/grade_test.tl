@@ -2,6 +2,7 @@
 --- the journal it requires, an arena with nothing to grade, and a build
 --- that vouches for no executable.
 local Fs = require("cosmic.fs")
+local Json = require("cosmic.json")
 local Sqlite = require("cosmic.sqlite")
 local String = require("cosmic.string")
 local sys = require("cosmic.sys")
@@ -435,4 +436,16 @@ local function test_a_grade_runs_with_a_home_inside_the_arena()
   assert(env["HOME"] == "/arena/grade-home" and env["XDG_CACHE_HOME"] == "/arena/grade-home/.cache")
   assert(env["COSMIC_BUILD_HOME"] == nil and env["COSMIC_BUILD_CACHE"] == nil and env["COSMIC_VERDICT_CACHE"] == nil)
   assert(env["PATH"] == "/bin" and held["HOME"] == "/root", "the input was changed or the rest dropped")
+end
+
+local function test_a_list_that_holds_a_null_is_valid_json_and_a_bare_null_is_said_so()
+  local list = assert(Grader.decoded("[1,null,3]"))
+  local items = assert(Json.to_array(list))
+  assert(#items == 3 and items[2] == Json.null and items[3] == 3)
+  local bare = Grader.decoded("null")
+  assert(bare == Json.null, "a bare null is the value null, not a failure with no words")
+  local none, trouble = Grader.decoded("")
+  assert(none == nil and trouble ~= "", trouble)
+  local broken, why = Grader.decoded("{")
+  assert(broken == nil and why ~= "", why)
 end
