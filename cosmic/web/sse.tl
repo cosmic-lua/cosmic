@@ -24,8 +24,6 @@
 --- its own queue. Everything runs in the tasks of one [`Poll.run`], so
 --- nothing here is locked.
 
--- TODO: make this `local type Cell = require("cosmic.cell")` once the store keeps a module that only a `local type` require names; today that drops cosmic.cell from the binary and build/link_index_test fails.
-local Cell = require("cosmic.cell")
 local Channel = require("cosmic.channel")
 local Clock = require("cosmic.clock")
 local Html = require("cosmic.html")
@@ -763,10 +761,10 @@ function State.subscribe(self: State, topics: {string}, opts?: Sse.SubscribeOpti
   -- replaced before `sub` is handed out.
   local sub: Sub = { queue = queue, gap = gap, next = Sub.next, close = Sub.close,
     closed = Sub.closed, dropped = Sub.dropped, detach = function() end }
-  local attached: Cell<boolean> = { value = true }
+  local attached: boolean = true
   sub.detach = function()
-    if attached.value ~= true then return end
-    attached.value = false
+    if attached ~= true then return end
+    attached = false
     queue:close()
     self.total = self.total - 1
     for _, name in ipairs(names) do

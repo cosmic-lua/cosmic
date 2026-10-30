@@ -10,7 +10,6 @@
 --- (cosmic/child_relay_test.tl is Linux's). A failure says what the program
 --- saw, the relay's decision lines and what Seatbelt denied.
 
-local Cell = require("cosmic.cell")
 local Child = require("cosmic.child")
 local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
@@ -290,7 +289,7 @@ local function flows(tmp: string): Flows
   local database = sealed_client(tmp)
   local log_path = tmp .. "/relay.log"
   local log = assert(sys.open(log_path, sys.O_WRONLY | sys.O_CREAT | sys.O_TRUNC, 384))
-  local seen: Cell<Flows?> = { value = nil }
+  local seen: Flows? = nil
   Poll.run(function()
     local first = assert(Net.listen(Net.tcp("127.0.0.1", 0)))
     local second = assert(Net.listen(Net.tcp("127.0.0.1", 0)))
@@ -310,11 +309,11 @@ local function flows(tmp: string): Flows
         "\nstdout: " .. tostring(result.stdout) .. "\nstderr: " .. tostring(result.stderr) ..
         "\nrelay: " .. relay_log)
     holds(result.ok, report)
-    seen.value = { said = fields(result.stdout or ""), log = relay_log, granted = granted, ungranted = ungranted,
+    seen = { said = fields(result.stdout or ""), log = relay_log, granted = granted, ungranted = ungranted,
       reached = assert(ungranted_count[1]), report = report }
   end)
   assert(sys.close(log))
-  return assert(seen.value)
+  return assert(seen)
 end
 
 --- A granted server is reached through the relay by HTTP CONNECT (by address

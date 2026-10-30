@@ -3085,7 +3085,6 @@ build/database_start_fixture.tl map_field 2
 
 build/dataset_test.tl map_field 7
 
-build/declared_key.tl map_field 3
 
 build/declared_key_fuzz_test.tl map_field 19
 
@@ -3249,7 +3248,7 @@ build/test_standing_test.tl map_field 10
 
 build/test_test.tl map_field 1
 
-build/test_worker.tl map_field 10
+build/test_worker.tl map_field 7
 
 build/test_worker_test.tl map_field 7
 
@@ -3426,13 +3425,13 @@ cosmic/web/cookies_test.tl map_field 17
 
 cosmic/web/cors_test.tl map_field 8
 
-cosmic/web/csrf_test.tl map_field 11
+cosmic/web/csrf_test.tl map_field 2
 
 cosmic/web/dev.tl map_field 2
 
 cosmic/web/htmx.tl map_field 2
 
-cosmic/web/htmx_test.tl map_field 17
+cosmic/web/htmx_test.tl map_field 13
 
 cosmic/web/input_multipart_fuzz_test.tl map_field 5
 
@@ -3456,7 +3455,7 @@ cosmic/web/session/cookie_test.tl map_field 3
 
 cosmic/web/session/init.tl map_field 2
 
-cosmic/web/session/session_test.tl map_field 67
+cosmic/web/session/session_test.tl map_field 60
 
 cosmic/web/session/sqlite_test.tl map_field 16
 
@@ -3480,7 +3479,6 @@ eval/check/grade_test.tl map_field 15
 
 eval/result_test.tl map_field 37
 
-eval/round.tl map_field 5
 
 eval/round_test.tl map_field 11
 
@@ -3494,7 +3492,6 @@ lang/check_programs.tl map_field 9
 
 lang/check_test.tl map_field 2
 
-lang/declarations.tl map_field 10
 
 lang/declarations_test.tl map_field 14
 
@@ -6875,7 +6872,7 @@ cosmic/web/cors_example.tl literal_needs_type 1
 
 cosmic/web/csp_example.tl literal_needs_type 1
 
-cosmic/web/csrf_test.tl literal_needs_type 2
+cosmic/web/csrf_test.tl literal_needs_type 1
 
 cosmic/web/dev_supervise_test.tl literal_needs_type 1
 
@@ -7288,7 +7285,6 @@ cosmic/shape_test.tl float_key 1
 
 cosmic/time.tl float_key 1
 
-lang/declarations.tl float_key 2
 
 lang/lexer.tl float_key 3
 

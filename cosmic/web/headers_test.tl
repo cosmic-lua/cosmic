@@ -1,4 +1,3 @@
-local Cell = require("cosmic.cell")
 local Csp = require("cosmic.web.csp")
 local Headers = require("cosmic.web.headers")
 local Html = require("cosmic.html")
@@ -166,13 +165,13 @@ local function test_each_request_draws_its_own_nonce_for_the_policy_and_the_page
 end
 
 local function test_without_nonce_the_key_is_empty_and_the_policy_may_not_ask_for_one()
-  local seen: Cell<string?> = { value = nil }
+  local seen: string? = nil
   local app = make_app({ csp = Csp.htmx_default() }, { Web.get("/n", function(req: Web.Request): Web.Response
-    seen.value = req:get(Headers.NONCE)
+    seen = req:get(Headers.NONCE)
     return Web.html(Html.trust("<p>x</p>"))
   end) })
   local res = Web.test_client(app):get("/n")
-  assert(seen.value == "" and res.headers["cache-control"] == nil)
+  assert(seen == "" and res.headers["cache-control"] == nil)
   assert(not pcall(Headers.middleware, { csp = { directives = { ["script-src"] = { "{nonce}" } } } }))
 end
 

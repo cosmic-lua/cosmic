@@ -321,8 +321,7 @@ end
 local function real_system(): Round.System
   local handles: mut {integer: Child.Handle} = {}
   local streams: mut {integer: integer} = {}
-  -- TODO: hold this in a `Cell<integer>` once ci/cosmic-driver.pin names a release whose store holds cosmic.cell: this module runs on the bootstrap cosmic, which lacks it.
-  local started = { issued = 0 }
+  local started = 0
   return {
     run = function(argv: {string}): Round.Output
       local result, trouble = Child.run(argv, { stdout = "capture", stderr = "stdout",
@@ -338,10 +337,10 @@ local function real_system(): Round.System
         local _, _ = Fs.close(fd)
         return nil
       end
-      started.issued = started.issued + 1
-      handles[started.issued] = handle
-      streams[started.issued] = fd
-      return started.issued
+      started = started + 1
+      handles[started] = handle
+      streams[started] = fd
+      return started
     end,
     wait = function(numbers: {integer}): Round.Done
       local live: mut {Child.Handle} = {}
