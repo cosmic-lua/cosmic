@@ -123,6 +123,7 @@ Ceilings.path = "build/ceilings.txt"
 local CLOSED_CODES <const>: {string} = {
   "alias_cycle",
   "arity",
+  "array_hole",
   "array_part_map",
   "assign_repeated",
   "bound_not_interface",

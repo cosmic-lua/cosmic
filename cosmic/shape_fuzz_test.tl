@@ -89,10 +89,23 @@ local function gen_value(r: Recipe, spec: Shape.Spec, depth: integer, strict: bo
     local values = spec.values
     return assert(values)[byte(r, #assert(values)) + 1]
   elseif kind == "list" then
-    local t: mut {any} = {}
-    for i = 1, byte(r, 4) do t[i] = gen_value(r, assert(spec.of), depth - 1, strict) end
-    if byte(r, 4) ~= 0 then Json.array(t) end
-    return t
+    local t: mut {integer: any} = {}
+    local last = 0
+    for i = 1, byte(r, 4) do
+      local item = gen_value(r, assert(spec.of), depth - 1, strict)
+      if item ~= nil then
+        t[i] = item
+        last = i
+      end
+    end
+    -- A list the recipe marks is a JSON array, however empty; an item that is nil leaves a hole.
+    local answer: {integer: any} = t
+    if byte(r, 4) ~= 0 then
+      local list, why = Json.sparse(last, t)
+      if list == nil then error(why) end
+      answer = list
+    end
+    return answer
   elseif kind == "map" then
     local t: mut {string: any} = {}
     for _ = 1, byte(r, 4) do t[key(r)] = gen_value(r, assert(spec.of), depth - 1, strict) end

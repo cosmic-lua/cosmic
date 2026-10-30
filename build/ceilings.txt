@@ -7409,9 +7409,7 @@ cosmic/fs.tl compare_disjoint 1
 
 
 
-cosmic/shape.tl array_hole 1
 
-cosmic/shape_fuzz_test.tl array_hole 1
 
 
 
@@ -7427,7 +7425,6 @@ cosmic/shape_fuzz_test.tl array_hole 1
 cosmic/web/dev.tl view_as_mut 1
 
 
-cosmic/web/input.tl array_hole 1
 
 cosmic/web/response.tl view_as_mut 2
 

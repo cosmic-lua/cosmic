@@ -60,6 +60,15 @@ local record json
   -- Marks `t`, or a new table, as a JSON array and answers it. Raises
   -- when `t` has another metatable.
   array: function(t?: {any}): {any}
+  -- `array` for a table that holds only some of its positions, keyed by
+  -- them, which the checker would not take as a list, and that says how
+  -- long it is, `length` (not below 0) or its highest key when that is
+  -- more: a position it holds nothing at, a trailing one too, encodes as
+  -- `null`.
+  sparse: function<T>(t: {integer: T}, length: integer): {integer: T}
+  -- The length `v` declared when `array` made it, or nil when `v` is no
+  -- table or declared none.
+  sparse_length: function(v: any): integer?
   -- Whether `v` is a table carrying the array mark.
   is_array: function(v: any): boolean
   -- The stand-in for JSON `null`: a userdata that encodes as `null`.

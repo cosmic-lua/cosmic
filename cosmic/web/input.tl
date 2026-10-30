@@ -889,12 +889,19 @@ local function bind_list(w: Walk, field: string, spec: Shape.Spec): any
   -- An item that is absent without an error (an optional element read
   -- from empty text) stays a hole: shape admits it for a
   -- `list(optional(...))` and handlers see it at its position.
-  local out: mut {any} = {}
+  local out: mut {integer: Json.Value} = {}
+  local last = 0
   local of = assert(spec.of)
   for i, text in ipairs(values) do
-    out[i] = scalar(w, field .. "." .. tostring((i - 1)), of, text)
+    local item = scalar(w, field .. "." .. tostring((i - 1)), of, text)
+    if item ~= nil then
+      out[i] = item
+      last = i
+    end
   end
-  return Json.array(out)
+  local list, why = Json.sparse(last, out)
+  if list == nil then error(why) end
+  return list
 end
 
 local function bind_node(w: Walk, field: string, spec: Shape.Spec, depth: integer): any

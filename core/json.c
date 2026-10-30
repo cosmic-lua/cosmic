@@ -19,6 +19,12 @@
  * it; objects carry none. */
 #define ARRAY_TYPE "cosmic.json.array"
 
+/* The registry's table of declared lengths, a weak-keyed map from a
+ * table marked as an array to how long it says it is. Only a sparse
+ * array, one built with a length, has an entry: it is how a trailing
+ * hole, which is no key, is told from the end of the array. */
+#define SPARSE_KEY "cosmic.json.sparse.lengths"
+
 /* The stand-in a caller may ask decode to put where JSON says `null`,
  * and that encodes as `null`: a userdata, so indexing it by mistake
  * raises instead of answering nil. Held in the registry under this
@@ -1234,9 +1240,27 @@ static lua_Integer first_hole (lua_State *L, int idx, lua_Integer top) {
   return i;
 }
 
+/* The most holes a sparse array may write as `null`: its length is no
+ * cost to make, so the bytes of a text could be many times the memory of
+ * the array it came from. */
+#define MAX_SPARSE_HOLES 1048576
+
+/* The length the array at `idx` declares ([`json_array`]'s `length`), or
+ * -1 when it declares none. */
+static lua_Integer declared_length (lua_State *L, int idx) {
+  idx = lua_absindex(L, idx);
+  lua_getfield(L, LUA_REGISTRYINDEX, SPARSE_KEY);
+  lua_pushvalue(L, idx);
+  lua_Integer n = lua_rawget(L, -2) == LUA_TNUMBER ? lua_tointeger(L, -1) : -1;
+  lua_pop(L, 2);
+  return n;
+}
+
 /* A table is an object when every key is a string, and an array when
  * every key is an integer from 1 up or it carries the array mark; an
- * empty unmarked table is an object. Anything else is refused. */
+ * empty unmarked table is an object. Anything else is refused. A marked
+ * array that declares a length is that long, and writes `null` at each
+ * position it holds nothing at. */
 static int put_table (struct encoding *e, int idx, int depth) {
   lua_State *L = e->L;
   if (depth >= e->max_depth) {
@@ -1288,6 +1312,18 @@ static int put_table (struct encoding *e, int idx, int depth) {
                        "integer keys");
     }
     return put_object(e, idx, count, depth);
+  }
+  lua_Integer declared = marked ? declared_length(L, idx) : -1;
+  if (declared > top) top = declared;
+  if (declared >= 0 && top > 0) {
+    if (top - count > MAX_SPARSE_HOLES) {
+      snprintf(e->failure, sizeof e->failure,
+               "cannot encode a sparse array with more than %d holes"
+               " (it is %lld long and holds %lld items)",
+               MAX_SPARSE_HOLES, (long long)top, (long long)count);
+      return -1;
+    }
+    return put_array(e, idx, top, depth);
   }
   if (count == 0) return marked ? PUT_LITERAL(e, "[]") : PUT_LITERAL(e, "{}");
   if (top > count) {
@@ -1702,24 +1738,47 @@ static int json_format (lua_State *L) {
   return cosmic_succeeded(L);
 }
 
-/* array(t?): marks `t` (a new table when absent) as a JSON array and
- * answers it. Raises when `t` already has another metatable. */
+/* array(t?, length?): marks `t` (a new table when absent) as a JSON
+ * array and answers it. With `length`, which is not below 0, the array
+ * is sparse: it is that long, or as long as its highest key when that
+ * is more, and a position it holds nothing at is `null`. Raises when `t`
+ * already has another metatable. */
 static int json_array (lua_State *L) {
+  int sparse = !lua_isnoneornil(L, 2);
+  lua_Integer length = sparse ? luaL_checkinteger(L, 2) : 0;
+  luaL_argcheck(L, length >= 0, 2, "the length is below 0");
+  lua_settop(L, 2);
   if (lua_isnoneornil(L, 1)) {
-    lua_settop(L, 0);
     lua_newtable(L);
+    lua_replace(L, 1);
   } else {
     luaL_checktype(L, 1, LUA_TTABLE);
-    lua_settop(L, 1);
   }
+  lua_settop(L, 1);
   if (lua_getmetatable(L, 1)) {
     luaL_getmetatable(L, ARRAY_TYPE);
     luaL_argcheck(L, lua_rawequal(L, -1, -2), 1,
                   "the table already has another metatable");
     lua_settop(L, 1);
-    return 1;
+  } else {
+    luaL_setmetatable(L, ARRAY_TYPE);
   }
-  luaL_setmetatable(L, ARRAY_TYPE);
+  if (sparse) {
+    lua_getfield(L, LUA_REGISTRYINDEX, SPARSE_KEY);
+    lua_pushvalue(L, 1);
+    lua_pushinteger(L, length);
+    lua_rawset(L, -3);
+    lua_settop(L, 1);
+  }
+  return 1;
+}
+
+/* sparse_length(v): the length the array `v` declares, or nil when it
+ * is no array or declares none. */
+static int json_sparse_length (lua_State *L) {
+  lua_Integer n = -1;
+  if (lua_type(L, 1) == LUA_TTABLE) n = declared_length(L, 1);
+  if (n < 0) lua_pushnil(L); else lua_pushinteger(L, n);
   return 1;
 }
 
@@ -1743,12 +1802,20 @@ static const luaL_Reg module[] = {
   {"decode", json_decode},     {"encode", json_encode},
   {"check", json_check},       {"format", json_format},
   {"array", json_array},       {"is_array", json_is_array},
+  {"sparse", json_array},      {"sparse_length", json_sparse_length},
   {NULL, NULL},
 };
 
 int cosmic_open_json (lua_State *L) {
   luaL_newmetatable(L, ARRAY_TYPE);
   lua_pop(L, 1);
+
+  lua_newtable(L);
+  lua_newtable(L);
+  lua_pushliteral(L, "k");
+  lua_setfield(L, -2, "__mode");
+  lua_setmetatable(L, -2);
+  lua_setfield(L, LUA_REGISTRYINDEX, SPARSE_KEY);
 
   lua_newuserdatauv(L, 0, 0);
   luaL_newmetatable(L, NULL_TYPE);

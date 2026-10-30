@@ -397,8 +397,9 @@ local function walk_list(t: {any: any}, spec: Spec, path: string): any, string
   end
   local keys = members.keys
   local count = if #keys > 0 then #keys else members.extent end
-  local out: mut {any} = {}
+  local out: mut {integer: any} = {}
   local after = 0
+  local last = 0
   local of = assert(spec.of)
   for i = 1, count do
     local k: integer = i
@@ -416,8 +417,12 @@ local function walk_list(t: {any: any}, spec: Spec, path: string): any, string
     local got, failed = walk(rawget(t, k), of, index_path(path, k))
     if failed ~= "" then return nil, failed end
     out[k] = got
+    if got ~= nil then last = k end
   end
-  return Json.array(out), ""
+  -- An element that is nil leaves a hole, and the list is as long as its last element that is not.
+  local list, why = Json.sparse(last, out)
+  if list == nil then error(why) end
+  return list, ""
 end
 
 local function walk_map(t: {any: any}, spec: Spec, path: string): any, string
