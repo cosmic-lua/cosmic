@@ -567,7 +567,6 @@ build/cache.tl nil_not_allowed 3
 
 build/cache_maintenance.tl nil_not_allowed 2
 
-build/cache_test.tl nil_not_allowed 35
 
 build/cache_tool_test.tl nil_not_allowed 1
 
@@ -631,7 +630,6 @@ build/dataset_test.tl nil_not_allowed 16
 
 build/declared_key.tl nil_not_allowed 12
 
-build/declared_key_fuzz_test.tl nil_not_allowed 42
 
 build/declared_key_test.tl nil_not_allowed 9
 
@@ -660,7 +658,6 @@ build/doctest/generate.tl nil_not_allowed 1
 build/doctest/generate_test.tl nil_not_allowed 3
 
 
-build/doctest/markdown_test.tl nil_not_allowed 40
 
 build/driver_test.tl nil_not_allowed 18
 
@@ -708,7 +705,6 @@ build/harness_epoch_test.tl nil_not_allowed 5
 
 build/hash_sums_fuzz_test.tl nil_not_allowed 1
 
-build/hash_test.tl nil_not_allowed 35
 
 build/hash_tool_test.tl nil_not_allowed 1
 
@@ -944,7 +940,6 @@ build/todos_test.tl nil_not_allowed 49
 
 build/tree_checks.tl nil_not_allowed 71
 
-build/tree_checks_test.tl nil_not_allowed 36
 
 build/tree_program_test.tl nil_not_allowed 12
 
@@ -1538,7 +1533,6 @@ build/c_functions.tl index_may_be_nil 3
 
 build/cache_maintenance.tl index_may_be_nil 1
 
-build/cache_test.tl index_may_be_nil 1
 
 build/check_draws.tl index_may_be_nil 2
 
@@ -1570,7 +1564,6 @@ build/dataset_test.tl index_may_be_nil 1
 
 build/declared_key.tl index_may_be_nil 4
 
-build/declared_key_fuzz_test.tl index_may_be_nil 8
 
 build/derivation.tl index_may_be_nil 2
 
