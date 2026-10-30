@@ -1349,7 +1349,7 @@ eval/arena.tl nil_not_allowed 9
 
 eval/arena_test.tl nil_not_allowed 2
 
-eval/check/grade.tl nil_not_allowed 65
+
 
 eval/check/grade_test.tl nil_not_allowed 1
 
@@ -2026,7 +2026,7 @@ cosmic/zip_fuzz_test.tl index_may_be_nil 3
 
 eval/arena.tl index_may_be_nil 2
 
-eval/check/grade.tl index_may_be_nil 10
+
 
 eval/round.tl index_may_be_nil 2
 
@@ -3947,7 +3947,7 @@ cosmic/zip.tl any_use 2
 
 cosmic/zip_fuzz_test.tl any_use 43
 
-eval/check/grade.tl any_use 49
+eval/check/grade.tl any_use 46
 
 eval/declared_types_test.tl any_use 12
 
@@ -4516,7 +4516,7 @@ cosmic/web/testing_test.tl is_on_record 7
 
 cosmic/web/typed.tl is_on_record 3
 
-eval/check/grade.tl is_on_record 3
+eval/check/grade.tl is_on_record 2
 
 eval/result.tl is_on_record 6
 
@@ -5498,7 +5498,7 @@ cosmic/zip_test.tl or_mix 4
 
 eval/arena_test.tl or_mix 4
 
-eval/check/grade.tl or_mix 2
+
 
 eval/check/grade_test.tl or_mix 2
 
@@ -6343,7 +6343,7 @@ cosmic/web/testing.tl compare_disjoint 1
 
 cosmic/zip_fuzz_test.tl compare_disjoint 1
 
-eval/check/grade.tl compare_disjoint 7
+eval/check/grade.tl compare_disjoint 1
 
 lang/parser.tl compare_disjoint 3
 

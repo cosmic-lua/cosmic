@@ -152,7 +152,9 @@ function Grader.built(output: string, name: string): boolean
 end
 
 local function first_line(text: string): string
-  return text:match("^[^\n]*")
+  local line = text:match("^[^\n]*")
+  if line == nil then return text end
+  return line
 end
 
 --- Text as `$(...)` gives it: without its trailing newlines.
@@ -407,6 +409,7 @@ local function copy_project(project: string, copy: string): boolean, string
     local data, rtrouble = Fs.read(project .. "/" .. rel)
     if data == nil then return false, rtrouble end
     local parent = (copy .. "/" .. rel):match("^(.*)/[^/]*$")
+    if parent == nil then return false, copy .. "/" .. rel .. " has no directory" end
     local made, mtrouble = Fs.mkdirs(parent)
     if not made then return false, mtrouble end
     local wrote, wtrouble = Fs.write(copy .. "/" .. rel, data)
@@ -429,12 +432,16 @@ local function hidden_api(g: Grade, cosmic: string, project: string, test: strin
     fail(g, "hidden api: " .. trouble)
     return
   end
+  local name = test:match("([^/]+)$")
+  if name == nil then
+    fail(g, "hidden api: " .. test .. " names no file")
+    return
+  end
   local scratch, strouble = Fs.mkdtemp("cosmic-eval-api-")
   if scratch == nil then
     fail(g, "hidden api: " .. strouble)
     return
   end
-  local name = test:match("([^/]+)$")
   local copy = scratch .. "/project"
   local ready, why = copy_project(project, copy)
   if ready then ready, why = Fs.write(copy .. "/" .. name, source) end
@@ -648,10 +655,11 @@ local function serves(g: Grade, args: {string}, log?: string): Served?
   local deadline = Clock.monotonic_ns() + Clock.seconds(5)
   while Clock.monotonic_ns() < deadline do
     local text, _ = Fs.read(out_path)
-    local found = text ~= nil and text:match("listening on 127%.0%.0%.1:(%d+)\n")
-    if found then
-      local port = math.tointeger(tonumber(found))
-      ok(what .. " -> listening on 127.0.0.1:" .. port)
+    local found: string? = nil
+    if text ~= nil then found = text:match("listening on 127%.0%.0%.1:(%d+)\n") end
+    local port = if found ~= nil then math.tointeger(tonumber(found)) else nil end
+    if port ~= nil then
+      ok(what .. " -> listening on 127.0.0.1:" .. tostring(port))
       return { server = server, port = port }
     end
     local _, _ = Clock.sleep_ns(Clock.ms(50))
@@ -701,7 +709,7 @@ local function receive(conn: Net.Conn, head_only: boolean, to_close: boolean): A
   while true do
     if answer == nil then
       local head, rest = got:match("^(.-)\r\n\r\n(.*)$")
-      if head ~= nil then
+      if head ~= nil and rest ~= nil then
         local code = math.tointeger(tonumber(head:match("^HTTP/1%.[01] (%d%d%d)")))
         if code == nil then
           return nil, "no status line: " .. first_line(head)
@@ -779,13 +787,15 @@ end
 --- together, or anything when `want` is nil.
 local function notes_expect(g: Grade, want: string?, args: {string}, env?: {string: string})
   local shown_args: mut {string} = { "env -i" }
+  local vars = env or {}
   local names: mut {string} = {}
-  for name in pairs(env or {}) do
+  for name in pairs(vars) do
     names[#names + 1] = name
   end
   table.sort(names)
   for _, name in ipairs(names) do
-    shown_args[#shown_args + 1] = name .. "=" .. env[name]
+    local value = vars[name]
+    if value ~= nil then shown_args[#shown_args + 1] = name .. "=" .. value end
   end
   shown_args[#shown_args + 1] = "./notes"
   for _, word in ipairs(args) do
@@ -864,7 +874,7 @@ local function ustar(name: string, data: string): string
   head = padded(head, 512)
   local sum = 0
   for i = 1, #head do
-    sum = sum + head:byte(i)
+    sum = sum + assert(head:byte(i), "the loop stays inside head")
   end
   head = head:sub(1, 148) .. string.format("%06o\0 ", sum) .. head:sub(157)
   local padding = (512 - #data % 512) % 512
@@ -883,9 +893,11 @@ local function pack(g: Grade)
   }
   local listing, sums: mut {string}, mut {string} = {}, {}
   for _, f in ipairs(files) do
-    write(g, "src/" .. f[1], f[2])
-    listing[#listing + 1] = #f[2] .. "\t" .. f[1]
-    sums[#sums + 1] = Hash.hex_sha256(f[2]) .. "\t" .. f[1]
+    local file_name = assert(f[1], "a fixture file has a name")
+    local file_data = assert(f[2], "a fixture file has contents")
+    write(g, "src/" .. file_name, file_data)
+    listing[#listing + 1] = tostring(#file_data) .. "\t" .. file_name
+    sums[#sums + 1] = Hash.hex_sha256(file_data) .. "\t" .. file_name
   end
   local want_list = table.concat(listing, "\n")
   local want_sum = table.concat(sums, "\n")
@@ -899,7 +911,8 @@ local function pack(g: Grade)
     local archive = "out." .. ext
     succeeds(g, { "create", archive, "src" })
     local data, _ = Fs.read(g.empty .. "/" .. archive)
-    if data == nil or not magic[ext](data) then
+    local has_magic = assert(magic[ext], "magic names each extension")
+    if data == nil or not has_magic(data) then
       fail(g, archive .. " is not a " .. ext .. " file")
     else
       ok(archive .. " is a " .. ext .. " file")
@@ -910,10 +923,11 @@ local function pack(g: Grade)
     succeeds(g, { "extract", archive, dest })
     local whole = true
     for _, f in ipairs(files) do
-      local got, _ = Fs.read(g.empty .. "/" .. dest .. "/" .. f[1])
+      local file_name = assert(f[1], "a fixture file has a name")
+      local got, _ = Fs.read(g.empty .. "/" .. dest .. "/" .. file_name)
       if got ~= f[2] then
         whole = false
-        fail(g, "extract " .. archive .. ": " .. dest .. "/" .. f[1] .. " differs")
+        fail(g, "extract " .. archive .. ": " .. dest .. "/" .. file_name .. " differs")
       end
     end
     if whole then ok("extract " .. archive .. " recreates every file") end
@@ -1377,9 +1391,11 @@ local function jobs_refusals(g: Grade, w: string)
   }
   for i, case in ipairs(malformed) do
     local path = "w/malformed-" .. tostring(i) .. ".json"
-    write(g, path, case[1])
+    local jobfile_text = assert(case[1], "a malformed case has a jobfile")
+    local reason = assert(case[2], "a malformed case has a reason")
+    write(g, path, jobfile_text)
     local said = refuses(g, { "run", path })
-    check(g, said:find(case[2], 1, true) ~= nil, path .. " is refused with '" .. case[2] .. "'",
+    check(g, said:find(reason, 1, true) ~= nil, path .. " is refused with '" .. reason .. "'",
       "stderr: " .. trimmed(said))
   end
   check(g, not exists(w .. "/free.ran"), "nothing runs from a malformed jobfile")
@@ -1390,6 +1406,12 @@ end
 
 --- Three one-second jobs at the default bound of two take about two
 --- seconds: one when the bound is ignored, three when they run in turn.
+--- When a job started and finished, in milliseconds.
+local record Span
+  start: number
+  finish: number
+end
+
 local function jobs_parallel(g: Grade)
   jobfile(g, "w/par.json", {
     one = { cmd = { "/bin/sleep", "1" } },
@@ -1409,17 +1431,17 @@ local function jobs_parallel(g: Grade)
     fail(g, label(g, args) .. ": " .. trouble)
     return
   end
-  local spans: mut {{number}} = {}
+  local spans: mut {Span} = {}
   for _, name in ipairs({ "one", "two", "three" }) do
     local s, e = number_of(field(report[name], "start_ms")), number_of(field(report[name], "end_ms"))
-    if s ~= nil and e ~= nil then spans[#spans + 1] = { s, e } end
+    if s ~= nil and e ~= nil then spans[#spans + 1] = { start = s, finish = e } end
   end
   local most = 0
   for _, a in ipairs(spans) do
     local at = 0
     for _, b in ipairs(spans) do
       -- Ended within 50 ms of another's start counts as before it.
-      if b[1] <= a[1] and a[1] < b[2] - 50 then at = at + 1 end
+      if b.start <= a.start and a.start < b.finish - 50 then at = at + 1 end
     end
     most = math.max(most, at)
   end
@@ -1452,10 +1474,14 @@ local function request(port: integer, method: string, target: string,
                        headers?: {string: string}): Answer?, string
   local lines = { method .. " " .. target .. " HTTP/1.1", "Host: 127.0.0.1",
     "Connection: close" }
+  local given = headers or {}
   local names: mut {string} = {}
-  for name in pairs(headers or {}) do names[#names + 1] = name end
+  for name in pairs(given) do names[#names + 1] = name end
   table.sort(names)
-  for _, name in ipairs(names) do lines[#lines + 1] = name .. ": " .. headers[name] end
+  for _, name in ipairs(names) do
+    local value = given[name]
+    if value ~= nil then lines[#lines + 1] = name .. ": " .. value end
+  end
   return exchange(port, table.concat(lines, "\r\n") .. "\r\n\r\n", method == "HEAD", true)
 end
 
@@ -1465,10 +1491,17 @@ local record Site
   mut closes: boolean
 end
 
+--- The contents the site's fixture holds at `path`.
+local function content(site: Site, path: string): string
+  local data = site.files[path]
+  assert(data ~= nil, "the site holds " .. path)
+  return data
+end
+
 --- Asks the server, checks the status is one of `codes`, and answers
 --- what came back for more checks, or nil once it has failed.
 local function asks(g: Grade, site: Site, method: string, target: string,
-                    headers: {string: string}, codes: {integer}): Answer
+                    headers: {string: string}, codes: {integer}): Answer?
   local shown_headers: mut {string} = {}
   for name, value in pairs(headers) do shown_headers[#shown_headers + 1] = name .. ": " .. value end
   table.sort(shown_headers)
@@ -1492,14 +1525,14 @@ local function asks(g: Grade, site: Site, method: string, target: string,
   return nil
 end
 
-local function has(g: Grade, answer: Answer, what: string, name: string, want: string?)
+local function has(g: Grade, answer: Answer?, what: string, name: string, want: string?)
   if answer == nil then return end
   local got = answer.headers[name:lower()]
   check(g, got == want, what .. " " .. name .. ": " .. shown(got),
     "wanted " .. shown(want))
 end
 
-local function body_is(g: Grade, answer: Answer, what: string, want: string)
+local function body_is(g: Grade, answer: Answer?, what: string, want: string)
   if answer == nil then return end
   check(g, answer.body == want, what .. " body is the " .. tostring(#want) .. " bytes wanted",
     "got " .. tostring(#answer.body) .. " bytes")
@@ -1523,20 +1556,26 @@ local function mirror_files(): {string: string}
   }
 end
 
+--- A directory listing the server should answer at `target`.
+local record Listing
+  target: string
+  entries: {{string: Json.Value}}
+end
+
 local function mirror_listings(g: Grade, site: Site)
-  local function entry(name: string, path: string): any
-    local data = site.files[path]
+  local function entry(name: string, path: string): {string: Json.Value}
+    local data = content(site, path)
     return { name = name, type = "file", size = #data, sha256 = Hash.hex_sha256(data) }
   end
-  local wants: {{string | {any}}} = {
-    { "/", { entry("a.txt", "a.txt"), entry("big.txt", "big.txt"), { name = "sub", type = "dir" },
+  local wants: {Listing} = {
+    { target = "/", entries = { entry("a.txt", "a.txt"), entry("big.txt", "big.txt"), { name = "sub", type = "dir" },
       entry("two words.txt", "two words.txt") } },
-    { "/sub", { entry("b.bin", "sub/b.bin"), { name = "deep", type = "dir" } } },
-    { "/sub/deep/", { entry("c.txt", "sub/deep/c.txt") } },
+    { target = "/sub", entries = { entry("b.bin", "sub/b.bin"), { name = "deep", type = "dir" } } },
+    { target = "/sub/deep/", entries = { entry("c.txt", "sub/deep/c.txt") } },
   }
   for _, want in ipairs(wants) do
-    local target, entries = want[1], want[2]
-    if target is string and entries is {any} then
+    local target, entries = want.target, want.entries
+    do
       local answer = asks(g, site, "GET", target, {}, { 200 })
       if answer ~= nil then
         local got, trouble = Json.decode(answer.body)
@@ -1548,16 +1587,21 @@ local function mirror_listings(g: Grade, site: Site)
   end
 end
 
+local record Ranged
+  header: string
+  span: string
+end
+
 local function mirror_requests(g: Grade, site: Site)
-  local small, big = site.files["a.txt"], site.files["big.txt"]
+  local small, big = content(site, "a.txt"), content(site, "big.txt")
   local a = asks(g, site, "GET", "/a.txt", {}, { 200 })
   body_is(g, a, "GET /a.txt", small)
   has(g, a, "GET /a.txt", "ETag", tag(small))
   has(g, a, "GET /a.txt", "Content-Length", tostring(#small))
   local spaced = asks(g, site, "GET", "/two%20words.txt", {}, { 200 })
-  body_is(g, spaced, "GET /two%20words.txt", site.files["two words.txt"])
+  body_is(g, spaced, "GET /two%20words.txt", content(site, "two words.txt"))
   local deep = asks(g, site, "GET", "/sub/deep/c.txt", {}, { 200 })
-  body_is(g, deep, "GET /sub/deep/c.txt", site.files["sub/deep/c.txt"])
+  body_is(g, deep, "GET /sub/deep/c.txt", content(site, "sub/deep/c.txt"))
 
   local head = asks(g, site, "HEAD", "/big.txt", {}, { 200 })
   has(g, head, "HEAD /big.txt", "Content-Length", tostring(#big))
@@ -1569,21 +1613,22 @@ local function mirror_requests(g: Grade, site: Site)
   local stale = asks(g, site, "GET", "/big.txt", { ["If-None-Match"] = tag("old") }, { 200 })
   body_is(g, stale, "GET /big.txt with another tag", big)
 
-  local ranges: {{string}} = {
-    { "bytes=0-9", "0-9" },
-    { "bytes=" .. (#big - 10) .. "-", (#big - 10) .. "-" .. (#big - 1) },
-    { "bytes=-7", (#big - 7) .. "-" .. (#big - 1) },
-    { "bytes=100-199", "100-199" },
+  local ranges: {Ranged} = {
+    { header = "bytes=0-9", span = "0-9" },
+    { header = "bytes=" .. tostring(#big - 10) .. "-", span = tostring(#big - 10) .. "-" .. tostring(#big - 1) },
+    { header = "bytes=-7", span = tostring(#big - 7) .. "-" .. tostring(#big - 1) },
+    { header = "bytes=100-199", span = "100-199" },
   }
   for _, r in ipairs(ranges) do
-    local first, last = r[2]:match("^(%d+)-(%d+)$")
-    local answer = asks(g, site, "GET", "/big.txt", { Range = r[1] }, { 206 })
-    has(g, answer, "Range " .. r[1], "Content-Range", "bytes " .. r[2] .. "/" .. #big)
-    body_is(g, answer, "Range " .. r[1],
-      big:sub(math.tointeger(tonumber(first)) + 1, math.tointeger(tonumber(last)) + 1))
+    local first, last = r.span:match("^(%d+)-(%d+)$")
+    local from = assert(math.tointeger(tonumber(first)), "a span starts with a number")
+    local to = assert(math.tointeger(tonumber(last)), "a span ends with a number")
+    local answer = asks(g, site, "GET", "/big.txt", { Range = r.header }, { 206 })
+    has(g, answer, "Range " .. r.header, "Content-Range", "bytes " .. r.span .. "/" .. tostring(#big))
+    body_is(g, answer, "Range " .. r.header, big:sub(from + 1, to + 1))
   end
-  local past = asks(g, site, "GET", "/big.txt", { Range = "bytes=" .. #big .. "-" }, { 416 })
-  has(g, past, "Range bytes=" .. #big .. "-", "Content-Range", "bytes */" .. #big)
+  local past = asks(g, site, "GET", "/big.txt", { Range = "bytes=" .. tostring(#big) .. "-" }, { 416 })
+  has(g, past, "Range bytes=" .. tostring(#big) .. "-", "Content-Range", "bytes */" .. tostring(#big))
 
   local zipped = asks(g, site, "GET", "/big.txt", { ["Accept-Encoding"] = "gzip, deflate" },
     { 200 })
@@ -1724,7 +1769,7 @@ local function mirror_lie(g: Grade)
           "\r\nConnection: close\r\n\r\n" .. body)
     end,
     on_ready = function(addresses: {Net.Address}, server: Net.Server)
-      pull.args = { "pull", "http://127.0.0.1:" .. tostring(assert(addresses[1].port)) .. "/", "lied" }
+      pull.args = { "pull", "http://127.0.0.1:" .. tostring(assert(assert(addresses[1], "the listener has an address").port)) .. "/", "lied" }
       pull.result = run(g, pull.args)
       server:stop()
     end,
@@ -1766,7 +1811,7 @@ local function packed(g: Grade, site: Site, name: string, dirs: boolean): boolea
     end
   end
   for _, path in ipairs(paths) do
-    local added, why = writer:add_file(path, site.files[path])
+    local added, why = writer:add_file(path, content(site, path))
     if not added then trouble = why end
   end
   local closed, why = writer:close()
@@ -1781,7 +1826,7 @@ end
 --- and pulls whole; an archive that would reach outside is refused.
 local function mirror_archives(g: Grade, site: Site)
   for _, case in ipairs({ { "site.tar.gz", "dirs" }, { "site.zip", "" }, { "site.tar", "dirs" } }) do
-    local name = case[1]
+    local name = assert(case[1], "a case names its archive")
     if packed(g, site, name, case[2] == "dirs") then
       local started = serves(g, { "serve", name, "0" })
       if started ~= nil then
@@ -1789,9 +1834,9 @@ local function mirror_archives(g: Grade, site: Site)
         local served: Site = { port = port, files = site.files, closes = true }
         mirror_listings(g, served)
         local b = asks(g, served, "GET", "/sub/b.bin", {}, { 200 })
-        body_is(g, b, name .. ": GET /sub/b.bin", site.files["sub/b.bin"])
-        has(g, b, name .. ": GET /sub/b.bin", "ETag", tag(site.files["sub/b.bin"]))
-        local big = site.files["big.txt"]
+        body_is(g, b, name .. ": GET /sub/b.bin", content(site, "sub/b.bin"))
+        has(g, b, name .. ": GET /sub/b.bin", "ETag", tag(content(site, "sub/b.bin")))
+        local big = content(site, "big.txt")
         local part = asks(g, served, "GET", "/big.txt", { Range = "bytes=100-199" }, { 206 })
         body_is(g, part, name .. ": Range bytes=100-199", big:sub(101, 200))
         asks(g, served, "GET", "/nothing.txt", {}, { 404 })
@@ -2104,7 +2149,7 @@ local function relay(g: Grade)
       echo(target, conn)
     end,
     on_ready = function(addresses: {Net.Address}, server: Net.Server)
-      local target_port = assert(addresses[1].port)
+      local target_port = assert(assert(addresses[1], "the listener has an address").port)
       local served = serves(g, { "0", "127.0.0.1:" .. tostring(target_port) }, "check-relay.out")
       if served ~= nil then
         local main, port = served.server, served.port
@@ -2362,7 +2407,8 @@ function Grader.run(argv: {string}, program: string): integer
     return 2
   end
   local script, trouble = Fs.absolute(program)
-  local here = script ~= nil and script:match("^(.*)/[^/]+%.tl$")
+  local here: string? = nil
+  if script ~= nil then here = script:match("^(.*)/[^/]+%.tl$") end
   if here == nil then
     local _, _ = Fs.put(Fs.stderr, "grade: " .. (script == nil and trouble or
       program .. ": expected to run as .../eval/check/grade.tl") .. "\n")
