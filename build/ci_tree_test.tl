@@ -13,6 +13,7 @@ local String = require("cosmic.string")
 --- suite (ci/cosmic_ci/run_names.json), and the darwin list.
 Test.policy{
   grants = {
+    { path = "bin/", letters = "r" },
     { path = "build/", letters = "r" },
     { path = "cosmic/", letters = "r" },
     { path = "core/", letters = "r" },
@@ -23,7 +24,6 @@ Test.policy{
     { path = "ci/cosmic_ci/run_names.json", letters = "r" },
     { path = "ci/darwin-tests.txt", letters = "r" },
     { path = "ci/strict-files.txt", letters = "r" },
-    { path = "ci/cosmic_ci/islands.tl", letters = "r" },
     { path = "ci/cosmic_ci/runtime_setup.tl", letters = "r" },
     { path = "ci/testdata/portable/", letters = "r" },
   },
@@ -259,15 +259,24 @@ local function strings_of(path: string, opening: string, pattern: string): {stri
   return out
 end
 
---- A script `check-islands` runs standalone (`Islands.scripts`) is listed: the list repeats islands.tl's, and this
---- holds the two together.
+--- A script `check-islands` runs standalone is listed: the scripts are those a wrapper of `bin/` or `eval/` runs on
+--- bin/cosmic-bootstrap (ci/cosmic_ci/islands.tl finds them the same way) and the two that build/zig.tl runs on the
+--- pinned release's binary.
 local function test_every_script_check_islands_runs_is_listed()
   local listed: mut {string:boolean} = {}
   for _, file in ipairs(strict_files()) do listed[file] = true end
-  local scripts = strings_of("ci/cosmic_ci/islands.tl", "Islands.scripts = {", '"([%w_/%.%-]+%.tl)"')
-  assert(#scripts > 0, "Islands.scripts names no script")
-  for _, script in ipairs(scripts) do
-    assert(listed[script], script .. " is in Islands.scripts and not in ci/strict-files.txt")
+  local found: mut {string:boolean} = {}
+  for _, dir in ipairs({ "bin", "eval" }) do
+    for _, file in ipairs((assert(Fs.walk(dir)))) do
+      for script in (Fs.read(dir .. "/" .. file) or ""):gmatch('cosmic%-bootstrap" %-%-standalone "%$root/([%w_/%.%-]+%.tl)"') do
+        found[script] = true
+      end
+    end
+  end
+  for _, script in ipairs({ "build/patch.tl", "build/zig_fetch.tl" }) do found[script] = true end
+  assert(found["eval/result.tl"] == true and found["build/zig.tl"] == true, "no wrapper of bin/ or eval/ runs eval/result.tl and build/zig.tl: the pattern is stale")
+  for script in pairs(found) do
+    assert(listed[script], script .. " runs on the pinned release (check-islands) and is not in ci/strict-files.txt")
   end
 end
 

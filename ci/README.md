@@ -35,8 +35,14 @@ lists as Teal. CI's `check-islands` command (`cosmic-driver
 cosmic_ci/driver.tl check-islands`) runs each of those scripts with `--help`
 on the running driver, which refuses a script that has a finding before it
 runs, and fails on a syntax error or any finding; `ci/` is compiled by the
-driver's own tests. `build/islands_test.tl` holds the scripts' list to those
-of `bin/` and `build/zig.tl`.
+driver's own tests. The scripts are found, not listed: every shell script of
+`bin/` and `eval/` that execs `bin/cosmic-bootstrap` names the file it runs
+(`eval/result` runs `eval/result.tl`), so a new wrapper is checked as it
+lands, and one that execs it in another form is refused. A refusal names the
+file, the wrappers that run it and the pinned release, and says to use only
+that release's APIs or move the pin. A script's `--help` exit status, where it
+is not 0, is in [`Islands.help_exits`]; `ci/strict-files.txt` lists each script,
+which `build/ci_tree_test.tl` holds to the wrappers.
 
 ## running the platform job locally
 
@@ -909,4 +915,5 @@ alone.
 [`cosmic_ci/zig_prune.tl`]: cosmic_ci/zig_prune.tl
 
 [`cosmic_ci/host_id.tl`]: cosmic_ci/host_id.tl
+[`Islands.help_exits`]: cosmic_ci/islands.tl
 [`Runner.phase`]: cosmic_ci/runner.tl
