@@ -525,7 +525,6 @@ cosmic/template_go_test.tl unchecked_binding 1
 
 build/archive.tl nil_not_allowed 10
 
-build/archive_test.tl nil_not_allowed 18
 
 build/archive_tool_test.tl nil_not_allowed 1
 
@@ -537,7 +536,6 @@ build/bare.tl nil_not_allowed 5
 
 build/bom.tl nil_not_allowed 25
 
-build/bom_test.tl nil_not_allowed 15
 
 build/boot.tl nil_not_allowed 2
 
@@ -624,9 +622,7 @@ build/databases.tl nil_not_allowed 6
 
 build/dataset.tl nil_not_allowed 1
 
-build/dataset_fuzz_test.tl nil_not_allowed 15
 
-build/dataset_test.tl nil_not_allowed 16
 
 build/declared_key.tl nil_not_allowed 12
 
@@ -646,7 +642,6 @@ build/dispatched_features_test.tl nil_not_allowed 1
 
 build/docs_checks_test.tl nil_not_allowed 5
 
-build/docs_removed_test.tl nil_not_allowed 16
 
 build/docs_search_test.tl nil_not_allowed 2
 
@@ -657,11 +652,9 @@ build/doctest/generate_test.tl nil_not_allowed 3
 
 
 
-build/driver_test.tl nil_not_allowed 18
 
 build/embed.tl nil_not_allowed 2
 
-build/embed_tool_test.tl nil_not_allowed 23
 
 build/example_checks.tl nil_not_allowed 1
 
@@ -717,7 +710,6 @@ build/importer_boot_test.tl nil_not_allowed 4
 
 build/importer_store_test.tl nil_not_allowed 1
 
-build/importer_test.tl nil_not_allowed 28
 
 build/json.tl nil_not_allowed 5
 
@@ -772,7 +764,6 @@ build/refresh.tl nil_not_allowed 9
 
 build/refresh_fuzz_test.tl nil_not_allowed 1
 
-build/refresh_store_test.tl nil_not_allowed 19
 
 build/relay_wire_fixture.tl nil_not_allowed 2
 
@@ -784,7 +775,6 @@ build/sandbox.tl nil_not_allowed 21
 
 build/sandbox_connect.tl nil_not_allowed 2
 
-build/sandbox_connect_test.tl nil_not_allowed 24
 
 build/sandbox_probe.tl nil_not_allowed 1
 
@@ -843,7 +833,6 @@ build/symbol_index.tl nil_not_allowed 4
 
 build/syntax_analyzer.tl nil_not_allowed 4
 
-build/syntax_analyzer_test.tl nil_not_allowed 23
 
 
 build/syntax_contracts_test.tl nil_not_allowed 1
@@ -929,7 +918,6 @@ build/todo_scan.tl nil_not_allowed 6
 
 build/todos.tl nil_not_allowed 13
 
-build/todos_git_test.tl nil_not_allowed 22
 
 
 
@@ -944,7 +932,7 @@ build/verbs_store_test.tl nil_not_allowed 2
 
 build/work.tl nil_not_allowed 11
 
-build/work_test.tl nil_not_allowed 19
+build/work_test.tl nil_not_allowed 1
 
 build/work_tool_test.tl nil_not_allowed 1
 
@@ -1497,7 +1485,6 @@ core/syscalls_tool_test.tl missing_return 1
 
 build/archive.tl index_may_be_nil 3
 
-build/archive_test.tl index_may_be_nil 7
 
 build/artifact.tl index_may_be_nil 3
 
@@ -1540,9 +1527,7 @@ build/databases.tl index_may_be_nil 1
 
 build/dataset.tl index_may_be_nil 4
 
-build/dataset_fuzz_test.tl index_may_be_nil 1
 
-build/dataset_test.tl index_may_be_nil 1
 
 build/declared_key.tl index_may_be_nil 4
 
@@ -1562,11 +1547,9 @@ build/docs_search_test.tl index_may_be_nil 3
 build/doctest/generate_test.tl index_may_be_nil 1
 
 
-build/driver_test.tl index_may_be_nil 1
 
 build/embed.tl index_may_be_nil 2
 
-build/embed_tool_test.tl index_may_be_nil 2
 
 build/fetch.tl index_may_be_nil 1
 
@@ -1597,7 +1580,6 @@ build/identity.tl index_may_be_nil 4
 
 build/importer_store_test.tl index_may_be_nil 2
 
-build/importer_test.tl index_may_be_nil 4
 
 build/json.tl index_may_be_nil 1
 
@@ -1633,7 +1615,6 @@ build/reboot.tl index_may_be_nil 3
 
 build/refresh_fuzz_test.tl index_may_be_nil 1
 
-build/refresh_store_test.tl index_may_be_nil 1
 
 build/refresh_tool_test.tl index_may_be_nil 1
 
@@ -1661,7 +1642,6 @@ build/stand_in_probe.tl index_may_be_nil 6
 build/symbol_index.tl index_may_be_nil 1
 
 
-build/syntax_analyzer_test.tl index_may_be_nil 1
 
 
 build/syntax_derivation.tl index_may_be_nil 2
@@ -1721,7 +1701,6 @@ build/todo_scan.tl index_may_be_nil 5
 
 build/todos.tl index_may_be_nil 3
 
-build/todos_git_test.tl index_may_be_nil 3
 
 
 
@@ -1733,7 +1712,6 @@ build/verb_list_test.tl index_may_be_nil 2
 
 build/work.tl index_may_be_nil 8
 
-build/work_test.tl index_may_be_nil 5
 
 build/workflows_test.tl index_may_be_nil 8
 

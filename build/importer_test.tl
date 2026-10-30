@@ -24,6 +24,13 @@ local Lexer = require("lang.lexer")
 local Parser = require("lang.parser")
 local SyntaxNode = require("build.syntax_node")
 
+--- The element of `list` at `index`, which the case knows is there.
+local function nth<T>(list: {T}, index: integer): T
+  local found = list[index]
+  assert(found ~= nil, "the list has an element at " .. tostring(index))
+  return found
+end
+
 --- Whether the tree is cosmic's own. The tests that read the projection
 --- beyond this module's closure -- the docs a compile's hint names --
 --- are build/importer_store_test.tl's.
@@ -35,7 +42,7 @@ Test.policy{
 --- The modules the source `source` of the file `file` requires, as a parse of it finds them.
 local function requires_of(source: string, file: string): {string}
   local parsed = Parser.parse(Lexer.lex(source, file), file, "tl")
-  assert(#parsed.errors == 0, file .. ": " .. (if parsed.errors[1] ~= nil then parsed.errors[1].msg else "" end))
+  assert(#parsed.errors == 0, file .. ": " .. (if parsed.errors[1] ~= nil then nth(parsed.errors, 1).msg else "" end))
   return SyntaxNode.requires(parsed.chunk)
 end
 
@@ -276,7 +283,7 @@ local function test_self_compile_consumes_cache_after_identity_selection()
           "identity selected before derivation completed")
         local rows = assert(Sqlite.text_rows(handle.db,
           "SELECT value FROM meta WHERE key = 'compiler'"))
-        assert(rows[1]:text(1) == recorded.compiler, "selection ran before recording identities")
+        assert(nth(rows, 1):text(1) == recorded.compiler, "selection ran before recording identities")
         if phase == "select" then return nil, "selection refused" end
         return "chosen-compiler", ""
       end, false, shared)
@@ -909,8 +916,8 @@ local function test_boot_hash_leaves_out_tests()
     "SELECT (SELECT count(*) FROM tool WHERE path GLOB '*_test.tl'), " ..
       "(SELECT count(*) FROM files WHERE path = 'cosmic/added_test.tl')"))
   work.close(handle)
-  assert(rows[1]:text(1) == "0", "the tool's rows hold a test")
-  assert(rows[1]:text(2) == "1", "a test was not staged as an input")
+  assert(nth(rows, 1):text(1) == "0", "the tool's rows hold a test")
+  assert(nth(rows, 1):text(2) == "1", "a test was not staged as an input")
 end
 
 --- A tree that is not cosmic's own can `require` the standard library
@@ -1188,9 +1195,9 @@ local function test_generated_lua_keeps_teal_line_numbers()
   for line in String.lines(lua) do
     generated[#generated + 1] = line
   end
-  assert(generated[9]:find("function lines.add", 1, true), "line 9: " .. generated[9])
-  assert(generated[11]:find("return a + b", 1, true), "line 11: " .. generated[11])
-  assert(generated[15]:find("line fifteen fails", 1, true), "line 15: " .. generated[15])
+  assert(nth(generated, 9):find("function lines.add", 1, true), "line 9: " .. nth(generated, 9))
+  assert(nth(generated, 11):find("return a + b", 1, true), "line 11: " .. nth(generated, 11))
+  assert(nth(generated, 15):find("line fifteen fails", 1, true), "line 15: " .. nth(generated, 15))
 end
 
 --- What a parse derived -- docs, requires, tests, the catalog -- is
@@ -1235,7 +1242,7 @@ local function test_a_changed_analyzer_forgets_what_it_derived()
     local rows = assert(Sqlite.text_rows(handle.db,
       "SELECT count(*) FROM docs WHERE symbol = 'Planted'"))
     work.close(handle)
-    return math.tointeger(tonumber(rows[1]:text(1))) or -1
+    return math.tointeger(tonumber(nth(rows, 1):text(1))) or -1
   end
   assert(derived_with("tool-one", false) == 0)
   -- The same analyzer: a planted row survives, as any derived row does.
@@ -1397,10 +1404,10 @@ local function test_generated_syscall_docs_carry_header_lines()
   assert(out:close())
   assert(#examples == 1 and examples[1]:text(1) == "read", tostring(#examples))
   assert(#rows == 2, tostring(#rows))
-  assert(rows[1]:text(1) == "O_RDONLY" and rows[1]:text(2) == "core/syscalls.h" and
-      rows[1]:text(3) == "12", table.concat(rows[1]:texts(), " "))
-  assert(rows[2]:text(1) == "read" and rows[2]:text(3) == "8", table.concat(rows[2]:texts(), " "))
-  assert(rows[2]:text(4):find("Reads bytes.", 1, true) == 1, rows[2]:text(4))
+  assert(nth(rows, 1):text(1) == "O_RDONLY" and nth(rows, 1):text(2) == "core/syscalls.h" and
+      nth(rows, 1):text(3) == "12", table.concat(nth(rows, 1):texts(), " "))
+  assert(nth(rows, 2):text(1) == "read" and nth(rows, 2):text(3) == "8", table.concat(nth(rows, 2):texts(), " "))
+  assert(nth(rows, 2):text(4):find("Reads bytes.", 1, true) == 1, nth(rows, 2):text(4))
 end
 
 --- The file of the tree's module `name`, as the build finds it: nil
@@ -1498,17 +1505,17 @@ local function test_compiler_identity_follows_what_shapes_a_compile()
   local root = identity_fixture("identity-follows")
   local seen: mut {string:string} = {}
   local original = identities_of(root)
-  seen[original[1]] = "the original tree"
+  seen[nth(original, 1)] = "the original tree"
   for _, path in ipairs({ "build/plans.tl", "build/derivation.tl", "build/withheld.tl", "build/withheld_helper.tl",
       "build/tree.tl", "build/analysis_schema.tl", "build/bind.tl", "build/cache_names.tl", "vendor/lua/PIN",
       "patch/lua/01.txt" }) do
     local before = identities_of(root)
     edit(root, path)
     local after = identities_of(root)
-    assert(seen[after[1]] == nil, "an edit to " .. path ..
-        " did not move the compiler identity from that of " .. tostring(seen[after[1]]))
+    assert(seen[nth(after, 1)] == nil, "an edit to " .. path ..
+        " did not move the compiler identity from that of " .. tostring(seen[nth(after, 1)]))
     assert(after[2] ~= before[2], "an edit to " .. path .. " did not move the analyzer identity")
-    seen[after[1]] = path
+    seen[nth(after, 1)] = path
   end
 end
 
@@ -1656,7 +1663,7 @@ local function test_the_writer_modules_are_closed_under_require()
     local seen: mut {string:boolean} = {}
     local pending: mut {string} = { "build.writer" }
     while #pending > 0 do
-      local name = table.remove(pending)
+      local name = assert(table.remove(pending), "the pending list has a module")
       if seen[name] == nil then
         seen[name] = true
         if stop[name] == nil then
@@ -1928,7 +1935,7 @@ end
 
 local function count_of(db: Sqlite.Handle, sql: string): integer
   local rows = assert(Sqlite.text_rows(db, sql))
-  return math.tointeger(tonumber(rows[1]:text(1))) or -1
+  return math.tointeger(tonumber(nth(rows, 1):text(1))) or -1
 end
 
 --- The record-field uses of a compile `compiled` has dropped go at
@@ -1976,7 +1983,7 @@ local function test_the_module_shape_does_not_reach_the_plans_or_the_readers()
   local seen: mut {string:boolean} = {}
   local pending: mut {string} = { "build.positions", "build.test_inputs" }
   while #pending > 0 do
-    local name = table.remove(pending)
+    local name = assert(table.remove(pending), "the pending list has a module")
     if seen[name] ~= true then
       seen[name] = true
       for _, required in ipairs((assert(Store.requires(name)))) do
