@@ -541,6 +541,135 @@ local approx = assert(small:search(asked, 2, { allow = in_pets }))
 print("int8", table.concat(approx.ids, " "), small.storage)
 ```
 
+## packed rows
+
+A scan of `chunks` reads a page per row, and [`Vector.load`] reads rows one
+at a time, so a program pays seconds of load before its first search.
+A packed row holds many vectors: `vector_block` packs the rows of a
+group into one blob, a block, and `vector_block_search` answers the
+nearest rows of each block, so a search straight from the database reads
+a row for a few dozen vectors and the arithmetic is nearly all that is
+left. [`Vector.load_blocks`] fills a corpus from the blocks, without
+reading the vectors one by one. The [SQL functions guide](sql.md#packed-rows)
+documents both and the layout of a block.
+
+On 100,000 chunks of 768 dimensions on the Xeon above, in memory with a
+warm page cache, best of five. Every packed number is for the block size
+the next paragraphs recommend:
+
+| storage | block size, 4 KB pages / 64 KB pages | per-row SQL scan | packed SQL scan | corpus search | [`Vector.load`] | [`Vector.load_blocks`] |
+| ------- | ------------------------------------ | ---------------- | --------------- | ------------- | ------------- | -------------------- |
+| `"f32"` | 8 / 16 vectors                       | 87 ms            | 93 ms / 75 ms   | 72 ms         | 3.3 s         | 0.75 s               |
+| `"f16"` | 16 / 32 vectors                      | (f32 only)       | 46 ms / 34 ms   | 21 ms         | 1.4 s         | 0.32 s               |
+| `"int8"`| 32 / 64 vectors                      | (f32 only)       | 26 ms / 19 ms   | 9 ms          | 1.2 s         | 0.17 s               |
+
+The per-row scan is `ORDER BY inner_product(embedding, ?1) DESC LIMIT 10` on
+4 KB pages (77 ms on 64 KB pages); `cosine_distance` takes 122 ms, and
+`vector_block_search` the same time for either metric. [`Vector.load`] is from
+the same f32 rows into a corpus of the storage in the row.
+
+- The per-row SQL scan can only hold f32, so it is the baseline of every
+  row. The SQL scan of packed `int8` is about 3.3 to 4 times faster
+  than it, `f16` 1.9 to 2.3 times, and `f32` no faster: the scan
+  is then bound by copying 300 MB out of the page cache, which packing
+  does not shrink. Pack f16 or int8 for a search in SQL; pack f32 only
+  to load it faster.
+- The corpus is still the fastest search. Packed rows cost a copy of
+  the blocks out of the page cache on top of the same arithmetic, and
+  the corpus keeps its vectors where it can reach them.
+- `load_blocks` is 4 to 7 times faster than `load` in every storage: it copies a block's buffers into the
+  corpus whole where `load` converts and appends a vector at a time. A
+  corpus from blocks makes the bit vectors of `candidates` from the
+  numbers the blocks hold, so in an `int8` corpus its first pass can keep
+  other rows than one `load` makes from the f32 vectors: a small positive
+  number that its code rounds to 0 has a 0 bit.
+
+A block is read into a buffer of its own before it is searched, and how
+SQLite does that decides the size to pack:
+
+- A value that fits in the page it is stored on is copied into a buffer
+  the statement keeps and reuses, so an `int8` block of 64 vectors of 768
+  dimensions (50 KB) in a database of 64 KB pages scans fastest.
+  `PRAGMA page_size = 65536` before the first table, or in a database of
+  its own, `ATTACH 'blocks.db' AS packed` then `PRAGMA packed.page_size =
+  65536`, which leaves `chunks` in 4 KB pages.
+- In 4 KB pages a block spans overflow pages and each read allocates a
+  fresh buffer. Blocks of 12 to 25 KB scanned fastest there (16 to 32 `int8`
+  vectors of 768 dimensions, 8 to 16 `f16`); at 50 KB a scan took twice
+  as long.
+
+Measured sizes are in the table. Use the largest block that stays within
+the limit of its page size. A bigger block is not slower to search, but
+a rebuild after a change writes it all again, and a smaller block lets
+a `WHERE` on the block table drop more of the corpus.
+
+```teal continue
+-- Four passages to a block by id range, so a change to one passage
+-- touches one block, held as int8 in a table beside chunks.
+assert(db:exec([[
+  CREATE TABLE chunk_blocks (
+    model INTEGER NOT NULL, n INTEGER NOT NULL, lo INTEGER NOT NULL, hi INTEGER NOT NULL,
+    vectors BLOB NOT NULL, PRIMARY KEY (model, n));
+]]))
+local PACK <const> = [[
+  INSERT INTO chunk_blocks
+    SELECT model, id / 4, min(id), max(id), vector_block(id, embedding, 'int8')
+    FROM chunks WHERE embedding IS NOT NULL %s GROUP BY model, id / 4
+]]
+assert(db:exec(PACK:format("")))
+
+-- The packed blocks, and beside them the passages no block holds yet:
+-- those past the last block's highest id.
+local NEAREST <const> = [[
+  SELECT id FROM (
+    SELECT h.id AS id, h.distance AS distance
+    FROM chunk_blocks b, vector_block_search(b.vectors, ?1, 3, 'cosine') AS h
+    WHERE b.model = ?2
+    UNION ALL
+    SELECT id, cosine_distance(embedding, ?1) FROM chunks
+    WHERE model = ?2 AND embedding IS NOT NULL
+      AND id > (SELECT coalesce(max(hi), 0) FROM chunk_blocks WHERE model = ?2)
+  ) ORDER BY distance NULLS LAST, id LIMIT 3
+]]
+local function nearest_packed(): {integer}
+  return ids(db, NEAREST, { { blob = asked }, { integer = model } })
+end
+print("packed", table.concat(nearest_packed(), " "))
+
+-- A new passage is found at once, from the unpacked rows...
+add_chunk(db, model, "pets", { start = 1, stop = 25 }, "Where do cats sleep in the sun")
+local newest = assert(ids(db, "SELECT max(id) FROM chunks", {})[1])
+assert(nearest_packed()[1] == newest)
+-- ...and packed with the block it belongs to when there is time: only
+-- that block is made again. An update or a delete does the same, because
+-- a block holds the vector it was made from.
+local function repack(id: integer)
+  assert(Sqlite.run(db, "DELETE FROM chunk_blocks WHERE model = ?1 AND n = ?2 / 4",
+    { { integer = model }, { integer = id } }))
+  assert(Sqlite.run(db, PACK:format("AND id / 4 = ?1 / 4"), { { integer = id } }))
+end
+repack(newest)
+assert(nearest_packed()[1] == newest)
+print("repacked", ids(db, "SELECT count(*) FROM chunk_blocks", {})[1], "blocks")
+
+-- A corpus from the blocks, for the searches that need the options of search.
+local loaded = assert(Vector.load_blocks(db,
+  "SELECT vectors FROM chunk_blocks WHERE model = ?1", { { integer = model } }))
+print("loaded", loaded:count(), loaded.storage, assert(loaded:search(asked, 1)).ids[1] == newest)
+```
+
+The blocks are a copy: `chunks` stays the table of record, and a block
+can be thrown away and made again from it at about a second per 100,000
+vectors of `int8`. A program that never changes a corpus packs it once.
+One that does keeps the unpacked rows in the query above and packs
+them in the background; the query is exact over both. A filter on a
+column of `chunks` that is not in the block table (a `doc`) cannot be
+applied to a block: put the column into the block table and group by it
+(`GROUP BY model, doc, id / 4`), as the SQL guide's example does with a
+tenant. The first-pass `candidates` of a corpus has no packed form: the
+blocks scan every vector they hold, which at these sizes costs less than
+the first pass saved.
+
 ## a large corpus
 
 Past about 100,000 chunks the in-memory scan costs tens to hundreds
@@ -721,6 +850,9 @@ hybrid	5 6 4
 like 1	8 2
 corpus	1 3	candidates	1 3
 int8	1 3	int8
+packed	1 3 2
+repacked	3	blocks
+loaded	9	int8	true
 ivf, 1 probes: 0.85
 ivf, 2 probes: 0.97
 ivf, 4 probes: 1.00
@@ -736,5 +868,6 @@ sign bits, 400 candidates: 0.91
 [`cosmic.vector`]: ../../cosmic/vector.tl
 [`Vector.corpus`]: ../../cosmic/vector.tl
 [`Vector.kmeans`]: ../../cosmic/vector.tl
+[`Vector.load_blocks`]: ../../cosmic/vector.tl
 [`Vector.load`]: ../../cosmic/vector.tl
 [`Vector.nearest_n`]: ../../cosmic/vector.tl

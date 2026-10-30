@@ -9,6 +9,14 @@ local record vector
     -- Raises on a vector of another length or a number that is not finite.
     add: function(Corpus, id: integer, v: string)
     count: function(Corpus): integer
+    -- Appends every vector of a packed block (what the SQL aggregate
+    -- `vector_block` makes), converted to the corpus's storage when it
+    -- differs. Raises on a blob that is not a block, one of other
+    -- dimensions than the corpus's, a block holding a number that is not
+    -- finite, an int8 block for an int8 corpus whose sums are not its
+    -- codes' and, for an f16 corpus, one of 65520 or more in magnitude;
+    -- the corpus is as it was then.
+    add_block: function(Corpus, block: string)
     -- k centroids by spherical k-means (k-means++ seeding from `seed`).
     -- Raises on k outside 1 to count, on iterations under 1, and on a
     -- corpus whose every vector is zero. A zero vector is no cluster's.
@@ -30,6 +38,9 @@ local record vector
   -- dimension count outside 1 to 16000 and on another storage. An f16
   -- corpus's `add` also raises on a number of 65520 or more in magnitude.
   corpus: function(dims: integer, storage: string?): Corpus
+  -- The dimensions, storage ("f32", "f16" or "int8") and vector count of
+  -- a packed block, or nil and why the string is not one.
+  block_info: function(block: string): integer?, string, integer?
   -- Raises on an entry that is not a finite number.
   pack: function(numbers: {number}): string
   -- Raises on a string that is not a whole number of floats.

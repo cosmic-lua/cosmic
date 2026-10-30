@@ -8,6 +8,7 @@
 #include <string.h>
 
 #include "guard.h"
+#include "memory.h"
 #include "lauxlib.h"
 #include "process.h"
 
@@ -106,10 +107,14 @@ static const char *parse_text (const char *text, struct vector *v) {
   return NULL;
 }
 
-/* Reads argument `value` as a vector, a blob of floats or its text. An
- * error is already the context's result when this answers false. */
-static int read_vector (sqlite3_context *ctx, sqlite3_value *value,
-                        struct vector *v) {
+/* What [`read_value`] answers for memory the allocator refused, in place of
+ * a message. */
+static const char out_of_memory[] = "out of memory";
+
+/* Reads `value` as a vector, a blob of floats or its text. Answers NULL,
+ * or why it is not one: `out_of_memory`, or a message. Nothing is held
+ * on an answer. */
+static const char *read_value (sqlite3_value *value, struct vector *v) {
   v->values = NULL;
   v->owned = NULL;
   v->dims = 0;
@@ -137,8 +142,7 @@ static int read_vector (sqlite3_context *ctx, sqlite3_value *value,
         /* A zeroblob that could not be expanded; the length said it
          * is not empty. */
         v->dims = 0;
-        sqlite3_result_error_nomem(ctx);
-        return 0;
+        return out_of_memory;
       }
       if ((uintptr_t)data % _Alignof(float) == 0) {
         v->values = data;
@@ -150,10 +154,7 @@ static int read_vector (sqlite3_context *ctx, sqlite3_value *value,
          * table that answers a static blob at an odd offset, which no
          * SQL in the tree reaches (cosmic/vector_sql_test.tl says so). */
         v->owned = sqlite3_malloc64(len);
-        if (v->owned == NULL) {
-          sqlite3_result_error_nomem(ctx);
-          return 0;
-        }
+        if (v->owned == NULL) return out_of_memory;
         memcpy(v->owned, data, len);
         v->values = v->owned;
       }
@@ -161,10 +162,7 @@ static int read_vector (sqlite3_context *ctx, sqlite3_value *value,
     }
     case SQLITE_TEXT: {
       const char *text = (const char *)sqlite3_value_text(value);
-      if (text == NULL) {
-        sqlite3_result_error_nomem(ctx);
-        return 0;
-      }
+      if (text == NULL) return out_of_memory;
       /* The parser reads to the first NUL, so a text with one would be
        * read as only its head: `[1]` NUL junk is not the vector `[1]`. */
       if (strlen(text) != (size_t)sqlite3_value_bytes(value)) {
@@ -177,6 +175,18 @@ static int read_vector (sqlite3_context *ctx, sqlite3_value *value,
     default:
     why = "a vector is a blob of floats or a text like [1,2,3]";
     break;
+  }
+  return why;
+}
+
+/* Reads argument `value` as a vector, a blob of floats or its text. An
+ * error is already the context's result when this answers false. */
+static int read_vector (sqlite3_context *ctx, sqlite3_value *value,
+                        struct vector *v) {
+  const char *why = read_value(value, v);
+  if (why == out_of_memory) {
+    sqlite3_result_error_nomem(ctx);
+    return 0;
   }
   if (why != NULL) {
     sqlite3_result_error(ctx, why, -1);
@@ -335,7 +345,10 @@ static float squared_l2_f16 (const _Float16 *a, const float *b, size_t n) {
  *
  * The integer sums are exact, so every kernel answers the same, whatever
  * order it sums in. They cannot overflow 32 bits: 16000 * 127 * 127 <
- * 2^31, and with the query biased by 128, below 16000 * 255 * 127. */
+ * 2^31, and with the query biased by 128, below 16000 * 255 * 127. The
+ * correction is unsigned arithmetic, which wraps: a `sum` that is not the
+ * sum of the row's codes (a block made by hand lies about it) scores that
+ * row wrongly, and by a kernel's own measure, but is not undefined. */
 typedef int32_t (*dot_i8_fn) (const int8_t *row, int32_t sum, const int8_t *codes,
                               const uint8_t *biased, size_t n);
 
@@ -378,7 +391,7 @@ static int32_t dot_i8_avx512_vnni (const int8_t *row, int32_t sum, const int8_t 
   int32_t total = ((lanes[0] + lanes[1]) + (lanes[2] + lanes[3]))
                   + ((lanes[4] + lanes[5]) + (lanes[6] + lanes[7]));
   for (; i < n; i++) total += (int32_t)row[i] * (int32_t)biased[i];
-  return total - 128 * sum;
+  return (int32_t)((uint32_t)total - 128u * (uint32_t)sum);
 }
 
 __attribute__((target("avx2,avxvnni")))
@@ -400,7 +413,7 @@ static int32_t dot_i8_avx_vnni (const int8_t *row, int32_t sum, const int8_t *co
   int32_t total = ((lanes[0] + lanes[1]) + (lanes[2] + lanes[3]))
                   + ((lanes[4] + lanes[5]) + (lanes[6] + lanes[7]));
   for (; i < n; i++) total += (int32_t)row[i] * (int32_t)biased[i];
-  return total - 128 * sum;
+  return (int32_t)((uint32_t)total - 128u * (uint32_t)sum);
 }
 
 /* The register state the operating system saves (xgetbv's XCR0), or 0
@@ -828,6 +841,8 @@ static const struct function functions[] = {
   {"jaccard_distance", 2, jaccard_distance_function},
 };
 
+static int register_blocks (sqlite3 *db);
+
 int cosmic_vector_functions (sqlite3 *db) {
   /* Pure arithmetic on their arguments, so innocuous: a database file's
    * own views, generated columns and expression indexes may use them,
@@ -839,7 +854,7 @@ int cosmic_vector_functions (sqlite3 *db) {
         functions[i].call, NULL, NULL);
     if (rc != SQLITE_OK) return rc;
   }
-  return SQLITE_OK;
+  return register_blocks(db);
 }
 
 /* The Lua side: [`cosmic.internal.vector`]. A corpus is a userdata
@@ -1046,6 +1061,78 @@ static double store_row (struct corpus *c, size_t row, const float *v) {
   }
 }
 
+/* The bytes one number takes in a corpus or a block of `storage`. */
+static size_t element_size (enum storage storage) {
+  return storage == F32 ? sizeof(float) : storage == F16 ? sizeof(_Float16) : 1;
+}
+
+/* 1 over a stored vector's length. A length too small to invert in a
+ * float is a vector with no direction, held as 0. */
+static float inverse_of (double length) {
+  float inverse = length == 0.0 ? 0.0f : (float)(1.0 / length);
+  return isfinite(inverse) ? inverse : 0.0f;
+}
+
+/* Makes room for `extra` more rows; the corpus is at stack index 1. The
+ * buffers are allocated bigger than needed (double the old, or `extra`
+ * if more), all of them first, each held on the stack and so safe from
+ * the collector the next allocation may run; the corpus is changed only
+ * once none can be refused. */
+static void reserve (lua_State *L, struct corpus *c, size_t extra) {
+  if (extra <= c->capacity - c->count) return;
+  if (extra > SIZE_MAX / 2 - c->count) luaL_error(L, "not enough memory");
+  size_t grown = c->capacity == 0 ? 64 : c->capacity * 2;
+  if (grown < c->count + extra) grown = c->count + extra;
+  if (!fits(grown, (c->dims + 2) * sizeof(int64_t))) luaL_error(L, "not enough memory");
+  size_t element = element_size(c->storage);
+  int slots[SLOTS], pushed = 0;
+  void *data = lua_newuserdatauv(L, grown * c->dims * element, 0);
+  slots[pushed++] = SLOT_DATA;
+  float *inverse = lua_newuserdatauv(L, grown * sizeof *inverse, 0);
+  slots[pushed++] = SLOT_INVERSE;
+  int64_t *ids = lua_newuserdatauv(L, grown * sizeof *ids, 0);
+  slots[pushed++] = SLOT_IDS;
+  struct code_row *codes = NULL;
+  if (c->storage == INT8) {
+    codes = lua_newuserdatauv(L, grown * sizeof *codes, 0);
+    slots[pushed++] = SLOT_CODES;
+  }
+  /* A quantized corpus no longer has the floats a lazy build would read,
+   * so each row's bits are made as it is added. */
+  unsigned char *bits = NULL;
+  if (c->storage != F32) {
+    bits = lua_newuserdatauv(L, grown * c->bytes, 0);
+    slots[pushed++] = SLOT_BITS;
+  }
+  if (c->count > 0) {
+    memcpy(data, c->data, c->count * c->dims * element);
+    memcpy(inverse, c->inverse, c->count * sizeof *inverse);
+    memcpy(ids, c->ids, c->count * sizeof *ids);
+    if (codes != NULL) memcpy(codes, c->codes, c->count * sizeof *codes);
+    if (bits != NULL) memcpy(bits, c->bits, c->count * c->bytes);
+  }
+  while (pushed > 0) lua_setiuservalue(L, 1, slots[--pushed]);
+  c->data = data;
+  c->inverse = inverse;
+  c->ids = ids;
+  c->capacity = grown;
+  if (codes != NULL) c->codes = codes;
+  if (bits != NULL) c->bits = bits;
+}
+
+/* Appends `v`, which holds finite numbers (under 65520 in magnitude for
+ * f16), as the next row; room for it is reserved. */
+static void append_row (struct corpus *c, int64_t id, const float *v) {
+  double length = store_row(c, c->count, v);
+  c->inverse[c->count] = inverse_of(length);
+  c->ids[c->count] = id;
+  if (c->storage != F32) {
+    quantize(v, c->dims, c->bits + c->count * c->bytes);
+    c->bits_built = c->count + 1;
+  }
+  c->count++;
+}
+
 static int corpus_add (lua_State *L) {
   struct corpus *c = check_corpus(L, 1);
   lua_Integer id = luaL_checkinteger(L, 2);
@@ -1056,59 +1143,8 @@ static int corpus_add (lua_State *L) {
                     "a half-precision vector holds numbers under 65520 in magnitude");
     }
   }
-  if (c->count == c->capacity) {
-    size_t grown = c->capacity == 0 ? 64 : c->capacity * 2;
-    if (!fits(grown, (c->dims + 2) * sizeof(int64_t))) {
-      return luaL_error(L, "not enough memory");
-    }
-    /* All of them first, each held on the stack and so safe from the
-     * collector the next allocation may run; the corpus is changed only
-     * once none can be refused. */
-    size_t element = c->storage == F32 ? sizeof(float) : c->storage == F16 ? sizeof(_Float16) : 1;
-    int slots[SLOTS], pushed = 0;
-    void *data = lua_newuserdatauv(L, grown * c->dims * element, 0);
-    slots[pushed++] = SLOT_DATA;
-    float *inverse = lua_newuserdatauv(L, grown * sizeof *inverse, 0);
-    slots[pushed++] = SLOT_INVERSE;
-    int64_t *ids = lua_newuserdatauv(L, grown * sizeof *ids, 0);
-    slots[pushed++] = SLOT_IDS;
-    struct code_row *codes = NULL;
-    if (c->storage == INT8) {
-      codes = lua_newuserdatauv(L, grown * sizeof *codes, 0);
-      slots[pushed++] = SLOT_CODES;
-    }
-    /* A quantized corpus no longer has the floats a lazy build would read,
-     * so each row's bits are made as it is added. */
-    unsigned char *bits = NULL;
-    if (c->storage != F32) {
-      bits = lua_newuserdatauv(L, grown * c->bytes, 0);
-      slots[pushed++] = SLOT_BITS;
-    }
-    if (c->count > 0) {
-      memcpy(data, c->data, c->count * c->dims * element);
-      memcpy(inverse, c->inverse, c->count * sizeof *inverse);
-      memcpy(ids, c->ids, c->count * sizeof *ids);
-      if (codes != NULL) memcpy(codes, c->codes, c->count * sizeof *codes);
-      if (bits != NULL) memcpy(bits, c->bits, c->count * c->bytes);
-    }
-    while (pushed > 0) lua_setiuservalue(L, 1, slots[--pushed]);
-    c->data = data;
-    c->inverse = inverse;
-    c->ids = ids;
-    c->capacity = grown;
-    if (codes != NULL) c->codes = codes;
-    if (bits != NULL) c->bits = bits;
-  }
-  double length = store_row(c, c->count, v);
-  /* A length too small to invert in a float is a vector with no direction. */
-  float inverse = length == 0.0 ? 0.0f : (float)(1.0 / length);
-  c->inverse[c->count] = isfinite(inverse) ? inverse : 0.0f;
-  c->ids[c->count] = id;
-  if (c->storage != F32) {
-    quantize(v, c->dims, c->bits + c->count * c->bytes);
-    c->bits_built = c->count + 1;
-  }
-  c->count++;
+  reserve(L, c, 1);
+  append_row(c, id, v);
   return 0;
 }
 
@@ -1152,9 +1188,10 @@ static unsigned hamming (const unsigned char *a, const unsigned char *b,
 }
 
 /* A hit as the heap holds it: higher key is better, and between equal
- * keys the lower id. */
+ * keys the lower id. The key is a double so that a ranking by a distance
+ * can keep the distance's own ties; a float key widens exactly. */
 struct hit {
-  float key;
+  double key;
   size_t row;
 };
 
@@ -1258,6 +1295,29 @@ struct query {
   float inverse;
 };
 
+/* Prepares `q` to score the f32 vector `floats` against rows of `storage`.
+ * An int8 corpus needs `codes`, 2 * dims + 1 bytes the query's quantized
+ * form is held in; any other storage takes NULL. */
+static void query_init (struct query *q, const float *floats, size_t dims,
+                        enum storage storage, void *codes) {
+  *q = (struct query){floats, NULL, NULL, 0.0f, 0, 0.0f};
+  if (storage == INT8) {
+    int8_t *held = codes;
+    uint8_t *biased = (uint8_t *)held + dims;
+    int32_t sum;
+    q->codes = held;
+    q->biased = biased;
+    q->scale = quantize_i8(floats, dims, held, &q->sumsq, &sum);
+    for (size_t i = 0; i < dims; i++) biased[i] = (uint8_t)(held[i] + 128);
+    double qlen = (double)q->scale * sqrt((double)q->sumsq);
+    q->inverse = inverse_of(qlen);
+  }
+  else {
+    double qlen = length_of(floats, dims);
+    q->inverse = qlen == 0.0 ? 0.0f : (float)(1.0 / qlen);
+  }
+}
+
 /* The key a row ranks by under `metric`, higher better. An int8 row is
  * scored by an exact integer dot product of the codes, scaled by both
  * scales; its cosine uses the stored length of the codes' dequantized
@@ -1340,23 +1400,9 @@ static int corpus_search (lua_State *L) {
   }
 
   size_t dims = c->dims;
-  struct query query = {q, NULL, NULL, 0.0f, 0, 0.0f};
-  if (c->storage == INT8) {
-    int8_t *codes = lua_newuserdatauv(L, 2 * dims + 1, 0);
-    uint8_t *biased = (uint8_t *)codes + dims;
-    int32_t sum;
-    query.codes = codes;
-    query.biased = biased;
-    query.scale = quantize_i8(q, dims, codes, &query.sumsq, &sum);
-    for (size_t i = 0; i < dims; i++) biased[i] = (uint8_t)(codes[i] + 128);
-    double qlen = (double)query.scale * sqrt((double)query.sumsq);
-    query.inverse = qlen == 0.0 ? 0.0f : (float)(1.0 / qlen);
-    if (!isfinite(query.inverse)) query.inverse = 0.0f;
-  }
-  else {
-    double qlen = length_of(q, dims);
-    query.inverse = qlen == 0.0 ? 0.0f : (float)(1.0 / qlen);
-  }
+  struct query query;
+  query_init(&query, q, dims, c->storage,
+             c->storage == INT8 ? lua_newuserdatauv(L, 2 * dims + 1, 0) : NULL);
 
   size_t limit = (size_t)k < eligible ? (size_t)k : eligible;
   struct heap heap = {0};
@@ -1787,11 +1833,836 @@ static int vector_kernel (lua_State *L) {
   return 1;
 }
 
+/* Packed blocks: many vectors of one dimension count and one storage in a
+ * single blob, so a table of them has a row per block instead of a row
+ * (and for a 3 KB vector, a page) per vector. A block is a corpus
+ * serialized: the same buffers, in the same forms, so the corpus's kernels
+ * score it in place and [`corpus_add_block`] copies it in.
+ *
+ * Layout, little-endian, every section starting at a multiple of 8:
+ *   0   "VBLK"
+ *   4   storage: 0 f32, 1 f16, 2 int8; then three zero bytes
+ *   8   dims, u32
+ *   12  count, u32
+ *   16  ids: count int64
+ *       inverse lengths: count float
+ *       int8 only: count code_rows (scale, sum of squares, sum)
+ *       the vectors back to back: count * dims numbers of the storage
+ * and nothing after, so the length is a function of the header. */
+
+_Static_assert(F32 == 0 && F16 == 1 && INT8 == 2, "a block stores the storage's number");
+
+#define BLOCK_HEADER 16
+
+static const unsigned char block_magic[4] = {'V', 'B', 'L', 'K'};
+
+/* A block as the scorers read it: pointers into its blob. */
+struct block {
+  enum storage storage;
+  size_t dims;
+  size_t count;
+  const int64_t *ids;
+  const float *inverse;
+  const struct code_row *codes;
+  const void *data;
+};
+
+struct block_layout {
+  uint64_t inverse;
+  uint64_t codes;
+  uint64_t data;
+  uint64_t total;
+};
+
+static uint64_t pad8 (uint64_t n) {
+  return (n + 7) & ~(uint64_t)7;
+}
+
+/* Where each section starts. `count` is at most 2^32 and `dims` 16000, so
+ * nothing here overflows 64 bits. */
+static struct block_layout layout_of (enum storage storage, uint64_t dims, uint64_t count) {
+  struct block_layout l;
+  l.inverse = BLOCK_HEADER + count * sizeof(int64_t);
+  l.codes = pad8(l.inverse + count * sizeof(float));
+  l.data = pad8(l.codes + (storage == INT8 ? count * sizeof(struct code_row) : 0));
+  l.total = l.data + count * dims * element_size(storage);
+  return l;
+}
+
+static uint32_t read_u32 (const unsigned char *p) {
+  return (uint32_t)p[0] | (uint32_t)p[1] << 8 | (uint32_t)p[2] << 16 | (uint32_t)p[3] << 24;
+}
+
+static void write_u32 (unsigned char *p, uint32_t x) {
+  p[0] = (unsigned char)x;
+  p[1] = (unsigned char)(x >> 8);
+  p[2] = (unsigned char)(x >> 16);
+  p[3] = (unsigned char)(x >> 24);
+}
+
+/* Reads `len` bytes at `bytes`, which are 8-aligned, as a block. Answers
+ * NULL, or why they are not one. The header and the length are held
+ * exactly, and each row's own length and scale are held to be finite and
+ * not negative; the vectors' numbers are not read (that is O(dims *
+ * count)), so a hand-made block can hold a number a search scores as NaN,
+ * which ranks nowhere. */
+static const char *block_view (const unsigned char *bytes, size_t len, struct block *b) {
+  if (len < BLOCK_HEADER || memcmp(bytes, block_magic, sizeof block_magic) != 0) {
+    return "not a vector block";
+  }
+  if (bytes[4] > INT8 || (bytes[5] | bytes[6] | bytes[7]) != 0) {
+    return "a vector block's header is malformed";
+  }
+  b->storage = (enum storage)bytes[4];
+  uint32_t dims = read_u32(bytes + 8);
+  uint32_t count = read_u32(bytes + 12);
+  if (dims < 1 || dims > MAX_DIMS) return "a vector block has 1 to 16000 dimensions";
+  struct block_layout l = layout_of(b->storage, dims, count);
+  if (l.total != len) return "a vector block's length does not match its header";
+  b->dims = dims;
+  b->count = count;
+  b->ids = (const int64_t *)(const void *)(bytes + BLOCK_HEADER);
+  b->inverse = (const float *)(const void *)(bytes + l.inverse);
+  b->codes = (const struct code_row *)(const void *)(bytes + l.codes);
+  b->data = bytes + l.data;
+  for (size_t i = 0; i < b->count; i++) {
+    if (!(b->inverse[i] >= 0.0f && isfinite(b->inverse[i]))) {
+      return "a vector block holds a length that is not a number";
+    }
+    /* A scale over FLT_MAX / 127 would make a code stand for a number that
+     * is not finite. */
+    if (b->storage == INT8 && !(b->codes[i].scale >= 0.0f && b->codes[i].scale <= FLT_MAX / 127.0f)) {
+      return "a vector block holds a scale out of range";
+    }
+  }
+  return NULL;
+}
+
+/* The block as the corpus it serializes, for the scorers that take one.
+ * Nothing is owned, and nothing is written through it. */
+static struct corpus block_corpus (const struct block *b) {
+  struct corpus c;
+  memset(&c, 0, sizeof c);
+  c.dims = b->dims;
+  c.count = b->count;
+  c.capacity = b->count;
+  c.storage = b->storage;
+  c.data = (void *)b->data;
+  c.inverse = (float *)b->inverse;
+  c.ids = (int64_t *)b->ids;
+  c.codes = (struct code_row *)b->codes;
+  return c;
+}
+
+/* Scores every row of `b` and offers the keys to `heap`. Answers false
+ * when a signal stopped it, after the first row and every few hundred
+ * since. A row whose key is not a number is no hit, as in a corpus search
+ * (see the TODO there on sums that overflow).
+ *
+ * TODO: once a caller searches more blocks than a full scan suits: give a
+ * block a bit vector per row beside its vectors, so that
+ * `vector_block_search` can take a `candidates` count as a corpus search
+ * does. */
+static bool scan_block (const struct block *b, const struct query *q, enum metric metric,
+                        struct heap *heap) {
+  struct corpus rows = block_corpus(b);
+  heap->ids = rows.ids;
+  for (size_t row = 0; row < rows.count; row++) {
+    if ((row & CHECK_EVERY) == 0 && check_interrupt()) return false;
+    float key = row_key(&rows, row, q, metric);
+    if (isnan(key)) continue;
+    /* A cosine ranks by the distance it reports, 1 less its clamped
+     * similarity, negated so that higher is nearer: rows at the same
+     * distance, one that rounded past 1 and one that did not, or two so
+     * near 0 that 1 less them is 1, must rank by their ids. A vector
+     * without a direction keeps its key of -infinity, which ranks last. */
+    double rank = key;
+    if (metric == COSINE && key != -INFINITY) rank = (double)fmaxf(-1.0f, fminf(1.0f, key)) - 1.0;
+    struct hit hit = {rank, row};
+    offer(heap, hit);
+  }
+  return true;
+}
+
+/* The metric `name` spells, or false. */
+static bool metric_named (const char *name, enum metric *metric) {
+  if (strcmp(name, "inner_product") == 0) *metric = INNER_PRODUCT;
+  else if (strcmp(name, "cosine") == 0) *metric = COSINE;
+  else if (strcmp(name, "l2") == 0) *metric = L2;
+  else return false;
+  return true;
+}
+
+/* The distance a hit's rank stands for, lower nearer, as the SQL
+ * functions report it: the negative inner product (pgvector's `<#>`),
+ * `cosine_distance` (NULL, as `has` false, for a vector without a
+ * direction) and `l2_distance`. */
+static double block_distance (enum metric metric, double rank, bool *has) {
+  *has = true;
+  switch (metric) {
+    case INNER_PRODUCT: return 0.0 - rank;
+    case COSINE: {
+      if (rank == -INFINITY) {
+        *has = false;
+        return 0.0;
+      }
+      return 0.0 - rank;
+    }
+    default: return sqrt(-rank);
+  }
+}
+
+/* vector_block(id, vector [, storage]), an aggregate: the block of its
+ * rows, a blob, or NULL for none. The rows are held as they arrive in
+ * the buffers of the block, converted to the storage as a corpus does,
+ * and assembled once at the end. */
+struct block_state {
+  bool failed;
+  bool started;
+  enum storage storage;
+  size_t dims;
+  size_t count;
+  size_t capacity;
+  int64_t *ids;
+  float *inverse;
+  struct code_row *codes;
+  unsigned char *data;
+};
+
+static void block_release (struct block_state *s) {
+  cosmic_free(s->ids);
+  cosmic_free(s->inverse);
+  cosmic_free(s->codes);
+  cosmic_free(s->data);
+  s->ids = NULL;
+  s->inverse = NULL;
+  s->codes = NULL;
+  s->data = NULL;
+}
+
+static void block_fail (sqlite3_context *ctx, struct block_state *s, const char *why) {
+  s->failed = true;
+  sqlite3_result_error(ctx, why, -1);
+}
+
+/* Resizes `*buffer` to `bytes`, keeping it as it was where the allocator
+ * refuses. */
+static bool resize (void **buffer, size_t bytes) {
+  void *grown = cosmic_realloc(*buffer, bytes);
+  if (grown == NULL) return false;
+  *buffer = grown;
+  return true;
+}
+
+/* Room for one more row, within SQLite's length limit on a value. */
+static bool block_grow (sqlite3_context *ctx, struct block_state *s) {
+  if (s->count < s->capacity) return true;
+  uint64_t limit = (uint64_t)sqlite3_limit(sqlite3_context_db_handle(ctx), SQLITE_LIMIT_LENGTH, -1);
+  if (layout_of(s->storage, s->dims, s->count + 1).total > limit) {
+    block_fail(ctx, s, "a vector block would be longer than SQLite allows a value to be");
+    return false;
+  }
+  size_t grown = s->capacity == 0 ? 16 : s->capacity * 2;
+  if (layout_of(s->storage, s->dims, grown).total > limit) grown = s->count + 1;
+  bool ok = resize((void **)&s->ids, grown * sizeof *s->ids)
+            && resize((void **)&s->inverse, grown * sizeof *s->inverse)
+            && (s->storage != INT8 || resize((void **)&s->codes, grown * sizeof *s->codes))
+            && resize((void **)&s->data, grown * s->dims * element_size(s->storage));
+  if (!ok) {
+    s->failed = true;
+    sqlite3_result_error_nomem(ctx);
+    return false;
+  }
+  s->capacity = grown;
+  return true;
+}
+
+static void block_step (sqlite3_context *ctx, int argc, sqlite3_value **argv) {
+  struct block_state *s = sqlite3_aggregate_context(ctx, sizeof *s);
+  if (s == NULL) {
+    sqlite3_result_error_nomem(ctx);
+    return;
+  }
+  if (s->failed) return;
+  /* A row without a vector is left out, as an aggregate leaves a NULL. */
+  if (sqlite3_value_type(argv[1]) == SQLITE_NULL) return;
+  if (sqlite3_value_type(argv[0]) != SQLITE_INTEGER) {
+    block_fail(ctx, s, "vector_block wants an integer id");
+    return;
+  }
+  enum storage storage = F32;
+  if (argc == 3) {
+    const char *name = sqlite3_value_type(argv[2]) == SQLITE_TEXT
+                           ? (const char *)sqlite3_value_text(argv[2])
+                           : NULL;
+    if (name == NULL) {
+      block_fail(ctx, s, "a storage is f32, f16 or int8");
+      return;
+    }
+    if (strcmp(name, "f32") == 0) storage = F32;
+    else if (strcmp(name, "f16") == 0) storage = F16;
+    else if (strcmp(name, "int8") == 0) storage = INT8;
+    else {
+      block_fail(ctx, s, "a storage is f32, f16 or int8");
+      return;
+    }
+  }
+  if (s->started && storage != s->storage) {
+    block_fail(ctx, s, "a block holds one storage");
+    return;
+  }
+  struct vector v;
+  const char *why = read_value(argv[1], &v);
+  if (why == out_of_memory) {
+    s->failed = true;
+    sqlite3_result_error_nomem(ctx);
+    return;
+  }
+  if (why != NULL) {
+    block_fail(ctx, s, why);
+    return;
+  }
+  if (s->started && v.dims != s->dims) {
+    release(&v);
+    block_fail(ctx, s, "the vectors have different dimensions");
+    return;
+  }
+  for (size_t i = 0; i < v.dims; i++) {
+    if (!isfinite(v.values[i])) {
+      release(&v);
+      block_fail(ctx, s, "a vector holds finite numbers");
+      return;
+    }
+    if (storage == F16 && !(fabsf(v.values[i]) < HALF_LIMIT)) {
+      release(&v);
+      block_fail(ctx, s, "a half-precision vector holds numbers under 65520 in magnitude");
+      return;
+    }
+  }
+  if (!s->started) {
+    s->started = true;
+    s->storage = storage;
+    s->dims = v.dims;
+  }
+  if (!block_grow(ctx, s)) {
+    release(&v);
+    return;
+  }
+  struct corpus rows;
+  memset(&rows, 0, sizeof rows);
+  rows.dims = s->dims;
+  rows.storage = s->storage;
+  rows.data = s->data;
+  rows.codes = s->codes;
+  double length = store_row(&rows, s->count, v.values);
+  s->inverse[s->count] = inverse_of(length);
+  s->ids[s->count] = sqlite3_value_int64(argv[0]);
+  s->count++;
+  release(&v);
+}
+
+static void block_final (sqlite3_context *ctx) {
+  struct block_state *s = sqlite3_aggregate_context(ctx, 0);
+  if (s == NULL) {
+    sqlite3_result_null(ctx);
+    return;
+  }
+  if (s->failed || s->count == 0) {
+    if (!s->failed) sqlite3_result_null(ctx);
+    block_release(s);
+    return;
+  }
+  struct block_layout l = layout_of(s->storage, s->dims, s->count);
+  unsigned char *out = cosmic_calloc(1, l.total);
+  if (out == NULL) {
+    sqlite3_result_error_nomem(ctx);
+    block_release(s);
+    return;
+  }
+  /* Zeroed, so the header's reserved bytes and the padding between the
+   * sections are, and a block is the same bytes whenever it is made. */
+  memcpy(out, block_magic, sizeof block_magic);
+  out[4] = (unsigned char)s->storage;
+  write_u32(out + 8, (uint32_t)s->dims);
+  write_u32(out + 12, (uint32_t)s->count);
+  memcpy(out + BLOCK_HEADER, s->ids, s->count * sizeof *s->ids);
+  memcpy(out + l.inverse, s->inverse, s->count * sizeof *s->inverse);
+  if (s->storage == INT8) memcpy(out + l.codes, s->codes, s->count * sizeof *s->codes);
+  memcpy(out + l.data, s->data, l.total - l.data);
+  block_release(s);
+  sqlite3_result_blob64(ctx, out, l.total, cosmic_free);
+}
+
+/* vector_block_search(block, query, k [, metric]), a table-valued
+ * function: the (at most) k rows of `block` nearest to `query`, as
+ * (id, distance) in order of distance, ties to the lower id. */
+enum { HIDDEN_BLOCK, HIDDEN_QUERY, HIDDEN_K, HIDDEN_METRIC, HIDDEN_COUNT };
+
+/* The first two columns are the answer's. */
+enum { COLUMN_ID, COLUMN_DISTANCE, COLUMN_HIDDEN };
+
+struct block_hit {
+  int64_t id;
+  double distance;
+  bool has_distance;
+};
+
+struct block_cursor {
+  sqlite3_vtab_cursor base;
+  struct block_hit *hits;
+  size_t count;
+  size_t at;
+  sqlite3_int64 k;
+  const char *metric;
+};
+
+static int block_connect (sqlite3 *db, void *aux, int argc, const char *const *argv,
+                          sqlite3_vtab **out, char **error) {
+  (void)aux;
+  (void)argc;
+  (void)argv;
+  (void)error;
+  int rc = sqlite3_declare_vtab(
+      db, "CREATE TABLE x(id INTEGER, distance REAL, block HIDDEN, query HIDDEN, k HIDDEN, "
+          "metric HIDDEN)");
+  if (rc != SQLITE_OK) return rc;
+  /* Pure arithmetic on its arguments, like the functions: a view in a
+   * database file may use it. */
+  sqlite3_vtab_config(db, SQLITE_VTAB_INNOCUOUS);
+  sqlite3_vtab *vtab = cosmic_malloc(sizeof *vtab);
+  if (vtab == NULL) return SQLITE_NOMEM;
+  memset(vtab, 0, sizeof *vtab);
+  *out = vtab;
+  return SQLITE_OK;
+}
+
+static int block_disconnect (sqlite3_vtab *vtab) {
+  cosmic_free(vtab);
+  return SQLITE_OK;
+}
+
+/* The block, query and k must be given as equalities a join can supply;
+ * the metric may be. Anything else the planner tried is refused, so it
+ * plans the block's table first. */
+static int block_best_index (sqlite3_vtab *vtab, sqlite3_index_info *info) {
+  (void)vtab;
+  int found[HIDDEN_COUNT];
+  for (int i = 0; i < HIDDEN_COUNT; i++) found[i] = -1;
+  int unusable = 0;
+  for (int i = 0; i < info->nConstraint; i++) {
+    const struct sqlite3_index_constraint *k = info->aConstraint + i;
+    if (k->iColumn < COLUMN_HIDDEN || k->op != SQLITE_INDEX_CONSTRAINT_EQ) continue;
+    if (!k->usable) {
+      unusable = 1;
+      continue;
+    }
+    found[k->iColumn - COLUMN_HIDDEN] = i;
+  }
+  if (unusable || found[HIDDEN_BLOCK] < 0 || found[HIDDEN_QUERY] < 0 || found[HIDDEN_K] < 0) {
+    return SQLITE_CONSTRAINT;
+  }
+  int argument = 0, mask = 0;
+  for (int i = 0; i < HIDDEN_COUNT; i++) {
+    if (found[i] < 0) continue;
+    info->aConstraintUsage[found[i]].argvIndex = ++argument;
+    info->aConstraintUsage[found[i]].omit = 1;
+    mask |= 1 << i;
+  }
+  info->idxNum = mask;
+  info->estimatedCost = 100.0;
+  info->estimatedRows = 10;
+  return SQLITE_OK;
+}
+
+static int block_open (sqlite3_vtab *vtab, sqlite3_vtab_cursor **out) {
+  (void)vtab;
+  struct block_cursor *cursor = cosmic_malloc(sizeof *cursor);
+  if (cursor == NULL) return SQLITE_NOMEM;
+  memset(cursor, 0, sizeof *cursor);
+  *out = &cursor->base;
+  return SQLITE_OK;
+}
+
+static void block_clear (struct block_cursor *cursor) {
+  cosmic_free(cursor->hits);
+  cursor->hits = NULL;
+  cursor->count = 0;
+  cursor->at = 0;
+}
+
+static int block_close (sqlite3_vtab_cursor *base) {
+  struct block_cursor *cursor = (struct block_cursor *)base;
+  block_clear(cursor);
+  cosmic_free(cursor);
+  return SQLITE_OK;
+}
+
+/* Makes `why` the statement's error. */
+static int block_error (sqlite3_vtab_cursor *base, const char *why) {
+  sqlite3_free(base->pVtab->zErrMsg);
+  base->pVtab->zErrMsg = sqlite3_mprintf("%s", why);
+  return base->pVtab->zErrMsg == NULL ? SQLITE_NOMEM : SQLITE_ERROR;
+}
+
+/* Reads the block, whose blob is `value`; it is copied if it is not
+ * 8-aligned (SQLite's own values are, so that is for a virtual table
+ * that answers a blob at an odd offset). `*owned` is what to free. */
+static const char *block_of_value (sqlite3_value *value, struct block *b, void **owned) {
+  *owned = NULL;
+  if (sqlite3_value_type(value) != SQLITE_BLOB) return "a vector block is a blob";
+  size_t len = (size_t)sqlite3_value_bytes(value);
+  const void *bytes = sqlite3_value_blob(value);
+  if (bytes == NULL) return len == 0 ? "not a vector block" : out_of_memory;
+  if ((uintptr_t)bytes % 8 != 0) {
+    *owned = cosmic_malloc(len);
+    if (*owned == NULL) return out_of_memory;
+    memcpy(*owned, bytes, len);
+    bytes = *owned;
+  }
+  return block_view(bytes, len, b);
+}
+
+/* TODO: once a caller's packed scan is bound by preparing its query: keep
+ * the prepared query (read, checked and, for int8, quantized) between the
+ * blocks of a statement. A prototype that did gained about 5% of an int8
+ * scan of 768 dimensions in 64 KB pages, within the noise of the VM it
+ * was measured on. */
+static int block_filter (sqlite3_vtab_cursor *base, int mask, const char *index_string, int argc,
+                         sqlite3_value **argv) {
+  (void)index_string;
+  (void)argc;
+  struct block_cursor *cursor = (struct block_cursor *)base;
+  block_clear(cursor);
+  sqlite3_value *given[HIDDEN_COUNT] = {0};
+  for (int i = 0, next = 0; i < HIDDEN_COUNT; i++) {
+    if (mask & (1 << i)) given[i] = argv[next++];
+  }
+  /* A NULL block, query or k answers no rows, as the functions answer NULL. */
+  for (int i = 0; i < HIDDEN_K + 1; i++) {
+    if (sqlite3_value_type(given[i]) == SQLITE_NULL) return SQLITE_OK;
+  }
+  if (sqlite3_value_type(given[HIDDEN_K]) != SQLITE_INTEGER) {
+    return block_error(base, "k is an integer");
+  }
+  sqlite3_int64 k = sqlite3_value_int64(given[HIDDEN_K]);
+  if (k < 1) return block_error(base, "k is at least 1");
+  enum metric metric = INNER_PRODUCT;
+  if (given[HIDDEN_METRIC] != NULL) {
+    const char *name = sqlite3_value_type(given[HIDDEN_METRIC]) == SQLITE_TEXT
+                           ? (const char *)sqlite3_value_text(given[HIDDEN_METRIC])
+                           : NULL;
+    if (name == NULL || !metric_named(name, &metric)) {
+      return block_error(base, "a metric is inner_product, cosine or l2");
+    }
+  }
+  cursor->k = k;
+  cursor->metric = metric == COSINE ? "cosine" : metric == L2 ? "l2" : "inner_product";
+  struct block block;
+  void *owned_block;
+  const char *why = block_of_value(given[HIDDEN_BLOCK], &block, &owned_block);
+  if (why != NULL) {
+    cosmic_free(owned_block);
+    return why == out_of_memory ? SQLITE_NOMEM : block_error(base, why);
+  }
+  struct vector query;
+  why = read_value(given[HIDDEN_QUERY], &query);
+  bool read = why == NULL;
+  if (read && query.dims != block.dims) why = "the query's dimensions are not the block's";
+  for (size_t i = 0; why == NULL && i < query.dims; i++) {
+    if (!isfinite(query.values[i])) why = "a vector holds finite numbers";
+  }
+  if (why != NULL) {
+    if (read) release(&query);
+    cosmic_free(owned_block);
+    if (why == out_of_memory) return SQLITE_NOMEM;
+    return block_error(base, why);
+  }
+  size_t limit = (uint64_t)k < block.count ? (size_t)k : block.count;
+  struct query asked;
+  void *codes = NULL;
+  struct hit *items = NULL;
+  struct block_hit *hits = NULL;
+  bool fits_all = true;
+  if (block.storage == INT8) {
+    codes = cosmic_malloc(2 * block.dims + 1);
+    fits_all = codes != NULL;
+  }
+  items = cosmic_malloc((limit + 1) * sizeof *items);
+  hits = cosmic_malloc((limit + 1) * sizeof *hits);
+  fits_all = fits_all && items != NULL && hits != NULL;
+  int rc = SQLITE_OK;
+  if (!fits_all) {
+    rc = SQLITE_NOMEM;
+  }
+  else {
+    query_init(&asked, query.values, block.dims, block.storage, codes);
+    struct heap heap = {items, 0, limit, NULL};
+    if (!scan_block(&block, &asked, metric, &heap)) {
+      rc = block_error(base, "interrupted");
+      if (rc == SQLITE_ERROR) rc = SQLITE_INTERRUPT;
+    }
+    else {
+      /* Popping the worst first fills the answer from its tail. */
+      size_t n = heap.size;
+      for (size_t j = 0; j < n; j++) {
+        struct hit worst = heap.items[0];
+        heap.items[0] = heap.items[--heap.size];
+        sift_down(&heap, 0);
+        struct block_hit *out = hits + (n - j - 1);
+        out->id = block.ids[worst.row];
+        out->distance = block_distance(metric, worst.key, &out->has_distance);
+      }
+      cursor->hits = hits;
+      cursor->count = n;
+      hits = NULL;
+    }
+  }
+  cosmic_free(hits);
+  cosmic_free(items);
+  cosmic_free(codes);
+  release(&query);
+  cosmic_free(owned_block);
+  return rc;
+}
+
+static int block_next (sqlite3_vtab_cursor *base) {
+  ((struct block_cursor *)base)->at++;
+  return SQLITE_OK;
+}
+
+static int block_eof (sqlite3_vtab_cursor *base) {
+  const struct block_cursor *cursor = (struct block_cursor *)base;
+  return cursor->at >= cursor->count;
+}
+
+static int block_column (sqlite3_vtab_cursor *base, sqlite3_context *ctx, int column) {
+  const struct block_cursor *cursor = (struct block_cursor *)base;
+  const struct block_hit *hit = cursor->hits + cursor->at;
+  if (column == COLUMN_ID) sqlite3_result_int64(ctx, hit->id);
+  else if (column == COLUMN_DISTANCE && hit->has_distance) sqlite3_result_double(ctx, hit->distance);
+  /* The arguments read back as they were given, for a WHERE on one that
+   * the planner did not take as the argument; the block and the query
+   * are too large to keep, and read NULL. */
+  else if (column == COLUMN_HIDDEN + HIDDEN_K) sqlite3_result_int64(ctx, cursor->k);
+  else if (column == COLUMN_HIDDEN + HIDDEN_METRIC) {
+    sqlite3_result_text(ctx, cursor->metric, -1, SQLITE_STATIC);
+  }
+  return SQLITE_OK;
+}
+
+static int block_rowid (sqlite3_vtab_cursor *base, sqlite3_int64 *rowid) {
+  *rowid = (sqlite3_int64)((struct block_cursor *)base)->at;
+  return SQLITE_OK;
+}
+
+static sqlite3_module block_module = {
+  .iVersion = 0,
+  .xConnect = block_connect,
+  .xBestIndex = block_best_index,
+  .xDisconnect = block_disconnect,
+  .xDestroy = block_disconnect,
+  .xOpen = block_open,
+  .xClose = block_close,
+  .xFilter = block_filter,
+  .xNext = block_next,
+  .xEof = block_eof,
+  .xColumn = block_column,
+  .xRowid = block_rowid,
+};
+
+static int register_blocks (sqlite3 *db) {
+  /* Aggregates of the same kind as the functions: pure, so innocuous. */
+  const int flags = SQLITE_UTF8 | SQLITE_DETERMINISTIC | SQLITE_INNOCUOUS;
+  int rc = sqlite3_create_function(db, "vector_block", 2, flags, NULL, NULL, block_step,
+                                   block_final);
+  if (rc == SQLITE_OK) {
+    rc = sqlite3_create_function(db, "vector_block", 3, flags, NULL, NULL, block_step,
+                                 block_final);
+  }
+  if (rc == SQLITE_OK) rc = sqlite3_create_module(db, "vector_block_search", &block_module, NULL);
+  return rc;
+}
+
+/* The block `blob` (argument `arg`) holds, 8-aligned: copied into a
+ * pushed userdata where the string is not. Answers NULL, or why it is not
+ * a block. */
+static const char *lua_block (lua_State *L, int arg, struct block *b) {
+  size_t len;
+  const char *s = luaL_checklstring(L, arg, &len);
+  if ((uintptr_t)s % 8 != 0) {
+    void *copy = lua_newuserdatauv(L, len + 1, 0);
+    memcpy(copy, s, len);
+    s = copy;
+  }
+  return block_view((const unsigned char *)s, len, b);
+}
+
+/* block_info(blob): the dimensions, storage name and count of a block,
+ * or `nil` and why it is not one. */
+static int vector_block_info (lua_State *L) {
+  struct block b;
+  const char *why = lua_block(L, 1, &b);
+  if (why != NULL) {
+    lua_pushnil(L);
+    lua_pushstring(L, why);
+    return 2;
+  }
+  lua_pushinteger(L, (lua_Integer)b.dims);
+  lua_pushstring(L, b.storage == F32 ? "f32" : b.storage == F16 ? "f16" : "int8");
+  lua_pushinteger(L, (lua_Integer)b.count);
+  return 3;
+}
+
+/* Whether every number of the block's vectors is under `limit` in
+ * magnitude (`INFINITY` asks for finite ones). An int8 block's are
+ * widened a row at a time through `scratch`. */
+static bool numbers_below (const struct block *b, float limit, float *scratch) {
+  size_t n = b->count * b->dims;
+  unsigned bad = 0;
+  if (b->storage == F32) {
+    const float *v = b->data;
+    for (size_t i = 0; i < n; i++) bad |= !(fabsf(v[i]) < limit);
+  }
+  else if (b->storage == F16) {
+    const _Float16 *v = b->data;
+    for (size_t i = 0; i < n; i++) bad |= !(fabsf((float)v[i]) < limit);
+  }
+  else {
+    struct corpus rows = block_corpus(b);
+    for (size_t row = 0; row < b->count; row++) {
+      const float *v = row_floats(&rows, row, scratch);
+      for (size_t i = 0; i < b->dims; i++) bad |= !(fabsf(v[i]) < limit);
+    }
+  }
+  return bad == 0;
+}
+
+/* Whether each row of an int8 block holds the sums its header claims, the
+ * sum of its codes and of their squares, and no code of -128: the scorers'
+ * bounds, and the VNNI kernels' correction, hold for codes from -127 to
+ * 127 and the true sum. */
+static bool codes_consistent (const struct block *b) {
+  for (size_t row = 0; row < b->count; row++) {
+    const int8_t *v = (const int8_t *)b->data + row * b->dims;
+    int32_t sum = 0;
+    uint32_t squares = 0;
+    for (size_t i = 0; i < b->dims; i++) {
+      if (v[i] < -127) return false;
+      sum += v[i];
+      squares += (uint32_t)(v[i] * v[i]);
+    }
+    if (sum != b->codes[row].sum || squares != b->codes[row].sumsq) return false;
+  }
+  return true;
+}
+
+/* The length of stored row `row`, as [`store_row`] answers it when the
+ * row is added. `scratch` holds `dims` floats. */
+static double stored_length (const struct corpus *c, size_t row, float *scratch) {
+  switch (c->storage) {
+    case F32: return length_of((const float *)c->data + row * c->dims, c->dims);
+    case F16: {
+      const float *v = row_floats(c, row, scratch);
+      double squares = 0.0;
+      for (size_t i = 0; i < c->dims; i++) squares += (double)v[i] * (double)v[i];
+      return sqrt(squares);
+    }
+    default: return (double)c->codes[row].scale * sqrt((double)c->codes[row].sumsq);
+  }
+}
+
+/* The sign bits of stored row `row` as `quantize` makes them from the f32
+ * numbers, read from the stored form: a block has no f32. */
+#define PACK_SIGNS(positive) \
+  for (; i + 8 <= dims; i += 8) { \
+    unsigned byte = 0; \
+    for (size_t k = 0; k < 8; k++) byte |= (unsigned)(positive) << (7 - k); \
+    bits[i / 8] = (unsigned char)byte; \
+  } \
+  if (i < dims) { \
+    unsigned byte = 0; \
+    for (size_t k = 0; i + k < dims; k++) byte |= (unsigned)(positive) << (7 - k); \
+    bits[i / 8] = (unsigned char)byte; \
+  }
+
+static void quantize_stored (const struct corpus *c, size_t row, unsigned char *bits) {
+  size_t dims = c->dims, i = 0;
+  if (c->storage == F16) {
+    const _Float16 *v = (const _Float16 *)c->data + row * dims;
+    PACK_SIGNS((float)v[i + k] > 0.0f)
+  }
+  else {
+    /* A code is positive where the number it stands for is: the scale is
+     * not negative. */
+    const int8_t *v = (const int8_t *)c->data + row * dims;
+    PACK_SIGNS(v[i + k] > 0)
+  }
+}
+
+/* corpus:add_block(blob): appends every vector of a block, converting
+ * them to the corpus's storage when it differs, and computing the lengths
+ * cosine reads from the numbers rather than taking the block's. Raises on a blob that is
+ * not a block, one of other dimensions, a block of numbers that are not
+ * finite, an int8 block whose sums are not its codes' (for an int8
+ * corpus), and, for an f16 corpus, a number of 65520 or more in
+ * magnitude; the corpus is as it was then. A quantized corpus makes its
+ * bit vectors from the stored numbers, as a block holds no f32 to read
+ * them from. */
+static int corpus_add_block (lua_State *L) {
+  struct corpus *c = check_corpus(L, 1);
+  struct block b;
+  const char *why = lua_block(L, 2, &b);
+  if (why != NULL) return luaL_argerror(L, 2, why);
+  luaL_argcheck(L, b.dims == c->dims, 2, "the block's dimensions are not the corpus's");
+  if (b.count == 0) return 0;
+  size_t dims = c->dims;
+  float *scratch = lua_newuserdatauv(L, dims * sizeof *scratch + 1, 0);
+  /* What a corpus would have refused, found before anything is changed.
+   * int8 codes copied as they are have no number to refuse, but the sums
+   * the scorers read beside them must be the codes' own. */
+  if (b.storage == INT8 && c->storage == INT8) {
+    luaL_argcheck(L, codes_consistent(&b), 2, "a vector block's code sums are not its codes'");
+  }
+  else {
+    luaL_argcheck(L, numbers_below(&b, INFINITY, scratch), 2, "a vector holds finite numbers");
+    luaL_argcheck(L, c->storage != F16 || b.storage == F16
+                         || numbers_below(&b, HALF_LIMIT, scratch),
+                  2, "a half-precision vector holds numbers under 65520 in magnitude");
+  }
+  reserve(L, c, b.count);
+  if (b.storage == c->storage) {
+    size_t at = c->count, element = element_size(b.storage);
+    memcpy(c->ids + at, b.ids, b.count * sizeof *b.ids);
+    if (b.storage == INT8) memcpy(c->codes + at, b.codes, b.count * sizeof *b.codes);
+    memcpy((unsigned char *)c->data + at * dims * element, b.data, b.count * dims * element);
+    c->count += b.count;
+    /* The lengths are the corpus's own to compute, from the numbers it now
+     * holds, as `add` does: a block's are read by its search alone. */
+    for (size_t row = at; row < c->count; row++) {
+      c->inverse[row] = inverse_of(stored_length(c, row, scratch));
+    }
+    if (c->storage != F32) {
+      for (size_t row = at; row < c->count; row++) {
+        quantize_stored(c, row, c->bits + row * c->bytes);
+      }
+      c->bits_built = c->count;
+    }
+  }
+  else {
+    struct corpus rows = block_corpus(&b);
+    for (size_t row = 0; row < b.count; row++) {
+      append_row(c, b.ids[row], row_floats(&rows, row, scratch));
+    }
+  }
+  return 0;
+}
+
 static const luaL_Reg corpus_methods[] = {
   {"kmeans", corpus_kmeans},
   {"add", corpus_add},
   {"count", corpus_count},
   {"search", corpus_search},
+  {"add_block", corpus_add_block},
   {NULL, NULL},
 };
 
@@ -1802,6 +2673,7 @@ static const luaL_Reg module[] = {
   {"from_json", vector_from_json},
   {"normalize", vector_normalize},
   {"nearest", vector_nearest},
+  {"block_info", vector_block_info},
   {NULL, NULL},
 };
 

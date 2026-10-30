@@ -140,6 +140,8 @@ local record Vector
     add: function(Corpus, id: integer, v: string)
     --- `corpus:count()`: how many vectors the corpus holds.
     count: function(Corpus): integer
+    --- `corpus:add_block(block)`: see [`Vector.load_blocks`].
+    add_block: function(Corpus, block: string)
     --- `corpus:search(query, k, opts)`: the `k` nearest, as [`Vector.Hits`].
     --- Answers `nil, "interrupted"` on a caught signal, and raises "not
     --- enough memory" when the heap refuses, as the module's description
@@ -181,6 +183,15 @@ function Vector.normalize(v: string): string
   return raw.normalize(v)
 end
 
+local function storage_named(name: string): Vector.Storage
+  if name == "f16" then
+    return "f16"
+  elseif name == "int8" then
+    return "int8"
+  end
+  return "f32"
+end
+
 --- Adds a vector under an id, as f32 numbers: it is converted to the
 --- corpus's storage. Raises on a vector of another length than the
 --- corpus's dimensions, or with a value that is not finite, or, in an
@@ -188,6 +199,20 @@ end
 --- an id makes a second row: ids are not unique to the corpus.
 local function corpus_add(self: Vector.Corpus, id: integer, v: string)
   self.handle:add(id, v)
+end
+
+--- Adds every vector of `block`, a packed block as the SQL aggregate
+--- `vector_block` makes it (see the [SQL guide](../doc/guides/sql.md)), in
+--- the corpus's storage: a block of another storage is converted as `add`
+--- converts an f32 vector. Raises on a string that is not a block, on one
+--- of other dimensions than the corpus's, on a block holding a number that
+--- is not finite, on an `"int8"` block for an `"int8"` corpus whose sums are
+--- not its codes' (a block made by hand) and, for an `"f16"` corpus, one of
+--- 65520 or more in magnitude; the corpus is as it was then. An `"f16"` or `"int8"` corpus
+--- makes the bit vectors of `candidates` from the numbers it stores, since
+--- a block holds no f32 to read them from.
+local function corpus_add_block(self: Vector.Corpus, block: string)
+  self.handle:add_block(block)
 end
 
 --- How many vectors the corpus holds.
@@ -255,7 +280,7 @@ end
 function Vector.corpus(dims: integer, opts?: Vector.CorpusOptions): Vector.Corpus
   local storage: Vector.Storage = (opts and opts.storage) or "f32"
   return { dims = dims, storage = storage, handle = raw.corpus(dims, storage), add = corpus_add,
-    count = corpus_count, search = corpus_search }
+    count = corpus_count, search = corpus_search, add_block = corpus_add_block }
 end
 
 local function add_row(held: Vector.Corpus?, id: integer, blob: string,
@@ -305,6 +330,69 @@ function Vector.load(db: Sqlite.Handle, sql: string, values?: {Sqlite.Value},
       break
     end
     corpus = grown
+  end
+  if failure == "" then
+    failure = q:failure()
+  end
+  q:close()
+  if failure ~= "" then
+    return nil, failure
+  end
+  if corpus == nil then
+    return nil, "the query answered no rows, so there are no dimensions to read"
+  end
+  return corpus, ""
+end
+
+--- A corpus from the rows a query answers, each holding in its first
+--- column a packed block, as `vector_block` makes one: `Vector.load_blocks(db,
+--- "SELECT vectors FROM blocks")`. It reads a block per row, not a vector,
+--- and copies the block's buffers into the corpus, so it is much faster
+--- than [`Vector.load`] over the same vectors one to a row. The corpus
+--- takes its dimensions, and unless `opts.storage` says otherwise its
+--- storage, from the first block; every block must have those
+--- dimensions. Answers `nil` and why when the query fails, a row holds
+--- something else than a block (a NULL too: a group of rows without a
+--- vector packs to NULL, so select `WHERE vectors IS NOT NULL`), or a
+--- block cannot be added (see [`Vector.Corpus.add_block`]), and when the
+--- query answers no rows.
+function Vector.load_blocks(db: Sqlite.Handle, sql: string, values?: {Sqlite.Value},
+                            opts?: Vector.CorpusOptions): Vector.Corpus?, string
+  if opts ~= nil and opts.storage ~= nil then
+    local _ = raw.corpus(1, opts.storage)
+  end
+  local q, why = Sqlite.query(db, sql, values)
+  if not q then
+    return nil, why
+  end
+  local corpus: Vector.Corpus? = nil
+  local failure = ""
+  local n = 0
+  for row in q:each() do
+    n = n + 1
+    local at = "row " .. tostring(n) .. ": "
+    if row:kind(1) ~= "blob" then
+      failure = at .. "load_blocks wants a vector block in each row's first column"
+      break
+    end
+    local block = row:blob(1)
+    local target: Vector.Corpus
+    if corpus == nil then
+      local dims, named = raw.block_info(block)
+      if dims == nil then
+        failure = at .. named
+        break
+      end
+      target = Vector.corpus(dims, { storage = (opts and opts.storage) or storage_named(named) })
+    else
+      target = corpus
+    end
+    local added, err = pcall(corpus_add_block, target, block)
+    if not added then
+      failure = at .. tostring(err)
+      break
+    end
+    corpus = target
   end
   if failure == "" then
     failure = q:failure()
