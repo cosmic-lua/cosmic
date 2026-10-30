@@ -135,9 +135,9 @@ local function test_a_location_object_is_ascii_json_with_a_checked_path()
   local values = decoded.values
   assert(values is {string:any} and values.name == "\u{e9}")
   local refused, why = applied({ location = { path = "//evil.example/x" } })
-  assert(refused == nil and why:find("same-origin", 1, true), tostring(why))
+  assert(refused == nil and why:find("same-origin", 1, true) ~= nil, tostring(why))
   local bad, bad_why = applied({ location = { path = "/ok", target = "#a\n#b" } })
-  assert(bad == nil and bad_why:find("location target", 1, true), tostring(bad_why))
+  assert(bad == nil and bad_why:find("location target", 1, true) ~= nil, tostring(bad_why))
 end
 
 local function test_a_redirect_must_stay_on_the_origin()
@@ -160,7 +160,7 @@ end
 local function test_nothing_is_written_when_anything_is_refused()
   local res = Web.empty(200)
   local done, why = Htmx.apply(res, { redirect = "/fine", refresh = true, reswap = "sideways" })
-  assert(done == nil and why:find("reswap", 1, true), tostring(why))
+  assert(done == nil and why:find("reswap", 1, true) ~= nil, tostring(why))
   assert(header(res, "HX-Redirect") == nil and header(res, "HX-Refresh") == nil)
 end
 
@@ -199,9 +199,9 @@ local function test_redirect_to_is_a_header_for_htmx_and_a_303_otherwise()
   assert(external.status == 303 and external.redirect_location == "https://example.com/next")
   through(function(req: Web.Request): Web.Response
     local refused, why = Htmx.redirect_to(req, "//evil.example")
-    assert(refused == nil and why:find("same-origin", 1, true), tostring(why))
+    assert(refused == nil and why:find("same-origin", 1, true) ~= nil, tostring(why))
     local relative, relative_why = Htmx.redirect_to(req, "items")
-    assert(relative == nil and relative_why:find("redirect", 1, true), tostring(relative_why))
+    assert(relative == nil and relative_why:find("redirect", 1, true) ~= nil, tostring(relative_why))
     return Web.text("")
   end)
 end
@@ -239,7 +239,7 @@ end
 local function config_of(markup: string): {string:any}
   local content = assert(markup:match('<meta name="htmx%-config" content="([^"]*)">'))
   content = content:gsub("&#(%d+);", function(code: string): string
-    return string.char(math.tointeger(tonumber(code)))
+    return string.char(assert(math.tointeger(tonumber(code))))
   end)
   content = content:gsub("&quot;", '"'):gsub("&amp;", "&")
   local config = assert(Json.decode(content))
@@ -291,11 +291,11 @@ local function test_head_takes_a_nonce_a_prefix_and_the_overrides_it_names()
   assert(markup:find('src="/app/_web/htmx-', 1, true) and markup:find('src="/app/_web/htmx-ext-sse-', 1, true), markup)
   for _, nonce in ipairs({ "a\nb", "a\0b", "a\rb", "a\127b" }) do
     local ok, err = pcall(Htmx.head, { nonce = nonce })
-    assert(not ok and tostring(err):find("nonce", 1, true), nonce)
+    assert(not ok and tostring(err):find("nonce", 1, true) ~= nil, nonce)
   end
   for _, prefix in ipairs({ '"><script>x</script>', "app", "//evil.example", "/a b", "/app/" }) do
     local ok, err = pcall(Htmx.head, { prefix = prefix })
-    assert(not ok and tostring(err):find("prefix", 1, true), prefix)
+    assert(not ok and tostring(err):find("prefix", 1, true) ~= nil, prefix)
   end
 end
 
@@ -360,7 +360,8 @@ local function test_the_assets_have_ranges_and_gzip_from_the_static_files_handle
   assert(part.headers["cross-origin-resource-policy"] == "same-origin")
   local packed = client:get(Htmx.path(), { headers = { ["Accept-Encoding"] = "gzip" } })
   assert(packed.status == 200 and packed.headers["content-encoding"] == "gzip")
-  assert(packed.headers["etag"] == whole.headers["etag"]:sub(1, -2) .. '-gzip"')
+  local whole_headers_etag = assert(whole.headers["etag"], "expected whole.headers[\"etag\"]")
+  assert(packed.headers["etag"] == whole_headers_etag:sub(1, -2) .. '-gzip"')
   assert(packed.headers["vary"] == "Accept-Encoding" and #packed.body < #whole.body)
   assert(packed.headers["cache-control"] == "public, max-age=31536000, immutable")
 end
@@ -383,7 +384,7 @@ local function test_a_root_catch_all_does_not_shadow_the_assets_and_builtin_fals
   local routed = Web.test_client(Web.app{ routes = own, builtin = false })
   assert(routed:get("/_web/mine").body == "mine" and routed:get("/_web/sub/x").body == "sub")
   local ok, err = pcall(Web.app, { routes = own })
-  assert(not ok and tostring(err):find("reserved", 1, true), tostring(err))
+  assert(not ok and tostring(err):find("reserved", 1, true) ~= nil, tostring(err))
 end
 
 local function test_the_assets_arrive_through_the_middleware_of_the_app()

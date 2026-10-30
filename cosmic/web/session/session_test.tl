@@ -122,6 +122,19 @@ local function set_cookies(res: Web.TestResponse): {string}
   return res:header_list("set-cookie")
 end
 
+--- The number of rows in the session table.
+local function session_count(db: Sqlite.Handle): integer
+  local rows = assert(Sqlite.rows(db, "SELECT count(*) FROM web_sessions"))
+  local row = assert(rows[1], "a count query answers one row")
+  return row:integer(1)
+end
+
+--- The first `Set-Cookie` line of `res`, read back.
+local function first_set_cookie(res: Web.TestResponse): Cookies.Parsed
+  local line = assert(set_cookies(res)[1], "expected a Set-Cookie line")
+  return (assert(Cookies.parse_set_cookie(line)))
+end
+
 local function test_a_request_that_never_touches_the_session_sends_no_cookie_and_no_vary()
   local client = Web.test_client(make_app(options(cookie_store())))
   local res = client:get("/nothing")
@@ -196,14 +209,15 @@ local function test_flashes_are_capped_in_number_and_size()
   local client = Web.test_client(make_app(options(cookie_store())))
   for i = 1, 12 do client:post("/flash/info/m" .. tostring(i)) end
   local texts = client:get("/flashes"):text()
-  assert(not texts:find("m1|", 1, true) and not texts:find("m2|", 1, true) and texts:find("m12", 1, true))
+  assert(not texts:find("m1|", 1, true) and not texts:find("m2|", 1, true) and texts:find("m12", 1, true) ~= nil)
   local _, bars = texts:gsub("|", "")
   assert(bars == 9, "ten are kept")
   local long = Web.test_client(Web.app{
     middleware = { Session.middleware(options(cookie_store())) },
     routes = { Web.post("/f", function(req: Web.Request): Web.Response
       Session.of(req):flash("info", ("é"):rep(400))
-      return Web.text(tostring(#Session.of(req):take_flashes()[1].text))
+      local flash = assert(Session.of(req):take_flashes()[1], "expected the flash just set")
+      return Web.text(tostring(#flash.text))
     end) },
   })
   local n = math.tointeger(tonumber(long:post("/f"):text())) as integer
@@ -221,7 +235,7 @@ local function test_a_tampered_or_unknown_cookie_is_anonymous_and_expired_on_the
   local untouched = client:get("/nothing", { cookies = { session = "garbage" } })
   assert(#set_cookies(untouched) == 0, "an unread session is never inspected")
   local written = client:post("/set/a/b", { cookies = { session = "garbage" } })
-  assert(#set_cookies(written) == 1 and assert(Cookies.parse_set_cookie(set_cookies(written)[1])).value ~= "")
+  assert(#set_cookies(written) == 1 and first_set_cookie(written).value ~= "")
 end
 
 local function test_an_expired_cookie_session_is_anonymous()
@@ -314,9 +328,9 @@ end
 local function test_the_handle_is_frozen_once_the_response_is_built()
   local client = Web.test_client(make_app(options(cookie_store())))
   client:get("/get/user")
-  local handle = seen[#seen]
+  local handle = assert(seen[#seen], "expected seen[#seen]")
   local ok, why = pcall(function() handle:set("late", "write") end)
-  assert(not ok and tostring(why):find("written after the response head was built", 1, true), tostring(why))
+  assert(not ok and tostring(why):find("written after the response head was built", 1, true) ~= nil, tostring(why))
   ok = pcall(function() handle:flash("info", "late") end)
   assert(not ok)
   assert(handle:get_string("late") == nil)
@@ -360,24 +374,24 @@ local function test_a_failing_store_is_a_500_and_a_cookie_over_the_limit_is_rais
   local app = make_app(options(failing), spec)
   local client = Web.test_client(app)
   local ok, why = pcall(function() client:post("/set/a/b") end)
-  assert(not ok and tostring(why):find("session: no space", 1, true), tostring(why))
+  assert(not ok and tostring(why):find("session: no space", 1, true) ~= nil, tostring(why))
   -- A load runs in the handler, where the exception layer answers 500 and logs the fault.
   assert(client:get("/get/a", { cookies = { session = "anything" } }).status == 500)
   assert(table.concat(lines, "\n"):find("session: disk on fire", 1, true))
   local big = Web.test_client(make_app(options(SessionCookie.store{ keys = { KEY }, max_bytes = 200 }), spec))
   ok, why = pcall(function() big:post("/set/a/" .. ("x"):rep(300)) end)
-  assert(not ok and tostring(why):find("cookie would be", 1, true), tostring(why))
+  assert(not ok and tostring(why):find("cookie would be", 1, true) ~= nil, tostring(why))
 end
 
 local function test_secure_follows_the_scheme_and_a_secure_cookie_is_sent_only_over_https()
   local app = make_app(options(cookie_store()), { trusted_proxy = true })
   local client = Web.test_client(app)
   local plain = client:post("/set/user/ada")
-  assert(not assert(Cookies.parse_set_cookie(set_cookies(plain)[1])).secure)
+  assert(not first_set_cookie(plain).secure)
   local https = Web.test_client(app)
   https.scheme = "https"
   local res = https:post("/set/user/ada")
-  local parsed = assert(Cookies.parse_set_cookie(set_cookies(res)[1]))
+  local parsed = first_set_cookie(res)
   assert(parsed.secure and parsed.name == "session")
   assert(https:get("/get/user"):text() == "ada")
   https.scheme = "http"
@@ -388,7 +402,7 @@ local function test_secure_true_names_the_cookie_host_prefixed_and_always_sets_s
   local app = make_app(options(cookie_store(), { secure = true }), { trusted_proxy = true })
   local client = Web.test_client(app)
   local res = client:post("/set/user/ada")
-  local parsed = assert(Cookies.parse_set_cookie(set_cookies(res)[1]))
+  local parsed = first_set_cookie(res)
   assert(parsed.name == "__Host-session" and parsed.secure and parsed.path == "/" and parsed.domain == nil)
   assert(client:get("/get/user"):text() == "-", "a Secure cookie is not sent over http")
   client.scheme = "https"
@@ -397,11 +411,11 @@ end
 
 local function test_options_that_cannot_work_are_refused_before_serving()
   local ok, why = pcall(Session.middleware, {} as Session.Options)
-  assert(not ok and tostring(why):find("needs a store", 1, true))
+  assert(not ok and tostring(why):find("needs a store", 1, true) ~= nil)
   ok, why = pcall(Session.middleware, options(cookie_store(), { max_age = 0 }))
-  assert(not ok and tostring(why):find("max_age", 1, true))
+  assert(not ok and tostring(why):find("max_age", 1, true) ~= nil)
   ok, why = pcall(Session.middleware, options(cookie_store(), { cookie_name = "__Host-x" }))
-  assert(not ok and tostring(why):find("__Host-", 1, true), tostring(why))
+  assert(not ok and tostring(why):find("__Host-", 1, true) ~= nil, tostring(why))
   ok = pcall(Session.middleware, options(cookie_store(), { cookie_name = "bad name" }))
   assert(not ok)
 end
@@ -415,11 +429,11 @@ local function test_sqlite_sessions_are_revocable_by_logout_and_by_subject()
   assert(#stolen == 43 and client:get("/get/user"):text() == "ada")
   assert(client:get("/id"):text() == stolen)
   local out = client:post("/logout")
-  local gone = assert(Cookies.parse_set_cookie(set_cookies(out)[1]))
+  local gone = first_set_cookie(out)
   assert(gone.max_age == 0 and gone.value == "" and client.jar.session == nil)
   local thief = Web.test_client(app)
   assert(thief:get("/get/user", { cookies = { session = stolen } }):text() == "-", "the id is revoked")
-  assert(assert(Sqlite.rows(db, "SELECT count(*) FROM web_sessions"))[1]:integer(1) == 0)
+  assert(session_count(db) == 0)
   local first, second = Web.test_client(app), Web.test_client(app)
   first:post("/login")
   second:post("/login")
@@ -558,7 +572,8 @@ local function test_a_value_at_the_depth_limit_survives_and_one_past_it_raises_a
     }
     local client = Web.test_client(app)
     assert(client:post("/deep").status == 200)
-    assert(reasons[1]:find("cannot keep too", 1, true), reasons[1])
+    local reasons_1 = assert(reasons[1], "expected reasons[1]")
+    assert(reasons_1:find("cannot keep too", 1, true), reasons[1])
     assert(client:get("/new"):text() == "false", "the next request still has the session")
     assert(client:get("/has/ok"):text() == "true" and client:get("/has/too"):text() == "false")
   end
@@ -576,7 +591,8 @@ local function test_a_flash_that_is_not_utf8_raises_at_the_call()
   }
   local res = Web.test_client(app):post("/f")
   assert(res.status == 200 and #set_cookies(res) == 0, "nothing was kept")
-  assert(reasons[1]:find("session: cannot flash", 1, true), reasons[1])
+  local reasons_1 = assert(reasons[1], "expected reasons[1]")
+  assert(reasons_1:find("session: cannot flash", 1, true), reasons[1])
 end
 
 local function test_setting_nil_removes_the_key_in_both_stores()
@@ -609,12 +625,12 @@ local function test_same_site_none_follows_the_scheme_of_the_request()
   local app = make_app(options(cookie_store(), { same_site = "None" }), { trusted_proxy = true })
   local client = Web.test_client(app)
   client.scheme = "https"
-  local parsed = assert(Cookies.parse_set_cookie(set_cookies(client:post("/set/a/1"))[1]))
+  local parsed = first_set_cookie(client:post("/set/a/1"))
   assert(parsed.secure and parsed.same_site == "None")
   local plain = Web.test_client(app)
   assert(#set_cookies(plain:get("/get/a")) == 0, "reading over http is fine")
   local ok, why = pcall(function() plain:post("/set/a/1") end)
-  assert(not ok and tostring(why):find("needs a Secure cookie", 1, true), tostring(why))
+  assert(not ok and tostring(why):find("needs a Secure cookie", 1, true) ~= nil, tostring(why))
   ok = pcall(Session.middleware, options(cookie_store(), { same_site = "None", secure = false }))
   assert(not ok, "an explicit secure = false can never work")
 end
@@ -641,7 +657,7 @@ local function test_invalidate_revokes_even_when_the_response_is_a_500()
   local before = client.jar.session
   local res = client:post("/logout-fails")
   assert(res.status == 500)
-  assert(assert(Sqlite.rows(db, "SELECT count(*) FROM web_sessions"))[1]:integer(1) == 0, "the row is gone")
+  assert(session_count(db) == 0, "the row is gone")
   assert(store:load(before, clock.now, "session") == nil)
   assert(#set_cookies(res) == 1 and client.jar.session == nil, "and the cookie is expired")
 end
