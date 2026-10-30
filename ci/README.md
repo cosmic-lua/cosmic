@@ -35,14 +35,21 @@ lists as Teal. CI's `check-islands` command (`cosmic-driver
 cosmic_ci/driver.tl check-islands`) runs each of those scripts with `--help`
 on the running driver, which refuses a script that has a finding before it
 runs, and fails on a syntax error or any finding; `ci/` is compiled by the
-driver's own tests. The scripts are found, not listed: every shell script of
-`bin/` and `eval/` that execs `bin/cosmic-bootstrap` names the file it runs
-(`eval/result` runs `eval/result.tl`), so a new wrapper is checked as it
-lands, and one that execs it in another form is refused. A refusal names the
-file, the wrappers that run it and the pinned release, and says to use only
-that release's APIs or move the pin. A script's `--help` exit status, where it
-is not 0, is in [`Islands.help_exits`]; `ci/strict-files.txt` lists each script,
-which `build/ci_tree_test.tl` holds to the wrappers.
+driver's own tests. The scripts are found, not listed: every file of the
+checkout that runs one on `bin/cosmic-bootstrap` with `--standalone` names it
+(`eval/result` runs `eval/result.tl`; `eval/round.tl` and
+`.github/scripts/credentials-build.sh` run `build/paths.tl`), so a new runner
+is checked as it lands, wherever it is. Such a line in a form that cannot be
+read, a file of `bin/` or `eval/` that names the bootstrap with no
+`--standalone`, and a `standalone(` call in `build/zig.tl` that does not name
+its file in a string literal on its line are refused rather than skipped.
+`vendor/`, `.git`, `o/` and Markdown are not read, and `ci/` is left out
+because the driver's own tests compile it (`ci/run_local.tl` would start the
+platform job on `--help`). A refusal names the file, the wrappers that run
+it and the pinned release, and says to use only that release's APIs or move
+the pin; a `--help` exit status that is not 0 is in [`Islands.help_exits`],
+and the hint then says to add it there. `ci/strict-files.txt` must list each
+script, which the same command checks.
 
 ## running the platform job locally
 

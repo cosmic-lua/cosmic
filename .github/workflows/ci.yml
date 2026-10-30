@@ -1398,8 +1398,8 @@
         # bin/verify-codesign, bin/perf and build/paths.tl) must
         # type-check under the pinned driver in the new grammar, not only
         # the tree's: the check above compiles ci/ on it, and this the
-        # rest, each script run with --help: those the wrappers of bin/ and
-        # eval/ that exec bin/cosmic-bootstrap name. Every scope, since it takes
+        # rest, each script run with --help: those that any file of the
+        # checkout runs --standalone on bin/cosmic-bootstrap names. Every scope, since it takes
         # well under a second a file.
         {
           name: "type-check the bootstrap's scripts on the pinned driver",

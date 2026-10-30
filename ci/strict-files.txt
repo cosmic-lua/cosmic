@@ -9,8 +9,8 @@
 # bootstrap scripts below are run by it too, and are listed for the product that follows its pin), and a Teal
 # source a test writes into a fixture of its own, which its own test runs.
 #
-# build/ci_tree_test.tl holds the list to the scripts ci/cosmic_ci/islands.tl's Islands.scripts finds and to
-# runtime_setup.tl's artifact_row, which it repeats.
+# `driver.tl check-islands` (ci/cosmic_ci/islands.tl) holds the list to the scripts Islands.scripts finds, and
+# build/ci_tree_test.tl to runtime_setup.tl's artifact_row, which it repeats.
 
 # test/portable/probe.tl and what it requires, run from the tree ci/fixtures/runtime_test.tl and identity_test.tl unpack
 # (ci/cosmic_ci/runtime_setup.tl): the checkout's build/artifact.tl, which takes the raw store as its loader's argument,
@@ -35,7 +35,7 @@ ci/testdata/portable/cmd/hello/main.tl
 ci/testdata/portable/cmd/second/main.tl
 
 # Run `--standalone`: the credentials proof (.github/scripts/credentials-proof.sh, COSMIC_STANDALONE=1) and the bootstrap
-# scripts (the wrappers of bin/ and eval/, ci/fixtures/performance_test.tl, ci/cosmic_ci/islands.tl's Islands.scripts).
+# scripts (every file that runs one on bin/cosmic-bootstrap, ci/fixtures/performance_test.tl, ci/cosmic_ci/islands.tl's Islands.scripts).
 build/credentials_proof.tl
 build/patch.tl
 build/paths.tl
