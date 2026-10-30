@@ -52,6 +52,13 @@ end
 
 local function test_the_file_of_the_tree_parses_and_names_only_the_stages_the_checks_hold()
   local ceilings = assert(Ceilings.read("."))
+  -- Every row of the file is held by one of the stages below: a row of a
+  -- stage the checks do not hold, or one the parse dropped, leaves the
+  -- counts apart. No floor: the rows are meant to fall to none.
+  local rows = 0
+  for line in assert(Fs.read(Ceilings.path)):gmatch("[^\n]+") do
+    if line:find("^[^#%[%s]") ~= nil then rows = rows + 1 end
+  end
   local counted = 0
   local stages: {Ceilings.Stage} = { "scoped", "declared", "untyped", "checked", "examples", "testdata" }
   for _, stage in ipairs(stages) do
@@ -61,7 +68,7 @@ local function test_the_file_of_the_tree_parses_and_names_only_the_stages_the_ch
       counted = counted + 1
     end
   end
-  assert(counted > 2000, "the ceilings of the tree are thousands: " .. tostring(counted))
+  assert(counted == rows, "the stages hold " .. tostring(counted) .. " of the file's " .. tostring(rows) .. " rows")
 end
 
 local function finding(code: string, y: integer): Ceilings.Finding

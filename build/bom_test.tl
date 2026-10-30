@@ -63,6 +63,37 @@ local function test_the_first_line_naming_a_key_wins()
   assert(#component.notices == 2)
 end
 
+--- A key that names nothing is a malformed record, not a blank version
+--- a later read trips over.
+local function test_a_key_without_a_value_is_refused()
+  local component, trouble = bom.parse("zlib", "version \nurl https://zlib.net/\nlicense Zlib\n")
+  assert(component == nil, "a version naming nothing was accepted")
+  assert(trouble:find("version has no value", 1, true) ~= nil, trouble)
+end
+
+--- A bare key, with no space after it, names nothing as a key with
+--- a space does: refused, not skipped, so a record cannot lose its checksum.
+local function test_a_bare_key_is_refused_like_one_with_no_value()
+  for _, key in ipairs({ "sha256", "sha3-256", "version", "url" }) do
+    local component, trouble = bom.parse("zlib",
+      key .. "\nversion 1.3\nurl https://zlib.net/\nlicense Zlib\n")
+    assert(component == nil, key .. " with no value was accepted")
+    assert(trouble:find(key .. " has no value", 1, true) ~= nil, trouble)
+  end
+end
+
+--- A blank line of a row's patches text is refused by both renderers,
+--- naming the component and the line.
+local function test_a_patches_line_naming_no_path_is_refused()
+  local rows: {bom.Row} = { { name = "zlib", kind = "library", version = "1", license = "Zlib", url = "u",
+    sha256 = "", sha3_256 = "", patches = "a.tl abc\n  \nb.tl def" } }
+  local lines, why = bom.lines(rows)
+  assert(lines == nil and why:find("zlib: a line of its patches names no path", 1, true) ~= nil, tostring(why))
+  local document, document_why = bom.cyclonedx(rows, "cosmic", "1")
+  assert(document == nil and document_why:find("zlib: a line of its patches names no path", 1, true) ~= nil,
+    tostring(document_why))
+end
+
 local function test_a_record_without_a_license_is_refused()
   local component, trouble = bom.parse("zlib", "version 1.3\nurl https://zlib.net/\n")
   assert(component == nil and trouble == "zlib: its record names no license", trouble)
@@ -89,7 +120,8 @@ local function test_the_standard_librarys_declarations_are_listed_with_tl(tmp: s
   local rows = assert(bom.rows(db))
   assert(#rows == 1 and rows[1].patches == "lang/stdlib.d.tl " .. Hash.hex_sha256("a declaration"),
     "the declarations are not listed: " .. tostring(rows[1] and nth(rows, 1).patches))
-  local line = nth(bom.lines(rows), 1)
+  local lines = assert(bom.lines(rows))
+  local line = nth(lines, 1)
   assert(line:find("(modified: lang/stdlib.d.tl)", 1, true) and not line:find("patch", 1, true),
     "the declarations are a modified descendant, not a patch: " .. line)
   local document = assert(bom.cyclonedx(rows, "cosmic", "1"))

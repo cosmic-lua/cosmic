@@ -66,7 +66,7 @@ end
 
 --- The name of the file `path`, without its directory.
 local function base_of(path: string): string
-  return (path:match("([^/]*)$"))
+  return (assert(path:match("([^/]*)$"), "the pattern matches an empty tail at worst"))
 end
 
 --- What `argv` asks for, or nil and why it is refused.
@@ -185,8 +185,9 @@ function verb.run(argv: {string}, streams?: verb.Io): integer
       complain(absolute_why)
       return bare.refused
     end
-    if resolved[absolute] ~= nil then
-      complain(path .. " and " .. resolved[absolute] .. " are the same file, named twice: name it once")
+    local same = resolved[absolute]
+    if same ~= nil then
+      complain(path .. " and " .. same .. " are the same file, named twice: name it once")
       return bare.refused
     end
     resolved[absolute] = path
@@ -200,8 +201,9 @@ function verb.run(argv: {string}, streams?: verb.Io): integer
     local declaration = base_of(path):match("%.d%.tl$") ~= nil
     -- The program has one file for a module, but for a declaration beside its source, as in a build.
     local kind = name .. (if declaration then "\0d" else "\0t" end)
-    if holders[kind] ~= nil then
-      complain(path .. " and " .. holders[kind] .. " are both the module " .. name ..
+    local holder = holders[kind]
+    if holder ~= nil then
+      complain(path .. " and " .. holder .. " are both the module " .. name ..
           ": a require could mean only one; name one of them, or compile them in two runs")
       return bare.refused
     end
@@ -210,8 +212,9 @@ function verb.run(argv: {string}, streams?: verb.Io): integer
       skipped[#skipped + 1] = path
     else
       local base = base_of(path)
-      if bases[base] ~= nil then
-        complain(path .. " and " .. bases[base] .. " would both be written as " ..
+      local twin = bases[base]
+      if twin ~= nil then
+        complain(path .. " and " .. twin .. " would both be written as " ..
             base:gsub("%.tl$", ".lua") .. ": compile them in two runs, to two directories")
         return bare.refused
       end

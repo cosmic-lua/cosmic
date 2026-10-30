@@ -129,7 +129,7 @@ function symbol_index.add(index: symbol_index.Index, row: symbol_index.Row)
     if row.exported then keep_first(index.exported, module .. "\n" .. symbol, row) end
   end
   local parent, last = source:match("^(.*)%.([^.]*)$")
-  if parent ~= nil and (row.kind == "field" or row.kind == "value") and last:sub(1, 1) ~= "_" then
+  if parent ~= nil and last ~= nil and (row.kind == "field" or row.kind == "value") and last:sub(1, 1) ~= "_" then
     put(index.under, module .. "\n" .. parent, row)
   end
   if not row.shown then
@@ -138,7 +138,8 @@ function symbol_index.add(index: symbol_index.Index, row: symbol_index.Row)
   index.modules[module] = true
   if index.first[module] == nil then index.first[module] = row end
   if symbol == "" and row.kind == "module" and index.values[module] == nil then
-    index.values[module] = alias_members.value_record(row.signature)
+    local value = alias_members.value_record(row.signature)
+    if value ~= nil then index.values[module] = value end
   end
   put(index.exact, symbol, row)
   if source ~= symbol then put(index.exact, source, row) end
@@ -249,7 +250,7 @@ local function members_of(index: symbol_index.Index, module: string,
     found = once_each({ found })
   end
   local prefix, last = dotted:match("^(.+)%.([%w_]+)$")
-  if #found > 0 or prefix == nil then
+  if #found > 0 or prefix == nil or last == nil then
     return found
   end
   return through(index, members_of(index, module, prefix), last)
@@ -272,8 +273,9 @@ end
 --- The symbols `query`, a name with a `.` or a `:`, names.
 function symbol_index.named(index: symbol_index.Index, query: string): {link_resolve.Symbol}
   local lists = named_rows(index, query)
-  if #once_each(lists) == 0 and index.modules[query] == true and index.first[query] ~= nil then
-    lists[#lists + 1] = { index.first[query] }
+  local first = index.first[query]
+  if #once_each(lists) == 0 and index.modules[query] == true and first ~= nil then
+    lists[#lists + 1] = { first }
   end
   local modules: mut {string} = {}
   local at = 1
@@ -295,7 +297,7 @@ function symbol_index.named(index: symbol_index.Index, query: string): {link_res
   -- stands for, spelled from the alias ([`Sqlite.Handle.close`]) or from
   -- its module ([`cosmic.sqlite.Handle.close`]).
   local prefix, name = query:match("^([%w_]+%.[%w_%.]+)%.([%w_]+)$")
-  if prefix ~= nil then
+  if prefix ~= nil and name ~= nil then
     table.insert(lists, through(index, once_each(named_rows(index, prefix)), name))
   end
   for _, module in ipairs(modules) do

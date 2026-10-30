@@ -119,6 +119,16 @@ function closure_store.required_by(source: string): {string}
   return out
 end
 
+--- One call of [`grouped`], as `read` lists them: the column `owner` names
+--- the rows' group, the `columns` (a space-separated list) are digested,
+--- `from` is the table (or table and condition) and `order` the ordering.
+local record Group
+  owner: string
+  columns: string
+  from: string
+  order: string
+end
+
 --- The digest of the rows of `from`, the table of a projection `db`
 --- holds, by each value of its column `of`: of each row's `columns`,
 --- each quoted (`quote`) so no two rows spell one line, in `order`. A
@@ -275,32 +285,33 @@ local function read_basis(whole: string): closure_store.Basis?, string
     local linked: {string:string} = {}
     local bound: {string:string} = {}
     local edges: {string:string} = {}
-    for _, group in ipairs({
-        { "path", "requires", "imports", "requires" },
-        { "path", "requires", "decl_imports", "requires" },
-        { "path", "name requires", "bound", "name" },
-        { "module", "symbol source_symbol exported kind signature text file line", "docs", "id" },
-        { "from_module", "module symbol from_file line", "uses", "module, symbol, line" },
-        { "module", "kind symbol message text file line", "catalog", "id" },
-        { "file", "module name text line source", "examples", "id" },
-        { "from_module", "module symbol path anchor from_file line column kind form source text",
-            "links", "module, symbol, path, anchor, from_file, line, column" },
-        { "path", "source", "stubs", "path" },
-    }) do
+    local groups: {Group} = {
+      { owner = "path", columns = "requires", from = "imports", order = "requires" },
+      { owner = "path", columns = "requires", from = "decl_imports", order = "requires" },
+      { owner = "path", columns = "name requires", from = "bound", order = "name" },
+      { owner = "module", columns = "symbol source_symbol exported kind signature text file line", from = "docs", order = "id" },
+      { owner = "from_module", columns = "module symbol from_file line", from = "uses", order = "module, symbol, line" },
+      { owner = "module", columns = "kind symbol message text file line", from = "catalog", order = "id" },
+      { owner = "file", columns = "module name text line source", from = "examples", order = "id" },
+      { owner = "from_module", columns = "module symbol path anchor from_file line column kind form source text", from = "links", order = "module, symbol, path, anchor, from_file, line, column" },
+      { owner = "path", columns = "source", from = "stubs", order = "path" },
+    }
+    for _, group in ipairs(groups) do
       local columns: mut {string} = {}
-      for column in group[2]:gmatch("%S+") do columns[#columns + 1] = column end
-      local digests, group_trouble = grouped(db, group[1], columns, group[3], group[4])
+      for column in group.columns:gmatch("%S+") do columns[#columns + 1] = column end
+      local digests, group_trouble = grouped(db, group.owner, columns, group.from, group.order)
       if digests == nil then return nil, group_trouble end
       carried[#carried + 1] = digests
-      if group[3] == "links" then linked = digests end
-      if group[3] == "bound" then bound = digests end
-      if group[3] == "decl_imports" then edges = digests end
-      by_file[#by_file + 1] = group[1] == "file"
+      if group.from == "links" then linked = digests end
+      if group.from == "bound" then bound = digests end
+      if group.from == "decl_imports" then edges = digests end
+      by_file[#by_file + 1] = group.owner == "file"
     end
     local shared, shared_trouble = Sqlite.text_rows(db,
       "SELECT coalesce((SELECT group_concat(key || ' ' || lower(hex(value)), char(10) " ..
         "ORDER BY key) FROM meta WHERE key IN " .. closure_meta .. "), '')")
     if shared == nil then return nil, shared_trouble end
+    local shared_row = assert(shared[1], "the shared meta query answers one row")
     local decl_rows, decl_trouble = Sqlite.text_rows(db,
       "SELECT path, lower(hex(sha256(source))), CAST(inflate(source) AS TEXT) FROM decls " ..
         "ORDER BY path")
@@ -313,7 +324,7 @@ local function read_basis(whole: string): closure_store.Basis?, string
       "SELECT path FROM modules WHERE kind NOT IN ('test', 'example') ORDER BY path")
     if names == nil then return nil, names_trouble end
     local basis: closure_store.Basis = {
-      modules = {}, shared = Hash.hex_sha256("closure-store-7\n" .. shared[1]:text(1)),
+      modules = {}, shared = Hash.hex_sha256("closure-store-7\n" .. shared_row:text(1)),
       kinds = {}, pairable = {}, decls = {}, decl_requires = {},
     }
     for _, row in ipairs(rows) do
@@ -322,7 +333,9 @@ local function read_basis(whole: string): closure_store.Basis?, string
         line[#line + 1] = digests[by_file[i] and row:text(3) or row:text(1)] or ""
       end
       basis.modules[row:text(1)] = table.concat(line, "\t")
-      basis.kinds[row:text(1)] = row:text(2):match("^[^\t]*\t([^\t]*)")
+      local kind = row:text(2):match("^[^\t]*\t([^\t]*)")
+      assert(kind ~= nil, "the second column of a module's row holds its kind")
+      basis.kinds[row:text(1)] = kind
     end
     for i, row in ipairs(names) do basis.pairable[i] = row:text(1) end
     for _, row in ipairs(decl_rows) do
@@ -412,10 +425,11 @@ local function declared(basis: closure_store.Basis, names: {string}): {string}
   end
   while #stack > 0 do
     local name = table.remove(stack)
-    if seen[name] ~= true and basis.decls[name] ~= nil then
+    if name ~= nil and seen[name] ~= true and basis.decls[name] ~= nil then
       seen[name] = true
       out[#out + 1] = name
-      for _, required in ipairs(basis.decl_requires[name]) do stack[#stack + 1] = required end
+      local requires = assert(basis.decl_requires[name], "a declaration is stored with its requires")
+      for _, required in ipairs(requires) do stack[#stack + 1] = required end
     end
   end
   table.sort(out)
@@ -472,13 +486,13 @@ function closure_store.address(basis: closure_store.Basis, names: {string},
                                salt: string): string
   local lines: mut {string} = { basis.shared, salt }
   for _, name in ipairs(stored(basis, names)) do
-    lines[#lines + 1] = digest_of_line(basis.modules[name])
+    lines[#lines + 1] = digest_of_line((assert(basis.modules[name], "a stored name has its line")))
     if basis.kinds[name] == "example" then
       lines[#lines + 1] = "pairs " .. name .. " " .. table.concat(candidates(basis, name), " ")
     end
   end
   for _, name in ipairs(declared(basis, names)) do
-    lines[#lines + 1] = digest_of_line(basis.decls[name])
+    lines[#lines + 1] = digest_of_line((assert(basis.decls[name], "a declared name has its line")))
   end
   return Hash.hex_sha256(table.concat(lines, "\n"))
 end

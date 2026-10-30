@@ -295,7 +295,7 @@ local function cell_text(statement: Sqlite.Statement, index: integer): string
     return escape(statement:bytes(index))
   elseif kind == "blob" then
     return "X'" .. (statement:bytes(index):gsub(".", function(byte: string): string
-      return string.format("%02X", byte:byte())
+      return string.format("%02X", (assert(byte:byte(), "gsub hands over one byte")))
     end)) .. "'"
   end
   return "\\N"
@@ -435,7 +435,7 @@ local function ndjson_writer(): Writer
         if encoded == nil then
           return nil, "column " .. tostring((index + 1)) .. ": " .. trouble
         end
-        members[#members + 1] = keys[index + 1] .. ":" .. encoded
+        members[#members + 1] = assert(keys[index + 1], "every column has a key") .. ":" .. encoded
       end
       return "{" .. table.concat(members, ",") .. "}", ""
     end,
@@ -558,7 +558,7 @@ local from_usage = "cosmic sql --from <file|-> [--as json|ndjson|csv|tsv] [--at 
 --- an underscore, and a leading underscore when it would begin with a
 --- digit. `data` when nothing is left.
 local function stem_of(path: string): string
-  local base = path:match("[^/]*$")
+  local base = assert(path:match("[^/]*$"), "the pattern matches an empty tail at worst")
   local stem = base:match("^(.+)%.[^.]*$") or base
   stem = stem:gsub("[^%w_]+", "_")
   if stem == "" or stem == "_" then
@@ -592,12 +592,14 @@ local function read_inputs(parsed: Flags.Parsed): {sql.Input}?, string
   for _, name in ipairs(parsed.given) do
     local index = (counts[name] or 0) + 1
     counts[name] = index
-    local value = parsed.all[name] and parsed.all[name][index]
+    local listed = parsed.all[name]
+    local value = if listed ~= nil then listed[index] else nil end
     if name == "--from" then
+      assert(value ~= nil, "Flags.parse gives each --from its value")
       local label = value
       local table_name: string?
       local given_name, rest = value:match("^([%w_]+)=(.*)$")
-      if given_name ~= nil then
+      if given_name ~= nil and rest ~= nil then
         if not given_name:match("^[%a_]") then
           return nil, "a table name begins with a letter or underscore, not " .. given_name
         end
@@ -619,7 +621,7 @@ local function read_inputs(parsed: Flags.Parsed): {sql.Input}?, string
       local clash = seen[input.table:lower()]
       if clash ~= nil then
         return nil, "two tables are named " .. input.table .. " (" ..
-          inputs[clash].label .. " and " .. input.label .. "); name one: --from <name>=<file>"
+          assert(inputs[clash], "a table seen has its input").label .. " and " .. input.label .. "); name one: --from <name>=<file>"
       end
       inputs[#inputs + 1] = input
       seen[input.table:lower()] = #inputs
@@ -638,6 +640,7 @@ local function read_inputs(parsed: Flags.Parsed): {sql.Input}?, string
       if input == nil then
         return nil, name .. " belongs to the --from before it; give --from first"
       end
+      assert(value ~= nil, "Flags.parse gives each --as and --at its value")
       local given = name == "--as" and given_as or given_at
       if given[#inputs] == true then
         return nil, name .. " is given twice for " .. input.label
@@ -749,8 +752,9 @@ local function describe(db: Sqlite.Handle, tables: {dataset.Table}): {string}?, 
     if sample == nil then
       return nil, trouble
     end
-    if sample[1] ~= nil then
-      local text = plain(sample[1]:text(1))
+    local first_sample = sample[1]
+    if first_sample ~= nil then
+      local text = plain(first_sample:text(1))
       if #text > 200 then
         text = text:sub(1, 200) .. "..."
       end
@@ -838,7 +842,8 @@ local function run_from(parsed: Flags.Parsed, to: sql.Output,
     return fail(guard_trouble)
   end
   local counted: string
-  if parsed.words[1] == nil then
+  local statement_word = parsed.words[1]
+  if statement_word == nil then
     local lines, describe_trouble = describe(db, tables)
     if lines == nil then
       return fail(source .. ": " .. hinted(describe_trouble, tables))
@@ -851,7 +856,7 @@ local function run_from(parsed: Flags.Parsed, to: sql.Output,
     end
     counted = tostring(#tables) .. (if #tables == 1 then " table" else " tables" end)
   else
-    local rows, statement_trouble = stream(db, parsed.words[1], to.out, writer)
+    local rows, statement_trouble = stream(db, statement_word, to.out, writer)
     if rows == nil then
       return fail(source .. ": " .. hinted(statement_trouble, tables))
     end
@@ -913,10 +918,12 @@ function sql.run(argv: {string}, root?: string, output?: sql.Output,
     end
     writer = make()
   end
-  if parsed.all["--from"] or parsed.all["--as"] or parsed.all["--at"] or parsed.set["--raw"] then
+  if parsed.all["--from"] ~= nil or parsed.all["--as"] ~= nil or parsed.all["--at"] ~= nil or
+      parsed.set["--raw"] == true then
     return run_from(parsed, to, summarize, complain, stdin or read_stdin, writer)
   end
-  if #parsed.words ~= 1 then
+  local statement_text = parsed.words[1]
+  if #parsed.words ~= 1 or statement_text == nil then
     complain("give one statement, quoted as one argument: " .. usage)
     return 2
   end
@@ -963,7 +970,7 @@ function sql.run(argv: {string}, root?: string, output?: sql.Output,
       end,
     }
   end
-  local rows, trouble = stream(opened.db, parsed.words[1], to.out, written)
+  local rows, trouble = stream(opened.db, statement_text, to.out, written)
   if opened.owned then
     local _, _ = opened.db:close()
   end

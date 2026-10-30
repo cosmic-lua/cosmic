@@ -54,17 +54,17 @@ end
 local function cases(): {Case}
   local result: mut {Case} = {}
   local names = { "normal", "exponential", "lognormal", "mixture" }
-  for population = 1, 4 do
-    result[#result + 1] = { name = "null_" .. names[population], population = population,
+  for population, label in ipairs(names) do
+    result[#result + 1] = { name = "null_" .. label, population = population,
       shift = 0, tail_multiplier = 1, sizes = { 30, 100, 200, 400 }, gate = "null", stress = 0 }
   end
   result[#result + 1] = { name = "normal_shift_1sd", population = 1, shift = 10,
     tail_multiplier = 1, sizes = { 200 }, gate = "shift", stress = 0 }
   result[#result + 1] = { name = "mixture_tail_double", population = 4, shift = 0,
     tail_multiplier = 2, sizes = { 400 }, gate = "tail", stress = 0 }
-  for population = 1, 4 do
+  for population, label in ipairs(names) do
     for _, fraction in ipairs({ 0.05, 0.10 }) do
-      result[#result + 1] = { name = names[population] .. "_shift_" .. tostring(fraction),
+      result[#result + 1] = { name = label .. "_shift_" .. tostring(fraction),
         population = population, shift = median(population) * fraction,
         tail_multiplier = 1, sizes = { 200, 400 }, gate = "advisory", stress = 0 }
     end
@@ -139,11 +139,16 @@ local reason_keys = { "exploratory_sample_count", "unbounded_tail_interval", "bi
 local coverage_keys = { "coverage_median_a", "coverage_median_b", "coverage_median_delta",
   "coverage_aa_median", "coverage_tail_delta", "coverage_aa_tail" }
 
+--- The hits counted under `key`, which the trials have counted something under.
+local function hits_of(counts: {string:Count}, key: string): integer
+  return assert(counts[key], "the trials counted " .. key).hits
+end
+
 local function simulate(case: Case, index: integer, n: integer): {string:any}, boolean
   local bases = { 104729, 130363, 155921, 196613 }
   local counts: mut {string:Count} = {}
   for trial = 1, 5000 do
-    local source: Source = { state = (bases[(index - 1) % 4 + 1] + 1009 * index +
+    local source: Source = { state = (assert(bases[(index - 1) % 4 + 1], "the modulus picks one of the four bases") + 1009 * index +
       9176 * n + 104729 * trial) % 2147483646 + 1 }
     local calibration = samples(source, case, n, true)
     local candidate = samples(source, case, n, false)
@@ -180,20 +185,20 @@ local function simulate(case: Case, index: integer, n: integer): {string:any}, b
   local failures: mut {string} = {}
   if case.gate == "null" then
     if n < 200 then
-      if counts["pass"].hits ~= 0 then failures[#failures + 1] = "exploratory_pass" end
+      if hits_of(counts, "pass") ~= 0 then failures[#failures + 1] = "exploratory_pass" end
     else
       for _, key in ipairs(coverage_keys) do
-        if counts[key].hits / 5000 < 0.94 then failures[#failures + 1] = key end
+        if hits_of(counts, key) / 5000 < 0.94 then failures[#failures + 1] = key end
       end
-      if counts["regression"].hits / 5000 > 0.06 then
+      if hits_of(counts, "regression") / 5000 > 0.06 then
         failures[#failures + 1] = "false_regression"
       end
-      if counts["pass"].hits / 5000 < 0.80 then failures[#failures + 1] = "null_pass_rate" end
+      if hits_of(counts, "pass") / 5000 < 0.80 then failures[#failures + 1] = "null_pass_rate" end
     end
   elseif case.gate == "shift" then
-    if counts["blocked"].hits / 5000 < 0.95 then failures[#failures + 1] = "shift_detection" end
+    if hits_of(counts, "blocked") / 5000 < 0.95 then failures[#failures + 1] = "shift_detection" end
   elseif case.gate == "tail" then
-    if counts["blocked"].hits / 5000 < 0.85 then failures[#failures + 1] = "tail_detection" end
+    if hits_of(counts, "blocked") / 5000 < 0.85 then failures[#failures + 1] = "tail_detection" end
   end
   local rates: mut {string:{string:number}} = {}
   for name, count in pairs(counts) do rates[name] = rate(count) end
@@ -203,8 +208,10 @@ end
 
 --- Run the frozen numerical populations and persist every case as it finishes.
 function Validation.main(argv: {string}): integer
-  assert(argv[1] ~= nil and argv[2] == nil, "usage: cosmic build/perf_validation.tl NEW_REPORT.json")
-  local exists, trouble = Fs.exists(argv[1])
+  local usage = "usage: cosmic build/perf_validation.tl NEW_REPORT.json"
+  local report = assert(argv[1], usage)
+  assert(argv[2] == nil, usage)
+  local exists, trouble = Fs.exists(report)
   assert(exists ~= nil, trouble)
   assert(not exists, "report already exists")
   local results: mut {{string:any}} = {}
@@ -213,7 +220,7 @@ function Validation.main(argv: {string}): integer
     for _, n in ipairs(case.sizes) do
       local result, ok = simulate(case, index, n)
       results[#results + 1], passed = result, passed and ok
-      assert(Fs.write(argv[1], assert(Json.encode_any({ protocol = "doc/performance/validation.md",
+      assert(Fs.write(report, assert(Json.encode_any({ protocol = "doc/performance/validation.md",
         trials_per_case = 5000, results = results, passed = passed }, { pretty = true })) .. "\n"))
       print(case.name .. " n=" .. tostring(n) .. ": " .. (if ok then "PASS" else "FAIL" end))
     end

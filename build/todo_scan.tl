@@ -59,7 +59,7 @@ local function comment_of(line: string): Comment?
   -- Teal file's comments from the ones the lexer attaches to its tokens
   -- (lang/lexer.tl), and a C file's from clang's, and scan only those.
   local indent, marker, rest = line:match("^([ \t]*)([-#/*;]+)(.*)$")
-  if indent == nil or markers[marker] ~= true then
+  if indent == nil or marker == nil or rest == nil or markers[marker] ~= true then
     return nil
   end
   if rest ~= "" and not rest:match("^[ \t]") then
@@ -97,7 +97,8 @@ function todo_scan.scan(source: string): {todo_scan.Found}
   local found: mut {todo_scan.Found} = {}
   local index = 1
   while index <= #lines do
-    local comment = comment_of(lines[index])
+    local line = lines[index]
+    local comment = if line ~= nil then comment_of(line) else nil end
     local text = comment ~= nil and comment.text:match("^TODO:[ \t]*(.*)$") or nil
     if comment == nil or text == nil then
       index = index + 1
@@ -105,10 +106,12 @@ function todo_scan.scan(source: string): {todo_scan.Found}
       local indent, marker = comment.indent, comment.marker
       local first = index
       local parts: mut {string} = { text }
+      local previous: string = text
       local following = continued(marker)
       index = index + 1
       while index <= #lines do
-        local further = comment_of(lines[index])
+        local further_line = lines[index]
+        local further = if further_line ~= nil then comment_of(further_line) else nil end
         if further == nil then break end
         -- TODO: a line ending in `.` followed by one starting with a
         -- capital ends the TODO below, which cuts a TODO of several
@@ -121,10 +124,11 @@ function todo_scan.scan(source: string): {todo_scan.Found}
         if not aligned or
             (further.marker ~= marker and further.marker ~= following) or
             further.text == "" or further.text:match("^TODO:") ~= nil or
-            (parts[#parts]:match("%.$") and further.text:match("^%u")) ~= nil then
+            (previous:match("%.$") and further.text:match("^%u")) ~= nil then
           break
         end
         parts[#parts + 1] = further.text
+        previous = further.text
         index = index + 1
       end
       found[#found + 1] = {
@@ -152,7 +156,8 @@ local function note_todo(lines: {string}, first: integer, after: integer): todo_
   local starts: mut {integer} = {}
   local rows: mut {integer} = {}
   for index = first, after - 1 do
-    local text = (index == first and lines[index]:sub(7) or lines[index]):
+    local line = assert(lines[index], "a TODO's lines are lines of its source")
+    local text = (index == first and line:sub(7) or line):
       gsub("^[ \t]+", ""):gsub("[ \t]+$", "")
     if text ~= "" then
       if joined ~= "" then joined = joined .. " " end
@@ -173,9 +178,10 @@ local function note_todo(lines: {string}, first: integer, after: integer): todo_
   end
   local line = first
   for k, start in ipairs(starts) do
-    if start <= from then line = rows[k] end
+    local row = rows[k]
+    if start <= from and row ~= nil then line = row end
   end
-  return { line = line, last = rows[#rows], text = (joined:sub(from + 5):gsub("^[ \t]+", "")) }
+  return { line = line, last = assert(rows[#rows], "a TODO found starts in some row"), text = (joined:sub(from + 5):gsub("^[ \t]+", "")) }
 end
 
 --- Every TODO in a patch record's text (see [`build/patch.tl`], whose
@@ -209,7 +215,7 @@ function todo_scan.scan_record(source: string): {todo_scan.Found}?
   for _, each in ipairs(todo_scan.scan(record.replace)) do
     local own = false
     for index = each.line, each.last do
-      own = own or upstream[replaced[index]] ~= true
+      own = own or upstream[assert(replaced[index], "a TODO's lines are lines of the replacement")] ~= true
     end
     if own then
       found[#found + 1] = {

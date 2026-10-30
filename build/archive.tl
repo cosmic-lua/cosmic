@@ -73,7 +73,7 @@ local function trouble_of(file: string, path: string, why: string): string
   local message = bare_message(why)
   if path ~= file then
     local start, stop = message:find(path, 1, true)
-    while start ~= nil do
+    while start ~= nil and stop ~= nil do
       message = message:sub(1, start - 1) .. "standard input" .. message:sub(stop + 1)
       start, stop = message:find(path, 1, true)
     end
@@ -300,7 +300,7 @@ local function replaced(text: string, from: string, to: string): string
   local at = 1
   while true do
     local start, stop = text:find(from, at, true)
-    if start == nil then break end
+    if start == nil or stop == nil then break end
     out[#out + 1] = text:sub(at, start - 1)
     out[#out + 1] = to
     at = stop + 1
@@ -433,7 +433,7 @@ local function apply_steps(tree: string, dest: string, aside: string, steps: {St
   if trouble == "" then return { why = "", whole = true } end
   local whole = true
   for slot = done, 1, -1 do
-    local step = steps[slot]
+    local step = assert(steps[slot], "a step was made for each slot done")
     local target = dest .. "/" .. step.rel
     if step.keep then
       local _, _ = Fs.set_mtime(target, step.before)
@@ -699,6 +699,8 @@ end
 --- outcome when one cannot be archived.
 local function gather(paths: {string}, skip_file: string?): {Item}?, Outcome
   local by_name: mut {string:Item} = {}
+  -- The paths given that were the output file itself, left out of the archive.
+  local left_out: mut {string} = {}
   local function add(name: string, full: string): Outcome?
     local st, why = sys.lstat(full)
     if st == nil then return fail(bare.failed, full .. ": " .. why) end
@@ -707,7 +709,10 @@ local function gather(paths: {string}, skip_file: string?): {Item}?, Outcome
     if st.kind == "file" then
       if skip_file ~= nil then
         local same, _ = Fs.absolute(full)
-        if same == skip_file then return nil end
+        if same == skip_file then
+          left_out[#left_out + 1] = full
+          return nil
+        end
       end
     elseif st.kind == "link" then
       local target, target_why = Fs.readlink(full)
@@ -732,7 +737,8 @@ local function gather(paths: {string}, skip_file: string?): {Item}?, Outcome
       if trouble ~= nil then return nil, trouble end
     end
     local rooted, _ = Fs.is_dir(given)
-    if (root and rooted == true) or (not root and by_name[name].kind == "dir") then
+    local added = by_name[name]
+    if (root and rooted == true) or (not root and added ~= nil and added.kind == "dir") then
       local record Seen
         relative: string
         kind: string
@@ -750,8 +756,9 @@ local function gather(paths: {string}, skip_file: string?): {Item}?, Outcome
         return false
       end)
       if listed == nil then return nil, fail(bare.refused, walk_why) end
-      if odd[1] ~= nil then
-        return nil, fail(bare.refused, given .. "/" .. odd[1] .. ": neither a file, a directory nor a symlink")
+      local stray = odd[1]
+      if stray ~= nil then
+        return nil, fail(bare.refused, given .. "/" .. stray .. ": neither a file, a directory nor a symlink")
       end
       for _, relative in ipairs(listed) do
         seen[#seen + 1] = { relative = relative, kind = "file" }
@@ -765,8 +772,16 @@ local function gather(paths: {string}, skip_file: string?): {Item}?, Outcome
   local names: mut {string} = {}
   for name in pairs(by_name) do names[#names + 1] = name end
   table.sort(names)
+  local own_output = left_out[1]
+  if #names == 0 and own_output ~= nil then
+    return nil, fail(bare.refused, own_output .. ": the archive being written is the only path given, and it is left out of itself; " ..
+        "name a file or directory to put in it")
+  end
   local items: mut {Item} = {}
-  for _, name in ipairs(names) do items[#items + 1] = by_name[name] end
+  for _, name in ipairs(names) do
+    local item = assert(by_name[name], "the names are the keys of by_name")
+    items[#items + 1] = item
+  end
   return items, fail(bare.ok, "")
 end
 
@@ -891,26 +906,34 @@ function verb.run(argv: {string}, io?: verb.Io): integer
     end
     outcome = list(words[2], flags.set["--json"] or false, to)
   elseif action == "extract" then
-    if #words < 2 then
+    local archive_file = words[2]
+    if archive_file == nil then
       complain("give a file, or - for standard input; " .. usage)
       return bare.refused
     end
-    if words[2] == "" then
+    if archive_file == "" then
       complain(bare.empty_file .. "; " .. usage)
       return bare.refused
     end
     local members: mut {string} = {}
-    for slot = 3, #words do members[#members + 1] = words[slot] end
-    outcome = extract(words[2], flags.values["-C"] or ".", flags.set["--force"] or false,
+    for slot = 3, #words do
+      local word = words[slot]
+      if word ~= nil then members[#members + 1] = word end
+    end
+    outcome = extract(archive_file, flags.values["-C"] or ".", flags.set["--force"] or false,
       members, to)
   else
-    if #words < 3 then
+    local output = words[2]
+    if #words < 3 or output == nil then
       complain("give an output file and at least one path; " .. usage)
       return bare.refused
     end
     local paths: mut {string} = {}
-    for slot = 3, #words do paths[#paths + 1] = words[slot] end
-    outcome = create(words[2], paths, flags.set["--reproducible"] or false, to)
+    for slot = 3, #words do
+      local word = words[slot]
+      if word ~= nil then paths[#paths + 1] = word end
+    end
+    outcome = create(output, paths, flags.set["--reproducible"] or false, to)
   end
   if outcome.why ~= "" then complain(outcome.why) end
   return outcome.code

@@ -85,7 +85,9 @@ end
 local function count(db: Sqlite.Handle, sql: string, values?: {Sqlite.Value}): integer?, string
   local rows, why = Sqlite.rows(db, sql, values)
   if rows == nil then return nil, why end
-  return rows[1]:integer(1), ""
+  local row = rows[1]
+  if row == nil then return nil, "the query answered no row" end
+  return row:integer(1), ""
 end
 
 --- A column's shape, including hidden/generated columns that table_info omits.
@@ -122,8 +124,9 @@ local function shapes(): {string:Shape}
   local out: mut {string:Shape} = {}
   for _, name in ipairs({ formats.compiled, formats.parsed, formats.bridge, formats.declared,
       formats.stores, "verdicts_v4" }) do
-    local sql = assert(Sqlite.text_rows(memory,
-      "SELECT sql FROM sqlite_schema WHERE name = ?1", { { text = name } }))[1]:text(1)
+    local declared = assert(Sqlite.text_rows(memory,
+      "SELECT sql FROM sqlite_schema WHERE name = ?1", { { text = name } }))
+    local sql = assert(declared[1], "every format is declared in memory"):text(1)
     out[name] = { columns = (assert(columns(memory, name))), sql = normalized(sql) }
   end
   return out
@@ -521,8 +524,9 @@ function maintenance.run(options: maintenance.Options): maintenance.Result
       complete = false
     end
     local restored = options.restored
-    if complete and restored ~= nil and #paths > 0 then
-      report.fresh, why = fresh_keys(paths[1], restored, expected, held)
+    local first_path = paths[1]
+    if complete and restored ~= nil and first_path ~= nil then
+      report.fresh, why = fresh_keys(first_path, restored, expected, held)
       if why ~= "" then
         report.warnings[#report.warnings + 1] = why
         complete = false
