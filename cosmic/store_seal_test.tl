@@ -3,7 +3,6 @@
 --- carries. It reads the store's handles ([`Store.databases()`]), as
 --- cosmic/store_handles_test.tl does.
 
-local Cell = require("cosmic.cell")
 local Fs = require("cosmic.fs")
 local Hash = require("cosmic.hash")
 local schema = require("build.schema")
@@ -23,9 +22,9 @@ end
 --- `shapes` by type alone (its bytecode does not name it), `lib` requires
 --- `leaf`, and `loop_a` and `loop_b` require each other. Attached ahead
 --- of the binary's, once; a fixture module is never in the binary.
-local attached: Cell<boolean> = { value = false }
+local attached: boolean = false
 local function attach(tmp: string)
-  if attached.value then
+  if attached then
     return
   end
   local path = tmp .. "/fixture.db"
@@ -60,7 +59,7 @@ local function attach(tmp: string)
   requires("fixture.loop_b", "fixture.loop_a")
   assert(db:close())
   assert(Store.attach(path))
-  attached.value = true
+  attached = true
 end
 
 local function raises(fn: function(): any, needle: string)

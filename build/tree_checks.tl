@@ -95,8 +95,6 @@ allowed["build.memprobe.sink"] = "where a mark writes its line, which a test tak
 allowed["build.dataset.load"] = "the loader load_text composes and falls back on, tested directly " ..
   "over rows a test builds, whose keys no file need hold"
 
-allowed["cosmic.cell.value"] = "the one field of a record that is the module: a program reads and assigns it through the Cell it holds, not through the module"
-
 allowed["cosmic.http.public_key_pin"] = "public API: how a program makes the pin `opts.pin` holds a " ..
   "server's key to; cosmic's own fetches choose roots, not pins"
 
