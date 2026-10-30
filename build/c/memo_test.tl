@@ -68,9 +68,14 @@ local function rules_found(tmp: string, store: Sqlite.Handle): {string}
   return out
 end
 
---- How many outcomes the store keeps.
+--- How many outcomes the store keeps: none where the check made no memo at all (it prepares the table only for a
+--- pinned toolchain), which is not the same as the store failing to answer.
 local function kept(store: Sqlite.Handle): integer
-  local rows = assert(Sqlite.rows(store, "SELECT count(*) FROM check_memo WHERE kind = 'c'"))
+  local rows, why = Sqlite.rows(store, "SELECT count(*) FROM check_memo WHERE kind = 'c'")
+  if rows == nil then
+    assert(tostring(why):find("no such table", 1, true) ~= nil, tostring(why))
+    return 0
+  end
   return assert(math.tointeger(assert(rows[1]):integer(1)))
 end
 
@@ -80,7 +85,8 @@ local function test_a_header_changed_since_the_memo_is_checked_afresh(tmp: strin
   assert(Fs.write(tmp .. "/h.h", broken))
   local first = rules_found(tmp, store)
   if kept(store) == 0 then
-    Test.skip("this host's compiler is not the pinned zig's install, so no outcome is kept")
+    Test.skip("this host's compiler is not the pinned zig's install (or COSMIC_ZIG or COSMIC_BOOTSTRAP names a " ..
+        "stand-in), so no outcome is kept")
   end
   assert(#first == 1, "the violation was not found: " .. table.concat(first, ","))
   -- The same inputs are answered from the memo, the same.
