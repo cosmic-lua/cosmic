@@ -6,20 +6,22 @@ local Json = require("cosmic.json")
 local Result = require("eval.result")
 local stand_in = require("build.stand_in")
 
-local function line(value: {string: any}): string
-  return (assert(Json.encode_any(value)))
+local function line(value: {string: Json.Value}): string
+  return (assert(Json.encode(value)))
 end
 
 local function lines(list: {string}): string
   return table.concat(list, "\n") .. "\n"
 end
 
+local NONE <const>: {string: Json.Value} = {}
+
 local init <const> = line({ type = "system", subtype = "init", model = "claude-x",
-  claude_code_version = "9.9.9", tools = { "Bash", "Read" }, skills = {},
+  claude_code_version = "9.9.9", tools = { "Bash", "Read" }, skills = Json.array(),
   mcp_servers = { { name = "m", status = "connected" } } })
 local call <const> = line({ type = "assistant", message = { content = {
-  { type = "tool_use", id = "1", name = "Bash", input = {} },
-  { type = "tool_use", id = "2", name = "Read", input = {} } } } })
+  { type = "tool_use", id = "1", name = "Bash", input = NONE },
+  { type = "tool_use", id = "2", name = "Read", input = NONE } } } })
 
 local function finished(subtype: string, is_error: boolean): string
   return line({ type = "result", subtype = subtype, is_error = is_error, num_turns = 12,
@@ -109,4 +111,13 @@ local function test_the_harness_commit_comes_from_the_git_on_the_path(dir: strin
   assert(stand_in.place(probe, dir .. "/bin/git", "print 0123456789abcdef0123456789abcdef01234567"))
   assert(Result.git_head("/anywhere", dir .. "/bin") == "0123456789abcdef0123456789abcdef01234567")
   assert(Result.git_head("/anywhere", dir .. "/nowhere") == nil)
+end
+
+local function test_a_transcript_field_json_cannot_say_is_unavailable()
+  local holed = line({ type = "system", subtype = "init", model = "claude-x", tools = { 1, 2 } })
+    :gsub('"tools":%[1,2%]', '"tools":[1,null,3]')
+  local fields = Result.build(lines({ holed }), files, {})
+  assert(fields["tools"] == Json.null, "a hole in a transcript list is unavailable, not an encode failure later")
+  assert(fields["model"] == "claude-x")
+  assert(Result.encode(fields) ~= nil)
 end

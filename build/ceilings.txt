@@ -4032,7 +4032,7 @@ cosmic/web/htmx.tl any_use 8
 
 cosmic/web/htmx_test.tl any_use 2
 
-cosmic/web/input.tl any_use 20
+cosmic/web/input.tl any_use 8
 
 cosmic/web/input_fuzz_test.tl any_use 7
 
@@ -4084,9 +4084,7 @@ eval/check/grade.tl any_use 49
 
 eval/declared_types_test.tl any_use 12
 
-eval/result.tl any_use 20
 
-eval/result_test.tl any_use 18
 
 eval/round.tl any_use 1
 
@@ -6922,7 +6920,6 @@ eval/declared_types_test.tl literal_needs_type 1
 
 eval/result.tl literal_needs_type 1
 
-eval/result_test.tl literal_needs_type 3
 
 eval/round.tl literal_needs_type 1
 
@@ -7180,9 +7177,7 @@ eval/check/grade.tl arms_differ 5
 
 eval/declared_types_test.tl arms_differ 2
 
-eval/result.tl arms_differ 1
 
-eval/result_test.tl arms_differ 1
 
 eval/summarize_test.tl arms_differ 3
 
