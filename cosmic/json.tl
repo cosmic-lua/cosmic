@@ -48,7 +48,8 @@
 --- a hole. `decode(text, { null_value = Json.null })` puts [`Json.null`]
 --- where the text says `null`, and [`Json.null`] encodes as `null`, so
 --- the round trip is whole. An array with a hole is an error to encode,
---- never a silent truncation.
+--- never a silent truncation, unless it was marked [`Json.with_holes`],
+--- which writes each hole as `null`.
 ---
 --- A decoded array carries a mark ([`Json.is_array`]), so an empty `[]`
 --- encodes back as `[]` and not `{}`; [`Json.array`] marks a table you
@@ -606,6 +607,42 @@ function Json.is_array(v: any): boolean
   return raw.is_array(v)
 end
 
+--- Marks `items` itself, not a copy, as an array, and answers it. When
+--- `items` has a hole, a position below its highest key that it holds
+--- nothing at, the array may have holes: [`Json.encode`] and
+--- [`Json.encode_any`] write it as long as its highest key, and each
+--- position it holds nothing at as `null`, at any depth, so a later
+--- change to `items` changes what it encodes as. `{ [1] = "a", [3] = "c" }`
+--- marked encodes as `["a",null,"c"]`, and with its last item removed as
+--- `["a"]`. When `items` has no hole it is marked as [`Json.array`]
+--- marks it, so a hole made later is still an error to encode, as it is
+--- for any other table. [`Json.decode`] never answers an array that may
+--- have holes.
+---
+--- Answers nil and a message when `items` has a key below 1, naming it,
+--- or has a metatable already. Encoding refuses an array with more than
+--- 1048576 holes, since its highest key is no cost to make; use an
+--- object for data that sparse. [`Json.to_value`] and [`Json.to_array`]
+--- refuse an array that has a hole, naming where; fill each with
+--- [`Json.null`] first.
+---
+---     local row = assert(Json.with_holes({ [1] = "a", [3] = "c" }))
+---     assert(Json.encode_any(row) == '["a",null,"c"]')
+function Json.with_holes<T>(items: {integer: T}): {integer: T}?, string
+  local count, top = 0, 0
+  for key in pairs(items) do
+    if key < 1 then
+      return refuse(("an array with holes has keys from 1 up, not %d"):format(key))
+    end
+    count = count + 1
+    if key > top then top = key end
+  end
+  if getmetatable(items) ~= nil then
+    return refuse("a table that has a metatable already cannot be marked as an array with holes")
+  end
+  return raw.with_holes(items, top > count), ""
+end
+
 --- Classifies `t` as [`Json.layout`] says and, when `members` is true,
 --- lists them as [`Json.members`] says; else the keys are empty and the
 --- extent 0, and a marked array is classified with no scan of it.
@@ -832,7 +869,7 @@ local function table_why(m: Json.Members, pointer: string, depth: integer): stri
     return "the table at " .. at_pointer(pointer) .. " has keys that are neither all names nor all positions from 1"
   end
   if m.layout == "hole" or (m.layout == "array" and #m.keys > 0) then
-    return "the array at " .. at_pointer(pointer) .. " has a hole; decode with null_value = Json.null to keep a null"
+    return "the array at " .. at_pointer(pointer) .. " has a hole; fill it with Json.null (decode with null_value = Json.null keeps a null)"
   end
   return ""
 end

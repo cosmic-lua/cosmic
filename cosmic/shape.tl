@@ -397,7 +397,7 @@ local function walk_list(t: {any: any}, spec: Spec, path: string): any, string
   end
   local keys = members.keys
   local count = if #keys > 0 then #keys else members.extent end
-  local out: mut {any} = {}
+  local out: mut {integer: any} = {}
   local after = 0
   local of = assert(spec.of)
   for i = 1, count do
@@ -417,7 +417,10 @@ local function walk_list(t: {any: any}, spec: Spec, path: string): any, string
     if failed ~= "" then return nil, failed end
     out[k] = got
   end
-  return Json.array(out), ""
+  -- An element that is nil leaves a hole, and the list is as long as its highest element that is not.
+  -- `out` is a new table of positions from 1 with no metatable, which `with_holes` takes.
+  local list, why = Json.with_holes(out)
+  return assert(list, why), ""
 end
 
 local function walk_map(t: {any: any}, spec: Spec, path: string): any, string

@@ -700,6 +700,12 @@ local function test_a_list_item_that_is_absent_stays_a_hole_at_its_position()
   assert(r.invalid == nil, message_of(r.invalid))
   local xs = assert(r.value).xs
   assert(xs[1] == 1 and xs[2] == nil and xs[3] == 3, "the third item keeps its position")
+  assert(Json.is_array(xs), "the list is marked as an array")
+  assert(Json.encode_any(xs) == "[1,null,3]", "and a handler that encodes it writes the hole as null")
+  r = Input.bind_strings(decoded("xs=1&xs="), spec)
+  assert(r.invalid == nil, message_of(r.invalid))
+  local short = assert(r.value).xs
+  assert(#short == 1 and short[1] == 1 and Json.is_array(short), "a hole at the end leaves the list as long as before")
   r = Input.bind_strings(decoded("xs=1&xs=x"), spec)
   local invalid = r.invalid
   assert(invalid ~= nil and #invalid.errors == 1 and assert(invalid.errors[1]).field == "xs.1",
