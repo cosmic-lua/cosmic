@@ -825,7 +825,7 @@ local function notes_expect(g: Grade, want: string?, args: {string}, env?: {stri
     stdout = "capture", stderr = "stdout", process_group = g.own_group,
     timeout_ns = g.timeout_ns })
   local code = 127
-  local got = trouble
+  local got = ""
   if result ~= nil then
     code = status(result)
     got = trimmed(result.stdout or "")
@@ -835,7 +835,9 @@ local function notes_expect(g: Grade, want: string?, args: {string}, env?: {stri
   elseif code == 0 and got == want then
     ok(what .. " -> " .. first_line(assert(want)))
   else
-    fail(g, what .. ": exit " .. tostring(code) .. ", got '" .. got .. "', wanted '" .. (want or "exit 0") .. "'")
+    local said = got
+    if result == nil then said = trouble end
+    fail(g, what .. ": exit " .. tostring(code) .. ", got '" .. said .. "', wanted '" .. (want or "exit 0") .. "'")
   end
 end
 

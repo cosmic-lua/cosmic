@@ -297,7 +297,9 @@ function Round.execute(plan: Round.Plan, system: Round.System): integer
     for _, word in ipairs(entry.result) do result[#result + 1] = word end
     -- The log is named from the arena, as the transcript is.
     local relative = log
-    if log:sub(1, #entry.arena + 1) == entry.arena .. "/" then relative = log:sub(#entry.arena + 2) end
+    if log:sub(1, #entry.arena + 1) == entry.arena .. "/" then
+      relative = log:sub(#entry.arena + 2)
+    end
     for _, word in ipairs({ "--grade-exit", tostring(graded.code), "--grade-log", relative }) do
       result[#result + 1] = word
     end

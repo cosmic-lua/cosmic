@@ -337,7 +337,6 @@ cosmic/web/testing.tl 4
 
 cosmic/zip.tl 1
 
-eval/summarize.tl 1
 
 lang/check.tl 1
 
@@ -2720,7 +2719,6 @@ cosmic/zip.tl field_fixed 2
 cosmic/zip_test.tl field_fixed 13
 
 
-eval/result.tl field_fixed 7
 
 
 lang/ast.tl field_fixed 2
@@ -3223,7 +3221,6 @@ eval/result_test.tl map_field 37
 
 eval/round_test.tl map_field 10
 
-eval/solve.tl map_field 5
 
 eval/solve_test.tl map_field 6
 
@@ -3439,7 +3436,6 @@ cosmic/web/typed_test.tl overload_none 1
 
 eval/arena_test.tl overload_none 1
 
-eval/summarize.tl overload_none 1
 
 lang/check.tl overload_none 1
 
@@ -3810,12 +3806,12 @@ cosmic/zip.tl any_use 2
 cosmic/zip_fuzz_test.tl any_use 43
 
 
-eval/declared_types_test.tl any_use 12
+eval/declared_types_test.tl any_use 11
 
 
 
 
-eval/summarize_test.tl any_use 52
+eval/summarize_test.tl any_use 50
 
 lang/check_programs.tl any_use 14
 
@@ -4377,10 +4373,8 @@ cosmic/web/testing_test.tl is_on_record 7
 cosmic/web/typed.tl is_on_record 3
 
 
-eval/result.tl is_on_record 6
 
 
-eval/summarize.tl is_on_record 9
 
 lang/ast_dump.tl is_on_record 3
 
@@ -4541,7 +4535,6 @@ cosmic/web/testing_test.tl close_not_closable 1
 
 doc/guides/quickstart.md close_not_closable 1
 
-eval/solve.tl close_not_closable 1
 
 test/sqlite_query_test.tl close_not_closable 1
 
@@ -4919,7 +4912,6 @@ eval/round_test.tl condition_type 2
 
 eval/solve_test.tl condition_type 2
 
-eval/summarize.tl condition_type 1
 
 eval/summarize_test.tl condition_type 1
 
@@ -5789,11 +5781,9 @@ cosmic/zip.tl and_ternary 5
 cosmic/zip_fuzz_test.tl and_ternary 4
 
 
-eval/result.tl and_ternary 8
 
 
 
-eval/summarize.tl and_ternary 11
 
 lang/ast_dump.tl and_ternary 1
 
@@ -6553,11 +6543,9 @@ cosmic/zip_test.tl literal_needs_type 1
 
 eval/declared_types_test.tl literal_needs_type 1
 
-eval/result.tl literal_needs_type 1
 
 
 
-eval/summarize.tl literal_needs_type 1
 
 lang/declarations.tl literal_needs_type 2
 
