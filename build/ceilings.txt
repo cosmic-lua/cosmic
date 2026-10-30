@@ -1016,7 +1016,7 @@ cosmic/mime.tl nil_not_allowed 2
 
 cosmic/net.tl nil_not_allowed 4
 
-cosmic/net_connector_test.tl nil_not_allowed 9
+cosmic/net_connector_test.tl nil_not_allowed 7
 
 cosmic/net_numeric_fuzz_test.tl nil_not_allowed 1
 
@@ -1645,7 +1645,6 @@ cosmic/json_path_test.tl index_may_be_nil 2
 cosmic/json_reader_test.tl index_may_be_nil 2
 
 
-cosmic/net_connector_test.tl index_may_be_nil 2
 
 cosmic/net_resolve_test.tl index_may_be_nil 1
 

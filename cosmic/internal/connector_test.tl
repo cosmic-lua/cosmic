@@ -73,30 +73,17 @@ local function echo_through(conn: Net.Conn, text: string)
   assert(conn:close())
 end
 
---- A stream socketpair, by the connector's own maker, which a test may use as one.
-local record StreamPair
-  first: integer
-  second: integer
-end
-
-local function stream_pair(): StreamPair
-  local pair = assert(process.connector_pair())
-  local first, second = pair[1], pair[2]
-  assert(first and second, "a socketpair holds two descriptors")
-  return { first = first, second = second }
-end
-
 local function test_adopted_connector_wraps_an_inherited_control_stream_without_a_process()
   require_native_connector()
   local before = descriptor_count()
   Poll.run(function()
     local listener, task = echo_server()
     local port = assert(listener.address.port)
-    local pair = stream_pair()
-    local child = assert(process.connector_start({ { host = "127.0.0.1", port = port } }, pair.second, 1000,
+    local pair = RawTables.connector_pair("cosmic.internal.connector")
+    local child = assert(process.connector_start({ { host = "127.0.0.1", port = port } }, pair.connector, 1000,
       { deny = {} }))
-    assert(sys.close(pair.second))
-    local connector = assert(Connector.adopted(pair.first, { { host = "127.0.0.1", port = port } }, true))
+    assert(sys.close(pair.connector))
+    local connector = assert(Connector.adopted(pair.controller, { { host = "127.0.0.1", port = port } }, true))
     echo_through(assert(dial(connector, "127.0.0.1", port, Clock.seconds(5))), "table")
     local free = assert(Net.listen(Net.tcp("127.0.0.1", 0)))
     local other = assert(free.address.port)
@@ -119,18 +106,18 @@ local function test_adopted_connector_asks_a_public_process_for_an_address_its_t
   Poll.run(function()
     local listener, task = echo_server()
     local port = assert(listener.address.port)
-    local pair = stream_pair()
-    local child = assert(process.connector_start({}, pair.second, 1000, { deny = {} }))
-    assert(sys.close(pair.second))
-    local connector = assert(Connector.adopted(pair.first, nil, true))
+    local pair = RawTables.connector_pair("cosmic.internal.connector")
+    local child = assert(process.connector_start({}, pair.connector, 1000, { deny = {} }))
+    assert(sys.close(pair.connector))
+    local connector = assert(Connector.adopted(pair.controller, nil, true))
     echo_through(assert(dial(connector, "127.0.0.1", port, Clock.seconds(5))), "public")
     assert(connector:close())
     assert(assert(process.waitpid(child, false)).code == 0)
     -- Not told it is public, it is asked nothing of the kind.
-    local other_pair = stream_pair()
-    local other = assert(process.connector_start({}, other_pair.second, 1000, { deny = {} }))
-    assert(sys.close(other_pair.second))
-    local plain = assert(Connector.adopted(other_pair.first))
+    local other_pair = RawTables.connector_pair("cosmic.internal.connector")
+    local other = assert(process.connector_start({}, other_pair.connector, 1000, { deny = {} }))
+    assert(sys.close(other_pair.connector))
+    local plain = assert(Connector.adopted(other_pair.controller))
     local conn, why = dial(plain, "127.0.0.1", port, Clock.seconds(5))
     assert(conn == nil and why:find("is not in the connector's table", 1, true) ~= nil, tostring(why))
     assert(plain:close())
@@ -145,10 +132,10 @@ local function test_adopted_connector_is_not_started_again_when_its_process_ends
   Poll.run(function()
     local listener, task = echo_server()
     local port = assert(listener.address.port)
-    local pair = stream_pair()
-    local child = assert(process.connector_start({}, pair.second, 1000, { deny = {} }))
-    assert(sys.close(pair.second))
-    local connector = assert(Connector.adopted(pair.first, nil, true))
+    local pair = RawTables.connector_pair("cosmic.internal.connector")
+    local child = assert(process.connector_start({}, pair.connector, 1000, { deny = {} }))
+    assert(sys.close(pair.connector))
+    local connector = assert(Connector.adopted(pair.controller, nil, true))
     assert(sys.kill(child, sys.SIGKILL))
     assert(process.waitpid(child, false))
     local conn, why = dial(connector, "127.0.0.1", port, Clock.seconds(5))
@@ -206,20 +193,20 @@ end
 --- asked of the same stream.
 local function test_adopted_connector_serves_on_after_a_socket_reset_as_it_was_made()
   Poll.run(function()
-    local pair = stream_pair()
-    local connector = assert(Connector.adopted(pair.first, { { host = "127.0.0.1", port = 9 } }, true,
+    local pair = RawTables.connector_pair("cosmic.internal.connector")
+    local connector = assert(Connector.adopted(pair.controller, { { host = "127.0.0.1", port = 9 } }, true,
       Clock.seconds(1)))
     local asked: mut {string} = {}
     local refuse = false
-    local serving = stand_in(pair.second, function(tag: integer, request: string)
+    local serving = stand_in(pair.connector, function(tag: integer, request: string)
       asked[#asked + 1] = request
       if refuse then
-        assert(sys.write(pair.second, string.pack(">I4I4", tag, socket.ECONNREFUSED)) == 8)
+        assert(sys.write(pair.connector, string.pack(">I4I4", tag, socket.ECONNREFUSED)) == 8)
         return
       end
       local reset = reset_socket()
-      assert(sys.write(pair.second, string.pack(">I4I4", tag, 0)) == 8)
-      assert(socket.sendfds(pair.second, { reset:fd() }))
+      assert(sys.write(pair.connector, string.pack(">I4I4", tag, 0)) == 8)
+      assert(socket.sendfds(pair.connector, { reset:fd() }))
       assert(reset:close())
     end)
     local targets: {string} = { "127.0.0.1", "127.0.0.2" }
@@ -242,7 +229,7 @@ local function test_adopted_connector_serves_on_after_a_socket_reset_as_it_was_m
     serving:cancel()
     assert(connector:close())
     assert(connector:ended())
-    assert(sys.close(pair.second))
+    assert(sys.close(pair.connector))
   end)
 end
 
@@ -262,12 +249,12 @@ local function test_adopted_connector_gives_up_a_stream_that_passes_the_wrong_de
       { null, "passed a descriptor that is no connected stream socket" },
     }
     for _, case in ipairs(cases) do
-      local pair = stream_pair()
-      local connector = assert(Connector.adopted(pair.first, { { host = "127.0.0.1", port = 9 } }, false,
+      local pair = RawTables.connector_pair("cosmic.internal.connector")
+      local connector = assert(Connector.adopted(pair.controller, { { host = "127.0.0.1", port = 9 } }, false,
         Clock.seconds(1)))
-      local serving = stand_in(pair.second, function(tag: integer, _: string)
-        assert(sys.write(pair.second, string.pack(">I4I4", tag, 0)) == 8)
-        assert(socket.sendfds(pair.second, { case[1] as integer }))
+      local serving = stand_in(pair.connector, function(tag: integer, _: string)
+        assert(sys.write(pair.connector, string.pack(">I4I4", tag, 0)) == 8)
+        assert(socket.sendfds(pair.connector, { case[1] as integer }))
       end)
       local conn, why = dial(connector, "127.0.0.1", 9, Clock.seconds(1))
       assert(conn == nil and why:find(case[2] as string, 1, true) ~= nil, tostring(why))
@@ -276,7 +263,7 @@ local function test_adopted_connector_gives_up_a_stream_that_passes_the_wrong_de
       assert(again == nil and trouble == "net: the connector has ended", tostring(trouble))
       serving:cancel()
       assert(connector:close())
-      assert(sys.close(pair.second))
+      assert(sys.close(pair.connector))
     end
     assert(sys.close(null))
     assert(elsewhere:close())
@@ -288,21 +275,21 @@ end
 --- asked in: each is handed to the request its tag names.
 local function test_replies_out_of_order_reach_the_requests_their_tags_name()
   Poll.run(function()
-    local pair = stream_pair()
+    local pair = RawTables.connector_pair("cosmic.internal.connector")
     local endpoints: mut {raw_process.ConnectorEndpoint} = {}
     for i = 1, 3 do endpoints[i] = { host = "127.0.0." .. tostring(i), port = 9 } end
-    local connector = assert(Connector.adopted(pair.first, endpoints, false, Clock.seconds(5)))
+    local connector = assert(Connector.adopted(pair.controller, endpoints, false, Clock.seconds(5)))
     local tags: mut {integer: integer} = {}
     local count: integer = 0
     -- Each endpoint's own refusal, so the answer shows whose it was.
     local errnos: {integer} = { socket.ECONNREFUSED, socket.ETIMEDOUT, sys.EPERM }
-    local serving = stand_in(pair.second, function(tag: integer, request: string)
+    local serving = stand_in(pair.connector, function(tag: integer, request: string)
       local index = string.unpack(">I4", request, 5)
       tags[index] = tag
       count = count + 1
       if count < 3 then return end
       for i = 3, 1, -1 do
-        assert(sys.write(pair.second, string.pack(">I4I4", assert(tags[i]), assert(errnos[i]))) == 8)
+        assert(sys.write(pair.connector, string.pack(">I4I4", assert(tags[i]), assert(errnos[i]))) == 8)
       end
     end)
     local answers: {integer: string} = {}
@@ -322,7 +309,7 @@ local function test_replies_out_of_order_reach_the_requests_their_tags_name()
     assert(not connector:ended())
     serving:cancel()
     assert(connector:close())
-    assert(sys.close(pair.second))
+    assert(sys.close(pair.connector))
   end)
 end
 
@@ -331,16 +318,16 @@ end
 --- connector has ended. A connector's refusal for want of room is said.
 local function test_a_reply_no_request_was_tagged_with_fails_every_request_waiting()
   Poll.run(function()
-    local pair = stream_pair()
+    local pair = RawTables.connector_pair("cosmic.internal.connector")
     local endpoints: {raw_process.ConnectorEndpoint} = { { host = "127.0.0.1", port = 9 } }
-    local connector = assert(Connector.adopted(pair.first, endpoints, false, Clock.seconds(5)))
+    local connector = assert(Connector.adopted(pair.controller, endpoints, false, Clock.seconds(5)))
     local count: integer = 0
-    local serving = stand_in(pair.second, function(tag: integer, _: string)
+    local serving = stand_in(pair.connector, function(tag: integer, _: string)
       count = count + 1
       if count == 1 then
-        assert(sys.write(pair.second, string.pack(">I4I4", tag, socket.CONNECTOR_BUSY)) == 8)
+        assert(sys.write(pair.connector, string.pack(">I4I4", tag, socket.CONNECTOR_BUSY)) == 8)
       elseif count == 4 then
-        assert(sys.write(pair.second, string.pack(">I4I4", 999, 0)) == 8)
+        assert(sys.write(pair.connector, string.pack(">I4I4", 999, 0)) == 8)
       end
     end)
     local busy, busy_why = dial(connector, "127.0.0.1", 9, Clock.seconds(5))
@@ -364,7 +351,7 @@ local function test_a_reply_no_request_was_tagged_with_fails_every_request_waiti
     assert(again == nil and trouble == "net: the connector has ended", tostring(trouble))
     serving:cancel()
     assert(connector:close())
-    assert(sys.close(pair.second))
+    assert(sys.close(pair.connector))
   end)
 end
 
@@ -374,11 +361,11 @@ end
 --- never answered, so nothing else wakes the first.
 local function test_a_reply_another_task_reads_wakes_its_owner()
   Poll.run(function()
-    local pair = stream_pair()
-    local connector = assert(Connector.adopted(pair.first, { { host = "127.0.0.1", port = 9 },
+    local pair = RawTables.connector_pair("cosmic.internal.connector")
+    local connector = assert(Connector.adopted(pair.controller, { { host = "127.0.0.1", port = 9 },
       { host = "127.0.0.2", port = 9 } }, false, Clock.seconds(5)))
     local first_tag: integer? = nil
-    local serving = stand_in(pair.second, function(tag: integer, request: string)
+    local serving = stand_in(pair.connector, function(tag: integer, request: string)
       if string.unpack(">I4", request, 5) == 1 then first_tag = tag end
     end)
     local started = Clock.monotonic_ns()
@@ -393,7 +380,7 @@ local function test_a_reply_another_task_reads_wakes_its_owner()
     local first_tag_value = first_tag
     assert(first_tag_value ~= nil, "the first request was not asked")
     -- Its reply, and then a request of this task's, whose read takes it.
-    assert(sys.write(pair.second, string.pack(">I4I4", first_tag_value, socket.ECONNREFUSED)) == 8)
+    assert(sys.write(pair.connector, string.pack(">I4I4", first_tag_value, socket.ECONNREFUSED)) == 8)
     local conn, why = dial(connector, "127.0.0.2", 9, Clock.ms(100))
     assert(conn == nil and why == Poll.TIMEOUT, tostring(why))
     assert(asking:join(Clock.seconds(5)))
@@ -403,7 +390,7 @@ local function test_a_reply_another_task_reads_wakes_its_owner()
     assert(waited < Clock.seconds(1), "the first request was answered after " .. tostring(waited // Clock.ms(1)) .. " ms")
     serving:cancel()
     assert(connector:close())
-    assert(sys.close(pair.second))
+    assert(sys.close(pair.connector))
   end)
 end
 
@@ -412,17 +399,17 @@ end
 --- the time it looks again.
 local function test_a_lost_stream_sends_nothing_to_its_closed_descriptor()
   Poll.run(function()
-    local pair = stream_pair()
-    local connector = assert(Connector.adopted(pair.first, { { host = "127.0.0.1", port = 9 } }, false,
+    local pair = RawTables.connector_pair("cosmic.internal.connector")
+    local connector = assert(Connector.adopted(pair.controller, { { host = "127.0.0.1", port = 9 } }, false,
       Clock.seconds(5)))
     local count: integer = 0
-    local serving = stand_in(pair.second, function(_: integer, _: string)
+    local serving = stand_in(pair.connector, function(_: integer, _: string)
       count = count + 1
       if count == FLIGHT then
-        assert(sys.write(pair.second, string.pack(">I4I4", 999, 0)) == 8)
+        assert(sys.write(pair.connector, string.pack(">I4I4", 999, 0)) == 8)
       end
     end)
-    local taken: StreamPair? = nil
+    local taken: RawTables.Ends? = nil
     local tasks: mut {Poll.Task} = {}
     for i = 1, FLIGHT do
       tasks[i] = Poll.spawn(function()
@@ -430,7 +417,7 @@ local function test_a_lost_stream_sends_nothing_to_its_closed_descriptor()
         assert(conn == nil)
         -- The first to learn of the loss opens a pair, which takes the
         -- lowest numbers free: the stream's closed one among them.
-        if taken == nil then taken = stream_pair() end
+        if taken == nil then taken = RawTables.connector_pair("cosmic.internal.connector") end
       end)
     end
     local past: string? = nil
@@ -444,13 +431,13 @@ local function test_a_lost_stream_sends_nothing_to_its_closed_descriptor()
     assert(past == "net: the connector replied to a request it was not asked (tag 999)", tostring(past))
     assert(count == FLIGHT, tostring(count) .. " requests were sent")
     local lost = assert(taken)
-    assert(sys.set_nonblocking(lost.second, true))
-    local leaked, _, errno = sys.read(lost.second, 4096)
+    assert(sys.set_nonblocking(lost.connector, true))
+    local leaked, _, errno = sys.read(lost.connector, 4096)
     assert(leaked == nil and errno == sys.EAGAIN, "bytes went to the descriptor that took the closed number: " ..
         tostring(leaked and #leaked))
     serving:cancel()
     assert(connector:close())
-    assert(sys.close(pair.second) and sys.close(lost.first) and sys.close(lost.second))
+    assert(sys.close(pair.connector) and sys.close(lost.controller) and sys.close(lost.connector))
   end)
 end
 
@@ -460,11 +447,11 @@ end
 --- the same.
 local function test_a_task_cancelled_waiting_for_room_asks_nothing()
   Poll.run(function()
-    local pair = stream_pair()
-    local connector = assert(Connector.adopted(pair.first, { { host = "127.0.0.1", port = 9 } }, false,
+    local pair = RawTables.connector_pair("cosmic.internal.connector")
+    local connector = assert(Connector.adopted(pair.controller, { { host = "127.0.0.1", port = 9 } }, false,
       Clock.seconds(30)))
     local tags: mut {integer} = {}
-    local serving = stand_in(pair.second, function(tag: integer, _: string)
+    local serving = stand_in(pair.connector, function(tag: integer, _: string)
       tags[#tags + 1] = tag
     end)
     local tasks: mut {Poll.Task} = {}
@@ -482,7 +469,7 @@ local function test_a_task_cancelled_waiting_for_room_asks_nothing()
     assert(Poll.delay(Clock.ms(50)))
     assert(#tags == FLIGHT, tostring(#tags) .. " requests were asked")
     -- Room for two, and the waiting task cancelled before it looks again.
-    assert(sys.write(pair.second, string.pack(">I4I4I4I4", assert(tags[1]), socket.ECONNREFUSED, assert(tags[2]),
+    assert(sys.write(pair.connector, string.pack(">I4I4I4I4", assert(tags[1]), socket.ECONNREFUSED, assert(tags[2]),
       socket.ECONNREFUSED)) == 16)
     waiting:cancel()
     local conn, why = dial(connector, "127.0.0.1", 9, Clock.ms(50))
@@ -494,7 +481,7 @@ local function test_a_task_cancelled_waiting_for_room_asks_nothing()
     for _, task in ipairs(tasks) do assert(task:join(Clock.seconds(5))) end
     serving:cancel()
     assert(connector:close())
-    assert(sys.close(pair.second))
+    assert(sys.close(pair.connector))
   end)
 end
 
@@ -502,11 +489,11 @@ end
 --- nothing, and the request fails saying so.
 local function test_a_connector_of_another_protocol_is_asked_nothing()
   Poll.run(function()
-    local pair = stream_pair()
-    local connector = assert(Connector.adopted(pair.first, { { host = "127.0.0.1", port = 9 } }, false,
+    local pair = RawTables.connector_pair("cosmic.internal.connector")
+    local connector = assert(Connector.adopted(pair.controller, { { host = "127.0.0.1", port = 9 } }, false,
       Clock.seconds(1)))
     local asked: integer = 0
-    local serving = stand_in(pair.second, function(_: integer, _: string)
+    local serving = stand_in(pair.connector, function(_: integer, _: string)
       asked = asked + 1
     end, 0x434e4301)
     local conn, why = dial(connector, "127.0.0.1", 9, Clock.seconds(1))
@@ -516,17 +503,17 @@ local function test_a_connector_of_another_protocol_is_asked_nothing()
     assert(asked == 0, "a request was sent before the hello was checked")
     serving:cancel()
     assert(connector:close())
-    assert(sys.close(pair.second))
+    assert(sys.close(pair.connector))
   end)
 end
 
 local function test_adopted_connector_refuses_what_is_no_descriptor_or_table()
   local ok, why = pcall(Connector.adopted, -1)
   assert(not ok and tostring(why):find("fd must be a descriptor", 1, true) ~= nil, tostring(why))
-  local pair = stream_pair()
-  ok, why = pcall(Connector.adopted, pair.first, { { host = "127.0.0.1" } } as {raw_process.ConnectorEndpoint})
+  local pair = RawTables.connector_pair("cosmic.internal.connector")
+  ok, why = pcall(Connector.adopted, pair.controller, { { host = "127.0.0.1" } } as {raw_process.ConnectorEndpoint})
   assert(not ok and tostring(why):find("endpoints[1] must be a host and a port", 1, true) ~= nil, tostring(why))
-  assert(sys.close(pair.first) and sys.close(pair.second))
+  assert(sys.close(pair.controller) and sys.close(pair.connector))
   -- A descriptor that is open but no stream cannot be made nonblocking where it is not open.
   local none, trouble = Connector.adopted(1000000)
   assert(none == nil and trouble:find("child: ", 1, true) == 1, tostring(trouble))

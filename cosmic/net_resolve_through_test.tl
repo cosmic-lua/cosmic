@@ -30,14 +30,6 @@ Test.policy{ profiles = { "cosmic" }, loopback = { "127.0.0.1" }, promises = { "
 local process = RawTables.process()
 local socket = RawTables.socket()
 
---- A stream socketpair, by the connector's own maker, which a test may use as one: its two ends.
-local function stream_pair(): integer, integer
-  local pair = assert(process.connector_pair())
-  local first, second = pair[1], pair[2]
-  assert(first and second, "a connector pair holds two descriptors")
-  return first, second
-end
-
 --- A lookup's request of `tag` for the table's endpoint `index` at
 --- `port`: no wait of its own, family or address.
 local function request(tag: integer, index: integer, port: integer): string
@@ -422,11 +414,11 @@ local function test_a_name_server_reset_as_it_is_made_leaves_the_stream_in_step(
   assert(free:close())
   local hosts = tmp .. "/hosts"
   assert(Fs.write(hosts, ""))
-  local first, second = stream_pair()
-  assert(sys.set_nonblocking(first, true))
-  assert(sys.set_nonblocking(second, true))
-  assert(sys.write(second, string.pack(">I4", socket.CONNECTOR_HELLO)) == 4)
-  local dns <close> = assert(Connector.adopted(first, { { host = "127.0.0.1", port = 53 } }, false, Clock.ms(100)))
+  local pair = RawTables.connector_pair()
+  assert(sys.set_nonblocking(pair.controller, true))
+  assert(sys.set_nonblocking(pair.connector, true))
+  assert(sys.write(pair.connector, string.pack(">I4", socket.CONNECTOR_HELLO)) == 4)
+  local dns <close> = assert(Connector.adopted(pair.controller, { { host = "127.0.0.1", port = 53 } }, false, Clock.ms(100)))
   local asked: string? = nil
   local found: {Net.Resolved}? = nil
   local why: string? = nil
@@ -434,12 +426,12 @@ local function test_a_name_server_reset_as_it_is_made_leaves_the_stream_in_step(
     -- The reply to the lookup's one request, tagged from 1: a socket the
     -- server reset as it was made.
     Poll.spawn(function()
-      assert(Poll.readable(second, Clock.seconds(5)))
-      asked = assert(sys.read(second, 4096))
+      assert(Poll.readable(pair.connector, Clock.seconds(5)))
+      asked = assert(sys.read(pair.connector, 4096))
       local reset = assert(socket.start({ kind = "tcp", host = "127.0.0.1", port = port }))
       assert(socket.wait(reset:fd(), true, 5000))
-      assert(sys.write(second, string.pack(">I4I4", 1, 0)) == 8)
-      assert(socket.sendfds(second, { reset:fd() }))
+      assert(sys.write(pair.connector, string.pack(">I4I4", 1, 0)) == 8)
+      assert(socket.sendfds(pair.connector, { reset:fd() }))
       assert(reset:close())
     end)
     found, why = Net.resolve("reset.example.test", { timeout_ns = Clock.seconds(2), connector = dns,
@@ -448,10 +440,10 @@ local function test_a_name_server_reset_as_it_is_made_leaves_the_stream_in_step(
   assert(found == nil and why ~= "", tostring(why))
   assert(asked == request(1, 1, 53), ("%q"):format(asked))
   -- Shut down, the stream would read as ended here; in step, nothing waits.
-  local more, _, number = sys.read(second, 1)
+  local more, _, number = sys.read(pair.connector, 1)
   assert(more == nil and number == sys.EAGAIN, "the lookup shut the stream down: " .. tostring(more))
   assert(not dns:ended())
-  assert(sys.close(second))
+  assert(sys.close(pair.connector))
 end
 
 --- A lookup through a connector whose stream says another word first asks
@@ -463,15 +455,15 @@ local function test_a_lookup_reads_the_connectors_hello_before_it_asks(tmp: stri
   end
   local hosts = tmp .. "/hosts"
   assert(Fs.write(hosts, ""))
-  local other_first, other_second = stream_pair()
-  assert(sys.write(other_second, string.pack(">I4", 0x434e4301)) == 4)
-  local dns <close> = assert(Connector.adopted(other_first, { { host = "127.0.0.1", port = 53 } }, false, Clock.ms(100)))
+  local other = RawTables.connector_pair()
+  assert(sys.write(other.connector, string.pack(">I4", 0x434e4301)) == 4)
+  local dns <close> = assert(Connector.adopted(other.controller, { { host = "127.0.0.1", port = 53 } }, false, Clock.ms(100)))
   local none, trouble = Net.resolve("hello.example.test", { timeout_ns = Clock.seconds(2), connector = dns,
     servers = { { host = "127.0.0.1", port = 53 } }, hosts_file = hosts })
   assert(none == nil and trouble == "net: the connector speaks another protocol than this program's: " ..
       "it said 0x434e4301, not 0x434e4302", tostring(trouble))
   assert(dns:ended())
-  assert(sys.close(other_second))
+  assert(sys.close(other.connector))
 end
 
 --- A reply that came whole with a socket connected to another address
@@ -489,20 +481,20 @@ local function test_a_connector_that_passes_the_wrong_descriptor_is_given_up(tmp
   assert(socket.wait(elsewhere:fd(), true, 5000))
   local null = assert(sys.open("/dev/null", sys.O_RDONLY))
   for _, passed in ipairs({ elsewhere:fd(), null }) do
-    local first, second = stream_pair()
-    assert(sys.set_nonblocking(first, true))
-    assert(sys.set_nonblocking(second, true))
-    assert(sys.write(second, string.pack(">I4", socket.CONNECTOR_HELLO)) == 4)
-    local dns <close> = assert(Connector.adopted(first, { { host = "127.0.0.1", port = 53 } }, false, Clock.ms(100)))
+    local pair = RawTables.connector_pair()
+    assert(sys.set_nonblocking(pair.controller, true))
+    assert(sys.set_nonblocking(pair.connector, true))
+    assert(sys.write(pair.connector, string.pack(">I4", socket.CONNECTOR_HELLO)) == 4)
+    local dns <close> = assert(Connector.adopted(pair.controller, { { host = "127.0.0.1", port = 53 } }, false, Clock.ms(100)))
     local asked: string? = nil
     local found: {Net.Resolved}? = nil
     local why: string? = nil
     Poll.run(function()
       Poll.spawn(function()
-        assert(Poll.readable(second, Clock.seconds(5)))
-        asked = assert(sys.read(second, 4096))
-        assert(sys.write(second, string.pack(">I4I4", 1, 0)) == 8)
-        assert(socket.sendfds(second, { passed }))
+        assert(Poll.readable(pair.connector, Clock.seconds(5)))
+        asked = assert(sys.read(pair.connector, 4096))
+        assert(sys.write(pair.connector, string.pack(">I4I4", 1, 0)) == 8)
+        assert(socket.sendfds(pair.connector, { passed }))
       end)
       found, why = Net.resolve("wrong.example.test", { timeout_ns = Clock.seconds(2), connector = dns,
         servers = { { host = "127.0.0.1", port = 53 } }, hosts_file = hosts })
@@ -511,9 +503,9 @@ local function test_a_connector_that_passes_the_wrong_descriptor_is_given_up(tmp
     assert(asked == request(1, 1, 53), "the stream was asked again: " .. ("%q"):format(asked))
     assert(dns:ended())
     -- Given up, the stream reads as ended.
-    local more, trouble = sys.read(second, 1)
+    local more, trouble = sys.read(pair.connector, 1)
     assert(more == "", "the lookup left the stream in step: " .. tostring(more) .. " " .. tostring(trouble))
-    assert(sys.close(second))
+    assert(sys.close(pair.connector))
   end
   assert(sys.close(null))
   assert(elsewhere:close())
@@ -524,11 +516,11 @@ end
 --- no longer: the request is given up on and stays pending on the stream,
 --- which is in step for the next lookup, asked again under a tag of its own.
 local function test_a_connector_that_never_replies_ends_the_lookup_and_is_not_asked_again()
-  local first, second = stream_pair()
-  local peer = second
+  local pair = RawTables.connector_pair()
+  local peer = pair.connector
   assert(sys.write(peer, string.pack(">I4", socket.CONNECTOR_HELLO)) == 4)
   -- Its process would wait 100 ms to connect and a grace more: the lookup ends at its own deadline.
-  local dns <close> = assert(Connector.adopted(first, { { host = "127.0.0.1", port = 53 } }, false, Clock.ms(100)))
+  local dns <close> = assert(Connector.adopted(pair.controller, { { host = "127.0.0.1", port = 53 } }, false, Clock.ms(100)))
   local opts: Net.ResolveOptions = { timeout_ns = Clock.ms(200), connector = dns,
     servers = { { host = "127.0.0.1", port = 53 } } }
   local began = Clock.monotonic_ns()
@@ -668,11 +660,11 @@ local function test_name_servers_and_an_adopted_connector_refuse_what_is_out_of_
   local zero: any = 0
   assert(not pcall(RelayStart.name_servers, { resolve = zero as integer }))
   assert(not pcall(RelayStart.name_servers, { resolve = -1 }))
-  local first, second = stream_pair()
-  assert(not pcall(Connector.adopted, first, nil, false, 5))
-  assert(not pcall(Connector.adopted, first, nil, false, Clock.seconds(61)))
-  assert(sys.close(first))
-  assert(sys.close(second))
+  local pair = RawTables.connector_pair()
+  assert(not pcall(Connector.adopted, pair.controller, nil, false, 5))
+  assert(not pcall(Connector.adopted, pair.controller, nil, false, Clock.seconds(61)))
+  assert(sys.close(pair.controller))
+  assert(sys.close(pair.connector))
 end
 
 local function test_more_name_servers_than_a_connector_holds_is_a_failure()
@@ -687,10 +679,10 @@ end
 --- The lowest descriptor number a new one takes: the same before a lookup
 --- and after it is ended means it left none open.
 local function lowest_free_descriptor(): integer
-  local first, second = stream_pair()
-  local lowest = math.min(first, second)
-  assert(sys.close(first))
-  assert(sys.close(second))
+  local pair = RawTables.connector_pair()
+  local lowest = math.min(pair.controller, pair.connector)
+  assert(sys.close(pair.controller))
+  assert(sys.close(pair.connector))
   return lowest
 end
 
@@ -746,9 +738,9 @@ local function test_a_lookup_through_a_silent_connector_stalls_no_other_task(tmp
   end
   local hosts = tmp .. "/hosts"
   assert(Fs.write(hosts, ""))
-  local first, second = stream_pair()
-  assert(sys.write(second, string.pack(">I4", socket.CONNECTOR_HELLO)) == 4)
-  local dns <close> = assert(Connector.adopted(first, { { host = "127.0.0.1", port = 53 } }, false, Clock.ms(100)))
+  local pair = RawTables.connector_pair()
+  assert(sys.write(pair.connector, string.pack(">I4", socket.CONNECTOR_HELLO)) == 4)
+  local dns <close> = assert(Connector.adopted(pair.controller, { { host = "127.0.0.1", port = 53 } }, false, Clock.ms(100)))
   local found: {Net.Resolved}? = nil
   local why: string? = nil
   local worst, took = ticking_beside(function()
@@ -759,7 +751,7 @@ local function test_a_lookup_through_a_silent_connector_stalls_no_other_task(tmp
   assert(took >= 500 and took < 4000, tostring(took) .. " ms")
   assert(worst < 450, "another task waited " .. tostring(worst) .. " ms behind the lookup")
   assert(not dns:ended())
-  assert(sys.close(second))
+  assert(sys.close(pair.connector))
 end
 
 --- Cancels a lookup of `opts` in its wait: how long the task took to end,
@@ -806,14 +798,14 @@ local function test_a_cancelled_lookup_through_a_connector_closes_everything_it_
   end
   local hosts = tmp .. "/hosts"
   assert(Fs.write(hosts, ""))
-  local first, second = stream_pair()
-  assert(sys.write(second, string.pack(">I4", socket.CONNECTOR_HELLO)) == 4)
-  local dns <close> = assert(Connector.adopted(first, { { host = "127.0.0.1", port = 53 } }, false, Clock.ms(100)))
+  local pair = RawTables.connector_pair()
+  assert(sys.write(pair.connector, string.pack(">I4", socket.CONNECTOR_HELLO)) == 4)
+  local dns <close> = assert(Connector.adopted(pair.controller, { { host = "127.0.0.1", port = 53 } }, false, Clock.ms(100)))
   local waited, outcome, before, after = cancelled_lookup({ timeout_ns = Clock.seconds(30), connector = dns,
     servers = { { host = "127.0.0.1", port = 53 } }, hosts_file = hosts })
   assert(outcome == Poll.CANCELLED, outcome)
   assert(waited < 1500, "a cancelled lookup took " .. tostring(waited) .. " ms to end")
   assert(after == before, "a cancelled lookup left a descriptor open")
   assert(not dns:ended())
-  assert(sys.close(second))
+  assert(sys.close(pair.connector))
 end
