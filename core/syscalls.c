@@ -5823,7 +5823,11 @@ struct cpu_feature {
   unsigned bit;
 };
 
-/* core/vector.c chooses its int8 kernel by the last four of leaf 7. */
+/* core/vector.c chooses its int8 kernel by the last four of leaf 7 (and
+ * by the operating system's saved vector state, which cpuid does not say:
+ * a kernel that saves none lists fewer in /proc/cpuinfo than cpuid does,
+ * and the kernels answer alike, so a key that holds the cpuid bits is
+ * enough). */
 static const struct cpu_feature cpu_features[] = {
   { "aes", 1, 0, 2, 25 }, { "avx512_vnni", 7, 0, 2, 11 }, { "avx512f", 7, 0, 1, 16 },
   { "avx512vl", 7, 0, 1, 31 }, { "avx_vnni", 7, 1, 0, 4 }, { "pclmulqdq", 1, 0, 2, 1 },

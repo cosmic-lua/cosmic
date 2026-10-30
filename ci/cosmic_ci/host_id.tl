@@ -36,7 +36,9 @@
 --- cache, so a byte that moves renames them all. host_id_test.tl holds
 --- them to vectors recorded from the original shell implementation, and
 --- build/host_features_test.tl holds `declared_key.host_features` to the
---- same vectors (testdata/host_features).
+--- same vectors (testdata/host_features). Keying another feature (`keep`)
+--- renames the caches of the hosts that have it: the vector of such a
+--- host is then recorded again, from the key's own digest.
 local Child = require("cosmic.child")
 local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")

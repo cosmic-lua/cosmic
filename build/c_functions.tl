@@ -56,8 +56,8 @@ local connector_only <const> =
   "closed: the connector's live kernel probes and TCP handoff tests enter it, but it cannot report coverage"
 
 local vnni_only <const> =
-  "runs only on a CPU with that encoding of VNNI, which not every host has (an x86_64 host without it, and every " ..
-  "aarch64 one, builds none of them); cosmic/vector_storage_test.tl's kernel comparison enters each a host has"
+  "runs only on a CPU with that encoding of VNNI, which not every x86_64 host has (an aarch64 core builds neither); " ..
+  "cosmic/vector_storage_test.tl's kernel comparison enters each a host has"
 
 --- The C functions no test can enter, by [`key_of`], and why.
 local exempt: {string: string} = {

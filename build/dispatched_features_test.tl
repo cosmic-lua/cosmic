@@ -112,7 +112,7 @@ local SITES <const>: {string:Site} = {
   -- none chooses code by it. syscalls.c asks Apple's
   -- kern.maxfilesperproc too, for the descriptor limit a start raises
   -- to: no feature.
-  ["core/syscalls.c"] = { lines = "c19c0735aebc23d8", reads = {} },
+  ["core/syscalls.c"] = { lines = "73996c52b47965b2", reads = {} },
   ["core/syscalls.h"] = { lines = "f23c54e6e2b7ac0d", reads = {} },
   ["core/syscalls_test.tl"] = { lines = "8e89471955981f9c", reads = {} },
   -- The int8 dot product of [`Vector.corpus`]: VNNI in its AVX-512 (256-bit
