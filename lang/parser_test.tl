@@ -42,7 +42,7 @@ end
 
 --- The first local of `source`, which is `local x ... = ...` and nothing else.
 local function the_local(source: string): Ast.Local
-  local stat = clean(source).chunk.body.stats[1]
+  local stat = assert(clean(source).chunk.body.stats[1])
   assert((stat.kind == "Local"), "not a local: " .. source)
   return stat
 end
@@ -246,7 +246,7 @@ local TYPES <const>: {Case} = {
 
 local function test_each_type_makes_its_tree()
   for _, case in ipairs(TYPES) do
-    same(Dump.dump(the_local("local x: " .. case.source).types[1]), case.want, case.source)
+    same(Dump.dump(assert(the_local("local x: " .. case.source).types[1])), case.want, case.source)
   end
 end
 
@@ -332,7 +332,7 @@ local function test_a_bar_that_begins_a_line_in_a_match_arm_starts_the_next_arm(
       "(MatchArm [(PatBool false) (PatBind (Binding \"e\"))] (Block [(CallStat (Call (Name \"error\") [(Name \"e\")]))]))])",
     "arms")
   -- A type alias before the next arm does not take the bar for a union.
-  local arms = clean("match f() do\n  | (true, v) then local type A = T?\n  | (false, e) then local type B = function(): (X)\nend").chunk.body.stats[1]
+  local arms = assert(clean("match f() do\n  | (true, v) then local type A = T?\n  | (false, e) then local type B = function(): (X)\nend").chunk.body.stats[1])
   assert((arms.kind == "Match") and #arms.arms == 2, "two arms")
   same(tree("local x = a\n| b"), "(Local \"local\" [(Binding \"x\")] _ [(Binary \"|\" (Name \"a\") (Name \"b\"))])", "outside a match")
   same(tree("match f() do\n  | (true, v) then local g = function() return v\n    | w end\nend"),
@@ -345,34 +345,34 @@ local function test_a_reserved_word_stands_where_a_field_name_does()
     "(CallStat (MethodCall (Name \"s\") \"match\" [(Name \"p\")])) " ..
       "(Assign [(Field (Name \"t\") \"continue\")] [(Field (Name \"t\") \"userdata\")]) " ..
       "(Assign [(Field (Name \"x\") \"goto\")] [(Field (Name \"x\") \"as\")])", "after . and :")
-  same(Dump.dump(the_local("local t = { match = 1, as = 2, goto = 3, ['k'] = 4 }").values[1]),
+  same(Dump.dump(assert(the_local("local t = { match = 1, as = 2, goto = 3, ['k'] = 4 }").values[1])),
     "(Table [(Named \"match\" (Integer 1)) (Named \"as\" (Integer 2)) (Named \"goto\" (Integer 3)) (Keyed (String \"k\") (Integer 4))])",
     "before =")
 end
 
 local function test_a_name_followed_by_an_equals_in_a_table_is_a_key_and_any_other_name_begins_an_expression()
-  same(Dump.dump(the_local("local t = { a == 1, a = 1, a }").values[1]),
+  same(Dump.dump(assert(the_local("local t = { a == 1, a = 1, a }").values[1])),
     "(Table [(Positional (Binary \"==\" (Name \"a\") (Integer 1))) (Named \"a\" (Integer 1)) (Positional (Name \"a\"))])", "table")
 end
 
 local function test_a_comma_in_a_type_list_ends_it_where_a_parameter_begins()
   -- The type of `f` returns `A, B` and `c` is the next parameter.
-  same(Dump.dump(the_local("local x: function(f: function(): A, B, c: C)").types[1]),
+  same(Dump.dump(assert(the_local("local x: function(f: function(): A, B, c: C)").types[1])),
     "(TypeFunction _ [(PType \"f\" _ _ (TypeFunction _ _ (Rets [[(TypeName [\"A\"]) (TypeName [\"B\"])]]))) (PType \"c\" _ _ (TypeName [\"C\"]))])",
     "name and colon")
-  same(Dump.dump(the_local("local x: function(f: function(): A, c?: C)").types[1]),
+  same(Dump.dump(assert(the_local("local x: function(f: function(): A, c?: C)").types[1])),
     "(TypeFunction _ [(PType \"f\" _ _ (TypeFunction _ _ (Rets [[(TypeName [\"A\"])]]))) (PType \"c\" optional _ (TypeName [\"C\"]))])",
     "name, question mark and colon")
-  same(Dump.dump(the_local("local x: function(f: function(): A, ...: C)").types[1]),
+  same(Dump.dump(assert(the_local("local x: function(f: function(): A, ...: C)").types[1])),
     "(TypeFunction _ [(PType \"f\" _ _ (TypeFunction _ _ (Rets [[(TypeName [\"A\"])]]))) (PType _ _ variadic (TypeName [\"C\"]))])",
     "rest")
-  same(Dump.dump(the_local("local a, b: integer, string = f()").types[1]), "(TypeName [\"integer\"])", "in a local")
+  same(Dump.dump(assert(the_local("local a, b: integer, string = f()").types[1])), "(TypeName [\"integer\"])", "in a local")
 end
 
 -- the tree around the nodes
 
 local function the_record(source: string): Ast.Record
-  local stat = clean(source).chunk.body.stats[1]
+  local stat = assert(clean(source).chunk.body.stats[1])
   assert((stat.kind == "Record"), "not a record: " .. source)
   return stat
 end
@@ -386,49 +386,49 @@ local function lines(comments: {Lexer.Comment}?): string
 end
 
 local function test_a_doc_comment_is_the_run_of_comments_on_the_lines_before_a_declaration()
-  same(lines(the_local("-- a\n-- b\nlocal x = 1").bindings[1].doc), "-- a|-- b", "local")
-  same(lines(the_local("-- a\n\nlocal x = 1").bindings[1].doc), "", "a blank line ends the run")
-  same(lines(the_local("-- a\n\n-- b\nlocal x = 1").bindings[1].doc), "-- b", "only the last run")
-  local after = clean("local y = 1 -- trailing\nlocal x = 2").chunk.body.stats[2]
+  same(lines(assert(the_local("-- a\n-- b\nlocal x = 1").bindings[1]).doc), "-- a|-- b", "local")
+  same(lines(assert(the_local("-- a\n\nlocal x = 1").bindings[1]).doc), "", "a blank line ends the run")
+  same(lines(assert(the_local("-- a\n\n-- b\nlocal x = 1").bindings[1]).doc), "-- b", "only the last run")
+  local after = assert(clean("local y = 1 -- trailing\nlocal x = 2").chunk.body.stats[2])
   assert((after.kind == "Local"))
   same(lines(assert(after.bindings[1]).doc), "", "the end of a line of code is no doc")
   same(lines(the_record("-- the record\nlocal record R\n  -- the field\n  a: integer\nend").name.doc), "-- the record", "record")
   local r = the_record("local record R\n  -- the field\n  a: integer\n  -- never\n\n  b: integer\nend")
-  local a, b = r.members[1], r.members[2]
+  local a, b = assert(r.members[1]), assert(r.members[2])
   assert((a.kind == "FieldDecl") and (b.kind == "FieldDecl"))
   same(lines(a.doc), "-- the field", "field")
   same(lines(b.doc), "", "field after a blank line")
-  local c = clean("local class C\n  -- the method\n  function m(self) end\nend").chunk.body.stats[1]
+  local c = assert(clean("local class C\n  -- the method\n  function m(self) end\nend").chunk.body.stats[1])
   assert((c.kind == "Class"))
   local m = assert(c.members[1])
   assert((m.kind == "Method"))
   same(lines(m.doc), "-- the method", "method")
-  local e = clean("local enum E\n  -- first\n  \"a\"\n  \"b\"\nend").chunk.body.stats[1]
+  local e = assert(clean("local enum E\n  -- first\n  \"a\"\n  \"b\"\nend").chunk.body.stats[1])
   assert((e.kind == "Enum"))
   same(lines(assert(e.values[1]).doc) .. "/" .. lines(assert(e.values[2]).doc), "-- first/", "enum values")
-  local f = clean("-- the function\nlocal function f() end").chunk.body.stats[1]
+  local f = assert(clean("-- the function\nlocal function f() end").chunk.body.stats[1])
   assert((f.kind == "LocalFunction"))
   same(lines(f.name.doc), "-- the function", "local function")
 end
 
 --- The node with `id` below `node`, or nil.
-local function find(node: Ast.Node, id: integer): Ast.Node
+local function find(node: Ast.Node, id: integer): Ast.Node?
   local base: Ast.Base = node
   if base.id == id then
     return node
   end
-  local found: mut {Ast.Node} = {}
+  local found: Ast.Node? = nil
   Ast.children(node, function(child: Ast.Node)
-    if found[1] == nil then
-      found[1] = find(child, id)
+    if found == nil then
+      found = find(child, id)
     end
   end)
-  return found[1]
+  return found
 end
 
 local function test_nodes_are_numbered_in_a_pre_order_walk_from_the_chunk()
   local chunk = clean("local a = 1 + 2").chunk
-  local local_stat = chunk.body.stats[1]
+  local local_stat = assert(chunk.body.stats[1])
   assert((local_stat.kind == "Local"))
   local value = assert(local_stat.values[1])
   assert((value.kind == "Binary"))
@@ -447,6 +447,7 @@ local function test_a_require_with_a_literal_module_is_listed_with_its_node()
   for i, r in ipairs(chunk.requires) do
     modules[i] = r.module
     local node = find(chunk, r.node)
+    assert(node, "no node " .. tostring(r.node) .. " of " .. r.module)
     assert((node.kind == "Call") or (node.kind == "Import"), "node " .. tostring(r.node) .. " of " .. r.module)
   end
   same(table.concat(modules, " "), "m.one m.two m.three m.four", "requires")
@@ -454,8 +455,8 @@ end
 
 local function test_a_node_spans_its_tokens_and_a_block_its_terminator()
   local chunk = clean("local x = f(1)\nif x then\n  y()\nend").chunk
-  local first = chunk.body.stats[1]
-  local second = chunk.body.stats[2]
+  local first = assert(chunk.body.stats[1])
+  local second = assert(chunk.body.stats[2])
   assert((first.kind == "Local") and (second.kind == "If"))
   local call = assert(first.values[1])
   local span = Ast.span(chunk, call)
@@ -472,7 +473,7 @@ local function test_a_node_spans_its_tokens_and_a_block_its_terminator()
 end
 
 local function test_the_elseif_arms_of_an_if_do_not_overlap()
-  local stat = clean("if a then b() elseif c then d() else e() end").chunk.body.stats[1]
+  local stat = assert(clean("if a then b() elseif c then d() else e() end").chunk.body.stats[1])
   assert((stat.kind == "If"))
   local else_body = stat.else_body
   assert(else_body ~= nil)
@@ -482,7 +483,7 @@ local function test_the_elseif_arms_of_an_if_do_not_overlap()
 end
 
 local function test_the_inner_type_ends_at_the_token_that_closes_two_lists()
-  local t = the_local("local x: A<B<C>>").types[1]
+  local t = assert(the_local("local x: A<B<C>>").types[1])
   assert((t.kind == "TypeName"))
   local inner = assert(t.args[1])
   assert((inner.kind == "TypeName"))
@@ -491,8 +492,8 @@ end
 
 local function test_a_function_with_a_colon_or_a_long_path_is_a_function_statement_in_the_tree()
   local colon = parse("function R:m() end")
-  assert(colon.errors[1].code == "method_in_record")
-  assert(Dump.dump(colon.chunk.body.stats[1]) == "(Function [(Name \"R\") (Name \"m\")] _ (Fn _ _ (Block)))", "still a Function")
+  assert(assert(colon.errors[1]).code == "method_in_record")
+  assert(Dump.dump(assert(colon.chunk.body.stats[1])) == "(Function [(Name \"R\") (Name \"m\")] _ (Fn _ _ (Block)))", "still a Function")
 end
 
 local function test_every_code_is_catalogued_once_with_the_lexers_first()
@@ -509,7 +510,7 @@ end
 
 local function test_a_node_of_no_token_is_empty_at_the_token_it_stands_before()
   local parsed = parse("local x =\nlocal y = 1")
-  local stat = parsed.chunk.body.stats[1]
+  local stat = assert(parsed.chunk.body.stats[1])
   assert((stat.kind == "Local"))
   local missing = assert(stat.values[1])
   assert((missing.kind == "Error"))
