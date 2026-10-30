@@ -998,9 +998,9 @@ build/zig_tool_test.tl nil_not_allowed 1
 
 
 
-core/sqlite_functions_fuzz_test.tl nil_not_allowed 69
+core/sqlite_functions_fuzz_test.tl nil_not_allowed 68
 
-core/sqlite_functions_test.tl nil_not_allowed 36
+core/sqlite_functions_test.tl nil_not_allowed 35
 
 core/sqlite_test.tl nil_not_allowed 4
 
@@ -1170,13 +1170,13 @@ cosmic/poll_test.tl nil_not_allowed 18
 
 cosmic/rand_test.tl nil_not_allowed 2
 
-cosmic/relay/address.tl nil_not_allowed 5
 
-cosmic/relay/address_fuzz_test.tl nil_not_allowed 16
 
-cosmic/relay/address_test.tl nil_not_allowed 4
 
-cosmic/relay/grant.tl nil_not_allowed 5
+
+
+
+
 
 cosmic/removed_test.tl nil_not_allowed 7
 
@@ -1918,11 +1918,11 @@ cosmic/poll_test.tl index_may_be_nil 15
 
 cosmic/rand_test.tl index_may_be_nil 1
 
-cosmic/relay/address.tl index_may_be_nil 4
 
-cosmic/relay/address_fuzz_test.tl index_may_be_nil 9
 
-cosmic/relay/grant.tl index_may_be_nil 1
+
+
+
 
 cosmic/sandbox/policy.tl index_may_be_nil 3
 
@@ -3699,7 +3699,7 @@ build/workflows_test.tl any_use 16
 
 core/allocation_test.tl any_use 4
 
-core/artifact_fd_test.tl any_use 84
+core/artifact_fd_test.tl any_use 78
 
 core/class_form_test.tl any_use 4
 
@@ -5360,9 +5360,9 @@ cosmic/proc_user_test.tl or_mix 1
 
 cosmic/rand_test.tl or_mix 2
 
-cosmic/relay/address_test.tl or_mix 8
 
-cosmic/relay/grant.tl or_mix 1
+
+
 
 cosmic/removed_test.tl or_mix 15
 
@@ -7534,17 +7534,11 @@ build/workflows_test.tl array_hole 1
 
 build/zig_test.tl array_hole 2
 
-core/artifact_fd_test.tl array_hole 2
 
-core/connector_public_fuzz_test.tl array_hole 6
 
-core/connector_public_test.tl array_hole 1
 
-core/sqlite_functions_fuzz_test.tl array_hole 1
 
-core/sqlite_functions_test.tl array_hole 1
 
-core/syscalls_tool_test.tl array_hole 1
 
 cosmic/archive.tl array_hole 1
 
@@ -7617,7 +7611,6 @@ cosmic/web/typed.tl array_hole 1
 
 cosmic/zip_fuzz_test.tl array_hole 6
 
-eval/summarize.tl array_hole 4
 
 
 

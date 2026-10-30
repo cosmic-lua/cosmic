@@ -215,7 +215,9 @@ local function flipped(bytes: {integer}, at: integer): {integer}
   local copy: mut {integer} = { table.unpack(bytes) }
   local index = (at - 1) // 8 + 1
   local byte = assert(copy[index], "bit " .. tostring(at) .. " is inside the address")
-  copy[index] = byte ~ (1 << (7 - (at - 1) % 8))
+  local flipped_byte = byte ~ (1 << (7 - (at - 1) % 8))
+  table.remove(copy, index)
+  table.insert(copy, index, flipped_byte)
   return copy
 end
 

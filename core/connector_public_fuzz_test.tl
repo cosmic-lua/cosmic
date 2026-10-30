@@ -54,16 +54,22 @@ local function span(cidr: string): {integer}, {integer}
   local address, bits = cidr:match("^(.-)/(%d+)$")
   assert(address and bits, "a denied prefix is an address and a length: " .. cidr)
   local first = assert(Address.parse(address))
-  local last: mut {integer} = { table.unpack(first) }
+  local last: mut {integer} = {}
   local held = assert(math.tointeger(tonumber(bits)), "a prefix length is an integer: " .. cidr)
   for i = 1, #first do
     local kept = math.max(0, math.min(8, held - (i - 1) * 8))
     local mask = (0xff << (8 - kept)) & 0xff
     local masked = byte_at(first, i) & mask
     first[i] = masked
-    last[i] = masked | (~mask & 0xff)
+    last[#last + 1] = masked | (~mask & 0xff)
   end
   return first, last
+end
+
+--- `bytes` with the one at `at` replaced by `byte`.
+local function replace(bytes: mut {integer}, at: integer, byte: integer)
+  table.remove(bytes, at)
+  table.insert(bytes, at, byte)
 end
 
 --- `bytes` moved by `delta` (a few, up or down), carrying between bytes.
@@ -73,11 +79,14 @@ local function moved(bytes: {integer}, delta: integer): {integer}
   for i = #out, 1, -1 do
     local value = byte_at(out, i) + carry
     if value > 255 then
-      out[i], carry = value - 256, 1
+      replace(out, i, value - 256)
+      carry = 1
     elseif value < 0 then
-      out[i], carry = value + 256, -1
+      replace(out, i, value + 256)
+      carry = -1
     else
-      out[i], carry = value, 0
+      replace(out, i, value)
+      carry = 0
     end
     if carry == 0 then break end
   end
@@ -94,8 +103,9 @@ end
 
 local function random_bytes(src: Fuzz.Source, count: integer): {integer}
   local out: mut {integer} = {}
-  for i = 1, count do
-    out[i] = src:int(0, 3) == 0 and src:int(0, 255) or Fuzz.pick(src, { 0, 1, 127, 128, 254, 255, src:int(0, 255) })
+  for _ = 1, count do
+    local byte = src:int(0, 3) == 0 and src:int(0, 255) or Fuzz.pick(src, { 0, 1, 127, 128, 254, 255, src:int(0, 255) })
+    out[#out + 1] = byte
   end
   return out
 end
@@ -124,7 +134,7 @@ local function gen_address(src: Fuzz.Source): string
     local at = src:int(0, #first * 8)
     if at >= 1 then
       local index = (at - 1) // 8 + 1
-      inside[index] = byte_at(inside, index) ~ (1 << (7 - (at - 1) % 8))
+      replace(inside, index, byte_at(inside, index) ~ (1 << (7 - (at - 1) % 8)))
     end
     return packed(inside)
   end
@@ -168,6 +178,20 @@ local function decided(fd: integer, item: string): boolean
   assert(tag == 3, "the reply carries another tag: " .. tostring(tag))
   assert(errno == 0 or errno == REFUSED, "errno " .. tostring(errno))
   return errno == 0
+end
+
+local function test_moving_an_address_changes_it_with_or_without_a_carry()
+  local function same(a: {integer}, b: {integer}): boolean
+    if #a ~= #b then return false end
+    for i = 1, #a do
+      if a[i] ~= b[i] then return false end
+    end
+    return true
+  end
+  assert(same(moved({ 8, 8, 4, 4 }, 1), { 8, 8, 4, 5 }), "one up moves the last byte")
+  assert(same(moved({ 8, 8, 4, 4 }, -2), { 8, 8, 4, 2 }), "two down moves the last byte")
+  assert(same(moved({ 8, 8, 4, 255 }, 1), { 8, 8, 5, 0 }), "one up past 255 carries")
+  assert(same(moved({ 8, 8, 5, 0 }, -1), { 8, 8, 4, 255 }), "one down past 0 borrows")
 end
 
 local function test_the_connector_and_the_relay_s_check_agree_on_every_address(tmp: string)

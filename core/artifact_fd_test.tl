@@ -137,10 +137,13 @@ local cases: {string: function(at: integer, fd: integer): {any}} = {
     return { { grants = {}, promises = {}, rlimits = {} }, { fd } }
   end,
   spawn = function(at: integer, fd: integer): {any}
-    local args: mut {any} = { "/nonexistent/program", { "program" }, nil, nil, nil, nil, nil, false,
-      nil, nil }
-    if at == 9 then args[9] = { [3] = fd } else args[at] = fd end
-    return args
+    -- The argument at `at` is `fd` (inside a table at 9, the options), every other optional one nil.
+    local function put(slot: integer): any
+      if slot ~= at then return nil end
+      if slot == 9 then return { [3] = fd } end
+      return fd
+    end
+    return { "/nonexistent/program", { "program" }, put(3), put(4), put(5), put(6), put(7), false, put(9), put(10) }
   end,
 }
 
