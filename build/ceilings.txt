@@ -95,7 +95,7 @@ cosmic/web/sse.tl key_type 1
 
 cosmic/web/types.tl key_type 3
 
-eval/check/grade.tl key_type 2
+
 
 # a type named through a field of a record ([`importer.Module`] is the field `Module: Module`): write `type Module = ...`
 # inside the record, where the grammar declares a nested type
@@ -4520,7 +4520,7 @@ cosmic/web/typed.tl is_on_record 3
 
 eval/result.tl is_on_record 6
 
-eval/round.tl is_on_record 2
+
 
 eval/summarize.tl is_on_record 9
 
@@ -5965,7 +5965,7 @@ eval/check/grade.tl and_ternary 10
 
 eval/result.tl and_ternary 8
 
-eval/round.tl and_ternary 9
+eval/round.tl and_ternary 7
 
 eval/round_test.tl and_ternary 1
 
@@ -6987,7 +6987,7 @@ cosmic/web/testing.tl arms_differ 2
 
 cosmic/zip.tl arms_differ 1
 
-eval/check/grade.tl arms_differ 5
+
 
 eval/declared_types_test.tl arms_differ 2
 
