@@ -451,7 +451,7 @@ end
 
 local record Joined
   path: string
-  from: string
+  from?: string
   letters: mut {string:boolean}
 end
 
@@ -519,8 +519,10 @@ end
 function rules.system_profile(host: string, exists: function(string): boolean): rules.Policy
   local grants: mut {rules.Grant} = {}
   for _, entry in ipairs(rules.system_paths(host)) do
-    if exists(entry[1]) then
-      grants[#grants + 1] = { path = entry[1], letters = entry[2] }
+    local path = assert(entry[1], "a system path entry names its path")
+    local letters = assert(entry[2], "a system path entry names its letters")
+    if exists(path) then
+      grants[#grants + 1] = { path = path, letters = letters }
     end
   end
   return { grants = grants }
@@ -682,8 +684,12 @@ function rules.merge(...: rules.Policy): rules.Policy?, string
   for _, held in ipairs(order) do
     local letters: mut {string} = {}
     for letter in pairs(held.letters) do letters[#letters + 1] = letter end
-    grants[#grants + 1] = { path = held.path, from = held.from,
-      letters = canonical_letters(table.concat(letters)) }
+    -- Each policy was checked above, so every grant holds a letter of LETTERS.
+    local canonical = canonical_letters(table.concat(letters))
+    if canonical == nil then
+      return refuse(path_of({ "grants" }) .. ": the grant of " .. held.path .. " holds no letter of \"" .. LETTERS .. "\"")
+    end
+    grants[#grants + 1] = { path = held.path, from = held.from, letters = canonical }
   end
   table.sort(grants, function(a: rules.Grant, b: rules.Grant): boolean
     if a.path ~= b.path then return a.path < b.path end
