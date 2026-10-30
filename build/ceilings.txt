@@ -240,7 +240,7 @@ build/links.tl 2
 
 build/pipeline.tl 1
 
-build/policy_rules.tl 5
+build/policy_rules.tl 4
 
 build/positions.tl 1
 
@@ -260,7 +260,7 @@ build/stand_in_probe.tl 1
 
 build/syntax_link_text.tl 1
 
-build/syntax_rewrite.tl 4
+build/syntax_rewrite.tl 3
 
 build/term_filter.tl 1
 
@@ -1998,7 +1998,6 @@ build/importer.tl view_written 3
 
 build/json.tl view_written 2
 
-build/json_query.tl view_written 2
 
 build/json_query_test.tl view_written 1
 
@@ -3318,7 +3317,7 @@ build/shared_compiles.tl overload_none 2
 
 build/stand_in_probe.tl overload_none 1
 
-build/syntax_rewrite.tl overload_none 2
+build/syntax_rewrite.tl overload_none 1
 
 build/test_closure_diagnostic_test.tl overload_none 1
 
@@ -6800,7 +6799,6 @@ build/declared_key_test.tl array_of_optional 1
 
 build/links_test.tl array_of_optional 1
 
-build/policy_rules.tl array_of_optional 1
 
 core/artifact_fd_test.tl array_of_optional 4
 
@@ -7243,7 +7241,6 @@ lang/recursive_alias_test.tl alternatives_as_value 3
 
 
 
-build/ceilings.tl not_assignable 1
 
 
 
