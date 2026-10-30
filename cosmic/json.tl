@@ -775,7 +775,8 @@ end
 
 --- `v` as a [`Json.Value`] with its parts checked, and "". nil and a
 --- message naming the first part that is none, by its JSON Pointer.
-local function value_at(v: any, pointer: string, depth: integer): Json.Value?, string
+local function value_at(v: any, pointer: string, depth: integer, active: mut {string: boolean},
+                        done: mut {string: Json.Value}): Json.Value?, string
   if v is string then
     if utf8.len(v) == nil then
       return refuse("the string at " .. at_pointer(pointer) .. " is not UTF-8")
@@ -795,6 +796,13 @@ local function value_at(v: any, pointer: string, depth: integer): Json.Value?, s
     if v == nil then return refuse("no value at " .. at_pointer(pointer)) end
     return refuse(("the value at %s is a %s, which JSON cannot say"):format(at_pointer(pointer), type(v)))
   end
+  -- A table is told apart by its address: a map cannot be keyed by a table.
+  local id = ("%p"):format(t)
+  local converted = done[id]
+  if converted ~= nil then return converted, "" end
+  if active[id] == true then
+    return refuse("the table at " .. at_pointer(pointer) .. " contains itself")
+  end
   if depth > Json.depth_limit then
     return refuse(("nesting at %s is deeper than %d"):format(at_pointer(pointer), Json.depth_limit))
   end
@@ -805,14 +813,18 @@ local function value_at(v: any, pointer: string, depth: integer): Json.Value?, s
   if m.layout == "hole" or (m.layout == "array" and #m.keys > 0) then
     return refuse("the array at " .. at_pointer(pointer) .. " has a hole; decode with null_value = Json.null to keep a null")
   end
+  active[id] = true
   if m.layout == "array" then
     local items: mut {Json.Value} = {}
     for i = 1, m.extent do
-      local item, why = value_at(t[i], pointer .. "/" .. tostring(i - 1), depth + 1)
+      local item, why = value_at(t[i], pointer .. "/" .. tostring(i - 1), depth + 1, active, done)
       if item == nil then return nil, why end
       items[i] = item
     end
-    return Json.array(items), ""
+    local array = Json.array(items)
+    active[id] = nil
+    done[id] = array
+    return array, ""
   end
   local members: mut {string: Json.Value} = {}
   for _, key in ipairs(m.keys) do
@@ -820,11 +832,13 @@ local function value_at(v: any, pointer: string, depth: integer): Json.Value?, s
       if utf8.len(key) == nil then
         return refuse("a name at " .. at_pointer(pointer) .. " is not UTF-8")
       end
-      local member, why = value_at(t[key], pointer .. "/" .. pointer_segment(key), depth + 1)
+      local member, why = value_at(t[key], pointer .. "/" .. pointer_segment(key), depth + 1, active, done)
       if member == nil then return nil, why end
       members[key] = member
     end
   end
+  active[id] = nil
+  done[id] = members
   return members, ""
 end
 
@@ -837,7 +851,10 @@ end
 --- `value` is a nil (a decoded `null`, unless `null_value` kept it), a
 --- function, userdata other than [`Json.null`], a table with mixed keys or
 --- a hole, a string that is not UTF-8, or nesting past [`Json.depth_limit`].
---- It copies the value; a Value read from it never changes `value`. A
+--- A table that holds itself, however deep, is refused, naming the place it
+--- came back to; a table reached by two ways is copied once and the copy is
+--- shared, so a value of 40 levels that holds the one below it twice takes
+--- 40 steps, not 2^40. It copies the value; a Value read from it never changes `value`. A
 --- `null` that `decode` dropped from the end of an array is already gone from
 --- `value`, so it is not found here; one inside an array is a hole and is
 --- refused. The result may nest as deep as [`Json.depth_limit`], deeper than
@@ -846,7 +863,7 @@ end
 ---     local decoded = assert(Json.decode('{"tools": ["a", "b"]}'))
 ---     local value = assert(Json.to_value(decoded))
 function Json.to_value(value: any): Json.Value?, string
-  return value_at(value, "", 1)
+  return value_at(value, "", 1, {}, {})
 end
 
 --- The highest position of the array `t`, holes and all.

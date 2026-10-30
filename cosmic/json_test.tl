@@ -911,3 +911,31 @@ local function test_to_value_leaves_its_argument_alone()
   local copy = assert(Json.to_value(source))
   assert(copy ~= source and same(source, decoded('{"a": [1, {"b": 2}]}')))
 end
+
+local function test_to_value_refuses_a_table_that_holds_itself()
+  local single: mut {Json.Value} = {}
+  single[1] = single
+  local _, one = Json.to_value(single)
+  assert(one == 'json: the table at pointer "/0" contains itself', one)
+  local double: mut {Json.Value} = {}
+  double[1] = double
+  double[#double + 1] = double
+  local _, two = Json.to_value(double)
+  assert(two == 'json: the table at pointer "/0" contains itself', two)
+  local named: mut {string: Json.Value} = {}
+  named["again"] = { named }
+  local _, deep = Json.to_value(named)
+  assert(deep == 'json: the table at pointer "/again/0" contains itself', deep)
+end
+
+local function test_to_value_copies_a_shared_table_once()
+  local node: {Json.Value} = { 1 }
+  for _ = 1, 40 do
+    node = { node, node }
+  end
+  local value = assert(Json.to_value(node))
+  assert(value ~= node)
+  local pair: {Json.Value} = { 1 }
+  local twice = assert(Json.to_value({ pair, pair }))
+  assert(encoded(twice) == "[[1],[1]]")
+end
