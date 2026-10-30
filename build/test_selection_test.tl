@@ -9,6 +9,13 @@ local Test = require("cosmic.test")
 local Clock = require("cosmic.clock")
 local build_paths = require("build.paths")
 
+--- The element of `list` at `index`, which the case knows is there.
+local function nth<T>(list: {T}, index: integer): T
+  local found = list[index]
+  assert(found ~= nil, "the list has an element at " .. tostring(index))
+  return found
+end
+
 --- The program itself, which its tests start.
 Test.policy{ profiles = { "cosmic" }, grants = { { path = "o/bin", letters = "rx" } } }
 
@@ -92,7 +99,7 @@ local function test_cli_selects_one_path_and_runs_it_fresh(tmp: string)
   local rows = assert(Sqlite.text_rows(db,
     "SELECT COUNT(*) FROM coverage WHERE path = 'suite.helper'"))
   assert(db:close())
-  assert(rows[1]:text(1) ~= "0", "selected run omitted dependency coverage")
+  assert(nth(rows, 1):text(1) ~= "0", "selected run omitted dependency coverage")
 end
 
 local function test_a_standing_verdict_still_credits_its_coverage(tmp: string)
@@ -112,10 +119,10 @@ local function test_a_standing_verdict_still_credits_its_coverage(tmp: string)
     "SELECT test, hits FROM coverage_by_test"))
   assert(db:close())
   assert(#by_run == 2, "expected a coverage snapshot per run")
-  assert(by_run[1]:text(1) ~= "0" and by_run[2]:text(1) == by_run[1]:text(1),
-    "the standing run credited " .. by_run[2]:text(1) .. " lines, not " .. by_run[1]:text(1))
+  assert(by_run[1]:text(1) ~= "0" and nth(by_run, 2):text(1) == nth(by_run, 1):text(1),
+    "the standing run credited " .. nth(by_run, 2):text(1) .. " lines, not " .. nth(by_run, 1):text(1))
   assert(#credits == 1, "expected one coverage_by_test row for the one test")
-  assert(credits[1]:text(2):find("suite.helper\t", 1, true), credits[1]:text(2))
+  assert(credits[1]:text(2):find("suite.helper\t", 1, true), nth(credits, 1):text(2))
 end
 
 --- A snapshot holds every executable line of a module, ascending, with
@@ -320,9 +327,8 @@ local function test_unrelated()
   assert(true)
 end
 ]]))
-    local argument = if selector == "." then "." elseif
-      selector == "./" then "./" else
-      selector == "absolute" and root end or root .. "/"
+    local argument = if selector == "." then "." elseif selector == "./" then "./" elseif
+      selector == "absolute" then root else root .. "/" end
     local output = tmp .. "/" .. selector .. ".out"
     local result = invoke(root, output, argument)
     assert(result.ok, assert(Fs.read(output)))
@@ -342,8 +348,8 @@ local function test_another_project_counts_none_of_the_cores_c(tmp: string)
   local credits = assert(Sqlite.text_rows(db,
     "SELECT COUNT(*) FROM coverage_by_test WHERE hits LIKE '%core/%'"))
   assert(db:close())
-  assert(lines[1]:text(1) == "0", lines[1]:text(1) .. " coverage rows name the core's C")
-  assert(credits[1]:text(1) == "0", credits[1]:text(1) .. " tests are credited the core's C")
+  assert(nth(lines, 1):text(1) == "0", nth(lines, 1):text(1) .. " coverage rows name the core's C")
+  assert(nth(credits, 1):text(1) == "0", nth(credits, 1):text(1) .. " tests are credited the core's C")
 end
 
 --- A test whose directory cannot be made fails as that test's own

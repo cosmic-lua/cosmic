@@ -8,6 +8,13 @@ local Fs = require("cosmic.fs")
 local Rand = require("cosmic.rand")
 local rand = require("build.rand")
 
+--- The element of `list` at `index`, which the case knows is there.
+local function nth<T>(list: {T}, index: integer): T
+  local found = list[index]
+  assert(found ~= nil, "the list has an element at " .. tostring(index))
+  return found
+end
+
 local record Ran
   mut code: integer
   mut out: string
@@ -105,11 +112,11 @@ local function test_uuid_v7_sorts_as_drawn_within_one_millisecond()
   local ids = lines(ran.out)
   assert(#ids == 300)
   for index = 2, #ids do
-    assert(ids[index - 1] < ids[index], ids[index - 1] .. " !< " .. ids[index])
+    assert(nth(ids, index - 1) < nth(ids, index), nth(ids, index - 1) .. " !< " .. nth(ids, index))
   end
   local real = lines(run({ "uuid", "--v7", "-n", "2000" }).out)
   for index = 2, #real do
-    assert(real[index - 1] < real[index], real[index - 1] .. " !< " .. real[index])
+    assert(nth(real, index - 1) < nth(real, index), nth(real, index - 1) .. " !< " .. nth(real, index))
   end
 end
 
@@ -203,7 +210,8 @@ local function test_int_seeded_covers_the_range_evenly_enough()
   -- A fixed seed draws one fixed sequence, so this cannot flake: every
   -- value turns up, and none is far from the 100 a fair die gives.
   for value = 1, 6 do
-    assert(counts[value] ~= nil and counts[value] > 60 and counts[value] < 140, value)
+    local drawn = counts[value]
+    assert(drawn ~= nil and drawn > 60 and drawn < 140, value)
   end
   assert(run({ "int", "1", "6", "-n", "600", "--seed", "1" }).out == ran.out)
   assert(run({ "int", "1", "6", "-n", "600", "--seed", "2" }).out ~= ran.out)
@@ -218,7 +226,9 @@ local function test_int_from_entropy_rejects_rather_than_wraps()
   local ran = run({ "int", "0", "2", "-n", "3" }, { entropy = function(count: integer): string?, string
     calls.value = calls.value + 1
     local parts: mut {string} = {}
-    for index = 1, count // 8 do parts[index] = string.pack("<i8", draws[(index - 1) % 5 + 1]) end
+    for index = 1, count // 8 do
+      parts[index] = string.pack("<i8", nth(draws, (index - 1) % 5 + 1))
+    end
     return table.concat(parts), ""
   end })
   assert(ran.out == "1\n2\n0\n" and calls.value == 1, ran.out .. calls.value)
@@ -235,7 +245,10 @@ local function test_int_from_entropy_reaches_every_value_and_no_seed_is_used()
     local value = assert(math.tointeger(tonumber(line)))
     counts[value] = (counts[value] or 0) + 1
   end
-  for value = -1, 1 do assert(counts[value] ~= nil and counts[value] > 60, value) end
+  for value = -1, 1 do
+    local drawn = counts[value]
+    assert(drawn ~= nil and drawn > 60, value)
+  end
   -- Seeded runs never ask the entropy source.
   local untouched = run({ "int", "1", "9", "--seed", "3" }, { entropy = function(_count: integer): string?, string
     error("a seeded draw read the entropy source")

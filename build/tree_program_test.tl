@@ -9,6 +9,13 @@ local importer = require("build.importer")
 local withheld = require("build.withheld")
 local work = require("build.work")
 
+--- The element of `list` at `index`, which the case knows is there.
+local function nth<T>(list: {T}, index: integer): T
+  local found = list[index]
+  assert(found ~= nil, "the list has an element at " .. tostring(index))
+  return found
+end
+
 Test.policy{ grants = {
   { path = "lang/stdlib.d.tl", letters = "r" }, { path = "lang/prelude.d.tl", letters = "r" },
   { path = "core/syscalls.h", letters = "r" }, { path = "core/process.h", letters = "r" },
@@ -84,7 +91,7 @@ local function test_a_binding_of_c_is_typed_where_the_tree_declares_it_and_untyp
     names[#names + 1] = assert(entry[3])
     assert(typed.program.external[assert(entry[3])] ~= true)
     -- the file they stand for, the module, and the header the ceilings are kept under
-    assert(entry[1]:find("%.d%.tl$") ~= nil and entry[4]:find("^core/%w+%.h$") ~= nil, entry[1] .. " " .. entry[4])
+    assert(nth(entry, 1):find("%.d%.tl$") ~= nil and nth(entry, 4):find("^core/%w+%.h$") ~= nil, nth(entry, 1) .. " " .. nth(entry, 4))
   end
   -- a provider that answers one is a declaration too
   local provided = TreeProgram.build(TreeProgram.index({}, {}), globals, false, nil, function(module: string): Driver.Source?
@@ -95,7 +102,7 @@ local function test_a_binding_of_c_is_typed_where_the_tree_declares_it_and_untyp
   typed:lower(names)
   for _, name in ipairs(names) do
     local result = assert(typed:result(name, false))
-    assert(not result.broken and #result.errors == 0, name .. ": " .. tostring(result.errors[1] and result.errors[1].msg))
+    assert(not result.broken and #result.errors == 0, name .. ": " .. tostring(result.errors[1] and nth(result.errors, 1).msg))
   end
 end
 
@@ -130,15 +137,15 @@ local function test_the_guides_and_templates_are_the_modules_the_stage_derives_f
   end
   assert(work.close(handle))
   table.sort(entries, function(a: {string}, b: {string}): boolean
-    return a[1] < b[1]
+    return nth(a, 1) < nth(b, 1)
   end)
   -- the same files, the same modules, the same text: two guides and two templates
   assert(#entries == 4 and #derived == 4, tostring(#entries) .. " / " .. tostring(#derived))
   for i, entry in ipairs(entries) do
     local row = assert(derived[i])
-    assert(entry[1] == row[1] and entry[3] == row[2] and entry[2] == row[3], entry[1] .. " is not the stage's " .. row[1])
+    assert(entry[1] == row[1] and entry[3] == row[2] and entry[2] == row[3], nth(entry, 1) .. " is not the stage's " .. nth(row, 1))
   end
-  assert(entries[1][3] == "doc.guides.g" and entries[3][3] == "pages.home" and entries[4][3] == "pages", entries[3][3])
+  assert(nth(entries, 1)[3] == "doc.guides.g" and nth(entries, 3)[3] == "pages.home" and nth(entries, 4)[3] == "pages", nth(entries, 3)[3])
 end
 
 local function test_a_guide_or_template_the_build_refuses_is_refused_with_its_reason(tmp: string)

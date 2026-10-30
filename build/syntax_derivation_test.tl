@@ -8,6 +8,13 @@ local Test = require("cosmic.test")
 local analysis_schema = require("build.analysis_schema")
 local work = require("build.work")
 
+--- The element of `list` at `index`, which the case knows is there.
+local function nth<T>(list: {T}, index: integer): T
+  local found = list[index]
+  assert(found ~= nil, "the list has an element at " .. tostring(index))
+  return found
+end
+
 Test.policy{}
 
 local function parsed(source: string, name: string): Ast.Chunk
@@ -45,7 +52,7 @@ local function test_a_source_that_returns_a_value_gets_its_requires_and_its_stub
   assert(#rows(handle.db, "SELECT * FROM globals") == 0)
   local stubs = rows(handle.db, "SELECT source_hash || '|' || pruned FROM stubs")
   assert(#stubs == 1 and stubs[1] == "h1|1", table.concat(stubs, " "))
-  assert(rows(handle.db, "SELECT text FROM stubs")[1]:find("return Fs.size()", 1, true) == nil)
+  assert(nth(rows(handle.db, "SELECT text FROM stubs"), 1):find("return Fs.size()", 1, true) == nil)
   assert(table.concat(rows(handle.db, "SELECT has_return || '|' || export FROM parsed"), " ") == "1|M")
   assert(work.close(handle))
 end
@@ -141,8 +148,13 @@ local function tables_of(db: Sqlite.Handle): {string: string}
       local cells: mut {string} = {}
       for index = 2, row:count() do
         local kind = row:kind(index)
-        cells[#cells + 1] = kind == "integer" and tostring(row:integer(index)) or kind == "text" and row:text(index) or
-          "null"
+        local cell = "null"
+        if kind == "integer" then
+          cell = tostring(row:integer(index))
+        elseif kind == "text" then
+          cell = row:text(index)
+        end
+        cells[#cells + 1] = cell
       end
       lines[#lines + 1] = table.concat(cells, "\1")
     end
@@ -153,9 +165,9 @@ end
 
 local function test_every_table_a_source_fills_gets_its_rows(tmp: string)
   for _, case in ipairs({ { "module.tl", MODULE, "m" }, { "t_test.tl", TEST, "t" } }) do
-    local file, source = case[1], case[2]
-    assert(Fs.mkdirs(tmp .. "/" .. case[3] .. "-port"))
-    local port = assert(work.open(tmp .. "/" .. case[3] .. "-port"))
+    local file, source = nth(case, 1), nth(case, 2)
+    assert(Fs.mkdirs(tmp .. "/" .. nth(case, 3) .. "-port"))
+    local port = assert(work.open(tmp .. "/" .. nth(case, 3) .. "-port"))
     local ok, why = Derivation.insert(port.db, "h", file, source, parsed(source, file), false)
     assert(ok, why)
     local new = tables_of(port.db)
@@ -165,7 +177,8 @@ local function test_every_table_a_source_fills_gets_its_rows(tmp: string)
       filled = { "parsed", "requires", "catalog", "docs", "refs", "bound", "examples", "links", "stubs" }
     end
     for _, name in ipairs(filled) do
-      assert(#new[name] > 0, file .. ": nothing is written to " .. name)
+      local held = assert(new[name], file .. ": no table " .. name)
+      assert(#held > 0, file .. ": nothing is written to " .. name)
     end
     assert(work.close(port))
   end
@@ -190,8 +203,8 @@ local function test_a_derived_source_keeps_its_symbols_at_the_lines_of_the_file_
   }, "\n")
   local found = assert(Derivation.rows_of(parsed(source, "gen.tl"), source, "gen.tl", true))
   assert(#found.links == 0)
-  assert(#found.analysis.docs == 1 and found.analysis.docs[1].line == 41, tostring(found.analysis.docs[1].line))
+  assert(#found.analysis.docs == 1 and found.analysis.docs[1].line == 41, tostring(nth(found.analysis.docs, 1).line))
   local staged = assert(Derivation.rows_of(parsed(source, "gen.tl"), source, "gen.tl", false))
   assert(#staged.links == 1 and staged.links[1].link.target == "open")
-  assert(staged.analysis.docs[1].line == 3)
+  assert(nth(staged.analysis.docs, 1).line == 3)
 end

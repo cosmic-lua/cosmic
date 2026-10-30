@@ -10,6 +10,13 @@
 local Fuzz = require("build.fuzz")
 local codec = require("build.codec")
 
+--- The element of `list` at `index`, which the case knows is there.
+local function nth<T>(list: {T}, index: integer): T
+  local found = list[index]
+  assert(found ~= nil, "the list has an element at " .. tostring(index))
+  return found
+end
+
 local NAMES <const>: {codec.Name} = { "hex", "base64", "base64url" }
 
 local TEXT <const> = "0123456789abcdefABCDEFxyzXYZ+/-_==\n \t\r\0\xff"
@@ -32,9 +39,9 @@ local function strewn(text: string, where: string): string
   local marks: {string} = { " ", "\t", "\n", "\r", "\f", "\v" }
   local out = text
   for i = 1, #where do
-    local b = where:byte(i)
+    local b = assert(where:byte(i), "where has a byte at " .. tostring(i))
     local at = b % (#out + 1)
-    out = out:sub(1, at) .. marks[b % #marks + 1] .. out:sub(at + 1)
+    out = out:sub(1, at) .. nth(marks, b % #marks + 1) .. out:sub(at + 1)
   end
   return out
 end
@@ -50,17 +57,17 @@ local function test_decoding_takes_back_what_encoding_writes(tmp: string)
       end,
       check = function(input: string): boolean, string
         local fields = Fuzz.unpack(input)
-        local bytes, wrap = fields[1], math.tointeger(tonumber(fields[2])) or 0
+        local bytes, wrap = nth(fields, 1), math.tointeger(tonumber(fields[2])) or 0
         local lenient = fields[3] == "1" and name ~= "hex"
         local text = codec.encode(name, bytes, wrap)
-        local mixed = strewn(text, fields[4])
+        local mixed = strewn(text, nth(fields, 4))
         local back, why = codec.decode(name, mixed, lenient)
         if back ~= bytes then
           return false, ("%q decoded to %q: %s"):format(mixed, tostring(back), why)
         end
         if lenient then
           -- Without its padding, the text still reads.
-          local bare = strewn(text:gsub("[=\n]", ""), fields[4])
+          local bare = strewn(text:gsub("[=\n]", ""), nth(fields, 4))
           local again = codec.decode(name, bare, true)
           if again ~= bytes then
             return false, ("%q decoded to %q"):format(bare, tostring(again))
@@ -169,8 +176,8 @@ local function test_chunked_decoding_answers_as_the_whole_text_does(tmp: string)
           end,
           check = function(input: string): boolean, string
             local fields = Fuzz.unpack(input)
-            local want, want_why = codec.decode(name, fields[1], lenient)
-            local got, why = decode_cut(name, fields[1], lenient, fields[2])
+            local want, want_why = codec.decode(name, nth(fields, 1), lenient)
+            local got, why = decode_cut(name, nth(fields, 1), lenient, nth(fields, 2))
             if got ~= want or why ~= want_why then
               return false, ("%q cut %q: %s | %s, whole %s | %s"):format(
                 fields[1], fields[2], tostring(got), why, tostring(want), want_why)
