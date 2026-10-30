@@ -56,6 +56,14 @@ local function test_the_first_line_naming_a_key_wins()
   assert(#component.notices == 2)
 end
 
+--- A key that names nothing is a malformed record, not a blank version
+--- a later read trips over.
+local function test_a_key_without_a_value_is_refused()
+  local component, trouble = bom.parse("zlib", "version \nurl https://zlib.net/\nlicense Zlib\n")
+  assert(component == nil, "a version naming nothing was accepted")
+  assert(trouble:find("version has no value", 1, true) ~= nil, trouble)
+end
+
 local function test_a_record_without_a_license_is_refused()
   local component, trouble = bom.parse("zlib", "version 1.3\nurl https://zlib.net/\n")
   assert(component == nil and trouble == "zlib: its record names no license", trouble)

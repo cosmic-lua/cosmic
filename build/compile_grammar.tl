@@ -161,7 +161,9 @@ local function type_facts(program: Declarations.Program, result: Driver.Outcome,
     elseif (node.kind == "IsTest") then
       local t = lowered.types[node.type.id]
       local why: string?
-      if (t.tag == "named") and t.decl.kind ~= "enum" and not (library ~= nil and library.decl == t.decl) then
+      if t == nil then
+        why = "no type was lowered for it"
+      elseif (t.tag == "named") and t.decl.kind ~= "enum" and not (library ~= nil and library.decl == t.decl) then
         local tested = node.type
         if counted == true and (t.decl.kind == "record" or t.decl.kind == "interface" or t.decl.kind == "userdata") and
             (tested.kind == "TypeName") then

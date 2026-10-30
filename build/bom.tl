@@ -126,38 +126,41 @@ function bom.parse(name: string, source: string): bom.Component?, string
   local seen: mut {string:boolean} = {}
   for line in String.lines(source) do
     local key, value = line:match("^([%w_%-]+)%s+(.-)%s*$")
-    if key ~= nil and key ~= "notice" then
-      if seen[key] == true then
-        key = nil
-      else
-        seen[key] = true
-      end
+    -- A key given twice counts the first time only.
+    local repeated = key ~= nil and key ~= "notice" and seen[key] == true
+    if key ~= nil and not repeated then
+      seen[key] = true
     end
-    if key == "notice" then
-      local notice, trouble = notice_of(value)
-      if notice == nil then
-        return nil, name .. ": " .. trouble
+    if key ~= nil and value ~= nil and not repeated then
+      if key == "notice" then
+        local notice, trouble = notice_of(value)
+        if notice == nil then
+          return nil, name .. ": " .. trouble
+        end
+        component.notices[#component.notices + 1] = notice
+      elseif key == "license" then
+        component.license = value
+      elseif key == "version" or key == "url" or key == "sha256" or key == "sha3-256" then
+        -- The first word, as [`bin/vendor`] reads these.
+        local word = value:match("^%S+")
+        if word == nil then
+          return nil, name .. ": " .. key .. " has no value"
+        end
+        if key == "version" then
+          component.version = word
+        elseif key == "url" then
+          component.url = word
+        elseif key == "sha256" then
+          component.sha256 = word:lower()
+        else
+          component.sha3_256 = word:lower()
+        end
+      elseif key == "kind" then
+        if kinds[value] ~= true then
+          return nil, name .. ": kind " .. value .. " is none of library, data and test"
+        end
+        component.kind = value
       end
-      component.notices[#component.notices + 1] = notice
-    elseif key == "license" then
-      component.license = value
-    elseif key == "version" or key == "url" or key == "sha256" or key == "sha3-256" then
-      -- The first word, as [`bin/vendor`] reads these.
-      local word = value:match("^%S+")
-      if key == "version" then
-        component.version = word
-      elseif key == "url" then
-        component.url = word
-      elseif key == "sha256" then
-        component.sha256 = word:lower()
-      else
-        component.sha3_256 = word:lower()
-      end
-    elseif key == "kind" then
-      if kinds[value] ~= true then
-        return nil, name .. ": kind " .. value .. " is none of library, data and test"
-      end
-      component.kind = value
     end
   end
   local missing = if component.version == "" then "version" elseif
@@ -255,10 +258,18 @@ local function entries(directory: string): {string}?, string
   return Fs.list(directory)
 end
 
---- Where the records sit, as `{name, record path, notice directory}`,
---- sorted by name: every `vendor/*/PIN`, then every `build/bom/*.pin`.
-local function records(root: string): {{string}}?, string
-  local found: mut {{string}} = {}
+--- Where one record sits: the component's `name`, the `path` of its
+--- record, and the `directory` its notice files are named relative to.
+local record Record
+  name: string
+  path: string
+  directory: string
+end
+
+--- Where the records sit, sorted by name: every `vendor/*/PIN`, then
+--- every `build/bom/*.pin`.
+local function records(root: string): {Record}?, string
+  local found: mut {Record} = {}
   local vendored, trouble = entries(root .. "/vendor")
   if vendored == nil then
     return nil, trouble
@@ -270,7 +281,7 @@ local function records(root: string): {{string}}?, string
       return nil, pin_trouble
     end
     if pinned then
-      found[#found + 1] = { name, directory .. "/PIN", directory }
+      found[#found + 1] = { name = name, path = directory .. "/PIN", directory = directory }
     end
   end
   local linked, linked_trouble = entries(root .. "/build/bom")
@@ -280,16 +291,18 @@ local function records(root: string): {{string}}?, string
   for _, file in ipairs(linked) do
     local name = file:match("^(.+)%.pin$")
     if name ~= nil then
-      found[#found + 1] = { name, root .. "/build/bom/" .. file, root .. "/build/bom" }
+      found[#found + 1] = { name = name, path = root .. "/build/bom/" .. file, directory = root .. "/build/bom" }
     end
   end
-  table.sort(found, function(a: {string}, b: {string}): boolean
-    return a[1] < b[1]
+  table.sort(found, function(a: Record, b: Record): boolean
+    return a.name < b.name
   end)
-  for index = 2, #found do
-    if found[index][1] == found[index - 1][1] then
-      return nil, "two records name " .. found[index][1]
+  local previous: string? = nil
+  for _, record in ipairs(found) do
+    if record.name == previous then
+      return nil, "two records name " .. record.name
     end
+    previous = record.name
   end
   return found, ""
 end
@@ -305,7 +318,7 @@ function bom.fill(db: Sqlite.Handle, root: string, qualifier: string): boolean, 
     return false, trouble
   end
   for _, entry in ipairs(found) do
-    local name, path, directory = entry[1], entry[2], entry[3]
+    local name, path, directory = entry.name, entry.path, entry.directory
     local source, read_trouble = Fs.read(path)
     if source == nil then
       return false, read_trouble
@@ -377,7 +390,8 @@ function bom.lines(rows: {bom.Row}): {string}
         if entry:sub(1, 6) == "patch/" then
           patched[#patched + 1] = entry
         else
-          modified[#modified + 1] = (entry:match("^(%S+)"))
+          -- A line of the patches text names a path; one that does not is a malformed record.
+          modified[#modified + 1] = assert(entry:match("^(%S+)"), "a patch line names a path")
         end
       end
       if #patched > 0 then
@@ -423,7 +437,7 @@ end
 --- written as `%XX`.
 local function escaped(value: string): string
   return (value:gsub("[^%w%-%._~]", function(c: string): string
-    return string.format("%%%02X", c:byte())
+    return string.format("%%%02X", (assert(c:byte(), "gsub hands over one byte")))
   end))
 end
 

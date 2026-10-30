@@ -334,7 +334,8 @@ function dataset.format_of(path: string): string?, string
   local extension = path:match("%.([^./]+)$")
   local known: mut {string} = {}
   for _, name in ipairs(dataset.names()) do
-    for _, each in ipairs(formats[name].extensions) do
+    local format = assert(formats[name], "names lists only formats that exist")
+    for _, each in ipairs(format.extensions) do
       if extension ~= nil and extension:lower() == each then
         return name, ""
       end
@@ -417,9 +418,10 @@ local function columns_of(rows: {dataset.Row}, first: {string}?): {string}, {str
   local key_of: mut {string:string} = {}
   local renamed: mut {string:string} = {}
   for index, name in ipairs(names) do
-    key_of[name] = keys[index]
-    if name ~= keys[index] then
-      renamed[name] = keys[index]
+    local key = assert(keys[index], "a column name is made for each key")
+    key_of[name] = key
+    if name ~= key then
+      renamed[name] = key
     end
   end
   return names, key_of, renamed
@@ -470,7 +472,11 @@ function dataset.load(handle: Sqlite.Handle, name: string, rows: dataset.Rows): 
     for number, row in ipairs(rows) do
       local values: mut {Sqlite.Value} = {}
       for index, column in ipairs(names) do
-        local value, bad = bound(row[key_of[column]])
+        local key = key_of[column]
+        if key == nil then
+          return false, "column " .. column .. " has no key"
+        end
+        local value, bad = bound(row[key])
         if value == nil then
           return false, "row " .. tostring(number) .. ", " .. column .. ": " .. bad
         end
@@ -529,8 +535,12 @@ local function copied(handle: Sqlite.Handle, name: string, format: string, text:
   local columns: mut {string} = {}
   for index, column in ipairs(loaded.columns) do
     columns[index] = column
-    if column ~= loaded.keys[index] then
-      renamed[column] = loaded.keys[index]
+    local key = loaded.keys[index]
+    if key == nil then
+      return nil, "column " .. column .. " has no key"
+    end
+    if column ~= key then
+      renamed[column] = key
     end
   end
   columns[#columns + 1] = "_json"

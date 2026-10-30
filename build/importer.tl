@@ -188,7 +188,7 @@ function importer.analyzer_modules(code?: importer.Code): {string}?, string
   for _, name in ipairs(analyzer_roots) do stack[#stack + 1] = name end
   while #stack > 0 do
     local name = table.remove(stack)
-    if reached[name] ~= true then
+    if name ~= nil and reached[name] ~= true then
       reached[name] = true
       local required, trouble = requires(name)
       if required == nil then return nil, trouble end
@@ -566,8 +566,8 @@ local function shared_analyzer(handle: work.Handle, shared: importer.Shared,
     for _, name in ipairs(roots) do stack[#stack + 1] = name end
     while #stack > 0 do
       local name = table.remove(stack)
-      local hash = hash_of[name]
-      if reached[name] ~= true and hash ~= nil then
+      local hash = if name ~= nil then hash_of[name] else nil end
+      if name ~= nil and reached[name] ~= true and hash ~= nil then
         reached[name] = true
         local names = guessed[hash]
         if fresh[hash] == true and names == nil then return name, "" end
@@ -1161,7 +1161,8 @@ local function compile_derived(handle: work.Handle, tool: string,
   -- or unreadable is left out, since the hint is best effort.
   local hinting: Hinting = {}
   local hints: Hints = function(): {Sqlite.Handle}, {boolean}
-    if hinting.databases == nil then
+    local held_databases, held_public = hinting.databases, hinting.public
+    if held_databases == nil or held_public == nil then
       local databases: mut {Sqlite.Handle} = {}
       local public: mut {boolean} = {}
       local projection, _ = Sqlite.open(handle.dir .. "/cosmic.db")
@@ -1175,8 +1176,9 @@ local function compile_derived(handle: work.Handle, tool: string,
         public[#public + 1] = not own_tree
       end
       hinting.databases, hinting.public = databases, public
+      held_databases, held_public = databases, public
     end
-    return hinting.databases, hinting.public
+    return held_databases, held_public
   end
 
   local compile_all = function(): boolean, string
@@ -1195,9 +1197,10 @@ local function compile_derived(handle: work.Handle, tool: string,
     end
 
     for ordinal, m in ipairs(order) do
-      local key = keys[m.path].key
+      local planned = assert(keys[m.path], "every module of the order was keyed")
+      local key = planned.key
       m.key = key
-      m.graph_key = keys[m.path].graph
+      m.graph_key = planned.graph
 
       local refusal = plans.refusal(m)
       if needed ~= nil and needed[m.path] ~= true and leans_on(m, failed) then

@@ -320,7 +320,8 @@ local cacert: refresh.Dataset = {
       end
     end
     if #readable == 0 then
-      return nil, path .. ": no certificate the TLS stack can read: " .. left_out[1]
+      return nil, path .. ": no certificate the TLS stack can read: " ..
+        assert(left_out[1], "a bundle holding a certificate that none is readable of left one out")
     end
     return {
       -- A PEM bundle curl published names its date; certdata.txt names
@@ -487,22 +488,31 @@ local tzdata: refresh.Dataset = {
 
 refresh.datasets = { cacert, revocations, tzdata }
 
+--- The release a binary records of a dataset: its `version`, the `url` it
+--- came from and its `sha256`.
+local record Recorded
+  version: string
+  url: string
+  sha256: string
+end
+
 --- What the binary records of the release it carries of `name`.
-local function recorded(db: Sqlite.Handle, name: string): {string}?, string
+local function recorded(db: Sqlite.Handle, name: string): Recorded?, string
   local rows, trouble = Sqlite.text_rows(db,
     "SELECT version, url, sha256, patches FROM components WHERE name = ?1", { bind.text(name) })
   if rows == nil then
     return nil, trouble
   end
-  if #rows == 0 then
+  local first = rows[1]
+  if first == nil then
     return nil, "the binary records no " .. name .. " component: it was built before cosmic carried one, " ..
       "and its core reads none"
   end
   -- A release as upstream publishes it would lose what cosmic changed.
-  if rows[1]:text(4) ~= "" then
+  if first:text(4) ~= "" then
     return nil, "the binary's " .. name .. " carries cosmic's patches, which a refresh cannot apply"
   end
-  return rows[1]:texts(), ""
+  return { version = first:text(1), url = first:text(2), sha256 = first:text(3) }, ""
 end
 
 --- Replaces `dataset`'s rows in `db` with the release at `source` and
@@ -527,8 +537,8 @@ local function apply(db: Sqlite.Handle, dataset: refresh.Dataset, source: refres
   if was == nil then
     return nil, was_trouble
   end
-  local version, url = was[1], was[2]
-  if sha256 ~= was[3] then
+  local version, url = was.version, was.url
+  if sha256 ~= was.sha256 then
     version = source.version ~= "" and source.version or release.version
     if version == "" then
       version = "sha256:" .. sha256:sub(1, 12)
@@ -549,7 +559,7 @@ local function apply(db: Sqlite.Handle, dataset: refresh.Dataset, source: refres
   if not made then
     return nil, made_trouble
   end
-  local change = if sha256 == was[3] then version .. " (as it was)" else was[1] .. " -> " .. version end
+  local change = if sha256 == was.sha256 then version .. " (as it was)" else was.version .. " -> " .. version end
   local line = ("%s %s, %s"):format(dataset.name, change, plural.count(release.count, "row"))
   for _, why in ipairs(release.left_out) do
     line = line .. "\n  left out " .. why
@@ -657,8 +667,12 @@ function refresh.binary(binary: string, out: string, chosen: {refresh.Dataset},
     if cookie == nil then
       return done(cookie_trouble)
     end
-    local kept, keep_trouble = db:exec("PRAGMA schema_version = " ..
-        tostring((math.tointeger(tonumber(cookie[1]:text(1))) - 1)))
+    local cookie_row = cookie[1]
+    local cookie_value = if cookie_row ~= nil then math.tointeger(tonumber(cookie_row:text(1))) else nil end
+    if cookie_value == nil then
+      return done("PRAGMA schema_version answered no integer")
+    end
+    local kept, keep_trouble = db:exec("PRAGMA schema_version = " .. tostring(cookie_value - 1))
     if not kept then
       return done(keep_trouble)
     end
