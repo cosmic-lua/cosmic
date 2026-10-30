@@ -222,7 +222,8 @@ local function loopback_ok(address: string): boolean
   if a == nil then return false end
   for _, part in ipairs({ a, b, c }) do
     if #part > 1 and part:sub(1, 1) == "0" then return false end
-    if tonumber(part) > 255 then return false end
+    local octet = tonumber(part)
+    if octet == nil or octet > 255 then return false end
   end
   return true
 end
