@@ -9,7 +9,8 @@
 # $XDG_CACHE_HOME/cosmic/bootstrap, where bin/zig finds it again, and
 # checks a restored cache against the pin first. The driver is put
 # on the job's PATH as cosmic-driver, through a two-line wrapper that sets
-# COSMIC_GRAMMAR=new. `zig-cache` also points the job's later steps at the
+# COSMIC_GRAMMAR=new and runs the entry point bin/cosmic-bootstrap prints, which
+# holds the list of ci/bootstrap-files.txt for a `--standalone` run. `zig-cache` also points the job's later steps at the
 # caches the platform job restores.
 set -eu
 

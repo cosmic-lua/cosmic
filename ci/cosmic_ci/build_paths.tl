@@ -1,5 +1,6 @@
 --- Uses the candidate's resolver on the driver that is already running,
 --- before boot has produced any candidate executable or database.
+local BootstrapList = require("cosmic_ci.bootstrap_list")
 local Child = require("cosmic.child")
 local Clock = require("cosmic.clock")
 local Env = require("cosmic.env")
@@ -51,6 +52,18 @@ function BuildPaths.driven(root: string): string
   return location.directory
 end
 
+--- A command line of the driver that runs `file` standalone with `words` after it, as [`BuildPaths.driver`] gives one, or
+--- nil and why where [`BootstrapList.refusal`] refuses the file. This is the one place ci/ runs a file of a checkout
+--- standalone on the pinned release by the binary's own path, which bin/cosmic-bootstrap's check does not see; a caller
+--- takes it, not [`BuildPaths.driver`] with a `--standalone` of its own.
+function BuildPaths.standalone(file: string, words: {string}, values: {string:string}): BuildPaths.Driver?, string
+  local refusal = BootstrapList.refusal(file)
+  if refusal ~= nil then return nil, refusal end
+  local all: mut {string} = { "--standalone", file }
+  for _, word in ipairs(words) do all[#all + 1] = word end
+  return BuildPaths.driver(all, values), ""
+end
+
 --- The generated directory for `root` under `environment`. `source`
 --- names the checkout whose resolver applies when root is an application
 --- project, which does not contain the build system itself.
@@ -64,7 +77,8 @@ function BuildPaths.directory(root: string, environment?: {string:string}, sourc
   local key = Hash.hex_sha256(table.concat(parts, "\0"))
   local known = directories[key]
   if known ~= nil then return known end
-  local driver = BuildPaths.driver({ "--standalone", resolver, root }, values)
+  local driver, refusal = BuildPaths.standalone(resolver, { root }, values)
+  assert(driver, refusal)
   local answer, why = Child.run(driver.argv,
     { env = driver.env, fds = driver.fds, stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(30) })
   assert(answer, why)

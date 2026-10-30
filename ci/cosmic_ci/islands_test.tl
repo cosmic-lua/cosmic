@@ -23,12 +23,6 @@ local function checkout(tmp: string, given: {string:string}): string
   return root
 end
 
-local function test_the_list_is_one_path_a_line_without_comments()
-  local paths = Islands.paths("# why\n\nbuild/a.tl  # trailing\n  build/b.tl\nci/\n")
-  assert(#paths == 3 and paths[1] == "build/a.tl" and paths[2] == "build/b.tl" and paths[3] == "ci/",
-    table.concat(paths, ","))
-end
-
 --- A clean script passes and a script the new grammar refuses fails by name, with the compiler's complaint: a syntax
 --- error and a type error. The scripts are run, with `--help`, as the bootstrap runs them.
 local function test_a_script_is_checked_and_run_with_help(tmp: string)
@@ -127,23 +121,19 @@ local function test_the_calls_of_zig_are_listed_and_all_read(tmp: string)
   end
 end
 
---- A file of `.github/` or `ci/` that runs the pinned binary standalone other than through the wrapper must be named; a
---- named one, a test, a comment, a wrapper line and an untracked file are not refused.
-local function test_a_new_run_of_the_pinned_binary_is_refused_unless_named(tmp: string)
-  local root = checkout(tmp, {
-    [".github/scripts/new.sh"] = 'set -eu\n# "$driver" --standalone in a comment\nexec "$driver" --standalone "$root/ci/newrun.tl"\n',
-    [".github/scripts/run-local-proof.sh"] = 'exec "$driver" --standalone "$root/ci/run_local_proof.tl"\n',
-    ["ci/cosmic_ci/x_test.tl"] = 'local words = { "--standalone" }\n',
-    ["ci/run-local"] = 'exec "$root/bin/cosmic-bootstrap" --standalone "$root/ci/run_local.tl"\n',
-    ["bin/zig"] = 'exec "$driver" --standalone "$root/build/zig.tl"\n',
-  })
-  local tracked: {string} = { ".github/scripts/new.sh", ".github/scripts/run-local-proof.sh", "ci/cosmic_ci/x_test.tl",
-    "ci/run-local", "bin/zig", "ci/bootstrap-files.txt" }
-  local why = assert(Islands.driver_use_refusal(root, tracked))
-  assert(why:find("^.github/scripts/new.sh:3: runs a file standalone on the pinned binary without bin/cosmic%-bootstrap") ~= nil, why)
-  -- Untracked, as a scratch file of the checkout is, it is not read; nor is bin/, outside the directories this reads.
-  assert(Islands.driver_use_refusal(root, { ".github/scripts/run-local-proof.sh", "ci/cosmic_ci/x_test.tl",
-    "ci/run-local", "bin/zig" }) == nil)
+--- The listed files that are not run (`--help` would start a job) are counted and left alone; a project of `ci/` the
+--- release's `fix --check` refuses is named, with its findings.
+local function test_the_release_checks_all_of_ci_and_a_listed_file_that_is_not_run_is_skipped(tmp: string)
+  local root = checkout(tmp, { ["ci/run_local.tl"] = "this is not Teal (", ["ci/fine.tl"] = "local record Fine\nend\nreturn Fine\n" })
+  local report = Islands.check(root, { "ci/run_local.tl" }, Env.all())
+  assert(report.checked == 1 and #report.complaints == 0, table.concat(report.complaints, "\n"))
+  assert(Islands.project(root, Env.all()) ~= nil, "a ci/ the release refuses was accepted")
+  assert(Fs.write(root .. "/ci/run_local.tl", "local record Local\nend\nreturn Local\n"))
+  local clean = Islands.project(root, Env.all())
+  assert(clean == nil, tostring(clean))
+  assert(Fs.write(root .. "/ci/unrequired.tl", "local x: integer = \"a\"\nreturn x\n"))
+  local refused = assert(Islands.project(root, Env.all()))
+  assert(refused:find("unrequired.tl:1:", 1, true) ~= nil, refused)
 end
 
 --- Each refusal and the pass, through the command.
@@ -154,17 +144,17 @@ local function test_the_command_fails_for_a_refused_script_a_stale_entry_and_a_m
     ["build/patch.tl"] = exiting(Islands.help_exits["build/patch.tl"] or 0),
     ["eval/result.tl"] = exiting(Islands.help_exits["eval/result.tl"] or 0),
   })
-  assert(Islands.verdict(root, {}) == 0)
+  assert(Islands.verdict(root) == 0)
   assert(Fs.write(root .. "/build/zig.tl", "return\n  =\n"))
-  assert(Islands.verdict(root, {}) == 1)
+  assert(Islands.verdict(root) == 1)
   assert(Fs.write(root .. "/build/zig.tl", exiting(0)))
   assert(Fs.write(root .. "/ci/islands.txt", "build/zig.tl\n"))
-  assert(Islands.verdict(root, {}) == 1)
+  assert(Islands.verdict(root) == 1)
   assert(Fs.write(root .. "/ci/islands.txt", "\n"))
   assert(Fs.write(root .. "/ci/bootstrap-files.txt", "build/zig.tl\nbuild/gone.tl\n"))
-  assert(Islands.verdict(root, {}) == 1)
+  assert(Islands.verdict(root) == 1)
   assert(Fs.remove(root .. "/ci/bootstrap-files.txt"))
-  assert(Islands.verdict(root, {}) == 1)
+  assert(Islands.verdict(root) == 1)
   assert(Fs.remove(root .. "/ci/islands.txt"))
-  assert(Islands.verdict(root, {}) == 2)
+  assert(Islands.verdict(root) == 2)
 end

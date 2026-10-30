@@ -1,8 +1,9 @@
 #!/bin/sh
 # The one piece of shell the tree means to keep: fetch, verify and
 # cache the pinned bootstrap cosmic -- or take COSMIC_BOOTSTRAP's, below
-# -- then print its path (no arguments) or run it with the arguments
-# given. Every other build script is Teal this binary runs standalone
+# -- then print the entry point that runs it (no arguments; see print_entry),
+# print its own path (`--raw-path`) or run it with the arguments given.
+# Every other build script is Teal this binary runs standalone
 # -- build/zig.tl behind bin/zig, build/vendor.tl behind bin/vendor,
 # build/verify_codesign.tl behind bin/verify-codesign, each a one-line
 # `exec` of this script -- against its own embedded standard library,
@@ -50,16 +51,28 @@ die() {
   exit 1
 }
 
-# `--standalone <file>` on a file of this checkout runs it on a cosmic the tree
-# does not control, so its Teal must read under that release's checker. Only
-# the files ci/bootstrap-files.txt lists may: `check-islands` (ci/README.md)
-# type-checks exactly those on the pinned release, so a file run through here,
-# however its caller spells the command, is a checked one. Target and root are
-# compared as `pwd -P` resolves them, a link in the file's own name followed,
-# so a link from outside into the checkout does not get around it. A file
-# outside the checkout is not this script's to hold.
-if [ "${1-}" = --standalone ] && [ "$#" -ge 2 ]; then
-  target=$2
+# A file of this checkout runs on a cosmic the tree does not control standalone
+# only as `--standalone <file>`, or `<file>` under COSMIC_STANDALONE=1, which is
+# the same run, and only if ci/bootstrap-files.txt lists it: `check-islands`
+# (ci/README.md) type-checks exactly those on the pinned release. The one other
+# way a file reaches the release, `<file>` alone, builds the tree around it,
+# which is how CI runs its own driver (`cosmic-driver cosmic_ci/driver.tl`)
+# from ci/, a project `check-islands` checks as a whole: it is allowed for a file
+# under the checkout's ci/ and refused for any other of the checkout. The
+# target and the checkout are compared as `pwd -P` resolves them, a link in the
+# file's own name followed, so a link from outside into the checkout does not
+# get around it, and a target whose directory cannot be resolved is refused,
+# not let by. A file outside the checkout is not this script's to hold. The
+# list is read as ci/cosmic_ci/bootstrap_list.tl reads it, and as
+# build/ci_tree_test.tl, which cannot require ci/, copies: one path a line,
+# what a `#` starts dropped, white space (a CR too) trimmed from both ends.
+check_listed() {
+  check_target "$1" listed
+}
+
+# check_target FILE listed|project: the refusals above for FILE.
+check_target() {
+  target=$1
   hops=0
   while [ -L "$target" ] && [ "$hops" -lt 40 ]; do
     link=$(readlink "$target")
@@ -69,21 +82,75 @@ if [ "${1-}" = --standalone ] && [ "$#" -ge 2 ]; then
     esac
     hops=$((hops + 1))
   done
-  if tdir=$(CDPATH= cd -- "$(dirname -- "$target")" 2>/dev/null && pwd -P); then
-    physical=$(CDPATH= cd -- "$root" && pwd -P)
-    full=$tdir/$(basename -- "$target")
-    case $full in
-      "$physical"/*)
-        relative=${full#"$physical"/}
-        [ -f "$root/ci/bootstrap-files.txt" ] ||
-          die "no $root/ci/bootstrap-files.txt, which lists the files of the checkout that may run --standalone"
-        if ! sed -e 's/#.*//' -e 's/[[:space:]]*$//' "$root/ci/bootstrap-files.txt" | grep -Fxq -- "$relative"; then
-          die "$relative is not in ci/bootstrap-files.txt, so it is not type-checked on the pinned release: list it there, then run \`cosmic-driver cosmic_ci/driver.tl check-islands\` from ci/"
-        fi
-        ;;
-    esac
+  tdir=$(CDPATH= cd -- "$(dirname -- "$target")" 2>/dev/null && pwd -P) ||
+    die "cannot resolve the directory of $1, so cannot tell whether it is a file of this checkout; refusing it"
+  physical=$(CDPATH= cd -- "$root" && pwd -P)
+  full=$tdir/$(basename -- "$target")
+  case $full in
+    "$physical"/*)
+      relative=${full#"$physical"/}
+      if [ "$2" = project ]; then
+        case $relative in
+          ci/*) return 0 ;;
+        esac
+        die "$relative is a file of the checkout outside ci/, which runs on the pinned release only as \`--standalone <file>\`, listed in ci/bootstrap-files.txt"
+      fi
+      [ -f "$root/ci/bootstrap-files.txt" ] ||
+        die "no $root/ci/bootstrap-files.txt, which lists the files of the checkout that may run --standalone"
+      if ! sed -e 's/#.*//' -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' "$root/ci/bootstrap-files.txt" |
+          grep -Fxq -- "$relative"; then
+        die "$relative is not in ci/bootstrap-files.txt, so it is not type-checked on the pinned release: list it there, then run \`cosmic-driver cosmic_ci/driver.tl check-islands\` from ci/"
+      fi
+      ;;
+  esac
+}
+
+case "${1-}" in
+  --standalone)
+    [ "$#" -ge 2 ] && [ -n "$2" ] || die "--standalone names no file"
+    check_listed "$2"
+    ;;
+  *.tl)
+    if [ "${COSMIC_STANDALONE-}" = 1 ]; then
+      check_listed "$1"
+    else
+      check_target "$1" project
+    fi
+    ;;
+esac
+
+# With no arguments this script answers where to run the release, and what it
+# answers is an entry point that applies the check above to whatever it is run
+# with and then runs the release, never the release itself: a caller that holds
+# the entry point cannot run an unlisted file, however it spells the command.
+# The entry point is generated beside the cache the release is in, for this
+# checkout, and runs this script with COSMIC_BOOTSTRAP naming the release, so
+# nothing is fetched. `--raw-path` alone asks for the release's own path, for
+# a caller that must read or copy the binary (ci/README.md lists them).
+print_entry() {
+  raw=$1
+  if [ -n "${XDG_CACHE_HOME:-}" ]; then
+    entries=$XDG_CACHE_HOME/cosmic/bootstrap
+  else
+    entries=${HOME:?HOME is unset}/.cache/cosmic/bootstrap
   fi
-fi
+  mkdir -p "$entries"
+  sum=$(printf '%s\n%s\n' "$root" "$raw" | cksum | cut -d' ' -f1)
+  entry=$entries/entry-$sum
+  quote_raw=$(printf '%s' "$raw" | sed "s/'/'\\\\''/g")
+  quote_root=$(printf '%s' "$root" | sed "s/'/'\\\\''/g")
+  part=$entries/.entry-$sum.$$.part
+  {
+    printf '#!/bin/sh\n'
+    printf '# Generated by bin/cosmic-bootstrap: runs the release with the list check of that script.\n'
+    printf 'unset COSMIC_BOOTSTRAP_VERIFY\n'
+    printf '[ "$#" -ne 0 ] || exec '"'%s'"'\n' "$quote_raw"
+    printf 'COSMIC_BOOTSTRAP='"'%s'"' exec '"'%s/bin/cosmic-bootstrap'"' "$@"\n' "$quote_raw" "$quote_root"
+  } > "$part"
+  chmod 755 "$part"
+  mv -f "$part" "$entry"
+  printf '%s\n' "$entry"
+}
 
 if [ -n "${COSMIC_BOOTSTRAP:-}" ]; then
   if [ -n "${COSMIC_BOOTSTRAP_VERIFY:-}" ]; then
@@ -103,6 +170,10 @@ if [ -n "${COSMIC_BOOTSTRAP:-}" ]; then
     *) COSMIC_BOOTSTRAP=$(pwd)/$COSMIC_BOOTSTRAP ;;
   esac
   if [ "$#" -eq 0 ]; then
+    print_entry "$COSMIC_BOOTSTRAP"
+    exit 0
+  fi
+  if [ "$#" -eq 1 ] && [ "$1" = --raw-path ]; then
     printf '%s\n' "$COSMIC_BOOTSTRAP"
     exit 0
   fi
@@ -210,6 +281,10 @@ if [ ! -x "$cached" ]; then
 fi
 
 if [ "$#" -eq 0 ]; then
+  print_entry "$cached"
+  exit 0
+fi
+if [ "$#" -eq 1 ] && [ "$1" = --raw-path ]; then
   printf '%s\n' "$cached"
   exit 0
 fi

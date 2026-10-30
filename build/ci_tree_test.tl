@@ -24,6 +24,7 @@ Test.policy{
     { path = "ci/darwin-tests.txt", letters = "r" },
     { path = "ci/strict-files.txt", letters = "r" },
     { path = "ci/bootstrap-files.txt", letters = "r" },
+    { path = "ci/run_local.tl", letters = "r" },
     { path = "ci/run_local_proof.tl", letters = "r" },
     { path = "ci/cosmic_ci/runtime_setup.tl", letters = "r" },
     { path = "ci/testdata/portable/", letters = "r" },
@@ -267,6 +268,8 @@ local function test_every_file_the_bootstrap_may_run_is_listed_as_strict()
   local listed: mut {string:boolean} = {}
   for _, file in ipairs(strict_files()) do listed[file] = true end
   local count = 0
+  -- The reader of the list, copied from ci/cosmic_ci/bootstrap_list.tl (`paths`), which build/ cannot require, and the
+  -- same as bin/cosmic-bootstrap's sed: one path a line, what a `#` starts dropped, white space trimmed.
   for line in (assert(Fs.read("ci/bootstrap-files.txt"))):gmatch("[^\n]+") do
     local file = String.trim((line:gsub("#.*$", "")))
     if file ~= "" then

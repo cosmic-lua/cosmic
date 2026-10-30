@@ -11,5 +11,7 @@ export COSMIC_PORTABLE_CACHE="$proof/cores"
 # COSMIC_GRAMMAR=new: the pinned release reads the new grammar of ci/ as Teal
 # otherwise. Not bin/cosmic-bootstrap's args form, which would fetch the pin
 # again into the cache exported above. The proof sets it again for the runner
-# it starts with the same binary.
+# it starts with the same binary. $driver is the entry point bin/cosmic-bootstrap
+# prints, which holds the list of ci/bootstrap-files.txt, and runs the release
+# without fetching it again.
 env COSMIC_GRAMMAR=new "$driver" --standalone "$root/ci/run_local_proof.tl" "$root" "$driver"

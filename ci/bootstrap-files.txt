@@ -16,4 +16,5 @@ eval/result.tl
 eval/round.tl
 eval/solve.tl
 eval/summarize.tl
+ci/run_local.tl
 ci/run_local_proof.tl

@@ -35,28 +35,69 @@ lists as Teal. CI's `check-islands` command (`cosmic-driver
 cosmic_ci/driver.tl check-islands`) runs each of those scripts with `--help`
 on the running driver, which refuses a script that has a finding before it
 runs, and fails on a syntax error or any finding; `ci/` is compiled by the
-driver's own tests. Which files those are is `ci/bootstrap-files.txt`, a list
-that is enforced where the run happens: `bin/cosmic-bootstrap` refuses
-`--standalone` on a file of its checkout that the list does not name (the file
-and the target are compared as `pwd -P` resolves them, a link in the file's
-name followed, in the pin's branch and `COSMIC_BOOTSTRAP`'s alike; a file
-outside the checkout is not held), so a new runner fails the first time it
-runs, however its caller spells the command, and a listed file is one
-`check-islands` type-checks. `check-islands` also fails on an entry whose file
-is gone, on a `standalone(` call in `build/zig.tl` that names a file the list
-lacks or does not name it in a string literal on its line, and on a tracked
-file of `.github/` or `ci/` that spells `--standalone` outside the wrapper
-and is not named in [`Islands.driver_uses`] (a test's own fixtures are exempt).
-That last check is a text scan, and the one escape it leaves is a file of
-`.github/` or `ci/` that spells the flag through a variable; it is accepted
-because that takes deliberate indirection in directories CI owns, where review
-sees it, and the wrapper, the path the tree's scripts take, is closed at run
-time. A refusal of a type error names the file, the list and the pinned
-release, and says to use only that release's APIs or move the pin; a `--help`
-exit status that is not 0 is in [`Islands.help_exits`], and the hint then says
-to add it there. `build/ci_tree_test.tl` holds the list to
-`ci/strict-files.txt`. `ci/run_local.tl` is not on the list: `--help` would
-start the platform job, so the driver's own tests compile it instead.
+driver's own tests compile only the modules they require, so `check-islands`
+also runs the release's `fix --check` over all of `ci/`.
+
+Which files run standalone on the pinned release is `ci/bootstrap-files.txt`,
+and it is enforced where the run happens, not found by reading the tree:
+
+- `bin/cosmic-bootstrap` refuses `--standalone <file>` on a file of its checkout
+  the list does not name, and the same under `COSMIC_STANDALONE=1` with `<file>`
+  as the first word. The target and the checkout are compared as `pwd -P`
+  resolves them, a link in the file's name followed, so a link from outside
+  does not get around it; a target whose directory cannot be resolved, a
+  `--standalone` with no file, and a checkout with no list are refused. A file
+  outside the checkout is not held. A first word `<file>.tl` alone builds the
+  tree around the file, which is how CI runs `cosmic-driver cosmic_ci/driver.tl`
+  from `ci/`: allowed for a file under `ci/` and outside the checkout, refused
+  for any other file of the checkout. The list is read as
+  [`cosmic_ci/bootstrap_list.tl`] reads it (one path a line, what a `#` starts
+  dropped, white space trimmed), in shell and in `build/ci_tree_test.tl`, which
+  copies the reader because `build/` cannot require `ci/`.
+- With no argument it prints an entry point, not the release: a script it
+  generates beside the cache, for this checkout, that makes the same check and
+  then runs the release without fetching it again. `$(bin/cosmic-bootstrap)` in
+  `.github/scripts/cosmic-driver.sh` (the `cosmic-driver` every job puts on its
+  PATH) and `.github/scripts/run-local-proof.sh` hold that, so neither can run
+  an unlisted file. `bin/cosmic-bootstrap --raw-path` prints the release's own
+  path, for a caller that must read or copy the binary; its only callers are
+  `ci/cosmic_ci/bootstrap_test.tl` (which does exactly that) and nothing in the
+  tree's scripts.
+- `check-islands` type-checks each listed file on the release (with `--help`,
+  except what [`Islands.not_run`] names: `ci/run_local.tl`, whose `--help` would
+  start the platform job, and which the driver's tests compile), fails on a
+  listed file that is gone, and on a `standalone(` call in `build/zig.tl` that
+  names a file the list lacks or does not name one in a string literal on its
+  line. `build/ci_tree_test.tl` holds the list to `ci/strict-files.txt`.
+- A refusal of a type error names the file, the list and the pinned release, and
+  says to use only that release's APIs or move the pin; a `--help` exit status
+  that is not 0 is in [`Islands.help_exits`], and the hint says to add it
+  there.
+
+What is not covered, in full. A process running on the release can run its own
+binary (`Proc.executable()`, `Proc.relaunch()`), so no wrapper can stop it. The
+users of the binary's own path are these and no others:
+
+- `build/zig.tl`, which runs `build/patch.tl` and `build/zig_fetch.tl` that way:
+  its `standalone(` calls are counted and each file must be in the list.
+- `check-islands` ([`Islands.complaint`]), which runs the listed files.
+- [`BuildPaths.standalone`] in [`cosmic_ci/build_paths.tl`], the one helper of
+  `ci/` that runs a file standalone that way, which makes the list's check
+  ([`cosmic_ci/bootstrap_list.tl`]) first; its caller is the build-directory
+  resolver (`build/paths.tl`).
+- `ci/run_local.tl`, which starts only `build/paths.tl` that way and cannot use
+  the helper: it runs standalone, which finds no module of `ci/`.
+- Relaunches of the driver that run no file standalone (a project, a verb):
+  [`cosmic_ci/orchestration.tl`] runs `cosmic test`, `cosmic_ci/cache_trim.tl`
+  runs `cosmic cache trim`, and [`Islands.project`] runs `fix --check`. The
+  `*_test.tl` files of `cosmic_ci` start the driver on fixtures they write
+  themselves, in directories of their own, which are outside every checkout.
+
+A new site in `ci/` that relaunches the driver on a file without the helper is
+the residual, and nothing catches it: code review does. No directory of the
+checkout is left unchecked otherwise: `ci/` is checked as a whole on the
+release, and every other file reaches the release through the wrapper or the
+entry point.
 
 ## running the platform job locally
 
@@ -928,7 +969,13 @@ alone.
 [`cosmic_ci/suite_output.tl`]: cosmic_ci/suite_output.tl
 [`cosmic_ci/zig_prune.tl`]: cosmic_ci/zig_prune.tl
 
+[`BuildPaths.standalone`]: cosmic_ci/build_paths.tl
+[`cosmic_ci/bootstrap_list.tl`]: cosmic_ci/bootstrap_list.tl
+[`cosmic_ci/build_paths.tl`]: cosmic_ci/build_paths.tl
 [`cosmic_ci/host_id.tl`]: cosmic_ci/host_id.tl
-[`Islands.driver_uses`]: cosmic_ci/islands.tl
+[`cosmic_ci/orchestration.tl`]: cosmic_ci/orchestration.tl
+[`Islands.complaint`]: cosmic_ci/islands.tl
 [`Islands.help_exits`]: cosmic_ci/islands.tl
+[`Islands.not_run`]: cosmic_ci/islands.tl
+[`Islands.project`]: cosmic_ci/islands.tl
 [`Runner.phase`]: cosmic_ci/runner.tl
