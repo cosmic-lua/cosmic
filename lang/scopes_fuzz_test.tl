@@ -87,7 +87,7 @@ local function use(r: Reference, n: Ast.Name, env: Decl?, fn: integer, write: bo
     expect(r, "const_assigned", n.first)
     r.foreign[n.id] = true
   elseif write and found.fn ~= fn then
-    expect(r, "captured_assigned", n.first)
+    -- Taken, and left out of the writes that [`Capture.after`] counts.
     r.foreign[n.id] = true
   end
 end
@@ -304,6 +304,9 @@ local function test_every_name_of_a_program_resolves_as_the_reference_says(tmp: 
         for _, c in ipairs(v.captures) do
           Fuzz.label(if c.after then "captured, then assigned" else "captured" end)
         end
+        if v.closure_assigned then
+          Fuzz.label("closure assigned")
+        end
         if v.copies ~= nil then
           Fuzz.label("copy")
         end
@@ -313,7 +316,7 @@ local function test_every_name_of_a_program_resolves_as_the_reference_says(tmp: 
       end
       return true, ""
     end,
-    requires = { "shadows", "unknown_variable", "captured_assigned", "const_assigned", "captured",
+    requires = { "shadows", "unknown_variable", "const_assigned", "captured", "closure assigned",
       "captured, then assigned", "copy", "repeat" },
   })
 end

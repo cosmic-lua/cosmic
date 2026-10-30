@@ -33,6 +33,8 @@
 --- cosmic's own tree documents its standard library itself, and
 --- resolves against its own projection alone.
 
+-- TODO: make this `local type Cell = require("cosmic.cell")` once the store keeps a module that only a `local type` require names; today that drops cosmic.cell from the binary and build/link_index_test fails.
+local Cell = require("cosmic.cell")
 local Fs = require("cosmic.fs")
 local Hash = require("cosmic.hash")
 local Sqlite = require("cosmic.sqlite")
@@ -434,13 +436,13 @@ function link_index.pending(db: Sqlite.Handle, root: string,
   -- No symbol is known yet: every name reads as naming none.
   local unknown = "no symbols until the projection's docs are in"
   -- A link that asks for none reads nothing of the library.
-  local asking = { asked = recalled_asked }
+  local library_asked: Cell<boolean> = { value = recalled_asked }
   local function none(_: string): {link_resolve.Symbol}?, string
-    asking.asked = true
+    library_asked.value = true
     return nil, unknown
   end
   local function no_member(_: string, _: string): {link_resolve.Symbol}?, string
-    asking.asked = true
+    library_asked.value = true
     return nil, unknown
   end
   if recalled_memo == nil then
@@ -454,7 +456,7 @@ function link_index.pending(db: Sqlite.Handle, root: string,
       end
     end
   end
-  local signed = library ~= nil and asking.asked and library.identity or nil
+  local signed = if library ~= nil and library_asked.value then library.identity else nil end
   local digest: string
   if recalled_memo ~= nil and kept_digest ~= nil and kept_signed == (signed or "") then
     digest = kept_digest
@@ -462,7 +464,7 @@ function link_index.pending(db: Sqlite.Handle, root: string,
     digest = digest_of(root, memo, rows, signed)
     if fingerprint ~= nil then
       if recalled_memo == nil then
-        remember(db, fingerprint, memo, asking["asked"] == true, signed or "", digest)
+        remember(db, fingerprint, memo, library_asked.value, signed or "", digest)
       else
         -- Answers kept before the digest was, or by a call that signed another library in.
         local _, _ = Sqlite.run(db, "DELETE FROM link_answers WHERE kind = 'digest'")
@@ -471,7 +473,7 @@ function link_index.pending(db: Sqlite.Handle, root: string,
       end
     end
   end
-  return { root = root, rows = rows, memo = memo, library = asking.asked and library or nil,
+  return { root = root, rows = rows, memo = memo, library = if library_asked.value then library else nil end,
     digest = digest, remembered = recalled_memo ~= nil, fingerprint = fingerprint }, ""
 end
 

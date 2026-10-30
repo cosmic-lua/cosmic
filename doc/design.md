@@ -1008,7 +1008,7 @@ map or an array may be nil, and arrays are dense. a condition is a boolean or an
 they say. a local is assigned before it is read, including by a function that names it and may run first. a place (a
 local, or a path of fixed fields, `a.b.c`) is narrowed by a test and stays narrowed until an assignment, a write that may
 reach it, or code that may run drops the fact; a function literal begins without the facts of the places that can change
-before it runs, and its captures are read-only (a function never assigns a local it does not declare). `never` is the
+before it runs, and a local that any function assigns is never narrowed. `never` is the
 bottom type, the type of a call that does not return, and code after it is unreachable. a function type stands for another
 when its parameters accept what the other's do and its returns are subtypes of the other's. a record is not a map; an
 enum is a union of strings, and a union of enums is told apart by `is`. a record that is not a class is not tested by `is`:

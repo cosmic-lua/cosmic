@@ -39,8 +39,9 @@
 --- such function, whether an assignment may run after that function is made
 --- ([`Capture.after`]), which a test inside the function must know before it
 --- narrows the local ("narrowing only what nothing else can change"). A write
---- from inside another function is the error `captured_assigned` ("captures
---- are read-only"). A declaration whose name is already visible, in an
+--- from inside another function is allowed and recorded as [`Var.closure_assigned`]: the
+--- checker never narrows a local any function assigns, wherever the function is
+--- made, so the write cannot invalidate a test. A declaration whose name is already visible, in an
 --- enclosing scope, the same scope or the declared globals, is the error
 --- `shadows`, as the fork's `redeclaration` warning is, with the same
 --- exceptions: a name that begins with `_`, `self`, a nested type declaration
@@ -87,8 +88,6 @@ local record Scopes
     "unknown_type"
     -- a declaration whose name is already visible
     "shadows"
-    -- a function that assigns a local declared outside it
-    "captured_assigned"
     -- an assignment to a `<const>` or `<close>` variable or a loop's control variable
     "const_assigned"
     -- a type used as a value
@@ -193,6 +192,10 @@ local record Scopes
     type_uses: {integer}
     --- Whether anything assigns it after its declaration: `#writes > 0`.
     assigned: boolean
+    --- Whether a function other than the one that declares it assigns it, wherever in its scope that function is
+    --- made. Known when the build ends, before the checker's first test: the checker never narrows such a local,
+    --- because a function suspended between a test and a use may run an assignment.
+    mut closure_assigned: boolean
     --- The functions that read it from outside, in source order.
     captures: {Capture}
     --- Whether it is a type declared in the body of another type, named through it (`Outer.Inner`).
@@ -653,7 +656,7 @@ local function declare(binding: Ast.Binding, kind: Scopes.Kind, from: integer, c
     declared = token, from = from, to = math.max(from, S.ends[#S.ends]), owner = f.id, depth = #S.frames,
     loop = f.loop,
     module = "", readonly = attr ~= nil, reads = {}, writes = {}, type_uses = {},
-    assigned = false, captures = {}, nested = false,
+    assigned = false, closure_assigned = false, captures = {}, nested = false,
   }
   if copy ~= nil then
     local copied = copy.binding
@@ -746,10 +749,10 @@ local function use_name(n: Ast.Name, write: boolean)
       end
       report("const_assigned", token, why, fix, place_of(v.declared))
     elseif v.depth < depth and not v.exported then
-      report("captured_assigned", token,
-        quoted(name) .. " is a local of the code around this function, which a function may read but not assign",
-        "return the value from the function, or keep it in a field of a table both read: `local held = { " ..
-          name .. " = <the value> }`, then `held." .. name .. " = ...` in the function", place_of(v.declared))
+      -- The write runs whenever the function does, which no position in the source bounds: it is left out of
+      -- `write_end` and `write_loop` (they answer [`Capture.after`], which only a narrowed local needs), and the
+      -- local is marked so that the checker never narrows it.
+      v.closure_assigned = true
     else
       local ends, loops = S.write_end[v], S.write_loop[v]
       if ends == nil or loops == nil then
@@ -1557,7 +1560,7 @@ function Scopes.in_scope(scoped: Scopes.Scoped, at: integer): {string: Scopes.Va
 end
 
 Scopes.codes = {
-  "unknown_variable", "unknown_type", "shadows", "captured_assigned", "const_assigned", "not_a_value", "not_a_type",
+  "unknown_variable", "unknown_type", "shadows", "const_assigned", "not_a_value", "not_a_type",
   "unknown_parameter", "env_reserved", "primitive_type_name",
 }
 

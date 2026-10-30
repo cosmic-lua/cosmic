@@ -362,6 +362,38 @@ local function test_a_test_inside_a_function_narrows_only_a_captured_local_that_
       "      return 0\n    end\n    return h()\n  end\n  return g()\nend\nprint(f(\"abc\"), f(nil))\n", "3\t0")
 end
 
+local function test_a_function_may_assign_a_local_around_it_and_the_checker_never_narrows_that_local()
+  -- The write is taken, and runs.
+  stands("local n = 0\nlocal function bump()\n  n = n + 1\nend\nbump()\nbump()\nprint(n)\n", "2")
+  stands("local n = 0\nlocal f = function()\n  n = 5\nend\nf()\nprint(n)\n", "5")
+  stands("local n = 0\nlocal function a()\n  local function b()\n    n = 7\n  end\n  b()\nend\na()\nprint(n)\n", "7")
+  -- A copy is its own local, which no function assigns, so it narrows.
+  stands("local x: string? = find()\nlocal function clear()\n  x = nil\nend\nclear()\nlocal y = x\nif y ~= nil then\n  print(#y)\nelse\n" ..
+      "  print(\"none\")\nend\n", "none")
+  -- Its tests narrow nothing, wherever the function is made: before the test, after it, in a loop, inside another function.
+  local test = "if x ~= nil then\n  print(#x)\nend\n"
+  refused("local x: string? = find()\nlocal function clear()\n  x = nil\nend\n" .. test, "nil_not_allowed")
+  refused("local x: string? = find()\n" .. test .. "local function clear()\n  x = nil\nend\nclear()\n", "nil_not_allowed")
+  refused("local x: string? = find()\nif x then\n  print(#x)\nend\nlocal clear = function()\n  x = nil\nend\n", "nil_not_allowed")
+  refused("local x: string? = find()\nif x == nil then\n  return\nend\nprint(#x)\nlocal clear = function()\n  x = nil\nend\n", "nil_not_allowed")
+  refused("local x: string? = find()\nfor i = 1, 2 do\n  local clear = function()\n    x = nil\n  end\n  if x ~= nil then\n    print(#x)\n  end\n  clear()\nend\n",
+    "nil_not_allowed")
+  refused("local x: string? = find()\nlocal function a()\n  local function b()\n    x = nil\n  end\n  b()\nend\n" .. test, "nil_not_allowed")
+  refused("local x: string? = find()\nlocal function clear()\n  x = nil\nend\nlocal g = function(): integer\n  if x ~= nil then\n    return #x\n  end\n" ..
+      "  return 0\nend\n", "nil_not_allowed")
+  -- Nor does what it was given when declared, or what a later assignment gives it, or the function that asserts it.
+  refused("local x: string? = \"ab\"\nlocal function clear()\n  x = nil\nend\nprint(#x)\n", "nil_not_allowed")
+  refused("local x: string? = nil\nlocal function clear()\n  x = nil\nend\nx = \"abc\"\nprint(#x)\n", "nil_not_allowed")
+  refused("local function f(x: string?): integer\n  local function clear()\n    x = nil\n  end\n  if x ~= nil then\n    return #x\n  end\n  return 0\nend\n",
+    "nil_not_allowed")
+  refused("local function must(v: string?): asserts v is string\n  if v == nil then\n    error(\"no\")\n  end\nend\n" ..
+      "local x: string? = find()\nlocal function clear()\n  x = nil\nend\nmust(x)\nprint(#x)\n", "nil_not_allowed")
+  -- No regression: a local no function assigns narrows as before, beside one that is assigned.
+  stands("local x: string? = nil\nlocal z: string? = find()\nlocal function clear()\n  x = nil\nend\nif z ~= nil then\n  print(#z)\nend\n", "2")
+  stands("local x: string? = find()\nlocal g = function(): integer\n  if x ~= nil then\n    return #x\n  end\n  return 0\nend\nprint(g())\n", "2")
+  stands("local x: string? = find()\nif x ~= nil then\n  x = \"abc\"\n  print(#x)\nend\n", "3")
+end
+
 -- the value of an assignment ----------------------------------------------------------------------------------
 
 local function test_a_local_is_known_to_have_the_type_of_the_value_it_is_given()
