@@ -353,10 +353,13 @@ local function segments(path: string): {string}, integer
   local depth = 0
   for segment in path:gmatch("[^/]+") do
     if segment == ".." then
-      if depth > 0 then depth = depth - 1 end
+      if depth > 0 then
+        depth = depth - 1
+        kept[#kept] = nil
+      end
     elseif segment ~= "." then
       depth = depth + 1
-      kept[depth] = segment
+      kept[#kept + 1] = segment
     end
   end
   return kept, depth

@@ -208,7 +208,7 @@ end
 
 local function test_flatten_of_a_large_document_lays_out_each_container_once()
   local rows: mut {any} = {}
-  for i = 1, 25000 do rows[i] = { id = i, tags = { "a", "b" }, ["in"] = { id = -i } } end
+  for i = 1, 25000 do rows[#rows + 1] = { id = i, tags = { "a", "b" }, ["in"] = { id = -i } } end
   local counter = { 0 }
   local leaves = assert(json_query.flatten(counted({ rows = Json.array(rows) }, counter)))
   assert(#leaves == 100000, #leaves)

@@ -207,8 +207,10 @@ function Seatbelt.compile(policy: rules.Policy, options?: Seatbelt.Options): Sea
   for _, name in ipairs(policy.profiles or {}) do
     if name == "system" then
       for _, entry in ipairs(rules.system_paths("darwin")) do
-        if paths[entry[1]] ~= nil then
-          trouble = add(entry[1], entry[2])
+        local at = assert(entry[1], "a system path entry names its path")
+        local letters = assert(entry[2], "a system path entry names its letters")
+        if paths[at] ~= nil then
+          trouble = add(at, letters)
           if trouble ~= "" then return refuse(trouble) end
         end
       end
@@ -277,7 +279,14 @@ function Seatbelt.compile(policy: rules.Policy, options?: Seatbelt.Options): Sea
   local serves = options and options.serves_relay
   -- The relay runs its core alone, which the start executes under the profile.
   local runs: string?
-  if serves ~= nil and options_core ~= nil then runs = paths[options_core].path end
+  if serves ~= nil and options_core ~= nil then
+    -- `add` above refused a core the options name no path for.
+    local core_held = paths[options_core]
+    if core_held == nil then
+      return refuse("core " .. string.format("%q", options_core) .. " has no resolved path")
+    end
+    runs = core_held.path
+  end
   for i, grant in ipairs(merged.grants or {}) do
     local name = "PATH_" .. tostring(i)
     parameters[name] = grant.path
@@ -360,7 +369,9 @@ function Seatbelt.grants(policy: rules.Policy): {rules.Grant}
   for _, name in ipairs(policy.profiles or {}) do
     if name == "system" then
       for _, entry in ipairs(rules.system_paths("darwin")) do
-        out[#out + 1] = { path = entry[1], letters = entry[2] }
+        local path = assert(entry[1], "a system path entry names its path")
+        local letters = assert(entry[2], "a system path entry names its letters")
+        out[#out + 1] = { path = path, letters = letters }
       end
     end
   end
@@ -392,7 +403,8 @@ function Seatbelt.resolve(policy: rules.Policy, base?: string, executable?: stri
     if name == "system" then
       -- A path this host lacks is one its system has none of.
       for _, entry in ipairs(rules.system_paths("darwin")) do
-        local _ = look(entry[1], entry[1])
+        local named = assert(entry[1], "a system path entry names its path")
+        local _ = look(named, named)
       end
     end
   end

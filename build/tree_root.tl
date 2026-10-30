@@ -174,8 +174,7 @@ function tree_root.move(argv: {string},
   end
   if root == nil then return { refused = "", note = note } end
 
-  local line: mut {string} = {}
-  for slot, word in ipairs(argv) do line[slot] = word end
+  local rewrites: mut {integer: string} = {}
   local seen = 0
   local slot = 2
   local literal = false
@@ -199,11 +198,13 @@ function tree_root.move(argv: {string},
       end
       if takes then
         local rewritten = from_root(name, from, root)
-        line[slot] = rewritten .. word:sub(#name + 1)
+        rewrites[slot] = rewritten .. word:sub(#name + 1)
       end
     end
     slot = slot + 1
   end
+  local line: mut {string} = {}
+  for at, word in ipairs(argv) do line[#line + 1] = rewrites[at] or word end
   return { move = { root = root, argv = line }, refused = "", note = "" }
 end
 

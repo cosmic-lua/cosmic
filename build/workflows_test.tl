@@ -617,7 +617,7 @@ local function walk_steps(where: string, steps: {{string: any}}, holders: {{stri
       end
     end
     local texts: mut {string} = {}
-    if run is string then texts[1] = run end
+    if run is string then texts[#texts + 1] = run end
     local env = step.env
     if env is {string: any} then
       for _, value in pairs(env) do

@@ -70,7 +70,7 @@ local function parse4(text: string): {integer}?
   for _, part in ipairs({ a, b, c, d }) do
     if #part > 3 or (#part > 1 and part:sub(1, 1) == "0") then return nil end
     local n = math.tointeger(tonumber(part))
-    if n > 255 then return nil end
+    if n == nil or n > 255 then return nil end
     out[#out + 1] = n
   end
   return out
@@ -86,13 +86,18 @@ local function groups(list: string, tail4: boolean): {integer}?
   for part in (list .. ":"):gmatch("([^:]*):") do parts[#parts + 1] = part end
   for i, part in ipairs(parts) do
     if part:find(".", 1, true) then
-      local v4 = tail4 and i == #parts and parse4(part)
-      if not v4 then return nil end
-      out[#out + 1] = v4[1] * 256 + v4[2]
-      out[#out + 1] = v4[3] * 256 + v4[4]
+      local v4: {integer}? = nil
+      if tail4 and i == #parts then v4 = parse4(part) end
+      if v4 == nil then return nil end
+      local o1, o2, o3, o4 = v4[1], v4[2], v4[3], v4[4]
+      if o1 == nil or o2 == nil or o3 == nil or o4 == nil then return nil end
+      out[#out + 1] = o1 * 256 + o2
+      out[#out + 1] = o3 * 256 + o4
     else
       if #part < 1 or #part > 4 or part:find("%X") ~= nil then return nil end
-      out[#out + 1] = tonumber(part, 16)
+      local group = tonumber(part, 16)
+      if group == nil then return nil end
+      out[#out + 1] = group
     end
   end
   return out
@@ -153,7 +158,13 @@ end
 --- @return string The address text, without brackets
 function Grant.ipv6_text(bytes: {integer}): string
   local all: mut {integer} = {}
-  for i = 1, 16, 2 do all[#all + 1] = bytes[i] << 8 | bytes[i + 1] end
+  for i = 1, 16, 2 do
+    local high, low = bytes[i], bytes[i + 1]
+    if high == nil or low == nil then
+      error("relay: ipv6_text takes the sixteen bytes of an address, not " .. tostring(#bytes), 2)
+    end
+    all[#all + 1] = high << 8 | low
+  end
   local best_at, best_len, at = 0, 1, 1
   while at <= 8 do
     if all[at] == 0 then
@@ -174,7 +185,8 @@ function Grant.ipv6_text(bytes: {integer}): string
       if i == 1 or i + best_len > 8 then parts[#parts + 1] = "" end
       i = i + best_len
     else
-      parts[#parts + 1] = ("%x"):format(all[i])
+      local group = assert(all[i], "all holds the eight groups")
+      parts[#parts + 1] = ("%x"):format(group)
       i = i + 1
     end
   end

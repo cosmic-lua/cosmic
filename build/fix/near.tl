@@ -244,7 +244,7 @@ function near.notes(module: string, candidates: {near.Candidate},
     local scan: mut {integer} = order
     if commands then
       scan = {}
-      for index = 1, #known do scan[index] = index end
+      for index = 1, #known do scan[#scan + 1] = index end
     else
       table.sort(order)
     end

@@ -477,7 +477,8 @@ local function run(file: string, argv: {string}): integer
   end
 
   local standalone = require("build.standalone")
-  local arguments: mut {string} = {}
+  -- `arg[0]` is the script, so the table is keyed by position and not a sequence.
+  local arguments: mut {integer: string} = {}
   arguments[0] = file
   local slot = 2
   while argv[slot] ~= nil do
@@ -764,7 +765,7 @@ function Dispatch.main(argv: {string}): integer
     local shifted: mut {string} = { "--standalone" }
     local slot = 1
     while argv[slot] ~= nil do
-      shifted[slot + 1] = argv[slot]
+      shifted[#shifted + 1] = argv[slot]
       slot = slot + 1
     end
     return require("build.standalone").run(shifted, "this file ran as --standalone, which " ..

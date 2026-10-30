@@ -428,7 +428,8 @@ function shared_compiles.look_parse(cache: shared_compiles.Cache,
   local stored = text_at(row, 3)
   if names == nil or inflated == nil or requires == nil or
       stored ~= parse_digest(key, requires, inflated) then
-    where[4] = stored ~= nil and text(stored) or {}
+    local digest: Sqlite.Value = stored ~= nil and text(stored) or {}
+    where[#where + 1] = digest
     local _, _ = Sqlite.run(cache.db, "DELETE FROM " .. parsed ..
         " WHERE analyzer = ?1 AND source_hash = ?2 AND mapped = ?3 AND digest IS ?4", where)
     return nil, ""

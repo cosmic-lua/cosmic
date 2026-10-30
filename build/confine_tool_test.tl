@@ -229,7 +229,10 @@ local function test_an_unconfinable_process_starts_unconfined(tmp: string)
   local own = tmp .. "/own"
   assert(Fs.mkdirs(own))
   local many: mut {string} = {}
-  for i = 1, confine.unveil_max + 1 do many[i] = tmp .. "/many" .. tostring(i) end
+  for i = 1, confine.unveil_max + 1 do
+    local path = tmp .. "/many" .. tostring(i)
+    many[#many + 1] = path
+  end
   local ran = { value = nil as confine.Ran? }
   local sandboxed = refusing_sandboxes(function()
     ran.value = confine.call(function()

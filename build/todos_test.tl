@@ -448,10 +448,14 @@ local function test_search_takes_fts5_syntax_and_falls_back_to_words()
   end
   local function found(query: string): {string}
     local ranks = assert(todos.search(handle.db, query))
+    -- The ranks run 1 to the count, so the lines come in rank order.
+    local ids: mut {integer} = {}
+    for id in pairs(ranks) do ids[#ids + 1] = id end
+    table.sort(ids, function(a: integer, b: integer): boolean
+      return assert(ranks[a]) < assert(ranks[b])
+    end)
     local out: mut {string} = {}
-    for id, rank in pairs(ranks) do
-      out[rank] = line_of[id]
-    end
+    for _, id in ipairs(ids) do out[#out + 1] = assert(line_of[id]) end
     return out
   end
   local hits = found("ftruncate")

@@ -684,7 +684,9 @@ local function generated_of(m: Module, built: Pipeline.Built, facts?: boolean, j
       local told = ErrorRender.line(m.file, p)
       for i, line in ipairs(lines) do
         if line == told then
-          lines[i] = line .. ErrorRender.pointers(result, p, hints)
+          local pointers = ErrorRender.pointers(result, p, hints)
+          table.remove(lines, i)
+          table.insert(lines, i, line .. pointers)
         end
       end
     end

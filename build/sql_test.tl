@@ -25,8 +25,8 @@ end
 
 local function argv_of(words: {string}): {string}
   local argv: mut {string} = { "sql" }
-  for index, word in ipairs(words) do
-    argv[index + 1] = word
+  for _, word in ipairs(words) do
+    argv[#argv + 1] = word
   end
   return argv
 end

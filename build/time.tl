@@ -118,7 +118,7 @@ local function protect(argv: {string}): {string}, {string:string}
       kept[name] = word
       word = name
     end
-    out[slot] = word
+    out[#out + 1] = word
     slot = slot + 1
   end
   return out, kept

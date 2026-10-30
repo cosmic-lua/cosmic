@@ -124,8 +124,9 @@ local function slash_comment(text: string, column: integer): {string}, {integer}
       at = at + #raw[index - 1] + 1
       local marker = raw[index]:match("^[ \t]*%*") or
         raw[index]:match("^" .. ("[ \t]?"):rep(column + 1)) or ""
-      out[index] = raw[index]:sub(#marker + 1)
-      starts[index] = at + #marker
+      local line = raw[index]:sub(#marker + 1)
+      out[#out + 1] = line
+      starts[#starts + 1] = at + #marker
     end
     return out, starts
   end

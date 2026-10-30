@@ -384,8 +384,9 @@ local function not_in_process(merged: Sandbox.Policy): string
         "a socket the filter allows: start a child with Child.start and a policy instead"
     end
   end
-  if next(env) ~= nil then
-    return "env \"" .. env[1] .. "\" is the environment of a child, which a running " ..
+  local first_env = env[1]
+  if first_env ~= nil then
+    return "env \"" .. first_env .. "\" is the environment of a child, which a running " ..
       "process already has"
   end
   for name, _ in pairs(merged.set_env or {}) do

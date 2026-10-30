@@ -23,14 +23,13 @@ local where: mut {string} = {}
 --- One run: `words` after `cosmic compile`, its output collected.
 local function run(words: {string}): Ran
   local argv: mut {string} = { "compile" }
-  local at = 2
   local rooted = false
   for _, word in ipairs(words) do rooted = rooted or word == "--root" end
   if not rooted then
-    argv[2], argv[3] = "--root", where[1]
-    at = 4
+    argv[#argv + 1] = "--root"
+    argv[#argv + 1] = where[1]
   end
-  for index, word in ipairs(words) do argv[index + at - 1] = word end
+  for _, word in ipairs(words) do argv[#argv + 1] = word end
   local ran: Ran = { code = -1, out = "", err = "" }
   ran.code = compile.run(argv, {
     out = function(text: string): boolean, string

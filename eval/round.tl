@@ -211,6 +211,12 @@ end
 --- turns, cost and verdict, `null` where it has none.
 local function index_line(system: Round.System, entry: Round.Entry): string
   local text = system.read(entry.arena .. "/result.json")
+  -- TODO: once ci/cosmic-driver.pin names a release whose cosmic.json has
+  -- Json.to_value, Json.to_object and Json.to_array, read result.json in
+  -- [`index_line`] as Json.Value ([`Json.to_object`]) instead of `any`, and
+  -- lower this file's any_use, is_on_record and and_ternary pins in
+  -- build/ceilings.txt. This script runs on the pinned bootstrap cosmic,
+  -- which lacks them.
   local fields: any = nil
   if text ~= nil then
     local decoded, _ = Json.decode(text)

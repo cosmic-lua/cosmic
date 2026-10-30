@@ -692,7 +692,7 @@ build/fix/near_test.tl nil_not_allowed 3
 
 build/fix/notes_test.tl nil_not_allowed 1
 
-build/flow.tl nil_not_allowed 29
+build/flow.tl nil_not_allowed 21
 
 build/flow_test.tl nil_not_allowed 2
 
@@ -746,11 +746,11 @@ build/key_parts_test.tl nil_not_allowed 1
 
 build/link_files.tl nil_not_allowed 7
 
-build/link_index.tl nil_not_allowed 7
+build/link_index.tl nil_not_allowed 6
 
 build/link_resolve.tl nil_not_allowed 17
 
-build/link_text.tl nil_not_allowed 16
+build/link_text.tl nil_not_allowed 14
 
 build/link_text_fuzz_test.tl nil_not_allowed 2
 
@@ -876,7 +876,7 @@ build/syntax_match.tl nil_not_allowed 5
 
 build/syntax_match_test.tl nil_not_allowed 4
 
-build/syntax_node.tl nil_not_allowed 6
+build/syntax_node.tl nil_not_allowed 3
 
 build/syntax_node_test.tl nil_not_allowed 3
 
@@ -930,7 +930,7 @@ build/test_skip_tool_test.tl nil_not_allowed 1
 
 build/test_test.tl nil_not_allowed 9
 
-build/test_worker.tl nil_not_allowed 28
+build/test_worker.tl nil_not_allowed 27
 
 build/test_worker_test.tl nil_not_allowed 12
 
@@ -1014,9 +1014,9 @@ core/socket_sigpipe_checked_test.tl nil_not_allowed 1
 
 core/socket_test.tl nil_not_allowed 10
 
-core/sqlite_functions_fuzz_test.tl nil_not_allowed 69
+core/sqlite_functions_fuzz_test.tl nil_not_allowed 68
 
-core/sqlite_functions_test.tl nil_not_allowed 36
+core/sqlite_functions_test.tl nil_not_allowed 35
 
 core/sqlite_test.tl nil_not_allowed 4
 
@@ -1188,23 +1188,23 @@ cosmic/poll_test.tl nil_not_allowed 18
 
 cosmic/rand_test.tl nil_not_allowed 2
 
-cosmic/relay/address.tl nil_not_allowed 5
 
-cosmic/relay/address_fuzz_test.tl nil_not_allowed 16
 
-cosmic/relay/address_test.tl nil_not_allowed 4
 
-cosmic/relay/grant.tl nil_not_allowed 5
+
+
+
+
 
 cosmic/removed_test.tl nil_not_allowed 7
 
-cosmic/sandbox/init.tl nil_not_allowed 1
 
-cosmic/sandbox/policy.tl nil_not_allowed 2
 
-cosmic/sandbox/seatbelt.tl nil_not_allowed 1
 
-cosmic/sandbox/seatbelt_test.tl nil_not_allowed 4
+
+
+
+
 
 cosmic/sandbox_restrict_seatbelt_test.tl nil_not_allowed 1
 
@@ -1242,17 +1242,17 @@ cosmic/tar_fuzz_test.tl nil_not_allowed 8
 
 cosmic/tar_test.tl nil_not_allowed 5
 
-cosmic/template/codegen.tl nil_not_allowed 6
 
-cosmic/template/context.tl nil_not_allowed 3
 
-cosmic/template/dialect/init.tl nil_not_allowed 2
 
-cosmic/template/lex.tl nil_not_allowed 6
 
-cosmic/template/markup.tl nil_not_allowed 10
 
-cosmic/template/parse.tl nil_not_allowed 57
+
+
+
+
+
+
 
 cosmic/template_build_test.tl nil_not_allowed 3
 
@@ -1820,7 +1820,7 @@ build/todos.tl index_may_be_nil 3
 
 build/todos_git_test.tl index_may_be_nil 3
 
-build/todos_test.tl index_may_be_nil 2
+build/todos_test.tl index_may_be_nil 1
 
 build/tree_checks.tl index_may_be_nil 11
 
@@ -1942,15 +1942,15 @@ cosmic/poll_test.tl index_may_be_nil 15
 
 cosmic/rand_test.tl index_may_be_nil 1
 
-cosmic/relay/address.tl index_may_be_nil 4
 
-cosmic/relay/address_fuzz_test.tl index_may_be_nil 9
 
-cosmic/relay/grant.tl index_may_be_nil 1
 
-cosmic/sandbox/policy.tl index_may_be_nil 3
 
-cosmic/sandbox/seatbelt.tl index_may_be_nil 7
+
+
+
+
+
 
 cosmic/sandbox_restrict_test.tl index_may_be_nil 1
 
@@ -1968,13 +1968,13 @@ cosmic/store_seal_test.tl index_may_be_nil 1
 
 cosmic/stream_test.tl index_may_be_nil 2
 
-cosmic/template/codegen.tl index_may_be_nil 1
 
-cosmic/template/context.tl index_may_be_nil 3
 
-cosmic/template/markup.tl index_may_be_nil 1
 
-cosmic/template/parse.tl index_may_be_nil 1
+
+
+
+
 
 cosmic/template_check_test.tl index_may_be_nil 1
 
@@ -2139,7 +2139,7 @@ build/fix/init.tl view_written 6
 
 build/fix/near.tl view_written 2
 
-build/flow.tl view_written 7
+build/flow.tl view_written 4
 
 build/flow_test.tl view_written 2
 
@@ -3349,7 +3349,7 @@ cosmic/zip_test.tl map_field 1
 
 eval/check/grade.tl map_field 16
 
-eval/check/grade_test.tl map_field 15
+
 
 eval/result_test.tl map_field 37
 
@@ -3722,7 +3722,7 @@ build/workflows_test.tl any_use 16
 
 core/allocation_test.tl any_use 4
 
-core/artifact_fd_test.tl any_use 84
+core/artifact_fd_test.tl any_use 78
 
 core/class_form_test.tl any_use 4
 
@@ -4418,7 +4418,7 @@ cosmic/zip_fuzz_test.tl cast_refused 1
 
 cosmic/zip_test.tl cast_refused 7
 
-eval/check/grade_test.tl cast_refused 1
+
 
 eval/result_test.tl cast_refused 4
 
@@ -4990,7 +4990,7 @@ cosmic/template/dialect_vendored_test.tl condition_type 1
 
 cosmic/template/markup.tl condition_type 1
 
-cosmic/template/parse.tl condition_type 1
+
 
 cosmic/template_fuzz_test.tl condition_type 2
 
@@ -5393,15 +5393,15 @@ cosmic/proc_user_test.tl or_mix 1
 
 cosmic/rand_test.tl or_mix 2
 
-cosmic/relay/address_test.tl or_mix 8
 
-cosmic/relay/grant.tl or_mix 1
+
+
 
 cosmic/removed_test.tl or_mix 15
 
 
 
-cosmic/sandbox/seatbelt_test.tl or_mix 11
+
 
 cosmic/sandbox_test.tl or_mix 32
 
@@ -5420,7 +5420,7 @@ cosmic/string_test.tl or_mix 1
 
 cosmic/tar_test.tl or_mix 2
 
-cosmic/template/dialect_test.tl or_mix 5
+
 
 
 
@@ -5885,7 +5885,7 @@ cosmic/template/lex.tl and_ternary 1
 
 cosmic/template/markup.tl and_ternary 9
 
-cosmic/template/parse.tl and_ternary 7
+cosmic/template/parse.tl and_ternary 6
 
 cosmic/template_fuzz_test.tl and_ternary 15
 
@@ -6297,7 +6297,6 @@ cosmic/removed_test.tl compare_disjoint 2
 
 cosmic/sandbox/policy.tl compare_disjoint 2
 
-cosmic/sandbox/seatbelt_test.tl compare_disjoint 1
 
 cosmic/seatbelt_network_probe_test.tl compare_disjoint 2
 
@@ -6313,11 +6312,11 @@ cosmic/stream_test.tl compare_disjoint 2
 
 cosmic/tar_fuzz_test.tl compare_disjoint 1
 
-cosmic/template/codegen.tl compare_disjoint 1
 
-cosmic/template/context.tl compare_disjoint 1
 
-cosmic/template/parse.tl compare_disjoint 1
+
+
+
 
 cosmic/test.tl compare_disjoint 5
 
@@ -7034,19 +7033,12 @@ lang/check_flow_fuzz_test.tl array_of_optional 1
 lang/declarations.tl array_of_optional 1
 
 # an index write that is not an append
-build/docs.tl array_hole 5
 
-build/flow.tl array_hole 6
 
-build/json_query_test.tl array_hole 1
 
-build/link_text.tl array_hole 6
 
-build/sandbox.tl array_hole 1
 
-build/test_worker.tl array_hole 7
 
-build/tree_checks.tl array_hole 1
 
 
 
@@ -7450,127 +7442,75 @@ lang/recursive_alias_fuzz_test.tl index_may_be_nil 1
 lang/recursive_alias_test.tl alternatives_as_value 3
 
 
-build/archive_test.tl array_hole 1
 
-build/cache_test.tl array_hole 1
 
 build/ceilings.tl not_assignable 1
 
-build/closure_store.tl array_hole 1
 
-build/codec_test.tl array_hole 4
 
-build/compile_grammar_test.tl array_hole 3
 
-build/compile_test.tl array_hole 3
 
-build/confine.tl array_hole 1
 
-build/confine_tool_test.tl array_hole 1
 
-build/dataset.tl array_hole 5
 
-build/dataset_test.tl array_hole 5
 
-build/declared_key.tl array_hole 1
 
 build/declared_key.tl view_as_mut 1
 
-build/declared_key_test.tl array_hole 1
 
-build/dispatch.tl array_hole 3
 
-build/dispatched_features_test.tl array_hole 1
 
 build/docs.tl view_as_mut 3
 
-build/fix/near.tl array_hole 1
 
-build/fuzz/shrink_test.tl array_hole 1
 
-build/hash_test.tl array_hole 1
 
-build/host_features_test.tl array_hole 1
 
 build/host_features_test.tl view_as_mut 1
 
-build/invoke.tl array_hole 1
 
 build/json_query.tl view_as_mut 1
 
-build/json_test.tl array_hole 1
 
-build/link_files.tl array_hole 2
 
 build/link_files.tl view_as_mut 1
 
-build/link_index.tl array_hole 2
 
 build/lsp/graph.tl nil_not_allowed 1
 
-build/lsp/protocol.tl array_hole 1
 
 build/lsp/syntax_read.tl view_as_mut 1
 
-build/pipeline.tl array_hole 1
 
-build/rand.tl array_hole 1
 
-build/rand_test.tl array_hole 1
 
-build/release_test.tl array_hole 5
 
-build/sandbox_test.tl array_hole 3
 
-build/shared_compiles.tl array_hole 1
 
-build/sql.tl array_hole 6
 
-build/sql_store_test.tl array_hole 1
 
-build/sql_test.tl array_hole 1
 
 build/stand_in.tl nil_not_allowed 7
 
-build/stand_in_probe.tl array_hole 1
 
-build/standalone.tl array_hole 1
 
-build/symbols.tl array_hole 1
 
-build/syntax_analyzer.tl array_hole 2
 
-build/syntax_node.tl array_hole 2
 
-build/term_relay.tl array_hole 1
 
-build/test.tl array_hole 3
 
-build/test_sandbox.tl array_hole 1
 
-build/time.tl array_hole 1
 
-build/time_test.tl array_hole 1
 
-build/todos_test.tl array_hole 1
 
-build/tree_root.tl array_hole 1
 
-build/workflows_test.tl array_hole 1
 
-build/zig_test.tl array_hole 2
 
-core/artifact_fd_test.tl array_hole 2
 
-core/connector_public_fuzz_test.tl array_hole 6
 
-core/connector_public_test.tl array_hole 1
 
-core/sqlite_functions_fuzz_test.tl array_hole 1
 
-core/sqlite_functions_test.tl array_hole 1
 
-core/syscalls_tool_test.tl array_hole 1
 
 
 
@@ -7616,7 +7556,6 @@ cosmic/web/sse.tl view_as_mut 1
 
 
 
-eval/summarize.tl array_hole 4
 
 
 

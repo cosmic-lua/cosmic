@@ -1594,3 +1594,18 @@ local function test_a_template_is_written_in_the_new_grammar()
   local _, lines = made:gsub("\n", "")
   assert(lines == 2, tostring(lines))
 end
+
+-- The tracker keeps the alternative places of a block as space-separated
+-- keys, and an attribute name may hold a byte Lua's `%s` reads as space
+-- (\v, \f) and HTML does not. Such a name must not split a key: compile
+-- answers a refusal or a template, and never raises.
+local function test_an_attribute_name_with_a_vertical_tab_or_form_feed_never_makes_compile_raise()
+  for _, space in ipairs({ "\v", "\f" }) do
+    for _, tail in ipairs({ ">", "\">", "=x>", "" }) do
+      local src = HEAD .. "<a {{if .a}}b" .. space .. "c" .. tail .. "{{end}}>"
+      local ok, out, why = pcall(Template.compile, src, "t.tmpl")
+      assert(ok, "compile raised on " .. string.format("%q", src) .. ": " .. tostring(out))
+      assert(out ~= nil or why ~= nil, "neither a template nor a refusal")
+    end
+  end
+end

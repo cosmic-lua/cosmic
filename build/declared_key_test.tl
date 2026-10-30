@@ -886,7 +886,7 @@ local function test_a_macos_host_is_keyed_by_its_system_version(tmp: string)
   assert(declared_key.system_sources("Linux")[2] == "/proc/sys/kernel/osrelease")
   local fake = tmp .. "/SystemVersion.plist"
   local system: mut {string} = {}
-  for i, path in ipairs(darwin) do system[i] = path == plist and fake or path end
+  for _, path in ipairs(darwin) do system[#system + 1] = path == plist and fake or path end
   local sources: declared_key.HostSources = {
     packages = { tmp .. "/no-packages" }, system = system, status = tmp .. "/no-status",
     cpu_features = {}, machine = "arm64", own_proc = false,

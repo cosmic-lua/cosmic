@@ -26,14 +26,13 @@ local where: mut {string} = {}
 --- One run of `cosmic compile` with `words`, in the new grammar unless a word says otherwise.
 local function run(words: {string}): Ran
   local argv: mut {string} = { "compile", "--root", where[1] or "" }
-  local at = 4
   local named = false
   for _, word in ipairs(words) do named = named or word == "--grammar" end
   if not named then
-    argv[at], argv[at + 1] = "--grammar", "new"
-    at = at + 2
+    argv[#argv + 1] = "--grammar"
+    argv[#argv + 1] = "new"
   end
-  for index, word in ipairs(words) do argv[index + at - 1] = word end
+  for _, word in ipairs(words) do argv[#argv + 1] = word end
   local ran: Ran = { code = -1, out = "", err = "" }
   ran.code = compile.run(argv, {
     out = function(text: string): boolean, string

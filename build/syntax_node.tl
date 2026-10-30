@@ -136,16 +136,13 @@ end
 
 function Node.walk_until(root: Ast.Node, visit: function(Ast.Node): boolean)
   local stack: mut {Ast.Node} = { root }
-  local top = 1
-  while top > 0 do
-    local node = stack[top]
-    stack[top] = nil
-    top = top - 1
+  while #stack > 0 do
+    local node = stack[#stack]
+    stack[#stack] = nil
     if visit(node) then
       local kids = Node.children(node)
       for i = #kids, 1, -1 do
-        top = top + 1
-        stack[top] = kids[i]
+        stack[#stack + 1] = kids[i]
       end
     end
   end

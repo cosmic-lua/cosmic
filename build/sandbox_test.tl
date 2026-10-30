@@ -36,7 +36,7 @@ end
 --- exits 0 when none is given), and says what it asked to start.
 local function run(words: {string}, answer?: Answer): Ran
   local argv: mut {string} = { "sandbox" }
-  for index, word in ipairs(words) do argv[index + 1] = word end
+  for _, word in ipairs(words) do argv[#argv + 1] = word end
   local ran: Ran = { code = -1, err = "", opts = {} }
   local given = answer or { result = finished(0) }
   ran.code = sandbox.run(argv, {
@@ -129,7 +129,7 @@ end
 local function test_the_program_is_the_first_word_no_option_claims()
   local function slot(words: {string}): integer?
     local argv: mut {string} = { "sandbox" }
-    for index, word in ipairs(words) do argv[index + 1] = word end
+    for _, word in ipairs(words) do argv[#argv + 1] = word end
     return sandbox.program_slot(argv)
   end
   assert(slot({ "ls", "-l" }) == 2)
@@ -231,7 +231,7 @@ end
 --- it was given, or nil when it was not run, and the verb's status.
 local function client_of(words: {string}): {string}?, integer
   local argv: mut {string} = { "sandbox" }
-  for index, word in ipairs(words) do argv[index + 1] = word end
+  for _, word in ipairs(words) do argv[#argv + 1] = word end
   local given = { value = nil as {string}? }
   local started = { value = false }
   local code = sandbox.run(argv, {

@@ -23,7 +23,7 @@ end
 
 local function run(words: {string}, stand?: Stand): Ran
   local argv: mut {string} = { "rand" }
-  for index, word in ipairs(words) do argv[index + 1] = word end
+  for _, word in ipairs(words) do argv[#argv + 1] = word end
   local given: Stand = stand or {}
   local ran: Ran = { code = -1, out = "", err = "" }
   ran.code = rand.run(argv, {

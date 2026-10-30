@@ -480,7 +480,8 @@ local function test_boot_lock_classifies_the_begin_result_not_its_reason(tmp: st
     statuses[i] = Zig.with_lock(build_dir(tmp .. "/" .. tostring(i)), {}, function(_env: {string:string}): integer
       return 7
     end)
-    attempts[i], closures[i] = calls.value, closes.value
+    attempts[#attempts + 1] = calls.value
+    closures[#closures + 1] = closes.value
   end
   methods.busy_timeout, methods.exec_result, methods.close = real_busy, real_exec, real_close
   assert(sample:close())

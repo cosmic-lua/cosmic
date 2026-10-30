@@ -691,9 +691,11 @@ function test_sandbox.rebind(plan: test_sandbox.Plan, from: string, scratch: str
                              effective: test_inputs.Effective): test_sandbox.Plan
   local unveil = assert(plan.sandbox.unveil)
   local reads: mut {string} = {}
-  for i, path in ipairs(unveil.reads) do reads[i] = path end
+  for _, path in ipairs(unveil.reads) do reads[#reads + 1] = path end
   local writes: mut {string} = {}
-  for i, path in ipairs(unveil.writes or {}) do writes[i] = path == from and scratch or path end
+  for _, path in ipairs(unveil.writes or {}) do
+    writes[#writes + 1] = path == from and scratch or path
+  end
   local at: mut {string:string} = {}
   for path, inside in pairs(unveil.at or {}) do at[path == from and scratch or path] = inside end
   local env: mut {string:string} = {}

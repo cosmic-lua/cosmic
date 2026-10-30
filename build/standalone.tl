@@ -188,7 +188,9 @@ function standalone.run(argv: {string}, why?: string): integer
     end
     return 1
   end
-  local arguments: mut {string} = { table.unpack(argv, 3) }
+  -- `arg[0]` is the script, so the table is keyed by position and not a sequence.
+  local arguments: mut {integer: string} = {}
+  for slot = 3, #argv do arguments[slot - 2] = assert(argv[slot]) end
   arguments[0] = file
   -- Its top level finds them in `arg`, as `lua file a b` gives them.
   rawset(_G as {string:any}, "arg", arguments)

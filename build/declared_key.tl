@@ -1067,7 +1067,7 @@ local darwin_system: {string} = { "/System/Library/CoreServices/SystemVersion.pl
 function declared_key.system_sources(sysname: string): {string}
   local chosen = sysname == "Darwin" and darwin_system or default_system
   local out: mut {string} = {}
-  for i, path in ipairs(chosen) do out[i] = path end
+  for _, path in ipairs(chosen) do out[#out + 1] = path end
   return out
 end
 

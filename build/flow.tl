@@ -587,18 +587,24 @@ local function comment_lines(out: mut {string}, entries: {string}, pad: string)
   end
 end
 
+--- Continues the last line of `out` with `text`.
+local function continue_last(out: mut {string}, text: string)
+  local last = assert(table.remove(out))
+  out[#out + 1] = last .. text
+end
+
 --- Appends `node`'s text to `out`, whose last line it continues; `pad`
 --- is its line's indentation, and `after` how many bytes follow it on
 --- its last line (a member's comma).
 local function write(out: mut {string}, node: flow.Node, pad: string, after: integer)
   if one_line(node, #out[#out], after) then
-    out[#out] = out[#out] .. inline_text(node)
+    continue_last(out, inline_text(node))
     return
   end
   local open, close = "[", "]"
   if node.kind == "object" then open, close = "{", "}" end
   local comment = node.comment
-  out[#out] = out[#out] .. open .. (if comment ~= nil then " " .. comment else "" end)
+  continue_last(out, open .. (if comment ~= nil then " " .. comment else "" end))
   local inner = pad .. "  "
   local items = members(node)
   for index, item in ipairs(items) do
@@ -607,7 +613,7 @@ local function write(out: mut {string}, node: flow.Node, pad: string, after: int
     table.insert(out, inner .. (if key ~= nil then key_text(key) .. ": " else "" end))
     write(out, item.value, inner, 1)
     local item_comment = item.comment
-    out[#out] = out[#out] .. "," .. (if item_comment ~= nil then " " .. item_comment else "" end)
+    continue_last(out, "," .. (if item_comment ~= nil then " " .. item_comment else "" end))
   end
   comment_lines(out, tidy(node.tail, #items == 0, true), inner)
   out[#out + 1] = pad .. close
@@ -620,7 +626,7 @@ function flow.render(doc: flow.Doc): string
   out[#out + 1] = ""
   write(out, doc.root, "", 0)
   local comment = doc.comment
-  if comment ~= nil then out[#out] = out[#out] .. " " .. comment end
+  if comment ~= nil then continue_last(out, " " .. comment) end
   comment_lines(out, tidy(doc.foot, false, true), "")
   return table.concat(out, "\n") .. "\n"
 end
@@ -853,7 +859,7 @@ end
 --- the old item, or nil for one to add.
 local function paired(old: {flow.Item}, new: {any}): {integer: flow.Item}
   local a, b: mut {string}, mut {string} = {}, {}
-  local old_values: mut {any} = {}
+  local old_values: mut {integer: any} = {}
   for i, item in ipairs(old) do
     local value, trouble = flow.value(item.value)
     old_values[i] = value
@@ -872,17 +878,19 @@ local function paired(old: {flow.Item}, new: {any}): {integer: flow.Item}
     out[hi_b] = old[hi_a]
     hi_a, hi_b = hi_a - 1, hi_b - 1
   end
-  -- The table of longest common runs from each (i, j) to the middle's end.
-  local lcs: mut {{integer}} = {}
+  -- The table of longest common runs from each (i, j) to the middle's end, for i and j from `lo` up to one past it:
+  -- laid from the end back, and keyed by position, since `lo` is not 1.
+  local lcs: mut {integer: {integer: integer}} = {}
   for i = hi_a + 1, lo, -1 do
-    lcs[i] = {}
+    local row: mut {integer: integer} = {}
+    lcs[i] = row
     for j = hi_b + 1, lo, -1 do
       if i > hi_a or j > hi_b then
-        lcs[i][j] = 0
+        row[j] = 0
       elseif a[i] == b[j] then
-        lcs[i][j] = lcs[i + 1][j + 1] + 1
+        row[j] = lcs[i + 1][j + 1] + 1
       else
-        lcs[i][j] = math.max(lcs[i + 1][j], lcs[i][j + 1])
+        row[j] = math.max(lcs[i + 1][j], row[j + 1])
       end
     end
   end
