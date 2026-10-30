@@ -365,6 +365,9 @@ see), so a test that meets one found a
 hole in the narrowing, not a fault of the test. Report it with the smallest
 program that shows it.
 
+- An element that a length test proved (`xs[1]` after `#xs >= 1`) is checked the same way, as a read of the place `xs[1]`:
+  a nil there raises `fact violated`. The flow's array property ([`lang/check_flow_fuzz_test.tl`]) draws programs that
+  shorten an array behind a length test, and fails where the checker keeps the fact.
 - It checks what the test took out, not what the declared type leaves: a
   nil that a map read or an optional gives a `T | R`, or a float given an
   `integer | string`, passes both branches of an `is`, and is the type
