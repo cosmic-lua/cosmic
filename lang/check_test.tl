@@ -1330,7 +1330,7 @@ local EATER <const> = "local class Eater\n  n: integer\n  function __tostring(se
   "local function shrink(): string\n  table.remove(zs)\n  return \"z\"\nend\nlocal e: Eater = { n = 1 }\n"
 
 local function test_a_call_of_the_standard_library_given_plain_values_ends_no_length_fact()
-  for _, call in ipairs({ "tostring(n)", "tostring(#zs)", "tostring(true)", "tostring(nil)", "tonumber(\"1\")",
+  for _, call in ipairs({ "tostring(n)", "tostring(#zs)", "tostring(true)", "tostring(nil)", "rawlen(zs)", "math.tointeger(n)", "tonumber(\"1\")",
       "(\"a\"):upper()", "(\"abc\"):find(\"b\")", "(\"abc\"):sub(1, 2)", "string.upper(\"a\")", "string.format(\"%d\", n)",
       "string.sub(\"abc\", n, 2)", "math.max(n, 2)", "table.concat({ \"a\" })", "select(1, n)" }) do
     reads_after("  local t = " .. call .. "\n", "")
@@ -1369,6 +1369,7 @@ local function test_a_call_that_may_run_code_of_the_program_ends_the_length_fact
   reads(EATER .. "if #zs > 0 then\n  local t = e:shrink()\n  n = zs[1]\nend\n", "index_may_be_nil")
   reads(EATER .. "if #zs > 0 then\n  local t = (\"%s\"):format(e)\n  n = zs[1]\nend\n", "index_may_be_nil")
   reads(EATER .. "local u: Eater | string = e\nif #zs > 0 then\n  local t = u:upper()\n  n = zs[1]\nend\n", "field_unknown index_may_be_nil")
+  reads(EATER .. "if #zs > 0 then\n  local t = math.tointeger(e)\n  n = zs[1]\nend\n", "index_may_be_nil")
   -- a class given to a library function that takes any, or in a value that holds one
   reads(EATER .. "if #zs > 0 then\n  local t = select(1, e)\n  n = zs[1]\nend\n", "index_may_be_nil")
   reads(EATER .. "if #zs > 0 then\n  local t = table.unpack({ e })\n  n = zs[1]\nend\n", "index_may_be_nil")
