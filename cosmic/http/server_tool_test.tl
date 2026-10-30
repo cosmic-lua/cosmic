@@ -3,7 +3,6 @@
 --- so runs in a child against a server here, and a server in a child
 --- stopped by SIGTERM.
 
-local Cell = require("cosmic.cell")
 local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")
 local Server = require("cosmic.http.server")
@@ -48,7 +47,7 @@ return function(argv: {string}): integer
 end
 ]]))
   local items: mut {string:string} = {}
-  local result: Cell<Child.Result?> = { value = nil }
+  local result: Child.Result? = nil
   assert(Server.serve{
     listeners = { Net.tcp("127.0.0.1", 0) },
     handle = function(req: Server.Request): Server.Reply
@@ -69,11 +68,11 @@ end
       local base = "http://127.0.0.1:" .. tostring(assert(addresses[1].port))
       local started = this_program.program({ "--standalone", script, base },
         { stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(60) })
-      result.value = assert(Child.run(started.argv, started.options))
+      result = assert(Child.run(started.argv, started.options))
       server:stop()
     end,
   })
-  local result_value = result.value
+  local result_value = result
   assert(result_value ~= nil, "the server never became ready")
   assert(result_value.code == 0, tostring(result_value.code) .. " " .. tostring(result_value.stderr))
   local expected = table.concat({
@@ -107,7 +106,7 @@ return function(argv: {string}): integer
 end
 ]]))
   local targets: mut {string} = {}
-  local result: Cell<Child.Result?> = { value = nil }
+  local result: Child.Result? = nil
   assert(Server.serve{
     listeners = { Net.tcp("127.0.0.1", 0) },
     handle = function(req: Server.Request): Server.Reply
@@ -121,11 +120,11 @@ end
       local base = "http://127.0.0.1:" .. tostring(assert(addresses[1].port))
       local started = this_program.program({ "--standalone", script, base },
         { stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(60) })
-      result.value = assert(Child.run(started.argv, started.options))
+      result = assert(Child.run(started.argv, started.options))
       server:stop()
     end,
   })
-  local result_value = result.value
+  local result_value = result
   assert(result_value ~= nil, "the server never became ready")
   assert(result_value.code == 0, tostring(result_value.code) .. " " .. tostring(result_value.stderr))
   assert(table.concat(targets, " ") == "/two%20words.txt /caf%C3%A9.txt /two%20words.txt /a=b&c;d?e=f",

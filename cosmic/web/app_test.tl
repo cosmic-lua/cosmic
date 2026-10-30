@@ -1,4 +1,3 @@
-local Cell = require("cosmic.cell")
 local Json = require("cosmic.json")
 local Server = require("cosmic.http.server")
 local Stream = require("cosmic.stream")
@@ -197,7 +196,7 @@ end
 
 local function test_a_raise_is_a_500_that_tells_the_client_nothing()
   local sink, lines = recording()
-  local seen_status: Cell<integer?> = { value = nil }
+  local seen_status: integer? = nil
   local app = Web.app{
     routes = { Web.get("/boom", function(_req: Web.Request): Web.Response
       error("secret detail <b>")
@@ -205,14 +204,14 @@ local function test_a_raise_is_a_500_that_tells_the_client_nothing()
     middleware = { function(inner: Web.Handler): Web.Handler
       return function(req: Web.Request): Web.Response
         local res = inner(req)
-        seen_status.value = res.status
+        seen_status = res.status
         return res
       end
     end },
     sink = sink,
   }
   local res = Web.test_client(app):get("/boom")
-  assert(res.status == 500 and seen_status.value == 500, "the middleware outside sees the 500")
+  assert(res.status == 500 and seen_status == 500, "the middleware outside sees the 500")
   assert(res.body:find("500 Internal Server Error", 1, true))
   assert(not res.body:find("secret", 1, true) and not res.body:find("traceback", 1, true), res.body)
   assert(not res.body:find("router_test", 1, true) and not res.body:find("app_test", 1, true))

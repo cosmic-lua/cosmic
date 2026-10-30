@@ -1,6 +1,7 @@
 --- Content negotiation: which of the media types a handler can make a
 --- request's Accept header likes best (RFC 9110 12.5.1).
 
+local Number = require("cosmic.number")
 local String = require("cosmic.string")
 
 local record Negotiate
@@ -21,9 +22,10 @@ local TOKEN <const> = "[%w!#$%%&'*+.^_`|~-]+"
 --- nil where it is no number from 0 to 1 with three decimals at most.
 local function weight_of(text: string): integer?
   local whole, dot, fraction = text:match("^([01])(%.?)(%d*)$")
-  if whole == nil or #fraction > 3 or (dot == "" and fraction ~= "") then return nil end
-  local thousandths = math.tointeger(tonumber(whole)) * 1000 +
-    (if fraction == "" then 0 else math.tointeger(tonumber(fraction .. ("0"):rep(3 - #fraction))) end)
+  if whole == nil or dot == nil or fraction == nil then return nil end
+  if #fraction > 3 or (dot == "" and fraction ~= "") then return nil end
+  local thousandths = Number.integer(whole) * 1000 +
+    (if fraction == "" then 0 else Number.integer(fraction .. ("0"):rep(3 - #fraction)) end)
   if thousandths > 1000 then return nil end
   return thousandths
 end

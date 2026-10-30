@@ -402,13 +402,6 @@ SyntaxCodes.catalog = {
     fix = "rename the new <name>; the old one, declared at <place>, stays visible under its own name",
   },
   {
-    code = "captured_assigned", stage = "scopes", rule = "captures are read-only",
-    why = "a function that assigns a local of the code around it makes a narrowing of that local unsound while the " ..
-      "function is suspended, so the closure may read but not assign",
-    fix = "return the value from the function, or keep it in a field of a table both read: `local held = { <name> = " ..
-      "<the value> }`, then `held.<name> = ...` in the function",
-  },
-  {
     code = "const_assigned", stage = "scopes", rule = "read-only",
     why = "an assignment to a `<const>` or `<close>` variable or a loop's control variable is refused by Lua 5.5, and the " ..
       "checker says why before the compiler does",

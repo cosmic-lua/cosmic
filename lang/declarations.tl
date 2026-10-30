@@ -1587,6 +1587,7 @@ local function declare_all(ctx: Ctx)
   local places: mut {Place} = { { names = {}, module = ctx.module, top = true } }
   local top = 1
   local kids = ctx.kids
+  -- TODO: hold this in a `Cell<integer>` once ci/cosmic-driver.pin names a release whose store holds cosmic.cell: the boot compiler loads this module from the pinned seed, which lacks it, and `bin/zig build boot` fails with "module 'cosmic.cell' not found".
   local held = { count = 0 }
   local function collect(child: Ast.Node)
     held.count = held.count + 1
@@ -2888,6 +2889,7 @@ local function walk(ctx: Ctx)
   local leaves: mut {boolean} = { false }
   local top = 1
   local kids = ctx.kids
+  -- TODO: hold this in a `Cell<integer>` once ci/cosmic-driver.pin names a release whose store holds cosmic.cell: the boot compiler loads this module from the pinned seed, which lacks it, and `bin/zig build boot` fails with "module 'cosmic.cell' not found".
   local held = { count = 0 }
   local function collect(child: Ast.Node)
     held.count = held.count + 1

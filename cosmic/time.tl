@@ -33,6 +33,7 @@
 
 local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
+local Number = require("cosmic.number")
 local String = require("cosmic.string")
 local sys = require("cosmic.sys")
 
@@ -369,7 +370,7 @@ end
 --- The nanoseconds the digits of a fraction of a second spell, one to
 --- nine of them: `5` is 500000000.
 local function fraction_ns(digits: string): integer
-  return math.tointeger(tonumber(digits .. ("0"):rep(9 - #digits)))
+  return Number.integer(digits .. ("0"):rep(9 - #digits))
 end
 
 --- The fraction `ns` nanoseconds past a second writes as: with `digits`
@@ -913,7 +914,7 @@ end
 local function parse_tzif(data: string): Rules?, string
   local counts, why = tzif_counts(data, 1)
   if counts == nil then return nil, why end
-  local version = data:byte(5)
+  local version = String.byte_at(data, 5)
   if version ~= 0 and (version < 0x32 or version > 0x34) then
     return nil, ("version byte 0x%02x is not 0, \"2\", \"3\" or \"4\""):format(version)
   end
@@ -926,7 +927,7 @@ local function parse_tzif(data: string): Rules?, string
     if counts == nil then return nil, "the version 2 header: " .. why end
     if data:byte(second + 4) ~= version then
       return nil, ("the version 2 header at byte %d names version byte 0x%02x, not 0x%02x"):format(
-        second, data:byte(second + 4), version)
+        second, String.byte_at(data, second + 4), version)
     end
     at, size = second + 44, 8
   end
@@ -1009,7 +1010,7 @@ local function parse_tzif(data: string): Rules?, string
   end
   at = at + chars
   for i = 1, isstd + isut do
-    if data:byte(at) > 1 then
+    if String.byte_at(data, at) > 1 then
       return nil, ("indicator %d at byte %d is not 0 or 1"):format(i, at)
     end
     at = at + 1

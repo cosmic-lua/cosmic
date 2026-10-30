@@ -33,6 +33,8 @@
 --- Exit status: 0 for a connection that ended, 1 for a refusal or a failure
 --- of the connection, 2 for a command line or an environment it refuses.
 
+-- TODO: make this `local type Cell = require("cosmic.cell")` once the store keeps a module that only a `local type` require names; today that drops cosmic.cell from the binary and build/link_index_test fails.
+local Cell = require("cosmic.cell")
 local Clock = require("cosmic.clock")
 local Net = require("cosmic.net")
 local Poll = require("cosmic.poll")
@@ -204,9 +206,11 @@ end
 local function carry(conn: Net.Conn, first: string, io: sandbox_connect.Io, trace: function(step: string)): boolean, string
   -- Whether the far side has ended what it sends (`far_ended`), after which
   -- a write to it that fails is its closing and no fault of the connection.
-  local ends = { trouble = "", far_ended = false, write_failed = "" }
+  local carry_trouble: Cell<string> = { value = "" }
+  local far_ended: Cell<boolean> = { value = false }
+  local write_failed: Cell<string> = { value = "" }
   local function fail(why: string)
-    if ends.trouble == "" then ends.trouble = why end
+    if carry_trouble.value == "" then carry_trouble.value = why end
   end
   conn:set_timeout(nil)
   local function up()
@@ -228,7 +232,7 @@ local function carry(conn: Net.Conn, first: string, io: sandbox_connect.Io, trac
       if not sent then
         -- Whether this is a fault or the far side's closing is known once
         -- the other task has read to the end of what it sends.
-        ends.write_failed = "writing to the relay: " .. send_why
+        write_failed.value = "writing to the relay: " .. send_why
         return
       end
     end
@@ -248,7 +252,7 @@ local function carry(conn: Net.Conn, first: string, io: sandbox_connect.Io, trac
         if why ~= "" then return fail("reading from the relay: " .. why) end
         -- The far side has ended what it sends: ours hears it as the end of
         -- standard output.
-        ends.far_ended = true
+        far_ended.value = true
         local closed, closed_why = io.finish()
         trace("down: standard output closed " .. (if closed then "ok" else tostring(closed_why) end))
         return
@@ -262,11 +266,11 @@ local function carry(conn: Net.Conn, first: string, io: sandbox_connect.Io, trac
   -- A failure of the connection ends both; otherwise the side that sends
   -- has until standard input ends: a far side that has ended what it sends
   -- may still be reading, so the client does not stop at its end.
-  if ends.trouble ~= "" then reading:cancel() end
+  if carry_trouble.value ~= "" then reading:cancel() end
   local _, _ = reading:join()
-  if ends.write_failed ~= "" and not ends.far_ended then fail(ends.write_failed) end
+  if write_failed.value ~= "" and not far_ended.value then fail(write_failed.value) end
   local _, _ = conn:close()
-  if ends.trouble ~= "" then return false, ends.trouble end
+  if carry_trouble.value ~= "" then return false, carry_trouble.value end
   return true, ""
 end
 
@@ -345,14 +349,14 @@ local function run_in(args: {string}, io: sandbox_connect.Io): integer
     if not logged then return fail("writing to the relay: " .. logged_why) end
     trace("token sent")
     local verdict = RelayWire.socks_auth_status_reader()
-    local auth = { accepted = false }
+    local token_accepted: Cell<boolean?> = { value = false }
     local after_auth, auth_why = answered(conn, relay, function(chunk: string): string, integer, string?
       local seen = verdict:feed(chunk)
-      auth.accepted = seen.accepted
+      token_accepted.value = seen.accepted
       return seen.status, seen.consumed, seen.reason
     end)
     if after_auth == nil then return fail(auth_why) end
-    if auth.accepted ~= true then return fail("the relay refused the sandbox's token") end
+    if token_accepted.value ~= true then return fail("the relay refused the sandbox's token") end
     if after_auth ~= "" then return fail("the relay answered before it was asked") end
     trace("token accepted")
   end
@@ -360,17 +364,17 @@ local function run_in(args: {string}, io: sandbox_connect.Io): integer
   if not asked then return fail("writing to the relay: " .. asked_why) end
   trace("request sent")
   local reader = RelayWire.socks_answer_reader()
-  local reply = { code = 0 }
+  local reply_code: Cell<integer?> = { value = 0 }
   local rest, answer_why = answered(conn, relay, function(chunk: string): string, integer, string?
     local seen = reader:feed(chunk)
-    reply.code = seen.code
+    reply_code.value = seen.code
     return seen.status, seen.consumed, seen.reason
   end)
   if rest == nil then return fail(answer_why) end
-  local code = reply.code
-  trace("answer read, code " .. code .. ", " .. plural.count(#rest, "byte") .. " after it")
+  local code = assert(reply_code.value)
+  trace("answer read, code " .. tostring(code) .. ", " .. plural.count(#rest, "byte") .. " after it")
   if code ~= 0 then
-    return fail(RelayWire.socks_reply_meaning(code) .. " (SOCKS reply " .. code .. "); the relay's log line says why")
+    return fail(RelayWire.socks_reply_meaning(code) .. " (SOCKS reply " .. tostring(code) .. "); the relay's log line says why")
   end
   local carried, carry_why = carry(conn, rest, io, trace)
   if not carried then
@@ -389,11 +393,11 @@ function sandbox_connect.run(args: {string}, io?: sandbox_connect.Io): integer
   local here = io or standard_io(0, 1)
   -- A caller that is a task of a run already (a test) has the run it needs.
   if Poll.in_task() then return run_in(args, here) end
-  local ran = { status = bare.failed }
+  local exit_status: Cell<integer> = { value = bare.failed }
   Poll.run(function()
-    ran.status = run_in(args, here)
+    exit_status.value = run_in(args, here)
   end)
-  return ran.status
+  return exit_status.value
 end
 
 return sandbox_connect

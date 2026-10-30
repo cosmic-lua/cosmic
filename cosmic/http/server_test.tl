@@ -2,7 +2,6 @@
 --- client here writes a request's bytes as given and reads the reply as
 --- sent, so what the server does on the wire is what is checked.
 
-local Cell = require("cosmic.cell")
 local Clock = require("cosmic.clock")
 local Server = require("cosmic.http.server")
 local Net = require("cosmic.net")
@@ -214,19 +213,19 @@ end
 --- Content-Length included, and no body: the next reply on the
 --- connection follows at once. A Reader body is closed unread.
 local function test_head_is_answered_with_no_body()
-  local read_from: Cell<boolean> = { value = false }
-  local closed: Cell<boolean> = { value = false }
+  local read_from: boolean = false
+  local closed: boolean = false
   local record Watched is Stream.Reader
     read: function(Watched, max_bytes?: integer): string?, string
     close: function(Watched): boolean, string
   end
   local watched: Watched = setmetatable({}, { __index = {
     read = function(_self: Watched, _max_bytes?: integer): string?, string
-      read_from.value = true
+      read_from = true
       return nil, ""
     end,
     close = function(_self: Watched): boolean, string
-      closed.value = true
+      closed = true
       return true, ""
     end,
   } })
@@ -244,7 +243,7 @@ local function test_head_is_answered_with_no_body()
     local after = reply(p)
     assert(after.body == "hello", after.body)
   end)
-  assert(closed.value and not read_from.value)
+  assert(closed and not read_from)
 end
 
 --- A chunked request body is decoded, its extensions and trailers
@@ -310,9 +309,9 @@ end
 --- 413 once read -- the handler's assert on the read reported nowhere
 --- -- and a connection past `connections` waits until one closes.
 local function test_each_limit_is_answered()
-  local handled: Cell<integer> = { value = 0 }
+  local handled: integer = 0
   local troubles = serving(function(req: Server.Request): Server.Reply
-    handled.value = handled.value + 1
+    handled = handled + 1
     return { status = 200, body = assert(Stream.read_all(req.body)) }
   end, function(address: Net.Address)
     local long <close> = peer(address)
@@ -328,7 +327,7 @@ local function test_each_limit_is_answered()
         "50\r\n" .. string.rep("x", 80) .. "\r\n50\r\n" .. string.rep("y", 80) .. "\r\n0\r\n\r\n")
     local over = reply(chunked)
     assert(over.status == 413, tostring(over.status))
-    assert(handled.value == 1, tostring(handled.value))
+    assert(handled == 1, tostring(handled))
     -- One connection at a time: a second waits, unanswered.
     local first <close> = peer(address)
     send(first, get("/"))
@@ -482,15 +481,15 @@ end
 --- `Connection: close`.
 local function test_stopping_closes_idle_connections_at_once()
   local started = Clock.monotonic_ns()
-  local idle_ended: Cell<boolean> = { value = false }
-  local in_flight: Cell<Got?> = { value = nil }
-  local release: Cell<boolean> = { value = false }
+  local idle_ended: boolean = false
+  local in_flight: Got? = nil
+  local release: boolean = false
   assert(Server.serve{
     listeners = { Net.tcp("127.0.0.1", 0) },
     idle_ns = Clock.seconds(60),
     handle = function(req: Server.Request): Server.Reply
       if req.path == "/slow" then
-        while not release.value do assert(Poll.delay(Clock.ms(5))) end
+        while not release do assert(Poll.delay(Clock.ms(5))) end
       end
       return { status = 200, body = "ok" }
     end,
@@ -502,16 +501,16 @@ local function test_stopping_closes_idle_connections_at_once()
       send(busy, get("/slow"))
       assert(Poll.delay(Clock.ms(20)))
       Poll.spawn(function()
-        idle_ended.value = ended(idle)
-        release.value = true
-        in_flight.value = reply(busy)
+        idle_ended = ended(idle)
+        release = true
+        in_flight = reply(busy)
         assert(ended(busy))
       end)
       server:stop()
     end,
   })
-  assert(idle_ended.value)
-  local in_flight_value = in_flight.value
+  assert(idle_ended)
+  local in_flight_value = in_flight
   assert(in_flight_value ~= nil, "the reply in flight never came")
   assert(in_flight_value.status == 200 and in_flight_value.headers["connection"] == "close")
   assert(Clock.monotonic_ns() - started < Clock.seconds(10))
@@ -617,7 +616,7 @@ end
 --- closes, the Reader is closed, and what it raised, with its stack,
 --- goes to on_error.
 local function test_a_reply_body_that_raises_closes_the_connection()
-  local closed: Cell<boolean> = { value = false }
+  local closed: boolean = false
   local record Raising is Stream.Reader
     read: function(Raising, max_bytes?: integer): string?, string
     close: function(Raising): boolean, string
@@ -627,7 +626,7 @@ local function test_a_reply_body_that_raises_closes_the_connection()
       error("the body broke")
     end,
     close = function(_self: Raising): boolean, string
-      closed.value = true
+      closed = true
       return true, ""
     end,
   } })
@@ -639,7 +638,7 @@ local function test_a_reply_body_that_raises_closes_the_connection()
     assert(line(p) == "HTTP/1.1 200 OK")
     while more(p) do end
   end)
-  assert(closed.value)
+  assert(closed)
   assert(#troubles == 1 and troubles[1]:find("the body broke", 1, true) ~= nil, troubles[1])
   assert(troubles[1]:find("stack traceback", 1, true) ~= nil, troubles[1])
 end
@@ -682,21 +681,21 @@ end
 --- A request carries the connection's far end: the loopback address and
 --- the client's own port, which is not the server's.
 local function test_a_request_carries_its_peer_address()
-  local seen: Cell<Net.Address?> = { value = nil }
-  local server_port: Cell<integer> = { value = 0 }
+  local seen: Net.Address? = nil
+  local server_port: integer = 0
   local troubles = serving(function(req: Server.Request): Server.Reply
-    seen.value = req.peer
+    seen = req.peer
     return { status = 200, body = "ok" }
   end, function(address: Net.Address)
-    server_port.value = assert(address.port, "the server reported no port")
+    server_port = assert(address.port, "the server reported no port")
     local p <close> = peer(address)
     send(p, get("/"))
     assert(reply(p).status == 200)
   end)
   assert(#troubles == 0, troubles[1])
-  local seen_value = seen.value
+  local seen_value = seen
   assert(seen_value ~= nil and seen_value.kind == "tcp" and seen_value.host == "127.0.0.1", "no peer")
-  assert(assert(seen_value.port) > 0 and seen_value.port ~= server_port.value)
+  assert(assert(seen_value.port) > 0 and seen_value.port ~= server_port)
 end
 
 --- A caller's on_stop runs once, as the server stops, with the server;
@@ -704,26 +703,26 @@ end
 --- what it raises reaches on_error without keeping the server from
 --- stopping.
 local function test_a_callers_on_stop_runs_once_and_its_raise_is_reported()
-  local calls: Cell<integer> = { value = 0 }
-  local given: Cell<Net.Server?> = { value = nil }
-  local idle_ended: Cell<boolean> = { value = false }
-  local idle_peer: Cell<Peer?> = { value = nil }
+  local calls: integer = 0
+  local given: Net.Server? = nil
+  local idle_ended: boolean = false
+  local idle_peer: Peer? = nil
   local troubles = serving(echo, function(address: Net.Address)
     local idle = peer(address)
-    idle_peer.value = idle
+    idle_peer = idle
     send(idle, get("/"))
     assert(reply(idle).status == 200)
-    Poll.spawn(function() idle_ended.value = ended(idle) end)
+    Poll.spawn(function() idle_ended = ended(idle) end)
   end, { on_stop = function(server: Net.Server)
-    calls.value = calls.value + 1
-    given.value = server
+    calls = calls + 1
+    given = server
     error("stopping badly")
   end })
-  local _, _ = assert(idle_peer.value).conn:close()
-  assert(calls.value == 1, tostring(calls.value))
-  local given_value = given.value
+  local _, _ = assert(idle_peer).conn:close()
+  assert(calls == 1, tostring(calls))
+  local given_value = given
   assert(given_value ~= nil and type(given_value.stop) == "function")
-  assert(idle_ended.value, "the idle connection was left open")
+  assert(idle_ended, "the idle connection was left open")
   assert(#troubles == 1 and troubles[1]:find("stopping badly", 1, true) ~= nil, tostring(troubles[1]))
 end
 
@@ -802,10 +801,10 @@ end
 --- comes and however short each wait: the handler's read fails and the
 --- server answers 408 in place of its reply and closes.
 local function test_a_body_slower_than_body_ns_is_answered_408()
-  local read_failed: Cell<boolean> = { value = false }
+  local read_failed: boolean = false
   serving(function(req: Server.Request): Server.Reply
     local _, why = Stream.read_all(req.body)
-    read_failed.value = why ~= nil
+    read_failed = why ~= nil
     return { status = 200, body = "never" }
   end, function(address: Net.Address)
     local p <close> = peer(address)
@@ -832,7 +831,7 @@ local function test_a_body_slower_than_body_ns_is_answered_408()
     assert(Clock.monotonic_ns() - started < Clock.seconds(3))
     assert(ended(p))
   end, { body_ns = Clock.ms(200), timeout_ns = Clock.seconds(2) })
-  assert(read_failed.value, "the handler's read did not fail")
+  assert(read_failed, "the handler's read did not fail")
 end
 
 --- A body the handler leaves unread, trickled past body_ns, is dropped
@@ -875,11 +874,11 @@ end
 --- A handler that works past body_ns before it reads a body the client
 --- sent in good time gets the body: the time runs from its first read.
 local function test_a_slow_handler_reading_a_prompt_body_gets_it()
-  local read: Cell<string?> = { value = nil }
+  local read: string? = nil
   local troubles = serving(function(req: Server.Request): Server.Reply
     assert(Poll.delay(Clock.ms(500)))
-    read.value = assert(Stream.read_all(req.body))
-    return { status = 200, body = read.value }
+    read = assert(Stream.read_all(req.body))
+    return { status = 200, body = read }
   end, function(address: Net.Address)
     local p <close> = peer(address)
     send(p, "PUT / HTTP/1.1\r\nHost: test\r\nContent-Length: 3\r\n\r\n")
@@ -889,7 +888,7 @@ local function test_a_slow_handler_reading_a_prompt_body_gets_it()
     assert(got.status == 200 and got.body == "abc", tostring(got.status))
   end, { body_ns = Clock.ms(200), timeout_ns = Clock.seconds(2) })
   assert(#troubles == 0, troubles[1])
-  assert(read.value == "abc")
+  assert(read == "abc")
 end
 
 --- A handler that works past body_ns and ignores the body, sent in good
@@ -954,35 +953,35 @@ end
 --- then, and a reply still in flight, finished once on_stop lets it go,
 --- carries `Connection: close`.
 local function test_on_stop_runs_after_the_server_has_stopped_taking_work()
-  local idle_peer: Cell<Peer?> = { value = nil }
-  local busy_peer: Cell<Peer?> = { value = nil }
-  local idle_ended_at_stop: Cell<boolean> = { value = false }
-  local release: Cell<boolean> = { value = false }
-  local in_flight: Cell<Got?> = { value = nil }
+  local idle_peer: Peer? = nil
+  local busy_peer: Peer? = nil
+  local idle_ended_at_stop: boolean = false
+  local release: boolean = false
+  local in_flight: Got? = nil
   local troubles = serving(function(req: Server.Request): Server.Reply
     if req.path == "/slow" then
-      while not release.value do assert(Poll.delay(Clock.ms(5))) end
+      while not release do assert(Poll.delay(Clock.ms(5))) end
     end
     return { status = 200, body = "ok" }
   end, function(address: Net.Address)
     local idle = peer(address)
-    idle_peer.value = idle
+    idle_peer = idle
     send(idle, get("/"))
     assert(reply(idle).status == 200)
     local busy = peer(address)
-    busy_peer.value = busy
+    busy_peer = busy
     send(busy, get("/slow"))
     assert(Poll.delay(Clock.ms(20)))
-    Poll.spawn(function() in_flight.value = reply(busy) end)
+    Poll.spawn(function() in_flight = reply(busy) end)
   end, { on_stop = function(_server: Net.Server)
-    idle_ended_at_stop.value = vanished(assert(idle_peer.value))
-    release.value = true
+    idle_ended_at_stop = vanished(assert(idle_peer))
+    release = true
   end })
-  local _, _ = assert(idle_peer.value).conn:close()
-  local _, _ = assert(busy_peer.value).conn:close()
+  local _, _ = assert(idle_peer).conn:close()
+  local _, _ = assert(busy_peer).conn:close()
   assert(#troubles == 0, troubles[1])
-  assert(idle_ended_at_stop.value, "the idle connection was open when on_stop ran")
-  local in_flight_value = in_flight.value
+  assert(idle_ended_at_stop, "the idle connection was open when on_stop ran")
+  local in_flight_value = in_flight
   assert(in_flight_value ~= nil and in_flight_value.status == 200 and in_flight_value.headers["connection"] == "close",
     "the reply in flight did not close")
 end
