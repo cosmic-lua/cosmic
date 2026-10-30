@@ -120,7 +120,7 @@ local record Declarations
     "member_missing"
     -- a parameter of a method with no type
     "param_untyped"
-    -- a `__close` that takes more than the value, or a `__tostring` that does not answer a string
+    -- a `__close` that takes more than the value or answers one, or a `__tostring` that does not answer a string
     "metamethod_signature"
     -- a method or function of a class named for a metamethod other than `__close` and `__tostring`
     "class_metamethod"
@@ -334,6 +334,10 @@ local record Declarations
 
   --- The fields `decl`, an interface, has from the interfaces it lists ([`Declarations.inherited`]).
   inherited: function(store: Store, judge: Relation.Judge, decl: Types.Decl): {Types.Field}
+
+  --- Whether `made`, the type of a method named `__close`, is what Lua calls at the end of a `<close>` local's block:
+  --- a function that takes the value (and with `error_too` the error object, declared `any`) and answers nothing.
+  close_is_callable: function(made: Type, error_too: boolean): boolean
 
   --- Every [`Code`], in the order the enum lists them.
   codes: {Code}
@@ -1786,6 +1790,20 @@ local METAMETHODS <const>: {string: boolean} = {
   __mode = true, __tostring = true, __name = true, __metatable = true, __pairs = true,
 }
 
+--- Whether `made`, the type of a method named `__close`, is what Lua calls at the end of a `<close>` block and drops the
+--- answer of: it takes the value, and with `error_too` also the error object Lua passes as a second argument (declared
+--- `any`), and it answers nothing. A class takes the value alone, as [`check_metamethod`] holds it to; a userdata
+--- record's declaration may take the error object too, as the core's do.
+local function close_is_callable(made: Type, error_too: boolean): boolean
+  if made.tag ~= "fn" then
+    return false
+  end
+  local alt = made.rets[1]
+  local second = made.params[2]
+  local arity = #made.params == 1 or (error_too and #made.params == 2 and second ~= nil and second.type.tag == "any")
+  return arity and made.rest == nil and #made.rets == 1 and alt ~= nil and #alt.items == 0 and alt.tail == nil
+end
+
 --- Holds the method `m` of a class, of function type `made`, to what its name means when it is `__close` (it
 --- takes the value alone) or `__tostring` (it also answers a `string`), and refuses a name of any other metamethod.
 local function check_metamethod(ctx: Ctx, build: Build, m: Ast.Method, made: Type)
@@ -1806,6 +1824,9 @@ local function check_metamethod(ctx: Ctx, build: Build, m: Ast.Method, made: Typ
     report_at(ctx, "metamethod_signature", m.name, "the method " .. quoted(name) .. " of " .. class .. " takes more than " ..
         "the value, and Lua calls it with the value alone",
       "write `function " .. name .. "(self)" .. (if name == "__tostring" then ": string" else "" end) .. "`")
+  elseif name == "__close" and not close_is_callable(made, false) then
+    report_at(ctx, "metamethod_signature", m.name, "the method `__close` of " .. class .. " answers a value, which Lua " ..
+        "drops", "write `function __close(self)` and answer nothing")
   elseif name == "__tostring" then
     local alt = made.rets[1]
     if alt == nil or #made.rets ~= 1 or alt.tail ~= nil or #alt.items ~= 1 or alt.items[1] ~= ctx.store.string then
@@ -3037,6 +3058,10 @@ end
 --- it, with that interface's arguments put in and the receiver of a function field replaced by `decl`. Where those
 --- interfaces declare a field differently `interface_disagrees` says so at the declaration, and the first is the one
 --- given. Nothing for another kind: a record or class must declare every field it lists.
+function Declarations.close_is_callable(made: Type, error_too: boolean): boolean
+  return close_is_callable(made, error_too)
+end
+
 function Declarations.inherited(store: Store, judge: Relation.Judge, decl: Types.Decl): {Types.Field}
   local out: mut {Types.Field} = {}
   local body = decl.body

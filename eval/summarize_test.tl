@@ -52,6 +52,32 @@ local function test_a_docs_miss_summary_counts()
   assert(report:find("docs_misses=1 ", 1, true), report)
 end
 
+--- A tool_use line whose `input` is written as `raw` JSON text.
+local function raw_call(id: string, name: string, raw: string): string
+  return '{"type":"assistant","message":{"content":[{"type":"tool_use","id":"' .. id ..
+    '","name":"' .. name .. '","input":' .. raw .. '}]}}'
+end
+
+local function test_an_input_that_is_no_object_is_reported_not_read_as_nothing()
+  local text = lines({
+    raw_call("1", "Read", '"/src/cosmic/secret.tl"'),
+    raw_call("2", "Bash", '["cat","/src/cosmic/x"]'),
+    raw_call("3", "Read", "null"),
+    raw_call("4", "Read", '{"file_path":"/src/cosmic/y.tl"}'),
+  })
+  local report = Summarize.report(text, arena, repo)
+  assert(report:find("tools=4", 1, true), report)
+  for _, want in ipairs({
+      'input-not-an-object: call 1 (Read) input is not an object: "/src/cosmic/secret.tl"',
+      'input-not-an-object: call 2 (Bash) input is not an object: ["cat","/src/cosmic/x"]',
+      "input-not-an-object: call 3 (Read) input is not an object: null",
+  }) do
+    assert(report:find(want, 1, true), want .. "\n" .. report)
+  end
+  assert(not report:find("call 4 (Read) input is not", 1, true), report)
+  assert(report:find("BREACH: /src/cosmic/y.tl", 1, true), "an object input is still read: " .. report)
+end
+
 local function test_a_run_without_a_result_says_it_may_have_timed_out()
   local text = lines({ call("1", "Bash", { command = "true" }), "not json", "3", "" })
   assert(Summarize.report(text, arena, repo) == lines({

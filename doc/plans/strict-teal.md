@@ -831,7 +831,7 @@ way. a class's fields and methods
 have distinct names, since an absent field would read as the method of
 its name through `__index`. `__close` takes the value and `__tostring`
 returns a string, both checked; a `<close>` local holds a class that
-declares `__close`, or nil. there is no inheritance. the compiler emits
+declares `__close` as a method, or a userdata record that does, or nil. there is no inheritance. the compiler emits
 the literal as one reserved form, which the patched parser compiles to a
 table made with its metatable in one opcode.
 
@@ -1312,7 +1312,7 @@ and the worker that compared the two. what the change did, and what it decided:
   wrapper set `COSMIC_GRAMMAR=new`), and what they cannot yet spell waits on the pin (`bin/cosmic todos
   '"cosmic-driver.pin"'`).
 - **the boot.** the bridge compiles the files of [`build/seed.txt`] with the pinned release as the seed, compiles them
-  again from the tree, and builds the tool with the second; [`lang/SEED_DIFFERS`] names the files a generator change
+  again from the tree, and builds the tool with the second; `lang/SEED_DIFFERS` names the files a generator change
   ahead of the pin makes differ. no stage reads the fork.
 - **the readers.** `cosmic fix`, the tree checks, the language server, the doc and link readers, coverage, the
   sandbox's closure and the template compiler read the syntax tree of the new grammar. `cosmic fix` reads and checks
@@ -1599,5 +1599,4 @@ since the seed's Lua runs on the tree's VM.
 [`Capture.after`]: ../../lang/scopes.tl
 [`Child.Handle`]: ../../cosmic/child.tl
 [`cosmic.json.array`]: ../../cosmic/json.tl
-[`lang/SEED_DIFFERS`]: ../../lang/SEED_DIFFERS
 [`Types.Atom`]: ../../lang/types.tl
