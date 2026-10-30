@@ -4,6 +4,7 @@
 --- falls out of step. The connector [`Net.connector`] starts is in
 --- cosmic/net_connector_test.tl.
 local Clock = require("cosmic.clock")
+local RawTables = require("build.raw_tables")
 local Connector = require("cosmic.internal.connector")
 local Net = require("cosmic.net")
 local Poll = require("cosmic.poll")
@@ -14,19 +15,8 @@ local type raw_socket = require("cosmic.internal.socket")
 
 Test.policy{ loopback = { "127.0.0.1" }, promises = { "fork" } }
 
-local type Searcher = function(string): any, any
-
---- The raw table `require` hands `wrapper`'s loader.
-local function raw_behind(wrapper: string): any
-  for _, searcher in ipairs(package.searchers as {Searcher}) do -- cast: searchers' loaders take an extra
-    local loader, extra = searcher(wrapper)
-    if type(loader) == "function" and type(extra) == "table" then return extra end
-  end
-  error(wrapper .. " is handed no raw table")
-end
-
-local process = raw_behind("cosmic.internal.connector") as raw_process -- cast: holds the table core/process.h declares, beside the socket table
-local socket = raw_behind("cosmic.net") as raw_socket -- cast: the table core/socket.h declares
+local process = RawTables.process("cosmic.internal.connector")
+local socket = RawTables.socket()
 
 --- How many connections one connector process makes at once, as the core says.
 local FLIGHT <const> = socket.CONNECTOR_FLIGHT
@@ -52,7 +42,7 @@ local function require_native_connector()
   if result == nil and (number == sys.ENOSYS or number == sys.EOPNOTSUPP) then
     Test.skip("this host has no native connector confinement: " .. why)
   end
-  assert(result == sys.EPERM, "native connector setup failed: " .. (why or ""))
+  assert(result == sys.EPERM, "native connector setup failed: " .. tostring(why))
 end
 
 --- A loopback echo server in the run's tasks: its address, and the task to cancel.
