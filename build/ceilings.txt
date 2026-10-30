@@ -6199,7 +6199,6 @@ core/allocation_test.tl compare_disjoint 5
 
 core/artifact_fd_test.tl compare_disjoint 1
 
-core/connector_public_test.tl compare_disjoint 2
 
 core/sqlite_functions_fuzz_test.tl compare_disjoint 1
 
@@ -6972,7 +6971,6 @@ build/policy_rules.tl array_of_optional 1
 
 core/artifact_fd_test.tl array_of_optional 4
 
-core/artifact_fd_tool_test.tl array_of_optional 1
 
 cosmic/child.tl array_of_optional 2
 
