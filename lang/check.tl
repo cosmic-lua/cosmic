@@ -96,9 +96,9 @@ local record Check
   -- a string that an `==` test narrowed (no read is wrapped), and `true` against `false` of a boolean. A run misses a
   -- false conclusion of these and refuses nothing valid. Once a full `cosmic test --check-types` run (CI's `checked-narrowing`
   -- job) has a time to compare, so that the cost of a call per read of each decides which are worth it.
-  --- A read of a local, of a path of fixed fields from one, or of an element a length test proved, whose type a test narrowed. The checker took the value
-  --- to have none of the kinds of Lua value in `taken`, and the values of the enums, classes and tags the other fields
-  --- name, which a run can check at the read.
+  --- A read of a local, of a path of fixed fields from one, or of an element a length test proved, whose type a test
+  --- narrowed. The checker took the value to have none of the kinds of Lua value in `taken`, and the values of the enums,
+  --- classes and tags the other fields name, which a run can check at the read.
   record Narrowed
     --- The id of the node of the read, and where the place is read: the offset of its first token, and its length in bytes.
     id: integer
