@@ -896,11 +896,11 @@ local function test_to_value_refuses_what_json_cannot_say_naming_where()
   local _, nothing = Json.to_value(nil)
   assert(nothing == 'json: no value at pointer ""', nothing)
   local _, dropped = Json.to_value(decoded('{"a": [1, null, 3]}'))
-  assert(dropped == 'json: the array at pointer "/a" has a hole; decode with null_value = Json.null to keep a null', dropped)
+  assert(dropped == 'json: the array at pointer "/a" has a hole; fill it with Json.null (decode with null_value = Json.null keeps a null)', dropped)
   local _, fn = Json.to_value({ list = { print } })
   assert(fn == 'json: the value at pointer "/list/0" is a function, which JSON cannot say', fn)
   local _, gap = Json.to_value({ [1] = 1, [3] = 3 })
-  assert(gap == 'json: the array at pointer "" has a hole; decode with null_value = Json.null to keep a null', gap)
+  assert(gap == 'json: the array at pointer "" has a hole; fill it with Json.null (decode with null_value = Json.null keeps a null)', gap)
   local _, nan = Json.to_value({ x = 0 / 0 })
   assert(nan == 'json: the number at pointer "/x" is NaN or an infinity', nan)
   local _, inf = Json.to_value(-math.huge)
@@ -948,6 +948,113 @@ local function test_to_object_and_to_array_name_the_kind_they_wanted()
   assert(nan == 'json: the number at pointer "/x" is NaN or an infinity', nan)
   local _, holed = Json.to_array(decoded("[null, 1, null, null]"))
   assert(holed:find('the array at pointer "" has a hole', 1, true), holed)
+end
+
+--- What the Lua in `source`, which sees `Json`, answers; a chunk of Lua because the checker would not let a test name some of
+--- what it builds or refuses.
+local function lua_of(source: string): any, any
+  local chunk = assert(load("local Json = ...\n" .. source))
+  return chunk(Json)
+end
+
+--- The refusal [`Json.with_holes`] answers for the Lua in `source`.
+local function with_holes_refusal(source: string): string
+  local list, why = lua_of(source)
+  assert(list == nil, "expected a refusal")
+  assert(why is string, "a refusal is a message")
+  return why
+end
+
+--- The array of `items` marked as one that may have holes, or a failed assertion naming the refusal.
+local function holed<T>(items: {integer: T}): {integer: T}
+  local list, err = Json.with_holes(items)
+  assert(list ~= nil, "with_holes failed: " .. err)
+  assert(err == "", "a success carries \"\" in the error slot")
+  return list
+end
+
+local function test_with_holes_writes_each_hole_as_null_at_any_depth()
+  local row = holed({ [1] = "a", [3] = "c" })
+  assert(Json.is_array(row), "it is marked as an array")
+  assert(row[1] == "a" and row[2] == nil and row[3] == "c", "the items stay at their positions")
+  assert(encoded(row) == '["a",null,"c"]', encoded(row))
+  assert(encoded({ list = row }) == '{"list":["a",null,"c"]}')
+  local twice: {{integer: string}} = { row, row }
+  assert(encoded({ twice }) == '[[["a",null,"c"],["a",null,"c"]]]', "at any depth")
+  assert(encoded(holed({ [2] = true })) == "[null,true]", "a hole at the start")
+  local nothing: {integer: integer} = {}
+  assert(encoded(holed(nothing)) == "[]", "no item is `[]`, not `{}`")
+end
+
+local function test_with_holes_marks_the_table_it_is_given_so_its_length_follows_the_table()
+  local items: mut {integer: string} = { [1] = "a", [2] = "b", [3] = "c" }
+  local list = holed(items)
+  assert(list == items, "it is the same table, not a copy")
+  assert(encoded(list) == '["a","b","c"]')
+  items[3] = nil
+  assert(encoded(list) == '["a","b"]', "shrinking it shortens what it encodes as")
+  items[5] = "e"
+  assert(encode_failure(list):find("array with a hole", 1, true), "a hole made after it was marked is still refused")
+end
+
+local function test_with_holes_marks_a_table_with_no_hole_as_a_plain_array()
+  local dense = holed({ [1] = "a", [2] = "b" })
+  assert(Json.is_array(dense) and encoded(dense) == '["a","b"]')
+  local grown, why = lua_of("local t = assert(Json.with_holes({ 'a', 'b' })); t[4] = 'd'; return Json.encode_any(t)")
+  assert(grown == nil and why == "json: cannot encode an array with a hole (index 3 is nil)", "as any array refuses a hole")
+  local holey = lua_of("local t = assert(Json.with_holes({ [1] = 'a', [3] = 'c' })); t[5] = 'e'; return Json.encode_any(t)")
+  assert(holey == '["a",null,"c",null,"e"]', "one that had a hole when marked still writes null")
+end
+
+local function test_with_holes_refuses_a_key_below_1_naming_it()
+  local _, zero = Json.with_holes({ [0] = "x" })
+  assert(zero == "json: an array with holes has keys from 1 up, not 0", zero)
+  local _, negative = Json.with_holes({ [1] = "a", [-2] = "x" })
+  assert(negative:find("not -2", 1, true), negative)
+end
+
+local function test_with_holes_refuses_a_table_that_has_a_metatable_without_raising()
+  local why = with_holes_refusal("return Json.with_holes(setmetatable({ 'a' }, {}))")
+  assert(why:find("metatable", 1, true), why)
+  assert(with_holes_refusal("return Json.with_holes(Json.array({ 'a' }))"):find("metatable", 1, true))
+end
+
+local function test_an_array_with_holes_does_not_write_a_million_holes()
+  local items: mut {integer: string} = { [1] = "a", [1 << 40] = "b" }
+  local list = holed(items)
+  local failed = encode_failure(list)
+  assert(failed:find("more than 1048576 holes", 1, true) and failed:find("holds 2 items", 1, true), failed)
+  assert(failed:find("use an object, or fill the holes", 1, true), failed)
+  items[1 << 40] = nil
+  items[1048578] = "b"
+  assert(encoded(list):sub(1, 14) == '["a",null,null', "the most it may hold is written")
+end
+
+local function test_a_plain_array_still_refuses_a_hole()
+  assert(encode_failure({ [1] = 1, [3] = 3 }):find("array with a hole (index 2 is nil)", 1, true))
+  local plain = lua_of("local t = Json.array({ 1, 2, 3 }); t[2] = nil; return t")
+  assert(encode_failure(plain):find("array with a hole (index 2 is nil)", 1, true), "so does a marked one")
+end
+
+local function test_decode_never_answers_an_array_that_may_have_holes()
+  local dropped = assert(Json.decode_array('[1,null,3]'))
+  assert(encode_failure(dropped):find("array with a hole", 1, true), "a decoded array with a dropped null")
+  local whole = lua_of("local t = assert(Json.decode_array('[1,2]')); t[4] = 4; return t")
+  assert(encode_failure(whole):find("array with a hole", 1, true), "refuses a hole made later")
+end
+
+local function test_to_value_and_to_array_refuse_an_array_with_a_hole_naming_where()
+  local row = holed({ [1] = "a", [3] = "c" })
+  local _, array = Json.to_array(row)
+  assert(array:find('the array at pointer "" has a hole', 1, true), array)
+  assert(array:find("fill it with Json.null", 1, true), "it says how to go on: " .. array)
+  local _, value = Json.to_value({ list = row })
+  assert(value:find('the array at pointer "/list" has a hole', 1, true), value)
+  local full = assert(Json.to_array(holed({ [1] = "a", [2] = "b" })))
+  assert(full[1] == "a" and full[2] == "b" and #full == 2, "with no hole it converts")
+  local items: {integer: Json.Value} = { [1] = "a", [2] = Json.null, [3] = "c" }
+  local filled = assert(Json.to_array(holed(items)))
+  assert(encoded(filled) == '["a",null,"c"]', "a hole filled with Json.null converts")
 end
 
 local function test_to_value_refuses_a_table_that_holds_itself()
