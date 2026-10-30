@@ -172,6 +172,7 @@ end
 local darwin_features: {string:string} = {
   ["hw.optional.arm.FEAT_AES"] = "aes", ["hw.optional.AdvSIMD"] = "asimd",
   ["hw.optional.armv8_crc32"] = "crc32", ["hw.optional.arm.FEAT_PMULL"] = "pmull",
+  ["hw.optional.arm.FEAT_SHA256"] = "sha2", ["hw.optional.armv8_2_sha512"] = "sha512",
 }
 
 --- Each recorded host, as ci/testdata/host_features holds it -- x86_64,

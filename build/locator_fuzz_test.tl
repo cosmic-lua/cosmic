@@ -15,6 +15,13 @@ local Test = require("cosmic.test")
 local Clock = require("cosmic.clock")
 local build_paths = require("build.paths")
 
+--- The element of `list` at `index`, which the case knows is there.
+local function nth<T>(list: {T}, index: integer): T
+  local found = list[index]
+  assert(found ~= nil, "the list has an element at " .. tostring(index))
+  return found
+end
+
 --- The program itself, which its tests start.
 --- `store`: [`embed.tree`] joins every `cosmic.*` module's rows.
 Test.policy{
@@ -90,12 +97,12 @@ local function gen(tail: Tail): function(Fuzz.Source): string
       local what = src:int(1, 5)
       if what == 1 then
         local f = Fuzz.pick(src, TRAILER_FIELDS)
-        local current = field(trailer, f[1], f[2])
-        trailer = set_field(trailer, f[1], f[2], interesting(src, current))
+        local current = field(trailer, nth(f, 1), nth(f, 2))
+        trailer = set_field(trailer, nth(f, 1), nth(f, 2), interesting(src, current))
       elseif what == 2 then
         local f = Fuzz.pick(src, MANIFEST_FIELDS)
-        local current = field(manifest, f[1], f[2])
-        manifest = set_field(manifest, f[1], f[2], interesting(src, current))
+        local current = field(manifest, nth(f, 1), nth(f, 2))
+        manifest = set_field(manifest, nth(f, 1), nth(f, 2), interesting(src, current))
       elseif what == 3 then
         trailer = Fuzz.mutate(src, trailer, 3)
       elseif what == 4 then
@@ -136,8 +143,8 @@ local function test_a_corrupt_host_program_is_refused_by_name(tmp: string)
     check = function(input: string): boolean, string
       local f = Fuzz.unpack(input)
       local cut = math.tointeger(tonumber(f[3])) or 0
-      local database = tail.database:sub(1, #tail.database - cut) .. f[4]
-      rewrite(f[1] .. database .. f[2])
+      local database = tail.database:sub(1, #tail.database - cut) .. nth(f, 4)
+      rewrite(nth(f, 1) .. database .. nth(f, 2))
       local r, trouble = Child.run({ program }, {
         stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(10) })
       if r == nil then return false, "run: " .. trouble end

@@ -6,6 +6,7 @@ local sys = require("cosmic.sys")
 local Test = require("cosmic.test")
 local c = require("build.c")
 local rules = require("build.c.rules")
+local tree = require("build.c.tree")
 
 --- The core's C and the headers it includes, which zig parses to a syntax
 --- tree, and what bin/zig reads to find or fetch zig, which the system's
@@ -129,6 +130,50 @@ int f(lua_State *L) {
   return 1;
 }
 ]]), "held-across-raise", 9)
+end
+
+--- Clang accepts `$` in an identifier; a function named with one was once
+--- skipped by every function-level rule.
+local function test_a_dollar_named_function_is_checked_under_its_whole_name(tmp: string)
+  local held = findings(tmp, header .. [[
+int f$(lua_State *L) {
+  char *p = malloc(8);
+  lua_pushstring(L, "allocates");
+  free(p);
+  return 1;
+}
+]])
+  one(held, "held-across-raise", 8)
+  for _, f in ipairs(held) do assert(f.within == "f$", f.within) end
+  local narrowed = findings(tmp, header .. [[
+int $g(lua_State *L) {
+  return (int)luaL_checkinteger(L, 1);
+}
+]])
+  one(narrowed, "narrowed-integer", 7)
+  for _, f in ipairs(narrowed) do assert(f.within == "$g", f.within) end
+end
+
+--- A defined function whose name is not read is trouble naming its place,
+--- not a function the rules pass over. C cannot spell one, so the dump is
+--- written out.
+local function test_a_defined_function_with_no_name_is_trouble()
+  local decls = tree.parse(table.concat({
+    "TranslationUnitDecl 0x1 <<invalid sloc>> <invalid sloc>",
+    "|-FunctionDecl 0x3 <core/a.c:4:1, line:7:1> line:4:12 'int (lua_State *)' static",
+    "| `-CompoundStmt 0x5 <col:28, line:7:1>",
+    "`-FunctionDecl 0x6 <line:9:1, col:20> col:5 g 'int (void)'",
+  }, "\n"))
+  local trouble = assert(rules.unreadable(decls))
+  assert(trouble:find("core/a.c:4", 1, true) ~= nil, trouble)
+  -- A name that is read, and a declaration with no body, are not trouble.
+  local named = tree.parse(table.concat({
+    "TranslationUnitDecl 0x1 <<invalid sloc>> <invalid sloc>",
+    "|-FunctionDecl 0x6 <core/a.c:9:1, line:11:1> line:9:5 $g 'int (void)'",
+    "| `-CompoundStmt 0x7 <col:14, line:11:1>",
+    "`-FunctionDecl 0x8 <line:13:1, col:20> col:5 h 'int (void)'",
+  }, "\n"))
+  assert(rules.unreadable(named) == nil)
 end
 
 local function test_memory_released_first_or_guarded_is_not(tmp: string)

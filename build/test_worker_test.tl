@@ -7,6 +7,13 @@ local type Sandbox = require("cosmic.sandbox")
 local Clock = require("cosmic.clock")
 local worker = require("build.test_worker")
 
+--- The element of `list` at `index`, which the case knows is there.
+local function nth<T>(list: {T}, index: integer): T
+  local found = list[index]
+  assert(found ~= nil, "the list has an element at " .. tostring(index))
+  return found
+end
+
 --- A worker's end, having written `report` to the report's descriptor.
 local function ended(report: worker.Report): Child.Result
   return { ok = true, code = 0, timed_out = false, truncated = false,
@@ -33,16 +40,19 @@ end
 local function test_a_line_of_hits_read_twice_is_one_table()
   local function reported(loaded: {integer}, tested: {integer}): worker.Report
     local report = passing({})
-    report.load_hits = { ["build.a"] = { [loaded[1]] = true, [loaded[2]] = true } }
-    report.test_hits = { ["build.a"] = { [tested[1]] = true } }
+    report.load_hits = { ["build.a"] = { [nth(loaded, 1)] = true, [nth(loaded, 2)] = true } }
+    report.test_hits = { ["build.a"] = { [nth(tested, 1)] = true } }
     return report
   end
   local first = assert(worker.decode(worker.encode(reported({ 3, 5 }, { 7, 7 }))))
   local second = assert(worker.decode(worker.encode(reported({ 3, 5 }, { 9, 9 }))))
   assert(first.load_hits["build.a"] == second.load_hits["build.a"])
   assert(first.test_hits["build.a"] ~= second.test_hits["build.a"])
-  assert(first.load_hits["build.a"][3] == true and first.load_hits["build.a"][5] == true)
-  assert(first.test_hits["build.a"][7] == true and second.test_hits["build.a"][9] == true)
+  local first_loaded = assert(first.load_hits["build.a"], "the first report has load hits for build.a")
+  local first_tested = assert(first.test_hits["build.a"], "the first report has test hits for build.a")
+  local second_tested = assert(second.test_hits["build.a"], "the second report has test hits for build.a")
+  assert(first_loaded[3] == true and first_loaded[5] == true)
+  assert(first_tested[7] == true and second_tested[9] == true)
   local malformed = worker.encode(passing({})):gsub("\nend\n$", "\ntest-hit zz 1\nend\n")
   assert(worker.decode(malformed) == nil)
 end
@@ -112,7 +122,9 @@ local function test_a_worker_is_started_as_its_command_line_says()
     "suite.a_test", "test_x", "/tmp/tmp", "/tmp/children", "", "suite.a_test",
     "--tree", "suite.a_test", "suite.b" }
   assert(#argv == #expected, table.concat(argv, " "))
-  for i, value in ipairs(expected) do assert(argv[i] == value, tostring(i) .. ": " .. argv[i]) end
+  for i, value in ipairs(expected) do
+    assert(argv[i] == value, tostring(i) .. ": " .. nth(argv, i))
+  end
   assert(assert(options.env).PATH == "/bin" and assert(options.env).COVERAGE == "1")
   assert(assert(options.env).COSMIC_COVERAGE_STARTUP == "1")
   assert(assert(options.fds)[worker.report_fd] == "capture" and assert(options.fds)[254] == 7)
@@ -200,15 +212,17 @@ local function test_a_report_passes_only_after_successful_process_shutdown()
   report.test_hits = { ["suite.tl"] = { [12] = true } }
   report.skipped = "unchecked"
   local outcomes: {Child.Result} = { ended(report), ended(report), ended(report) }
-  outcomes[1].ok, outcomes[1].code = false, 7
-  outcomes[2].ok, outcomes[2].code, outcomes[2].signal = false, nil, 9
-  outcomes[3].ok = false
+  nth(outcomes, 1).ok, nth(outcomes, 1).code = false, 7
+  nth(outcomes, 2).ok, nth(outcomes, 2).code, nth(outcomes, 2).signal = false, nil, 9
+  nth(outcomes, 3).ok = false
   for i, result in ipairs(outcomes) do
     local judged = worker.judge({ result = result, trouble = "", timeout_ns = Clock.seconds(1),
       sandboxed = false })
     assert(not judged.passed and judged.skipped == "")
     local judged_report = judged.report
-    assert(judged_report ~= nil and judged_report.test_hits["suite.tl"][12] == true)
+    assert(judged_report ~= nil)
+    local suite_hits = assert(judged_report.test_hits["suite.tl"], "the judged report has test hits for suite.tl")
+    assert(suite_hits[12] == true)
     local ending = if i == 2 then "was killed by signal 9" else
       "exited with status " .. (if i == 1 then "7" else "0" end) end
     assert(judged.message:find(ending .. " after it reported", 1, true), judged.message)

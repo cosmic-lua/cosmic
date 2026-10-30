@@ -255,8 +255,10 @@ end
 --- - `deflate(X)`: the raw deflate of X, as `Compress.deflate("raw", X)`
 ---   writes it; `inflate(X)` decodes such a stream, to a blob.
 ---
---- `handle:limit(name, value)` sets one of the connection's limits,
---- `"attached"` among them, and answers the old one.
+--- `handle:limit(name, value)` sets one of the connection's limits and
+--- answers the old one. A handle may attach 10 databases
+--- (`ATTACH DATABASE`) until `handle:limit("attached", n)` raises that,
+--- to at most 125; the refusal of one too many says so.
 function Sqlite.open(path: string, opts?: Sqlite.OpenOptions): Sqlite.Handle?, string
   return sqlite.open(path, opts and opts.writable, opts and opts.immutable, opts and opts.create)
 end

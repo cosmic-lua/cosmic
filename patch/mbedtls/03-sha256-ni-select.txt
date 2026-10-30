@@ -1,0 +1,25 @@
+file: tf-psa-crypto/drivers/builtin/src/sha256.c
+note: upstream has no x86 SHA-256 instructions. On x86_64 this leaves
+  the portable block function under its own name (as the Armv8 path
+  does) and sets COSMIC_SHA256_NI, so 04-sha256-ni can add the
+  SHA-NI function and the dispatch between the two. The instructions
+  are chosen at run time by cpuid, not by the build's baseline, which
+  does not include them (the x86-64-v3 cores run on CPUs without SHA).
+--- find
+#if !defined(MBEDTLS_SHA256_USE_ARMV8_A_CRYPTO_IF_PRESENT)
+#define mbedtls_internal_sha256_process_many_c mbedtls_internal_sha256_process_many
+#define mbedtls_internal_sha256_process_c      mbedtls_internal_sha256_process
+#endif
+--- replace
+#if defined(__x86_64__) && (defined(__clang__) || defined(__GNUC__)) && \
+    !defined(MBEDTLS_SHA256_USE_ARMV8_A_CRYPTO_IF_PRESENT)
+#define COSMIC_SHA256_NI
+#include <cpuid.h>
+#include <immintrin.h>
+#endif
+
+#if !defined(MBEDTLS_SHA256_USE_ARMV8_A_CRYPTO_IF_PRESENT) && !defined(COSMIC_SHA256_NI)
+#define mbedtls_internal_sha256_process_many_c mbedtls_internal_sha256_process_many
+#define mbedtls_internal_sha256_process_c      mbedtls_internal_sha256_process
+#endif
+--- end

@@ -1,6 +1,13 @@
 --- Deterministic statistical cases; host timings are not inputs to the gate.
 local Perf = require("build.perf")
 
+--- The element of `list` at `index`, which the case knows is there.
+local function nth<T>(list: {T}, index: integer): T
+  local found = list[index]
+  assert(found ~= nil, "the list has an element at " .. tostring(index))
+  return found
+end
+
 local function population(delta: number, count?: integer): {Perf.Pair}
   local samples: mut {Perf.Pair} = {}
   for i = 1, count or 200 do
@@ -26,7 +33,7 @@ end
 
 local function test_consistent_slowdown_cannot_hide_in_single_sample_noise()
   local calibration = population(0)
-  calibration[1].b, calibration[2].b = 1, 199
+  nth(calibration, 1).b, nth(calibration, 2).b = 1, 199
   assert(Perf.compare(calibration, population(5)).status == "regression")
 end
 
@@ -44,7 +51,7 @@ end
 
 local function test_slow_tail_cannot_hide_behind_fast_median()
   local candidate = population(-5)
-  for i = 171, 200 do candidate[i].b = 150 + i end
+  for i = 171, 200 do nth(candidate, i).b = 150 + i end
   local measured = Perf.compare(population(0), candidate)
   assert(measured.delta.median < 0 and measured.tail_delta > 0)
   assert(measured.status ~= "pass" and has_reason(measured.reasons, "positive_tail_interval"))
@@ -62,18 +69,18 @@ local function test_distribution_has_independently_computed_binomial_ranks()
     { 1076, 506, 571, 1006, 1039 }, { 2000, 956, 1045, 1878, 1922 },
   }
   for _, case in ipairs(cases) do
-    local n = case[1]
+    local n = nth(case, 1)
     local values: mut {number} = {}
     for i = 1, n do values[i] = n + 1 - i end
     local distribution = Perf.distribution(values)
     assert(values[1] == n and distribution.median == (n + 1) / 2)
-    assert(distribution.low == case[2] and distribution.high == case[3], "median ranks: " .. n)
-    assert(distribution.p95_interval.low == case[4], "p95 lower rank: " .. n)
-    if case[5] > n then
+    assert(distribution.low == case[2] and distribution.high == case[3], "median ranks: " .. tostring(n))
+    assert(distribution.p95_interval.low == case[4], "p95 lower rank: " .. tostring(n))
+    if nth(case, 5) > n then
       assert(not distribution.p95_interval.upper_bounded and distribution.p95_interval.high == nil)
     else
       assert(distribution.p95_interval.upper_bounded and distribution.p95_interval.high == case[5],
-        "p95 upper rank: " .. n)
+        "p95 upper rank: " .. tostring(n))
     end
   end
 end
