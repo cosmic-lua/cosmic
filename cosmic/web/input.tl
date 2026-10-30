@@ -887,7 +887,7 @@ local function bind_list(w: Walk, field: string, spec: Shape.Spec): any
     return Json.array({})
   end
   -- An item that is absent without an error (an optional element read
-  -- from empty text) stays a hole: `cosmic.shape` admits it for a
+  -- from empty text) stays a hole: shape admits it for a
   -- `list(optional(...))` and handlers see it at its position.
   local out: mut {any} = {}
   local of = assert(spec.of)
