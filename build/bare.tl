@@ -142,9 +142,9 @@ end
 --- prints one: a password in a URL must not reach a log.
 function bare.redact_url(url: string): string
   local scheme, authority, rest = url:match("^(%a+://)([^/?#]*)(.*)$")
-  if scheme == nil or authority == nil or rest == nil or not authority:find("@", 1, true) then
-    return url
-  end
+  if scheme == nil then return url end
+  assert(authority ~= nil and rest ~= nil, "a match sets every capture")
+  if not authority:find("@", 1, true) then return url end
   local host = assert(authority:match("([^@]*)$"), "the pattern matches an empty tail at worst")
   return scheme .. "***@" .. host .. rest
 end

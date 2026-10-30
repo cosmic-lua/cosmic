@@ -195,8 +195,7 @@ local function after_end(lines: {string}, first: integer): integer?
   local text = lines[first]
   if text ~= nil and text:match("^%S.*{.*}%s*$") ~= nil then return first + 1 end
   for at = first + 1, #lines do
-    local text_at = lines[at]
-    if text_at ~= nil and text_at:match("^}") ~= nil then return at + 1 end
+    if assert(lines[at], "at is within lines"):match("^}") ~= nil then return at + 1 end
   end
   return nil
 end
@@ -212,8 +211,7 @@ local function definition(lines: {string}, name: string): integer?
     if text:match("^[%a_]") ~= nil and
         (text:find(spaced, 1, true) ~= nil or text:find(pointed, 1, true) ~= nil) then
       for ahead = at, #lines do
-        local rest = lines[ahead]
-        if rest == nil then break end
+        local rest = assert(lines[ahead], "ahead is within lines")
         if rest:find("{", 1, true) ~= nil then return at end
         if rest:match(";%s*$") ~= nil then break end
       end

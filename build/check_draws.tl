@@ -916,7 +916,7 @@ local function str_nest(g: Gen)
     -- A key that only a narrowing to the literals is accepted for, which a
     -- string that is none of them reads as nil from.
     local plain_use = "#(" .. var .. " or \"\")"
-    local uses = { plain_use }
+    local uses: {string}
     if wipes then
       uses = { "#" .. var, "#" .. var, "#(" .. var .. " .. \"x\")", "#" .. var .. ":upper()", plain_use }
     else

@@ -277,11 +277,8 @@ function Ceilings.parse(text: string, closed?: {string}): Ceilings.Table?, strin
           return nil, Ceilings.path .. ":" .. tostring(number) .. ": no stage " .. name .. " in a check of the tree"
         end
         stage = name
-        local existing = out.stages[name]
         local opened: mut {string: integer} = {}
-        if existing ~= nil then
-          for key, count in pairs(existing) do opened[key] = count end
-        end
+        for key, count in pairs(out.stages[name] or {}) do opened[key] = count end
         out.stages[name] = opened
         held = opened
       else
@@ -397,12 +394,10 @@ function Ceilings.dead(root: string, ceilings: Ceilings.Table): {string}
   local out: mut {string} = {}
   for stage, held in pairs(ceilings.stages) do
     for key in pairs(held) do
-      local file = key:match("^(%S+)")
-      if file ~= nil then
-        local there, _ = Fs.exists(root .. "/" .. file)
-        if there ~= true then
-          out[#out + 1] = key .. ": pinned in [" .. stage .. "], and the tree has no file " .. file
-        end
+      local file = assert(key:match("^(%S+)"), "a key names its file")
+      local there, _ = Fs.exists(root .. "/" .. file)
+      if there ~= true then
+        out[#out + 1] = key .. ": pinned in [" .. stage .. "], and the tree has no file " .. file
       end
     end
   end

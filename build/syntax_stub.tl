@@ -266,9 +266,8 @@ local function unneeded(chunk: Ast.Chunk, bodies: {Span}): {Span}?
   end
   local out: mut {Span} = {}
   for i = 1, #statements - 1 do
-    local statement = statements[i]
-    if kept[i] == nil and statement ~= nil then
-      local base = Node.base(statement)
+    if kept[i] == nil then
+      local base = Node.base(assert(statements[i], "i is within statements"))
       out[#out + 1] = { first = base.first, last = base.last, instead = nil }
     end
   end

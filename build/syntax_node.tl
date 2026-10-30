@@ -142,8 +142,7 @@ function Node.walk_until(root: Ast.Node, visit: function(Ast.Node): boolean)
     if visit(node) then
       local kids = Node.children(node)
       for i = #kids, 1, -1 do
-        local kid = kids[i]
-        if kid ~= nil then stack[#stack + 1] = kid end
+        stack[#stack + 1] = assert(kids[i], "i is within kids")
       end
     end
   end
