@@ -40,13 +40,13 @@ local function test_an_arena_must_be_new(dir: string)
   local eval, binary = repository(dir)
   assert(Arena.lay(eval, "t", binary, dir .. "/one"))
   local laid, trouble = Arena.lay(eval, "t", binary, dir .. "/one/")
-  assert(laid == nil and trouble:find("must be new", 1, true), trouble)
+  assert(laid == nil and trouble:find("must be new", 1, true) ~= nil, trouble)
 end
 
 local function test_an_arena_stays_outside_the_repository_through_a_link(dir: string)
   local eval, binary = repository(dir)
   local laid, trouble = Arena.lay(eval, "t", binary, dir .. "/repo/run")
-  assert(laid == nil and trouble:find("inside the repository", 1, true), trouble)
+  assert(laid == nil and trouble:find("inside the repository", 1, true) ~= nil, trouble)
   assert(Fs.symlink(dir .. "/repo", dir .. "/link"))
   laid, trouble = Arena.lay(eval, "t", binary, dir .. "/link/run")
   assert(laid == nil and trouble == "put the arena outside the repository", trouble)
@@ -58,14 +58,14 @@ local function test_a_task_and_an_executable_are_required(dir: string)
   local laid, trouble = Arena.lay(eval, "nope", binary, dir .. "/run")
   assert(laid == nil and trouble == "no task eval/task/nope.md", trouble)
   laid, trouble = Arena.lay(eval, "t", eval .. "/journal.md", dir .. "/run")
-  assert(laid == nil and trouble:find("is not an executable", 1, true), trouble)
+  assert(laid == nil and trouble:find("is not an executable", 1, true) ~= nil, trouble)
 end
 
 local function test_an_arena_needs_a_name_of_its_own(dir: string)
   local eval, binary = repository(dir)
   for _, bad in ipairs({ "/", "//", "", dir .. "/.." }) do
     local laid, trouble = Arena.lay(eval, "t", binary, bad)
-    assert(laid == nil and trouble:find("must be new", 1, true), bad .. ": " .. tostring(trouble))
+    assert(laid == nil and trouble:find("must be new", 1, true) ~= nil, bad .. ": " .. tostring(trouble))
   end
 end
 
@@ -113,8 +113,9 @@ local function implementing_everything(task: string): link_resolve.Context
     unbuilt = function(): string? return nil end,
     symbols = function(query: string): {link_resolve.Symbol}?, string
       local module, symbol = query:match("^([^.:]+)[.:](.+)$")
+      if module == nil or symbol == nil then return {}, "" end
       if module == task then return declared(task, symbol), "" end
-      if module ~= nil and module:match("^%u") ~= nil then
+      if module:match("^%u") ~= nil then
         return declared(task, module .. "." .. symbol), ""
       end
       return {}, ""

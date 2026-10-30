@@ -52,7 +52,8 @@ local function test_reset_clears_the_runs_and_keeps_the_rest(dir: string)
   local db = assert(Sqlite.open(path))
   local rows = assert(Sqlite.text_rows(db, "select count(*) from inputs", {}))
   db:close()
-  assert(rows[1]:text(1) == "1")
+  local counted = assert(rows[1], "expected the count row")
+  assert(counted:text(1) == "1")
 end
 
 local function test_a_missing_database_resets_but_is_no_evidence(dir: string)
@@ -60,7 +61,7 @@ local function test_a_missing_database_resets_but_is_no_evidence(dir: string)
   assert(Grader.reset_evidence(path))
   assert(not Fs.exists(path))
   local evidence, trouble = Grader.evidence(path)
-  assert(evidence == nil and trouble:find("no build database", 1, true), trouble)
+  assert(evidence == nil and trouble:find("no build database", 1, true) ~= nil, trouble)
 end
 
 local function test_a_failure_in_cosmic_is_one_a_line_of_stderr_opens_with()
@@ -374,7 +375,7 @@ local function test_both_cosmic_test_steps_get_the_unsandboxed_environment(dir: 
   local seen = 0
   for n = 1, 8 do
     local out = Fs.read(dir .. "/grades/1/check-" .. tostring(n) .. ".out")
-    if out ~= nil and out:find("COSMIC_TEST_SANDBOX", 1, true) then
+    if out ~= nil and out:find("COSMIC_TEST_SANDBOX", 1, true) ~= nil then
       seen = seen + 1
       assert(out:sub(1, #expected) == expected, "grades/1/check-" .. tostring(n) .. ".out: " .. out)
     end

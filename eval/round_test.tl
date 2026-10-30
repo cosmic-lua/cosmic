@@ -33,7 +33,8 @@ local function test_all_is_every_task_there_is()
   local names: mut {string} = {}
   local listing = assert(Fs.list("eval/task"))
   for _, entry in ipairs(listing) do
-    names[#names + 1] = entry:match("^(.*)%.md$")
+    local task = entry:match("^(.*)%.md$")
+    if task ~= nil then names[#names + 1] = task end
   end
   table.sort(names)
   local listed: mut {string} = {}
@@ -59,9 +60,11 @@ local function test_the_plan_lays_one_arena_a_task_and_passes_the_flags_on()
   assert(table.concat(first.summarize, " ") == "/repo/eval/summarize /out/notes/run-002/transcript.jsonl")
   assert(table.concat(first.result, " ") ==
       "/repo/eval/result /out/notes/run-002 --model m --max-turns 9 --timeout 60 --commit abc")
-  assert(plan.entries[2].arena == "/out/jobs/run-002")
+  local second = assert(plan.entries[2], "expected a second entry")
+  assert(second.arena == "/out/jobs/run-002")
   local given = Round.plan(options({ "notes", "--model", "m", "--tool", "/t" }), "/repo", "/t", "abc", "/out")
-  assert(not table.concat(given.entries[1].result, " "):find("--commit", 1, true),
+  local given_first = assert(given.entries[1], "expected an entry")
+  assert(not table.concat(given_first.result, " "):find("--commit", 1, true),
     "the checkout's commit is not the binary's when a tool was named")
 end
 
@@ -77,12 +80,26 @@ local record Fake
 end
 
 local function fake(fails: {string: boolean}, lay_fails: {string: boolean}): Fake
-  local f: Fake = { events = {}, files = {}, most = 0, system = nil }
+  local unused: Round.System = {
+    run = function(_argv: {string}): Round.Output return { code = 0, text = "" } end,
+    start = function(_argv: {string}, _log: string): integer? return nil end,
+    wait = function(_ids: {integer}): Round.Done return { id = 0, code = 0 } end,
+    read = function(_path: string): string? return nil end,
+    write = function(_path: string, _text: string): boolean return true end,
+    mkdirs = function(_path: string): boolean return true end,
+  }
+  local f: Fake = { events = {}, files = {}, most = 0, system = unused }
+  --- Argument `at` of `argv`, which the command has.
+  local function arg_of(argv: {string}, at: integer): string
+    local value = assert(argv[at], "the command has an argument " .. tostring(at))
+    return value
+  end
   local running: mut {integer: string} = {}
   local count = { value = 0 }
   local issued = { value = 0 }
   local function task_of(argv: {string}): string
-    return (argv[2]:match("/([^/]+)/run%-%d+")) or argv[2]:match("/([^/]+)$") or ""
+    local second = arg_of(argv, 2)
+    return (second:match("/([^/]+)/run%-%d+")) or second:match("/([^/]+)$") or ""
   end
   f.system = {
     mkdirs = function(path: string): boolean
@@ -95,38 +112,46 @@ local function fake(fails: {string: boolean}, lay_fails: {string: boolean}): Fak
       return true
     end,
     run = function(argv: {string}): Round.Output
-      local verb = argv[1]:match("([^/]+)$")
-      local task = verb == "summarize" and argv[2]:match("/([^/]+)/run%-%d+") or task_of(argv)
-      if verb == "arena" then task = argv[2] end
+      local verb = assert(arg_of(argv, 1):match("([^/]+)$"), "the command names a program")
+      local task = task_of(argv)
+      if verb == "summarize" then
+        local run_task = arg_of(argv, 2):match("/([^/]+)/run%-%d+")
+        if run_task ~= nil then task = run_task end
+      end
+      if verb == "arena" then task = arg_of(argv, 2) end
       f.events[#f.events + 1] = verb .. " " .. task
-      if verb == "arena" and lay_fails[task] then return { code = 2, text = "no such task\n" } end
+      if verb == "arena" and lay_fails[task] == true then
+        return { code = 2, text = "no such task\n" }
+      end
       if verb == "summarize" then return { code = 0, text = "turns=1\n" } end
       if verb == "notes" or verb == "kv" or verb == "pack" or verb == "ledger" then
         local failed = fails[task]
-        return { code = if failed then 1 else 0 end, text = "check: logs " .. argv[2] .. "/grades/1\ncheck: " ..
+        return { code = if failed then 1 else 0 end, text = "check: logs " .. arg_of(argv, 2) .. "/grades/1\ncheck: " ..
             (if failed then "FAIL" else "PASS" end) .. "\n" }
       end
       if verb == "result" then
         local code = argv[#argv - 2 + 0]
         local text = assert(Json.encode({ status = "completed", turns = 3, cost_usd = 1.5,
           grade_verdict = if code == "0" then "PASS" else "FAIL" end }))
-        f.files[argv[2] .. "/result.json"] = text
+        f.files[arg_of(argv, 2) .. "/result.json"] = text
         return { code = 0, text = "" }
       end
       return { code = 0, text = "" }
     end,
     start = function(argv: {string}, _log: string): integer?
       issued.value = issued.value + 1
-      running[issued.value] = task_of(argv)
+      local started = task_of(argv)
+      running[issued.value] = started
       count.value = count.value + 1
       if count.value > f.most then f.most = count.value end
-      f.events[#f.events + 1] = "solve " .. running[issued.value]
+      f.events[#f.events + 1] = "solve " .. started
       return issued.value
     end,
     wait = function(ids: {integer}): Round.Done
-      local id = ids[1]
+      local id = assert(ids[1], "the round waits for a numbered command")
+      local solved = assert(running[id], "the command was started")
       count.value = count.value - 1
-      f.events[#f.events + 1] = "solved " .. running[id]
+      f.events[#f.events + 1] = "solved " .. solved
       return { id = id, code = 0 }
     end,
   }
@@ -135,7 +160,8 @@ end
 
 local function position(events: {string}, prefix: string, from?: integer): integer
   for i = from or 1, #events do
-    if events[i]:sub(1, #prefix) == prefix then return i end
+    local event = events[i]
+    if event ~= nil and event:sub(1, #prefix) == prefix then return i end
   end
   return 0
 end
@@ -170,7 +196,8 @@ local function test_the_index_has_a_line_a_task_and_the_log_is_kept_in_the_grade
   local index = assert(f.files["/out/index.txt"])
   assert(index == "notes status=completed turns=3 cost=$1.50 verdict=PASS\n" ..
       "kv status=completed turns=3 cost=$1.50 verdict=FAIL\n", index)
-  assert(f.files["/out/notes/run-001/grades/1/grade.log"]:find("check: PASS", 1, true))
+  local grade_log = assert(f.files["/out/notes/run-001/grades/1/grade.log"], "expected the grade log")
+  assert(grade_log:find("check: PASS", 1, true) ~= nil)
   assert(f.files["/out/kv/run-001/summary.txt"] == "turns=1\n")
 end
 

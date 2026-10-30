@@ -210,8 +210,9 @@ local function test_a_path_that_leaves_the_arena_is_reported()
     { "ls /srv//x/../y", "outside-arena: /srv/y\n" },
   }
   for _, case in ipairs(cases) do
-    local got = findings("Bash", { command = case[1] })
-    assert(got == case[2], case[1] .. " -> " .. got)
+    local command = assert(case[1], "a case has a command")
+    local got = findings("Bash", { command = command })
+    assert(got == case[2], command .. " -> " .. got)
   end
   assert(findings("Read", { file_path = "/mnt/skills/x" }) == "BREACH: /mnt/skills/x\n")
   assert(findings("Edit", { file_path = "../../x" }) == "outside-arena: /work/x\n")
@@ -236,7 +237,7 @@ local function test_paths_resolves_what_a_call_names()
 end
 
 local function test_only_a_cosmic_test_run_is_green()
-  local function green(command: string, output: string): string
+  local function green(command: string, output: string): string?
     local report = Summarize.report(
       call("1", "Bash", { command = command }) .. "\n" .. answer("1", output) .. "\n", arena, repo)
     return report:match("first_green_test_call=(%w+)")

@@ -43,7 +43,7 @@ local function test_a_hidden_test_that_reaches_the_network_or_children_declares_
   for name, text in pairs(sources()) do
     for _, module in ipairs(reaching) do
       if text:find('require%("cosmic%.' .. module .. '"%)') then
-        assert(text:find("\nTest.policy", 1, true) or text:sub(1, 11) == "Test.policy",
+        assert(text:find("\nTest.policy", 1, true) ~= nil or text:sub(1, 11) == "Test.policy",
           name .. " requires cosmic." .. module .. " without a top-level Test.policy")
       end
     end

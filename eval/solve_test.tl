@@ -67,7 +67,7 @@ local function test_a_native_cli_is_given_alone_and_a_script_with_its_interprete
   local none, trouble = Solve.program("/x/claude", "#!/usr/bin/env deno\n", find)
   assert(none == nil and trouble == "/x/claude: interpreter deno not found", trouble)
   none, trouble = Solve.program("/x/claude", "plain text", find)
-  assert(none == nil and trouble:find("neither", 1, true), trouble)
+  assert(none == nil and trouble:find("neither", 1, true) ~= nil, trouble)
 end
 
 local function test_the_sandbox_unveils_the_arena_and_the_hosts_runtime_alone()
