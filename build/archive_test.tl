@@ -690,6 +690,21 @@ local function test_create_leaves_an_existing_output_out_of_itself(tmp: string)
   assert(not second.out:find("again.zip", 1, true), second.out)
 end
 
+--- The output named as the only path leaves nothing to archive: refused
+--- before anything is written, so the file that was there survives.
+local function test_create_with_only_its_own_output_leaves_that_file_alone(tmp: string)
+  local src = make_tree(tmp)
+  assert(in_dir(src, { "create", "a.tar", "loose.txt" }).code == 0)
+  local before = assert(Fs.read(src .. "/a.tar"))
+  local ran = in_dir(src, { "create", "a.tar", "a.tar" })
+  assert(ran.code == 2, tostring(ran.code) .. " " .. ran.err)
+  assert(ran.err:find("a.tar: the archive being written is the only path given, and it is left out of itself; " ..
+      "name a file or directory to put in it", 1, true) ~= nil, ran.err)
+  assert(Fs.read(src .. "/a.tar") == before, "the existing archive was rewritten")
+  local both = in_dir(src, { "create", "a.tar", "a.tar", "loose.txt" })
+  assert(both.code == 0 and both.out == "loose.txt\n", both.out .. both.err)
+end
+
 local function test_a_failed_standard_output_exits_2(tmp: string)
   local path = make_tar(tmp .. "/w.tar", SAMPLE)
   local ran = run({ "list", path }, nil, false)

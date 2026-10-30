@@ -272,10 +272,12 @@ local function spawning(program: string, root: string): Blamer
     wait = function(running: {BlameRun}): BlameRun?, boolean
       local handles: mut {Child.Handle} = {}
       for _, run in ipairs(running) do
-        handles[#handles + 1] = run.handle
+        local waited_on = run.handle
+        if waited_on ~= nil then handles[#handles + 1] = waited_on end
       end
       local done, trouble = Child.wait_any(handles, Time.ms(100))
-      return run_of[done], done == nil and trouble ~= Poll.TIMEOUT
+      if done == nil then return nil, trouble ~= Poll.TIMEOUT end
+      return run_of[done], false
     end,
   }
 end
@@ -327,10 +329,10 @@ local function blame_all(root: string, lines: {string:{integer}}, order: {string
   local next_file = 1
   while next_file <= #order or #running > 0 do
     while #running < limit and next_file <= #order do
-      local file = order[next_file]
+      local file = assert(order[next_file], "next_file is within order")
       next_file = next_file + 1
       out[file] = {}
-      local run = blamer.start(file, blame_args(file, lines[file], ignored))
+      local run = blamer.start(file, blame_args(file, assert(lines[file], "every file in order has its lines"), ignored))
       if run ~= nil then
         running[#running + 1] = run
       end
@@ -461,16 +463,14 @@ local function carry_forward(db: Sqlite.Handle, root: string, head: string,
       end
       -- A commit blame now passes over, or no longer does, may be the
       -- one any line is blamed on.
-      if touched[IGNORED_REVS] == true then
-        touched = nil
-      end
+      local ignore_moved = touched[IGNORED_REVS] == true
       local kept, rows_trouble = Sqlite.text_rows(db,
         "SELECT DISTINCT path FROM blames WHERE head = ?1", { { text = old } })
       if kept == nil then
         return false, rows_trouble
       end
       for _, each in ipairs(kept) do
-        if touched ~= nil and touched[each:text(1)] ~= true then
+        if not ignore_moved and touched[each:text(1)] ~= true then
           local ok, move_trouble = Sqlite.run(db,
             "UPDATE blames SET head = ?1 WHERE head = ?2 AND path = ?3",
             { { text = head }, { text = old }, { text = each:text(1) } })
@@ -517,21 +517,21 @@ local function blame_rows(db: Sqlite.Handle, root: string, head: string,
   local lines: mut {string:{integer}} = {}
   for _, file in ipairs(order) do
     lines[file] = {}
-    for _, row in ipairs(pending[file]) do
+    for _, row in ipairs((assert(pending[file], "every file in order has pending rows"))) do
       table.insert(lines[file], row.todo.line)
     end
   end
   local blamed = blame_files(root, lines, order, run_git)
   for _, file in ipairs(order) do
-    local said = blamed[file]
-    for _, row in ipairs(pending[file]) do
+    local said = assert(blamed[file], "every file in order was blamed")
+    for _, row in ipairs((assert(pending[file], "every file in order has pending rows"))) do
       local line = said[row.todo.line]
-      local known = line ~= nil and not uncommitted(line.commit)
+      local known = if line ~= nil and not uncommitted(line.commit) then line else nil end
       local todo = row.todo
-      todo.commit = known and line.commit or ""
-      todo.author_time = known and line.author_time or 0
-      todo.summary = known and line.summary or ""
-      todo.boundary = known and line.boundary or false
+      todo.commit = if known ~= nil then known.commit else "" end
+      todo.author_time = if known ~= nil then known.author_time else 0 end
+      todo.summary = if known ~= nil then known.summary else "" end
+      todo.boundary = if known ~= nil then known.boundary else false end
       local ok, trouble = Sqlite.run(db,
         "INSERT OR REPLACE INTO blames (path, line, sha256, head, commit_id, " ..
           "author_time, summary, boundary) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
@@ -842,7 +842,7 @@ function todos.run(argv: {string}, at?: string, seen?: reboot.Seen): integer
     local order = ranks
     table.sort(listed, function(a: todos.Todo, b: todos.Todo): boolean
       if a.id ~= b.id then
-        return order[a.id] < order[b.id]
+        return assert(order[a.id], "a listed TODO was ranked") < assert(order[b.id], "a listed TODO was ranked")
       end
       return a.file < b.file
     end)

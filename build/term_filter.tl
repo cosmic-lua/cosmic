@@ -267,14 +267,14 @@ function TermFilter.new(): Filter
       if st.state == GROUND then
         if st.needed == 0 then
           local first, last = find(chunk, "^[ -~]+", at)
-          if first ~= nil then
+          if first ~= nil and last ~= nil then
             table.insert(st.out, sub(chunk, first, last))
             at = last + 1
           end
         end
       elseif st.state == IN_CSI then
         local first, last = find(chunk, "^[0-9;:]+", at)
-        if first ~= nil then
+        if first ~= nil and last ~= nil then
           if #st.parameters + (last - first + 1) > MOST_PARAMETER_BYTES then
             st.state = IGNORING_CSI
             st.prefix, st.parameters = "", ""
@@ -382,9 +382,11 @@ function TermFilter.new(): Filter
     for number in pairs(modes) do numbers[#numbers + 1] = number end
     table.sort(numbers)
     for _, number in ipairs(numbers) do
-      if modes[number] ~= MODE_DEFAULTS[number] then
-        resets[#resets + 1] = "\27[?" .. tostring(number) .. (if MODE_DEFAULTS[number] then "h" else "l" end)
-        modes[number] = MODE_DEFAULTS[number]
+      local default = MODE_DEFAULTS[number]
+      assert(default ~= nil, "only modes with a default are tracked")
+      if modes[number] ~= default then
+        resets[#resets + 1] = "\27[?" .. tostring(number) .. (if default then "h" else "l" end)
+        modes[number] = default
       end
     end
     st.attributes_set, st.region_set = false, false
