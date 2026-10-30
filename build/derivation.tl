@@ -287,7 +287,10 @@ function derivation.packed_parses(db: Sqlite.Handle,
   for _, row in ipairs(present) do
     local hash = row:text(1)
     local packed = pieces[hash]
-    if unpackable[hash] ~= true and packed ~= nil then
+    if packed == nil then
+      return nil, hash .. ": a parsed source was asked for but none of its cells were gathered"
+    end
+    if unpackable[hash] ~= true then
       out[hash] = { requires = requires[hash] or {}, rows = table.concat(packed) }
     end
   end
