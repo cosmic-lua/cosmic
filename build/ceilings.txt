@@ -3330,7 +3330,6 @@ cosmic/json_test.tl map_field 4
 
 cosmic/net.tl map_field 1
 
-cosmic/net_tcp_test.tl map_field 15
 
 cosmic/policy.tl map_field 6
 
