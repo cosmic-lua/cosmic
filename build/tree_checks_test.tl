@@ -944,7 +944,9 @@ local function test_ci_sources_are_the_non_test_modules_of_cosmic_ci(dir: string
   assert(Fs.write(base .. "/notes.md", "no\n"))
   local found = tree_checks.ci_sources(dir .. "/tree")
   local names: mut {string} = {}
-  for _, row in ipairs(found) do names[#names + 1] = nth(row, 1) .. "=" .. nth(row, 2):gsub("\n", "") end
+  for _, row in ipairs(found) do
+    names[#names + 1] = nth(row, 1) .. "=" .. nth(row, 2):gsub("\n", "")
+  end
   assert(table.concat(names, ",") == "ci/cosmic_ci/a.tl=return 1,ci/cosmic_ci/b.tl=return 2,ci/cosmic_ci/sub/c.tl=return 4",
     table.concat(names, ","))
   assert(#tree_checks.ci_sources(dir .. "/nowhere") == 0)
