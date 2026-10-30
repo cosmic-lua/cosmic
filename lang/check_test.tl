@@ -280,7 +280,7 @@ local CASES <const>: {Case} = {
   {
     code = "close_not_closable", source = RECORD .. "local r: R = { name = \"a\", n = 1 }\nlocal c <close>: R = r\n",
     msg = "`c` is a `<close>` local of `R`, and `R` is not a class",
-    fix = "hold a class that declares `function __close(self)` (or nil) in `c`",
+    fix = "hold a class that declares `function __close(self)` (or a userdata record of the core that does, or nil) in `c`",
   },
   {
     code = "setmetatable_call", source = "local t = setmetatable({}, {})\n", at = { 1, 11 },

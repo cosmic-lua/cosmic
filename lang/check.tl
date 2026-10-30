@@ -35,8 +35,8 @@
 --- every field, `?` ones as `name = nil` ([`Check.Checked.literals`] tells the code generator which literals make
 --- one); there is no other way to make one, so a declaration used as a value is a type of its own, no `setmetatable`
 --- call is typed (`setmetatable_call`), and a literal or an `is` of a class is allowed only where the class's table
---- is in reach (`class_scope`). A `<close>` local holds nil or a class or userdata record that declares
---- `__close` (`close_not_closable`).
+--- is in reach (`class_scope`). A `<close>` local holds nil, a class that declares `__close`, or a
+--- userdata record of the core's checked declarations (`cosmic.internal.*`) that does (`close_not_closable`).
 ---
 --- **Flow.** The walk keeps what is known at the point it has reached ([`lang.flow`]): a place a test narrowed, a local
 --- not yet assigned, and whether control reaches the point. A place is a local, or a path of fixed fields (not `mut`) of
@@ -5749,11 +5749,17 @@ local function check_counts(ctx: Ctx, node: Ast.Node, n: integer, vals: Values, 
   return true
 end
 
---- Whether a value of type `t` is nil or a value of a class or userdata record that declares `__close`, which is what a
---- `<close>` local holds ("compiler-written classes" in doc/plans/strict-teal.md). A userdata record is made by the
---- core and no Teal literal, so its declared `__close` is the metamethod the core's userdata has, which
---- core/declarations_test.tl holds the declaration to; a record or interface is made by a table literal and may lack
---- it. `invalid` and `never` stand for a mistake already reported.
+--- The modules whose userdata records are trusted to hold the `__close` they declare are the ones named
+--- `cosmic.internal.*`: the declarations of cosmic/internal/*.d.tl and the ones derived from core/process.h and
+--- core/socket.h. core/declarations_test.tl compares every one of them with the core's own tables and fails a member
+--- declared and not registered (`m.Thing.__close is declared but not registered`). No other declaration is compared
+--- with anything: a declaration file of a program can declare a `__close` its userdata lacks.
+---
+--- Whether a value of type `t` is nil, a value of a class that declares `__close`, or a value of a userdata record that
+--- declares `__close` as a method and is declared by a module named `cosmic.internal.*`: which is what
+--- a `<close>` local holds ("compiler-written classes" in doc/plans/strict-teal.md). A record or interface is made by
+--- a table literal and may lack the member; a userdata record of another module may declare a `__close` its userdata
+--- does not have. `invalid` and `never` stand for a mistake already reported.
 local function closable(t: Type): boolean
   local tag = t.tag
   if tag == "nil" or tag == "invalid" or tag == "never" then
@@ -5765,6 +5771,8 @@ local function closable(t: Type): boolean
       return false
     elseif body == nil then
       return kind == "class"
+    elseif kind == "userdata" and t.decl.module:sub(1, 16) ~= "cosmic.internal." then
+      return false
     end
     for _, m in ipairs(body.methods) do
       if m.name == "__close" then
@@ -5783,19 +5791,37 @@ local function closable(t: Type): boolean
   return false
 end
 
---- Reports the `<close>` local `b`, of type `t`, unless it holds nil or a class that declares `__close`.
+--- Reports the `<close>` local `b`, of type `t`, unless it holds nil, a class that declares `__close` or a userdata
+--- record of the core that does.
 local function check_closable(ctx: Ctx, b: Ast.Binding, t: Type)
   if closable(t) then
     return
   end
-  local what = if (t.tag == "named") and not t.value and t.decl.kind == "class" then "the class " .. tq(ctx, t) .. " declares no `__close`"
-    elseif (t.tag == "named") and not t.value and t.decl.kind == "userdata" then
-    "the userdata record " .. tq(ctx, t) .. " declares no `__close`" else
-    tq(ctx, t) .. " is not a class" end
-  report(ctx, "close_not_closable", b, quoted(b.name) .. " is a `<close>` local of " .. tq(ctx, t) .. ", and " .. what ..
-      ": Lua would raise at the declaration, since the value has no `__close` to call at the end of the block",
-    "hold a class that declares `function __close(self)` (or nil) in " .. quoted(b.name) .. ", or release the value by " ..
-      "hand and make " .. quoted(b.name) .. " an ordinary local", { show(ctx, t) })
+  -- Why `t`, which `closable` refused, is no type of a `<close>` local.
+  local function because(held: Type): string
+    if held.tag == "union" then
+      for _, m in ipairs(held.members) do
+        if not closable(m) then
+          return "the member " .. tq(ctx, m) .. " of the union is not closable: " .. because(m)
+        end
+      end
+    end
+    if (held.tag == "named") and not held.value and held.decl.kind == "class" then
+      return "the class " .. tq(ctx, held) .. " declares no `__close`"
+    elseif (held.tag == "named") and not held.value and held.decl.kind == "userdata" then
+      if held.decl.body ~= nil and held.decl.module:sub(1, 16) ~= "cosmic.internal." then
+        return "the userdata record " .. tq(ctx, held) .. " is declared outside the core's checked declarations " ..
+          "(cosmic/internal/*.d.tl and the ones derived from core/process.h and core/socket.h), so no test holds its " ..
+          "`__close` to the core"
+      end
+      return "the userdata record " .. tq(ctx, held) .. " declares no `__close` method"
+    end
+    return tq(ctx, held) .. " is not a class or a userdata record of the core"
+  end
+  report(ctx, "close_not_closable", b, quoted(b.name) .. " is a `<close>` local of " .. tq(ctx, t) .. ", and " ..
+      because(t) .. ": Lua would raise at the declaration, since the value has no `__close` to call at the end of the block",
+    "hold a class that declares `function __close(self)` (or a userdata record of the core that does, or nil) in " ..
+      quoted(b.name) .. ", or release the value by hand and make " .. quoted(b.name) .. " an ordinary local", { show(ctx, t) })
 end
 
 --- The type a local declared `declared` has after it is given a value of type `t`: the view of `t` where that is below
