@@ -8,6 +8,7 @@
 --- a start refuses of a grant before any ruleset is made is
 --- core/grants_refused_test.tl's, which needs none.
 
+local RawTables = require("build.raw_tables")
 local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
 local Net = require("cosmic.net")
@@ -29,18 +30,7 @@ Test.policy{
   requires = { "landlock" },
 }
 
-local type Searcher = function(string): any, any
-
---- The raw table the store's searcher hands `wrapper`'s loader.
-local function raw_behind(wrapper: string): any
-  for _, searcher in ipairs(package.searchers as {Searcher}) do -- cast: searchers' loaders take an extra
-    local loader, extra = searcher(wrapper)
-    if type(loader) == "function" and type(extra) == "table" then return extra end
-  end
-  error(wrapper .. " is handed no raw table")
-end
-
-local process = raw_behind("cosmic.child") as raw_process -- cast: the table core/process.h declares
+local process = RawTables.process()
 
 --- What a script left on stdout and stderr, and how its program ended.
 local record Outcome
@@ -82,7 +72,8 @@ end
 local function abi_or_skip(): integer
   local abi, trouble = process.landlock_abi()
   if abi == nil then Test.skip("no Landlock here: " .. tostring(trouble)) end
-  return abi
+  local found = assert(abi, "Test.skip ends the test where the call found no Landlock")
+  return found
 end
 
 --- The same, held to the grants of `program` itself (`rx`, which a
@@ -155,8 +146,8 @@ local function test_c_creates_and_removes_where_granted_and_nowhere_else(tmp: st
       tmp .. "/open/fifo; rename " .. tmp .. "/open/new " .. tmp .. "/open/renamed; rm " ..
       tmp .. "/open/renamed; rmdir " .. tmp .. "/open/sub/deeper")
   assert(made.code == 0, "created and removed: " .. made.said)
-  assert(not Fs.exists(tmp .. "/open/new") and not Fs.exists(tmp .. "/open/renamed"))
-  assert(Fs.exists(tmp .. "/open/fifo") and Fs.is_dir(tmp .. "/open/sub"))
+  assert(Fs.exists(tmp .. "/open/new") == false and Fs.exists(tmp .. "/open/renamed") == false)
+  assert(Fs.exists(tmp .. "/open/fifo") == true and Fs.is_dir(tmp .. "/open/sub") == true)
   for _, script in ipairs({
       "create " .. tmp .. "/shut/new x", "mkdirs " .. tmp .. "/shut/sub", "rm " .. tmp .. "/shut/old",
       "mkfifo " .. tmp .. "/shut/fifo",
@@ -164,7 +155,7 @@ local function test_c_creates_and_removes_where_granted_and_nowhere_else(tmp: st
     local refused = under(tmp, probe, grants, script)
     assert(refused.code == 1 and refused.said:find(DENIED, 1, true) ~= nil, script .. ": " .. refused.said)
   end
-  assert(Fs.exists(tmp .. "/shut/old") and not Fs.exists(tmp .. "/shut/new"))
+  assert(Fs.exists(tmp .. "/shut/old") == true and Fs.exists(tmp .. "/shut/new") == false)
 end
 
 local function test_a_rename_between_grants_needs_c_on_both(tmp: string)
@@ -174,7 +165,7 @@ local function test_a_rename_between_grants_needs_c_on_both(tmp: string)
   local both: {raw_process.Grant} = { { path = tmp .. "/a", access = "c" }, { path = tmp .. "/b", access = "c" } }
   local moved = under(tmp, probe, both, "rename " .. tmp .. "/a/f " .. tmp .. "/b/f")
   assert(moved.code == 0, "renamed: " .. moved.said)
-  assert(Fs.exists(tmp .. "/b/f") and not Fs.exists(tmp .. "/a/f"))
+  assert(Fs.exists(tmp .. "/b/f") == true and Fs.exists(tmp .. "/a/f") == false)
   -- Into a directory granted to read alone: refused, as any creation there is.
   local read_only: {raw_process.Grant} = { { path = tmp .. "/a", access = "c" }, { path = tmp .. "/c", access = "r" } }
   local refused = under(tmp, probe, read_only, "rename " .. tmp .. "/a/g " .. tmp .. "/c/g")
@@ -269,16 +260,19 @@ local function test_a_signal_to_a_process_outside_is_refused_where_the_kernel_sc
   local sleeper = assert(process.spawn(probe, { probe, "sleep-forever" }, nil, nil, nil, nil, nil,
     false))
   -- The start may skip the test, which must not leave the sleeper running.
-  local started, result = pcall(under, tmp, probe, {}, "signal KILL " .. sleeper)
+  local sent: Outcome? = nil
+  local started, result = pcall(function()
+    sent = under(tmp, probe, {}, "signal KILL " .. tostring(sleeper))
+  end)
   sys.kill(sleeper, sys.SIGKILL)
   assert(assert(process.waitpid(sleeper, false)).signal == sys.SIGKILL)
   if not started then error(result, 0) end
-  local sent = result as Outcome -- cast: pcall answers `any`
+  local landed = assert(sent, "pcall ran `under` to its end")
   if abi >= 6 then
-    assert(sent.code == 1 and sent.said:find("not permitted", 1, true), "scoped: " .. sent.said)
+    assert(landed.code == 1 and landed.said:find("not permitted", 1, true) ~= nil, "scoped: " .. landed.said)
   else
     -- Nothing scopes a signal below ABI 6: the child's kill lands.
-    assert(sent.code == 0, "sent: " .. sent.said)
+    assert(landed.code == 0, "sent: " .. landed.said)
   end
 end
 
@@ -337,15 +331,19 @@ local function test_a_signal_outside_the_domain_is_refused_though_the_filter_let
   local sleeper = assert(process.spawn(probe, { probe, "sleep-forever" }, nil, nil, nil, nil, nil,
     false))
   -- The start may skip the test, which must not leave the sleeper running.
-  local started, result = pcall(forking, tmp, probe, "signal KILL " .. sleeper)
+  local sent: Outcome? = nil
+  local started, result = pcall(function()
+    sent = forking(tmp, probe, "signal KILL " .. tostring(sleeper))
+  end)
   local alive = sys.kill(sleeper, 0)
   sys.kill(sleeper, sys.SIGKILL)
   assert(assert(process.waitpid(sleeper, false)).signal == sys.SIGKILL)
   if not started then error(result, 0) end
-  local sent = result as Outcome -- cast: pcall answers `any`
+  local refused = assert(sent, "pcall ran `forking` to its end")
   -- Above ABI 6 the filter takes any pid and Landlock's EPERM is the answer;
   -- below, the filter's own is.
-  assert(sent.code == 1 and sent.said:find("not permitted", 1, true), "refused: " .. sent.said)
+  assert(refused.code == 1 and refused.said:find("not permitted", 1, true) ~= nil,
+    "refused: " .. refused.said)
   assert(alive, "the process outside the sandbox was not signalled")
 end
 
@@ -369,7 +367,7 @@ local function test_a_ruleset_descriptor_keeps_the_filter_to_the_starting_pid(tm
   sys.close(output)
   local said = Fs.read(path) or ""
   assert(status.code == 1 and said:find("not permitted", 1, true) ~= nil,
-    "its own pid only: " .. status.code .. " " .. said)
+    "its own pid only: " .. tostring(status.code) .. " " .. said)
 end
 
 local function test_no_grants_grant_nothing_and_the_program_needs_its_own(tmp: string)

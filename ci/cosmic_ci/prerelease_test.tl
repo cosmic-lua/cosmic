@@ -75,13 +75,9 @@ local function test_release_text_is_the_shell_scripts()
       "hashes before publication.\n")
 end
 
--- TODO: once ci/cosmic-driver.pin names a release whose Shape failures read
--- `$.a[0].b: want string, got integer`, match that form only.
-
 --- Whether `said` holds the Shape failure at JSON Pointer `at` that wants `expected`
---- (`string, got integer`), in the form of the release running the test or the tree's.
+--- (`string, got integer`): `$.a[0].b: want string, got integer` for the pointer `/a/0/b`.
 local function shape_failure(said: string, at: string, expected: string): boolean
-  if said:find('pointer "' .. at .. '": expected ' .. expected, 1, true) then return true end
   local path = "$"
   for segment in at:gmatch("/([^/]*)") do
     path = path .. (if segment:find("^%d+$") then "[" .. segment .. "]" else "." .. segment end)

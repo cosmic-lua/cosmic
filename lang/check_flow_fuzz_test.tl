@@ -559,7 +559,7 @@ end
 
 --- What every array program starts with: `shared`, which a function reaches as a view `v`, as a `mut` array `o` and by
 --- its own name at once, and the code that shortens it: `shorten`, `trim`, a `table.remove`, and the `__tostring` of an
---- `Eater`, which `tostring` runs. `pure` and `touch` run code that touches no array.
+--- `Eater`, which `tostring` runs. `pure` and `touch` run code that touches no array; a callback of `gsub` and a method of `Eater` are code that does.
 local ARRAYS_HEAD <const> = [[
 local record Counter
   mut n: integer
@@ -586,11 +586,18 @@ end
 local function trim(a: mut {string})
   table.remove(a)
 end
+local function shrink_text(c: string): string
+  table.remove(shared)
+  return c
+end
 local class Eater
   n: integer
   function __tostring(self): string
     table.remove(shared)
     return "x"
+  end
+  function shrink(self)
+    table.remove(shared)
   end
 end
 local eater: Eater = { n = 0 }
@@ -600,6 +607,9 @@ local eater: Eater = { n = 0 }
 local SHORTENERS <const>: {string} = {
   "shorten()", "table.remove(shared)", "table.remove(o)", "table.remove(o, 1)", "o[#o] = nil", "shared[#shared] = nil",
   "trim(o)", "trim(shared)", "reset(0)", "pcall(shorten)", "total = total + #tostring(eater)",
+  "total = total + #string.format(\"%s\", eater)", "eater:shrink()", "string.gsub(\"a\", \"a\", shrink_text)",
+  "string.gsub(\"a\", \"a\", function(c: string): string table.remove(o) return c end)",
+  "total = total + #(\"%s\"):format(eater)",
 }
 
 --- Statements that run no code that shortens an array, or that the checker must take to.

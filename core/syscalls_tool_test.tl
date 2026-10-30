@@ -9,6 +9,7 @@
 --- core/syscalls_tool_unsandboxed_test.tl's. The executable's own path,
 --- which only a `tool` test can read, is core/artifact_fd_tool_test.tl's.
 
+local RawTables = require("build.raw_tables")
 local String = require("cosmic.string")
 local sys = require("cosmic.sys")
 local Test = require("cosmic.test")
@@ -32,19 +33,7 @@ Test.policy{
   requires = { "nest" },
 }
 
-local type Searcher = function(string): any, any
-
---- The raw table the store's searcher hands `wrapper`'s loader, as
---- `require` would hand it.
-local function raw_behind(wrapper: string): any
-  for _, searcher in ipairs(package.searchers as {Searcher}) do -- cast: searchers' loaders take an extra
-    local loader, extra = searcher(wrapper)
-    if type(loader) == "function" and type(extra) == "table" then return extra end
-  end
-  error(wrapper .. " is handed no raw table")
-end
-
-local process = raw_behind("cosmic.child") as raw_process -- cast: the table core/process.h declares
+local process = RawTables.process()
 
 --- The descriptors [`this_program.program`] hands its child, as
 --- [`process.spawn`] takes them: each a descriptor of this process, as
@@ -118,7 +107,7 @@ local function test_a_confined_child_ends_with_its_parent(tmp: string)
   local report = create(tmp .. "/parent")
   local started = this_program.program(test_child.words(tmp, "core.syscalls_tool_test", "confined",
     { table.concat(probe_reads(probe), ":") }))
-  local parent = assert(process.spawn(started.argv[1], started.argv, started.options.env, tmp,
+  local parent = assert(process.spawn(assert(started.argv[1], "this_program.program puts the executable first"), started.argv, started.options.env, tmp,
     nil, report, report, false,
     spawn_fds(started)))
   local said = ""
@@ -165,7 +154,7 @@ local function test_an_offline_child_s_loopback_is_up(tmp: string)
       'local t = assert(Fs.read("/proc/self/net/fib_trie")) ' ..
       'if t:find("127.0.0.1", 1, true) ~= nil then print("up") else print("down") end ' ..
       'local _, why = Net.connect(Net.tcp("127.0.0.1", 1), { timeout_ns = Clock.seconds(5) }) print(why)' })
-  local pid, trouble, errno = process.spawn(started.argv[1], started.argv, started.options.env,
+  local pid, trouble, errno = process.spawn(assert(started.argv[1], "this_program.program puts the executable first"), started.argv, started.options.env,
     tmp, nil, report, report, false,
     spawn_fds(started),
     { offline = true })
@@ -281,7 +270,7 @@ local function start_confined(probe: string, script: string, output: integer,
                               online?: boolean): integer
   local pid, trouble, errno = process.spawn(probe, { probe, script }, nil, "/", nil,
     output, output, false, nil,
-    { unveil = { reads = probe_reads(probe) }, offline = not online })
+    { unveil = { reads = probe_reads(probe) }, offline = online ~= true })
   if pid ~= nil then return pid end
   refused("unveiling", trouble, errno)
 end
@@ -424,7 +413,7 @@ local function test_an_idmapped_bind_is_the_users_where_it_is_mapped(tmp: string
   local started, proc_pid = pcall(process.spawn, probe, { probe, "print hi" }, nil, nil, nil, nil,
     nil, false, nil, { proc = true, user = user, group = user })
   assert(started, "a user is refused with proc: " .. tostring(proc_pid))
-  if proc_pid ~= nil then assert(process.waitpid(proc_pid as integer, false)) end
+  if proc_pid is integer then assert(process.waitpid(proc_pid, false)) end
   local sandbox: raw_process.Sandbox = { strict = true, user = user, group = user,
     unveil = { reads = reads, writes = {}, binds = { { path = dir, idmap = true } } } }
   local report = create(tmp .. "/report")
@@ -588,17 +577,22 @@ local function test_an_unveiled_child_sees_and_signals_only_its_own_processes(tm
   local outside = assert(process.spawn(probe, { probe, "sleep 30000" }, nil, nil, nil,
     nil, nil, false))
   -- The start may skip the test, which must not leave the process running.
-  local started, ran, output = pcall(run_confined, tmp, probe, "status-field Pid; signal KILL " ..
-      tostring(outside) .. " && print killed || print spared; present /proc/" ..
-      tostring(outside) .. " && print seen || print unseen; cat /proc/1/comm; ls /proc")
+  local ran: raw_process.ChildStatus? = nil
+  local output: string? = nil
+  local started, trouble = pcall(function()
+    ran, output = run_confined(tmp, probe, "status-field Pid; signal KILL " ..
+        tostring(outside) .. " && print killed || print spared; present /proc/" ..
+        tostring(outside) .. " && print seen || print unseen; cat /proc/1/comm; ls /proc")
+  end)
   -- Still running, not a zombie, which a signal of 0 would find too.
   local alive = assert(process.waitpid(outside, true)).pid == 0
   if alive then
     assert(sys.kill(outside, sys.SIGKILL))
     assert(process.waitpid(outside, false))
   end
-  if not started then error(ran, 0) end
-  local status, said = ran as raw_process.ChildStatus, output as string -- cast: pcall answers `any`
+  if not started then error(trouble, 0) end
+  local status = assert(ran, "pcall ran `run_confined` to its end")
+  local said = assert(output, "pcall ran `run_confined` to its end")
   assert(status.code == 0, said)
   assert(alive, "the confined child killed a process outside it: " .. said)
   local lines: mut {string} = {}
@@ -621,7 +615,7 @@ local function test_an_unveiled_child_sees_and_signals_only_its_own_processes(tm
       assert(entry == "self" or entry == "thread-self", "more than its processes: " .. said)
     end
   end
-  assert(listed[1] and listed[2], said)
+  assert(listed[1] == true and listed[2] == true, said)
 end
 
 --- An unveiled child's status is its program's, as an unconfined one's
