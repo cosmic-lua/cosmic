@@ -1,6 +1,7 @@
 --- [`Web.serve`] and the loopback client: what only a socket shows, on the
 --- worker's own loopback.
 
+local Cell = require("cosmic.cell")
 local Clock = require("cosmic.clock")
 local Input = require("cosmic.web.input")
 local Net = require("cosmic.net")
@@ -33,7 +34,7 @@ end
 
 --- A reader of `pieces`, one a read.
 local function pieces_of(pieces: {string}): Stream.Reader
-  local at = { value = 0 }
+  local at: Cell<integer> = { value = 0 }
   return {
     read = function(_self: Stream.Reader, _max?: integer): string?, string
       at.value = at.value + 1
@@ -128,7 +129,7 @@ local function test_stopping_ends_a_stream_and_runs_the_stop_functions_in_order(
   local events: mut {string} = {}
   local app = Web.app{
     routes = { Web.get("/events", function(req: Web.Request): Web.Response
-      local sent = { value = false }
+      local sent: Cell<boolean> = { value = false }
       return Web.stream({
         read = function(_self: Stream.Reader, _max?: integer): string?, string
           if not sent.value then
@@ -176,7 +177,7 @@ local function test_stopping_ends_a_stream_and_runs_the_stop_functions_in_order(
 end
 
 local function test_a_lifespan_that_fails_stops_serve_before_it_listens()
-  local listened = { value = false }
+  local listened: Cell<boolean> = { value = false }
   local app = Web.app{ routes = {}, lifespan = function(_app: Web.App): Web.Shutdown?, string
     return nil, "no database"
   end }
@@ -287,7 +288,7 @@ local function test_the_loopback_client_fails_when_the_server_goes_silent()
 end
 
 local function test_an_upload_above_the_servers_body_limit_is_the_servers_413()
-  local reached = { value = false }
+  local reached: Cell<boolean> = { value = false }
   local app = Web.app{ routes = { Web.post("/up", function(req: Web.Request): Web.Response
     reached.value = true
     return Web.text(tostring(Input.multipart(req, { max_bytes = 16 * 1024 * 1024 }).invalid))

@@ -3353,21 +3353,13 @@ cosmic/fs_append_tool_test.tl map_field 2
 
 cosmic/html_test.tl map_field 3
 
-cosmic/http/multipart_test.tl map_field 2
-
 cosmic/http/server.tl map_field 5
 
-cosmic/http/server_declared_types_test.tl map_field 3
-
-cosmic/http/server_test.tl map_field 46
-
-cosmic/http/server_tool_test.tl map_field 5
+cosmic/http/server_tool_test.tl map_field 1
 
 cosmic/http_test.tl map_field 1
 
 cosmic/internal/connector.tl map_field 2
-
-cosmic/internal/connector_test.tl map_field 30
 
 cosmic/internal/relay_config.tl map_field 27
 
@@ -3375,17 +3367,7 @@ cosmic/internal/relay_config_test.tl map_field 13
 
 cosmic/internal/relay_handed_lost_test.tl map_field 3
 
-cosmic/internal/relay_handed_test.tl map_field 7
-
 cosmic/internal/relay_server.tl map_field 2
-
-cosmic/internal/relay_server_native_test.tl map_field 3
-
-cosmic/internal/relay_server_test.tl map_field 6
-
-cosmic/internal/relay_token_fuzz_test.tl map_field 8
-
-cosmic/internal/relay_wire_test.tl map_field 11
 
 cosmic/json_path_test.tl map_field 2
 
@@ -3449,7 +3431,7 @@ cosmic/test.tl map_field 15
 
 cosmic/test_test.tl map_field 3
 
-cosmic/web/app_test.tl map_field 8
+cosmic/web/app_test.tl map_field 6
 
 cosmic/web/assets.tl map_field 1
 
@@ -3457,35 +3439,27 @@ cosmic/web/cookies_test.tl map_field 17
 
 cosmic/web/cors_test.tl map_field 8
 
-cosmic/web/csrf_test.tl map_field 18
+cosmic/web/csrf_test.tl map_field 11
 
 cosmic/web/dev.tl map_field 2
-
-cosmic/web/dev_supervise_test.tl map_field 49
-
-cosmic/web/headers_test.tl map_field 2
 
 cosmic/web/htmx.tl map_field 2
 
 cosmic/web/htmx_test.tl map_field 21
 
-cosmic/web/input_fuzz_test.tl map_field 3
-
 cosmic/web/input_multipart_fuzz_test.tl map_field 5
 
-cosmic/web/input_multipart_test.tl map_field 43
+cosmic/web/input_multipart_test.tl map_field 22
 
-cosmic/web/input_test.tl map_field 40
+cosmic/web/input_test.tl map_field 19
 
-cosmic/web/request_test.tl map_field 14
+cosmic/web/request_test.tl map_field 3
 
 cosmic/web/response.tl map_field 6
 
 cosmic/web/response_test.tl map_field 10
 
 cosmic/web/router_test.tl map_field 16
-
-cosmic/web/serve_test.tl map_field 9
 
 cosmic/web/session/cookie.tl map_field 4
 
@@ -3501,13 +3475,13 @@ cosmic/web/session/sqlite_test.tl map_field 16
 
 cosmic/web/sse_fuzz_test.tl map_field 2
 
-cosmic/web/sse_test.tl map_field 15
+cosmic/web/sse_test.tl map_field 1
 
 cosmic/web/static.tl map_field 1
 
-cosmic/web/testing_test.tl map_field 32
+cosmic/web/testing_test.tl map_field 20
 
-cosmic/web/typed_test.tl map_field 25
+cosmic/web/typed_test.tl map_field 16
 
 cosmic/zip_fuzz_test.tl map_field 9
 
@@ -4409,9 +4383,7 @@ cosmic/http/server_declared_types_test.tl cast_refused 1
 cosmic/http/server_range_fuzz_test.tl cast_refused 1
 
 
-cosmic/http/server_test.tl cast_refused 11
-
-cosmic/http/server_tool_test.tl cast_refused 2
+cosmic/http/server_test.tl cast_refused 3
 
 cosmic/http/wire_test.tl cast_refused 4
 
@@ -4419,11 +4391,9 @@ cosmic/http_test.tl cast_refused 19
 
 cosmic/internal/connector.tl cast_refused 2
 
-cosmic/internal/connector_test.tl cast_refused 12
+cosmic/internal/connector_test.tl cast_refused 6
 
 cosmic/internal/relay_handed_lost_test.tl cast_refused 6
-
-cosmic/internal/relay_handed_test.tl cast_refused 1
 
 cosmic/internal/relay_resolv.tl cast_refused 1
 
@@ -4441,7 +4411,7 @@ cosmic/internal/relay_wire_client_test.tl cast_refused 1
 
 cosmic/internal/relay_wire_fuzz_test.tl cast_refused 1
 
-cosmic/internal/relay_wire_test.tl cast_refused 10
+cosmic/internal/relay_wire_test.tl cast_refused 7
 
 cosmic/json.tl cast_refused 1
 
@@ -4551,7 +4521,7 @@ cosmic/url_test.tl cast_refused 1
 
 cosmic/vector.tl cast_refused 1
 
-cosmic/web/app_test.tl cast_refused 5
+cosmic/web/app_test.tl cast_refused 4
 
 cosmic/web/cookies_test.tl cast_refused 1
 
@@ -4565,21 +4535,17 @@ cosmic/web/dev_supervise_test.tl cast_refused 1
 
 cosmic/web/dev_test.tl cast_refused 4
 
-cosmic/web/headers_test.tl cast_refused 1
-
 cosmic/web/htmx_test.tl cast_refused 5
 
-cosmic/web/input_fuzz_test.tl cast_refused 2
+cosmic/web/input_fuzz_test.tl cast_refused 1
 
 cosmic/web/input_multipart_fuzz_test.tl cast_refused 2
 
-cosmic/web/input_multipart_test.tl cast_refused 14
+cosmic/web/input_multipart_test.tl cast_refused 11
 
-cosmic/web/input_test.tl cast_refused 9
+cosmic/web/input_test.tl cast_refused 7
 
 cosmic/web/request.tl cast_refused 1
-
-cosmic/web/request_test.tl cast_refused 3
 
 cosmic/web/response_test.tl cast_refused 3
 
@@ -4593,11 +4559,11 @@ cosmic/web/session/session_test.tl cast_refused 5
 
 cosmic/web/session/sqlite_test.tl cast_refused 1
 
-cosmic/web/sse_test.tl cast_refused 12
+cosmic/web/sse_test.tl cast_refused 5
 
 cosmic/web/testing_test.tl cast_refused 1
 
-cosmic/web/typed_test.tl cast_refused 15
+cosmic/web/typed_test.tl cast_refused 13
 
 cosmic/zip.tl cast_refused 1
 

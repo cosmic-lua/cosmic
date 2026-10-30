@@ -3,6 +3,7 @@
 --- replies out of order or from the wrong protocol, and a stream that
 --- falls out of step. The connector [`Net.connector`] starts is in
 --- cosmic/net_connector_test.tl.
+local Cell = require("cosmic.cell")
 local Clock = require("cosmic.clock")
 local Connector = require("cosmic.internal.connector")
 local Net = require("cosmic.net")
@@ -294,7 +295,7 @@ local function test_replies_out_of_order_reach_the_requests_their_tags_name()
     for i = 1, 3 do endpoints[i] = { host = "127.0.0." .. tostring(i), port = 9 } end
     local connector = assert(Connector.adopted(pair[1], endpoints, false, Clock.seconds(5)))
     local tags: mut {integer: integer} = {}
-    local count = { value = 0 }
+    local count: Cell<integer> = { value = 0 }
     -- Each endpoint's own refusal, so the answer shows whose it was.
     local errnos: {integer} = { socket.ECONNREFUSED, socket.ETIMEDOUT, sys.EPERM }
     local serving = stand_in(pair[2], function(tag: integer, request: string)
@@ -303,7 +304,7 @@ local function test_replies_out_of_order_reach_the_requests_their_tags_name()
       count.value = count.value + 1
       if count.value < 3 then return end
       for i = 3, 1, -1 do
-        assert(sys.write(pair[2], string.pack(">I4I4", tags[i], errnos[i])) == 8)
+        assert(sys.write(pair[2], string.pack(">I4I4", assert(tags[i]), assert(errnos[i]))) == 8)
       end
     end)
     local answers: {integer: string} = {}
@@ -334,7 +335,7 @@ local function test_a_reply_no_request_was_tagged_with_fails_every_request_waiti
     local pair = stream_pair()
     local endpoints: {raw_process.ConnectorEndpoint} = { { host = "127.0.0.1", port = 9 } }
     local connector = assert(Connector.adopted(pair[1], endpoints, false, Clock.seconds(5)))
-    local count = { value = 0 }
+    local count: Cell<integer> = { value = 0 }
     local serving = stand_in(pair[2], function(tag: integer, _: string)
       count.value = count.value + 1
       if count.value == 1 then
@@ -377,13 +378,13 @@ local function test_a_reply_another_task_reads_wakes_its_owner()
     local pair = stream_pair()
     local connector = assert(Connector.adopted(pair[1], { { host = "127.0.0.1", port = 9 },
       { host = "127.0.0.2", port = 9 } }, false, Clock.seconds(5)))
-    local first_tag = { value = nil as integer? }
+    local first_tag: Cell<integer?> = { value = nil }
     local serving = stand_in(pair[2], function(tag: integer, request: string)
       if string.unpack(">I4", request, 5) == 1 then first_tag.value = tag end
     end)
     local started = Clock.monotonic_ns()
-    local first = { value = nil as string? }
-    local took = { value = nil as integer? }
+    local first: Cell<string?> = { value = nil }
+    local took: Cell<integer?> = { value = nil }
     local asking = Poll.spawn(function()
       local conn, why = dial(connector, "127.0.0.1", 9, Clock.seconds(3))
       assert(conn == nil)
@@ -400,7 +401,7 @@ local function test_a_reply_another_task_reads_wakes_its_owner()
     local first_value = first.value
     assert(first_value ~= nil and first_value:find("refused", 1, true) ~= nil, tostring(first_value))
     local waited = assert(took.value, "the first request was answered")
-    assert(waited < Clock.seconds(1), "the first request was answered after " .. waited // Clock.ms(1) .. " ms")
+    assert(waited < Clock.seconds(1), "the first request was answered after " .. tostring(waited // Clock.ms(1)) .. " ms")
     serving:cancel()
     assert(connector:close())
     assert(sys.close(pair[2]))
@@ -415,14 +416,14 @@ local function test_a_lost_stream_sends_nothing_to_its_closed_descriptor()
     local pair = stream_pair()
     local connector = assert(Connector.adopted(pair[1], { { host = "127.0.0.1", port = 9 } }, false,
       Clock.seconds(5)))
-    local count = { value = 0 }
+    local count: Cell<integer> = { value = 0 }
     local serving = stand_in(pair[2], function(_: integer, _: string)
       count.value = count.value + 1
       if count.value == FLIGHT then
         assert(sys.write(pair[2], string.pack(">I4I4", 999, 0)) == 8)
       end
     end)
-    local taken = { value = nil as {integer}? }
+    local taken: Cell<{integer}?> = { value = nil }
     local tasks: mut {Poll.Task} = {}
     for i = 1, FLIGHT do
       tasks[i] = Poll.spawn(function()
@@ -433,7 +434,7 @@ local function test_a_lost_stream_sends_nothing_to_its_closed_descriptor()
         if taken.value == nil then taken.value = stream_pair() end
       end)
     end
-    local past = { value = nil as string? }
+    local past: Cell<string?> = { value = nil }
     local waiting = Poll.spawn(function()
       local conn, why = dial(connector, "127.0.0.1", 9, Clock.seconds(3))
       assert(conn == nil)
@@ -442,7 +443,7 @@ local function test_a_lost_stream_sends_nothing_to_its_closed_descriptor()
     for i = 1, FLIGHT do assert(tasks[i]:join(Clock.seconds(5))) end
     assert(waiting:join(Clock.seconds(5)))
     assert(past.value == "net: the connector replied to a request it was not asked (tag 999)", tostring(past.value))
-    assert(count.value == FLIGHT, count.value .. " requests were sent")
+    assert(count.value == FLIGHT, tostring(count.value) .. " requests were sent")
     local lost = assert(taken.value)
     assert(sys.set_nonblocking(lost[2], true))
     local leaked, _, errno = sys.read(lost[2], 4096)
@@ -471,7 +472,7 @@ local function test_a_task_cancelled_waiting_for_room_asks_nothing()
         local _, _ = dial(connector, "127.0.0.1", 9, Clock.seconds(3))
       end)
     end
-    local cancelled = { value = nil as string? }
+    local cancelled: Cell<string?> = { value = nil }
     local waiting = Poll.spawn(function()
       local conn, why = dial(connector, "127.0.0.1", 9, Clock.seconds(3))
       assert(conn == nil)
@@ -480,7 +481,7 @@ local function test_a_task_cancelled_waiting_for_room_asks_nothing()
     assert(Poll.delay(Clock.ms(50)))
     assert(#tags == FLIGHT, tostring(#tags) .. " requests were asked")
     -- Room for two, and the waiting task cancelled before it looks again.
-    assert(sys.write(pair[2], string.pack(">I4I4I4I4", tags[1], socket.ECONNREFUSED, tags[2],
+    assert(sys.write(pair[2], string.pack(">I4I4I4I4", assert(tags[1]), socket.ECONNREFUSED, assert(tags[2]),
       socket.ECONNREFUSED)) == 16)
     waiting:cancel()
     local conn, why = dial(connector, "127.0.0.1", 9, Clock.ms(50))
@@ -503,7 +504,7 @@ local function test_a_connector_of_another_protocol_is_asked_nothing()
     local pair = stream_pair()
     local connector = assert(Connector.adopted(pair[1], { { host = "127.0.0.1", port = 9 } }, false,
       Clock.seconds(1)))
-    local asked = { value = 0 }
+    local asked: Cell<integer> = { value = 0 }
     local serving = stand_in(pair[2], function(_: integer, _: string)
       asked.value = asked.value + 1
     end, 0x434e4301)

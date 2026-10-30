@@ -2,6 +2,7 @@
 --- client here writes a request's bytes as given and reads the reply as
 --- sent, so what the server does on the wire is what is checked.
 
+local Cell = require("cosmic.cell")
 local Clock = require("cosmic.clock")
 local Server = require("cosmic.http.server")
 local Net = require("cosmic.net")
@@ -213,8 +214,8 @@ end
 --- Content-Length included, and no body: the next reply on the
 --- connection follows at once. A Reader body is closed unread.
 local function test_head_is_answered_with_no_body()
-  local read_from = { value = false }
-  local closed = { value = false }
+  local read_from: Cell<boolean> = { value = false }
+  local closed: Cell<boolean> = { value = false }
   local record Watched is Stream.Reader
     read: function(Watched, max_bytes?: integer): string?, string
     close: function(Watched): boolean, string
@@ -309,7 +310,7 @@ end
 --- 413 once read -- the handler's assert on the read reported nowhere
 --- -- and a connection past `connections` waits until one closes.
 local function test_each_limit_is_answered()
-  local handled = { value = 0 }
+  local handled: Cell<integer> = { value = 0 }
   local troubles = serving(function(req: Server.Request): Server.Reply
     handled.value = handled.value + 1
     return { status = 200, body = assert(Stream.read_all(req.body)) }
@@ -481,9 +482,9 @@ end
 --- `Connection: close`.
 local function test_stopping_closes_idle_connections_at_once()
   local started = Clock.monotonic_ns()
-  local idle_ended = { value = false }
-  local in_flight = { value = nil as Got? }
-  local release = { value = false }
+  local idle_ended: Cell<boolean> = { value = false }
+  local in_flight: Cell<Got?> = { value = nil }
+  local release: Cell<boolean> = { value = false }
   assert(Server.serve{
     listeners = { Net.tcp("127.0.0.1", 0) },
     idle_ns = Clock.seconds(60),
@@ -616,7 +617,7 @@ end
 --- closes, the Reader is closed, and what it raised, with its stack,
 --- goes to on_error.
 local function test_a_reply_body_that_raises_closes_the_connection()
-  local closed = { value = false }
+  local closed: Cell<boolean> = { value = false }
   local record Raising is Stream.Reader
     read: function(Raising, max_bytes?: integer): string?, string
     close: function(Raising): boolean, string
@@ -681,13 +682,13 @@ end
 --- A request carries the connection's far end: the loopback address and
 --- the client's own port, which is not the server's.
 local function test_a_request_carries_its_peer_address()
-  local seen = { value = nil as Net.Address? }
-  local server_port = { value = 0 }
+  local seen: Cell<Net.Address?> = { value = nil }
+  local server_port: Cell<integer> = { value = 0 }
   local troubles = serving(function(req: Server.Request): Server.Reply
     seen.value = req.peer
     return { status = 200, body = "ok" }
   end, function(address: Net.Address)
-    server_port.value = address.port
+    server_port.value = assert(address.port, "the server reported no port")
     local p <close> = peer(address)
     send(p, get("/"))
     assert(reply(p).status == 200)
@@ -703,10 +704,10 @@ end
 --- what it raises reaches on_error without keeping the server from
 --- stopping.
 local function test_a_callers_on_stop_runs_once_and_its_raise_is_reported()
-  local calls = { value = 0 }
-  local given = { value = nil as Net.Server? }
-  local idle_ended = { value = false }
-  local idle_peer = { value = nil as Peer? }
+  local calls: Cell<integer> = { value = 0 }
+  local given: Cell<Net.Server?> = { value = nil }
+  local idle_ended: Cell<boolean> = { value = false }
+  local idle_peer: Cell<Peer?> = { value = nil }
   local troubles = serving(echo, function(address: Net.Address)
     local idle = peer(address)
     idle_peer.value = idle
@@ -801,7 +802,7 @@ end
 --- comes and however short each wait: the handler's read fails and the
 --- server answers 408 in place of its reply and closes.
 local function test_a_body_slower_than_body_ns_is_answered_408()
-  local read_failed = { value = false }
+  local read_failed: Cell<boolean> = { value = false }
   serving(function(req: Server.Request): Server.Reply
     local _, why = Stream.read_all(req.body)
     read_failed.value = why ~= nil
@@ -874,7 +875,7 @@ end
 --- A handler that works past body_ns before it reads a body the client
 --- sent in good time gets the body: the time runs from its first read.
 local function test_a_slow_handler_reading_a_prompt_body_gets_it()
-  local read = { value = nil as string? }
+  local read: Cell<string?> = { value = nil }
   local troubles = serving(function(req: Server.Request): Server.Reply
     assert(Poll.delay(Clock.ms(500)))
     read.value = assert(Stream.read_all(req.body))
@@ -953,11 +954,11 @@ end
 --- then, and a reply still in flight, finished once on_stop lets it go,
 --- carries `Connection: close`.
 local function test_on_stop_runs_after_the_server_has_stopped_taking_work()
-  local idle_peer = { value = nil as Peer? }
-  local busy_peer = { value = nil as Peer? }
-  local idle_ended_at_stop = { value = false }
-  local release = { value = false }
-  local in_flight = { value = nil as Got? }
+  local idle_peer: Cell<Peer?> = { value = nil }
+  local busy_peer: Cell<Peer?> = { value = nil }
+  local idle_ended_at_stop: Cell<boolean> = { value = false }
+  local release: Cell<boolean> = { value = false }
+  local in_flight: Cell<Got?> = { value = nil }
   local troubles = serving(function(req: Server.Request): Server.Reply
     if req.path == "/slow" then
       while not release.value do assert(Poll.delay(Clock.ms(5))) end

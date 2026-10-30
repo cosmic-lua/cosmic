@@ -3,6 +3,7 @@
 --- so runs in a child against a server here, and a server in a child
 --- stopped by SIGTERM.
 
+local Cell = require("cosmic.cell")
 local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")
 local Server = require("cosmic.http.server")
@@ -47,7 +48,7 @@ return function(argv: {string}): integer
 end
 ]]))
   local items: mut {string:string} = {}
-  local result = { value = nil as Child.Result? }
+  local result: Cell<Child.Result?> = { value = nil }
   assert(Server.serve{
     listeners = { Net.tcp("127.0.0.1", 0) },
     handle = function(req: Server.Request): Server.Reply
@@ -106,7 +107,7 @@ return function(argv: {string}): integer
 end
 ]]))
   local targets: mut {string} = {}
-  local result = { value = nil as Child.Result? }
+  local result: Cell<Child.Result?> = { value = nil }
   assert(Server.serve{
     listeners = { Net.tcp("127.0.0.1", 0) },
     handle = function(req: Server.Request): Server.Reply
