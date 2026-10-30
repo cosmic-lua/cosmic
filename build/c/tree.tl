@@ -124,16 +124,18 @@ local function located(at: Cursor, s: string): string?, integer?, integer?
     end
   elseif first == 108 then -- l
     local line, lcol = s:match("^line:(%d+):(%d+)$")
-    if line ~= nil then
-      at.line = math.tointeger(tonumber(line))
-      return at.file, at.line, math.tointeger(tonumber(lcol))
+    local line_number = if line ~= nil then math.tointeger(tonumber(line)) else nil end
+    if line_number ~= nil then
+      at.line = line_number
+      return at.file, line_number, math.tointeger(tonumber(lcol))
     end
   end
   local file, fline, fcol = s:match("^(.+):(%d+):(%d+)$")
-  if file ~= nil then
+  local file_line = if fline ~= nil then math.tointeger(tonumber(fline)) else nil end
+  if file ~= nil and file_line ~= nil then
     at.file = normalized(file, at.root)
-    at.line = math.tointeger(tonumber(fline))
-    return at.file, at.line, math.tointeger(tonumber(fcol))
+    at.line = file_line
+    return at.file, file_line, math.tointeger(tonumber(fcol))
   end
   return nil, nil, nil
 end
@@ -302,17 +304,17 @@ end
 
 --- The first single-quoted string in a node's text: an expression's type,
 --- or a declaration's name's type, as written (`'lua_Integer':'long
---- long'` gives "lua_Integer").
-function tree.type_of(node: tree.Node): string
+--- long'` gives "lua_Integer"); nil for a node whose text quotes none.
+function tree.type_of(node: tree.Node): string?
   return node.text:match("'([^']*)'")
 end
 
 --- The type `node` has once every typedef is seen through: the second of
---- a sugared pair (`'lua_Integer':'long long'`), or the only one.
-function tree.canonical_type(node: tree.Node): string
+--- a sugared pair (`'lua_Integer':'long long'`), or the only one; nil for a node whose text quotes none.
+function tree.canonical_type(node: tree.Node): string?
   if node.canonical_asked == true then return node.canonical_cache end
   local written, canonical = node.text:match("^[^']*'([^']*)':'([^']*)'")
-  local answer: string = canonical or written or tree.type_of(node)
+  local answer: string? = canonical or written or tree.type_of(node)
   node.canonical_cache = answer
   node.canonical_asked = true
   return answer
@@ -334,7 +336,9 @@ function tree.referent(node: tree.Node): tree.Referent?
   if node.referent_asked == true then return node.referent_cache end
   local kind, id, name = node.text:match(" (%a+) (0x%x+) '([^']*)'")
   local found: tree.Referent? = nil
-  if kind ~= nil then found = { kind = kind, id = id, name = name } end
+  if kind ~= nil and id ~= nil and name ~= nil then
+    found = { kind = kind, id = id, name = name }
+  end
   node.referent_cache = found
   node.referent_asked = true
   return found

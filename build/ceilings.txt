@@ -204,7 +204,7 @@ cosmic/removed_example.tl untagged_union 1
 # the row of every file whose `[checked]` errors it removes.
 build/bom.tl 1
 
-build/c/rules.tl 3
+build/c/rules.tl 2
 
 build/c_functions.tl 1
 
@@ -543,15 +543,11 @@ build/boot.tl nil_not_allowed 2
 
 build/c/declared_types_test.tl nil_not_allowed 4
 
-build/c/init.tl nil_not_allowed 13
 
-build/c/layout.tl nil_not_allowed 14
 
-build/c/rules.tl nil_not_allowed 34
 
 build/c/rules_test.tl nil_not_allowed 27
 
-build/c/tree.tl nil_not_allowed 6
 
 build/c/tree_test.tl nil_not_allowed 30
 
@@ -837,7 +833,6 @@ build/sql_tool_test.tl nil_not_allowed 1
 
 build/sqlite_wait_lua_test.tl nil_not_allowed 1
 
-build/stand_in_probe.tl nil_not_allowed 38
 
 build/stand_in_test.tl nil_not_allowed 4
 
@@ -1542,9 +1537,7 @@ build/artifact_fuzz_test.tl index_may_be_nil 2
 
 build/artifact_test.tl index_may_be_nil 1
 
-build/c/init.tl index_may_be_nil 17
 
-build/c/rules.tl index_may_be_nil 22
 
 build/c/rules_test.tl index_may_be_nil 1
 
@@ -1697,9 +1690,7 @@ build/sql.tl index_may_be_nil 2
 
 build/sql_test.tl index_may_be_nil 4
 
-build/stand_in.tl index_may_be_nil 2
 
-build/stand_in_probe.tl index_may_be_nil 6
 
 build/symbol_index.tl index_may_be_nil 1
 
@@ -4632,7 +4623,7 @@ build/artifact.tl condition_type 2
 build/c/init.tl condition_type 5
 
 
-build/c/rules.tl condition_type 6
+build/c/rules.tl condition_type 2
 
 
 
@@ -4735,7 +4726,7 @@ build/shared_verdicts_tool_test.tl condition_type 1
 
 
 
-build/stand_in_probe.tl condition_type 4
+
 
 
 
@@ -5052,7 +5043,6 @@ test/sqlite_result_test.tl condition_type 2
 
 
 
-build/c/rules.tl or_mix 2
 
 build/c_tokens.tl or_mix 1
 
@@ -5476,7 +5466,7 @@ build/c/init.tl and_ternary 3
 
 build/c/layout.tl and_ternary 1
 
-build/c/rules.tl and_ternary 29
+build/c/rules.tl and_ternary 24
 
 build/c_functions.tl and_ternary 2
 
@@ -6075,7 +6065,7 @@ test/sqlite_row_test.tl and_ternary 1
 # an `==` of two types that share no value: mostly a comparison with nil of a value its declaration says is never nil
 # (the first value of a `T, string` answer of the tree, a count), and the dead tests the rewrite removes
 
-build/c/rules.tl compare_disjoint 16
+build/c/rules.tl compare_disjoint 12
 
 build/c/tree.tl compare_disjoint 2
 
@@ -6115,7 +6105,7 @@ build/sandboxed_verdicts_test.tl compare_disjoint 6
 
 build/shared_verdicts_tool_test.tl compare_disjoint 6
 
-build/stand_in_probe.tl compare_disjoint 15
+
 
 build/standalone_test.tl compare_disjoint 2
 
@@ -6902,7 +6892,7 @@ lang/relation_test.tl arms_differ 1
 test/sqlite_parameter_test.tl arms_differ 1
 
 # an array or map literal whose elements or values may be nil
-build/c/rules.tl array_of_optional 1
+
 
 build/declared_key_test.tl array_of_optional 1
 
@@ -7397,7 +7387,6 @@ build/lsp/syntax_read.tl view_as_mut 1
 
 
 
-build/stand_in.tl nil_not_allowed 7
 
 
 

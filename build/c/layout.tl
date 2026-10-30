@@ -31,6 +31,11 @@ local record layout
 end
 
 local type Token = c_tokens.Token
+
+--- The token at `position` of `tokens`, a position the caller's loop keeps within them.
+local function token_at(tokens: {Token}, position: integer): Token
+  return (assert(tokens[position], "a position is within the tokens"))
+end
 local lex = c_tokens.lex
 
 --- What a token says, whitespace aside: a comment's lines without their
@@ -155,7 +160,7 @@ local function laid_out(source: string): string
             -- Find the close, then what follows it.
             local level, j = 0, i
             while j <= #tokens do
-              local u = tokens[j]
+              local u = token_at(tokens, j)
               if u.text == "(" then
                 level = level + 1
               elseif u.text == ")" then
@@ -165,11 +170,13 @@ local function laid_out(source: string): string
               j = j + 1
             end
             j = j + 1
-            while tokens[j] ~= nil and (tokens[j].kind == "space" or tokens[j].kind == "newline" or
-                tokens[j].kind == "comment") do
+            local skipped = tokens[j]
+            while skipped ~= nil and (skipped.kind == "space" or skipped.kind == "newline" or
+                skipped.kind == "comment") do
               j = j + 1
+              skipped = tokens[j]
             end
-            local after = tokens[j]
+            local after = skipped
             if after ~= nil and (after.text == "{" or after.text == ";" or after.kind == "word") then
               spaced[prev] = true
             end
@@ -197,22 +204,24 @@ local function laid_out(source: string): string
     local toks = line.tokens
     local first = 1
     local indent = ""
-    if toks[1] ~= nil and toks[1].kind == "space" then
-      indent = toks[1].text
+    local head = toks[1]
+    if head ~= nil and head.kind == "space" then
+      indent = head.text
       first = 2
     end
-    if toks[first] == nil then
+    local lead = toks[first]
+    if lead == nil then
       blanks = blanks + 1
       if blanks <= 2 then out[#out + 1] = "" end
     else
       blanks = 0
-      local lead = toks[first]
+      local code_head = line.code[1]
       local at: integer
       if lead.kind == "directive" then
         at = width(indent)
-      elseif (ends and parens == 0) or line.code[1] == lead and lead.text == "}" then
+      elseif (ends and parens == 0) or code_head == lead and lead.text == "}" then
         local depth = #stack
-        if line.code[1] ~= nil and line.code[1].text == "}" and lead == line.code[1] then
+        if code_head ~= nil and code_head.text == "}" and lead == code_head then
           depth = depth - 1
         end
         at = 2 * math.max(depth, 0)
@@ -222,22 +231,23 @@ local function laid_out(source: string): string
       end
       local parts: mut {string} = { string.rep(" ", at) }
       for k = first, #toks do
-        local t = toks[k]
+        local t = token_at(toks, k)
         local text = t.text
+        local following = toks[k + 1]
         if t.kind == "comment" then text = shifted(text, at - width(indent)) end
-        if spaced[t] == true and toks[k + 1] ~= nil and toks[k + 1].text == "(" then
+        if spaced[t] == true and following ~= nil and following.text == "(" then
           text = text .. " "
           -- What continues the parameters is lined up under them, unless
           -- they begin on a line of their own at an indent of their own.
-          if line.code[#line.code] ~= toks[k + 1] then delta = delta + 1 end
+          if line.code[#line.code] ~= following then delta = delta + 1 end
         end
         parts[#parts + 1] = text
       end
       out[#out + 1] = (table.concat(parts):gsub("[ \t]+$", ""))
 
       if lead.kind ~= "directive" then
-        local label = line.code[1] ~= nil and
-          (line.code[1].text == "case" or line.code[1].text == "default")
+        local label = code_head ~= nil and
+          (code_head.text == "case" or code_head.text == "default")
         for _, t in ipairs(line.code) do
           if t.text == "{" then
             stack[#stack + 1] = opens_entries(prev, prev2, cast)
@@ -245,7 +255,7 @@ local function laid_out(source: string): string
             stack[#stack] = nil
           elseif t.text == "(" or t.text == "[" then
             parens = parens + 1
-            opened[#opened + 1] = prev
+            if prev ~= nil then opened[#opened + 1] = prev end
           elseif t.text == ")" or t.text == "]" then
             parens = parens - 1
             cast = opened[#opened]
