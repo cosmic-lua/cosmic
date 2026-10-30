@@ -23,13 +23,13 @@ local function environment(): mut {string:string}
   return env
 end
 
---- Runs `argv` with the private contract `relaunch` hands a child.
 --- Word `i` of the argv a relaunch starts: the core, `--artifact`, the artifact.
 local function argv_at(relaunch: Proc.Relaunch, i: integer): string
   local word = assert(relaunch.argv[i], "a relaunch's argv holds word " .. tostring(i))
   return word
 end
 
+--- Runs `argv` with the private contract `relaunch` hands a child.
 local function run_relaunched(relaunch: Proc.Relaunch, argv: {string}): Child.Result
   local env = environment()
   for name, value in pairs(relaunch.env) do env[name] = value end
