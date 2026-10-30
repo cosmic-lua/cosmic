@@ -493,7 +493,12 @@ function Generics.expect(s: Generics.Solver, pattern: Type, expected: Type)
     local held = Generics.value(aside, i)
     if held ~= nil then
       s.fallback[i] = held
-      s.hint[i] = aside.exact[i]
+      local fixed = aside.exact[i]
+      if fixed ~= nil then
+        s.hint[i] = fixed
+      else
+        s.hint[i] = nil
+      end
     end
   end
   -- Arguments that have no type between them are both below the one the position wants.

@@ -11,18 +11,21 @@ Test.policy{}
 --- Checks that `source` has exactly the errors `codes` (space separated), and that the first says `msg`.
 local function refused(source: string, codes: string, msg?: string)
   local r = Programs.run(source)
+  local first = r.errors[1]
   assert(#r.before == 0, table.concat(r.before, " ") .. " in\n" .. source)
   assert(Programs.codes(r) == codes, "wanted " .. codes .. ", got " .. Programs.codes(r) .. " in\n" .. source .. "\n" ..
-      (r.errors[1] ~= nil and r.errors[1].msg or ""))
+      (if first ~= nil then first.msg else "" end))
   if msg ~= nil then
-    assert(r.errors[1].msg:find(msg, 1, true) ~= nil, r.errors[1].msg .. "\nwanted " .. msg)
+    assert(first ~= nil, "an error that says " .. msg)
+    assert(first.msg:find(msg, 1, true) ~= nil, first.msg .. "\nwanted " .. msg)
   end
 end
 
 --- Checks that `source` has no error.
 local function accepted(source: string)
   local r = Programs.run(source)
-  assert(#r.before == 0 and #r.errors == 0, table.concat(r.before, " ") .. (r.errors[1] ~= nil and r.errors[1].msg or "") ..
+  local first = r.errors[1]
+  assert(#r.before == 0 and #r.errors == 0, table.concat(r.before, " ") .. (if first ~= nil then first.msg else "" end) ..
       " in\n" .. source)
 end
 
@@ -153,7 +156,8 @@ local function test_a_generic_call_that_takes_a_record_for_a_map_is_refused()
   local r = Programs.run("local record R\n  name: string\nend\nlocal r: R = { name = \"a\" }\n" ..
       "local function rawset<K, V>(m: {K: V}, k: K, v: V)\nend\nrawset(r, \"name\", 1)\n")
   assert(#r.before == 0 and Programs.codes(r) == "record_as_map", Programs.codes(r))
-  assert(r.errors[1].msg:find("where `{string: integer}` is wanted as argument 1 of `rawset`: a record is not a map", 1, true) ~= nil, r.errors[1].msg)
+  local refusal = assert(r.errors[1], "the refusal of the call")
+  assert(refusal.msg:find("where `{string: integer}` is wanted as argument 1 of `rawset`: a record is not a map", 1, true) ~= nil, refusal.msg)
 end
 
 -- `test_a_wrong_call_through_a_typed_variable_is_refused`: a callee's parameters hold wherever the function came
