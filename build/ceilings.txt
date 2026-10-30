@@ -1338,15 +1338,10 @@ cosmic/url_test.tl nil_not_allowed 2
 
 
 
-cosmic/web/input.tl nil_not_allowed 20
 
-cosmic/web/input_fuzz_test.tl nil_not_allowed 7
 
-cosmic/web/input_multipart_fuzz_test.tl nil_not_allowed 3
 
-cosmic/web/input_multipart_test.tl nil_not_allowed 25
 
-cosmic/web/input_test.tl nil_not_allowed 24
 
 
 
@@ -2059,13 +2054,9 @@ cosmic/url_fuzz_test.tl index_may_be_nil 3
 
 
 
-cosmic/web/input.tl index_may_be_nil 2
 
-cosmic/web/input_fuzz_test.tl index_may_be_nil 1
 
-cosmic/web/input_multipart_test.tl index_may_be_nil 1
 
-cosmic/web/input_test.tl index_may_be_nil 5
 
 
 
@@ -3377,7 +3368,6 @@ cosmic/web/htmx_test.tl map_field 13
 
 cosmic/web/input_multipart_fuzz_test.tl map_field 5
 
-cosmic/web/input_multipart_test.tl map_field 22
 
 cosmic/web/input_test.tl map_field 19
 
@@ -4462,7 +4452,6 @@ cosmic/web/input_fuzz_test.tl cast_refused 1
 
 cosmic/web/input_multipart_fuzz_test.tl cast_refused 2
 
-cosmic/web/input_multipart_test.tl cast_refused 11
 
 cosmic/web/input_test.tl cast_refused 7
 
@@ -5101,7 +5090,6 @@ cosmic/web/input_multipart_fuzz_test.tl condition_type 1
 
 cosmic/web/input_multipart_test.tl condition_type 1
 
-cosmic/web/input_test.tl condition_type 2
 
 
 
@@ -5560,9 +5548,7 @@ cosmic/url_test.tl or_mix 3
 
 
 
-cosmic/web/input_multipart_test.tl or_mix 2
 
-cosmic/web/input_test.tl or_mix 2
 
 
 

@@ -45,7 +45,8 @@ local function gen_pairs(src: Fuzz.Source): string
   local which = src:int(1, #SPECS)
   local fields: mut {string} = { tostring(which) }
   while Fuzz.more(src, #fields // 2, 12) do
-    local name = src:int(0, 9) == 0 and Fuzz.bytes(src, 6) or Fuzz.pick(src, NAMES[which])
+    local candidates = assert(NAMES[which], "NAMES holds a list for each spec")
+    local name = src:int(0, 9) == 0 and Fuzz.bytes(src, 6) or Fuzz.pick(src, candidates)
     local value = src:int(0, 5) == 0 and Fuzz.bytes(src, 8) or Fuzz.pick(src, VALUES)
     fields[#fields + 1] = name
     fields[#fields + 1] = value
@@ -67,9 +68,11 @@ local function test_binding_never_raises_and_answers_a_value_or_every_error(tmp:
       local fields = Fuzz.unpack(input)
       local which = math.tointeger(tonumber(fields[1])) or 1
       local spec = SPECS[which]
+      if spec == nil then return false, "the input names no spec: " .. tostring(which) end
       local q: Url.Query = { pairs = {}, by_name = {} }
       for i = 2, #fields - 1, 2 do
-        local name, value = fields[i], fields[i + 1]
+        local name = assert(fields[i], "the loop stays inside the fields")
+        local value = assert(fields[i + 1], "the loop stays inside the fields")
         q.pairs[#q.pairs + 1] = { name = name, value = value }
         local list = q.by_name[name]
         if list == nil then
