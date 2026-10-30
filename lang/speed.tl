@@ -26,6 +26,8 @@ local FLOOR <const> = 5000000
 local SAMPLES <const> = 5
 --- The most pairs of samples `within` takes by default: a pass ends it sooner.
 local PAIRS <const> = 12
+--- The fewest pairs of samples `within` takes before it passes.
+local FEWEST_PAIRS <const> = 3
 --- The most runs a sample makes, for work that takes almost no time.
 local MOST_RUNS <const> = 2000
 
@@ -38,17 +40,19 @@ local function elapsed(work: function(), runs: integer): integer
   return Clock.monotonic_ns() - started
 end
 
---- How many runs of `work` make a sample long enough to read, and the time of its first run.
-local function plan(work: function()): integer, integer
+--- How many runs of `work` make a sample long enough to read. Its first run, which is cold, is
+--- not a sample.
+local function plan(work: function()): integer
   local first = elapsed(work, 1)
   if first < FLOOR then
-    return math.min(MOST_RUNS, FLOOR // math.max(first, 1) + 1), first
+    return math.min(MOST_RUNS, FLOOR // math.max(first, 1) + 1)
   end
-  return 1, first
+  return 1
 end
 
 function Speed.least(work: function()): integer
-  local runs, best = plan(work)
+  local runs = plan(work)
+  local best = math.maxinteger
   for _ = 1, SAMPLES do
     best = math.min(best, elapsed(work, runs) // runs)
   end
@@ -56,16 +60,17 @@ function Speed.least(work: function()): integer
 end
 
 function Speed.within(base: function(), scaled: function(), limit: integer, most_pairs?: integer): boolean, string
-  local base_runs, small = plan(base)
-  local scaled_runs, large = plan(scaled)
+  local base_runs, scaled_runs = plan(base), plan(scaled)
+  local small, large = math.maxinteger, math.maxinteger
   -- The samples of the two sides alternate, so that a stretch of load falls on both: the side
   -- read all at once would take it whole, and the other side none. Load only adds time, so each
   -- side's least keeps falling toward its true cost, and the comparison is made after every pair:
-  -- a pass ends it, and only a form that is over the limit at its true cost takes every pair.
-  for _ = 1, most_pairs or PAIRS do
+  -- a pass ends it, and only a form that is over the limit at its true cost takes every pair. A
+  -- pass waits for a few pairs, so that one slow sample of the base alone cannot pass a form.
+  for pair = 1, most_pairs or PAIRS do
     small = math.min(small, elapsed(base, base_runs) // base_runs)
     large = math.min(large, elapsed(scaled, scaled_runs) // scaled_runs)
-    if large <= limit * small then
+    if pair >= FEWEST_PAIRS and large <= limit * small then
       return true, ""
     end
   end
