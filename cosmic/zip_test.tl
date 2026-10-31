@@ -1042,3 +1042,21 @@ local function test_entry_finds_an_entry_by_path()
   assert(none == nil and why == 'zip: no entry "c.txt"', why)
   assert(r:close())
 end
+
+--- With `ignore_case`, a path matches whatever the case of its ASCII
+--- letters, the first of the entries that match standing; without it,
+--- only the exact path does.
+local function test_entry_ignores_case_when_asked()
+  local out = Stream.collect()
+  local w = Zip.writer(out)
+  assert(w:add_file("XL/Workbook.xml", "one"))
+  assert(w:add_file("xl/workbook.XML", "two"))
+  assert(w:close())
+  local r = assert(Zip.open_string(out:result()))
+  local found = assert(r:entry("xl/workbook.xml", { ignore_case = true }))
+  assert(found.path == "XL/Workbook.xml", found.path)
+  local none, why = r:entry("xl/workbook.xml")
+  assert(none == nil and why == 'zip: no entry "xl/workbook.xml"', why)
+  assert(assert(r:entry("xl/workbook.XML")).path == "xl/workbook.XML")
+  assert(r:close())
+end
