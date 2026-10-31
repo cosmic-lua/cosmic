@@ -537,10 +537,10 @@ build/c/declared_types_test.tl nil_not_allowed 4
 
 
 
-build/c/rules_test.tl nil_not_allowed 27
+build/c/rules_test.tl nil_not_allowed 26
 
 
-build/c/tree_test.tl nil_not_allowed 30
+build/c/tree_test.tl nil_not_allowed 11
 
 build/c/variants_test.tl nil_not_allowed 2
 
@@ -554,7 +554,6 @@ build/c_functions_test.tl nil_not_allowed 5
 build/cache_tool_test.tl nil_not_allowed 1
 
 
-build/ceilings_test.tl nil_not_allowed 2
 
 build/check_memo_test.tl nil_not_allowed 1
 
@@ -574,7 +573,6 @@ build/codec_tool_test.tl nil_not_allowed 1
 
 build/compile_tool_test.tl nil_not_allowed 1
 
-build/compiler_readers_test.tl nil_not_allowed 2
 
 build/confine.tl nil_not_allowed 6
 
@@ -610,7 +608,7 @@ build/dispatched_features_test.tl nil_not_allowed 1
 
 
 
-build/docs_checks_test.tl nil_not_allowed 5
+build/docs_checks_test.tl nil_not_allowed 4
 
 
 build/docs_search_test.tl nil_not_allowed 2
@@ -625,7 +623,6 @@ build/doctest/generate_test.tl nil_not_allowed 3
 
 
 
-build/example_checks_test.tl nil_not_allowed 1
 
 
 build/fetch_test.tl nil_not_allowed 1
@@ -635,9 +632,7 @@ build/fetch_tool_test.tl nil_not_allowed 1
 
 
 
-build/fix/near_test.tl nil_not_allowed 3
 
-build/fix/notes_test.tl nil_not_allowed 1
 
 
 build/flow_test.tl nil_not_allowed 2
@@ -709,7 +704,7 @@ build/relay_wire_fixture.tl nil_not_allowed 2
 
 build/roots_test.tl nil_not_allowed 5
 
-build/runtime_checks_tool_test.tl nil_not_allowed 2
+build/runtime_checks_tool_test.tl nil_not_allowed 1
 
 build/sandbox.tl nil_not_allowed 21
 
@@ -757,7 +752,7 @@ build/sqlite_wait_lua_test.tl nil_not_allowed 1
 
 build/stand_in_test.tl nil_not_allowed 4
 
-build/standalone_tool_test.tl nil_not_allowed 3
+build/standalone_tool_test.tl nil_not_allowed 2
 
 build/stub_tree_test.tl nil_not_allowed 2
 
@@ -767,7 +762,6 @@ build/subdirectory_verbs_test.tl nil_not_allowed 1
 
 
 
-build/syntax_contracts_test.tl nil_not_allowed 1
 
 
 
@@ -799,7 +793,6 @@ build/test_inputs_test.tl nil_not_allowed 3
 
 build/test_isolation_test.tl nil_not_allowed 2
 
-build/test_isolation_tool_test.tl nil_not_allowed 1
 
 build/test_key.tl nil_not_allowed 54
 
@@ -849,7 +842,7 @@ build/work_test.tl nil_not_allowed 1
 
 build/work_tool_test.tl nil_not_allowed 1
 
-build/workflows_test.tl nil_not_allowed 48
+build/workflows_test.tl nil_not_allowed 41
 
 
 
@@ -1024,7 +1017,7 @@ cosmic/net_resolve_through_test.tl nil_not_allowed 15
 
 cosmic/net_resolve_tool_test.tl nil_not_allowed 1
 
-cosmic/net_serve_test.tl nil_not_allowed 7
+cosmic/net_serve_test.tl nil_not_allowed 3
 
 cosmic/net_test.tl nil_not_allowed 2
 
@@ -1216,7 +1209,7 @@ cosmic/zip_test.tl nil_not_allowed 16
 
 
 
-lang/check.tl nil_not_allowed 69
+lang/check.tl nil_not_allowed 68
 
 lang/check_class_test.tl nil_not_allowed 30
 
@@ -1759,7 +1752,7 @@ lang/codegen_fuzz_test.tl index_may_be_nil 1
 
 lang/declarations.tl index_may_be_nil 13
 
-lang/declarations_test.tl index_may_be_nil 8
+lang/declarations_test.tl index_may_be_nil 7
 
 lang/generics.tl index_may_be_nil 9
 
@@ -4231,17 +4224,11 @@ build/udp_fixture_test.tl close_not_closable 4
 
 build/zig_lock_test.tl close_not_closable 2
 
-core/allocation_test.tl close_not_closable 22
-
-core/artifact_fd_tool_test.tl close_not_closable 3
+core/allocation_test.tl close_not_closable 12
 
 core/grants_child_test.tl close_not_closable 1
 
-core/lookup_test.tl close_not_closable 6
-
-core/socket_sigpipe_checked_test.tl close_not_closable 8
-
-core/socket_test.tl close_not_closable 26
+core/lookup_test.tl close_not_closable 2
 
 core/sqlite_lua_test.tl close_not_closable 2
 
@@ -4259,8 +4246,6 @@ cosmic/child_stream_failure_test.tl close_not_closable 6
 
 cosmic/child_task_tool_test.tl close_not_closable 13
 
-cosmic/compress_test.tl close_not_closable 3
-
 cosmic/declared_types_test.tl close_not_closable 1
 
 cosmic/fs.tl close_not_closable 1
@@ -4270,8 +4255,6 @@ cosmic/fs_append_tool_test.tl close_not_closable 2
 cosmic/fs_example.tl close_not_closable 1
 
 cosmic/fs_test.tl close_not_closable 4
-
-cosmic/hash_test.tl close_not_closable 5
 
 cosmic/http/init.tl close_not_closable 1
 
@@ -4294,8 +4277,6 @@ cosmic/internal/connector.tl close_not_closable 1
 cosmic/internal/relay_direct_test.tl close_not_closable 2
 
 cosmic/internal/relay_handed_test.tl close_not_closable 1
-
-cosmic/internal/relay_resolv.tl close_not_closable 1
 
 cosmic/net.tl close_not_closable 1
 
@@ -4396,7 +4377,7 @@ build/dispatched_features_test.tl condition_type 2
 
 build/fetch.tl condition_type 3
 
-build/fix/init.tl condition_type 16
+build/fix/init.tl condition_type 15
 
 
 build/flow.tl condition_type 1

@@ -348,10 +348,11 @@ end
 --- @return fix.Chosen|nil The files to fix and the paths refused
 --- @return string Error message on failure
 function fix.chosen(root: string, paths: {string}): fix.Chosen?, string
-  local own, own_trouble = tree.is_own(root)
-  if own == nil then
+  local standing, own_trouble = tree.standing(root)
+  if standing == nil then
     return nil, own_trouble
   end
+  local own = standing.own
   if #paths == 0 then
     local all, trouble = sources(root)
     if all == nil then
@@ -1447,7 +1448,8 @@ local function check_links(ctx: Fix)
   -- The files already listed as changed: a link written is listed only for a file that was not.
   local listed: mut {string: boolean} = {}
   for _, file in ipairs(changed) do listed[file] = true end
-  local own, _ = tree.is_own(root)
+  local standing, _ = tree.standing(root)
+  local own = standing ~= nil and standing.own
   local linked: mut {string} = {}
   local groups: {{string}} = { files, c_files, picked.checked }
   -- TODO: in a run of `--changed`, check the links of only the files
@@ -1464,7 +1466,7 @@ local function check_links(ctx: Fix)
   local links_unbuilt: string? = nil
   do
     -- Built even where no build has been made yet, so that a link resolves alike whether or not a `cosmic test` ran first.
-    local source = fix.link_context(root, picked.whole, own == true,
+    local source = fix.link_context(root, picked.whole, own,
       function(verb: string): boolean, string return rebuild.here(verb, true) end,
       function(): docs.Sources return docs.databases() end)
     linked_out = fix.links(source.context, linked, if ctx.checking then "check" else "write" end, ctx.facts)

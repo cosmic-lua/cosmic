@@ -557,14 +557,15 @@ end
 
 -- programs over arrays ------------------------------------------------------------------------------------------------
 
---- What every array program starts with: `shared`, which a function reaches as a view `v` and as a `mut` array `o` at once,
---- and the code that shortens it: `shorten`, a `table.remove`, and the `__tostring` of an `Eater`, which `tostring` runs.
+--- What every array program starts with: `shared`, which a function reaches as a view `v`, as a `mut` array `o` and by
+--- its own name at once, and the code that shortens it: `shorten`, `trim`, a `table.remove`, and the `__tostring` of an
+--- `Eater`, which `tostring` runs. `pure` and `touch` run code that touches no array; a callback of `gsub` and a method of `Eater` are code that does.
 local ARRAYS_HEAD <const> = [[
 local record Counter
   mut n: integer
 end
 local st: Counter = { n = 0 }
-local shared: mut {string} = { "a", "b", "c", "d" }
+local shared: mut {string} = { "a", "b", "c", "d", "e", "f" }
 local function reset(n: integer)
   while #shared > n do
     table.remove(shared)
@@ -576,8 +577,18 @@ end
 local function touch()
   st.n = st.n + 1
 end
+local function pure(x: integer): integer
+  return x + 1
+end
 local function shorten()
   table.remove(shared)
+end
+local function trim(a: mut {string})
+  table.remove(a)
+end
+local function shrink_text(c: string): string
+  table.remove(shared)
+  return c
 end
 local class Eater
   n: integer
@@ -585,114 +596,204 @@ local class Eater
     table.remove(shared)
     return "x"
   end
+  function shrink(self)
+    table.remove(shared)
+  end
 end
 local eater: Eater = { n = 0 }
 ]]
 
---- Statements that run no code of the program, or that may shorten `shared`, written over `v` and `o`.
-local ARRAY_EFFECTS <const>: {string} = {
-  "touch()", "shorten()", "table.remove(shared)", "table.remove(o)", "o[#o] = nil", "shared[#shared] = nil", "reset(0)",
-  "pcall(shorten)", "total = total + #tostring(eater)", "total = total + #tostring(total)", "total = total + #tostring(#v)",
-  "total = total + #string.upper(\"a\")", "total = total + #(\"b\"):upper()", "total = total + math.max(1, 2)",
-  "total = total + #table.concat(v)", "o[#o + 1] = \"q\"", "table.insert(o, \"q\")", "for _ in ipairs(v) do end",
-  "local cut = function() table.remove(shared) end\n  cut()", "total = total + #string.format(\"%d\", total)",
+--- Statements that may shorten `shared`, which `v`, `o` and `shared` all are.
+local SHORTENERS <const>: {string} = {
+  "shorten()", "table.remove(shared)", "table.remove(o)", "table.remove(o, 1)", "o[#o] = nil", "shared[#shared] = nil",
+  "trim(o)", "trim(shared)", "reset(0)", "pcall(shorten)", "total = total + #tostring(eater)",
+  "total = total + #string.format(\"%s\", eater)", "eater:shrink()", "string.gsub(\"a\", \"a\", shrink_text)",
+  "string.gsub(\"a\", \"a\", function(c: string): string table.remove(o) return c end)",
+  "total = total + #(\"%s\"):format(eater)",
 }
 
---- A test that `v` has an element, of the forms the checker reads, some with a call in the test.
-local function length_test(g: Gen): string
-  local n = g.src:int(1, 3)
-  local k, below = tostring(n), tostring(n - 1)
-  return Fuzz.pick(g.src, {
-    "#v >= " .. k, "#v > " .. below, "#v == " .. k, k .. " <= #v", "#v >= " .. k .. " and #v < 9",
-    "#v >= " .. k .. " and #tostring(eater) > 0", "#v ~= 0", "#v >= " .. k .. " and #tostring(total) > 0",
-  })
-end
+--- Statements that run no code that shortens an array, or that the checker must take to.
+local KEEPERS <const>: {string} = {
+  "touch()", "total = total + pure(1)", "total = total + #tostring(total)", "total = total + #tostring(#v)",
+  "total = total + #string.upper(\"a\")", "total = total + #(\"b\"):upper()", "total = total + math.max(1, 2)",
+  "total = total + #table.concat(v)", "total = total + #string.format(\"%d\", total)", "o[#o + 1] = \"q\"",
+  "table.insert(o, \"q\")", "table.insert(o, 1, \"q\")", "for _ in ipairs(v) do end",
+}
 
---- The read of an element of `v`, of `loop` where a numeric `for` has one. A statement passes it to `tostring`, which takes the
---- optional element a read the checker cannot prove is, so that only the reads it proves can fail.
-local function array_read(g: Gen, loop: string?): string
-  if loop ~= nil and g.src:int(0, 2) > 0 then
-    return "v[" .. loop .. "]"
-  end
-  return Fuzz.pick(g.src, { "v[1]", "v[2]", "v[3]", "v[#v]" })
-end
-
---- The statements of a function over arrays, which call each other.
+--- The statements of a function over arrays, which call each other, over the array `s` (`v`, `o` or `shared`).
 local record Arrays
 end
 
-function Arrays.statement(g: Gen, loop: string?)
-  local k = g.src:int(0, if g.depth >= 2 then 5 else 9 end)
-  if k <= 1 then
-    add(g, "total = total + #tostring(" .. array_read(g, loop) .. ")")
-  elseif k == 2 then
-    add(g, "assert(" .. length_test(g) .. Fuzz.pick(g.src, { "", ", \"assertion failed: m\"", ", \"assertion failed: \" .. tostring(#v)",
-      ", \"assertion failed: \" .. tostring(eater)" }) .. ")")
-  elseif k == 3 then
-    add(g, "if " .. length_test(g) .. " then")
-    g.depth = g.depth + 1
-    Arrays.block(g, loop, g.src:int(1, 3))
-    g.depth = g.depth - 1
-    add(g, "end")
-  elseif k == 4 then
-    add(g, "if #v " .. Fuzz.pick(g.src, { "< 1", "== 0", "< 2", "<= 2" }) .. " then return total end")
-  elseif k == 5 then
-    add(g, Fuzz.pick(g.src, ARRAY_EFFECTS))
-  elseif k == 6 then
-    local i = fresh(g, "i")
-    add(g, Fuzz.pick(g.src, { "for " .. i .. " = 1, #v do", "for " .. i .. " = #v, 1, -1 do", "for " .. i .. " = 2, #v do" }))
-    g.depth = g.depth + 1
-    Arrays.block(g, i, g.src:int(1, 3))
-    g.depth = g.depth - 1
-    add(g, "end")
-  elseif k == 7 then
-    -- Bounded by a counter, since a body that shortens nothing would not end.
-    local w = fresh(g, "w")
-    add(g, "local " .. w .. " = 0")
-    add(g, "while " .. length_test(g) .. " and " .. w .. " < 3 do")
-    g.depth = g.depth + 1
-    add(g, w .. " = " .. w .. " + 1")
-    Arrays.block(g, loop, g.src:int(1, 3))
-    g.depth = g.depth - 1
-    add(g, "end")
-  elseif k == 8 then
-    add(g, "if " .. length_test(g) .. " then")
-    g.depth = g.depth + 1
-    Arrays.block(g, loop, g.src:int(1, 2))
-    g.depth = g.depth - 1
-    add(g, "else")
-    g.depth = g.depth + 1
-    Arrays.block(g, loop, g.src:int(1, 2))
-    g.depth = g.depth - 1
-    add(g, "end")
+--- A test that `s` has an element, of the forms the checker reads, some with a call in the test, and the index it is about.
+function Arrays.test(g: Gen, s: string): string, integer
+  local n = g.src:int(1, 6)
+  local k, below = tostring(n), tostring(n - 1)
+  local len = "#" .. s
+  local form = g.src:int(0, 7)
+  if form == 0 then
+    return len .. " >= " .. k, n
+  elseif form == 1 then
+    return len .. " > " .. below, n
+  elseif form == 2 then
+    return len .. " == " .. k, n
+  elseif form == 3 then
+    return k .. " <= " .. len, n
+  elseif form == 4 then
+    return len .. " >= " .. k .. " and " .. len .. " < 9", n
+  elseif form == 5 then
+    return len .. " >= " .. k .. " and #tostring(eater) > 0", n
+  elseif form == 6 then
+    return len .. " ~= 0", 1
+  end
+  return len .. " >= " .. k .. " and #tostring(total) > 0", n
+end
+
+--- The read of an element of `s`: of `at` if given, of `loop` (or the next or last one) where a numeric `for` has one. A
+--- statement passes it to `tostring`, which takes the optional element a read the checker cannot prove is, so that only the
+--- reads it proves can fail.
+function Arrays.read(g: Gen, s: string, loop: string?, at?: integer): string
+  if loop ~= nil and g.src:int(0, 2) > 0 then
+    return s .. "[" .. Fuzz.pick(g.src, { loop, loop, loop .. " + 1", loop .. " - 1" }) .. "]"
+  elseif at ~= nil then
+    return s .. "[" .. tostring(at) .. "]"
+  end
+  return Fuzz.pick(g.src, { s .. "[1]", s .. "[2]", s .. "[3]", s .. "[5]", s .. "[#" .. s .. "]" })
+end
+
+--- A statement that shortens an array, or that may: of `SHORTENERS` or the alias and the closure, each given a name.
+function Arrays.shorten(g: Gen)
+  local k = g.src:int(0, 5)
+  if k == 0 then
+    local u = fresh(g, "u")
+    add(g, "local " .. u .. ": mut {string} = " .. Fuzz.pick(g.src, { "o", "shared" }))
+    add(g, u .. "[#" .. u .. "] = nil")
+  elseif k == 1 then
+    local c = fresh(g, "cut")
+    add(g, "local " .. c .. " = function() table.remove(" .. Fuzz.pick(g.src, { "shared", "o" }) .. ") end")
+    add(g, c .. "()")
   else
-    add(g, "total = total + #tostring(" .. array_read(g, loop) .. ")")
-    add(g, Fuzz.pick(g.src, ARRAY_EFFECTS))
-    add(g, "total = total + #tostring(" .. array_read(g, loop) .. ")")
+    add(g, Fuzz.pick(g.src, SHORTENERS))
   end
 end
 
-function Arrays.block(g: Gen, loop: string?, n: integer)
+function Arrays.block(g: Gen, s: string, loop: string?, n: integer)
   for _ = 1, n do
     if g.fuel > 0 then
-      Arrays.statement(g, loop)
+      Arrays.statement(g, s, loop)
     end
   end
 end
 
---- A program of [`ARRAYS_HEAD`] and functions of statements over `v` and `o`, called with `shared` at every length from four
---- to none.
+--- `body` drawn one level in, between the line `head` and an `end`.
+function Arrays.nested(g: Gen, s: string, loop: string?, head: string, n: integer)
+  add(g, head)
+  g.depth = g.depth + 1
+  Arrays.block(g, s, loop, n)
+  g.depth = g.depth - 1
+  add(g, "end")
+end
+
+function Arrays.statement(g: Gen, s: string, loop: string?)
+  local k = g.src:int(0, if g.depth >= 2 then 5 else 11 end)
+  local len = "#" .. s
+  if k <= 1 then
+    add(g, "total = total + #tostring(" .. Arrays.read(g, s, loop) .. ")")
+  elseif k == 2 then
+    add(g, "assert(" .. Arrays.test(g, s) .. Fuzz.pick(g.src, { "", ", \"assertion failed: m\"", ", \"assertion failed: \" .. tostring(" .. len .. ")",
+      ", \"assertion failed: \" .. tostring(eater)" }) .. ")")
+  elseif k == 3 then
+    Arrays.nested(g, s, loop, "if " .. Arrays.test(g, s) .. " then", g.src:int(1, 3))
+  elseif k == 4 then
+    add(g, "if " .. len .. " " .. Fuzz.pick(g.src, { "< 1", "== 0", "< 2", "<= 2", "< 4" }) .. " then return total end")
+  elseif k == 5 then
+    if g.src:int(0, 1) == 0 then
+      Arrays.shorten(g)
+    else
+      add(g, Fuzz.pick(g.src, KEEPERS))
+    end
+  elseif k == 6 then
+    -- A test, code that may shorten the array, and the read the test was for: the one shape a rule that keeps a fact too long
+    -- gets wrong.
+    local test, at = Arrays.test(g, s)
+    local form = g.src:int(0, 2)
+    if form == 0 then
+      add(g, "assert(" .. test .. ")")
+      Arrays.shorten(g)
+    elseif form == 1 then
+      add(g, "if not (" .. test .. ") then return total end")
+      Arrays.shorten(g)
+    else
+      add(g, "if " .. test .. " then")
+      g.depth = g.depth + 1
+      Arrays.shorten(g)
+    end
+    add(g, "total = total + #tostring(" .. Arrays.read(g, s, nil, at) .. ")")
+    if form == 2 then
+      g.depth = g.depth - 1
+      add(g, "end")
+    end
+  elseif k == 7 then
+    local i = fresh(g, "i")
+    local other = if s == "v" then "o" else "v" end
+    local head = Fuzz.pick(g.src, {
+      "for " .. i .. " = 1, " .. len .. " do", "for " .. i .. " = " .. len .. ", 1, -1 do", "for " .. i .. " = 2, " .. len .. " do",
+      "for " .. i .. " = 1, " .. len .. " - 1 do", "for " .. i .. " = 0, " .. len .. " do", "for " .. i .. " = 1, " .. len .. " + 1 do",
+      "for " .. i .. " = 1, " .. len .. ", 2 do", "for " .. i .. " = 1, #" .. other .. " do", "for " .. i .. " = 1, #shared do",
+    })
+    Arrays.nested(g, s, i, head, g.src:int(1, 3))
+  elseif k == 8 then
+    -- Bounded by a counter, since a body that shortens nothing would not end.
+    local w = fresh(g, "w")
+    add(g, "local " .. w .. " = 0")
+    add(g, "while " .. Arrays.test(g, s) .. " and " .. w .. " < 3 do")
+    g.depth = g.depth + 1
+    add(g, w .. " = " .. w .. " + 1")
+    Arrays.block(g, s, loop, g.src:int(1, 3))
+    g.depth = g.depth - 1
+    add(g, "end")
+  elseif k == 9 then
+    add(g, "if " .. Arrays.test(g, s) .. " then")
+    g.depth = g.depth + 1
+    Arrays.block(g, s, loop, g.src:int(1, 2))
+    g.depth = g.depth - 1
+    add(g, "else")
+    g.depth = g.depth + 1
+    Arrays.block(g, s, loop, g.src:int(1, 2))
+    g.depth = g.depth - 1
+    add(g, "end")
+  elseif k == 10 then
+    -- The length bound in a local, and an index that is not a literal.
+    local m = fresh(g, "m")
+    add(g, "local " .. m .. " = " .. len)
+    add(g, "if " .. m .. " >= 1 then")
+    g.depth = g.depth + 1
+    add(g, "total = total + #tostring(" .. s .. "[" .. m .. "])")
+    g.depth = g.depth - 1
+    add(g, "end")
+  else
+    add(g, "total = total + #tostring(" .. Arrays.read(g, s, loop) .. ")")
+    Arrays.shorten(g)
+    add(g, "total = total + #tostring(" .. Arrays.read(g, s, loop) .. ")")
+  end
+end
+
+--- A program of [`ARRAYS_HEAD`] and functions of statements over `v`, `o` and `shared`, called with `shared` at every length from
+--- six to none.
 local function gen_arrays(src: Fuzz.Source): string
   local out: mut {string} = { ARRAYS_HEAD }
   for count = 1, src:int(1, 3) do
     local n = tostring(count)
     local g: Gen = { src = src, lines = {}, id = 0, fuel = 30, depth = 0, in_loop = false, fixed = false }
-    Arrays.block(g, nil, src:int(3, 8))
+    for _ = 1, src:int(3, 8) do
+      if g.fuel > 0 then
+        Arrays.statement(g, Fuzz.pick(src, { "v", "v", "o", "shared" }), nil)
+      end
+    end
     out[#out + 1] = "local function f" .. n .. "(v: {string}, o: mut {string}): integer\n  local total = 0"
     out[#out + 1] = table.concat(g.lines, "\n")
     out[#out + 1] = "  return total\nend"
     -- A failed `assert` ends a call, not the program; a violated fact is raised again.
-    out[#out + 1] = "for n = 4, 0, -1 do\n  reset(n)\n  local ok, why = pcall(f" .. n ..
+    out[#out + 1] = "for n = 6, 0, -1 do\n  reset(n)\n  local ok, why = pcall(f" .. n ..
       ", shared, shared)\n  if not ok and tostring(why):find(\"fact violated\", 1, true) ~= nil then\n    error(why)\n  end\nend"
   end
   return table.concat(out, "\n") .. "\n"
@@ -735,6 +836,9 @@ local function check_arrays(source: string): boolean, string
     "\n--- lua ---\n" .. x.lua
 end
 
+--- The corpus is `testdata/fuzz/flow-sound-arrays`: one program for each rule that keeps a length fact too long, which fails at
+--- run time when the checker has the rule, and runs clean otherwise. The inputs are programs, not draws, so they run at
+--- every budget, `FUZZ_ITERS=0` of the merge gate included.
 local function test_a_program_over_arrays_the_flow_takes_does_not_read_nil_where_a_length_fact_said_it_was_not(tmp: string)
   Fuzz.run({
     name = "flow sound arrays",

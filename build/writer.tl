@@ -443,11 +443,11 @@ end
 --- library of the binary running.
 local function library_for(root: string, given: link_index.Library?):
     link_index.Library?, string
-  local own, trouble = tree.is_own(root)
-  if own == nil then
+  local standing, trouble = tree.standing(root)
+  if standing == nil then
     return nil, trouble
   end
-  if own then
+  if standing.own then
     return nil, ""
   end
   if given ~= nil then
@@ -765,11 +765,11 @@ local function project(handle: work.Handle,
   -- module's source, which the module's key holds, and of build.stub,
   -- which the compiler's identity in `meta` holds. A project's tables
   -- stay empty.
-  local own, own_trouble = tree.is_own(handle.root)
-  if own == nil then
+  local standing, own_trouble = tree.standing(handle.root)
+  if standing == nil then
     return false, own_trouble
   end
-  if own then
+  if standing.own then
     local filled, fill_trouble = bom.fill(db, handle.root, "out.")
     if not filled then
       return false, fill_trouble

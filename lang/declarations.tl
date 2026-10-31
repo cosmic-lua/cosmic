@@ -33,8 +33,8 @@
 ---   table of its methods is the metatable of its values.
 --- - optional fields: a field that may be nil is a plain value of one type, never a metamethod (`optional_metamethod`)
 ---   and never a generic function (`optional_generic`).
---- - classes: a method named for a metamethod, other than `__close` (which takes the value alone) and
----   `__tostring` (which also answers a `string`), and a function of a class with such a name:
+--- - classes: a method named for a metamethod, other than `__close` (which takes the value, and the error object as `any` if it likes, and answers
+---   nothing) and `__tostring` (which also answers a `string`), and a function of a class with such a name:
 ---   `class_metamethod`, `metamethod_signature`.
 --- - the form of a type: the count of type arguments (`type_arguments`), a type that nests deeper
 ---   than a store allows (`type_too_deep`), an alias that reaches itself (`alias_cycle`), except in the element of an
@@ -120,7 +120,7 @@ local record Declarations
     "member_missing"
     -- a parameter of a method with no type
     "param_untyped"
-    -- a `__close` that takes more than the value, or a `__tostring` that does not answer a string
+    -- a `__close` that takes more than the value and the error object or answers one, or a `__tostring` that does not answer a string
     "metamethod_signature"
     -- a method or function of a class named for a metamethod other than `__close` and `__tostring`
     "class_metamethod"
@@ -335,6 +335,10 @@ local record Declarations
   --- The fields `decl`, an interface, has from the interfaces it lists ([`Declarations.inherited`]).
   inherited: function(store: Store, judge: Relation.Judge, decl: Types.Decl): {Types.Field}
 
+  --- Whether `made`, the type of a method named `__close`, is what Lua calls at the end of a `<close>` local's block:
+  --- a function that takes the value (and may take the error object Lua passes, declared `any`) and answers nothing.
+  close_is_callable: function(made: Type): boolean
+
   --- Every [`Code`], in the order the enum lists them.
   codes: {Code}
 
@@ -473,7 +477,7 @@ Declarations.catalog = {
     why = "Lua runs `__close` with the value at the end of its block and `tostring` calls `__tostring` with the " ..
       "value and takes a string, so a class that writes either with other parameters, or a `__tostring` that " ..
       "answers another type, breaks at the call",
-    fix = "write `function __close(self)` and `function __tostring(self): string`",
+    fix = "write `function __close(self)` (or `function __close(self, err: any)`) and `function __tostring(self): string`",
   },
   {
     code = "class_metamethod", rule = "dispatch only through declared types",
@@ -1786,8 +1790,22 @@ local METAMETHODS <const>: {string: boolean} = {
   __mode = true, __tostring = true, __name = true, __metatable = true, __pairs = true,
 }
 
+--- Whether `made`, the type of a method named `__close`, is what Lua calls at the end of a `<close>` block and drops the
+--- answer of: it takes the value and, if it likes, the error object Lua passes as a second argument (declared `any`), and
+--- it answers nothing. A class's declaration and a userdata record's are held to this one rule.
+local function close_is_callable(made: Type): boolean
+  if made.tag ~= "fn" then
+    return false
+  end
+  local alt = made.rets[1]
+  local second = made.params[2]
+  local arity = #made.params == 1 or (#made.params == 2 and second ~= nil and second.type.tag == "any")
+  return arity and made.rest == nil and #made.rets == 1 and alt ~= nil and #alt.items == 0 and alt.tail == nil
+end
+
 --- Holds the method `m` of a class, of function type `made`, to what its name means when it is `__close` (it
---- takes the value alone) or `__tostring` (it also answers a `string`), and refuses a name of any other metamethod.
+--- takes the value and may take the error object, and answers nothing) or `__tostring` (it takes the value alone and
+--- answers a `string`), and refuses a name of any other metamethod.
 local function check_metamethod(ctx: Ctx, build: Build, m: Ast.Method, made: Type)
   local name = m.name.name
   local class = quoted(build.decl.name)
@@ -1802,11 +1820,17 @@ local function check_metamethod(ctx: Ctx, build: Build, m: Ast.Method, made: Typ
   if not ((made.tag == "fn")) then
     return
   end
-  if #made.params ~= 1 or made.rest ~= nil then
-    report_at(ctx, "metamethod_signature", m.name, "the method " .. quoted(name) .. " of " .. class .. " takes more than " ..
+  if name == "__close" then
+    if not close_is_callable(made) then
+      report_at(ctx, "metamethod_signature", m.name, "the method `__close` of " .. class .. " takes more than the value " ..
+          "and the error object (`err: any`) Lua passes it, or answers a value, which Lua drops",
+        "write `function __close(self)` or `function __close(self, err: any)`, and answer nothing")
+    end
+  elseif #made.params ~= 1 or made.rest ~= nil then
+    report_at(ctx, "metamethod_signature", m.name, "the method `__tostring` of " .. class .. " takes more than " ..
         "the value, and Lua calls it with the value alone",
-      "write `function " .. name .. "(self)" .. (if name == "__tostring" then ": string" else "" end) .. "`")
-  elseif name == "__tostring" then
+      "write `function __tostring(self): string`")
+  else
     local alt = made.rets[1]
     if alt == nil or #made.rets ~= 1 or alt.tail ~= nil or #alt.items ~= 1 or alt.items[1] ~= ctx.store.string then
       report_at(ctx, "metamethod_signature", m.name, "the method `__tostring` of " .. class .. " does not answer a " ..
@@ -3030,6 +3054,10 @@ Declarations.Program.lower = function(self: Program, input: Declarations.Input):
     module = ctx.module, errors = in_order(ctx.errors), decls = ctx.decls, types = ctx.types, aliases = ctx.aliases,
     export = ctx.info.export, entries = ctx.by_binding,
   }
+end
+
+function Declarations.close_is_callable(made: Type): boolean
+  return close_is_callable(made)
 end
 
 --- The fields `decl`, an interface, has from the interfaces it lists and the ones they list, those it leaves out
