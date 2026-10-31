@@ -610,6 +610,7 @@ local function hook(_: integer, text: string, ...: any): any...
         -- A check that fails to say so is no failure of the test.
         latest.met = nil
         local noted = lua_pcall(note, check, index, value, index > given)
+        -- Reachable only when recording runs out of memory; the row keeps the verdict out, which fails safe.
         if not noted then note_unreadable("a violation it could not record", check.at) end
         local met = latest.met
         -- A parameter of the standard library that meets a kind its declaration refuses ends the call, at the first

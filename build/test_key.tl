@@ -2116,6 +2116,13 @@ function test_key.share_verdict(rec: Recording, found: Lookup): boolean, string
     elsewhere.elapsed_ns)
 end
 
+--- Whether a checked run's worker met no violation: its report holds no row and no more went unrecorded. No
+--- report is a worker that met none.
+function test_key.met_nothing(report: worker.Report?): boolean
+  if report == nil then return true end
+  return #(report.violations or {}) == 0 and (report.dropped or 0) == 0
+end
+
 --- How a finished job's worker is judged ([`build.test_worker`]'s
 --- `judge`): what it reported, or the failure that says why there is no
 --- report to go by (`trouble`, the `result` of its process, `refused` where
@@ -2131,13 +2138,6 @@ end
 --- it: it passes by running). Neither is kept as a verdict, pass or fail,
 --- so it runs again on the next run -- and on a host that can check it,
 --- whose key differs, as its own.
---- Whether a checked run's worker met no violation: its report holds no row and no more went unrecorded. No
---- report is a worker that met none.
-function test_key.met_nothing(report: worker.Report?): boolean
-  if report == nil then return true end
-  return #(report.violations or {}) == 0 and (report.dropped or 0) == 0
-end
-
 function test_key.judge(rec: Recording, job: Job, result: Child.Result?,
                         trouble: string, refused: boolean?,
                         unavailable: string?): Judged
