@@ -5,6 +5,7 @@ local Fs = require("cosmic.fs")
 local Sqlite = require("cosmic.sqlite")
 local String = require("cosmic.string")
 local bind = require("build.bind")
+local tree = require("build.tree")
 
 --- A row of the `meta` table the identity is recorded in.
 local record MetaRow
@@ -335,7 +336,10 @@ end
 --- built from it), the zig build and wrapper, every vendored tree's pin
 --- and patches, and [`build/patch.tl`], which applies them: only
 --- `bin/zig build boot` applies a patch record to a pin, so a change under
---- `patch/*` or to the applier needs it too. The bridge, core/bridge.lua, is
+--- `patch/*` or to the applier needs it too. So does a change to
+--- [`build.tree`], which decides from what a tool records which tree it
+--- is built from: a rebuild by a tool that decided otherwise writes a
+--- tool that records the wrong thing. The bridge, core/bridge.lua, is
 --- under `core/` and so in it.
 --- [`build/launcher.tl`] also belongs to the retained portable prefix: a
 --- database-only rebuild reuses its existing shell bytes. So does
@@ -348,8 +352,11 @@ end
 ---
 --- Both fingerprints are written into `meta` for the projection to carry
 --- into the binary, which is how a binary knows what it was built from,
---- so a project reads them rather than computing any. Returns the
---- fingerprint written; [`identity.recorded_boot_hash`] reads it back.
+--- so a project reads them rather than computing any. So is
+--- `built_from`, the root the binary is built from ([`build.tree`]'s
+--- `built_from`): only a boot or a rebuild, the acts that write a tool,
+--- record it. Returns the fingerprint written;
+--- [`identity.recorded_boot_hash`] reads it back.
 function identity.record_fingerprint(db: Sqlite.Handle, root: string): identity.Fingerprint?, string
   local boot, boot_trouble = identity.hash_over(db, "1")
   if boot == nil then
@@ -365,14 +372,19 @@ function identity.record_fingerprint(db: Sqlite.Handle, root: string): identity.
     "(path GLOB 'core/*' AND NOT path GLOB 'core/*.tl') OR " ..
       "path IN ('build.zig', 'build.zig.zon', " ..
       "'bin/zig', 'bin/zig.pin', 'build/artifact.tl', 'build/launcher.tl', " ..
-      "'build/patch.tl') OR " ..
+      "'build/patch.tl', 'build/tree.tl') OR " ..
       "path GLOB 'vendor/*/PIN' OR " ..
       "path GLOB 'patch/*' OR " ..
       "path IN (" .. table.concat(quoted, ", ") .. ")")
   if image == nil then
     return nil, image_trouble
   end
-  local fingerprints: {MetaRow} = { { key = "boot_hash", value = boot }, { key = "image_hash", value = image } }
+  local built_from, built_trouble = tree.built_from(root)
+  if built_from == nil then
+    return nil, built_trouble
+  end
+  local fingerprints: {MetaRow} = { { key = "boot_hash", value = boot }, { key = "image_hash", value = image },
+    { key = "built_from", value = built_from } }
   for _, pair in ipairs(fingerprints) do
     local ok, why = Sqlite.run(db,
       "INSERT OR REPLACE INTO meta (key, value) VALUES (?1, ?2)",

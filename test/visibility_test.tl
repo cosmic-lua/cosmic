@@ -59,7 +59,7 @@ local function try_build(root: string): boolean, string
   if handle == nil then
     return false, open_trouble
   end
-  local staged, stage_trouble = work.stage(handle, false)
+  local staged, stage_trouble = work.stage(handle, { own = false })
   if staged == nil then
     work.close(handle)
     return false, stage_trouble

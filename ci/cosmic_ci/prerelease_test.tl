@@ -1,6 +1,8 @@
 local Child = require("cosmic.child")
 local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
+local ArtifactRow = require("cosmic_ci.artifact_row")
+local Fixture = require("cosmic_ci.fixture")
 local GithubApi = require("cosmic_ci.github_api")
 local Hash = require("cosmic.hash")
 local Json = require("cosmic.json")
@@ -58,8 +60,7 @@ local function test_expects_four()
   end
 end
 
---- The release text is byte for byte what `jq -n` (source.json) and a
---- here-document (the notes) make of the same inputs.
+--- The release text.
 local function test_release_text_is_the_shell_scripts()
   local digest = string.rep("ab", 32)
   local run_url = run_prefix .. "123"
@@ -69,10 +70,12 @@ local function test_release_text_is_the_shell_scripts()
       '",\n  "run_url": "' .. run_url .. '"\n}\n')
   assert(Prerelease.notes(commit, digest, run_url) ==
       "Prerelease of commit `" .. commit .. "` from [CI run](" .. run_url .. ").\n\n" ..
-      "The identical Cosmic bytes (SHA-256 `" .. digest .. "`) were tested by all four native " ..
-      "workers: Linux x86_64, Linux aarch64, macOS aarch64, and Alpine x86_64. Each worker " ..
-      "uploaded its executed-byte attestation, and the provenance join verified all four " ..
-      "hashes before publication.\n")
+      "The same Cosmic bytes were tested by all four native workers: Linux x86_64, " ..
+      "Linux aarch64, macOS aarch64, and Alpine x86_64, but for the row that names the checkout each built them " ..
+      "in. The release (SHA-256 `" .. digest .. "`) is those bytes minus that row, normalised by a vacuum and " ..
+      "three header counters of the database. " ..
+      "Each worker uploaded its executed-byte attestation of them, and the provenance join " ..
+      "verified all four hashes before publication.\n")
 end
 
 --- Whether `said` holds the Shape failure at JSON Pointer `at` that wants `expected`
@@ -177,32 +180,71 @@ local function test_draft_ids_reads_a_page_and_says_where_the_drafts_end()
   end)
 end
 
---- Four lanes' products under `products`, each holding `bytes`.
+--- `bytes`, a tool, without the row that names the checkout it was built in: the bytes the lanes agree on.
+local function without_row(dir: string, bytes: string): string
+  assert(Fs.mkdirs(dir))
+  return ArtifactRow.with(bytes, dir .. "/without.db", nil)
+end
+
+--- Four lanes' products under `products`, each holding `bytes` as built in the checkout of its own runner, and
+--- attesting the bytes without that row.
 local function products(dir: string, bytes: string): string
   for _, lane in ipairs(Prerelease.lanes()) do
     local product = dir .. "/portable-product-" .. lane
     assert(Fs.mkdirs(product))
-    write(product .. "/cosmic", bytes)
-    write(product .. "/executed-cosmic.sha256", Hash.hex_sha256(bytes) .. "  cosmic\n")
+    local built = ArtifactRow.with(bytes, product .. "/lane.db", "/runners/" .. lane .. "/work/cosmic")
+    write(product .. "/cosmic", built)
+    write(product .. "/executed-cosmic.sha256", Hash.hex_sha256(without_row(product, bytes)) .. "  cosmic\n")
     write(product .. "/expected-platforms", "4\n")
   end
   return dir
 end
 
+--- The tool CI built, as the lanes ran it: built in a runner's checkout.
+local runner_checkout <const> = "/home/runner/work/cosmic/cosmic"
+
+local function product_of(tmp: string): string
+  assert(Fs.mkdirs(tmp))
+  return Fixture.synthetic(tmp .. "/product.db", runner_checkout)
+end
+
 local function stage_context(tmp: string): Prerelease.Stage
-  return { products = products(tmp .. "/products", "product bytes"),
-    release = tmp .. "/release", commit = commit, run_url = run_prefix .. "7" }
+  return { products = products(tmp .. "/products", product_of(tmp)),
+    release = tmp .. "/release", commit = commit, run_url = run_prefix .. "7", smoke = function(_: string)
+    end }
 end
 
 local function test_stage_writes_the_release(tmp: string)
   local s = stage_context(tmp)
   Prerelease.stage(s)
-  local digest = Hash.hex_sha256("product bytes")
-  assert(read(s.release .. "/cosmic") == "product bytes")
+  local released = read(s.release .. "/cosmic")
+  local digest = Hash.hex_sha256(released)
   assert(read(s.release .. "/SHA256SUMS") == digest .. "  cosmic\n")
   assert(read(s.release .. "/source.json") == Prerelease.source_json(commit, digest, s.run_url))
   assert(read(s.release .. "/notes.md") == Prerelease.notes(commit, digest, s.run_url))
   assert(#assert(Fs.list(s.release)) == 4)
+end
+
+--- A release is built from no checkout: a project in a checkout of the path CI built in, a runner's, must not be
+--- taken for cosmic's own tree by it. What the lanes ran is the release but for that row.
+local function test_stage_releases_a_tool_built_from_no_checkout(tmp: string)
+  local s = stage_context(tmp)
+  local ran: mut {string} = {}
+  s.smoke = function(path: string)
+    local bytes = read(path)
+    ran[#ran + 1] = bytes
+  end
+  local linux = s.products .. "/portable-product-linux-x86_64/cosmic"
+  local macos = s.products .. "/portable-product-macos-aarch64/cosmic"
+  -- The lanes' tools differ in the checkout each was built in, as runners' do, and the stage still agrees on them.
+  assert(Fixture.meta(linux, tmp .. "/lane.db")["built_from"] ~= Fixture.meta(macos, tmp .. "/lane.db")["built_from"])
+  assert(read(linux) ~= read(macos))
+  Prerelease.stage(s)
+  local meta = Fixture.meta(s.release .. "/cosmic", tmp .. "/release.db")
+  assert(meta["built_from"] == nil and meta["boot_hash"] == "kept", "the release records a checkout")
+  assert(read(s.release .. "/cosmic") == Fixture.stripped(linux, tmp .. "/again.db"))
+  assert(read(s.release .. "/cosmic") == Fixture.stripped(macos, tmp .. "/again.db"))
+  assert(#ran == 1 and ran[1] == read(s.release .. "/cosmic"), "the released tool was not run once, as released")
 end
 
 local function test_stage_refuses_what_the_lanes_disagree_on(tmp: string)
@@ -231,12 +273,13 @@ local function test_stage_refuses_what_the_lanes_disagree_on(tmp: string)
       write(manifest, read(manifest):upper())
     end,
     ["not the bytes it executed"] = function(p: string)
-      write(p .. "/portable-product-macos-aarch64/cosmic", "other bytes")
+      write(p .. "/portable-product-macos-aarch64/cosmic", Fixture.synthetic(p .. "/other.db", "/x", "other"))
     end,
     ["differs from linux-x86_64's"] = function(p: string)
       local product = p .. "/portable-product-linux-aarch64"
-      write(product .. "/cosmic", "other bytes")
-      write(product .. "/executed-cosmic.sha256", Hash.hex_sha256("other bytes") .. "  cosmic\n")
+      local other = Fixture.synthetic(p .. "/other.db", "/x", "other")
+      write(product .. "/cosmic", other)
+      write(product .. "/executed-cosmic.sha256", Hash.hex_sha256(without_row(p, other)) .. "  cosmic\n")
     end,
   }
   local n = 0
@@ -514,7 +557,7 @@ end
 --- derivation's.
 local function repo(tmp: string, bytes?: string): Repo
   local s = stage_context(tmp)
-  s.products = products(tmp .. "/staged-products", bytes or "product bytes")
+  s.products = products(tmp .. "/staged-products", bytes or product_of(tmp))
   Prerelease.stage(s)
   local client = assert(GithubApi.live({ GH_TOKEN = "fake-token", GITHUB_API_URL = "https://api.test" }))
   local r: Repo = { client = client, release = s.release, temp = tmp .. "/runner",
@@ -639,10 +682,11 @@ end
 
 local function test_publish_resumes_a_draft_uploading_only_what_is_missing(tmp: string)
   local r = repo(tmp)
-  local digest = Hash.hex_sha256("product bytes")
+  local released = read(r.release .. "/cosmic")
+  local digest = Hash.hex_sha256(released)
   -- The draft's source.json names the earlier run that uploaded it.
   local earlier = Prerelease.source_json(commit, digest, run_prefix .. "3")
-  local rel = seed(r, true, { cosmic = "product bytes", ["source.json"] = earlier })
+  local rel = seed(r, true, { cosmic = released, ["source.json"] = earlier })
   assert(publish(r) == "prerelease published and verified: " .. tag)
   assert(count(r, "UPLOAD ") == 1, logged(r))
   assert(logged(r):find("UPLOAD SHA256SUMS", 1, true))
@@ -651,7 +695,7 @@ local function test_publish_resumes_a_draft_uploading_only_what_is_missing(tmp: 
   local data: mut {string:string} = {}
   for _, asset in ipairs(rel.assets) do data[asset.name] = asset.data end
   assert(data["source.json"] == earlier)
-  assert(data["cosmic"] == "product bytes")
+  assert(data["cosmic"] == released)
   assert(data["SHA256SUMS"] == read(r.release .. "/SHA256SUMS"))
 end
 
@@ -665,7 +709,7 @@ end
 
 local function test_publish_refuses_a_draft_holding_an_unknown_asset(tmp: string)
   local r = repo(tmp)
-  seed(r, true, { cosmic = "product bytes", ["notes.md"] = "notes" })
+  seed(r, true, { cosmic = read(r.release .. "/cosmic"), ["notes.md"] = "notes" })
   refused("unexpected asset: notes.md", function() publish(r) end)
   assert(count(r, "UPLOAD ") == 0)
 end
@@ -867,11 +911,12 @@ end
 --- orchestration_test.tl): stage, then publish, which fails without a
 --- token before it asks the API anything.
 local function test_driver_stages_and_refuses_to_publish_without_a_token(tmp: string)
-  local r = repo(tmp)
+  local host = assert(Proc.executable())
+  -- The tool this test runs on, as the lanes' product: the driver runs what it releases.
+  local r = repo(tmp, read(host))
   local project = tmp .. "/driver-project"
   assert(Fs.mkdirs(project))
   assert(Fs.copy_tree(assert(Fs.absolute("cosmic_ci")), project .. "/cosmic_ci"))
-  local host = assert(Proc.executable())
   local env = Maps.with(Maps.without(Env.all(), { "GH_TOKEN", "GITHUB_TOKEN" }), {
     PRODUCTS = tmp .. "/staged-products",
     RELEASE = tmp .. "/driver-release",

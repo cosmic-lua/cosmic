@@ -12,6 +12,7 @@ local LauncherSetup = require("cosmic_ci.launcher_setup")
 local Maps = require("cosmic_ci.maps")
 local ProductSetup = require("cosmic_ci.product_setup")
 local Archive = require("cosmic.archive")
+local ArtifactRow = require("cosmic_ci.artifact_row")
 local Sqlite = require("cosmic.sqlite")
 local sys = require("cosmic.sys")
 local Child = require("cosmic.child")
@@ -1915,7 +1916,10 @@ local function phase_assemble(p: PlatformContext): integer
   s = archive(c, fresh)
   if s ~= 0 then return s end
   mkdir(portable_d)
-  write(portable_d .. "/cosmic-portable", read(product .. "/cosmic"))
+  -- The suite runs this tool on `fresh`, a copy of the tree at another path than the checkout the product was built
+  -- in, so the tool is put there as one built from `fresh` (the product but for that row; [`phase_attest`] holds it).
+  write(portable_d .. "/cosmic-portable", ArtifactRow.with(read(product .. "/cosmic"),
+    portable_d .. "/retarget.db", (assert(sys.realpath(fresh)))))
   s = step(c, "portable executable mode", function(): boolean, string
     return Fs.chmod(portable_d .. "/cosmic-portable", 0x1ed)
   end)
@@ -2288,8 +2292,19 @@ local function phase_attest(p: PlatformContext): integer
   local portable_d = p.portable_diagnostics
   local before = read(work .. "/cosmic.before.sha256")
   local digest = hash(product .. "/cosmic") .. "\n"
-  assert(before == digest and before == read(portable_d .. "/portable-artifact.before.sha256") and before == read(portable_d .. "/portable-artifact.after.sha256"), "executed artifact attestation differs")
-  write(product .. "/executed-cosmic.sha256", digest:sub(1, 64) .. "  cosmic\n")
+  assert(before == digest, "executed artifact attestation differs")
+  -- The suite ran the product put there as built from the tree it ran on ([`phase_assemble`]): the same bytes but
+  -- for the row that says so.
+  local executed = read(portable_d .. "/portable-artifact.before.sha256")
+  assert(executed == read(portable_d .. "/portable-artifact.after.sha256"), "executed artifact attestation differs")
+  assert(hash(portable_d .. "/cosmic-portable") .. "\n" == executed, "executed artifact attestation differs")
+  -- What the lanes agree on, and what is attested and released, is the tool minus the row that names the checkout
+  -- it was built in, which differs from a runner to a runner.
+  local without = portable_d .. "/attest.db"
+  local attested = Hash.hex_sha256(ArtifactRow.with(read(product .. "/cosmic"), without, nil))
+  assert(Hash.hex_sha256(ArtifactRow.with(read(portable_d .. "/cosmic-portable"), without, nil)) == attested,
+    "executed artifact attestation differs")
+  write(product .. "/executed-cosmic.sha256", attested .. "  cosmic\n")
   write(product .. "/expected-platforms", assert(p.trailing) .. "\n")
   return 0
 end
@@ -2353,7 +2368,8 @@ local function provenance_impl(c: Context, products: string): integer
       local line = read(att)
       local digest = line:match("^([0-9a-f]+)  cosmic\n$")
       assert(digest and #digest == 64, "invalid attestation: " .. att)
-      assert(hash(p .. "/cosmic") == digest, "changed artifact: " .. p)
+      assert(Hash.hex_sha256(ArtifactRow.with(read(p .. "/cosmic"), p .. "/provenance.db", nil)) == digest,
+        "changed artifact: " .. p)
       local n = math.tointeger(assert(tonumber(read(exp))))
       assert(n and n > 0, "invalid expected count")
       if expected then assert(expected == n, "inconsistent expected count") else expected = n end

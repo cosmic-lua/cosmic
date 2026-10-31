@@ -54,7 +54,7 @@ local function build_and_write(root: string, whom: string, out: string,
                                tool?: string): work.Handle, importer.Result
   write_project(root, whom)
   local handle = assert(work.open(root))
-  assert(work.stage(handle, false))
+  assert(work.stage(handle, { own = false }))
   local result = assert(importer.compile(handle, tool or "writer-test"))
   assert(writer.write_result(handle, out, result))
   return handle, result
@@ -404,7 +404,7 @@ local function test_the_carried_docs_are_the_public_standard_library_s(tmp: stri
         "'Shows it.', 'f', 1), " ..
         "('build.work', 'work.open', 'work.open', 1, 'function', '', " ..
         "'Opens the working database.', 'f', 1), " ..
-        "('build.tree', 'tree.is_own', 'tree.is_own', 1, 'function', '', " ..
+        "('build.tree', 'tree.standing', 'tree.standing', 1, 'function', '', " ..
         "'Whether a tree is cosmic.', 'f', 1)",
       -- The name cosmic.fs binds the internal module to is no spelling of
       -- the module's own.
@@ -416,11 +416,11 @@ local function test_the_carried_docs_are_the_public_standard_library_s(tmp: stri
       "INSERT INTO uses (module, symbol, from_module, from_file, line) VALUES " ..
         "('cosmic.fs', 'read', 'cosmic.fs', 'f', 1), " ..
         "('cosmic.fs', 'read', 'build.work', 'f', 2), " ..
-        "('build.tree', 'is_own', 'build.work', 'f', 3), " ..
+        "('build.tree', 'standing', 'build.work', 'f', 3), " ..
         "('cosmic.fs', 'read', 'cosmic.fs_example', 'f', 4)",
       "INSERT INTO examples (module, name, text, file, line, source) VALUES " ..
         "('cosmic.fs', 'read', 'Reads.', 'f', 1, 'Fs.read(p)'), " ..
-        "('build.tree', 'own', 'Owns.', 'f', 1, 'tree.is_own(r)')",
+        "('build.tree', 'own', 'Owns.', 'f', 1, 'tree.standing(r)')",
       "INSERT INTO links (module, symbol, path, anchor, from_file, line, column, from_module, " ..
         "kind, form, source, text) VALUES " ..
         "('cosmic.fs', 'read', '', '', 'f', 5, 1, 'cosmic.fs', 'symbol', 'shortcut', 'doc', 'r'), " ..
@@ -570,7 +570,7 @@ local function test_an_edited_source_is_not_served_from_the_deflate_cache(tmp: s
   assert(assert(before[1]):text(1) ~= "0", "writing a projection fills the cache")
 
   write_project(tmp .. "/a", "moon")
-  assert(work.stage(handle, false))
+  assert(work.stage(handle, { own = false }))
   local result = assert(importer.compile(handle, "writer-test"))
   assert(writer.write_result(handle, tmp .. "/second.db", result))
   local stale = assert(Sqlite.text_rows(handle.db,
@@ -598,7 +598,7 @@ local function test_a_source_is_deflated_again_by_a_core_of_another_image(tmp: s
   local handle = build_and_write(tmp .. "/a", "world", tmp .. "/first.db")
   assert(handle.db:exec("UPDATE deflated SET data = x'00'"))
   assert(handle.db:exec("INSERT OR REPLACE INTO meta (key, value) VALUES ('image_hash', 'other-core')"))
-  assert(work.stage(handle, false))
+  assert(work.stage(handle, { own = false }))
   local result = assert(importer.compile(handle, "writer-test"))
   assert(writer.write_result(handle, tmp .. "/second.db", result))
   local cores = assert(Sqlite.text_rows(handle.db, "SELECT DISTINCT core FROM deflated"))
@@ -689,7 +689,7 @@ end
 local function test_a_failed_projection_can_be_retried(tmp: string)
   write_project(tmp, "retry")
   local handle = assert(work.open(tmp))
-  assert(work.stage(handle, false))
+  assert(work.stage(handle, { own = false }))
   local result = assert(importer.compile(handle, "writer-test"))
   assert(handle.db:exec("DROP TABLE compiled"))
   local out = tmp .. "/out.db"
@@ -700,7 +700,7 @@ local function test_a_failed_projection_can_be_retried(tmp: string)
   assert(handle.db:exec("ATTACH ':memory:' AS out"), "the failed snapshot stayed attached")
   assert(handle.db:exec("DETACH out"))
   assert(work.begin(handle))
-  assert(work.stage(handle, false))
+  assert(work.stage(handle, { own = false }))
   local retried = assert(importer.compile(handle, "writer-test"))
   assert(writer.write_result(handle, out, retried))
   assert(work.close(handle))
@@ -722,7 +722,7 @@ end
 --- Compiles the project at `root` and writes its projection to `out`.
 local function write_projection(root: string, out: string)
   local handle = assert(work.open(root))
-  assert(work.stage(handle, false))
+  assert(work.stage(handle, { own = false }))
   local result = assert(importer.compile(handle, "writer-test"))
   assert(writer.write_result(handle, out, result))
   assert(work.close(handle))

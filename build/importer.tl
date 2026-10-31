@@ -30,7 +30,6 @@ local type Pipeline = require("build.pipeline")
 local analysis_schema = require("build.analysis_schema")
 local positions = require("build.positions")
 local type SyntaxReceivers = require("build.syntax_receivers")
-local tree = require("build.tree")
 local work = require("build.work")
 local bind = require("build.bind")
 
@@ -703,8 +702,6 @@ end
 --- Both compile entry points do this once before planning modules. A
 --- self-build records its identities afterward, since
 --- [`identities.record_identities`] closes over the parsed `requires`.
---- @param self_tree whether the tree is cosmic's own, where the
----   `cosmic.` namespace is not reserved against the tree itself
 --- @param shared the parses every checkout shares, or nil for none: a
 ---   source another checkout's analyzer parsed, where that analyzer is
 ---   this one ([`shared_analyzer`]), is taken from them rather than
@@ -713,16 +710,17 @@ end
 --- @param broken where a source that does not parse is listed, rather
 ---   than stopping the derive, or nil to stop
 --- @return what it parsed and took, or nil and why it could not
-function importer.derive(handle: work.Handle, self_tree: boolean, shared?: importer.Shared,
+function importer.derive(handle: work.Handle, shared?: importer.Shared,
                          broken?: mut {derivation.Broken}): importer.Parses?, string
   local db = handle.db
-  if not self_tree then
+  if not work.standing(handle).own then
     local reserved, reserved_trouble = Fs.is_dir(handle.root .. "/cosmic")
     if reserved == nil then
       return nil, reserved_trouble
     end
     if reserved then
-      return nil, "cosmic: the 'cosmic' directory is reserved to cosmic's own tree"
+      return nil, "cosmic: the 'cosmic' directory is reserved to cosmic's own tree, which only the tool built from it reads; " ..
+        "run bin/cosmic, which runs that tool"
     end
     local claimed, trouble = Sqlite.text_rows(db,
       "SELECT path FROM files WHERE path GLOB 'cosmic/*' ORDER BY path LIMIT 1")
@@ -731,7 +729,7 @@ function importer.derive(handle: work.Handle, self_tree: boolean, shared?: impor
     end
     if #claimed > 0 then
       return nil, claimed[1]:text(1) .. ": the 'cosmic' directory is reserved to " ..
-        "cosmic's own tree"
+        "cosmic's own tree, which only the tool built from it reads; run bin/cosmic, which runs that tool"
     end
   end
 
@@ -1041,10 +1039,11 @@ end
 --- Plans and compiles an already derived tree. Only the entry points
 --- below own the shared cache; every failure here returns through them.
 local function compile_derived(handle: work.Handle, tool: string,
-                               own_tree: boolean, parses: importer.Parses,
+                               parses: importer.Parses,
                                unjudged: boolean?, shared: importer.Shared?,
                                checks: boolean, target: string?,
                                broken: {derivation.Broken}?): importer.Result?, string
+  local standing = work.standing(handle)
   local modules, trouble = plans.collect(handle.db)
   if modules == nil then
     return nil, trouble
@@ -1097,7 +1096,7 @@ local function compile_derived(handle: work.Handle, tool: string,
       end
     end
   end
-  local positioned, position_trouble = positions.check(modules, own_tree,
+  local positioned, position_trouble = positions.check(modules, standing,
     function(name: string): boolean
       -- A declaration has a source but no bytecode.
       local bytecode, _ = Store.bytecode(name)
@@ -1125,7 +1124,7 @@ local function compile_derived(handle: work.Handle, tool: string,
   -- keyed by the ceilings that hold it too, so that a pin that falls judges it again.
   local reading: Reading = { options = nil, built = nil }
   local pipeline = require("build.pipeline")
-  local made_options, options_trouble = pipeline.options(handle.root)
+  local made_options, options_trouble = pipeline.options(handle.root, standing.own)
   if made_options == nil then
     return nil, options_trouble
   end
@@ -1173,7 +1172,7 @@ local function compile_derived(handle: work.Handle, tool: string,
       end
       for _, store_db in ipairs(Store.databases()) do
         databases[#databases + 1] = store_db
-        public[#public + 1] = not own_tree
+        public[#public + 1] = not standing.own
       end
       hinting.databases, hinting.public = databases, public
       held_databases, held_public = databases, public
@@ -1233,7 +1232,7 @@ local function compile_derived(handle: work.Handle, tool: string,
         -- and it lands as a compile does, uses and all.
         local elsewhere: importer.Shared.Compile? = nil
         if not stands and shared ~= nil then
-          elsewhere = shared.look(m, own_tree)
+          elsewhere = shared.look(m, standing.own)
         end
         if stands then
           result.cached = result.cached + 1
@@ -1285,7 +1284,7 @@ local function compile_derived(handle: work.Handle, tool: string,
             -- A refused compile is this run's alone (`remember`), and
             -- never another checkout's.
             if shared ~= nil and not refused then
-              shared.keep(m, own_tree, { lua = generated.lua, bytecode = generated.bytecode,
+              shared.keep(m, standing.own, { lua = generated.lua, bytecode = generated.bytecode,
                 references = generated.references })
             end
           end
@@ -1347,10 +1346,8 @@ local function prepare_compile(handle: work.Handle, tool: string,
                                unjudged: boolean?, shared: importer.Shared?,
                                choose: Choose?,
                                checks: boolean, target: string?): importer.Result?, string
-  local standing, standing_trouble = tree.standing(handle.root)
-  if standing == nil then return nil, standing_trouble end
   local broken: {derivation.Broken} = {}
-  local parses, derive_trouble = importer.derive(handle, standing.own, shared, broken)
+  local parses, derive_trouble = importer.derive(handle, shared, broken)
   if parses == nil then return nil, derive_trouble end
   if choose ~= nil then
     local recorded, record_trouble = identities.record_identities(handle.db)
@@ -1369,7 +1366,7 @@ local function prepare_compile(handle: work.Handle, tool: string,
       tool = pipeline.coded(tool)
     end
   end
-  return compile_derived(handle, tool, standing.own, parses, unjudged, shared, checks, target, broken)
+  return compile_derived(handle, tool, parses, unjudged, shared, checks, target, broken)
 end
 
 --- The cache belongs to the whole derive/identity/compile operation,

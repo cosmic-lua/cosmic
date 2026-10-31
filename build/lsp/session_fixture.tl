@@ -210,12 +210,13 @@ end
 
 --- What a session at `root` answers `messages` with, reading docs from
 --- `store` when given.
-function session_fixture.served(root: string, messages: {string}, store?: {Sqlite.Handle}): Ran
+function session_fixture.served(root: string, messages: {string}, store?: {Sqlite.Handle}, carried?: string): Ran
   local wrote: mut {string} = {}
   local complaints: mut {string} = {}
   local s = session.new(root, {
     err = function(line: string) complaints[#complaints + 1] = line end,
     store = store,
+    carried = carried,
   })
   local code = session.serve(s, Stream.from_string(session_fixture.framed(messages)),
     function(text: string): boolean, string
