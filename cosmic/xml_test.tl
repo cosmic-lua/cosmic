@@ -1,3 +1,4 @@
+local Stream = require("cosmic.stream")
 local Xml = require("cosmic.xml")
 
 --- Events as text, to compare: one per `|`, each its kind, then its name
@@ -340,4 +341,45 @@ local function test_write_scopes_each_binding_to_its_element()
     { kind = "end", name = "ns1:r" },
   }))
   assert(plain == '<ns1:r><ns2:x xmlns:ns2="urn:a"/></ns1:r>', plain)
+end
+
+--- Written a batch at a time, split anywhere, a document comes out as
+--- `write` writes it whole: a start tag left at a batch's end waits for
+--- the next to say whether it closes at once.
+local function test_a_writer_writes_batches_as_write_writes_the_whole()
+  local events = assert(Xml.events('<r xmlns:x="urn:x"><a k="1"/><x:b>t</x:b><!-- c --><e/></r>',
+    { namespaces = true }))
+  local whole = assert(Xml.write(events))
+  for cut = 0, #events do
+    local out = Stream.collect()
+    local w = Xml.writer(out)
+    local first: mut {Xml.Event} = {}
+    local rest: mut {Xml.Event} = {}
+    for i, e in ipairs(events) do
+      if i <= cut then first[#first + 1] = e else rest[#rest + 1] = e end
+    end
+    assert(w:write(first))
+    assert(w:write(rest))
+    assert(w:close())
+    assert(out:result() == whole, "cut at " .. tostring(cut) .. ": " .. out:result())
+  end
+end
+
+--- A writer refused once stays refused; one closed on an unfinished
+--- document aborts its target; and a later batch may not name a prefix
+--- the writer bound already.
+local function test_a_writer_refuses_and_stays_refused()
+  local w = Xml.writer(Stream.collect())
+  local ok, why = w:write({ { kind = "text", text = "x" } })
+  assert(not ok and why == "xml: event 1: text outside the root element", why)
+  local again, still = w:write({ { kind = "start", name = "r" } })
+  assert(not again and still == why, still)
+  local open = Xml.writer(Stream.collect())
+  assert(open:write({ { kind = "start", name = "r" } }))
+  local closed, unclosed = open:close()
+  assert(not closed and unclosed == "xml: <r> is not closed", unclosed)
+  local named = Xml.writer(Stream.collect())
+  assert(named:write({ { kind = "start", name = "{urn:a}r" } }))
+  local bound, clash = named:write({ { kind = "start", name = "ns1:x" } })
+  assert(not bound and clash == "xml: event 2: the prefix ns1 is bound by the writer already", clash)
 end

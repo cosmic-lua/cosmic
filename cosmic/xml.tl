@@ -52,6 +52,8 @@ local type raw_xml = require("cosmic.internal.xml")
 
 local raw = require("cosmic.internal.xml")
 
+local Stream = require("cosmic.stream")
+
 local record Xml
   --- What an event is:
   ---
@@ -104,6 +106,25 @@ local record Xml
     attributes: {string: string}
     --- The text runs (strings) and child elements, in document order.
     content: mut {string | Element}
+  end
+
+  --- What writes a document a batch of events at a time to a
+  --- [`Stream.Writer`], as [`Xml.write`] writes it whole: what a document
+  --- too large to hold whole is written through. A start tag is held until
+  --- the event after it says whether it closes at once (`<name/>`), so it
+  --- may wait for the next batch.
+  interface Writer
+    --- Writes `events`, the next of the document's in order, and hands
+    --- what they complete to the target. false and why, naming the event,
+    --- when they cannot belong to a document, or the target refuses; the
+    --- writer is finished then, and answers the same afterward.
+    write: function(Writer, events: {Event}): boolean, string
+    --- The document is done: writes what is held and closes the target.
+    --- false and why when it is not a whole document (an element left
+    --- open, or no root), or a write failed: the target is aborted then.
+    close: function(Writer): boolean, string
+    --- Abandons the document and aborts the target.
+    abort: function(Writer): boolean, string
   end
 
   --- The elements at one path of a document, each read whole as its
@@ -339,6 +360,189 @@ local function written_name(scopes: Scopes, name: string, declare: function(pref
   return prefix .. ":" .. local_part, ""
 end
 
+local class EventWriter is Xml.Writer
+  target: Stream.Writer
+  --- What the events so far have written, not yet handed to `target`.
+  mut out: mut {string}
+  --- The open elements' names as the events give them, and as they are written.
+  open: mut {string}
+  written: mut {string}
+  scopes: Scopes
+  --- The prefixes this writer has bound, which no later event may name.
+  generated: mut {string: boolean}
+  mut roots: integer
+  --- How many events came before the batch being written.
+  mut count: integer
+  --- The start tag written but for its end, and its element's name as the
+  --- events give it: `>` or `/>` waits on the event after it.
+  mut pending?: string
+  mut pending_name?: string
+  --- Why the writer is finished; "" while it is not.
+  mut failed: string
+
+  function write(self, events: {Xml.Event}): boolean, string
+    if self.failed ~= "" then return false, self.failed end
+    local why = self:take(events)
+    if why == "" then
+      local ok, trouble = self.target:write(table.concat(self.out))
+      self.out = {}
+      if ok then return true, "" end
+      why = "xml: " .. trouble
+    end
+    self.failed = why
+    return false, why
+  end
+
+  --- Writes `events` into `out`: "" when they all belong, else why.
+  function take(self, events: {Xml.Event}): string
+    local scopes = self.scopes
+    -- A prefix the events name themselves, declared or in a plain name, is never
+    -- bound, and one this writer bound is never named, so no name changes
+    -- namespace.
+    for index, e in ipairs(events) do
+      local names: mut {string} = {}
+      if e.kind == "start" then names[1] = e.name or "" end
+      for attribute in pairs(e.attributes or {}) do names[#names + 1] = attribute end
+      for _, name in ipairs(names) do
+        local used = name:match("^([^{:][^:]*):")
+        local declared = name:match("^xmlns:(.+)$")
+        for _, prefix in ipairs({ used or "", declared or "" }) do
+          if prefix ~= "" then
+            if self.generated[prefix] == true then
+              return "xml: event " .. tostring(self.count + index) .. ": the prefix " .. prefix ..
+                " is bound by the writer already"
+            end
+            scopes.declared[prefix] = true
+          end
+        end
+      end
+    end
+    for index, e in ipairs(events) do
+      local function refuse(why: string): string
+        return "xml: event " .. tostring(self.count + index) .. ": " .. why
+      end
+      local name = e.name or ""
+      local text = e.text or ""
+      local pending = self.pending
+      if pending ~= nil then
+        self.pending = nil
+        if e.kind == "end" and name == self.pending_name then
+          self.out[#self.out + 1] = pending .. "/>"
+        else
+          self.out[#self.out + 1] = pending .. ">"
+          pending = nil
+        end
+      end
+      if e.kind == "start" then
+        if #self.open == 0 then
+          self.roots = self.roots + 1
+          if self.roots > 1 then return refuse("a second root element") end
+        end
+        scopes.bound[#scopes.bound + 1] = {}
+        local values: mut {string: string} = {}
+        local function declare(prefix: string, uri: string)
+          values["xmlns:" .. prefix] = uri
+          self.generated[prefix] = true
+        end
+        local element, why = written_name(scopes, name, declare)
+        if element == nil then return refuse(why) end
+        local attributes = e.attributes or {}
+        local names: mut {string} = {}
+        for attribute in pairs(attributes) do names[#names + 1] = attribute end
+        table.sort(names)
+        for _, attribute in ipairs(names) do
+          local value = assert(attributes[attribute])
+          local as_written, awhy = written_name(scopes, attribute, declare)
+          if as_written == nil then return refuse(awhy) end
+          if not carried(value) then
+            return refuse("the value of " .. attribute .. " holds what XML cannot")
+          end
+          if values[as_written] ~= nil then
+            return refuse("two attributes written as " .. as_written)
+          end
+          values[as_written] = value
+        end
+        local piece: mut {string} = { "<", element }
+        local order: mut {string} = {}
+        for attribute in pairs(values) do order[#order + 1] = attribute end
+        table.sort(order)
+        for _, attribute in ipairs(order) do
+          piece[#piece + 1] = " " .. attribute .. '="' .. escape_attribute(assert(values[attribute])) .. '"'
+        end
+        self.pending = table.concat(piece)
+        self.pending_name = name
+        self.open[#self.open + 1] = name
+        self.written[#self.written + 1] = element
+      elseif e.kind == "end" then
+        local innermost = self.open[#self.open]
+        if innermost == nil then return refuse("an end with no element open") end
+        if innermost ~= name then
+          return refuse("</" .. name .. "> closes <" .. innermost .. ">")
+        end
+        local element = assert(self.written[#self.written])
+        self.open[#self.open] = nil
+        self.written[#self.written] = nil
+        scopes.bound[#scopes.bound] = nil
+        -- An element closed at once was written whole, `<name/>`, above.
+        if pending == nil then self.out[#self.out + 1] = "</" .. element .. ">" end
+      elseif e.kind == "text" then
+        if #self.open == 0 then return refuse("text outside the root element") end
+        if not carried(text) then return refuse("text holds what XML cannot") end
+        local escaped = escape_text(text)
+        self.out[#self.out + 1] = escaped
+      elseif e.kind == "comment" then
+        if not carried(text) or text:find("--", 1, true) ~= nil or text:sub(-1) == "-" then
+          return refuse("a comment cannot hold this text")
+        end
+        self.out[#self.out + 1] = "<!--" .. text .. "-->"
+      else
+        if not is_name(name) or name:lower() == "xml" then
+          return refuse("not an instruction's target: " .. string.format("%q", name))
+        end
+        if not carried(text) or text:find("?>", 1, true) ~= nil then
+          return refuse("an instruction cannot hold this text")
+        end
+        self.out[#self.out + 1] = "<?" .. name .. (if text == "" then "" else " " .. text end) .. "?>"
+      end
+    end
+    self.count = self.count + #events
+    return ""
+  end
+
+  function close(self): boolean, string
+    if self.failed == "" then
+      local unclosed = self.open[#self.open]
+      if unclosed ~= nil then
+        self.failed = "xml: <" .. unclosed .. "> is not closed"
+      elseif self.roots == 0 then
+        self.failed = "xml: no root element"
+      else
+        self.failed = "xml: the writer is closed"
+        return self.target:close()
+      end
+    end
+    -- The document is refused already: an abort that fails adds nothing to say.
+    local _, _ = self.target:abort()
+    return false, self.failed
+  end
+
+  function abort(self): boolean, string
+    if self.failed == "" then self.failed = "xml: the writer is abandoned" end
+    return self.target:abort()
+  end
+end
+
+--- A writer of one document to `target`, a batch of events at a time, as
+--- [`Xml.Writer`] describes it and [`Xml.write`] writes a document whole.
+function Xml.writer(target: Stream.Writer): Xml.Writer
+  local made: EventWriter = {
+    target = target, out = {}, open = {}, written = {},
+    scopes = { bound = {}, declared = {}, next = 0 }, generated = {}, roots = 0, count = 0,
+    pending = nil, pending_name = nil, failed = "",
+  }
+  return made
+end
+
 --- `events`, such as a parser answers, written as an XML document in
 --- UTF-8, which a parser reads back to the same events: an element with
 --- nothing in it as `<name/>`, its attributes sorted by name. A name in
@@ -347,120 +551,23 @@ end
 --- `xml` prefix for XML's own, and otherwise `ns1`, `ns2` and on, each
 --- declared with an `xmlns:` attribute on the first element that needs it
 --- and used by the elements inside it. A prefix the events declare or
---- name for themselves is never chosen. nil and why, naming the event, when they
---- are no document: an element that is not closed, or closed by another
---- name; no root element, or a second; text outside the root; a name that
---- is no XML name, or one in a namespace no name may be in (none, or
---- `xmlns`'s own); two attributes written with one name; a comment
---- holding `--` or ending in `-`; an instruction whose target is `xml` in
---- any case or whose text holds `?>`; or a string that is not UTF-8 or
---- holds a character XML cannot carry, even as a reference.
+--- name for themselves is never chosen; written a batch at a time
+--- ([`Xml.writer`]), one the writer bound already may not be named after.
+--- nil and why, naming the event, when they are no document: an element
+--- that is not closed, or closed by another name; no root element, or a
+--- second; text outside the root; a name that is no XML name, or one in a
+--- namespace no name may be in (none, or `xmlns`'s own); two attributes
+--- written with one name; a comment holding `--` or ending in `-`; an
+--- instruction whose target is `xml` in any case or whose text holds
+--- `?>`; or a string that is not UTF-8 or holds a character XML cannot
+--- carry, even as a reference.
 function Xml.write(events: {Xml.Event}): string?, string
-  local out: mut {string} = {}
-  --- The open elements' names as the events give them, and as they are written.
-  local open: mut {string} = {}
-  local written: mut {string} = {}
-  local roots = 0
-  local scopes: Scopes = { bound = {}, declared = {}, next = 0 }
-  -- A prefix the events name themselves, declared or in a plain name, is never
-  -- bound, so no name of theirs changes namespace.
-  local function reserve(name: string)
-    local prefix = name:match("^([^{:][^:]*):")
-    if prefix ~= nil then scopes.declared[prefix] = true end
-    local declared = name:match("^xmlns:(.+)$")
-    if declared ~= nil then scopes.declared[declared] = true end
-  end
-  for _, e in ipairs(events) do
-    if e.kind == "start" then reserve(e.name or "") end
-    for attribute in pairs(e.attributes or {}) do reserve(attribute) end
-  end
-  for index, e in ipairs(events) do
-    local function refuse(why: string): nil, string
-      return nil, "xml: event " .. tostring(index) .. ": " .. why
-    end
-    local name = e.name or ""
-    local text = e.text or ""
-    if e.kind == "start" then
-      if #open == 0 then
-        roots = roots + 1
-        if roots > 1 then return refuse("a second root element") end
-      end
-      scopes.bound[#scopes.bound + 1] = {}
-      local values: mut {string: string} = {}
-      local function declare(prefix: string, uri: string)
-        values["xmlns:" .. prefix] = uri
-      end
-      local element, why = written_name(scopes, name, declare)
-      if element == nil then return refuse(why) end
-      local attributes = e.attributes or {}
-      local names: mut {string} = {}
-      for attribute in pairs(attributes) do names[#names + 1] = attribute end
-      table.sort(names)
-      for _, attribute in ipairs(names) do
-        local value = assert(attributes[attribute])
-        local as_written, awhy = written_name(scopes, attribute, declare)
-        if as_written == nil then return refuse(awhy) end
-        if not carried(value) then
-          return refuse("the value of " .. attribute .. " holds what XML cannot")
-        end
-        if values[as_written] ~= nil then
-          return refuse("two attributes written as " .. as_written)
-        end
-        values[as_written] = value
-      end
-      local piece: mut {string} = { "<", element }
-      local order: mut {string} = {}
-      for attribute in pairs(values) do order[#order + 1] = attribute end
-      table.sort(order)
-      for _, attribute in ipairs(order) do
-        piece[#piece + 1] = " " .. attribute .. '="' .. escape_attribute(assert(values[attribute])) .. '"'
-      end
-      local following = events[index + 1]
-      if following ~= nil and following.kind == "end" and following.name == name then
-        piece[#piece + 1] = "/>"
-      else
-        piece[#piece + 1] = ">"
-      end
-      out[#out + 1] = table.concat(piece)
-      open[#open + 1] = name
-      written[#written + 1] = element
-    elseif e.kind == "end" then
-      local innermost = open[#open]
-      if innermost == nil then return refuse("an end with no element open") end
-      if innermost ~= name then
-        return refuse("</" .. name .. "> closes <" .. innermost .. ">")
-      end
-      local element = assert(written[#written])
-      open[#open] = nil
-      written[#written] = nil
-      scopes.bound[#scopes.bound] = nil
-      local before = events[index - 1]
-      if before == nil or before.kind ~= "start" or before.name ~= name then
-        out[#out + 1] = "</" .. element .. ">"
-      end
-    elseif e.kind == "text" then
-      if #open == 0 then return refuse("text outside the root element") end
-      if not carried(text) then return refuse("text holds what XML cannot") end
-      out[#out + 1] = escape_text(text)
-    elseif e.kind == "comment" then
-      if not carried(text) or text:find("--", 1, true) ~= nil or text:sub(-1) == "-" then
-        return refuse("a comment cannot hold this text")
-      end
-      out[#out + 1] = "<!--" .. text .. "-->"
-    else
-      if not is_name(name) or name:lower() == "xml" then
-        return refuse("not an instruction's target: " .. string.format("%q", name))
-      end
-      if not carried(text) or text:find("?>", 1, true) ~= nil then
-        return refuse("an instruction cannot hold this text")
-      end
-      out[#out + 1] = "<?" .. name .. (if text == "" then "" else " " .. text end) .. "?>"
-    end
-  end
-  local unclosed = open[#open]
-  if unclosed ~= nil then return nil, "xml: <" .. unclosed .. "> is not closed" end
-  if roots == 0 then return nil, "xml: no root element" end
-  return table.concat(out), ""
+  local collected = Stream.collect()
+  local w = Xml.writer(collected)
+  local ok, why = w:write(events)
+  if ok then ok, why = w:close() end
+  if not ok then return nil, why end
+  return collected:result(), ""
 end
 
 return Xml
