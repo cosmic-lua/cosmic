@@ -8,6 +8,7 @@
 ---   closed, as [`build.lsp.check`] finds them, with those of the other
 ---   open documents that may change with it ([`build.lsp.publish`]).
 --- - Hover: the docs of the symbol under the cursor ([`build.lsp.hover`]).
+--- - Definition: where the name under the cursor is declared ([`build.lsp.definition`]).
 --- - Formatting: a document laid out as `cosmic fix` lays out a Teal file ([`build.fix`]'s `format_text`), as one edit of the whole
 ---   text, or none where it is laid out already or the formatter refuses it, which the person is shown.
 ---
@@ -31,6 +32,7 @@ local Sqlite = require("cosmic.sqlite")
 local Stream = require("cosmic.stream")
 local bare = require("build.bare")
 local check = require("build.lsp.check")
+local definition = require("build.lsp.definition")
 local dependents = require("build.lsp.dependents")
 local hover = require("build.lsp.hover")
 local lines = require("build.lsp.lines")
@@ -153,6 +155,14 @@ local function hovered(s: Session, params: protocol.DocumentParams): protocol.Ho
   return hover.at(s.docs, document.text, where, s.encoding)
 end
 
+--- The location of the declaration of the name `params` names, or nil where none is known.
+local function defined(s: Session, params: protocol.DocumentParams): protocol.Location?
+  local document = document_of(s, params)
+  local where = params.position
+  if document == nil or where == nil then return nil end
+  return definition.at(s.checker, document, where, s.encoding)
+end
+
 --- What formatting a document gave: its `edits`, encoded, and what to show the person in `shown`; or no `edits` and
 --- `why` the request fails.
 local record Formatted
@@ -230,6 +240,7 @@ local function initialize(s: Session, params: protocol.InitializeParams): protoc
       positionEncoding = s.encoding,
       textDocumentSync = { openClose = true, change = 1, save = { includeText = false } },
       hoverProvider = true,
+      definitionProvider = true,
       documentFormattingProvider = true,
     },
     serverInfo = { name = "cosmic" },
@@ -351,6 +362,11 @@ local function handle(s: Session, message: protocol.Message): {string}
     end
   elseif method == "textDocument/hover" then
     local found = hovered(s, params)
+    local result = "null"
+    if found ~= nil then result = assert(Json.encode_any(found)) end
+    out[#out + 1] = protocol.response(id, result)
+  elseif method == "textDocument/definition" then
+    local found = defined(s, params)
     local result = "null"
     if found ~= nil then result = assert(Json.encode_any(found)) end
     out[#out + 1] = protocol.response(id, result)
