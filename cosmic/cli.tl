@@ -591,10 +591,10 @@ local record Cli
   --- up in turn; any other words are searched for together. With no q,
   --- every module there is, with what it is for; with `cosmic`, the
   --- standard library's. `--json` prints one JSON object per entry
-  --- found, a line each (query, exact, module, symbol, kind, file,
-  --- line, signature, text), where the page would be; with no q it
-  --- lists the standard library's modules, as `cosmic docs cosmic`
-  --- does. Filter it by composing, as `cosmic json` does: `cosmic docs
+  --- found, every one and not the first five, a line each (query, exact,
+  --- module, symbol, kind, signature, text, and file, line and verb
+  --- where it has them), with no summary on standard error; with no q,
+  --- or `cosmic`, each module the page lists. Filter it by composing, as `cosmic json` does: `cosmic docs
   --- --json Fs.read Fs.write | cosmic sql --from docs=- --as ndjson
   --- "SELECT symbol, line FROM docs WHERE kind = 'function'"`. The
   --- tree is found as `test` finds it

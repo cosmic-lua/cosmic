@@ -964,12 +964,34 @@ local function test_records_are_one_json_object_per_entry(dir: string)
   assert(both.found and #lines == 2, tostring(#lines))
   local write = assert(Json.decode_object(nth(lines, 1)))
   local read = assert(Json.decode_object(nth(lines, 2)))
-  assert(write["symbol"] == "write" and write["module"] == "cosmic.fs", nth(lines, 1))
-  assert(read["symbol"] == "read" and read["exact"] == true, nth(lines, 2))
+  assert(write["symbol"] == "Fs.write" and write["module"] == "cosmic.fs", nth(lines, 1))
+  assert(read["symbol"] == "Fs.read" and read["exact"] == true, nth(lines, 2))
   assert(read["file"] == "cosmic/fs.tl" and math.type(read["line"]) == "integer", nth(lines, 2))
   assert(type(read["signature"]) == "string" and type(read["text"]) == "string", nth(lines, 2))
   local missing = assert(docs.records(view({ db }), { "Fs.read", "Nope.unheard" }))
   assert(not missing.found, "a query that finds nothing fails the run")
+end
+
+--- With no words `--json` lists every module the page lists, and with
+--- `cosmic` the standard library's alone, as modules and not as a search
+--- for the word.
+local function test_records_list_the_modules_as_the_page_does(dir: string)
+  local db = built(dir, fs_tree())
+  local all = assert(docs.records(view({ db }), {}))
+  local library = assert(docs.records(view({ db }), { "cosmic" }))
+  assert(all.found and library.found)
+  local names: mut {string} = {}
+  for _, line in ipairs(all.lines) do
+    local object = assert(Json.decode_object(line))
+    assert(object["kind"] == "module" and object["symbol"] == "", line)
+    names[#names + 1] = tostring(object["module"])
+  end
+  assert(#names == #assert(docs.index(view({ db }))), table.concat(names, ","))
+  assert(#library.lines > 0 and #library.lines < #all.lines,
+    tostring(#library.lines) .. " of " .. tostring(#all.lines))
+  for _, line in ipairs(library.lines) do
+    assert(line:find('"module":"cosmic.', 1, true), line)
+  end
 end
 
 --- The pipeline the help shows, `cosmic docs --json ... | cosmic sql --from
@@ -988,7 +1010,7 @@ local function test_records_load_as_a_table_sql_can_filter(dir: string)
     seen[#seen + 1] = row:text(1)
   end
   q:close()
-  assert(table.concat(seen, ",") == "read,write", table.concat(seen, ","))
+  assert(table.concat(seen, ",") == "Fs.read,Fs.write", table.concat(seen, ","))
 end
 
 --- `cosmic` alone, which a search finds in nearly every comment, lists
