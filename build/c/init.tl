@@ -632,7 +632,7 @@ function c.check(root: string, files: {string}, cwd?: string, limit?: integer, s
       end
     end
     for _, path in ipairs({ "bin/zig", "bin/cosmic-bootstrap", "bin/zig.pin", "build/zig.tl",
-        "ci/cosmic-driver.pin" }) do
+        "ci/cosmic-driver.pin", "ci/bootstrap-files.txt" }) do
       give(root .. "/" .. path)
     end
     for _, path in ipairs(runs_from) do give(path) end
