@@ -1870,9 +1870,11 @@ local function phases_of(job: Job): string
 end
 
 --- The checked suite's gathering job (`checked`) runs beside the
---- platform legs where they run, after the shares of the suite that
---- `checked-shard` runs: it runs where the legs do unless a share
---- failed (a skipped share, a light run's, is none). It runs on
+--- platform legs where they run, and beside the shares of the suite that
+--- `checked-shard` runs (it does not need them): it boots and builds,
+--- then waits for the four shares through the API (`shares-wait`, a full
+--- run's) and gathers only if every one passed; a light run has none to
+--- wait for. It runs on
 --- linux-x86_64's host: its runner, its image and its builder, with its
 --- zig build outputs and compiles restored under that leg's names (which
 --- that leg saves, and this job does not), and its verdicts under a name
@@ -1886,21 +1888,65 @@ end
 local function test_the_checked_suite_is_gathered_in_a_job_of_its_own_on_linux_x86_64s_host()
   local jobs = ci_workflow().jobs
   local platform, checked = job_of(jobs, "platform"), job_of(jobs, "checked")
-  assert(table.concat(needs_of(checked), ",") == "reuse,scope,checked-shard",
+  -- It starts beside the shares: no share in its `needs`, which would
+  -- put its boot and build after the last of them.
+  assert(table.concat(needs_of(checked), ",") == "reuse,scope",
     "the checked job waits on " .. tostring((Json.encode_any(checked["needs"]))))
-  -- Past a failed share it runs only where it saves (main's push, the
-  -- nightly: a branch push has no shares to fail), to take the failed test's pass out of the cache, and fails.
-  assert(checked["if"] == "!cancelled() && needs.reuse.outputs.run == '' && " ..
-      "(needs.checked-shard.result != 'failure' || github.event_name == 'push' || github.event_name == 'schedule')",
-    "the checked job runs other than where the legs do, unless a share failed off a saving run: " ..
-      tostring(checked["if"]))
+  assert(checked["if"] == "!cancelled() && needs.reuse.outputs.run == ''",
+    "the checked job runs other than where the legs do: " .. tostring(checked["if"]))
+  -- It waits for every share after its build, polling the run's jobs by
+  -- the shares' names, and the gather stands on that wait alone.
   local checked_steps = checked.steps
+  local waiting, waiting_at = step_with_id(checked_steps, "shares-wait")
+  local _, building_at = step_running(checked_steps, "platform checked-build")
+  local stopping, stopping_at = step_named(checked_steps, "stop where a share failed and nothing is saved")
+  local _, downloading_at = step_with_id(checked_steps, "shares-download")
   local failing, failing_at = step_named(checked_steps, "fail where a share failed")
-  local _, running_at = step_with_id(checked_steps, "checked-suite")
-  assert(failing["if"] == "env.COSMIC_CI_SCOPE == 'full' && needs.checked-shard.result == 'failure'" and
-      failing_at < running_at, "the checked job does not fail, before its suite, where a share failed")
+  local suite_step, running_at = step_with_id(checked_steps, "checked-suite")
+  assert(building_at < waiting_at and waiting_at < stopping_at and stopping_at < downloading_at and
+      downloading_at < failing_at and failing_at < running_at,
+    "the checked job does not wait for the shares after its build and before it takes their verdicts")
+  assert(waiting["if"] == FULL and waiting["run"] == "cosmic-driver cosmic_ci/driver.tl shares-wait" and
+      waiting["continue-on-error"] == nil, "the checked job's wait: " .. tostring(waiting["run"]))
+  local wenv = map_of(waiting.env)
+  local shard_job = job_of(ci_workflow().jobs, "checked-shard")
+  local shard_parts, shard_err: {integer}?, string = Shape.into(assert(assert(shard_job.strategy).matrix)["part"],
+    Shape.list(Shape.integer))
+  shard_parts = assert(shard_parts, shard_err)
+  local shard_names: mut {string} = {}
+  for _, part in ipairs(shard_parts) do
+    shard_names[#shard_names + 1] = "linux-x86_64-checked-shard-" .. tostring(part)
+  end
+  assert(wenv["JOBS"] == table.concat(shard_names, " "), "the checked job waits for other jobs than the shares: " ..
+      tostring(wenv["JOBS"]))
+  assert(wenv["REPOSITORY"] == "${{ github.repository }}" and wenv["RUN_ID"] == "${{ github.run_id }}" and
+      wenv["GH_TOKEN"] == "${{ github.token }}", "the checked job's wait asks for another run's jobs")
+  -- Bounded: a share is given its own timeout and a margin, the wait a
+  -- limit, and the step and the job minutes to hold the limit.
+  local limit, share = math.tointeger(tonumber(wenv["LIMIT_SECONDS"])), math.tointeger(tonumber(wenv["SHARE_SECONDS"]))
+  local shard_minutes = math.tointeger(shard_job["timeout-minutes"])
+  local step_minutes = math.tointeger(waiting["timeout-minutes"])
   local gather_minutes = math.tointeger(checked["timeout-minutes"])
-  assert(gather_minutes ~= nil and gather_minutes <= 20, "the checked job's time is not sized for a gather")
+  assert(limit ~= nil and share ~= nil and shard_minutes ~= nil and step_minutes ~= nil and gather_minutes ~= nil,
+    "the checked job's wait is not bounded")
+  assert(share > shard_minutes * 60 and limit > share and step_minutes * 60 > limit and
+      gather_minutes > step_minutes, "the checked job's wait outlasts its step or its job, or a share's own timeout")
+  -- A share that did not pass stops the job, at once where nothing is
+  -- saved, and past the download (to save the shares' rows) where main
+  -- or the nightly does.
+  assert(stopping["if"] == FULL .. " && steps.shares-wait.outputs.result != 'success' && " ..
+      "github.event_name != 'push' && github.event_name != 'schedule'" and assert(stopping["run"]):find("exit 1", 1, true) ~= nil,
+    "the checked job goes on past a failed share where it saves nothing: " .. tostring(stopping["if"]))
+  assert(failing["if"] == FULL .. " && steps.shares-wait.outputs.result != 'success'" and
+      assert(failing["run"]):find("exit 1", 1, true) ~= nil, "the checked job does not fail where a share failed: " ..
+      tostring(failing["if"]))
+  assert(suite_step["if"] == FULL .. " && steps.shares-wait.outputs.result == 'success'",
+    "the checked job gathers other than on every share's passing: " .. tostring(suite_step["if"]))
+  for _, step in ipairs(checked_steps) do
+    assert(not (step["if"] or ""):find("needs.checked-shard", 1, true) and
+        not (step.run or ""):find("needs.checked-shard", 1, true),
+      "the checked job reads a share's result from `needs`, which it does not have: " .. tostring(step.name))
+  end
   assert(platform["if"] == "!cancelled() && needs.reuse.outputs.run == ''", tostring(platform["if"]))
   local penv, cenv = map_of(platform.env), map_of(checked.env)
   assert(penv["COSMIC_CI_CHECKED_SUITE"] == "skip", "a leg runs the checked suite: " ..

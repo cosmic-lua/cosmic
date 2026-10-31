@@ -1189,26 +1189,39 @@
     # test enters each C function. The suite's own time is a minute or
     # two; what the job costs is the boot and checked build it repeats,
     # the checked core being what it runs
-    # (COSMIC_CI_CHECKED_SUITE=gather). It boots and builds only what the
+    # (COSMIC_CI_CHECKED_SUITE=gather). It starts beside the shares, not
+    # after them (its `needs` hold no share): it boots and builds while
+    # they run, and then waits for the four (`shares-wait`,
+    # shares_wait.tl, through the API) before it takes their verdicts.
+    # It gathers only if every share passed. One that did not pass ends
+    # the wait at once; the job then fails, where the run saves nothing
+    # (a queue run, a dispatch) after the build, and where the run saves
+    # (main's push, the nightly) after it has taken the shares' rows, so
+    # the save drops the failed test's pass from main's newest entry.
+    # The `ci` gate fails on the share itself (it needs `checked-shard`).
+    # The wait ends at the latest 3000 s after it began, and a share
+    # running 1620 s after it started (its timeout is 1500) ends it as
+    # failed; the job's timeout covers both. It boots and builds only what the
     # suite reads, and keeps the suite's verdicts under a cache name of
     # its own (`linux-x86_64-checked`), saved and seeded as a leg's are;
     # it restores linux-x86_64's zig build outputs and compiles, which
     # that leg saves. Its tree moves to a path of the commit's own, as a
-    # leg's does. Where `platform` runs, it runs, unless a share failed.
-    # On a branch push (`light`) the shares do not run, and it runs
-    # none of the checked suite's steps but the pinned CI driver's check,
+    # leg's does. Where `platform` runs, it runs.
+    # On a branch push (`light`) the shares do not run, no wait is made,
+    # and it runs none of the checked suite's steps but the pinned CI
+    # driver's check,
     # which the legs run only on a full run: some 30 to 60 s where this
     # job has no suite. The tree's format check, which answers the same
     # on every host and runs on one leg in a full run's assemble, is the
     # `format` job's on a light run.
     checked: {
-      needs: ["reuse", "scope", "checked-shard"],
-      if: "!cancelled() && needs.reuse.outputs.run == '' && (needs.checked-shard.result != 'failure' || github.event_name == 'push' || github.event_name == 'schedule')",
+      needs: ["reuse", "scope"],
+      if: "!cancelled() && needs.reuse.outputs.run == ''",
       name: "linux-x86_64-checked",
       defaults: {run: {"working-directory": "ci", shell: "leg-shell {0}"}},
       "runs-on": "ubuntu-24.04",
       permissions: {contents: "read", packages: "read", actions: "read"},
-      "timeout-minutes": 20,
+      "timeout-minutes": 60,
       env: {
         COSMIC_CI_SCOPE: "${{ needs.scope.outputs.scope == 'light' && 'light' || 'full' }}",
         COSMIC_WORKER: "linux-x86_64-checked",
@@ -1415,6 +1428,38 @@
           if: "env.COSMIC_CI_SCOPE == 'full'",
           run: "cosmic-driver cosmic_ci/driver.tl platform checked-build",
         },
+        # Everything above runs beside the shares. From here the job
+        # stands on them: it waits for the four (shares_wait.tl) and
+        # goes on only if every one passed. A share that did not pass
+        # stops the job at once, red, where nothing is saved; where the
+        # run saves (main's push, the nightly) it goes on to take the
+        # shares' rows and fail below, so the save takes the failed
+        # test's pass out of main's newest entry. The wait is bounded
+        # by LIMIT_SECONDS from here, and by SHARE_SECONDS from a
+        # share's start (its timeout-minutes is 25).
+        {
+          name: "wait for the shares of the checked suite",
+          id: "shares-wait",
+          if: "env.COSMIC_CI_SCOPE == 'full'",
+          shell: "sh",
+          "timeout-minutes": 52,
+          env: {
+            GH_TOKEN: "${{ github.token }}",
+            REPOSITORY: "${{ github.repository }}",
+            RUN_ID: "${{ github.run_id }}",
+            JOBS: "linux-x86_64-checked-shard-1 linux-x86_64-checked-shard-2 linux-x86_64-checked-shard-3 linux-x86_64-checked-shard-4",
+            LIMIT_SECONDS: "3000",
+            SHARE_SECONDS: "1620",
+          },
+          run: "cosmic-driver cosmic_ci/driver.tl shares-wait",
+        },
+        {
+          name: "stop where a share failed and nothing is saved",
+          if: "env.COSMIC_CI_SCOPE == 'full' && steps.shares-wait.outputs.result != 'success' && github.event_name != 'push' && github.event_name != 'schedule'",
+          shell: "sh",
+          env: {FAILED: "${{ steps.shares-wait.outputs.failed }}"},
+          run: "echo \"a share of the checked suite did not pass: ${FAILED:-(none finished in time)}\"; exit 1",
+        },
         # The verdicts the shares kept, one artifact each, each in a
         # directory of its own, merged into an empty cache: the rows
         # of every test of the suite, which the run behind in the
@@ -1435,21 +1480,22 @@
           if: "env.COSMIC_CI_SCOPE == 'full'",
           run: "for share in \"${{ runner.temp }}\"/verdicts-shares/*/; do cosmic-driver cosmic_ci/driver.tl verdicts-merge \"$share\" || exit 1; done",
         },
-        # Where a share failed (this job runs then only where it saves,
-        # the nightly and main's push) the run is red, and runs no test
-        # again: its cache is the shares' rows, the failed share's
+        # Where a share did not pass (this job gets here then only where
+        # it saves, the nightly and main's push) the run is red, and runs
+        # no test again: its cache is the shares' rows, the failed share's
         # without the failed test's, so the save below takes that pass
         # out of main's newest entry as the whole suite's job did.
         {
           name: "fail where a share failed",
-          if: "env.COSMIC_CI_SCOPE == 'full' && needs.checked-shard.result == 'failure'",
+          if: "env.COSMIC_CI_SCOPE == 'full' && steps.shares-wait.outputs.result != 'success'",
           shell: "sh",
-          run: "echo \"a share of the checked suite failed\"; exit 1",
+          run: "echo \"a share of the checked suite did not pass\"; exit 1",
         },
+        # Only on four passing shares' verdicts, whatever the steps above.
         {
           name: "run the checked core's suite",
           id: "checked-suite",
-          if: "env.COSMIC_CI_SCOPE == 'full'",
+          if: "env.COSMIC_CI_SCOPE == 'full' && steps.shares-wait.outputs.result == 'success'",
           run: "cosmic-driver cosmic_ci/driver.tl platform checked",
         },
         {
