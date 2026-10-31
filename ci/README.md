@@ -672,8 +672,9 @@ verdicts, which would otherwise ride along whole in each save.
   share of the tests each (`cosmic test --check-types --shard I/2`,
   `COSMIC_CI_NARROWING_SHARD`), bound to 900 s
   (`checked_narrowing_timeout_ns`): the whole run's 726 to 861 s are
-  363 to 431 s a share. A share checks no C function is entered by some
-  test, which only a whole run answers, and no job makes that run with
+  about 363 to 431 s a share (a lower estimate: each share compiles the
+  tree it tests). A share does not check that some test enters each C
+  function, which only a whole run answers, and no job makes that run with
   these tests: a checked run enters no function a plain one does not
   (the tests that differ skip in it, and those that ask for a checked
   run skip in every run, build/type_watch.tl), so the legs' whole native
@@ -732,10 +733,12 @@ after the last share, repeats the 175 to 218 s, merges (5 s), runs the
 gathering suite (some 100 s) and the fixture (40 s), and stages its seed
 (10 s), 345 to 390 s: 710 to 800 s in all where most stood and 805 to 990 s
 where none did, against 1934 to 2326 s of the one job and the legs' 946 to
-1503 s. The narrowing run, whole in one job, took 150 to 195 s to its boot,
-its 726 to 861 s and 10 s, 890 to 1070 s; a share of two takes 150 to 195 s,
-363 to 431 s and 10 s, 523 to 636 s. So the longest of them ends before the
-shortest leg, and the legs are the queue's path.
+1503 s. A narrowing share takes 150 to 195 s to its boot, some 363 to 431 s
+of tests (half the whole run's 726 to 861 s, a lower estimate: each share
+compiles the tree it tests) and 10 s, 523 to 636 s or a little more. The
+checked suite's longest path, 805 to 990 s where no verdict stood, can end
+after the shortest leg's 946 s; a narrowing share ends before it. The legs
+are the queue's path otherwise.
 
 ### the Linux legs' container
 

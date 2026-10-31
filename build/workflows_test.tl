@@ -2182,6 +2182,10 @@ local function test_a_full_runs_linux_x86_64_leg_holds_the_c_function_check_the_
   local leg = assert(platform_legs("full")["linux-x86_64"], "a full run has no linux-x86_64 leg")
   assert(leg_shard(leg) == "" and leg["shard"] == "", "linux-x86_64 runs a share of a full run's suite")
   assert(phases_of(platform):find("local-suite", 1, true) ~= nil, "the legs run no native suite: " .. phases_of(platform))
+  -- The step that runs the suite has no condition: every leg of a full run runs it.
+  local suite_step = step_named(platform.steps, "run release Cosmic's native suite")
+  assert(suite_step["if"] == nil and (suite_step.run or ""):find("platform local-suite", 1, true) ~= nil,
+    "the legs' native suite is conditional or another: " .. tostring(suite_step["if"]))
   local step = step_named(platform.steps, "run the declared-types tests on a checked run")
   assert((step.run or ""):find("platform declared-types", 1, true) ~= nil, "the declared-types step is another")
 end

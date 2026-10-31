@@ -728,13 +728,17 @@ local checked_suite_test_timeout_s <const> = "120"
 --- One share of the whole suite on a checked run ([`phase_checked_narrowing`]),
 --- of the N ci.yml's `checked-narrowing` job runs (COSMIC_CI_NARROWING_SHARD,
 --- `I/N`, two), each on a runner of its own; a test 120 s at most, as on the
---- checked core. The whole run took 510 s on four processors locally and 726
---- to 861 s on CI's runner (the merge queue's runs of 23 October 2026), which
---- a share of two takes in some half, 363 to 431 s, build/test.tl's `dealt`
---- spreading the slow tests as it does the checked suite's. The bound is 900
---- s, 2.1 times the slowest share expected, where the whole run's 1800 s was
---- 2.1 times its slowest: the share's own, not the whole's divided by two, as
---- it restores nothing a neighbour's time could spare.
+--- checked core. The whole run takes 510 s on four processors locally and 726
+--- to 861 s on CI's runner (the merge queue's runs of 23 October 2026). A
+--- share of two holds half the tests, and build/test.tl's `dealt` spreads the
+--- slow ones as it does the checked suite's, so its tests take about half:
+--- 363 to 431 s. That is a lower estimate, as each share still compiles the
+--- tree it tests, which the whole run did once. The bound is 900 s, 2.1 times
+--- the slowest share estimated: 469 s over it, for that compile (not yet
+--- measured; the boot's 150 to 195 s is outside this bound) and a loaded
+--- runner. It is the share's own, not the whole run's bound halved, which
+--- would leave the compile 0 s over the slowest whole run.
+
 -- TODO: lower this bound once CI's own runs of a share show its elapsed time.
 local checked_narrowing_timeout_ns <const> = Clock.seconds(900)
 local checked_narrowing_test_timeout_s <const> = "120"
@@ -1698,8 +1702,8 @@ end
 --- (`TypeWatch.during`) skip in every run until the compile writes the checks
 --- of returns and fields. The leg's declared-types step ([`phase_declared_types`])
 --- runs chosen files and makes no such check either.
---- Once build/type_watch.tl's `during` stops skipping a checked run, that holds no
---- longer (the TODO there).
+--- That holds while build/type_watch.tl's `during` skips a checked run (the TODO
+--- there).
 local function phase_checked_narrowing(p: PlatformContext): integer
   if p.target ~= "x86_64-linux-musl" then return 0 end
   local c = p.operation

@@ -1876,22 +1876,22 @@
     # own on linux-x86_64's host, beside the legs and the checked suite's
     # shares, in two shares of the tests (`cosmic test --check-types
     # --shard I/2`, COSMIC_CI_NARROWING_SHARD, as `checked-shard` splits
-    # the checked core's suite): the whole run took thirteen to fifteen
-    # minutes in one job, a full run's longest after the legs and a failed
-    # queue run's tail; a share takes half of its tests after a boot of
-    # three minutes, within the bound it has of its own (orchestration.tl's
-    # `checked_narrowing_timeout_ns`). A share checks no C function is
-    # entered by some test, which only a whole run answers, and no job
-    # makes that run on this core with these tests any more: a checked run
-    # enters no function a plain one does not. The tests that differ
-    # between them skip in a checked run (they compare the tree's bytecode
-    # with the binary's), and the ones that ask for one (the declared-types
-    # tests, build/type_watch.tl) skip in every run until the compile
-    # writes the checks of returns and fields. So linux-x86_64's leg, which
-    # runs the whole suite on the same release core in every full run,
-    # enters every function this run could. The declared-types step of
-    # that leg is a run of chosen files, which makes no such check. A full
-    # run only.
+    # the checked core's suite). The whole run takes thirteen to fifteen
+    # minutes, which one job would make a full run's longest after the
+    # legs and a failed queue run's tail; a share takes half of those
+    # tests' time after a boot of three minutes, within the bound it has
+    # of its own (orchestration.tl's `checked_narrowing_timeout_ns`). A
+    # share does not check that some test enters each C function, which
+    # only a whole run answers, and no job makes that run on this core
+    # with these tests: a checked run enters no function a plain one does
+    # not. The tests that differ between them skip in a checked run (they
+    # compare the tree's bytecode with the binary's), and the ones that
+    # ask for one (the declared-types tests, build/type_watch.tl) skip in
+    # every run until the compile writes the checks of returns and
+    # fields. So linux-x86_64's leg, which runs the whole suite on the
+    # same release core in every full run, enters every function this run
+    # could. The declared-types step of that leg is a run of chosen
+    # files, which makes no such check. A full run only.
     "checked-narrowing": {
       needs: ["reuse", "scope"],
       if: "!cancelled() && needs.reuse.outputs.run == '' && needs.scope.outputs.scope != 'light'",
