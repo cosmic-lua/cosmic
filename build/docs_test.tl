@@ -2582,6 +2582,40 @@ local function test_a_module_whose_prose_says_the_word_beats_members_that_take_i
   assert(db:close())
 end
 
+--- A module leads a one-word search only when the word is in its name or
+--- the first paragraph of its documentation: one that mentions the word
+--- further down is not about it. `docs transaction` keeps the function
+--- that runs one ahead of the modules that only describe one in passing.
+local function test_a_module_that_mentions_the_word_late_does_not_lead_the_member_named_for_it()
+  local db = database({
+    { "cosmic.sqlite", "", "module", "", "SQLite, typed: an embedded database.\n\nA transaction groups statements.",
+      "cosmic/sqlite.tl", "1" },
+    { "cosmic.sqlite", "transact", "function", "function Sqlite.transact(work: function): boolean",
+      "Runs `work` inside a transaction and commits when it answers `true`.", "cosmic/sqlite.tl", "9", "public",
+      "Sqlite.transact" },
+    { "cosmic.web.session.sqlite", "", "module", "", "The SQLite store of sessions.\n\nEach write is one transaction.",
+      "cosmic/web/session/sqlite.tl", "1" },
+  }, {})
+  local found = assert(docs.lookup(view({ db }), "transaction"))
+  local first = assert(found[1])
+  assert(first.source_symbol == "Sqlite.transact", first.module .. " " .. first.source_symbol)
+  assert(db:close())
+end
+
+--- A guide's section is offered only for a word in its heading or a word of
+--- its own in its text: "sorted" is not "sort".
+local function test_a_guide_section_that_only_has_a_longer_word_is_not_offered()
+  local page = "Intro.\n\n## order\n\nThe rows come back sorted by name."
+  local db = database({
+    { "doc.guides.language", "", "module", "", page, "doc/guides/language.md", "1" },
+  }, {})
+  local found = assert(docs.lookup(view({ db }), "sort"))
+  for _, entry in ipairs(found) do
+    assert(entry.kind ~= "section", entry.source_symbol)
+  end
+  assert(db:close())
+end
+
 --- A word of under four letters is a word of its own in a guide's section:
 --- "db" is not in "sandbox". A heading said twice takes `-1` as its anchor,
 --- as GitHub makes it.

@@ -834,11 +834,19 @@ local function searched_docs(db: Sqlite.Handle, public: boolean,
   -- before each function that takes one.
   binds[#binds + 1] = text("{symbol text}: (" .. fts_query(query) .. ")")
   local said = "d.id IN (SELECT rowid FROM docs_fts WHERE docs_fts MATCH ?" .. tostring(#binds) .. ") DESC, "
-  -- With one word, which names a topic, the module that says it comes
-  -- before a member that says it in passing; with several, which ask for
+  -- With one word, which names a topic, the module about it comes before
+  -- a member that says it in passing; with several, which ask for
   -- something to do, the member does.
+  -- It leads only when the word is in the module's name or the first
+  -- paragraph of its documentation, which says what the module is for: a
+  -- long module that mentions the word somewhere is not about it.
   if #words == 1 then
-    said = said .. "d.symbol = '' DESC, "
+    local like = text("%" .. lead:lower() .. "%")
+    binds[#binds + 1] = like
+    local at = "?" .. tostring(#binds)
+    said = said .. "(d.symbol = '' AND (lower(d.module) LIKE " .. at ..
+      " OR lower(substr(d.text, 1, instr(d.text || char(10) || char(10), char(10) || char(10)) - 1)) LIKE " ..
+      at .. ")) DESC, "
   end
   local phrase = ""
   if #words > 1 then
@@ -941,12 +949,12 @@ local function stem(word: string): string
   return word:lower()
 end
 
---- How many times `word` (see [`stem`]) occurs in the lowercase `written`: a
---- stem of four letters or more anywhere, a shorter word only as a word of
---- its own, so "db" is not found in "sandbox".
-local function occurrences(written: string, word: string): integer
+--- How many times `word` (see [`stem`]) occurs in the lowercase `written`:
+--- anywhere when `whole` is false, else only as a word of its own, so "db"
+--- is not found in "sandbox" and "sort" not in "sorted".
+local function occurrences(written: string, word: string, whole: boolean): integer
   local pattern = word:gsub("%p", "%%%0")
-  if #word < 4 then
+  if whole or #word < 4 then
     pattern = "%f[%w_]" .. pattern .. "%f[^%w_]"
   end
   local _, count = written:gsub(pattern, "")
@@ -998,7 +1006,8 @@ local function sections_of(guide: string): {Section}
 end
 
 --- The sections of the guides whose text carries every word of `query`
---- (as its stem, so "narrowing" finds "narrows"), each as an entry of
+--- in its heading (as its stem, so "narrowing" finds "narrowing a
+--- value") or as a word of its own in the text, each as an entry of
 --- kind `section` that names the guide and the heading, best first:
 --- those with a word in the heading, then by how often the words occur.
 --- Each guide is split here rather than indexed, since the index holds
@@ -1026,8 +1035,8 @@ local function guide_sections(db: Sqlite.Handle, public: boolean, query: string)
       local said = section.body:lower()
       local score, headed = 0, false
       for _, word in ipairs(words) do
-        local in_heading = occurrences(titled, word) > 0
-        local count = occurrences(said, word)
+        local in_heading = occurrences(titled, word, false) > 0
+        local count = occurrences(said, word, true)
         if not in_heading and count == 0 then
           score = -1
           break
