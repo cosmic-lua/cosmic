@@ -2559,3 +2559,116 @@ local function test_a_projection_other_code_wrote_is_left_out(dir: string)
   assert(read() == 2, "a projection this tool's code wrote is left out")
   assert(projection:close())
 end
+
+--- A single word names a topic: the module whose prose says it comes before
+--- a member that only mentions it in passing (`db: Sqlite.Handle` is the
+--- parameter of each function that takes one), though the member's prose is
+--- shorter. `docs Db` answers the module about databases.
+local function test_a_module_whose_prose_says_the_word_beats_members_that_take_its_handle()
+  local db = database({
+    { "cosmic.vector", "Vector.load", "function", "function Vector.load(db: Sqlite.Handle, name: string): Vector?",
+      "Loads one vector by name from the `db`.", "cosmic/vector.tl", "10" },
+    { "cosmic.session", "Session.store", "function", "function Session.store(db: Sqlite.Handle): Session",
+      "Keeps sessions in a db.", "cosmic/session.tl", "20" },
+    { "cosmic.sqlite", "", "module", "",
+      "SQLite, typed: an embedded database, a `db` in one file or in memory, with no server to run.",
+      "cosmic/sqlite.tl", "1" },
+    { "cosmic.sqlite", "Sqlite.Handle", "type", "type Handle = raw.Handle", "An open database.",
+      "cosmic/sqlite.tl", "5" },
+  }, {})
+  local found = assert(docs.lookup(view({ db }), "Db"))
+  local first = assert(found[1])
+  assert(first.module == "cosmic.sqlite" and first.symbol == "", first.module .. " " .. first.symbol)
+  assert(db:close())
+end
+
+--- A module leads a one-word search only when the word is in its name or
+--- the first paragraph of its documentation: one that mentions the word
+--- further down is not about it. `docs transaction` keeps the function
+--- that runs one ahead of the modules that only describe one in passing.
+local function test_a_module_that_mentions_the_word_late_does_not_lead_the_member_named_for_it()
+  local db = database({
+    { "cosmic.sqlite", "", "module", "", "SQLite, typed: an embedded database.\n\nA transaction groups statements.",
+      "cosmic/sqlite.tl", "1" },
+    { "cosmic.sqlite", "transact", "function", "function Sqlite.transact(work: function): boolean",
+      "Runs `work` inside a transaction and commits when it answers `true`.", "cosmic/sqlite.tl", "9", "public",
+      "Sqlite.transact" },
+    { "cosmic.web.session.sqlite", "", "module", "", "The SQLite store of sessions.\n\nEach write is one transaction.",
+      "cosmic/web/session/sqlite.tl", "1" },
+  }, {})
+  local found = assert(docs.lookup(view({ db }), "transaction"))
+  local first = assert(found[1])
+  assert(first.source_symbol == "Sqlite.transact", first.module .. " " .. first.source_symbol)
+  assert(db:close())
+end
+
+--- A guide's section is offered only for a word in its heading or a word of
+--- its own in its text: "sorted" is not "sort".
+local function test_a_guide_section_that_only_has_a_longer_word_is_not_offered()
+  local page = "Intro.\n\n## order\n\nThe rows come back sorted by name."
+  local db = database({
+    { "doc.guides.language", "", "module", "", page, "doc/guides/language.md", "1" },
+  }, {})
+  local found = assert(docs.lookup(view({ db }), "sort"))
+  for _, entry in ipairs(found) do
+    assert(entry.kind ~= "section", entry.source_symbol)
+  end
+  assert(db:close())
+end
+
+--- A word of under four letters is a word of its own in a guide's section:
+--- "db" is not in "sandbox". A heading said twice takes `-1` as its anchor,
+--- as GitHub makes it.
+local function test_a_short_word_matches_whole_words_and_a_repeated_heading_is_numbered()
+  local page = "Intro.\n\n## sandbox\n\nThe sandbox holds a program.\n\n## again\n\nFirst.\n\n## again\n\nSecond: a `db` here."
+  local db = database({
+    { "doc.guides.language", "", "module", "", page, "doc/guides/language.md", "1" },
+  }, {})
+  local found = assert(docs.lookup(view({ db }), "db"))
+  assert(#found == 1, tostring(#found))
+  assert(assert(found[1]).source_symbol == "doc.guides.language#again-1", assert(found[1]).source_symbol)
+  assert(db:close())
+end
+
+--- A guide is searched by its sections: a word that a page says in one of
+--- its `##` sections finds that section, named by the guide and the
+--- heading, with its text, in spite of the page's length.
+local function test_a_search_finds_the_section_of_a_guide_that_says_the_word()
+  local filler: mut {string} = {}
+  for index = 1, 200 do
+    filler[index] = "A sentence about nothing in particular, number " .. tostring(index) .. "."
+  end
+  local page = "Rules of the language.\n\n## fields are fixed\n\nA field is fixed unless it is `mut`.\n\n" ..
+    "## narrowing\n\nA test narrows a value in the branch it guards. A ```mut``` field narrows nothing.\n\n" ..
+    "```teal\n## not a heading\n```\n\n## discarding a result on purpose\n\nWrite `local _, _ = f()`.\n\n" ..
+    "## more\n\n" .. table.concat(filler, " ")
+  local db = database({
+    { "doc.guides.language", "", "module", "", page, "doc/guides/language.md", "1" },
+    { "cosmic.a", "A.one", "function", "function A.one()", "Narrowing one.", "cosmic/a.tl", "1" },
+    { "cosmic.a", "A.two", "function", "function A.two()", "Narrowing two.", "cosmic/a.tl", "2" },
+    { "cosmic.a", "A.three", "function", "function A.three()", "Narrowing three.", "cosmic/a.tl", "3" },
+    { "cosmic.a", "A.four", "function", "function A.four()", "Narrowing four.", "cosmic/a.tl", "4" },
+  }, {})
+  local narrowing = assert(docs.lookup(view({ db }), "narrowing"))
+  local section: docs.Entry? = nil
+  for _, entry in ipairs(narrowing) do
+    if entry.kind == "section" and section == nil then section = entry end
+  end
+  section = assert(section, "no section offered")
+  assert(section.kind == "section" and section.source_symbol == "doc.guides.language#narrowing",
+    section.kind .. " " .. section.source_symbol)
+  assert(section.text:find("branch it guards", 1, true) and not section.text:find("fixed unless", 1, true),
+    section.text)
+  local discard = assert(docs.lookup(view({ db }), "discard result"))
+  assert(assert(discard[1]).source_symbol == "doc.guides.language#discarding-a-result-on-purpose",
+    assert(discard[1]).source_symbol)
+  local seen = 0
+  for _, entry in ipairs(narrowing) do
+    if entry.source_symbol == "doc.guides.language#narrowing" then seen = seen + 1 end
+  end
+  assert(seen == 1, "a section is offered once, not " .. tostring(seen))
+  local text = table.concat(assert(docs.answer(view({ db }), { "narrowing" })).lines, "\n")
+  assert(text:find("doc.guides.language#narrowing (doc/guides/language.md)", 1, true), text)
+  assert(text:find("A test narrows a value", 1, true) and not text:find("Rules of the language", 1, true), text)
+  assert(db:close())
+end
