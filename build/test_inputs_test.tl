@@ -295,20 +295,19 @@ local function test_a_lua_closure_holds_what_the_checker_loads()
 end
 
 --- What `lua` adds to a closure is no reader of the compiler's identity
---- (`compiler_sought`): build.dispatch, which reads it past requiring
---- build.importer, does not key a module that declares `lua` by the
---- compiler's identity, so an edit to the compiler runs it no more; a
---- reader of its own closure, build.importer, still does, and a module
---- that does not declare `lua` is sought whole.
+--- (`compiler_sought`): build.dispatch reaches it only through
+--- build.importer ([`importer.own_tool`]), so an edit to the compiler
+--- runs a module that declares `lua` no more; a reader of its own
+--- closure, build.importer, still keys it, whether it declares `lua` or not.
 local function test_what_lua_adds_reads_no_compiler()
   local closure = { "lib.thing_test" }
   for _, name in ipairs(test_inputs.lua_loads) do closure[#closure + 1] = name end
   for _, name in ipairs(test_inputs.standalone_loads) do closure[#closure + 1] = name end
-  assert(key_parts.reads_compiler(closure), "build.dispatch reads it")
   assert(not key_parts.reads_compiler(test_inputs.compiler_sought(closure, true)))
-  assert(key_parts.reads_compiler(test_inputs.compiler_sought(closure, false)))
+  assert(not key_parts.reads_compiler(test_inputs.compiler_sought(closure, false)))
   closure[#closure + 1] = "build.importer"
   assert(key_parts.reads_compiler(test_inputs.compiler_sought(closure, true)))
+  assert(key_parts.reads_compiler(test_inputs.compiler_sought(closure, false)))
 end
 
 local function test_noexec_is_requested_but_not_granted_by_a_declaration()

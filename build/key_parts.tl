@@ -122,7 +122,7 @@ end
 --- [`build.tree_checks`] refuses the tree when a module of it reads it and
 --- is not named here.
 local compiler_readers <const>: {string} = {
-  "build.dispatch", "build.embed", "build.importer", "build.reboot",
+  "build.embed", "build.importer", "build.reboot",
   "build.rebuild", "build.rebuild_test", "build.test_key", "build.tree_checks", "core.allocation_test",
   "cosmic.store_handles_test", "doc.guides.portable-runtime",
 }

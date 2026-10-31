@@ -599,36 +599,33 @@ local self_rebuild_per_test_timeout_s <const> = "300"
 -- back in its edited stage's first rebuild (COSMIC_FIXTURE_COMPILES) and
 -- compiles the whole tree cold in each stage's settle, under the edited
 -- compiler's identity and then the product's. On a four-core x86-64
--- host, with an every-core product and the tree of October 31 (1103
--- modules), the identity cases took 177 to 184 s beside the file's other
--- tests and the build.plans case 264 s, its settles 107 to 109 s, since
--- they also parse every source again (the TODO on build.importer's
--- `analyzer_identity`); its edited stage, 137 s, is the longest. The
--- other four share one file of compiles made afresh each run
--- (COSMIC_FIXTURE_SHARED_COMPILES): the first compiles the tree cold in
--- 110 s, and the rest, started after it, only what their edits move, in
--- 31 to 41 s. So the file ends about when the build.plans case does: 275
--- s on four workers. The x86-64 legs take 1.23 (linux-x86_64) to 1.28
--- (alpine-x86_64) times that host's time on a cold rebuild (134 s on
--- October 31 and 139 s on October 30, against 109 s) and 1.30 to 1.35
--- times on a settle (84 to 87 s against 63 to 66 s). So on alpine-x86_64
--- the longest stage takes about 185 s, the build.plans case about 355 s
--- and the file about 370 s. The bounds keep 1.5 to 1.6 times that, as
--- #2834 did for the suite's: the group's 600 s, a test's 540 s, and a
--- stage's 300 s (fixtures/fixed_point_test.tl), which names a hung stage
--- as long as the stage before it took under 240 s. The stage's 270 s,
--- sized on October 9 from a first rebuild of 134 s on a four-core x86-64
--- host, ended the compiler cases' edited stages on alpine-x86_64 on
--- October 30 and on both x86-64 legs on October 31, where those stages
--- compiled the tree cold twice and the identity cases' parsed it again
--- after.
+-- host, with an every-core product and the tree of October 31 (1107
+-- modules), they took 158 to 168 s beside the file's other tests, their
+-- settles 58 to 61 s. The other four share one file of compiles made
+-- afresh each run (COSMIC_FIXTURE_SHARED_COMPILES): the first compiles
+-- the tree cold in 97 s, and the rest, started after it, only what their
+-- edits move, in 32 to 36 s. So the file ends about when the last
+-- compiler case does: 206 s on four workers. The x86-64 legs take 1.23
+-- (linux-x86_64) to 1.28 (alpine-x86_64) times that host's time on a
+-- cold rebuild (134 s on October 31 and 139 s on October 30, against
+-- 109 s) and 1.30 to 1.35 times on a settle (84 to 87 s against 63 to 66
+-- s). So on alpine-x86_64 the longest stage takes about 130 s, a
+-- compiler case about 220 s and the file about 275 s. The bounds keep
+-- 1.5 to 1.6 times that, as #2834 did for the suite's: the group's 440 s,
+-- a test's 340 s, and a stage's 210 s (fixtures/fixed_point_test.tl),
+-- which names a hung stage as long as the stage before it took under 130
+-- s. The stage's 270 s, sized on October 9 from a first rebuild of 134 s
+-- on a four-core x86-64 host, ended the compiler cases' edited stages on
+-- alpine-x86_64 on October 30 and on both x86-64 legs on October 31,
+-- where those stages compiled the tree cold twice and the identity
+-- cases' parsed it again after.
 -- TODO: the compiler cases still compile the whole tree cold, so the
 -- file's cost follows the tree (about 5% a day the week of October 3) and
 -- these bounds will be passed again: report the group's elapsed time
 -- against its bound from [`fixture_run_spec`], so the growth shows before
 -- it fails a run.
-local fixed_point_test_timeout_ns <const> = Clock.seconds(600)
-local fixed_point_per_test_timeout_s <const> = "540"
+local fixed_point_test_timeout_ns <const> = Clock.seconds(440)
+local fixed_point_per_test_timeout_s <const> = "340"
 --- The whole suite on the checked core: see [`checked_suite`]'s comment
 --- for what it takes. Sized from the merge queue's runs of 17 to 19 October 2026: the 7800 tests took 800 to 1114 s in
 --- 14 of its 36 completed runs and over 1200 s in one, a change that adds 45 tests (15 s of test time in 2900 s
@@ -2219,7 +2216,7 @@ local function phase_fixtures(p: PlatformContext): integer
     if s ~= 0 then return s end
   end
   -- The fixed-point regression is the slowest fixture on every leg
-  -- (about 370 s on the x86-64 legs: `fixed_point_test_timeout_ns` says
+  -- (about 275 s on the x86-64 legs: `fixed_point_test_timeout_ns` says
   -- why), and what it checks, that the compiler compiles itself to
   -- itself, is the same on every platform. So no gating run runs it (ci.yml sets
   -- COSMIC_CI_FIXED_POINT=skip); main's scheduled run runs it on every

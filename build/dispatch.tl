@@ -427,9 +427,8 @@ local function run(file: string, argv: {string}): integer
     end
   end
 
-  -- The compiler this binary is, as the build that made it recorded.
-  -- A project's rows are keyed by it, so a different compiler
-  -- recompiles them.
+  -- The compiler this binary is, as the build that made it recorded
+  -- ([`importer.own_tool`]).
   local asked, grammar_trouble = GrammarMode.mode()
   if asked == nil then
     local _, _ = work.close(handle)
@@ -437,7 +436,7 @@ local function run(file: string, argv: {string}): integer
     return 1
   end
   local grammar = asked
-  local tool = GrammarMode.tool(Store.meta("compiler") or "", grammar)
+  local tool = importer.own_tool(grammar)
 
   local database = build_paths.under(handle.dir).projection
 
