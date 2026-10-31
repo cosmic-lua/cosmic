@@ -233,6 +233,11 @@ local version <const> = "30"
 --- and the core that compressed it, which [`build.writer`] puts in a
 --- projection beside it instead of compressing every source on each write.
 ---
+--- `compressed` is the gzip and zstd of a static file (NULL where not worth
+--- keeping), by its path, SHA-256, the digest of the rules that chose them
+--- ([`cosmic.mime`]) and the core that compressed it, which [`build.writer`]
+--- puts in a projection's `payload` instead of compressing every file on each write.
+---
 --- `link_answers` is what the disk answered the last time
 --- [`build.link_index`]'s `pending` resolved the tree's links, by a
 --- fingerprint of the links and the code that resolves them, so a run
@@ -442,6 +447,13 @@ for _, statement in ipairs({
                                          core TEXT NOT NULL,
                                          data BLOB NOT NULL,
                                          PRIMARY KEY (source_hash, core)) WITHOUT ROWID]],
+    [[CREATE TABLE IF NOT EXISTS compressed (path TEXT NOT NULL,
+                                           sha256 TEXT NOT NULL,
+                                           rules TEXT NOT NULL,
+                                           core TEXT NOT NULL,
+                                           gzip BLOB,
+                                           zstd BLOB,
+                                           PRIMARY KEY (path, sha256, rules, core)) WITHOUT ROWID]],
     [[CREATE TABLE IF NOT EXISTS link_answers (kind TEXT NOT NULL,
                                           path TEXT NOT NULL,
                                           value TEXT NOT NULL,

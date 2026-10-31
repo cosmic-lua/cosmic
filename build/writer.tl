@@ -467,28 +467,60 @@ function writer.signature(handle: work.Handle, result: importer.Result,
   return signed(handle, result, pending, binary)
 end
 
--- TODO: every write of a projection compresses every asset again, gzip and
--- zstd both, though an edit elsewhere in the tree leaves them as they were.
--- Keep the pair in the working database, keyed by the file's SHA-256 and
--- [`mime_digest`] so an edit to [`cosmic.mime`] drops them. It waits on that
--- cache table in [`build/schema.tl`], which does not exist yet.
+--- Drops the rows of `compressed` that this write cannot use: another
+--- core's, another [`mime_digest`]'s, and those of a file the tree no
+--- longer holds as it was (the path and the SHA-256 name a row).
+local prune_compressed <const> =
+  "DELETE FROM compressed WHERE core <> " .. deflating_core ..
+  " OR rules <> ?1 OR NOT EXISTS (SELECT 1 FROM files f WHERE f.path = 'static/' || compressed.path " ..
+  "AND f.sha256 = compressed.sha256)"
 
 --- Writes the files under `static/` as the `payload` rows a program reads
 --- them from: the path below `static/`, the bytes, their SHA-256 as staged,
 --- the type [`Mime.of`] gives, and the gzip [`Mime.gzip`] and zstd
 --- [`Mime.zstd`] find worth keeping. All are functions of the path and bytes
 --- alone, so the projection stays a function of the tree.
+---
+--- The pair is kept in `compressed` by path, SHA-256, the rules
+--- ([`mime_digest`]) and the core that compressed it, as `deflated` keeps a
+--- source's, so a write compresses only a file whose bytes are new; a cached
+--- row is what [`Mime.gzip`] and [`Mime.zstd`] would give, so the projection
+--- is the same bytes with or without it.
 local function fill_payload(db: Sqlite.Handle): boolean, string
+  local rules = mime_digest()
+  local pruned, prune_trouble = Sqlite.run(db, prune_compressed, { text(rules) })
+  if not pruned then
+    return false, prune_trouble
+  end
   local files, trouble = Sqlite.text_rows(db,
-    "SELECT substr(path, 8), data, sha256 FROM files WHERE path GLOB 'static/*' ORDER BY path")
+    "SELECT substr(f.path, 8), f.data, f.sha256, c.path IS NOT NULL, c.gzip, c.zstd " ..
+      "FROM files f LEFT JOIN compressed c ON c.path = substr(f.path, 8) AND c.sha256 = f.sha256 " ..
+      "AND c.rules = ?1 AND c.core = " .. deflating_core ..
+      " WHERE f.path GLOB 'static/*' ORDER BY f.path", { text(rules) })
   if files == nil then
     return false, trouble
   end
   for _, row in ipairs(files) do
     local path, data, sha256 = row:text(1), row:text(2), row:text(3)
     local null: Sqlite.Value = {}
-    local packed = Mime.gzip(path, data)
-    local zstd = Mime.zstd(path, data)
+    local packed: string? = nil
+    local zstd: string? = nil
+    if row:text(4) == "1" then
+      packed = if row:is_null(5) then nil else row:text(5) end
+      zstd = if row:is_null(6) then nil else row:text(6) end
+    else
+      packed = Mime.gzip(path, data)
+      zstd = Mime.zstd(path, data)
+      local kept, kept_trouble = Sqlite.run(db,
+        "INSERT OR REPLACE INTO compressed (path, sha256, rules, core, gzip, zstd) " ..
+          "VALUES (?1, ?2, ?3, " .. deflating_core .. ", ?4, ?5)",
+        { text(path), text(sha256), text(rules),
+          if packed ~= nil then blob(packed) else null end,
+          if zstd ~= nil then blob(zstd) else null end })
+      if not kept then
+        return false, "static/" .. path .. ": " .. kept_trouble
+      end
+    end
     local ok, failure = Sqlite.run(db,
       "INSERT INTO out.payload (path, data, sha256, type, gzip, zstd) " ..
         "VALUES (?1, ?2, ?3, ?4, ?5, ?6)",

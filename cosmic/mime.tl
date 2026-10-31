@@ -76,13 +76,16 @@ end
 --- The most bytes of a file that are not worth compressing.
 local MIN_BYTES <const> = 1024
 
---- The level the zstd of a file is written at. Every projection write
---- compresses every asset again, so the cost is paid often: on 5.9 MB of
---- source text level 12 takes about what gzip level 9 does (370 ms against
---- 360) and is 14% smaller than it, where level 19 is 10 times slower for 24%
---- and level 9 is 2.4 times faster for 12%. Levels 3 to 12 stay near gzip's
---- cost; above 12 the time climbs steeply for a few percent of size.
-local ZSTD_LEVEL <const> = 12
+--- The level the zstd of a file is written at. The projection writer keeps
+--- each file's compressed pair by its bytes and the rules ([`build.writer`]'s digest of this module)
+--- (`compressed` in [`build.work`]), so a file is compressed once per content
+--- and a warm write pays nothing for it: on 10.6 MB of text in 693 files
+--- (loaded machine) a write took 22.3 s cold and 0.5 s warm at level 12, and
+--- 51.4 s cold and 0.6 s warm at level 19. Level 19 costs 2.3 times level 12
+--- once, for the 10 points of size the earlier measurement on 5.9 MB of
+--- source gave it (24% under gzip against 14%). Changing the level moves the
+--- rules' digest and so compresses every file once more.
+local ZSTD_LEVEL <const> = 19
 
 --- Whether a file called `path` with contents `data` is worth sending
 --- compressed: the type is text or another format not compressed already,
