@@ -194,6 +194,8 @@ allowed["cosmic.sandbox.restrict"] = "tested directly: it holds the process that
 allowed["cosmic.test.needs_of"] = "tested directly: the worker's translation of a policy, " ..
   "which the build's own reading of one (build.syntax_analyzer, which cannot require this " ..
   "module) is held to by cosmic/test_policy_test.tl"
+allowed["cosmic.test.raises"] = "public API for tests: a test module is the only caller " ..
+  "a helper of the test library can have"
 allowed["build.assertions.lua_assert"] = "tested directly: Lua's own `assert`, kept " ..
   "for build/assertions_test.tl to hold the counting one to, case by case, so a Lua " ..
   "upgrade that changes luaB_assert fails there rather than drifting"

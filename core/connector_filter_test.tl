@@ -2,6 +2,7 @@
 local type raw_process = require("cosmic.internal.process")
 local type _ = require("cosmic.child")
 local process = require("cosmic.internal.process")
+local Test = require("cosmic.test")
 local ALLOW <const> = 0x7fff0000
 local REFUSE <const> = 0x50001
 local KILL <const> = 0x80000000
@@ -176,7 +177,6 @@ local function test_invalid_filter_inputs_are_refused()
       { { base = 0x11223344ffffff80, slots = 9, length = 16 } },
       { { base = 0x11223344ffffff80, slots = 5, length = 28 } },
   }) do
-    local ok = pcall(process.connector_filter, "x86_64", ranges, CONTROL, STATUS)
-    assert(not ok)
+    Test.raises(function() process.connector_filter("x86_64", ranges, CONTROL, STATUS) end)
   end
 end

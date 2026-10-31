@@ -62,8 +62,7 @@ local function test_a_module_outside_the_closure_is_not_in_the_program()
     local value: any = chunk(name)
     return value
   end
-  local ok, why = pcall(dynamic_require, "cosmic." .. "zip")
-  assert(not ok and tostring(why):find("outside the import closure", 1, true) ~= nil, tostring(why))
+  Test.raises(function() dynamic_require("cosmic." .. "zip") end, "outside the import closure")
 end
 
 --- The same from a finalizer, which a collection runs where it likes,

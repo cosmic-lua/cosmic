@@ -1,6 +1,7 @@
 --- Captured outcomes remain about their operation, even after cleanup.
 local Fs = require("cosmic.fs")
 local Sqlite = require("cosmic.sqlite")
+local Test = require("cosmic.test")
 
 --- The first of `rows`, which the statement is known to yield.
 local function first_row(rows: Sqlite.Rows): Sqlite.Row
@@ -40,8 +41,7 @@ local function test_bound_values_keep_kinds_and_invalid_lists_release_the_statem
     { { ["text\0junk"] = "bad" } }, { { integer = 1.5 } }, { { text = false } },
   }
   for _, values in ipairs(invalid) do
-    local ok, _ = pcall(Sqlite.rows_result, db, "SELECT ?1", values as {Sqlite.Value})
-    assert(not ok, "invalid bound values were accepted")
+    Test.raises(function() Sqlite.rows_result(db, "SELECT ?1", values as {Sqlite.Value}) end)
   end
   local texts = Sqlite.text_rows_result(db, "SELECT ?1", { { integer = 42 } })
   assert(texts.code == Sqlite.OK and first_row(assert(texts.rows)):text(1) == "42")

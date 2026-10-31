@@ -253,8 +253,7 @@ end
 local function test_a_spec_of_the_wrong_shape_raises_naming_the_field(tmp: string)
   local address = Net.unix(tmp .. "/s.sock")
   local function refused(spec: any, field: string)
-    local ok, why = pcall(Net.serve, spec as Net.ServeSpec)
-    assert(not ok and tostring(why):find("net: " .. field, 1, true) ~= nil, tostring(why))
+    Test.raises(function() Net.serve(spec as Net.ServeSpec) end, "net: " .. field)
   end
   refused({ serve = echo }, "spec.listeners must be")
   refused({ listeners = {}, serve = echo }, "spec.listeners must be")

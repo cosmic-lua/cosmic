@@ -68,6 +68,5 @@ end
 
 --- A file run standalone by the driver's own path is not the helper's to start: the words refuse it.
 local function test_the_driver_does_not_run_a_file_standalone()
-  local ok, why = pcall(BuildPaths.driver, { "--standalone", "build/paths.tl" }, {})
-  assert(not ok and tostring(why):find("does not run a file standalone", 1, true) ~= nil, tostring(why))
+  Test.raises(function() BuildPaths.driver({ "--standalone", "build/paths.tl" }, {}) end, "does not run a file standalone")
 end

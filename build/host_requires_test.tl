@@ -53,8 +53,7 @@ local function test_a_broken_unix_socket_probe_cannot_become_a_skip()
   local host = host_requires.new({ unix_socket = function(): boolean, string
     error("probe failed")
   end })
-  local ok, why = pcall(ask, host, "unix_socket")
-  assert(not ok and tostring(why):find("probe failed", 1, true) ~= nil, tostring(why))
+  Test.raises(function() ask(host, "unix_socket") end, "probe failed")
 end
 
 --- Every name of the table, and each form that takes an argument, is read.
@@ -193,8 +192,9 @@ local function test_sandbox_follows_the_runners_probe()
   assert(ask(host_with({ ok = true, why = "", broken = false }), "sandbox").kind == "present")
   local refused = ask(host_with({ ok = false, why = "no userns", broken = false }), "sandbox")
   assert(refused.kind == "skipped" and refused.why == "no userns")
-  local ok, trouble = pcall(ask, host_with({ ok = false, why = "defect", broken = true }), "sandbox")
-  assert(not ok and tostring(trouble):find("defect", 1, true) ~= nil, tostring(trouble))
+  Test.raises(function()
+    ask(host_with({ ok = false, why = "defect", broken = true }), "sandbox")
+  end, "defect")
   local no_ok, no_probe = pcall(ask, host_requires.new(), "sandbox")
   assert(not no_ok and tostring(no_probe):find("sandbox probe", 1, true) ~= nil, tostring(no_probe))
 end

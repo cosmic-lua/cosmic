@@ -872,4 +872,26 @@ function Test.passed_unchecked(reason: string)
   if deliberate is function(string) then deliberate(reason) end
 end
 
+--- Calls `fn` and checks that it raises: returns the message it raised, as
+--- text, so a caller can check more of it. The test fails, naming what was
+--- expected, when `fn` returns normally or the message lacks `says`, a
+--- plain substring (a caller that needs a pattern matches the returned
+--- message itself). A raised table is shown by its `tostring`, as `error`
+--- would show it. A [`Test.skip`] inside `fn` is caught like any raise. The
+--- call counts as a call to `assert`.
+---
+---     local why = Test.raises(function() Http.open(url, { timeout_ns = -5 }) end, "timeout_ns")
+---     assert(why:find("negative", 1, true))
+--- @param fn the call that must raise
+--- @param says text the message must hold; none checks only that it raised
+function Test.raises(fn: function(), says?: string): string
+  local ok, err = pcall(fn)
+  local wanted = says and (" naming " .. string.format("%q", says)) or ""
+  assert(not ok, "test: expected a raise" .. wanted .. ", but the call returned")
+  local message = tostring(err)
+  assert(says == nil or message:find(says, 1, true) ~= nil,
+    "test: expected a raise" .. wanted .. ", but it raised: " .. message)
+  return message
+end
+
 return Test

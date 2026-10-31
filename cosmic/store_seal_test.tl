@@ -62,12 +62,6 @@ local function attach(tmp: string)
   attached = true
 end
 
-local function raises(fn: function(): any, needle: string)
-  local ok, trouble = pcall(fn)
-  assert(not ok, "did not raise")
-  assert(tostring(trouble):find(needle, 1, true), tostring(trouble))
-end
-
 --- With type-only edges followed, a closure is every module a root
 --- requires, transitively, by the store's own `requires`, and sorted; a
 --- cycle ends. Without them it is a subset of that.
@@ -120,7 +114,7 @@ end
 
 local function test_closure_of_a_missing_root_raises(tmp: string)
   attach(tmp)
-  raises(function(): any return Store.closure({ "fixture.nowhere" }) end, "fixture.nowhere")
+  Test.raises(function() Store.closure({ "fixture.nowhere" }) end, "fixture.nowhere")
 end
 
 local function modules_of(path: string): string
@@ -224,13 +218,13 @@ end
 
 local function test_seal_refuses_what_it_cannot_carry(tmp: string)
   attach(tmp)
-  raises(function(): any return (Store.seal({}, tmp .. "/none.db")) end, "non-empty")
-  raises(function(): any return (Store.seal(nil as {string}, tmp .. "/nil.db")) end, "store:")
-  raises(function(): any return Store.closure(nil as {string}) end, "store:")
-  raises(function(): any return (Store.seal({ "fixture.nowhere" }, tmp .. "/gone.db")) end,
+  Test.raises(function() Store.seal({}, tmp .. "/none.db") end, "non-empty")
+  Test.raises(function() Store.seal(nil as {string}, tmp .. "/nil.db") end, "store:")
+  Test.raises(function() Store.closure(nil as {string}) end, "store:")
+  Test.raises(function() Store.seal({ "fixture.nowhere" }, tmp .. "/gone.db") end,
     "fixture.nowhere")
-  raises(function(): any
-    return (Store.seal({ "fixture.leaf" }, tmp .. "/main.db", { main = "fixture.app" }))
+  Test.raises(function()
+    Store.seal({ "fixture.leaf" }, tmp .. "/main.db", { main = "fixture.app" })
   end,
     "fixture.app")
   assert(Fs.exists(tmp .. "/gone.db") == false, "a failed seal leaves no file")
@@ -275,17 +269,17 @@ local function test_seal_carries_an_extra_module_as_the_main(tmp: string)
   -- A script that requires nothing is a program of no sealed names.
   assert(Store.seal({}, tmp .. "/alone.db", { extra = extra }))
   assert(modules_of(tmp .. "/alone.db") == "main")
-  raises(function(): any
-    return (Store.seal({ "fixture.leaf", "main" }, tmp .. "/x.db", { extra = extra }))
+  Test.raises(function()
+    Store.seal({ "fixture.leaf", "main" }, tmp .. "/x.db", { extra = extra })
   end, "also one of the names")
-  raises(function(): any
-    return (Store.seal({ "fixture.leaf" }, tmp .. "/y.db", { extra = extra, main = "fixture.leaf" }))
+  Test.raises(function()
+    Store.seal({ "fixture.leaf" }, tmp .. "/y.db", { extra = extra, main = "fixture.leaf" })
   end, "both given")
   -- It may not shadow a module the store holds, or any of `cosmic.`.
   for _, name in ipairs({ "fixture.app", "cosmic.fs", "cosmic.nothing" }) do
-    raises(function(): any
-      return (Store.seal({ "fixture.leaf" }, tmp .. "/z.db", { extra = {
-        name = name, bytecode = extra.bytecode, source = "", requires = {} } }))
+    Test.raises(function()
+      Store.seal({ "fixture.leaf" }, tmp .. "/z.db", { extra = {
+        name = name, bytecode = extra.bytecode, source = "", requires = {} } })
     end, "must not shadow")
   end
 end

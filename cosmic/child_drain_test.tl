@@ -167,8 +167,7 @@ local function test_a_parked_reader_refuses_drain_until_its_task_is_killed()
   Poll.run(function()
     local reader = Poll.spawn(function() local _, _ = assert(h.stdout_stream):read() end)
     assert(Poll.delay(0))
-    local ok, why: boolean, any = pcall(function() h:drain(options(Stream.collect(), nil, 0)) end)
-    assert(not ok and tostring(why):find("already being consumed", 1, true))
+    Test.raises(function() h:drain(options(Stream.collect(), nil, 0)) end, "already being consumed")
     reader:kill()
     assert(h:drain(options(Stream.collect(), nil, 0)).kind == "timeout")
   end)
@@ -260,8 +259,7 @@ local function test_a_raising_sink_closes_inputs_and_releases_ownership()
   sink.write = function(_self: Stream.Collector, _data: string): boolean, string
     error("writer raised")
   end
-  local ok, why: boolean, any = pcall(function() h:drain(options(sink)) end)
-  assert(not ok and tostring(why):find("writer raised", 1, true))
+  Test.raises(function() h:drain(options(sink)) end, "writer raised")
   assert(h:drain(options(sink)).kind == "failed")
   sink.write = write
   assert(sink:write("open"))
@@ -418,8 +416,7 @@ assert(Fs.put(1, "output")) assert(Fs.put(2, "error"))]],
   assert(assert(h:wait()).ok)
   local out, err = Stream.collect(), Stream.collect()
   local incomplete: Child.DrainOptions = { stderr = err, max_bytes = 100, timeout_ns = 0 }
-  local ok, why: boolean, any = pcall(function() h:drain(incomplete) end)
-  assert(not ok and tostring(why):find("sink for each streamed output", 1, true))
+  Test.raises(function() h:drain(incomplete) end, "sink for each streamed output")
   assert(err:result() == "")
   local complete = options(out)
   complete.stderr = err

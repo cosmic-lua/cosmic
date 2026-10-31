@@ -2,16 +2,7 @@ local Clock = require("cosmic.clock")
 local Poll = require("cosmic.poll")
 local Stream = require("cosmic.stream")
 local Web = require("cosmic.web")
-
---- The message of the error `fn` raises; fails where it raises none.
-local function raised(fn: function()): string
-  local ok, err = pcall(function(): any
-    fn()
-    return nil
-  end)
-  assert(not ok, "expected a raise")
-  return tostring(err)
-end
+local Test = require("cosmic.test")
 
 --- An app that echoes what a request carried.
 local function echo(): Web.App
@@ -170,11 +161,11 @@ local function test_the_client_fails_a_reply_the_server_would_answer_500_for()
   } }
   local client = Web.test_client(app)
   for _, path in ipairs({ "/header", "/length", "/body", "/reader" }) do
-    local message = raised(function() client:get(path) end)
+    local message = Test.raises(function() client:get(path) end)
     assert(message:find("the server would answer 500", 1, true), path .. ": " .. message)
   end
   assert(closed, "an unsent Reader body is closed")
-  assert(raised(function() client:get("nowhere") end):find("must start with '/'", 1, true))
+  assert(Test.raises(function() client:get("nowhere") end):find("must start with '/'", 1, true))
 end
 
 local function test_a_handler_may_wait_in_the_loop_the_client_runs_it_in()
@@ -227,7 +218,7 @@ local function test_a_failed_lifespan_fails_the_first_request()
   local app = Web.app{ routes = {}, lifespan = function(_app: Web.App): Web.Shutdown?, string
     return nil, "no database"
   end }
-  assert(raised(function() Web.test_client(app):get("/") end):find("the lifespan failed: no database", 1, true))
+  assert(Test.raises(function() Web.test_client(app):get("/") end):find("the lifespan failed: no database", 1, true))
 end
 
 local function test_a_lifespan_that_failed_is_run_again_by_the_next_request()
@@ -240,7 +231,7 @@ local function test_a_lifespan_that_failed_is_run_again_by_the_next_request()
     return function() end, ""
   end }
   local client = Web.test_client(app)
-  assert(raised(function() client:get("/") end):find("the lifespan failed: not yet", 1, true))
+  assert(Test.raises(function() client:get("/") end):find("the lifespan failed: not yet", 1, true))
   assert(client:get("/"):text() == "up", "the second request starts it, since the first did not")
   assert(starts == 2)
   assert(client:get("/").status == 200 and starts == 2, "started once it has succeeded")

@@ -686,8 +686,7 @@ end
 
 local function test_read_refuses_a_max_bytes_below_one()
   local response = assert(Http.open(url, { script = { reply("200 OK", "", "body") } }))
-  local ok, why = pcall(function() response:read(0) end)
-  assert(not ok and tostring(why):find("http: read's max_bytes must be positive", 1, true), tostring(why))
+  Test.raises(function() response:read(0) end, "http: read's max_bytes must be positive")
   response:close()
 end
 
@@ -1002,8 +1001,7 @@ local function test_download_result_cancel_and_callback_exception_keep_target(tm
   end
   local options: Http.Options = { script = { reply("200 OK", "", "body") },
     cancelled = function(): boolean error("callback failed") end }
-  local ok, why = pcall(Http.download_result, url, path, options)
-  assert(not ok and tostring(why):find("callback failed", 1, true), tostring(why))
+  Test.raises(function() Http.download_result(url, path, options) end, "callback failed")
   assert(Fs.read(path) == "old" and #assert(Fs.list(tmp)) == 1)
 end
 
@@ -1136,8 +1134,7 @@ local function test_get_refuses_another_method_and_a_body()
       { method = "HEAD", script = script },
       { body = "x", script = script },
   } as {Http.Options}) do
-    local ok, why = pcall(Http.get, url, opts)
-    assert(not ok and tostring(why):find("Http.request", 1, true), tostring(why))
+    Test.raises(function() Http.get(url, opts) end, "Http.request")
   end
   local got, trouble = Http.get(url, { method = "GET", script = script })
   assert(got ~= nil and got.status == 200, trouble)

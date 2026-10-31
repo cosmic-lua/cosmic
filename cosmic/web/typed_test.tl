@@ -1,5 +1,6 @@
 local Shape = require("cosmic.shape")
 local Web = require("cosmic.web")
+local Test = require("cosmic.test")
 
 local record ItemPath
   id: integer
@@ -213,15 +214,6 @@ local function test_a_route_records_what_it_binds()
   assert(Web.get("/c", noop as Web.Handler).input == nil)
 end
 
-local function raises(fn: function()): string
-  local ok, err = pcall(function(): any
-    fn()
-    return nil
-  end)
-  assert(not ok, "it should have raised")
-  return tostring(err)
-end
-
 local function empty_handler(_req: Web.Request, _p: Web.None, _q: Web.None, _b: Web.None): Web.Response
   return Web.empty()
 end
@@ -230,21 +222,21 @@ local function test_registration_refuses_a_path_that_does_not_match_its_spec()
   local function none_handler(_req: Web.Request, _p: Web.None, _q: Web.None, _b: Web.None): Web.Response
     return Web.empty()
   end
-  local why = raises(function()
+  local why = Test.raises(function()
     Web.get_typed("/items/:name", Web.input(PATH, Web.NONE, Web.no_body), function(_req: Web.Request, _p: ItemPath,
                                                                                    _q: Web.None, _b: Web.None): Web.Response
       return Web.empty()
     end)
   end)
   assert(why:find('"name" is not a field of the path spec', 1, true), why)
-  why = raises(function()
+  why = Test.raises(function()
     Web.get_typed("/items", Web.input(PATH, Web.NONE, Web.no_body), function(_req: Web.Request, _p: ItemPath,
                                                                              _q: Web.None, _b: Web.None): Web.Response
       return Web.empty()
     end)
   end)
   assert(why:find('"id" is not a parameter of the pattern', 1, true), why)
-  why = raises(function()
+  why = Test.raises(function()
     Web.get_typed("/items/:id", Web.input(Web.NONE, Web.NONE, Web.no_body), none_handler)
   end)
   assert(why:find('"id" is not a field', 1, true), why)
@@ -255,14 +247,14 @@ local function test_registration_refuses_a_path_that_does_not_match_its_spec()
 end
 
 local function test_registration_refuses_a_body_on_get_and_a_spec_text_cannot_carry()
-  local why = raises(function()
+  local why = Test.raises(function()
     Web.get_typed("/x", Web.input(Web.NONE, Web.NONE, Web.json_body(NEW)),
       function(_req: Web.Request, _p: Web.None, _q: Web.None, _b: NewItem): Web.Response
         return Web.empty()
       end)
   end)
   assert(why:find("GET takes no body", 1, true), why)
-  why = raises(function()
+  why = Test.raises(function()
     Web.get_typed("/x", Web.input(Web.NONE, MAPPED, Web.no_body),
       function(_req: Web.Request, _p: Web.None, _q: Mapped, _b: Web.None): Web.Response
         return Web.empty()
@@ -282,11 +274,11 @@ end
 
 local function test_the_slots_refuse_what_is_not_a_spec()
   local nothing: any = {}
-  local why = raises(function()
+  local why = Test.raises(function()
     Web.json_body(nothing as Shape.Typed<NewItem>)
   end)
   assert(why:find("takes the result of Shape.record_of", 1, true), why)
-  why = raises(function()
+  why = Test.raises(function()
     Web.input(PATH, Web.NONE, nothing as Web.Body<Web.None>)
   end)
   assert(why:find("Web.json_body", 1, true), why)

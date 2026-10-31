@@ -31,7 +31,6 @@ end
 
 local function test_user_rejects_malformed_names()
   for _, name in ipairs({ "", "root\0suffix", "\0root" }) do
-    local ok, trouble = pcall(Proc.user, name)
-    assert(not ok and tostring(trouble):find("user name", 1, true))
+    Test.raises(function() Proc.user(name) end, "user name")
   end
 end

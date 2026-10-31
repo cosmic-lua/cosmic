@@ -19,16 +19,6 @@ local WAIT_NS <const> = Clock.seconds(3)
 --- A heartbeat short enough to see within a test.
 local BEAT_NS <const> = Clock.ms(40)
 
---- The message of the error `fn` raises; fails where it raises none.
-local function raised(fn: function()): string
-  local ok, err = pcall(function(): any
-    fn()
-    return nil
-  end)
-  assert(not ok, "expected a raise")
-  return tostring(err)
-end
-
 --- An open stream: a connection past the head of the reply, and its chunks.
 local record Feed
   conn: Net.Conn
@@ -134,12 +124,12 @@ local function test_format_event_writes_each_field_once_and_a_comment_alone()
 end
 
 local function test_format_event_refuses_a_field_that_would_start_another()
-  assert(raised(function() local _ = Sse.format_event({ id = "1\nevent: x" }) end):find("id must not hold", 1, true))
-  assert(raised(function() local _ = Sse.format_event({ id = "a\0b" }) end):find("NUL", 1, true))
-  assert(raised(function() local _ = Sse.format_event({ event = "a\rb" }) end):find("event must not hold", 1, true))
-  assert(raised(function() local _ = Sse.format_event({ retry = -1 }) end):find("retry", 1, true))
+  assert(Test.raises(function() local _ = Sse.format_event({ id = "1\nevent: x" }) end):find("id must not hold", 1, true))
+  assert(Test.raises(function() local _ = Sse.format_event({ id = "a\0b" }) end):find("NUL", 1, true))
+  assert(Test.raises(function() local _ = Sse.format_event({ event = "a\rb" }) end):find("event must not hold", 1, true))
+  assert(Test.raises(function() local _ = Sse.format_event({ retry = -1 }) end):find("retry", 1, true))
   local fractional: any = { retry = 1.5 }
-  assert(raised(function() local _ = Sse.format_event(fractional as Sse.Event) end):find("retry", 1, true))
+  assert(Test.raises(function() local _ = Sse.format_event(fractional as Sse.Event) end):find("retry", 1, true))
 end
 
 local function test_event_helpers_name_the_event_and_escape_nothing_themselves()
@@ -147,7 +137,7 @@ local function test_event_helpers_name_the_event_and_escape_nothing_themselves()
   assert(html.event == "row" and html.data == "&lt;b&gt;")
   assert(Sse.json("n", { a = 1 }).data == '{"a":1}')
   assert(Sse.text("t", "hi").data == "hi")
-  assert(raised(function() local _ = Sse.json("n", function() end) end):find("json", 1, true))
+  assert(Test.raises(function() local _ = Sse.json("n", function() end) end):find("json", 1, true))
 end
 
 local function test_a_stream_sends_retry_events_and_heartbeats_then_ends_with_its_source()
@@ -220,11 +210,11 @@ local function test_max_age_ends_a_stream_cleanly()
 end
 
 local function test_options_are_checked()
-  assert(raised(function() local _ = Sse.new_hub({ overflow = "block" }) end):find("overflow must be", 1, true))
-  assert(raised(function() local _ = Sse.new_hub({ replay = -1 }) end):find("replay", 1, true))
+  assert(Test.raises(function() local _ = Sse.new_hub({ overflow = "block" }) end):find("overflow must be", 1, true))
+  assert(Test.raises(function() local _ = Sse.new_hub({ replay = -1 }) end):find("replay", 1, true))
   local unknown: any = { nope = 1 }
-  assert(raised(function() local _ = Sse.new_hub(unknown as Sse.HubOptions) end):find("no option nope", 1, true))
-  assert(raised(function() Web.app{ max_streams = -1 } end):find("max_streams", 1, true))
+  assert(Test.raises(function() local _ = Sse.new_hub(unknown as Sse.HubOptions) end):find("no option nope", 1, true))
+  assert(Test.raises(function() Web.app{ max_streams = -1 } end):find("max_streams", 1, true))
 end
 
 local function test_last_event_id_replays_what_the_ring_holds_after_it()
@@ -322,8 +312,8 @@ local function test_an_empty_or_missing_id_gets_the_hubs_and_nul_in_event_is_ref
     hub:publish("t", { id = "", data = "a" })
     hub:publish("t", { id = "mine", data = "b" })
     assert(assert(sub:next(0)).id == "1" and assert(sub:next(0)).id == "mine")
-    assert(raised(function() hub:publish("t", { event = "a\0b" }) end):find("NUL", 1, true))
-    assert(raised(function() local _ = Sse.format_event({ event = "a\0b" }) end):find("NUL", 1, true))
+    assert(Test.raises(function() hub:publish("t", { event = "a\0b" }) end):find("NUL", 1, true))
+    assert(Test.raises(function() local _ = Sse.format_event({ event = "a\0b" }) end):find("NUL", 1, true))
   end)
 end
 
@@ -437,8 +427,8 @@ end
 
 local function test_an_event_the_hub_cannot_carry_raises()
   local hub = Sse.new_hub({ max_event_bytes = 8 })
-  assert(raised(function() hub:publish("t", { data = ("x"):rep(9) }) end):find("over the hub's max_event_bytes", 1, true))
-  assert(raised(function() hub:publish("t", { id = "a\nb" }) end):find("id must not hold", 1, true))
+  assert(Test.raises(function() hub:publish("t", { data = ("x"):rep(9) }) end):find("over the hub's max_event_bytes", 1, true))
+  assert(Test.raises(function() hub:publish("t", { id = "a\nb" }) end):find("id must not hold", 1, true))
   assert(hub:publish("t", { data = ("x"):rep(8) }) == 0)
 end
 

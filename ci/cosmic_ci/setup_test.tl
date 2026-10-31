@@ -9,6 +9,7 @@ local Test = require("cosmic.test")
 -- The setup resolves outputs through the running driver before boot.
 Test.policy{ profiles = { "cosmic" }, grants = { { path = "o/bin", letters = "rx" } } }
 
+-- TODO: replace `fails` with the test library's raises once ci/cosmic-driver.pin names a release that has it.
 local function fails(action: function(), expected: string)
   local ok, problem = pcall(function(): boolean
     action()

@@ -6,6 +6,7 @@ local Clock = require("cosmic.clock")
 local Poll = require("cosmic.poll")
 local Stream = require("cosmic.stream")
 local sys = require("cosmic.sys")
+local Test = require("cosmic.test")
 
 --- The two ends of a named pipe in `dir`, neither waiting: the reading
 --- end open first, as a pipe with no reader refuses a nonblocking writer.
@@ -29,12 +30,6 @@ local function drained(fd: integer): string
     parts[#parts + 1] = data
   end
   return table.concat(parts)
-end
-
-local function raises(fn: function(), words: string)
-  local ok, err: boolean, any = pcall(fn)
-  assert(not ok, "expected a raise naming " .. words)
-  assert(tostring(err):find(words, 1, true), tostring(err))
 end
 
 --- A read that finds nothing waits `timeout_ns` and then fails with the
@@ -205,12 +200,12 @@ end
 --- A timeout or a wait of the caller's means a descriptor that does not
 --- block, and a timeout is a span a wait can last.
 local function test_the_options_are_checked()
-  raises(function() local _ = Stream.from_fd(0, { timeout_ns = Clock.ms(5) }) end, "nonblocking")
-  raises(function() local _ = Stream.to_fd(1, { timeout_ns = Clock.ms(5) }) end, "nonblocking")
-  raises(function()
+  Test.raises(function() local _ = Stream.from_fd(0, { timeout_ns = Clock.ms(5) }) end, "nonblocking")
+  Test.raises(function() local _ = Stream.to_fd(1, { timeout_ns = Clock.ms(5) }) end, "nonblocking")
+  Test.raises(function()
     local _ = Stream.to_fd(1, { wait = function(_: integer, _: integer, _: integer?):
         boolean, string return true, "" end })
   end, "nonblocking")
-  raises(function() local _ = Stream.from_fd(0, { nonblocking = true, timeout_ns = -1 }) end,
+  Test.raises(function() local _ = Stream.from_fd(0, { nonblocking = true, timeout_ns = -1 }) end,
     "timeout_ns")
 end
