@@ -5597,8 +5597,6 @@ build/shared_verdicts_tool_test.tl compare_disjoint 6
 
 build/standalone_test.tl compare_disjoint 2
 
-build/test_inputs.tl compare_disjoint 2
-
 build/test_key.tl compare_disjoint 4
 
 build/test_policy_plan_tool_test.tl compare_disjoint 2
