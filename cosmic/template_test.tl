@@ -2,6 +2,10 @@ local Template = require("cosmic.template")
 
 local HEAD <const> = "{{type T from m.t}}\n"
 
+local record Expect source: string want: string end
+
+local record Refusal source: string line: string column: string reason: string end
+
 --- The source [`Template.compile`] makes of `src`, which must compile.
 local function compiled(src: string): string
   local out, why = Template.compile(src, "t.tmpl")
@@ -47,72 +51,72 @@ local function test_a_template_without_actions_does_not_read_its_argument()
   assert(not out:find("_text", 1, true), out)
 end
 
-local SLOTS <const>: {{string}} = {
-  { "<p>{{.x}}</p>", "_text(" },
-  { "a < b {{.x}}", "_text(" },
-  { "<a title=\"{{.x}}\">", "_attr(" },
-  { "<a title='{{.x}}'>", "_attr(" },
-  { "<a TITLE = \"{{.x}}\" >", "_attr(" },
-  { "<a href=\"{{.x}}\">", "_url(" },
-  { "<A HREF='{{.x}}'>", "_url(" },
-  { "<a  href  =  \"  {{.x}}\">", "_url(" },
-  { "<img alt=\"x\" src=\"{{.x}}\">", "_url(" },
-  { "<form action=\"{{.x}}\">", "_url(" },
-  { "<button formaction=\"{{.x}}\">", "_url(" },
-  { "<svg><a xlink:href=\"{{.x}}\"></a></svg>", "_url(" },
-  { "<a data-x=\"a\" title=\"{{.x}}\">", "_attr(" },
-  { "<textarea>{{.x}}</textarea>", "_rtext(" },
-  { "<title>{{.x}}</TITLE>", "_rtext(" },
-  { "<svg/><textarea><a href=\"{{.x}}\"></textarea>", "_rtext(" },
-  { "<svg><textarea>{{.x}}</textarea></svg>", "_rtext(" },
-  { "<svg><text>{{.x}}</text></svg>", "_ftext(" },
-  { "<math>{{.x}}</math>", "_ftext(" },
-  { "<svg><g>{{if .a}}<g/>{{end}}{{.x}}</g></svg>", "_ftext(" },
-  { "<select>{{.x}}</select>", "_ftext(" },
-  { "<select><option>{{.x}}</option></select>", "_ftext(" },
-  { "<select><option title=\"{{.x}}\">a</option></select>", "_attr(" },
-  { "<select><textarea>{{.x}}</textarea></select>", "_rtext(" },
-  { "<svg><g><a href=\"{{.x}}\"><path d=\"M0\"/></a></g></svg>", "_url(" },
-  { "<svg viewBox=\"0 0 1 1\"><circle r=\"1\"/></svg><p>{{.x}}</p>", "_text(" },
-  { "<svg {{if .a}}class=\"b\"{{end}}><g/></svg>{{.x}}", "_text(" },
-  { "<select><option>a</option></select><svg></svg>{{.x}}", "_text(" },
-  { "<svg/{{if .a}}{{end}}><textarea>{{.x}}</textarea>", "_rtext(" },
-  { "<svg><style>.a { fill: red }</style></svg>{{.x}}", "_text(" },
-  { "<a title=\"{{range .l}}{{.x}}{{end}}\">", "_attr(" },
-  { "<img lowsrc=\"{{.x}}\" dynsrc=\"{{.x}}\">", "_url(" },
-  { "<svg></svg>{{.x}}<math></math><title>{{.x}}</title>", "_text(" },
-  { "<a href=\"x\" {{if .a}}class=\"b\"{{end}}>{{.x}}", "_text(" },
-  { "<p {{if .a}}class=\"c\"{{else}}id=\"d\"{{end}}>{{.x}}", "_text(" },
-  { "<a href=\"{{if .a}}{{.x}}{{end}}\">", "_url(" },
-  { "<a href=\"{{.x}}x/a:b\">", "_url(" },
-  { "<a href=\"{{.x}}\t?q=/\">", "_url(" },
-  { "<a href=\"{{.x}}?q=a:b#c:d\">", "_url(" },
-  { "<meta name=\"d\" content=\"{{.x}}\">", "_attr(" },
-  { "<meta content=\"{{.x}}\" name=\"d\">", "_attr(" },
-  { "<iframe></iframe>{{.x}}<noscript></noscript>{{.x}}<xmp></xmp>{{.x}}", "_text(" },
-  { "<script>var a = 1 < 2;</script>{{.x}}", "_text(" },
-  { "<style>a > b {}</STYLE >{{.x}}", "_text(" },
-  { "<script><!-- </script>{{.x}}", "_text(" },
-  { "<!-- c -->{{.x}}", "_text(" },
-  { "<!--> {{.x}}", "_text(" },
-  { "<!---> {{.x}}", "_text(" },
-  { "<!-- a --!> {{.x}}", "_text(" },
-  { "<!DOCTYPE html>{{.x}}", "_text(" },
-  { "<a href=\"a\" title=\"{{.x}}\">", "_attr(" },
-  { "<a href=x title=\"{{.x}}\">", "_attr(" },
-  { "<br/>{{.x}}", "_text(" },
-  { "<svg><a href=\"{{.x}}\"></a></svg>", "_url(" },
-  { "<a title=\"a>b\">{{.x}}", "_text(" },
+local SLOTS <const>: {Expect} = {
+  { source = "<p>{{.x}}</p>", want = "_text(" },
+  { source = "a < b {{.x}}", want = "_text(" },
+  { source = "<a title=\"{{.x}}\">", want = "_attr(" },
+  { source = "<a title='{{.x}}'>", want = "_attr(" },
+  { source = "<a TITLE = \"{{.x}}\" >", want = "_attr(" },
+  { source = "<a href=\"{{.x}}\">", want = "_url(" },
+  { source = "<A HREF='{{.x}}'>", want = "_url(" },
+  { source = "<a  href  =  \"  {{.x}}\">", want = "_url(" },
+  { source = "<img alt=\"x\" src=\"{{.x}}\">", want = "_url(" },
+  { source = "<form action=\"{{.x}}\">", want = "_url(" },
+  { source = "<button formaction=\"{{.x}}\">", want = "_url(" },
+  { source = "<svg><a xlink:href=\"{{.x}}\"></a></svg>", want = "_url(" },
+  { source = "<a data-x=\"a\" title=\"{{.x}}\">", want = "_attr(" },
+  { source = "<textarea>{{.x}}</textarea>", want = "_rtext(" },
+  { source = "<title>{{.x}}</TITLE>", want = "_rtext(" },
+  { source = "<svg/><textarea><a href=\"{{.x}}\"></textarea>", want = "_rtext(" },
+  { source = "<svg><textarea>{{.x}}</textarea></svg>", want = "_rtext(" },
+  { source = "<svg><text>{{.x}}</text></svg>", want = "_ftext(" },
+  { source = "<math>{{.x}}</math>", want = "_ftext(" },
+  { source = "<svg><g>{{if .a}}<g/>{{end}}{{.x}}</g></svg>", want = "_ftext(" },
+  { source = "<select>{{.x}}</select>", want = "_ftext(" },
+  { source = "<select><option>{{.x}}</option></select>", want = "_ftext(" },
+  { source = "<select><option title=\"{{.x}}\">a</option></select>", want = "_attr(" },
+  { source = "<select><textarea>{{.x}}</textarea></select>", want = "_rtext(" },
+  { source = "<svg><g><a href=\"{{.x}}\"><path d=\"M0\"/></a></g></svg>", want = "_url(" },
+  { source = "<svg viewBox=\"0 0 1 1\"><circle r=\"1\"/></svg><p>{{.x}}</p>", want = "_text(" },
+  { source = "<svg {{if .a}}class=\"b\"{{end}}><g/></svg>{{.x}}", want = "_text(" },
+  { source = "<select><option>a</option></select><svg></svg>{{.x}}", want = "_text(" },
+  { source = "<svg/{{if .a}}{{end}}><textarea>{{.x}}</textarea>", want = "_rtext(" },
+  { source = "<svg><style>.a { fill: red }</style></svg>{{.x}}", want = "_text(" },
+  { source = "<a title=\"{{range .l}}{{.x}}{{end}}\">", want = "_attr(" },
+  { source = "<img lowsrc=\"{{.x}}\" dynsrc=\"{{.x}}\">", want = "_url(" },
+  { source = "<svg></svg>{{.x}}<math></math><title>{{.x}}</title>", want = "_text(" },
+  { source = "<a href=\"x\" {{if .a}}class=\"b\"{{end}}>{{.x}}", want = "_text(" },
+  { source = "<p {{if .a}}class=\"c\"{{else}}id=\"d\"{{end}}>{{.x}}", want = "_text(" },
+  { source = "<a href=\"{{if .a}}{{.x}}{{end}}\">", want = "_url(" },
+  { source = "<a href=\"{{.x}}x/a:b\">", want = "_url(" },
+  { source = "<a href=\"{{.x}}\t?q=/\">", want = "_url(" },
+  { source = "<a href=\"{{.x}}?q=a:b#c:d\">", want = "_url(" },
+  { source = "<meta name=\"d\" content=\"{{.x}}\">", want = "_attr(" },
+  { source = "<meta content=\"{{.x}}\" name=\"d\">", want = "_attr(" },
+  { source = "<iframe></iframe>{{.x}}<noscript></noscript>{{.x}}<xmp></xmp>{{.x}}", want = "_text(" },
+  { source = "<script>var a = 1 < 2;</script>{{.x}}", want = "_text(" },
+  { source = "<style>a > b {}</STYLE >{{.x}}", want = "_text(" },
+  { source = "<script><!-- </script>{{.x}}", want = "_text(" },
+  { source = "<!-- c -->{{.x}}", want = "_text(" },
+  { source = "<!--> {{.x}}", want = "_text(" },
+  { source = "<!---> {{.x}}", want = "_text(" },
+  { source = "<!-- a --!> {{.x}}", want = "_text(" },
+  { source = "<!DOCTYPE html>{{.x}}", want = "_text(" },
+  { source = "<a href=\"a\" title=\"{{.x}}\">", want = "_attr(" },
+  { source = "<a href=x title=\"{{.x}}\">", want = "_attr(" },
+  { source = "<br/>{{.x}}", want = "_text(" },
+  { source = "<svg><a href=\"{{.x}}\"></a></svg>", want = "_url(" },
+  { source = "<a title=\"a>b\">{{.x}}", want = "_text(" },
 }
 
 local function test_each_slot_is_escaped_for_the_place_it_stands_in()
   for _, case in ipairs(SLOTS) do
-    local out = compiled(HEAD .. case[1])
-    assert(out:find(case[2], 1, true), case[1] .. " did not use " .. case[2])
+    local out = compiled(HEAD .. case.source)
+    assert(out:find(case.want, 1, true), case.source .. " did not use " .. case.want)
     for _, other in ipairs({ "_text(", "_ftext(", "_attr(", "_url(" }) do
-      if other ~= case[2] then
+      if other ~= case.want then
         local _, uses = out:gsub("parts%[#parts %+ 1%] = " .. other:gsub("%p", "%%%0"), "")
-        assert(uses == 0, case[1] .. " used " .. other)
+        assert(uses == 0, case.source .. " used " .. other)
       end
     end
   end
@@ -120,173 +124,173 @@ end
 
 --- Template source, the line and column it is refused at, and what the
 --- reason says. Line 1 is the `{{type}}` line.
-local REFUSALS <const>: {{string}} = {
-  { "<a href={{.x}}>", "2", "9", "unquoted" },
-  { "<a title=x{{.x}}>", "2", "11", "unquoted" },
-  { "<{{.x}}>", "2", "2", "tag name" },
-  { "<di{{.x}}>", "2", "4", "tag name" },
-  { "</{{.x}}>", "2", "3", "tag name" },
-  { "<a {{.x}}>", "2", "4", "attribute" },
-  { "<a b{{.x}}=1>", "2", "5", "attribute" },
-  { "<a b {{.x}}>", "2", "6", "attribute" },
-  { "<a b=\"c\"{{.x}}>", "2", "9", "attribute" },
-  { "<a onclick=\"{{.x}}\">", "2", "13", "event handler" },
-  { "<a ONMOUSEOVER='{{.x}}'>", "2", "17", "event handler" },
-  { "<a style=\"{{.x}}\">", "2", "11", "'style'" },
-  { "<iframe srcdoc=\"{{.x}}\">", "2", "17", "'srcdoc'" },
-  { "<img srcset=\"{{.x}}\">", "2", "14", "list of URLs" },
-  { "<a ping=\"{{.x}}\">", "2", "10", "list of URLs" },
-  { "<meta http-equiv=\"refresh\" content=\"0;{{.x}}\">", "2", "39", "<meta>" },
-  { "<!-- {{.x}} -->", "2", "6", "comment" },
-  { "<!--{{.x}}-->", "2", "5", "comment" },
-  { "<!{{.x}}>", "2", "3", "comment" },
-  { "<!-{{.x}}>", "2", "4", "comment" },
-  { "<?php {{.x}} ?>", "2", "7", "comment" },
-  { "</ {{.x}}>", "2", "4", "comment" },
-  { "<!-- a -- {{.x}}", "2", "11", "comment" },
-  { "<script>{{.x}}</script>", "2", "9", "<script>" },
-  { "<a =\"{{.x}}\">", "2", "6", "attribute" },
-  { "<svg><p><textarea>{{.x}}</textarea>", "2", "19", "differently" },
-  { "<svg><div></div><textarea>{{.x}}", "2", "27", "differently" },
-  { "<svg><br><textarea>{{.x}}", "2", "20", "differently" },
-  { "<svg><font size=1><textarea>{{.x}}", "2", "29", "differently" },
-  { "<select><svg><textarea>{{.x}}", "2", "24", "differently" },
-  { "<frameset><title></title>{{.x}}", "2", "26", "differently" },
-  { "<math><svg></math><textarea>{{.x}}", "2", "29", "differently" },
-  { "<svg><math></svg><textarea>{{.x}}", "2", "28", "differently" },
-  { "<svg></math><textarea>{{.x}}", "2", "23", "differently" },
-  { "<svg>{{if .a}}<p>{{end}}<textarea>{{.x}}", "2", "6", "the arms" },
-  { "<svg><![CDATA[ > <!-- ]]><a href=\" --> {{.p}}\">", "2", "40", "differently" },
-  { "<svg {{if .a}}/{{end}}><style><a href=\"</style>{{.p}}\">", "2", "6", "the arms" },
-  { "<svg><foreignObject><div></svg></div></foreignObject><style><a href=\"</style>{{.p}}\">", "2", "78", "differently" },
-  { "<svg><!-- c --></svg>{{.x}}", "2", "22", "differently" },
-  { "<svg><g></svg>{{.x}}", "2", "15", "differently" },
-  { "<svg><a></g></a></svg>{{.x}}", "2", "23", "differently" },
-  { "<svg><desc></desc></svg>{{.x}}", "2", "25", "differently" },
-  { "<math><mi></mi></math>{{.x}}", "2", "23", "differently" },
-  { "<svg><?x ?></svg>{{.x}}", "2", "18", "differently" },
-  { "<svg><p></p></svg>{{.x}}", "2", "19", "differently" },
-  { "<svg><svg></svg><textarea><a href=\"{{.x}}\">", "2", "36", "differently" },
-  { "<svg><textarea><a title=\"{{.x}}\">", "2", "26", "differently" },
-  { "<svg><textarea></svg>{{.x}}", "2", "22", "differently" },
-  { "<svg><script><!-- </script>{{.x}}", "2", "28", "differently" },
-  { "<svg><style><b></style>{{.x}}", "2", "24", "differently" },
-  { "<noscript><!-- </noscript>{{.x}}", "2", "27", "differently" },
-  { "<plaintext></plaintext>{{.x}}", "2", "24", "<plaintext>" },
-  { "<a href=\"{{.url}}/evil.example\">", "2", "18", "protocol-relative" },
-  { "<a href=\"{{.url}}\\evil.example\">", "2", "18", "protocol-relative" },
-  { "<a href=\"{{.url}}\t\n/evil.example\">", "2", "18", "protocol-relative" },
-  { "<a href=\"{{.url}}{{if .a}}{{end}}/evil.example\">", "2", "34", "protocol-relative" },
-  { "<a href=\"{{.url}}{{if .a}}x{{end}}/evil.example\">", "2", "35", "protocol-relative" },
-  { "<a href=\"{{.url}}{{if .a}}{{end}}\\evil.example\">", "2", "34", "protocol-relative" },
-  { "<a href=\"{{range .l}}{{.url}}{{end}}/evil\">", "2", "22", "fixes where the URL goes" },
-  { "<a href=\"{{.url}}{{.p}}/evil.example\">", "2", "18", "follows a whole-URL slot" },
-  { "<a href=\"{{.url}}{{.p}}:x\">", "2", "18", "follows a whole-URL slot" },
-  { "<a href=\"{{.x}}&colon;alert(1)\">", "2", "16", "complete a scheme" },
-  { "<a href=\"{{.x}}&#58;alert(1)\">", "2", "16", "complete a scheme" },
-  { "<meta charset=\"{{.x}}\">", "2", "16", "charset" },
-  { "<script type=\"{{.x}}\">", "2", "15", "<script>" },
-  { "<object classid=\"{{.x}}\">", "2", "18", "<object>" },
-  { "<applet codebase=\"{{.x}}\">", "2", "19", "<applet>" },
-  { "<a href=\"{{range .l}}{{.x}}{{end}}\">", "2", "22", "fixes where the URL goes" },
-  { "<a href=\"{{range .l}}{{.x}}:{{end}}\">", "2", "28", "complete a scheme" },
-  { "<svg><script>{{.x}}</script>", "2", "14", "<script>" },
-  { "<svg><g><a title=x{{.x}}", "2", "19", "unquoted" },
-  { "<svg><foreignObject>{{.x}}</foreignObject></svg>", "2", "21", "differently" },
-  { "<svg><desc>{{.x}}</desc></svg>", "2", "12", "differently" },
-  { "<svg><title>{{.x}}</title></svg>", "2", "13", "differently" },
-  { "<svg><svg></svg><title>{{.x}}</title>", "2", "24", "differently" },
-  { "<math><annotation-xml>{{.x}}</annotation-xml>", "2", "23", "differently" },
-  { "<math><mi><a title=\"{{.x}}\">", "2", "21", "differently" },
-  { "<svg><set attributeName=\"href\" to=\"{{.x}}\">", "2", "36", "animate" },
-  { "<svg><ANIMATE values=\"{{.x}}\">", "2", "23", "animate" },
-  { "<animateMotion path=\"{{.x}}\">", "2", "22", "animate" },
-  { "<xmp>{{.x}}</xmp>", "2", "6", "<xmp>" },
-  { "<iframe>{{.x}}</iframe>", "2", "9", "<iframe>" },
-  { "<noscript>{{.x}}</noscript>", "2", "11", "<noscript>" },
-  { "<noembed>{{.x}}", "2", "10", "<noembed>" },
-  { "<noframes>{{.x}}", "2", "11", "<noframes>" },
-  { "<plaintext>{{.x}}", "2", "12", "<plaintext>" },
-  { "<meta http-equiv=\"refresh\" content=\"{{.x}}\">", "2", "37", "http-equiv" },
-  { "<meta content=\"{{.x}}\" http-equiv=\"refresh\">", "2", "16", "http-equiv" },
-  { "<meta content=\"{{.x}}\" HTTP-EQUIV=refresh>", "2", "16", "http-equiv" },
-  { "<meta content=\"{{.x}}\" http-equiv=\"refresh\"><p>x</p>", "2", "16", "http-equiv" },
-  { "<a href=\"{{.p}}:alert(1)\">", "2", "16", "complete a scheme" },
-  { "<a href=\"{{.p}}java\nscript:x\">", "2", "16", "complete a scheme" },
-  { "<a href=\"{{.p}}{{if .a}}:x{{end}}\">", "2", "25", "complete a scheme" },
-  { "<a href=\"{{.p}}\"><b>x</b></a>{{if .a}}<a href=\"{{.q}}:{{end}}", "2", "54", "complete a scheme" },
-  { "<SCRIPT type=\"x\">a{{.x}}", "2", "19", "<script>" },
-  { "<style>{{.x}}</style>", "2", "8", "<style>" },
-  { "<script><!-- <script> </script> {{.x}} </script>", "2", "33", "<script>" },
-  { "<script>\n{{.x}}", "3", "1", "<script>" },
-  { "<script/>{{.x}}", "2", "10", "<script>" },
-  { "<a href=\"java{{.x}}\">", "2", "14", "fixes where the URL goes" },
-  { "<a href=\"a{{.x}}\">", "2", "11", "fixes where the URL goes" },
-  { "<a href=\"x &{{.x}}\">", "2", "13", "fixes where the URL goes" },
-  { "<a href=\"java&#115;cript:{{.x}}\">", "2", "26", "fixes where the URL goes" },
-  { "<a href=\"&sol;{{.x}}\">", "2", "15", "fixes where the URL goes" },
-  { "<a href=\"javascript:{{.x}}\">", "2", "21", "fixes where the URL goes" },
-  { "<a href=\"data:text/html,{{.x}}\">", "2", "25", "fixes where the URL goes" },
-  { "<a href=\"tel:{{.x}}\">", "2", "14", "fixes where the URL goes" },
-  { "<a href=\"//{{.x}}\">", "2", "12", "fixes where the URL goes" },
-  { "<a href=\"\\\\{{.x}}\">", "2", "12", "fixes where the URL goes" },
-  { "<a href=\"https://{{.x}}/a\">", "2", "18", "fixes where the URL goes" },
-  { "<a href=\"https:{{.x}}\">", "2", "16", "fixes where the URL goes" },
-  { "<a href=\"https://host{{.x}}\">", "2", "22", "fixes where the URL goes" },
-  { "<a href=\"{{if .a}}/x/{{else}}y{{end}}{{.z}}\">", "2", "38", "fixes where the URL goes" },
-  { "<a href=\"{{if .a}}https://{{else}}/x/{{end}}{{.z}}\">", "2", "45", "fixes where the URL goes" },
-  { "<a href=\"/{{if .a}}{{end}}/{{.x}}\">", "2", "28", "fixes where the URL goes" },
-  { "<a href=\"/a/.{{.x}}\">", "2", "14", "'..' segment" },
-  { "<a href=\"/a/%{{.x}}\">", "2", "14", "'..' segment" },
-  { "<a href=\"/a/%2{{.x}}\">", "2", "15", "'..' segment" },
-  { "<a href=\"/a/{{.x}}/.{{if .a}}{{end}}.{{.y}}\">", "2", "38", "'..' segment" },
-  { "<a href=\"/a/..\t{{.x}}\">", "2", "16", "'..' segment" },
-  { "<a href=\"{{.u}}.{{.x}}\">", "2", "17", "follows a whole-URL slot" },
-  { "<a hx-on:click=\"{{.x}}\">", "2", "17", "would be script" },
-  { "<a hx-on::after-request=\"{{.x}}\">", "2", "26", "would be script" },
-  { "<a hx-on-click=\"{{.x}}\">", "2", "17", "would be script" },
-  { "<a data-hx-on:click=\"{{.x}}\">", "2", "22", "would be script" },
-  { "<a HX-ON:Click=\"{{.x}}\">", "2", "17", "would be script" },
-  { "<a hx-vars=\"{{.x}}\">", "2", "13", "would be script" },
-  { "<a data-hx-vars=\"{{.x}}\">", "2", "18", "would be script" },
-  { "<a hx-vals=\"{{.x}}\">", "2", "13", "{{use htmx}}" },
-  { "<a data-hx-vals='{\"a\": \"{{.x}}\"}'>", "2", "25", "{{use htmx}}" },
-  { "<a hx-vals=\"x\" hx-get=\"/a\" hx-on:click=\"a{{if .a}}b{{end}}{{.x}}\">", "2", "59", "would be script" },
-  { "<script src=\"{{.x}}\">", "2", "14", "<script>" },
-  { "<link href=\"{{.x}}\">", "2", "13", "<link>" },
-  { "<object data=\"{{.x}}\">", "2", "15", "<object>" },
-  { "<a title=\"x\">\n<a\n  b={{.y}}>", "4", "5", "unquoted" },
-  { "<textarea></textarea{{.x}}><script>{{.y}}</script>", "2", "21", "complete its end tag" },
-  { "<textarea></{{.x}}><script>{{.y}}</script>", "2", "13", "complete its end tag" },
-  { "<textarea><{{.x}}textarea><script>{{.y}}</script>", "2", "12", "complete its end tag" },
-  { "<textarea></tex{{.x}}>", "2", "16", "complete its end tag" },
-  { "<textarea></TEXTAREA{{.x}}><a onclick='{{.y}}'>", "2", "21", "complete its end tag" },
-  { "<textarea>{{.x}}<{{.y}}", "2", "18", "complete its end tag" },
-  { "<title></title{{.x}}><script>{{.y}}</script>", "2", "15", "complete its end tag" },
-  { "<title><{{.x}}title><a href={{.y}}>", "2", "9", "complete its end tag" },
-  { "<textarea></textarea {{.x}}>", "2", "22", "attribute" },
-  { "<svg><textarea></textarea{{.x}}></textarea></svg>", "2", "26", "complete its end tag" },
-  { "<a href=\"x\">{{.x}}<a href=\"", "2", "28", "the template ends inside the value of the attribute 'href'" },
-  { "<a href=\"x\">\n<a title='", "3", "11", "the template ends inside the value of the attribute 'title'" },
-  { "<a ", "2", "4", "the template ends inside a tag" },
-  { "<", "2", "2", "the template ends inside a tag" },
-  { "a <!-- {", "2", "9", "the template ends inside a comment" },
-  { "<script>{{if .a}}x{{end}}", "2", "26", "the template ends inside the text of <script>" },
-  { "<textarea>x", "2", "12", "the template ends inside the text of <textarea>" },
-  { "<svg><g>", "2", "9", "the template ends inside <svg>" },
-  { "<svg><p>", "2", "9", "could not follow" },
-  { "<select>", "2", "9", "the template ends inside <select>" },
-  { "<p>x</p><select><option>a", "2", "26", "the template ends inside <select>" },
-  { "<a title=x", "2", "11", "the template ends inside the value of the attribute 'title'" },
+local REFUSALS <const>: {Refusal} = {
+  { source = "<a href={{.x}}>", line = "2", column = "9", reason = "unquoted" },
+  { source = "<a title=x{{.x}}>", line = "2", column = "11", reason = "unquoted" },
+  { source = "<{{.x}}>", line = "2", column = "2", reason = "tag name" },
+  { source = "<di{{.x}}>", line = "2", column = "4", reason = "tag name" },
+  { source = "</{{.x}}>", line = "2", column = "3", reason = "tag name" },
+  { source = "<a {{.x}}>", line = "2", column = "4", reason = "attribute" },
+  { source = "<a b{{.x}}=1>", line = "2", column = "5", reason = "attribute" },
+  { source = "<a b {{.x}}>", line = "2", column = "6", reason = "attribute" },
+  { source = "<a b=\"c\"{{.x}}>", line = "2", column = "9", reason = "attribute" },
+  { source = "<a onclick=\"{{.x}}\">", line = "2", column = "13", reason = "event handler" },
+  { source = "<a ONMOUSEOVER='{{.x}}'>", line = "2", column = "17", reason = "event handler" },
+  { source = "<a style=\"{{.x}}\">", line = "2", column = "11", reason = "'style'" },
+  { source = "<iframe srcdoc=\"{{.x}}\">", line = "2", column = "17", reason = "'srcdoc'" },
+  { source = "<img srcset=\"{{.x}}\">", line = "2", column = "14", reason = "list of URLs" },
+  { source = "<a ping=\"{{.x}}\">", line = "2", column = "10", reason = "list of URLs" },
+  { source = "<meta http-equiv=\"refresh\" content=\"0;{{.x}}\">", line = "2", column = "39", reason = "<meta>" },
+  { source = "<!-- {{.x}} -->", line = "2", column = "6", reason = "comment" },
+  { source = "<!--{{.x}}-->", line = "2", column = "5", reason = "comment" },
+  { source = "<!{{.x}}>", line = "2", column = "3", reason = "comment" },
+  { source = "<!-{{.x}}>", line = "2", column = "4", reason = "comment" },
+  { source = "<?php {{.x}} ?>", line = "2", column = "7", reason = "comment" },
+  { source = "</ {{.x}}>", line = "2", column = "4", reason = "comment" },
+  { source = "<!-- a -- {{.x}}", line = "2", column = "11", reason = "comment" },
+  { source = "<script>{{.x}}</script>", line = "2", column = "9", reason = "<script>" },
+  { source = "<a =\"{{.x}}\">", line = "2", column = "6", reason = "attribute" },
+  { source = "<svg><p><textarea>{{.x}}</textarea>", line = "2", column = "19", reason = "differently" },
+  { source = "<svg><div></div><textarea>{{.x}}", line = "2", column = "27", reason = "differently" },
+  { source = "<svg><br><textarea>{{.x}}", line = "2", column = "20", reason = "differently" },
+  { source = "<svg><font size=1><textarea>{{.x}}", line = "2", column = "29", reason = "differently" },
+  { source = "<select><svg><textarea>{{.x}}", line = "2", column = "24", reason = "differently" },
+  { source = "<frameset><title></title>{{.x}}", line = "2", column = "26", reason = "differently" },
+  { source = "<math><svg></math><textarea>{{.x}}", line = "2", column = "29", reason = "differently" },
+  { source = "<svg><math></svg><textarea>{{.x}}", line = "2", column = "28", reason = "differently" },
+  { source = "<svg></math><textarea>{{.x}}", line = "2", column = "23", reason = "differently" },
+  { source = "<svg>{{if .a}}<p>{{end}}<textarea>{{.x}}", line = "2", column = "6", reason = "the arms" },
+  { source = "<svg><![CDATA[ > <!-- ]]><a href=\" --> {{.p}}\">", line = "2", column = "40", reason = "differently" },
+  { source = "<svg {{if .a}}/{{end}}><style><a href=\"</style>{{.p}}\">", line = "2", column = "6", reason = "the arms" },
+  { source = "<svg><foreignObject><div></svg></div></foreignObject><style><a href=\"</style>{{.p}}\">", line = "2", column = "78", reason = "differently" },
+  { source = "<svg><!-- c --></svg>{{.x}}", line = "2", column = "22", reason = "differently" },
+  { source = "<svg><g></svg>{{.x}}", line = "2", column = "15", reason = "differently" },
+  { source = "<svg><a></g></a></svg>{{.x}}", line = "2", column = "23", reason = "differently" },
+  { source = "<svg><desc></desc></svg>{{.x}}", line = "2", column = "25", reason = "differently" },
+  { source = "<math><mi></mi></math>{{.x}}", line = "2", column = "23", reason = "differently" },
+  { source = "<svg><?x ?></svg>{{.x}}", line = "2", column = "18", reason = "differently" },
+  { source = "<svg><p></p></svg>{{.x}}", line = "2", column = "19", reason = "differently" },
+  { source = "<svg><svg></svg><textarea><a href=\"{{.x}}\">", line = "2", column = "36", reason = "differently" },
+  { source = "<svg><textarea><a title=\"{{.x}}\">", line = "2", column = "26", reason = "differently" },
+  { source = "<svg><textarea></svg>{{.x}}", line = "2", column = "22", reason = "differently" },
+  { source = "<svg><script><!-- </script>{{.x}}", line = "2", column = "28", reason = "differently" },
+  { source = "<svg><style><b></style>{{.x}}", line = "2", column = "24", reason = "differently" },
+  { source = "<noscript><!-- </noscript>{{.x}}", line = "2", column = "27", reason = "differently" },
+  { source = "<plaintext></plaintext>{{.x}}", line = "2", column = "24", reason = "<plaintext>" },
+  { source = "<a href=\"{{.url}}/evil.example\">", line = "2", column = "18", reason = "protocol-relative" },
+  { source = "<a href=\"{{.url}}\\evil.example\">", line = "2", column = "18", reason = "protocol-relative" },
+  { source = "<a href=\"{{.url}}\t\n/evil.example\">", line = "2", column = "18", reason = "protocol-relative" },
+  { source = "<a href=\"{{.url}}{{if .a}}{{end}}/evil.example\">", line = "2", column = "34", reason = "protocol-relative" },
+  { source = "<a href=\"{{.url}}{{if .a}}x{{end}}/evil.example\">", line = "2", column = "35", reason = "protocol-relative" },
+  { source = "<a href=\"{{.url}}{{if .a}}{{end}}\\evil.example\">", line = "2", column = "34", reason = "protocol-relative" },
+  { source = "<a href=\"{{range .l}}{{.url}}{{end}}/evil\">", line = "2", column = "22", reason = "fixes where the URL goes" },
+  { source = "<a href=\"{{.url}}{{.p}}/evil.example\">", line = "2", column = "18", reason = "follows a whole-URL slot" },
+  { source = "<a href=\"{{.url}}{{.p}}:x\">", line = "2", column = "18", reason = "follows a whole-URL slot" },
+  { source = "<a href=\"{{.x}}&colon;alert(1)\">", line = "2", column = "16", reason = "complete a scheme" },
+  { source = "<a href=\"{{.x}}&#58;alert(1)\">", line = "2", column = "16", reason = "complete a scheme" },
+  { source = "<meta charset=\"{{.x}}\">", line = "2", column = "16", reason = "charset" },
+  { source = "<script type=\"{{.x}}\">", line = "2", column = "15", reason = "<script>" },
+  { source = "<object classid=\"{{.x}}\">", line = "2", column = "18", reason = "<object>" },
+  { source = "<applet codebase=\"{{.x}}\">", line = "2", column = "19", reason = "<applet>" },
+  { source = "<a href=\"{{range .l}}{{.x}}{{end}}\">", line = "2", column = "22", reason = "fixes where the URL goes" },
+  { source = "<a href=\"{{range .l}}{{.x}}:{{end}}\">", line = "2", column = "28", reason = "complete a scheme" },
+  { source = "<svg><script>{{.x}}</script>", line = "2", column = "14", reason = "<script>" },
+  { source = "<svg><g><a title=x{{.x}}", line = "2", column = "19", reason = "unquoted" },
+  { source = "<svg><foreignObject>{{.x}}</foreignObject></svg>", line = "2", column = "21", reason = "differently" },
+  { source = "<svg><desc>{{.x}}</desc></svg>", line = "2", column = "12", reason = "differently" },
+  { source = "<svg><title>{{.x}}</title></svg>", line = "2", column = "13", reason = "differently" },
+  { source = "<svg><svg></svg><title>{{.x}}</title>", line = "2", column = "24", reason = "differently" },
+  { source = "<math><annotation-xml>{{.x}}</annotation-xml>", line = "2", column = "23", reason = "differently" },
+  { source = "<math><mi><a title=\"{{.x}}\">", line = "2", column = "21", reason = "differently" },
+  { source = "<svg><set attributeName=\"href\" to=\"{{.x}}\">", line = "2", column = "36", reason = "animate" },
+  { source = "<svg><ANIMATE values=\"{{.x}}\">", line = "2", column = "23", reason = "animate" },
+  { source = "<animateMotion path=\"{{.x}}\">", line = "2", column = "22", reason = "animate" },
+  { source = "<xmp>{{.x}}</xmp>", line = "2", column = "6", reason = "<xmp>" },
+  { source = "<iframe>{{.x}}</iframe>", line = "2", column = "9", reason = "<iframe>" },
+  { source = "<noscript>{{.x}}</noscript>", line = "2", column = "11", reason = "<noscript>" },
+  { source = "<noembed>{{.x}}", line = "2", column = "10", reason = "<noembed>" },
+  { source = "<noframes>{{.x}}", line = "2", column = "11", reason = "<noframes>" },
+  { source = "<plaintext>{{.x}}", line = "2", column = "12", reason = "<plaintext>" },
+  { source = "<meta http-equiv=\"refresh\" content=\"{{.x}}\">", line = "2", column = "37", reason = "http-equiv" },
+  { source = "<meta content=\"{{.x}}\" http-equiv=\"refresh\">", line = "2", column = "16", reason = "http-equiv" },
+  { source = "<meta content=\"{{.x}}\" HTTP-EQUIV=refresh>", line = "2", column = "16", reason = "http-equiv" },
+  { source = "<meta content=\"{{.x}}\" http-equiv=\"refresh\"><p>x</p>", line = "2", column = "16", reason = "http-equiv" },
+  { source = "<a href=\"{{.p}}:alert(1)\">", line = "2", column = "16", reason = "complete a scheme" },
+  { source = "<a href=\"{{.p}}java\nscript:x\">", line = "2", column = "16", reason = "complete a scheme" },
+  { source = "<a href=\"{{.p}}{{if .a}}:x{{end}}\">", line = "2", column = "25", reason = "complete a scheme" },
+  { source = "<a href=\"{{.p}}\"><b>x</b></a>{{if .a}}<a href=\"{{.q}}:{{end}}", line = "2", column = "54", reason = "complete a scheme" },
+  { source = "<SCRIPT type=\"x\">a{{.x}}", line = "2", column = "19", reason = "<script>" },
+  { source = "<style>{{.x}}</style>", line = "2", column = "8", reason = "<style>" },
+  { source = "<script><!-- <script> </script> {{.x}} </script>", line = "2", column = "33", reason = "<script>" },
+  { source = "<script>\n{{.x}}", line = "3", column = "1", reason = "<script>" },
+  { source = "<script/>{{.x}}", line = "2", column = "10", reason = "<script>" },
+  { source = "<a href=\"java{{.x}}\">", line = "2", column = "14", reason = "fixes where the URL goes" },
+  { source = "<a href=\"a{{.x}}\">", line = "2", column = "11", reason = "fixes where the URL goes" },
+  { source = "<a href=\"x &{{.x}}\">", line = "2", column = "13", reason = "fixes where the URL goes" },
+  { source = "<a href=\"java&#115;cript:{{.x}}\">", line = "2", column = "26", reason = "fixes where the URL goes" },
+  { source = "<a href=\"&sol;{{.x}}\">", line = "2", column = "15", reason = "fixes where the URL goes" },
+  { source = "<a href=\"javascript:{{.x}}\">", line = "2", column = "21", reason = "fixes where the URL goes" },
+  { source = "<a href=\"data:text/html,{{.x}}\">", line = "2", column = "25", reason = "fixes where the URL goes" },
+  { source = "<a href=\"tel:{{.x}}\">", line = "2", column = "14", reason = "fixes where the URL goes" },
+  { source = "<a href=\"//{{.x}}\">", line = "2", column = "12", reason = "fixes where the URL goes" },
+  { source = "<a href=\"\\\\{{.x}}\">", line = "2", column = "12", reason = "fixes where the URL goes" },
+  { source = "<a href=\"https://{{.x}}/a\">", line = "2", column = "18", reason = "fixes where the URL goes" },
+  { source = "<a href=\"https:{{.x}}\">", line = "2", column = "16", reason = "fixes where the URL goes" },
+  { source = "<a href=\"https://host{{.x}}\">", line = "2", column = "22", reason = "fixes where the URL goes" },
+  { source = "<a href=\"{{if .a}}/x/{{else}}y{{end}}{{.z}}\">", line = "2", column = "38", reason = "fixes where the URL goes" },
+  { source = "<a href=\"{{if .a}}https://{{else}}/x/{{end}}{{.z}}\">", line = "2", column = "45", reason = "fixes where the URL goes" },
+  { source = "<a href=\"/{{if .a}}{{end}}/{{.x}}\">", line = "2", column = "28", reason = "fixes where the URL goes" },
+  { source = "<a href=\"/a/.{{.x}}\">", line = "2", column = "14", reason = "'..' segment" },
+  { source = "<a href=\"/a/%{{.x}}\">", line = "2", column = "14", reason = "'..' segment" },
+  { source = "<a href=\"/a/%2{{.x}}\">", line = "2", column = "15", reason = "'..' segment" },
+  { source = "<a href=\"/a/{{.x}}/.{{if .a}}{{end}}.{{.y}}\">", line = "2", column = "38", reason = "'..' segment" },
+  { source = "<a href=\"/a/..\t{{.x}}\">", line = "2", column = "16", reason = "'..' segment" },
+  { source = "<a href=\"{{.u}}.{{.x}}\">", line = "2", column = "17", reason = "follows a whole-URL slot" },
+  { source = "<a hx-on:click=\"{{.x}}\">", line = "2", column = "17", reason = "would be script" },
+  { source = "<a hx-on::after-request=\"{{.x}}\">", line = "2", column = "26", reason = "would be script" },
+  { source = "<a hx-on-click=\"{{.x}}\">", line = "2", column = "17", reason = "would be script" },
+  { source = "<a data-hx-on:click=\"{{.x}}\">", line = "2", column = "22", reason = "would be script" },
+  { source = "<a HX-ON:Click=\"{{.x}}\">", line = "2", column = "17", reason = "would be script" },
+  { source = "<a hx-vars=\"{{.x}}\">", line = "2", column = "13", reason = "would be script" },
+  { source = "<a data-hx-vars=\"{{.x}}\">", line = "2", column = "18", reason = "would be script" },
+  { source = "<a hx-vals=\"{{.x}}\">", line = "2", column = "13", reason = "{{use htmx}}" },
+  { source = "<a data-hx-vals='{\"a\": \"{{.x}}\"}'>", line = "2", column = "25", reason = "{{use htmx}}" },
+  { source = "<a hx-vals=\"x\" hx-get=\"/a\" hx-on:click=\"a{{if .a}}b{{end}}{{.x}}\">", line = "2", column = "59", reason = "would be script" },
+  { source = "<script src=\"{{.x}}\">", line = "2", column = "14", reason = "<script>" },
+  { source = "<link href=\"{{.x}}\">", line = "2", column = "13", reason = "<link>" },
+  { source = "<object data=\"{{.x}}\">", line = "2", column = "15", reason = "<object>" },
+  { source = "<a title=\"x\">\n<a\n  b={{.y}}>", line = "4", column = "5", reason = "unquoted" },
+  { source = "<textarea></textarea{{.x}}><script>{{.y}}</script>", line = "2", column = "21", reason = "complete its end tag" },
+  { source = "<textarea></{{.x}}><script>{{.y}}</script>", line = "2", column = "13", reason = "complete its end tag" },
+  { source = "<textarea><{{.x}}textarea><script>{{.y}}</script>", line = "2", column = "12", reason = "complete its end tag" },
+  { source = "<textarea></tex{{.x}}>", line = "2", column = "16", reason = "complete its end tag" },
+  { source = "<textarea></TEXTAREA{{.x}}><a onclick='{{.y}}'>", line = "2", column = "21", reason = "complete its end tag" },
+  { source = "<textarea>{{.x}}<{{.y}}", line = "2", column = "18", reason = "complete its end tag" },
+  { source = "<title></title{{.x}}><script>{{.y}}</script>", line = "2", column = "15", reason = "complete its end tag" },
+  { source = "<title><{{.x}}title><a href={{.y}}>", line = "2", column = "9", reason = "complete its end tag" },
+  { source = "<textarea></textarea {{.x}}>", line = "2", column = "22", reason = "attribute" },
+  { source = "<svg><textarea></textarea{{.x}}></textarea></svg>", line = "2", column = "26", reason = "complete its end tag" },
+  { source = "<a href=\"x\">{{.x}}<a href=\"", line = "2", column = "28", reason = "the template ends inside the value of the attribute 'href'" },
+  { source = "<a href=\"x\">\n<a title='", line = "3", column = "11", reason = "the template ends inside the value of the attribute 'title'" },
+  { source = "<a ", line = "2", column = "4", reason = "the template ends inside a tag" },
+  { source = "<", line = "2", column = "2", reason = "the template ends inside a tag" },
+  { source = "a <!-- {", line = "2", column = "9", reason = "the template ends inside a comment" },
+  { source = "<script>{{if .a}}x{{end}}", line = "2", column = "26", reason = "the template ends inside the text of <script>" },
+  { source = "<textarea>x", line = "2", column = "12", reason = "the template ends inside the text of <textarea>" },
+  { source = "<svg><g>", line = "2", column = "9", reason = "the template ends inside <svg>" },
+  { source = "<svg><p>", line = "2", column = "9", reason = "could not follow" },
+  { source = "<select>", line = "2", column = "9", reason = "the template ends inside <select>" },
+  { source = "<p>x</p><select><option>a", line = "2", column = "26", reason = "the template ends inside <select>" },
+  { source = "<a title=x", line = "2", column = "11", reason = "the template ends inside the value of the attribute 'title'" },
 }
 
 local function test_a_slot_with_no_escaping_is_refused_at_its_line_and_column()
   local wrong: mut {string} = {}
   for _, case in ipairs(REFUSALS) do
-    local why = refused(HEAD .. case[1])
-    local want = "t.tmpl:" .. case[2] .. ":" .. case[3] .. ": "
-    if why:sub(1, #want) ~= want or not why:find(case[4], 1, true) then
-      wrong[#wrong + 1] = case[1] .. " said " .. why .. ", not " .. want .. "..." .. case[4]
+    local why = refused(HEAD .. case.source)
+    local want = "t.tmpl:" .. case.line .. ":" .. case.column .. ": "
+    if why:sub(1, #want) ~= want or not why:find(case.reason, 1, true) then
+      wrong[#wrong + 1] = case.source .. " said " .. why .. ", not " .. want .. "..." .. case.reason
     end
   end
   assert(#wrong == 0, table.concat(wrong, "\n"))
@@ -365,49 +369,49 @@ end
 
 --- Templates whose part slot could, with the browser's own decoding of the
 --- text before it, be a host or a dot segment, with the reason refused.
-local DECODED <const>: {{string}} = {
-  { "<a href=\"/{{.a}}&sol;{{.b}}\">", "'&' in the path" },
-  { "<a href=\"/{{.a}}&#47;{{.b}}\">", "'&' in the path" },
-  { "<a href=\"/{{.a}}&bsol;{{.b}}\">", "'&' in the path" },
-  { "<a href=\"/{{.a}}&#x5c;{{.b}}\">", "'&' in the path" },
-  { "<a href=\"/{{.a}}&Tab;/{{.b}}\">", "'&' in the path" },
-  { "<a href=\"/{{.a}}&NewLine;/{{.b}}\">", "'&' in the path" },
-  { "<a href=\"/&sol;{{.b}}\">", "'&' in the path" },
-  { "<a href=\"/&#9;/{{.b}}\">", "'&' in the path" },
-  { "<a href=\"http:&sol;/{{.b}}\">", "'&' in the path" },
-  { "<a href=\"http:&#47;&#47;{{.b}}\">", "'&' in the path" },
-  { "<a href=\"/a/&#46;&#46;{{.b}}\">", "'&' in the path" },
-  { "<a href=\"/a&amp;b/{{.b}}\">", "'&' in the path" },
-  { "<a href=\"{{if .a}}/&sol;{{else}}/x/{{end}}{{.b}}\">", "'&' in the path" },
-  { "<a href=\"{{if .a}}/x/{{else}}/&sol;{{end}}{{.b}}\">", "'&' in the path" },
-  { "<a href=\"/{{range .l}}&sol;{{end}}{{.b}}\">", "'&' in the path" },
-  { "<a href=\"/x/{{range .l}}&#47;{{.i}}{{end}}\">", "'&' in the path" },
-  { "<a href=\"/a/.%2e{{.b}}\">", "'..' segment" },
-  { "<a href=\"/a/%2e%2e{{.b}}\">", "'..' segment" },
-  { "<a href=\"/a/%2E%2E{{.b}}\">", "'..' segment" },
-  { "<a href=\"/a/%2e.{{.b}}\">", "'..' segment" },
-  { "<a href=\"/a/.%2E{{.b}}\">", "'..' segment" },
-  { "<a href=\"/a/%2e{{.b}}\">", "'..' segment" },
-  { "<a href=\"/a/.%{{.b}}\">", "'..' segment" },
-  { "<a href=\"/a/%2e%2{{.b}}\">", "'..' segment" },
-  { "<a href=\"/a/.{{.x}}{{.b}}\">", "'..' segment" },
-  { "<a href=\"/a/.{{if .a}}{{.x}}{{end}}{{.b}}\">", "'..' segment" },
-  { "<a href=\"/a/{{if .a}}.{{else}}%{{end}}{{.b}}\">", "'..' segment" },
-  { "<a href=\"/a/{{if .a}}.{{else}}%{{end}}2e{{.b}}\">", "'..' segment" },
-  { "<a href=\"/a/{{if .a}}.{{else}}x{{end}}.{{.b}}\">", "'..' segment" },
-  { "<a href=\"/a/{{range .l}}.{{end}}{{.b}}\">", "'..' segment" },
-  { "<a href=\"/a/\\.{{.b}}\">", "'..' segment" },
-  { "<a href=\"?.{{.b}}\">", "'..' segment" },
-  { "<a href=\"{{.u}}{{.b}}\">", "follows a whole-URL slot" },
-  { "<a href=\"{{.u}}a{{.b}}\">", "follows a whole-URL slot" },
-  { "<a href=\"{{.u}}.{{.b}}\">", "follows a whole-URL slot" },
-  { "<a href=\"{{.u}}{{if .a}}?{{end}}{{.b}}\">", "follows a whole-URL slot" },
-  { "<a href=\"{{.u}}{{if .a}}?q={{.b}}{{end}}\">", "" },
+local DECODED <const>: {Expect} = {
+  { source = "<a href=\"/{{.a}}&sol;{{.b}}\">", want = "'&' in the path" },
+  { source = "<a href=\"/{{.a}}&#47;{{.b}}\">", want = "'&' in the path" },
+  { source = "<a href=\"/{{.a}}&bsol;{{.b}}\">", want = "'&' in the path" },
+  { source = "<a href=\"/{{.a}}&#x5c;{{.b}}\">", want = "'&' in the path" },
+  { source = "<a href=\"/{{.a}}&Tab;/{{.b}}\">", want = "'&' in the path" },
+  { source = "<a href=\"/{{.a}}&NewLine;/{{.b}}\">", want = "'&' in the path" },
+  { source = "<a href=\"/&sol;{{.b}}\">", want = "'&' in the path" },
+  { source = "<a href=\"/&#9;/{{.b}}\">", want = "'&' in the path" },
+  { source = "<a href=\"http:&sol;/{{.b}}\">", want = "'&' in the path" },
+  { source = "<a href=\"http:&#47;&#47;{{.b}}\">", want = "'&' in the path" },
+  { source = "<a href=\"/a/&#46;&#46;{{.b}}\">", want = "'&' in the path" },
+  { source = "<a href=\"/a&amp;b/{{.b}}\">", want = "'&' in the path" },
+  { source = "<a href=\"{{if .a}}/&sol;{{else}}/x/{{end}}{{.b}}\">", want = "'&' in the path" },
+  { source = "<a href=\"{{if .a}}/x/{{else}}/&sol;{{end}}{{.b}}\">", want = "'&' in the path" },
+  { source = "<a href=\"/{{range .l}}&sol;{{end}}{{.b}}\">", want = "'&' in the path" },
+  { source = "<a href=\"/x/{{range .l}}&#47;{{.i}}{{end}}\">", want = "'&' in the path" },
+  { source = "<a href=\"/a/.%2e{{.b}}\">", want = "'..' segment" },
+  { source = "<a href=\"/a/%2e%2e{{.b}}\">", want = "'..' segment" },
+  { source = "<a href=\"/a/%2E%2E{{.b}}\">", want = "'..' segment" },
+  { source = "<a href=\"/a/%2e.{{.b}}\">", want = "'..' segment" },
+  { source = "<a href=\"/a/.%2E{{.b}}\">", want = "'..' segment" },
+  { source = "<a href=\"/a/%2e{{.b}}\">", want = "'..' segment" },
+  { source = "<a href=\"/a/.%{{.b}}\">", want = "'..' segment" },
+  { source = "<a href=\"/a/%2e%2{{.b}}\">", want = "'..' segment" },
+  { source = "<a href=\"/a/.{{.x}}{{.b}}\">", want = "'..' segment" },
+  { source = "<a href=\"/a/.{{if .a}}{{.x}}{{end}}{{.b}}\">", want = "'..' segment" },
+  { source = "<a href=\"/a/{{if .a}}.{{else}}%{{end}}{{.b}}\">", want = "'..' segment" },
+  { source = "<a href=\"/a/{{if .a}}.{{else}}%{{end}}2e{{.b}}\">", want = "'..' segment" },
+  { source = "<a href=\"/a/{{if .a}}.{{else}}x{{end}}.{{.b}}\">", want = "'..' segment" },
+  { source = "<a href=\"/a/{{range .l}}.{{end}}{{.b}}\">", want = "'..' segment" },
+  { source = "<a href=\"/a/\\.{{.b}}\">", want = "'..' segment" },
+  { source = "<a href=\"?.{{.b}}\">", want = "'..' segment" },
+  { source = "<a href=\"{{.u}}{{.b}}\">", want = "follows a whole-URL slot" },
+  { source = "<a href=\"{{.u}}a{{.b}}\">", want = "follows a whole-URL slot" },
+  { source = "<a href=\"{{.u}}.{{.b}}\">", want = "follows a whole-URL slot" },
+  { source = "<a href=\"{{.u}}{{if .a}}?{{end}}{{.b}}\">", want = "follows a whole-URL slot" },
+  { source = "<a href=\"{{.u}}{{if .a}}?q={{.b}}{{end}}\">", want = "" },
 }
 
 local function test_a_part_after_decoded_text_or_a_whole_url_slot_is_refused()
   for _, case in ipairs(DECODED) do
-    local src, why = case[1], case[2]
+    local src, why = case.source, case.want
     local out, err = Template.compile(HEAD .. src, "t.tmpl")
     if why == "" then
       assert(out ~= nil, src .. ": " .. tostring(err))
@@ -447,51 +451,51 @@ end
 
 --- The classes a slot has in each attribute with `{{use htmx}}`: the
 --- helper its generated code writes, or "" for a refusal.
-local HTMX_CLASSES <const>: {{string}} = {
-  { "hx-get=\"{{.u}}\"", "_lurl" },
-  { "hx-post=\"{{.u}}\"", "_lurl" },
-  { "hx-put=\"{{.u}}\"", "_lurl" },
-  { "hx-patch=\"{{.u}}\"", "_lurl" },
-  { "hx-delete=\"{{.u}}\"", "_lurl" },
-  { "hx-push-url=\"{{.u}}\"", "_lurl" },
-  { "hx-replace-url=\"{{.u}}\"", "_lurl" },
-  { "sse-connect=\"{{.u}}\"", "_lurl" },
-  { "ws-connect=\"{{.u}}\"", "_lurl" },
-  { "hx-get=\"/items/{{.id}}\"", "_part" },
-  { "hx-delete=\"/items/{{.id}}?x={{.x}}#{{.f}}\"", "_part" },
-  { "hx-push-url=\"/items/{{.id}}\"", "_part" },
-  { "hx-get=\"{{.u}}?q={{.q}}\"", "_lurl" },
-  { "hx-vals='{{.v}}'", "_json" },
-  { "hx-headers=\"{{.v}}\"", "_json" },
-  { "hx-request='{{.v}}'", "_json" },
-  { "hx-target=\"#row-{{.id}}\"", "_sel" },
-  { "hx-select=\".tab-{{.id}} p\"", "_sel" },
-  { "hx-select-oob=\"#a-{{.id}}:outerHTML,#b-{{.id}}\"", "_sel" },
-  { "hx-include=\"closest form, #f-{{.id}}\"", "_sel" },
-  { "hx-indicator=\"#spin-{{.id}}\"", "_sel" },
-  { "hx-disabled-elt=\"find button.b-{{.id}}\"", "_sel" },
-  { "hx-sync=\"#f-{{.id}}:abort\"", "_sel" },
-  { "hx-swap=\"innerHTML scroll:#top-{{.id}}:top\"", "" },
-  { "hx-swap-oob=\"outerHTML:#x-{{.id}}\"", "_sel" },
-  { "hx-target-422=\"#err-{{.id}}\"", "_sel" },
-  { "hx-target-error=\"#err-{{.id}}\"", "_sel" },
-  { "hx-confirm=\"{{.x}}\"", "_attr" },
-  { "hx-prompt=\"{{.x}}\"", "_attr" },
-  { "hx-boost=\"{{.x}}\"", "" },
-  { "hx-params=\"{{.x}}\"", "" },
-  { "hx-encoding=\"{{.x}}\"", "_attr" },
-  { "hx-ext=\"{{.x}}\"", "" },
-  { "hx-history=\"{{.x}}\"", "_attr" },
-  { "hx-preserve=\"{{.x}}\"", "_attr" },
-  { "hx-validate=\"{{.x}}\"", "_attr" },
-  { "hx-disable=\"{{.x}}\"", "" },
-  { "hx-disinherit=\"{{.x}}\"", "_attr" },
-  { "sse-swap=\"{{.x}}\"", "_attr" },
-  { "ws-send=\"{{.x}}\"", "_attr" },
-  { "hx-trigger=\"{{.x}}\"", "" },
-  { "hx-vars=\"{{.x}}\"", "" },
-  { "hx-on:click=\"{{.x}}\"", "" },
-  { "hx-ws=\"{{.x}}\"", "" },
+local HTMX_CLASSES <const>: {Expect} = {
+  { source = "hx-get=\"{{.u}}\"", want = "_lurl" },
+  { source = "hx-post=\"{{.u}}\"", want = "_lurl" },
+  { source = "hx-put=\"{{.u}}\"", want = "_lurl" },
+  { source = "hx-patch=\"{{.u}}\"", want = "_lurl" },
+  { source = "hx-delete=\"{{.u}}\"", want = "_lurl" },
+  { source = "hx-push-url=\"{{.u}}\"", want = "_lurl" },
+  { source = "hx-replace-url=\"{{.u}}\"", want = "_lurl" },
+  { source = "sse-connect=\"{{.u}}\"", want = "_lurl" },
+  { source = "ws-connect=\"{{.u}}\"", want = "_lurl" },
+  { source = "hx-get=\"/items/{{.id}}\"", want = "_part" },
+  { source = "hx-delete=\"/items/{{.id}}?x={{.x}}#{{.f}}\"", want = "_part" },
+  { source = "hx-push-url=\"/items/{{.id}}\"", want = "_part" },
+  { source = "hx-get=\"{{.u}}?q={{.q}}\"", want = "_lurl" },
+  { source = "hx-vals='{{.v}}'", want = "_json" },
+  { source = "hx-headers=\"{{.v}}\"", want = "_json" },
+  { source = "hx-request='{{.v}}'", want = "_json" },
+  { source = "hx-target=\"#row-{{.id}}\"", want = "_sel" },
+  { source = "hx-select=\".tab-{{.id}} p\"", want = "_sel" },
+  { source = "hx-select-oob=\"#a-{{.id}}:outerHTML,#b-{{.id}}\"", want = "_sel" },
+  { source = "hx-include=\"closest form, #f-{{.id}}\"", want = "_sel" },
+  { source = "hx-indicator=\"#spin-{{.id}}\"", want = "_sel" },
+  { source = "hx-disabled-elt=\"find button.b-{{.id}}\"", want = "_sel" },
+  { source = "hx-sync=\"#f-{{.id}}:abort\"", want = "_sel" },
+  { source = "hx-swap=\"innerHTML scroll:#top-{{.id}}:top\"", want = "" },
+  { source = "hx-swap-oob=\"outerHTML:#x-{{.id}}\"", want = "_sel" },
+  { source = "hx-target-422=\"#err-{{.id}}\"", want = "_sel" },
+  { source = "hx-target-error=\"#err-{{.id}}\"", want = "_sel" },
+  { source = "hx-confirm=\"{{.x}}\"", want = "_attr" },
+  { source = "hx-prompt=\"{{.x}}\"", want = "_attr" },
+  { source = "hx-boost=\"{{.x}}\"", want = "" },
+  { source = "hx-params=\"{{.x}}\"", want = "" },
+  { source = "hx-encoding=\"{{.x}}\"", want = "_attr" },
+  { source = "hx-ext=\"{{.x}}\"", want = "" },
+  { source = "hx-history=\"{{.x}}\"", want = "_attr" },
+  { source = "hx-preserve=\"{{.x}}\"", want = "_attr" },
+  { source = "hx-validate=\"{{.x}}\"", want = "_attr" },
+  { source = "hx-disable=\"{{.x}}\"", want = "" },
+  { source = "hx-disinherit=\"{{.x}}\"", want = "_attr" },
+  { source = "sse-swap=\"{{.x}}\"", want = "_attr" },
+  { source = "ws-send=\"{{.x}}\"", want = "_attr" },
+  { source = "hx-trigger=\"{{.x}}\"", want = "" },
+  { source = "hx-vars=\"{{.x}}\"", want = "" },
+  { source = "hx-on:click=\"{{.x}}\"", want = "" },
+  { source = "hx-ws=\"{{.x}}\"", want = "" },
 }
 
 --- The helpers `out` calls for the slots in its body, in order.
@@ -505,30 +509,30 @@ end
 
 local function test_with_use_htmx_each_attribute_has_its_class()
   for _, case in ipairs(HTMX_CLASSES) do
-    local src = HEAD .. "{{use htmx}}\n<a " .. case[1] .. ">"
-    if case[2] == "" then
+    local src = HEAD .. "{{use htmx}}\n<a " .. case.source .. ">"
+    if case.want == "" then
       refused(src)
     else
       local calls = helpers_called(compiled(src))
-      assert(calls[1] == case[2], case[1] .. ": " .. table.concat(calls, " "))
+      assert(calls[1] == case.want, case.source .. ": " .. table.concat(calls, " "))
     end
   end
 end
 
 local function test_without_use_htmx_only_the_script_and_json_attributes_are_refused()
   for _, case in ipairs(HTMX_CLASSES) do
-    local src = HEAD .. "<a " .. case[1] .. ">"
+    local src = HEAD .. "<a " .. case.source .. ">"
     local out, why = Template.compile(src, "t.tmpl")
-    local attr = case[1]:match("^[%w:-]+")
+    local attr = case.source:match("^[%w:-]+")
     if attr == "hx-trigger" or attr == "hx-vars" or attr == "hx-on:click" or attr == "hx-vals" or
         attr == "hx-headers" or attr == "hx-request" or attr == "hx-ws" then
-      assert(out == nil, case[1])
+      assert(out == nil, case.source)
       assert(why:find("'" .. attr .. "' attribute", 1, true), why)
     else
       -- A plain attribute, attribute-escaped as before.
-      assert(out ~= nil, case[1] .. ": " .. why)
+      assert(out ~= nil, case.source .. ": " .. why)
       for _, call in ipairs(helpers_called(out)) do
-        assert(call == "_attr", case[1] .. ": " .. call)
+        assert(call == "_attr", case.source .. ": " .. call)
       end
     end
   end
@@ -536,13 +540,13 @@ end
 
 local function test_every_attribute_is_classified_alike_in_upper_case_and_with_data()
   for _, case in ipairs(HTMX_CLASSES) do
-    local name, rest = case[1]:match("^([%w:-]+)(.*)$")
+    local name, rest = case.source:match("^([%w:-]+)(.*)$")
     for _, spelled in ipairs({ name:upper(), "data-" .. name, "DATA-" .. name:upper() }) do
       local src = HEAD .. "{{use htmx}}\n<a " .. spelled .. rest .. ">"
-      if case[2] == "" then
+      if case.want == "" then
         refused(src)
       else
-        assert(helpers_called(compiled(src))[1] == case[2], spelled .. rest)
+        assert(helpers_called(compiled(src))[1] == case.want, spelled .. rest)
       end
     end
   end
@@ -611,10 +615,10 @@ local function test_a_url_part_in_an_htmx_url_follows_the_rules_of_href()
     assert(part, swapped .. ": " .. table.concat(calls, " "))
   end
   for _, case in ipairs(DECODED) do
-    if case[2] ~= "" then
-      local swapped = case[1]:gsub("href=", "hx-get=")
+    if case.want ~= "" then
+      local swapped = case.source:gsub("href=", "hx-get=")
       local why = refused(HEAD .. "{{use htmx}}\n" .. swapped)
-      assert(why:find(case[2], 1, true), swapped .. ": " .. why)
+      assert(why:find(case.want, 1, true), swapped .. ": " .. why)
     end
   end
 end
@@ -623,33 +627,34 @@ local function test_a_json_slot_is_the_whole_value()
   compiled(HEAD .. "{{use htmx}}\n<a hx-vals='{{.v}}'>")
   compiled(HEAD .. "{{use htmx}}\n<a hx-vals=' {{.v}}\n'>")
   compiled(HEAD .. "{{use htmx}}\n<a hx-vals='{{if .a}}{{.v}}{{else}}{\"a\": 1}{{end}}'>")
-  for _, case in ipairs({
-      { "<a hx-vals='{\"a\":{{.v}}}'>", "must be the whole value" },
-      { "<a hx-vals='x{{.v}}'>", "must be the whole value" },
-      { "<a hx-vals='{{.v}}{{.v}}'>", "must be the whole value" },
-      { "<a hx-vals='{{.v}}x'>", "text after a JSON slot" },
-      { "<a hx-vals='{{.v}} x'>", "text after a JSON slot" },
-      { "<a hx-vals='{{if .a}}{{.v}}{{end}}x'>", "text after a JSON slot" },
-      { "<a hx-vals='{{.v}}{{if .a}}x{{end}}'>", "text after a JSON slot" },
-      { "<a hx-vals='{{if .a}}x{{end}}{{.v}}'>", "must be the whole value" },
-      { "<a hx-vals='{{range .l}}{{.}}{{end}}'>", "must be the whole value" },
-      { "<a hx-vals=\"{{.v}}'\">", "text after a JSON slot" },
-      { "<a hx-headers=unquoted{{.v}}>", "unquoted" },
-      -- The next attribute's quote must not forget text after the slot.
-      { "<a hx-vals='{{.v}}x' title='q'>", "text after a JSON slot" },
-      { "<a hx-vals='{{.v}}}' title='q'>", "text after a JSON slot" },
-      { "<a hx-vals='{{.v}}x'><b title='q'>", "text after a JSON slot" },
-      { "<a hx-vals='{{.v}}x' hx-get='/a'>", "text after a JSON slot" },
-      { "<a hx-vals='{{.v}}x\"y' title=\"q\">", "text after a JSON slot" },
-      { "<a hx-vals='{{.v}}\n x' title='q'>", "text after a JSON slot" },
-      { "<a hx-vals='{{if .a}}{{.v}}{{end}}x' title='q'>", "text after a JSON slot" },
-      { "<a hx-vals='{{if .a}}{{.v}}x' title='q'{{else}}'{{end}}>", "text after a JSON slot" },
-      { "<a hx-vals='{{if .a}}{{.v}}{{else}}{{.v}}x{{end}}' title='q'>", "text after a JSON slot" },
-      { "<a hx-vals='{{.v}}{{if .a}}x' title='q'{{else}}'{{end}}>", "text after a JSON slot" },
-      { "<a hx-vals='{{range .l}}{{.v}}x' title='q'{{end}}>", "text after a JSON slot" },
-  }) do
-    local why = refused(HEAD .. "{{use htmx}}\n" .. case[1])
-    assert(why:find(case[2], 1, true), case[1] .. ": " .. why)
+  local cases: {Expect} = {
+    { source = "<a hx-vals='{\"a\":{{.v}}}'>", want = "must be the whole value" },
+    { source = "<a hx-vals='x{{.v}}'>", want = "must be the whole value" },
+    { source = "<a hx-vals='{{.v}}{{.v}}'>", want = "must be the whole value" },
+    { source = "<a hx-vals='{{.v}}x'>", want = "text after a JSON slot" },
+    { source = "<a hx-vals='{{.v}} x'>", want = "text after a JSON slot" },
+    { source = "<a hx-vals='{{if .a}}{{.v}}{{end}}x'>", want = "text after a JSON slot" },
+    { source = "<a hx-vals='{{.v}}{{if .a}}x{{end}}'>", want = "text after a JSON slot" },
+    { source = "<a hx-vals='{{if .a}}x{{end}}{{.v}}'>", want = "must be the whole value" },
+    { source = "<a hx-vals='{{range .l}}{{.}}{{end}}'>", want = "must be the whole value" },
+    { source = "<a hx-vals=\"{{.v}}'\">", want = "text after a JSON slot" },
+    { source = "<a hx-headers=unquoted{{.v}}>", want = "unquoted" },
+    -- The next attribute's quote must not forget text after the slot.
+    { source = "<a hx-vals='{{.v}}x' title='q'>", want = "text after a JSON slot" },
+    { source = "<a hx-vals='{{.v}}}' title='q'>", want = "text after a JSON slot" },
+    { source = "<a hx-vals='{{.v}}x'><b title='q'>", want = "text after a JSON slot" },
+    { source = "<a hx-vals='{{.v}}x' hx-get='/a'>", want = "text after a JSON slot" },
+    { source = "<a hx-vals='{{.v}}x\"y' title=\"q\">", want = "text after a JSON slot" },
+    { source = "<a hx-vals='{{.v}}\n x' title='q'>", want = "text after a JSON slot" },
+    { source = "<a hx-vals='{{if .a}}{{.v}}{{end}}x' title='q'>", want = "text after a JSON slot" },
+    { source = "<a hx-vals='{{if .a}}{{.v}}x' title='q'{{else}}'{{end}}>", want = "text after a JSON slot" },
+    { source = "<a hx-vals='{{if .a}}{{.v}}{{else}}{{.v}}x{{end}}' title='q'>", want = "text after a JSON slot" },
+    { source = "<a hx-vals='{{.v}}{{if .a}}x' title='q'{{else}}'{{end}}>", want = "text after a JSON slot" },
+    { source = "<a hx-vals='{{range .l}}{{.v}}x' title='q'{{end}}>", want = "text after a JSON slot" },
+  }
+  for _, case in ipairs(cases) do
+    local why = refused(HEAD .. "{{use htmx}}\n" .. case.source)
+    assert(why:find(case.want, 1, true), case.source .. ": " .. why)
   end
 end
 
@@ -783,54 +788,54 @@ local function test_a_slot_that_begins_a_url_is_judged_by_where_its_branch_left_
   assert(why:find("t.tmpl:2:", 1, true) and why:find("fixes where", 1, true), why)
 end
 
-local SYNTAX <const>: {{string}} = {
-  { "", "1", "1", "starts with {{type" },
-  { "text\n{{type T from m.t}}", "1", "1", "starts with {{type" },
-  { "{{.x}}", "1", "1", "starts with {{type" },
-  { "{{type T}}", "1", "1", "write {{type" },
-  { "{{type T from m.t extra}}", "1", "1", "write {{type" },
-  { "{{type end from m.t}}", "1", "8", "not a type name" },
-  { "{{type 1T from m.t}}", "1", "8", "not a type name" },
-  { "{{type T from m..t}}", "1", "15", "not an import path" },
-  { "{{type T from m.t}}{{mode}}", "1", "20", "write {{mode" },
-  { "{{type T from m.t}}{{mode json}}", "1", "20", "write {{mode" },
-  { "{{type T from m.t}}x{{mode text}}", "1", "21", "directly follow" },
-  { "{{type T from m.t}}{{type U from m.u}}", "1", "20", "first action" },
-  { HEAD .. "a {{.x", "2", "3", "unterminated action" },
-  { HEAD .. "{{if .x}}\nabc", "2", "1", "never closed" },
-  { HEAD .. "{{range .x}}{{with .y}}\n{{end}}", "2", "1", "never closed" },
-  { HEAD .. "x{{end}}", "2", "2", "without a block" },
-  { HEAD .. "x{{else}}", "2", "2", "without a block" },
-  { HEAD .. "{{if .a}}{{else}}{{else}}{{end}}", "2", "18", "after {{else}}" },
-  { HEAD .. "{{if .a}}{{else}}{{else if .b}}{{end}}", "2", "18", "after {{else}}" },
-  { HEAD .. "{{range .a}}{{else if .b}}{{end}}", "2", "20", "nest an {{if}}" },
-  { HEAD .. "{{with .a}}{{else if .b}}{{end}}", "2", "19", "nest an {{if}}" },
-  { HEAD .. "{{if .a}}{{else foo}}{{end}}", "2", "17", "takes nothing" },
-  { HEAD .. "{{if .a}}{{end x}}", "2", "10", "takes nothing" },
-  { HEAD .. "{{}}", "2", "1", "expected a value" },
-  { HEAD .. "{{if}}{{end}}", "2", "1", "expected a value" },
-  { HEAD .. "{{foo}}", "2", "3", "not a field path" },
-  { HEAD .. "{{.a..b}}", "2", "3", "not a field path" },
-  { HEAD .. "{{.a.}}", "2", "3", "not a field path" },
-  { HEAD .. "{{.1a}}", "2", "3", "not a field path" },
-  { HEAD .. "{{.a b}}", "2", "6", "expected |" },
-  { HEAD .. "{{.a |}}", "2", "6", "expected a function" },
-  { HEAD .. "{{.a | f}}", "2", "8", "module.path.func" },
-  { HEAD .. "{{.a | .b}}", "2", "8", "module.path.func" },
-  { HEAD .. "{{.a | m.f x}}", "2", "12", "expected |" },
-  { HEAD .. "{{.a | m..f}}", "2", "8", "module.path.func" },
-  { HEAD .. "{{if .a | }}{{end}}", "2", "9", "expected a function" },
-  { HEAD .. "{{ -.x}}", "2", "4", "not a field path" },
-  { HEAD .. "{{.x -}", "2", "1", "unterminated" },
+local SYNTAX <const>: {Refusal} = {
+  { source = "", line = "1", column = "1", reason = "starts with {{type" },
+  { source = "text\n{{type T from m.t}}", line = "1", column = "1", reason = "starts with {{type" },
+  { source = "{{.x}}", line = "1", column = "1", reason = "starts with {{type" },
+  { source = "{{type T}}", line = "1", column = "1", reason = "write {{type" },
+  { source = "{{type T from m.t extra}}", line = "1", column = "1", reason = "write {{type" },
+  { source = "{{type end from m.t}}", line = "1", column = "8", reason = "not a type name" },
+  { source = "{{type 1T from m.t}}", line = "1", column = "8", reason = "not a type name" },
+  { source = "{{type T from m..t}}", line = "1", column = "15", reason = "not an import path" },
+  { source = "{{type T from m.t}}{{mode}}", line = "1", column = "20", reason = "write {{mode" },
+  { source = "{{type T from m.t}}{{mode json}}", line = "1", column = "20", reason = "write {{mode" },
+  { source = "{{type T from m.t}}x{{mode text}}", line = "1", column = "21", reason = "directly follow" },
+  { source = "{{type T from m.t}}{{type U from m.u}}", line = "1", column = "20", reason = "first action" },
+  { source = HEAD .. "a {{.x", line = "2", column = "3", reason = "unterminated action" },
+  { source = HEAD .. "{{if .x}}\nabc", line = "2", column = "1", reason = "never closed" },
+  { source = HEAD .. "{{range .x}}{{with .y}}\n{{end}}", line = "2", column = "1", reason = "never closed" },
+  { source = HEAD .. "x{{end}}", line = "2", column = "2", reason = "without a block" },
+  { source = HEAD .. "x{{else}}", line = "2", column = "2", reason = "without a block" },
+  { source = HEAD .. "{{if .a}}{{else}}{{else}}{{end}}", line = "2", column = "18", reason = "after {{else}}" },
+  { source = HEAD .. "{{if .a}}{{else}}{{else if .b}}{{end}}", line = "2", column = "18", reason = "after {{else}}" },
+  { source = HEAD .. "{{range .a}}{{else if .b}}{{end}}", line = "2", column = "20", reason = "nest an {{if}}" },
+  { source = HEAD .. "{{with .a}}{{else if .b}}{{end}}", line = "2", column = "19", reason = "nest an {{if}}" },
+  { source = HEAD .. "{{if .a}}{{else foo}}{{end}}", line = "2", column = "17", reason = "takes nothing" },
+  { source = HEAD .. "{{if .a}}{{end x}}", line = "2", column = "10", reason = "takes nothing" },
+  { source = HEAD .. "{{}}", line = "2", column = "1", reason = "expected a value" },
+  { source = HEAD .. "{{if}}{{end}}", line = "2", column = "1", reason = "expected a value" },
+  { source = HEAD .. "{{foo}}", line = "2", column = "3", reason = "not a field path" },
+  { source = HEAD .. "{{.a..b}}", line = "2", column = "3", reason = "not a field path" },
+  { source = HEAD .. "{{.a.}}", line = "2", column = "3", reason = "not a field path" },
+  { source = HEAD .. "{{.1a}}", line = "2", column = "3", reason = "not a field path" },
+  { source = HEAD .. "{{.a b}}", line = "2", column = "6", reason = "expected |" },
+  { source = HEAD .. "{{.a |}}", line = "2", column = "6", reason = "expected a function" },
+  { source = HEAD .. "{{.a | f}}", line = "2", column = "8", reason = "module.path.func" },
+  { source = HEAD .. "{{.a | .b}}", line = "2", column = "8", reason = "module.path.func" },
+  { source = HEAD .. "{{.a | m.f x}}", line = "2", column = "12", reason = "expected |" },
+  { source = HEAD .. "{{.a | m..f}}", line = "2", column = "8", reason = "module.path.func" },
+  { source = HEAD .. "{{if .a | }}{{end}}", line = "2", column = "9", reason = "expected a function" },
+  { source = HEAD .. "{{ -.x}}", line = "2", column = "4", reason = "not a field path" },
+  { source = HEAD .. "{{.x -}", line = "2", column = "1", reason = "unterminated" },
 }
 
 local function test_a_template_that_does_not_parse_is_refused_where_it_goes_wrong()
   local wrong: mut {string} = {}
   for _, case in ipairs(SYNTAX) do
-    local why = refused(case[1])
-    local want = "t.tmpl:" .. case[2] .. ":" .. case[3] .. ": "
-    if why:sub(1, #want) ~= want or not why:find(case[4], 1, true) then
-      wrong[#wrong + 1] = case[1] .. " said " .. why .. ", not " .. want .. "..." .. case[4]
+    local why = refused(case.source)
+    local want = "t.tmpl:" .. case.line .. ":" .. case.column .. ": "
+    if why:sub(1, #want) ~= want or not why:find(case.reason, 1, true) then
+      wrong[#wrong + 1] = case.source .. " said " .. why .. ", not " .. want .. "..." .. case.reason
     end
   end
   assert(#wrong == 0, table.concat(wrong, "\n"))
@@ -1047,17 +1052,17 @@ local function test_a_string_action_is_literal_text_the_html_tracker_reads()
   assert(slot:find("_attr(v)", 1, true), slot)
   local closed = compiled(HEAD .. '<svg/{{""}}><p>{{.x}}</p>')
   assert(closed:find("_text(v)", 1, true), closed)
-  local cases: {{string}} = {
-    { '<a href="{{"java"}}{{.x}}">', "2:20: ", "fixes where" },
-    { '<a href="{{.x}}{{"//h"}}">', "2:19: ", "protocol-relative" },
-    { '<p {{"onclick"}}="{{.x}}">', "2:19: ", "event handler" },
-    { '{{"<script>"}}{{.x}}', "2:15: ", "<script>" },
-    { '{{"<!--"}}{{.x}}-->', "2:11: ", "comment" },
-    { '<a{{"{{"}}', "2:11: ", "ends inside a tag" },
+  local cases: {Refusal} = {
+    { source = '<a href="{{"java"}}{{.x}}">', line = "2", column = "20", reason = "fixes where" },
+    { source = '<a href="{{.x}}{{"//h"}}">', line = "2", column = "19", reason = "protocol-relative" },
+    { source = '<p {{"onclick"}}="{{.x}}">', line = "2", column = "19", reason = "event handler" },
+    { source = '{{"<script>"}}{{.x}}', line = "2", column = "15", reason = "<script>" },
+    { source = '{{"<!--"}}{{.x}}-->', line = "2", column = "11", reason = "comment" },
+    { source = '<a{{"{{"}}', line = "2", column = "11", reason = "ends inside a tag" },
   }
   for _, case in ipairs(cases) do
-    local why = refused(HEAD .. case[1])
-    assert(why:find("t.tmpl:" .. case[2], 1, true) and why:find(case[3], 1, true), case[1] .. ": " .. why)
+    local why = refused(HEAD .. case.source)
+    assert(why:find("t.tmpl:" .. case.line .. ":" .. case.column .. ": ", 1, true) and why:find(case.reason, 1, true), case.source .. ": " .. why)
   end
 end
 
@@ -1074,31 +1079,31 @@ local function test_a_string_action_keeps_the_templates_lines()
   assert(lines[7]:find('"L6"', 1, true), out)
 end
 
-local STRINGS <const>: {{string}} = {
-  { HEAD .. '{{"abc}}', "2", "3", "unterminated string" },
-  { HEAD .. '{{"abc', "2", "3", "unterminated string" },
-  { HEAD .. '{{"a\nb"}}', "2", "3", "newline" },
-  { HEAD .. '{{"a\\nb"}}', "2", "5", "escape" },
-  { HEAD .. '{{"\\{"}}', "2", "4", "escape" },
-  { HEAD .. '{{"a" | m.f}}', "2", "7", "string" },
-  { HEAD .. '{{"a" "b"}}', "2", "7", "string" },
-  { HEAD .. '{{.a | "m.f"}}', "2", "8", "string" },
-  { HEAD .. '{{.a"b"}}', "2", "5", "string" },
-  { HEAD .. '{{if "x"}}{{end}}', "2", "6", "string" },
-  { HEAD .. '{{if .a}}{{else if "x"}}{{end}}', "2", "20", "string" },
-  { HEAD .. '{{range "x"}}{{end}}', "2", "9", "string" },
-  { HEAD .. '{{"x"-}}', "2", "6", "trim marker takes a space" },
-  { HEAD .. '{{-"x"-}}', "2", "3", "trim marker takes a space" },
-  { '{{type T "from" m.t}}', "1", "1", "write {{type" },
+local STRINGS <const>: {Refusal} = {
+  { source = HEAD .. '{{"abc}}', line = "2", column = "3", reason = "unterminated string" },
+  { source = HEAD .. '{{"abc', line = "2", column = "3", reason = "unterminated string" },
+  { source = HEAD .. '{{"a\nb"}}', line = "2", column = "3", reason = "newline" },
+  { source = HEAD .. '{{"a\\nb"}}', line = "2", column = "5", reason = "escape" },
+  { source = HEAD .. '{{"\\{"}}', line = "2", column = "4", reason = "escape" },
+  { source = HEAD .. '{{"a" | m.f}}', line = "2", column = "7", reason = "string" },
+  { source = HEAD .. '{{"a" "b"}}', line = "2", column = "7", reason = "string" },
+  { source = HEAD .. '{{.a | "m.f"}}', line = "2", column = "8", reason = "string" },
+  { source = HEAD .. '{{.a"b"}}', line = "2", column = "5", reason = "string" },
+  { source = HEAD .. '{{if "x"}}{{end}}', line = "2", column = "6", reason = "string" },
+  { source = HEAD .. '{{if .a}}{{else if "x"}}{{end}}', line = "2", column = "20", reason = "string" },
+  { source = HEAD .. '{{range "x"}}{{end}}', line = "2", column = "9", reason = "string" },
+  { source = HEAD .. '{{"x"-}}', line = "2", column = "6", reason = "trim marker takes a space" },
+  { source = HEAD .. '{{-"x"-}}', line = "2", column = "3", reason = "trim marker takes a space" },
+  { source = '{{type T "from" m.t}}', line = "1", column = "1", reason = "write {{type" },
 }
 
 local function test_a_string_action_that_is_malformed_or_not_alone_is_refused_where_it_goes_wrong()
   local wrong: mut {string} = {}
   for _, case in ipairs(STRINGS) do
-    local why = refused(case[1])
-    local want = "t.tmpl:" .. case[2] .. ":" .. case[3] .. ": "
-    if why:sub(1, #want) ~= want or not why:find(case[4], 1, true) then
-      wrong[#wrong + 1] = case[1] .. " said " .. why .. ", not " .. want .. "..." .. case[4]
+    local why = refused(case.source)
+    local want = "t.tmpl:" .. case.line .. ":" .. case.column .. ": "
+    if why:sub(1, #want) ~= want or not why:find(case.reason, 1, true) then
+      wrong[#wrong + 1] = case.source .. " said " .. why .. ", not " .. want .. "..." .. case.reason
     end
   end
   assert(#wrong == 0, table.concat(wrong, "\n"))
@@ -1319,44 +1324,44 @@ end
 
 --- Text after a block that adds an attribute, which would read differently
 --- after each arm, and where it is refused. Line 1 is the `{{type}}` line.
-local APART <const>: {{string}} = {
+local APART <const>: {Refusal} = {
   -- `checked="x"` in one arm, the tag `<input=x>` in the other.
-  { '<input{{if .a}} checked{{end}}=x>', "2", "31", "reads differently" },
-  { '<input{{if .a}} checked{{end}}{{"="}}x>', "2", "34", "reads differently" },
-  { '<input{{if .a}} checked{{end}} =x>', "2", "32", "reads differently" },
-  { '<input{{if .a}} checked{{end}}\n  =x>', "3", "3", "reads differently" },
+  { source = '<input{{if .a}} checked{{end}}=x>', line = "2", column = "31", reason = "reads differently" },
+  { source = '<input{{if .a}} checked{{end}}{{"="}}x>', line = "2", column = "34", reason = "reads differently" },
+  { source = '<input{{if .a}} checked{{end}} =x>', line = "2", column = "32", reason = "reads differently" },
+  { source = '<input{{if .a}} checked{{end}}\n  =x>', line = "3", column = "3", reason = "reads differently" },
   -- `checked` in one arm, `ked` in the other.
-  { '<input {{if .a}}chec{{end}}ked>', "2", "28", "reads differently" },
-  { '<input{{if .a}} checked{{end}}put>', "2", "31", "reads differently" },
-  { '<input{{if .a}} name=n{{end}}/>', "2", "30", "reads differently" },
-  { '<input{{range .l}} checked{{end}}=x>', "2", "34", "reads differently" },
-  { '<meta{{if .a}} http-equiv{{end}} content="{{.c}}">', "2", "33", "reads differently" },
+  { source = '<input {{if .a}}chec{{end}}ked>', line = "2", column = "28", reason = "reads differently" },
+  { source = '<input{{if .a}} checked{{end}}put>', line = "2", column = "31", reason = "reads differently" },
+  { source = '<input{{if .a}} name=n{{end}}/>', line = "2", column = "30", reason = "reads differently" },
+  { source = '<input{{range .l}} checked{{end}}=x>', line = "2", column = "34", reason = "reads differently" },
+  { source = '<meta{{if .a}} http-equiv{{end}} content="{{.c}}">', line = "2", column = "33", reason = "reads differently" },
   -- The arm that names http-equiv is the one the `>` ends, not the place kept.
-  { '<meta content="{{.c}}"{{if .a}}{{else}} http-equiv{{end}}>', "2", "16", "could be a redirect" },
-  { '<input{{range .l}} {{end}}name=x>', "2", "27", "a block before this text" },
+  { source = '<meta content="{{.c}}"{{if .a}}{{else}} http-equiv{{end}}>', line = "2", column = "16", reason = "could be a redirect" },
+  { source = '<input{{range .l}} {{end}}name=x>', line = "2", column = "27", reason = "a block before this text" },
   -- Run again, the body's own `a` carries on the `a` the run before wrote.
-  { '<input {{range .l}}a{{end}}>', "2", "20", "the {{range}} it is in" },
-  { '<input{{if .a}} checked{{end}}{{.x}}>', "2", "31", "a slot" },
-  { '<input{{if .a}} checked{{end}}', "2", "31", "the template ends inside a tag" },
-  { '<in{{if .a}}put checked{{end}}>', "2", "4", "end in different places" },
+  { source = '<input {{range .l}}a{{end}}>', line = "2", column = "20", reason = "the {{range}} it is in" },
+  { source = '<input{{if .a}} checked{{end}}{{.x}}>', line = "2", column = "31", reason = "a slot" },
+  { source = '<input{{if .a}} checked{{end}}', line = "2", column = "31", reason = "the template ends inside a tag" },
+  { source = '<in{{if .a}}put checked{{end}}>', line = "2", column = "4", reason = "end in different places" },
   -- An arm that goes on with the name or value the block cut, then adds an attribute.
-  { '<input a{{if .a}}checked {{end}}>', "2", "9", "end in different places" },
-  { '<input name=n{{if .a}}x checked{{end}}>', "2", "14", "end in different places" },
-  { '<input a{{if .a}}=x{{end}}>', "2", "9", "end in different places" },
-  { '<input a {{if .a}}=x{{end}}>', "2", "10", "end in different places" },
-  { '<input/{{if .a}} checked{{end}}>', "2", "8", "end in different places" },
-  { '<p>{{if .a}}<input{{end}} checked>', "2", "4", "end in different places" },
-  { '<a{{if .a}} href{{end}}="{{.u}}">', "2", "24", "reads differently" },
-  { '<meta{{if .a}} http-equiv="refresh"{{end}} content="{{.c}}">', "2", "6", "end in different places" },
+  { source = '<input a{{if .a}}checked {{end}}>', line = "2", column = "9", reason = "end in different places" },
+  { source = '<input name=n{{if .a}}x checked{{end}}>', line = "2", column = "14", reason = "end in different places" },
+  { source = '<input a{{if .a}}=x{{end}}>', line = "2", column = "9", reason = "end in different places" },
+  { source = '<input a {{if .a}}=x{{end}}>', line = "2", column = "10", reason = "end in different places" },
+  { source = '<input/{{if .a}} checked{{end}}>', line = "2", column = "8", reason = "end in different places" },
+  { source = '<p>{{if .a}}<input{{end}} checked>', line = "2", column = "4", reason = "end in different places" },
+  { source = '<a{{if .a}} href{{end}}="{{.u}}">', line = "2", column = "24", reason = "reads differently" },
+  { source = '<meta{{if .a}} http-equiv="refresh"{{end}} content="{{.c}}">', line = "2", column = "6", reason = "end in different places" },
 }
 
 local function test_text_that_reads_differently_after_each_arm_of_a_block_is_refused()
   local wrong: mut {string} = {}
   for _, case in ipairs(APART) do
-    local why = refused(HEAD .. case[1])
-    local want = "t.tmpl:" .. case[2] .. ":" .. case[3] .. ": "
-    if why:sub(1, #want) ~= want or not why:find(case[4], 1, true) then
-      wrong[#wrong + 1] = case[1] .. " said " .. why .. ", not " .. want .. "..." .. case[4]
+    local why = refused(HEAD .. case.source)
+    local want = "t.tmpl:" .. case.line .. ":" .. case.column .. ": "
+    if why:sub(1, #want) ~= want or not why:find(case.reason, 1, true) then
+      wrong[#wrong + 1] = case.source .. " said " .. why .. ", not " .. want .. "..." .. case.reason
     end
   end
   assert(#wrong == 0, table.concat(wrong, "\n"))
@@ -1529,54 +1534,54 @@ end
 
 --- Template source, the line and column it is refused at, and what the
 --- reason says, for variables.
-local VARIABLE_REFUSALS <const>: {{string}} = {
-  { HEAD .. "{{$x}}", "2", "3", "'$x' is not declared here" },
-  { HEAD .. "{{range $x := .l}}{{$y.a}}{{end}}", "2", "21", "'$y' is not declared here" },
-  { HEAD .. "{{range $item := .l}}\n  {{$itme.name}}{{end}}", "3", "5", "'$itme' is not declared here" },
-  { HEAD .. "{{range $x := .l}}{{.}}{{else}}{{$x}}{{end}}", "2", "34", "'$x' is not declared here" },
-  { HEAD .. "{{range $i, $x := .l}}{{else}}{{$i}}{{end}}", "2", "33", "'$i' is not declared here" },
-  { HEAD .. "{{range $x := .l}}{{end}}{{$x}}", "2", "28", "'$x' is not declared here" },
-  { HEAD .. "{{if .a}}{{range $x := .l}}{{end}}{{$x}}{{end}}", "2", "37", "'$x' is not declared here" },
-  { HEAD .. "{{range $x := .l}}{{end}}{{range $x := .l}}{{$x}}{{end}}", "2", "1", "" },
-  { HEAD .. "{{range $x := .l}}{{range $x := .m}}{{end}}{{end}}", "2", "27", "'$x' is already declared at 2:9" },
-  { HEAD .. "{{range $x, $x := .l}}{{end}}", "2", "13", "'$x' is already declared at 2:9" },
-  { HEAD .. "{{range $x := $x.l}}{{end}}", "2", "15", "'$x' is not declared here" },
-  { HEAD .. "{{with $x := .w}}{{end}}", "2", "11", "only {{range}} binds" },
-  { HEAD .. "{{if $x := .w}}{{end}}", "2", "9", "only {{range}} binds" },
-  { HEAD .. "{{$x := .w}}", "2", "6", "only {{range}} binds" },
-  { HEAD .. "{{.a | m.f, .b}}", "2", "11", "unexpected ','" },
-  { HEAD .. "{{.a,b}}", "2", "5", "unexpected ','" },
-  { HEAD .. "{{range $i := $x := .a}}{{end}}", "2", "18", "unexpected ':=': a range binds once" },
-  { HEAD .. "{{range $x := .a := .b}}{{end}}", "2", "18", "unexpected ':=': a range binds once" },
-  { HEAD .. "{{range .a := .b}}{{end}}", "2", "12", "unexpected ':=': a range binds once" },
-  { HEAD .. "{{range $ := .l}}{{end}}", "2", "9", "'$' is not a name to bind" },
-  { HEAD .. "{{range $x.a := .l}}{{end}}", "2", "9", "'$x.a' is not a name to bind" },
-  { HEAD .. "{{range $x .l}}{{end}}", "2", "12", "expected := after $x" },
-  { HEAD .. "{{range $x $y}}{{end}}", "2", "12", "expected := after $x" },
-  { HEAD .. "{{range $i, $x .l}}{{end}}", "2", "16", "expected := after $x" },
-  { HEAD .. "{{range $i, .l}}{{end}}", "2", "13", "expected a variable to bind" },
-  { HEAD .. "{{range $i, $x, $y := .l}}{{end}}", "2", "15", "expected := after $x" },
-  { HEAD .. "{{range $x :=}}{{end}}", "2", "1", "expected a value" },
-  { HEAD .. "{{range := .l}}{{end}}", "2", "9", "not a field path" },
-  { HEAD .. "{{$.}}", "2", "3", "not a variable" },
-  { HEAD .. "{{$x..a}}", "2", "3", "not a variable" },
-  { HEAD .. "{{$1}}", "2", "3", "not a variable" },
-  { HEAD .. "{{$$}}", "2", "3", "not a variable" },
-  { HEAD .. "{{.a | $.f}}", "2", "8", "module.path.func" },
+local VARIABLE_REFUSALS <const>: {Refusal} = {
+  { source = HEAD .. "{{$x}}", line = "2", column = "3", reason = "'$x' is not declared here" },
+  { source = HEAD .. "{{range $x := .l}}{{$y.a}}{{end}}", line = "2", column = "21", reason = "'$y' is not declared here" },
+  { source = HEAD .. "{{range $item := .l}}\n  {{$itme.name}}{{end}}", line = "3", column = "5", reason = "'$itme' is not declared here" },
+  { source = HEAD .. "{{range $x := .l}}{{.}}{{else}}{{$x}}{{end}}", line = "2", column = "34", reason = "'$x' is not declared here" },
+  { source = HEAD .. "{{range $i, $x := .l}}{{else}}{{$i}}{{end}}", line = "2", column = "33", reason = "'$i' is not declared here" },
+  { source = HEAD .. "{{range $x := .l}}{{end}}{{$x}}", line = "2", column = "28", reason = "'$x' is not declared here" },
+  { source = HEAD .. "{{if .a}}{{range $x := .l}}{{end}}{{$x}}{{end}}", line = "2", column = "37", reason = "'$x' is not declared here" },
+  { source = HEAD .. "{{range $x := .l}}{{end}}{{range $x := .l}}{{$x}}{{end}}", line = "2", column = "1", reason = "" },
+  { source = HEAD .. "{{range $x := .l}}{{range $x := .m}}{{end}}{{end}}", line = "2", column = "27", reason = "'$x' is already declared at 2:9" },
+  { source = HEAD .. "{{range $x, $x := .l}}{{end}}", line = "2", column = "13", reason = "'$x' is already declared at 2:9" },
+  { source = HEAD .. "{{range $x := $x.l}}{{end}}", line = "2", column = "15", reason = "'$x' is not declared here" },
+  { source = HEAD .. "{{with $x := .w}}{{end}}", line = "2", column = "11", reason = "only {{range}} binds" },
+  { source = HEAD .. "{{if $x := .w}}{{end}}", line = "2", column = "9", reason = "only {{range}} binds" },
+  { source = HEAD .. "{{$x := .w}}", line = "2", column = "6", reason = "only {{range}} binds" },
+  { source = HEAD .. "{{.a | m.f, .b}}", line = "2", column = "11", reason = "unexpected ','" },
+  { source = HEAD .. "{{.a,b}}", line = "2", column = "5", reason = "unexpected ','" },
+  { source = HEAD .. "{{range $i := $x := .a}}{{end}}", line = "2", column = "18", reason = "unexpected ':=': a range binds once" },
+  { source = HEAD .. "{{range $x := .a := .b}}{{end}}", line = "2", column = "18", reason = "unexpected ':=': a range binds once" },
+  { source = HEAD .. "{{range .a := .b}}{{end}}", line = "2", column = "12", reason = "unexpected ':=': a range binds once" },
+  { source = HEAD .. "{{range $ := .l}}{{end}}", line = "2", column = "9", reason = "'$' is not a name to bind" },
+  { source = HEAD .. "{{range $x.a := .l}}{{end}}", line = "2", column = "9", reason = "'$x.a' is not a name to bind" },
+  { source = HEAD .. "{{range $x .l}}{{end}}", line = "2", column = "12", reason = "expected := after $x" },
+  { source = HEAD .. "{{range $x $y}}{{end}}", line = "2", column = "12", reason = "expected := after $x" },
+  { source = HEAD .. "{{range $i, $x .l}}{{end}}", line = "2", column = "16", reason = "expected := after $x" },
+  { source = HEAD .. "{{range $i, .l}}{{end}}", line = "2", column = "13", reason = "expected a variable to bind" },
+  { source = HEAD .. "{{range $i, $x, $y := .l}}{{end}}", line = "2", column = "15", reason = "expected := after $x" },
+  { source = HEAD .. "{{range $x :=}}{{end}}", line = "2", column = "1", reason = "expected a value" },
+  { source = HEAD .. "{{range := .l}}{{end}}", line = "2", column = "9", reason = "not a field path" },
+  { source = HEAD .. "{{$.}}", line = "2", column = "3", reason = "not a variable" },
+  { source = HEAD .. "{{$x..a}}", line = "2", column = "3", reason = "not a variable" },
+  { source = HEAD .. "{{$1}}", line = "2", column = "3", reason = "not a variable" },
+  { source = HEAD .. "{{$$}}", line = "2", column = "3", reason = "not a variable" },
+  { source = HEAD .. "{{.a | $.f}}", line = "2", column = "8", reason = "module.path.func" },
 }
 
 local function test_a_variable_out_of_scope_or_misspelled_is_refused_where_it_stands()
   local wrong: mut {string} = {}
   for _, case in ipairs(VARIABLE_REFUSALS) do
-    local out, why = Template.compile(case[1], "t.tmpl")
-    if case[4] == "" then
+    local out, why = Template.compile(case.source, "t.tmpl")
+    if case.reason == "" then
       if out == nil then
-        wrong[#wrong + 1] = case[1] .. " was refused: " .. why
+        wrong[#wrong + 1] = case.source .. " was refused: " .. why
       end
     else
-      local want = "t.tmpl:" .. case[2] .. ":" .. case[3] .. ": "
-      if out ~= nil or why:sub(1, #want) ~= want or not why:find(case[4], 1, true) then
-        wrong[#wrong + 1] = case[1] .. " said " .. tostring(why) .. ", not " .. want .. "..." .. case[4]
+      local want = "t.tmpl:" .. case.line .. ":" .. case.column .. ": "
+      if out ~= nil or why:sub(1, #want) ~= want or not why:find(case.reason, 1, true) then
+        wrong[#wrong + 1] = case.source .. " said " .. tostring(why) .. ", not " .. want .. "..." .. case.reason
       end
     end
   end
