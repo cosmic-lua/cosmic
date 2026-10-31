@@ -63,6 +63,9 @@ local record Cli
   --- $XDG_CACHE_HOME/cosmic/standalone), then called as `run` calls
   --- one -- its words in `arg` and the returned function's `argv` --
   --- with a record's `main` field standing for a returned function.
+  --- `cosmic --standalone --check <file.tl>` only checks the file, as
+  --- a run does, and never calls it: it prints the refusals and exits 1,
+  --- or exits 0 when there are none.
   --- COSMIC_STANDALONE=1 makes `cosmic <file.tl>` run so
   standalone: string
   --- `cosmic -e '<chunk>' [args...]`: runs the chunk as the body of a Teal
@@ -823,7 +826,7 @@ local module: Module = {
     },
     standalone = {
       about = "run one file with no tree around it",
-      usage = "<file.tl> [args]",
+      usage = "[--check] <file.tl> [args]",
     },
     eval = {
       about = "run a chunk of Teal, checked",

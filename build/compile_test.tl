@@ -8,7 +8,9 @@ local Test = require("cosmic.test")
 local compile = require("build.compile")
 local Grammar = require("build.compile_grammar")
 
-Test.policy{}
+-- With no declaration file named the files are typed against the declarations the tool carries, which only a worker that holds
+-- the tool's database ("cosmic") has.
+Test.policy{ profiles = { "cosmic" } }
 
 local record Ran
   mut code: integer
@@ -235,4 +237,34 @@ local function test_a_dotted_directory_is_a_path_not_a_module_path(tmp: string)
   local ran = run({ "--errors", path })
   assert(ran.code == 0, ran.err)
   assert(ran.err:find("v1.2/m.tl:1:", 1, true) and not ran.err:find("v1/2", 1, true), ran.err)
+end
+
+--- A standalone script, as `cosmic --standalone` types it: the prelude's globals and the `cosmic.*` modules are known, and the
+--- one real mistake and the unused local that `--standalone` refuses are all `--errors` names.
+local function test_a_file_with_no_declaration_is_checked_as_standalone_checks_it(tmp: string)
+  local text = [[
+local Sqlite = require("cosmic.sqlite")
+local Proc = require("cosmic.proc")
+local broken: integer = "definitely a string"
+assert(type(Sqlite) == "table" and type(Proc) == "table")
+for i, v in ipairs({ "a" }) do
+  print(tostring(i) .. string.upper(v) .. table.concat({ "b" }))
+end
+]]
+  local path = file(tmp, "broken.tl", text)
+  local ran = run({ "--errors", path })
+  assert(ran.code == 0, ran.err)
+  assert(not ran.err:find("unknown_variable", 1, true), ran.err)
+  assert(not ran.err:find("unchecked_binding", 1, true), ran.err)
+  assert(ran.err:find("not_assignable", 1, true), ran.err)
+  assert(ran.err:find("unused_variable", 1, true), ran.err)
+  assert(ran.err:find("2 type errors", 1, true), ran.err)
+  assert(load(ran.out, "=broken") ~= nil, "the Lua written does not load")
+end
+
+--- A clean script has nothing to list.
+local function test_a_clean_standalone_script_lists_no_errors(tmp: string)
+  local path = file(tmp, "clean.tl", "local Fs = require(\"cosmic.fs\")\nreturn function(): integer\n  return Fs.stdout\nend\n")
+  local ran = run({ "--errors", path })
+  assert(ran.code == 0 and ran.err == "", ran.err)
 end
