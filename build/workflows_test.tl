@@ -2168,9 +2168,28 @@ local function test_the_checked_suite_runs_in_shares_that_a_job_gathers()
       diag["if"] == "failure()", "a share keeps its diagnostics otherwise")
 end
 
---- The checked narrowing run, the whole suite on a checked run, is a
---- job of its own, `checked-narrowing`, on a full run where the legs
---- run: it stands on no verdict and uses no checked core, so it boots
+--- The checked narrowing run's shares check no C function is entered by
+--- some test, which only a whole run does (build/test.tl). They need not:
+--- a checked run enters no C function a plain one does not (the tests that
+--- differ skip in it, and those that ask for one skip in every run,
+--- build/type_watch.tl), and linux-x86_64's leg runs the whole native
+--- suite on the same release core in every full run, with no share of it
+--- and no selected files. This holds the leg to that.
+local function test_a_full_runs_linux_x86_64_leg_holds_the_c_function_check_the_narrowing_shares_lack()
+  local jobs = ci_workflow().jobs
+  local platform = job_of(jobs, "platform")
+  assert(map_of(platform.env)["COSMIC_CI_SHARD"] == LEG_SHARD, "the leg's share is another than the matrix's")
+  local leg = assert(platform_legs("full")["linux-x86_64"], "a full run has no linux-x86_64 leg")
+  assert(leg_shard(leg) == "" and leg["shard"] == "", "linux-x86_64 runs a share of a full run's suite")
+  assert(phases_of(platform):find("local-suite", 1, true) ~= nil, "the legs run no native suite: " .. phases_of(platform))
+  local step = step_named(platform.steps, "run the declared-types tests on a checked run")
+  assert((step.run or ""):find("platform declared-types", 1, true) ~= nil, "the declared-types step is another")
+end
+
+--- The checked narrowing run, the whole suite on a checked run, is jobs
+--- of their own, `checked-narrowing`, on a full run where the legs
+--- run, a share of the tests each (`cosmic test --check-types --shard
+--- I/N`): it stands on no verdict and uses no checked core, so it boots
 --- and keeps no verdicts and saves nothing. A branch push's format check
 --- is a job of its own too (`format`), which a full run does not run
 --- (its legs make that check in assemble).
@@ -2181,8 +2200,27 @@ local function test_the_checked_narrowing_run_and_a_light_runs_format_check_have
   local format = assert(job_of(jobs, "format"), "no job runs the light format check")
   assert(Json.encode_any(narrowing["needs"]) == '["reuse","scope"]' and narrowing["if"] == job_of(jobs, "checked-shard")["if"],
     "the checked narrowing runs elsewhere than a share does: " .. tostring(narrowing["if"]))
-  assert(narrowing["name"] == "linux-x86_64-checked-narrowing", tostring(narrowing["name"]))
+  local strategy = assert(narrowing.strategy, "the checked narrowing is split in no shares")
+  local parts, parts_err: {integer}?, string = Shape.into(assert(strategy.matrix)["part"], Shape.list(Shape.integer))
+  parts = assert(parts, parts_err)
+  assert(#parts >= 2 and strategy["fail-fast"] == false,
+    "the checked narrowing is split in no shares, or one failing cancels the others")
+  for i, part in ipairs(parts) do
+    assert(part == i, "the narrowing shares are not numbered from 1")
+  end
+  assert(narrowing["name"] == "linux-x86_64-checked-narrowing-${{ matrix.part }}", tostring(narrowing["name"]))
   assert(phases_of(narrowing) == "boot checked-narrowing", "the checked narrowing runs " .. phases_of(narrowing))
+  -- A share's job holds its boot and the share's bound, and fewer minutes
+  -- than the whole run's job had.
+  local script = assert(Fs.read("ci/cosmic_ci/orchestration.tl"))
+  local bound = math.tointeger(tonumber(script:match("checked_narrowing_timeout_ns <const> = Clock%.seconds%((%d+)%)")))
+  assert(bound ~= nil and bound > 0, "a narrowing share has no bound of its own")
+  local minutes = math.tointeger(narrowing["timeout-minutes"])
+  assert(minutes ~= nil and minutes * 60 >= bound + 600 and minutes < 45,
+    "a narrowing share's job holds " .. tostring(minutes) .. " minutes for its boot and a bound of " .. tostring(bound) .. " s")
+  local kept_db = assert(param((step_named(narrowing.steps, "preserve CI driver database")), "name"))
+  assert(kept_db == "ci-driver-linux-x86_64-checked-narrowing-${{ matrix.part }}",
+    "a narrowing share keeps its operations as " .. kept_db)
   held_to_the_leg("checked-narrowing", narrowing, platform, joined({ { "name the leg's host" }, SETUP_STEPS }),
     function(_: string, theirs: string?): string?
       return theirs
@@ -2197,6 +2235,8 @@ local function test_the_checked_narrowing_run_and_a_light_runs_format_check_have
   assert(nenv["COSMIC_WORKER"] == "linux-x86_64-checked" and nenv["COSMIC_CI_REQUIRE_SANDBOX"] == "1" and
       nenv["COSMIC_CI_DECLARED_KEYS"] == "0" and nenv["COSMIC_CI_CHECKED_SUITE"] == nil and nenv["COSMIC_CI_FORMAT"] == nil,
     "the checked narrowing is not run as the checked job was: " .. tostring((Json.encode(nenv))))
+  assert(nenv["COSMIC_CI_NARROWING_SHARD"] == "${{ matrix.part }}/${{ strategy.job-total }}",
+    "a narrowing share's COSMIC_CI_NARROWING_SHARD: " .. tostring(nenv["COSMIC_CI_NARROWING_SHARD"]))
   -- The format check: a branch push's and the scheduled run's, which
   -- names the paths the branch changed from the base it found, boots,
   -- and lays out only those.
