@@ -55,6 +55,7 @@
 --- with no leading zeros, IPv6 in hex groups of one to four digits with at
 --- most one "::" and an IPv4 tail, no zone. Anything else is refused as
 --- not numeric: an answer is untrusted bytes from DNS.
+--- @public
 
 local Grant = require("cosmic.relay.grant")
 

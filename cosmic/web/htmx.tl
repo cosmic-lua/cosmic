@@ -24,6 +24,7 @@
 --- - [`Htmx.head`] writes the `htmx-config` meta tag and the script tags,
 ---   with `integrity` values the binary computed from the bytes it serves
 ---   under `/_web/` ([`Web.app`]).
+--- @public
 
 local Html = require("cosmic.html")
 local Json = require("cosmic.json")

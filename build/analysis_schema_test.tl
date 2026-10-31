@@ -49,7 +49,14 @@ local function test_a_declaration_is_a_binding_only_given_the_line_on_a_line_of_
   local cases: {Source} = {
     { path = "b/first.d.tl", text = "--- @kind binding\nlocal record R end\nreturn R\n", kind = "binding" },
     { path = "b/middle.d.tl", text = "--- A table.\n--- @kind binding\nlocal record R end\n", kind = "binding" },
-    { path = "b/last.d.tl", text = "local record R end\n--- @kind binding", kind = "binding" },
+    -- Only the doc block that opens the file declares it: a line after code, in a string or in a function's doc does not.
+    { path = "b/last.d.tl", text = "local record R end\n--- @kind binding", kind = "decl" },
+    { path = "b/after_blank.d.tl", text = "--- A table.\n\n--- @kind binding\nlocal record R end\n", kind = "decl" },
+    { path = "b/string.d.tl", text = "local s = [[\n--- @kind binding\n]]\n", kind = "decl" },
+    { path = "b/mixed.d.tl",
+      text = "--- A table.\n-- a note\n--- @kind binding\nlocal record R end\n",
+      kind = "binding" },
+    { path = "b/no_newline.d.tl", text = "--- @kind binding", kind = "binding" },
     { path = "b/inside.d.tl",
       text = "-- see --- @kind binding for what it means\nlocal record R end\n",
       kind = "decl" },
@@ -60,7 +67,8 @@ local function test_a_declaration_is_a_binding_only_given_the_line_on_a_line_of_
     { path = "b/test_test.tl", text = "--- @kind binding\n", kind = "test" },
     -- A file saved with CR LF line ends declares it as one with LF does, in the view and in Teal.
     { path = "b/crlf.d.tl", text = "--- A table.\r\n--- @kind binding\r\nlocal record R end\r\n", kind = "binding" },
-    { path = "b/crlf_last.d.tl", text = "local record R end\r\n--- @kind binding\r\n", kind = "binding" },
+    { path = "b/crlf_last.d.tl", text = "--- A table.\r\n--- @kind binding\r\n", kind = "binding" },
+    { path = "b/crlf_late.d.tl", text = "local record R end\r\n--- @kind binding\r\n", kind = "decl" },
     { path = "b/crlf_after.d.tl", text = "--- @kind binding \r\nlocal record R end\r\n", kind = "decl" },
     -- Only a declaration claims it, and a declaration that is a test's still does.
     { path = "b/helper_test.d.tl", text = "--- @kind binding\nlocal record R end\n", kind = "binding" },
@@ -120,4 +128,30 @@ local function test_the_declaration_predicate_selects_what_the_comparisons_did(_
   for _, kind in ipairs(kinds) do
     assert(analysis_schema.is_declaration(kind) == (kind == "decl" or kind == "binding"), kind)
   end
+end
+
+--- The `--- @public` line is read as the binding line is: on a line of its own, with LF or CR LF, not inside another
+--- line or with anything after it.
+local function test_the_public_line_is_read_on_a_line_of_its_own()
+  assert(analysis_schema.declares_public("--- A module.\n--- @public\nlocal x = 1\n"))
+  assert(analysis_schema.declares_public("--- A module.\r\n--- @public\r\nlocal x = 1\r\n"))
+  assert(analysis_schema.declares_public("--- @public"))
+  -- Only in the doc block that opens the file.
+  assert(not analysis_schema.declares_public("local x = 1\n--- @public\n"))
+  assert(not analysis_schema.declares_public("--- A module.\n\n--- @public\nlocal x = 1\n"))
+  assert(not analysis_schema.declares_public("local s = [[\n--- @public\n]]\n"))
+  assert(analysis_schema.declares_public("--- A module.\n-- a note\n--- @public\nlocal x = 1\n"))
+  assert(not analysis_schema.declares_public("-- see --- @public for what it means\n"))
+  assert(not analysis_schema.declares_public("--- @public \n"))
+  assert(not analysis_schema.declares_public("--- @publicly\n"))
+  assert(not analysis_schema.declares_public("--- @kind binding\n"))
+end
+
+--- Test support is a file of the top-level `test/` directory, whatever its name; a `test/` further down is not.
+local function test_support_is_the_top_level_test_directory()
+  assert(analysis_schema.is_support("test/portable/tool.tl"))
+  assert(analysis_schema.is_support("test/helper.tl"))
+  assert(not analysis_schema.is_support("cosmic/test/helper.tl"))
+  assert(not analysis_schema.is_support("testdata/x.tl"))
+  assert(not analysis_schema.is_support("tests/x.tl"))
 end
