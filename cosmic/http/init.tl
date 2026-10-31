@@ -1,8 +1,5 @@
 --- HTTP and HTTPS requests, typed: HTTP and HTTPS only, with no cookies,
---- no HTTP/2 and no decoding of a compressed body: no `Accept-Encoding` is
---- sent, and the body is never decoded. A body a server compresses anyway
---- arrives as sent; check `headers["content-encoding"]` and give the body
---- to [`Compress.inflate`] when it says so.
+--- no HTTP/2 and no compressed transfer-encoding.
 ---
 ---     local got = assert(Http.get("https://example.com/"))
 ---     if got.status // 100 ~= 2 then error("HTTP " .. got.status .. ": " .. got.body) end
@@ -31,21 +28,11 @@ local Hash = require("cosmic.hash")
 local Store = require("cosmic.store")
 
 -- The raw module behind this one lives under the reserved
--- `cosmic.internal.` namespace, which an ordinary `require` never
--- satisfies (see cosmic/store.tl for why). It arrives instead as the
--- second argument the loader passes this chunk, present because this
--- module was itself loaded, trusted, from the binary's own tree. Boot
--- mode falls back to requiring it by name, which only boot's own
--- preload answers.
+-- `cosmic.internal.` namespace, which only cosmic's own tree may require
+-- (see cosmic/store.tl for why).
 local type raw_http = require("cosmic.internal.http")
 
-local extra: any = select(2, ...)
-local http: raw_http
-if type(extra) == "table" then
-  http = extra as raw_http
-else
-  http = require("cosmic.internal.http")
-end
+local http = require("cosmic.internal.http")
 
 local Stream = require("cosmic.stream")
 -- Only the type: cosmic.net is the networking stack a program that
