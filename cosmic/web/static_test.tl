@@ -236,6 +236,36 @@ local function test_head_and_range_treat_zstd_as_they_treat_gzip()
   assert(ranged.headers["etag"] == assert(files():get("css/app.css")).etag)
 end
 
+local function test_if_range_holds_for_the_plain_tag_and_not_for_a_coded_one()
+  local client = client_of()
+  local plain_tag = assert(files():get("css/app.css")).etag
+  local zstd_tag = assert(get_with(client, "zstd").headers["etag"])
+  assert(zstd_tag ~= plain_tag)
+  local held = get_with(client, "zstd", { Range = "bytes=0-4", ["If-Range"] = plain_tag })
+  assert(held.status == 206 and held.body == CSS:sub(1, 5) and held.headers["content-encoding"] == nil)
+  local coded = get_with(client, "zstd", { Range = "bytes=0-4", ["If-Range"] = zstd_tag })
+  assert(coded.status == 200 and coded.body == CSS and coded.headers["content-encoding"] == nil,
+    "a coded tag names bytes a range does not address")
+  assert(coded.headers["etag"] == plain_tag)
+end
+
+local function test_a_weak_if_none_match_of_the_zstd_tag_matches_the_zstd_representation()
+  local client = client_of()
+  local zstd_tag = assert(get_with(client, "zstd").headers["etag"])
+  local weak = get_with(client, "zstd", { ["If-None-Match"] = "W/" .. zstd_tag })
+  assert(weak.status == 304 and weak.body == "" and weak.headers["etag"] == zstd_tag)
+  assert(weak.headers["vary"] == "Accept-Encoding")
+  local other = get_with(client, "gzip", { ["If-None-Match"] = "W/" .. zstd_tag })
+  assert(other.status == 200 and other.headers["content-encoding"] == "gzip",
+    "the zstd tag does not name the gzip bytes")
+end
+
+local function test_a_failed_if_range_sends_the_whole_plain_file_to_a_client_taking_zstd()
+  local res = get_with(client_of(), "zstd, gzip", { Range = "bytes=0-4", ["If-Range"] = '"old"' })
+  assert(res.status == 200 and res.body == CSS and res.headers["content-encoding"] == nil)
+  assert(res.headers["vary"] == "Accept-Encoding" and res.headers["content-range"] == nil)
+end
+
 local function test_a_range_is_served_from_the_plain_bytes_whatever_the_client_accepts()
   local res = client_of():get("/static/css/app.css", { headers = { Range = "bytes=0-4",
     ["Accept-Encoding"] = "gzip" } })

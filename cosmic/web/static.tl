@@ -249,6 +249,9 @@ function StaticFiles.handler(opts?: StaticFiles.Options): Types.Handler
 
     local control = by_digest and immutable_control or plain_control
     local has_range = req:header("range") ~= nil
+    -- A byte range is of the identity representation, so a Range request is
+    -- served plain whatever the client accepts: a range of the coded bytes
+    -- would name offsets the client's own copy of the file does not have.
     local coding: string? = nil
     if not has_range then
       coding = coding_of(asset, req:header("accept-encoding"), use_zstd, use_gzip)

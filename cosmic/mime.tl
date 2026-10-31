@@ -76,9 +76,13 @@ end
 --- The most bytes of a file that are not worth compressing.
 local MIN_BYTES <const> = 1024
 
---- The level the zstd of a file is written at: files are compressed once,
---- when the program is built, so the slowest ordinary level is paid for.
-local ZSTD_LEVEL <const> = 19
+--- The level the zstd of a file is written at. Every projection write
+--- compresses every asset again, so the cost is paid often: on 5.9 MB of
+--- source text level 12 takes about what gzip level 9 does (370 ms against
+--- 360) and is 14% smaller than it, where level 19 is 10 times slower for 24%
+--- and level 9 is 2.4 times faster for 12%. Levels 3 to 12 stay near gzip's
+--- cost; above 12 the time climbs steeply for a few percent of size.
+local ZSTD_LEVEL <const> = 12
 
 --- Whether a file called `path` with contents `data` is worth sending
 --- compressed: the type is text or another format not compressed already,
@@ -113,9 +117,10 @@ end
 
 --- The zstd of `data`, the contents of a file called `path`, when that is
 --- worth sending in its place: the same rule as [`Mime.gzip`] (a type not
---- compressed already, over 1 KiB, at least 10% smaller). One frame at
---- level 19, which is a function of `data` alone, so a reproducible build
---- stays so. Nil where zstd is not worth it.
+--- compressed already, over 1 KiB, at least 10% smaller). One frame at a
+--- fixed level and no dictionary, so for the same zstd build the bytes are
+--- those of `data` alone and a reproducible build stays so. Nil where zstd
+--- is not worth it.
 --- @param path string A file name or path
 --- @param data string The file's bytes
 --- @return string | nil The zstd frame, or nil
