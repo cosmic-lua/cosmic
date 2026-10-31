@@ -164,4 +164,16 @@ function Compress.zstd_encoder(level?: integer): Compress.Stream?, string
   return raw.zstd_encoder(level)
 end
 
+--- Compresses `data` whole as one zstd frame at `level` (as
+--- [`Compress.zstd_encoder`] takes it) that declares `#data` as its content
+--- size, carries a checksum, and keeps its window to 8 MiB (2^23):
+--- the frame a decoder that refuses any other, such as the portable
+--- artifact's decode stub, takes. The output is the same from run to run.
+--- Raises on a level out of range.
+function Compress.zstd(data: string, level?: integer): string?, string
+  local encoder, trouble = raw.zstd_encoder(level, #data)
+  if encoder == nil then return nil, trouble end
+  return Stream.run(encoder, data)
+end
+
 return Compress

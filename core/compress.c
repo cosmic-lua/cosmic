@@ -14,6 +14,7 @@
 #include "lzma.h"
 #include "memory.h"
 #include "miniz.h"
+#include "unzstd.h"
 
 /* For the *_advanced constructors, which take the allocator below. */
 #define ZSTD_STATIC_LINKING_ONLY
@@ -950,13 +951,23 @@ static int zstd_encoder (lua_State *L) {
   int level = cosmic_optint(L, 1, DEFAULT_ZSTD_LEVEL);
   luaL_argcheck(L, level >= 1 && level <= MAX_ZSTD_LEVEL, 1,
                 "level must be 1 to 19");
+  int pledged = !lua_isnoneornil(L, 2);
+  lua_Integer size = pledged ? luaL_checkinteger(L, 2) : 0;
+  luaL_argcheck(L, size >= 0, 2, "size must not be negative");
   struct stream *s = new_stream(L, OP_ZSTD_ENCODE);
   s->zc = ZSTD_createCCtx_advanced(zstd_memory);
   /* A checksum on every frame, as the `zstd` command writes one. */
   if (s->zc == NULL ||
       ZSTD_isError(ZSTD_CCtx_setParameter(s->zc, ZSTD_c_compressionLevel,
                                           level)) ||
-      ZSTD_isError(ZSTD_CCtx_setParameter(s->zc, ZSTD_c_checksumFlag, 1))) {
+      ZSTD_isError(ZSTD_CCtx_setParameter(s->zc, ZSTD_c_checksumFlag, 1)) ||
+      /* A frame that names its size and keeps its window within the
+       * limit core/unzstd.c holds it to; the encoder then refuses input
+       * of another size. */
+      (pledged &&
+       (ZSTD_isError(ZSTD_CCtx_setPledgedSrcSize(s->zc, (unsigned long long)size)) ||
+        ZSTD_isError(ZSTD_CCtx_setParameter(s->zc, ZSTD_c_windowLog,
+                                            COSMIC_UNZSTD_WINDOW_LOG))))) {
     s->finished = 1;
     release(s);
     lua_pushnil(L);

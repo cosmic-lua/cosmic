@@ -938,6 +938,15 @@ hand-written one under `core/` (`curl_config.h`, `ares_config.h`,
 `xz_config/config.h`, `mbedtls_cosmic_config.h`, `expat_config.h`), never one generated
 by the library's own configure step.
 
+zstd's decoder is also built apart from the core, as `cosmic-unzstd`, a
+small static program ([`core/unzstd.c`]) for each target, installed in the
+build directory beside that target's core (`core/<target>/cosmic-unzstd`).
+It decodes one zstd frame read from a range of an inherited descriptor
+and takes the frame's decoded length, so it can never write more than the
+length it is told. It is built at the architecture's baseline CPU, and
+the macOS one carries the ad-hoc signature zig's linker writes, which CI
+verifies as it does the core's. No artifact carries it yet.
+
 each tree keeps its upstream license file (`vendor/<name>/COPYING`,
 `LICENSE`, `LICENSE.md`). a few vendored files carry a license of their
 own: c-ares' `src/lib/thirdparty/apple/dnsinfo.h`, Apple's declarations
@@ -1325,6 +1334,7 @@ in [roadmap.md](roadmap.md).
 [`ci/cosmic_ci/place_tree.tl`]: ../ci/cosmic_ci/place_tree.tl
 [`core/bridge.lua`]: ../core/bridge.lua
 [`core/http.c`]: ../core/http.c
+[`core/unzstd.c`]: ../core/unzstd.c
 [`core/mbedtls_cosmic_config.h`]: ../core/mbedtls_cosmic_config.h
 [`core/process.h`]: ../core/process.h
 [`core/syscalls.c`]: ../core/syscalls.c

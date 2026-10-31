@@ -1878,6 +1878,10 @@ local function phase_assemble(p: PlatformContext): integer
     { root .. "/bin/verify-codesign",
       BuildPaths.directory(root) .. "/core/aarch64-macos/cosmic-core" })
   if s ~= 0 then return s end
+  s = checked(c, "stub codesign verification",
+    { root .. "/bin/verify-codesign",
+      BuildPaths.directory(root) .. "/core/aarch64-macos/cosmic-unzstd" })
+  if s ~= 0 then return s end
   assert(ProductSetup.build(root, product, work .. "/product-setup") == product,
     "product setup returned the wrong product")
   write(work .. "/cosmic.before.sha256", hash(product .. "/cosmic") .. "\n")
@@ -1887,6 +1891,15 @@ local function phase_assemble(p: PlatformContext): integer
       COSMIC_FIXTURE_ROOT = root,
       COSMIC_FIXTURE_BUILD = BuildPaths.directory(root),
       COSMIC_FIXTURE_FORMAT = contract .. "/format",
+      COSMIC_FIXTURE_TARGET = target,
+    })
+  if s ~= 0 then return s end
+  -- The zstd decode stub of this leg's target, run on the leg's own host
+  -- (on macOS, the kernel then checks its signature as well).
+  s = fixture_test(c, work, "unzstd-stub", "unzstd",
+    format_test_timeout_ns, {
+      COSMIC_FIXTURE_ROOT = root,
+      COSMIC_FIXTURE_BUILD = BuildPaths.directory(root),
       COSMIC_FIXTURE_TARGET = target,
     })
   if s ~= 0 then return s end
