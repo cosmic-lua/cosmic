@@ -51,6 +51,17 @@ die() {
   exit 1
 }
 
+# The sha256 of the text on standard input.
+sha256_text() {
+  if command -v sha256sum >/dev/null 2>&1; then
+    sha256sum | cut -d' ' -f1
+  elif command -v shasum >/dev/null 2>&1; then
+    shasum -a 256 | cut -d' ' -f1
+  else
+    die "need sha256sum or shasum to name the entry point"
+  fi
+}
+
 # A file of this checkout runs on a cosmic the tree does not control standalone
 # only as `--standalone <file>`, or `<file>` under COSMIC_STANDALONE=1, which is
 # the same run, and only if ci/bootstrap-files.txt lists it: `check-islands`
@@ -60,11 +71,12 @@ die() {
 # from ci/, a project `check-islands` checks as a whole: it is allowed for a file
 # under the checkout's ci/ and refused for any other of the checkout. The
 # target and the checkout are compared as `pwd -P` resolves them, a link in the
-# file's own name followed, so a link from outside into the checkout does not
+# file's own name followed (`cd -P`, so a `..` after a linked directory is the
+# physical one), so a link from outside into the checkout does not
 # get around it, and a target whose directory cannot be resolved is refused,
 # not let by. A file outside the checkout is not this script's to hold. The
-# list is read as ci/cosmic_ci/bootstrap_list.tl reads it, and as
-# build/ci_tree_test.tl, which cannot require ci/, copies: one path a line,
+# list is read as ci/cosmic_ci/islands.tl (`Islands.paths`) reads it, and as
+# build/ci_tree_test.tl, which cannot require ci/, copies it: one path a line,
 # what a `#` starts dropped, white space (a CR too) trimmed from both ends.
 check_listed() {
   check_target "$1" listed
@@ -82,9 +94,9 @@ check_target() {
     esac
     hops=$((hops + 1))
   done
-  tdir=$(CDPATH= cd -- "$(dirname -- "$target")" 2>/dev/null && pwd -P) ||
+  tdir=$(CDPATH= cd -P -- "$(dirname -- "$target")" 2>/dev/null && pwd -P) ||
     die "cannot resolve the directory of $1, so cannot tell whether it is a file of this checkout; refusing it"
-  physical=$(CDPATH= cd -- "$root" && pwd -P)
+  physical=$(CDPATH= cd -P -- "$root" && pwd -P)
   full=$tdir/$(basename -- "$target")
   case $full in
     "$physical"/*)
@@ -106,6 +118,9 @@ check_target() {
 }
 
 case "${1-}" in
+  sandbox)
+    die "the sandbox verb runs any program, a file standalone among them, which this script cannot hold to ci/bootstrap-files.txt, so it is refused here"
+    ;;
   --standalone)
     [ "$#" -ge 2 ] && [ -n "$2" ] || die "--standalone names no file"
     check_listed "$2"
@@ -122,14 +137,19 @@ esac
 # With no arguments this script answers where to run the release, and what it
 # answers is an entry point that applies the check above to whatever it is run
 # with and then runs the release, never the release itself: a caller that holds
-# the entry point cannot run an unlisted file, however it spells the command.
-# The entry point is generated beside the cache the release is in, for this
-# checkout, and runs this script with COSMIC_BOOTSTRAP_ENTRY naming the release,
-# so nothing is fetched. That variable is this script's alone: it is dropped
-# before the release runs, so a release started through an entry point sees
-# the environment its caller gave, COSMIC_BOOTSTRAP unset (the tree's tools
-# read it to mean a stand-in toolchain, and keep no compile memo under it). `--raw-path` alone asks for the release's own path, for
-# a caller that must read or copy the binary (ci/README.md lists them).
+# the entry point cannot run an unlisted file by the documented paths. (The
+# release's own path stays reachable, in the cache and to any process running
+# on it; `--raw-path` names it, for a caller that must read or copy the binary,
+# and ci/README.md lists those callers. Deliberate use of it is a review matter.)
+# The entry point is a small script, one for each checkout path and release, at
+# $XDG_CACHE_HOME/cosmic/bootstrap/entry-<sha256 of the two> (default
+# ~/.cache/...): they accumulate there, a few lines each, and are never pruned;
+# a stale `.entry-*.part` left by an interrupted run is removed after an hour.
+# It runs this script with COSMIC_BOOTSTRAP_ENTRY naming the release, so nothing
+# is fetched. That variable is this script's alone: it is dropped before the
+# release runs, so a release started through an entry point sees the environment
+# its caller gave, COSMIC_BOOTSTRAP unset (the tree's tools read it to mean a
+# stand-in toolchain, and keep no compile memo under it).
 print_entry() {
   raw=$1
   if [ -n "${XDG_CACHE_HOME:-}" ]; then
@@ -138,7 +158,8 @@ print_entry() {
     entries=${HOME:?HOME is unset}/.cache/cosmic/bootstrap
   fi
   mkdir -p "$entries"
-  sum=$(printf '%s\n%s\n' "$root" "$raw" | cksum | cut -d' ' -f1)
+  find "$entries" -name '.entry-*.part' -mmin +60 -exec rm -f {} + 2>/dev/null || true
+  sum=$(printf '%s\n%s\n' "$root" "$raw" | sha256_text)
   entry=$entries/entry-$sum
   quote_raw=$(printf '%s' "$raw" | sed "s/'/'\\\\''/g")
   quote_root=$(printf '%s' "$root" | sed "s/'/'\\\\''/g")

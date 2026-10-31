@@ -268,7 +268,7 @@ local function test_every_file_the_bootstrap_may_run_is_listed_as_strict()
   local listed: mut {string:boolean} = {}
   for _, file in ipairs(strict_files()) do listed[file] = true end
   local count = 0
-  -- The reader of the list, copied from ci/cosmic_ci/bootstrap_list.tl (`paths`), which build/ cannot require, and the
+  -- The reader of the list, copied from `Islands.paths` in ci/cosmic_ci/islands.tl, which build/ cannot require, and the
   -- same as bin/cosmic-bootstrap's sed: one path a line, what a `#` starts dropped, white space trimmed.
   for line in (assert(Fs.read("ci/bootstrap-files.txt"))):gmatch("[^\n]+") do
     local file = String.trim((line:gsub("#.*$", "")))

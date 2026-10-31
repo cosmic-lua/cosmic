@@ -61,7 +61,13 @@ end
 --- The driver is the pinned release and what it runs is the tree's Teal, in the new grammar: a caller's values that do not
 --- name the grammar (a fixture's environment) still start it with COSMIC_GRAMMAR=new.
 local function test_the_driver_is_started_in_the_new_grammar()
-  local driver = BuildPaths.driver({ "--standalone", "build/paths.tl" }, { HOME = "/nowhere" })
+  local driver = BuildPaths.driver({ "fix", "--check" }, { HOME = "/nowhere" })
   assert(driver.env["COSMIC_GRAMMAR"] == "new", "the driver was started without the new grammar")
   assert(driver.env["HOME"] == "/nowhere", "the caller's values were lost")
+end
+
+--- A file run standalone by the driver's own path is not the helper's to start: the words refuse it.
+local function test_the_driver_does_not_run_a_file_standalone()
+  local ok, why = pcall(BuildPaths.driver, { "--standalone", "build/paths.tl" }, {})
+  assert(not ok and tostring(why):find("does not run a file standalone", 1, true) ~= nil, tostring(why))
 end

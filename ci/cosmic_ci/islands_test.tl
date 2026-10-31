@@ -23,6 +23,22 @@ local function checkout(tmp: string, given: {string:string}): string
   return root
 end
 
+--- The list is one path a line: comments, a CR, white space and blank lines are not paths.
+local function test_the_list_is_one_path_a_line_without_comments_or_white_space()
+  local paths = Islands.paths("# why\n\nbuild/a.tl  # trailing\r\n  build/b.tl \n\t\nci/\n# build/c.tl\n")
+  assert(#paths == 3 and paths[1] == "build/a.tl" and paths[2] == "build/b.tl" and paths[3] == "ci/",
+    table.concat(paths, ","))
+end
+
+--- build/paths.tl is run by the driver's own path (the build directory's resolver), so the list must name it.
+local function test_the_resolver_of_the_build_directory_must_be_listed(tmp: string)
+  local root = checkout(tmp, { ["ci/bootstrap-files.txt"] = "build/zig.tl\n", ["build/zig.tl"] = "return 1\n", ["build/paths.tl"] = "return 1\n" })
+  local files, why = Islands.files(root)
+  assert(files == nil and why:find("build/paths.tl is run on the pinned release's binary", 1, true) == 1, tostring(why))
+  assert(Fs.write(root .. "/ci/bootstrap-files.txt", "build/zig.tl\nbuild/paths.tl\n"))
+  assert(Islands.files(root) ~= nil)
+end
+
 --- A clean script passes and a script the new grammar refuses fails by name, with the compiler's complaint: a syntax
 --- error and a type error. The scripts are run, with `--help`, as the bootstrap runs them.
 local function test_a_script_is_checked_and_run_with_help(tmp: string)
@@ -87,15 +103,15 @@ end
 --- The list is read, and an entry whose file is gone is refused, so that the list cannot rot.
 local function test_a_stale_entry_is_refused(tmp: string)
   local root = checkout(tmp, {
-    ["ci/bootstrap-files.txt"] = "# why\nbuild/zig.tl\nbuild/gone.tl\n",
-    ["build/zig.tl"] = "return 1\n",
+    ["ci/bootstrap-files.txt"] = "# why\nbuild/zig.tl\nbuild/paths.tl\nbuild/gone.tl\n",
+    ["build/zig.tl"] = "return 1\n", ["build/paths.tl"] = "return 1\n",
   })
   local files, why = Islands.files(root)
   assert(files == nil, "a stale entry was accepted")
   assert(why:find("ci/bootstrap-files.txt lists build/gone.tl, which is not in the checkout: remove the stale entry", 1, true) == 1, why)
-  assert(Fs.write(root .. "/ci/bootstrap-files.txt", "build/zig.tl\n"))
+  assert(Fs.write(root .. "/ci/bootstrap-files.txt", "build/zig.tl\nbuild/paths.tl\n"))
   local listed = assert(Islands.files(root))
-  assert(#listed == 1 and listed[1] == "build/zig.tl")
+  assert(#listed == 2 and listed[1] == "build/zig.tl")
 end
 
 --- B1: a `standalone(` call of build/zig.tl runs a file on the pinned binary, which the list must hold; one whose file is
@@ -103,12 +119,13 @@ end
 --- counted, and a comment is no call.
 local function test_the_calls_of_zig_are_listed_and_all_read(tmp: string)
   local root = checkout(tmp, {
-    ["ci/bootstrap-files.txt"] = "build/zig.tl\n",
+    ["ci/bootstrap-files.txt"] = "build/zig.tl\nbuild/paths.tl\n",
+    ["build/paths.tl"] = "return 1\n",
     ["build/zig.tl"] = "-- standalone(root, \"build/x.tl\", words)\nlocal function standalone(a: string)\nend\nstandalone(root, \"build/fetch.tl\", w)\n",
   })
   local files, why = Islands.files(root)
   assert(files == nil, "a run not listed was accepted")
-  assert(why:find("build/zig.tl runs build/fetch.tl on the pinned release's binary and ci/bootstrap-files.txt does not list it", 1, true) == 1, why)
+  assert(why:find("build/fetch.tl is run on the pinned release's binary", 1, true) == 1, why)
   local forms = {
     'local r = standalone(root,\n  "build/fetch.tl", words)\n',
     'local script = "build/fetch.tl"\nlocal r = standalone(root, script, words)\n',
@@ -139,7 +156,8 @@ end
 --- Each refusal and the pass, through the command.
 local function test_the_command_fails_for_a_refused_script_a_stale_entry_and_a_missing_list(tmp: string)
   local root = checkout(tmp, {
-    ["ci/bootstrap-files.txt"] = "build/zig.tl\nbuild/patch.tl\neval/result.tl\n",
+    ["ci/bootstrap-files.txt"] = "build/zig.tl\nbuild/patch.tl\neval/result.tl\nbuild/paths.tl\n",
+    ["build/paths.tl"] = exiting(Islands.help_exits["build/paths.tl"] or 0),
     ["build/zig.tl"] = 'local note = \'standalone(root, "build/patch.tl", args)\'\nprint(note)\n' .. exiting(0),
     ["build/patch.tl"] = exiting(Islands.help_exits["build/patch.tl"] or 0),
     ["eval/result.tl"] = exiting(Islands.help_exits["eval/result.tl"] or 0),
@@ -151,7 +169,7 @@ local function test_the_command_fails_for_a_refused_script_a_stale_entry_and_a_m
   assert(Fs.write(root .. "/ci/islands.txt", "build/zig.tl\n"))
   assert(Islands.verdict(root) == 1)
   assert(Fs.write(root .. "/ci/islands.txt", "\n"))
-  assert(Fs.write(root .. "/ci/bootstrap-files.txt", "build/zig.tl\nbuild/gone.tl\n"))
+  assert(Fs.write(root .. "/ci/bootstrap-files.txt", "build/zig.tl\nbuild/paths.tl\nbuild/gone.tl\n"))
   assert(Islands.verdict(root) == 1)
   assert(Fs.remove(root .. "/ci/bootstrap-files.txt"))
   assert(Islands.verdict(root) == 1)

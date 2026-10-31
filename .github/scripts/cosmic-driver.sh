@@ -8,9 +8,9 @@
 # bin/cosmic-bootstrap fetches and verifies the pinned release into
 # $XDG_CACHE_HOME/cosmic/bootstrap, where bin/zig finds it again, and
 # checks a restored cache against the pin first. The driver is put
-# on the job's PATH as cosmic-driver, through a two-line wrapper that sets
-# COSMIC_GRAMMAR=new and runs the entry point bin/cosmic-bootstrap prints, which
-# holds the list of ci/bootstrap-files.txt for a `--standalone` run. `zig-cache` also points the job's later steps at the
+# on the job's PATH as cosmic-driver, through a two-line wrapper that runs the
+# entry point bin/cosmic-bootstrap prints: it holds a `--standalone` run to
+# ci/bootstrap-files.txt and sets COSMIC_GRAMMAR=new for the release. `zig-cache` also points the job's later steps at the
 # caches the platform job restores.
 set -eu
 
@@ -25,14 +25,13 @@ mkdir -p "$RUNNER_TEMP/bin"
 if [ -e "$RUNNER_TEMP/bin/cosmic-driver" ] || [ -L "$RUNNER_TEMP/bin/cosmic-driver" ]; then
   echo "$RUNNER_TEMP/bin/cosmic-driver already exists" >&2; exit 1
 fi
-# A wrapper, not a link: the pinned release reads the tree's files, ci/
-# among them, in the new checker's grammar only where COSMIC_GRAMMAR=new, as
-# bin/cosmic-bootstrap sets it for the scripts it runs.
+# A wrapper, not a link, so the path of the entry point is one a shell reads
+# once, quoted.
 # The path is written single-quoted, with each ' in it closed, escaped and
 # reopened, so no character of it (a ", $, backtick or newline) is read as
 # shell.
 quoted=$(printf '%s' "$driver" | sed "s/'/'\\\\''/g")
-printf '#!/bin/sh\nexec env COSMIC_GRAMMAR=new '"'%s'"' "$@"\n' "$quoted" > "$RUNNER_TEMP/bin/cosmic-driver"
+printf '#!/bin/sh\nexec '"'%s'"' "$@"\n' "$quoted" > "$RUNNER_TEMP/bin/cosmic-driver"
 chmod 755 "$RUNNER_TEMP/bin/cosmic-driver"
 echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
 

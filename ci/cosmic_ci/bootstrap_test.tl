@@ -402,7 +402,9 @@ local refusal = "bin/cosmic-bootstrap: build/unlisted.tl is not in ci/bootstrap-
 --- A checkout at `tmp/root` whose list is `list_text` and whose files are all there, with files outside it.
 local function listed_checkout(tmp: string): string
   local root, _ = bootstrap_root(tmp, string.rep("1", 40), string.rep("0", 64))
-  assert(Fs.mkdirs(root .. "/build") and Fs.mkdirs(tmp .. "/outside"))
+  assert(Fs.mkdirs(root .. "/build/sub") and Fs.mkdirs(tmp .. "/outside"))
+  -- ci/d is a link to build/sub: `ci/d/..` is build/ where it stands, and ci/ only to a reader that takes `..` before the link.
+  assert(Fs.symlink("../build/sub", root .. "/ci/d"))
   assert(Fs.write(root .. "/ci/bootstrap-files.txt", list_text))
   for _, name in ipairs({ "listed.tl", "crlf.tl", "space.tl", "commented.tl", "paths.tl", "paths.tl.evil", "paths",
       "unlisted.tl" }) do
@@ -451,6 +453,17 @@ local function test_standalone_runs_only_the_files_the_list_names(tmp: string)
   local out, ok = ran(tmp, wrapper, cosmic, { "--standalone", root .. "/build/unlisted.tl" })
   assert(not ok and out == refusal, out)
   assert(not Predicate.exists(tmp .. "/calls"), "a refused run fetched the pin's cosmic")
+  -- A `..` after a linked directory is the physical one: ci/d/../x.tl is build/x.tl, not ci/x.tl, for the list and for
+  -- the first-word form alike.
+  out, ok = ran(tmp, wrapper, cosmic, { "--standalone", root .. "/ci/d/../unlisted.tl" })
+  assert(not ok and out == refusal, out)
+  out, ok = ran(tmp, wrapper, cosmic, { root .. "/ci/d/../unlisted.tl" })
+  assert(not ok and out:find("outside ci/", 1, true) ~= nil, out)
+  out, ok = ran(tmp, wrapper, cosmic, { "--standalone", root .. "/ci/d/../listed.tl" })
+  assert(ok and out == "ran\n" .. physical(tmp) .. "\n--standalone\n" .. root .. "/ci/d/../listed.tl\n", out)
+  -- The sandbox verb runs any program, so it is refused through the wrapper.
+  out, ok = ran(tmp, wrapper, cosmic, { "sandbox", "--", "true" })
+  assert(not ok and out:find("the sandbox verb runs any program", 1, true) ~= nil, out)
   -- A target whose directory cannot be resolved, and no target at all, are refused too.
   out, ok = ran(tmp, wrapper, cosmic, { "--standalone", tmp .. "/nowhere/x.tl" })
   assert(not ok and out:find("cannot resolve the directory of", 1, true) ~= nil, out)
@@ -502,6 +515,8 @@ local function test_the_entry_point_holds_the_list_and_the_raw_path_is_asked_for
   local printed, ok = ran(tmp, wrapper, cosmic, {})
   local entry = printed:gsub("\n$", "")
   assert(ok and entry ~= cosmic and entry:find(tmp .. "/xdg/cosmic/bootstrap/entry-", 1, true) == 1, printed)
+  -- Named by a sha256 of the checkout and the release, not a short checksum two of them could share.
+  assert(entry:match("/entry%-(%x+)$") ~= nil and #assert(entry:match("/entry%-(%x+)$")) == 64, entry)
   local raw, raw_ok = ran(tmp, wrapper, cosmic, { "--raw-path" })
   assert(raw_ok and raw == cosmic .. "\n", raw)
   -- It refuses what the wrapper does, without running the release, and runs what the list names.

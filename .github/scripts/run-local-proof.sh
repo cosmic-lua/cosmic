@@ -8,10 +8,8 @@ trap 'rm -rf "$proof"' EXIT HUP INT TERM
 # A root proof cannot reuse the ordinary runner's portable core cache.
 export XDG_CACHE_HOME="$proof/cache"
 export COSMIC_PORTABLE_CACHE="$proof/cores"
-# COSMIC_GRAMMAR=new: the pinned release reads the new grammar of ci/ as Teal
-# otherwise. Not bin/cosmic-bootstrap's args form, which would fetch the pin
-# again into the cache exported above. The proof sets it again for the runner
-# it starts with the same binary. $driver is the entry point bin/cosmic-bootstrap
-# prints, which holds the list of ci/bootstrap-files.txt, and runs the release
-# without fetching it again.
-env COSMIC_GRAMMAR=new "$driver" --standalone "$root/ci/run_local_proof.tl" "$root" "$driver"
+# $driver is the entry point bin/cosmic-bootstrap prints, which holds a `--standalone`
+# run to ci/bootstrap-files.txt, sets COSMIC_GRAMMAR=new, and runs the release without
+# fetching it again into the cache exported above. The proof starts its runner with
+# the same entry point.
+"$driver" --standalone "$root/ci/run_local_proof.tl" "$root" "$driver"

@@ -19,17 +19,16 @@
 --- release's `fix --check` is run over `ci/` as well ([`Islands.project`]): a file nothing requires is held to its
 --- checker too.
 ---
---- The users of the pinned binary's own path, which no check of bin/cosmic-bootstrap sees, are these and no others:
---- this command ([`Islands.complaint`]), build/zig.tl (its `standalone(` calls, each named in the list and counted here),
---- [`BuildPaths.standalone`] of ci/cosmic_ci/build_paths.tl, which makes the list's check before it runs a file, and
---- ci/run_local.tl, which runs only build/paths.tl that way, and cannot take the helper: it is run standalone, which
---- finds no module of ci/. A new site in ci/ that relaunches the driver on a file without the helper is not caught
---- by anything; code review holds it.
+--- The users of the pinned binary's own path, which bin/cosmic-bootstrap's check does not see (a process running on the
+--- release can always run its own binary), and none other: this command ([`Islands.complaint`]), build/zig.tl (its
+--- `standalone(` calls, each counted here and named in the list), [`BuildPaths.directory`] of ci/cosmic_ci/build_paths.tl,
+--- which runs build/paths.tl that way (checked to be listed), and ci/run_local.tl, which runs only build/paths.tl that
+--- way and cannot use ci/'s modules: it runs standalone. [`BuildPaths.driver`] refuses a `--standalone` of its own. A new
+--- site in ci/ that relaunches the driver on a file is not caught by anything; code review holds it.
 --
 -- TODO: stop running the scripts, once ci/cosmic-driver.pin names a release whose `compile --grammar new` types the
 -- `cosmic.*` modules it carries: `build/zig.tl --help` is zig's own, which needs zig installed, where a compile would
 -- need nothing.
-local BootstrapList = require("cosmic_ci.bootstrap_list")
 local BuildPaths = require("cosmic_ci.build_paths")
 local Child = require("cosmic.child")
 local Clock = require("cosmic.clock")
@@ -97,13 +96,25 @@ local function zig_runs(zig: string): {string}?, string
   return runs, ""
 end
 
+--- The paths `text`, a list such as ci/bootstrap-files.txt, names: one a line, with what a `#` starts dropped, blank
+--- lines left out and white space (a CR too) trimmed from both ends of each. bin/cosmic-bootstrap reads the list the
+--- same way in shell, and build/ci_tree_test.tl, which cannot require ci/, copies this.
+function Islands.paths(text: string): {string}
+  local paths: mut {string} = {}
+  for line in text:gmatch("[^\n]+") do
+    local path = String.trim((line:gsub("#.*$", "")))
+    if path ~= "" then paths[#paths + 1] = path end
+  end
+  return paths
+end
+
 --- The files ci/bootstrap-files.txt of `root` lists, each checked to be there (build/ci_tree_test.tl holds them to
 --- ci/strict-files.txt, since the pinned release runs them with no ceiling), and the files build/zig.tl runs on that release's binary,
 --- each checked to be listed. Nil with why where the lists cannot be read or one disagrees.
 function Islands.files(root: string): {string}?, string
   local text, trouble = Fs.read(root .. "/ci/bootstrap-files.txt")
   if text == nil then return nil, "ci/bootstrap-files.txt: " .. tostring(trouble) end
-  local listed = BootstrapList.paths(text)
+  local listed = Islands.paths(text)
   local known: mut {string:boolean} = {}
   for _, path in ipairs(listed) do
     known[path] = true
@@ -116,10 +127,13 @@ function Islands.files(root: string): {string}?, string
   if zig == nil then return nil, "build/zig.tl: " .. tostring(zig_trouble) end
   local runs, runs_why = zig_runs(zig)
   if runs == nil then return nil, runs_why end
-  for _, path in ipairs(runs) do
+  -- ci/cosmic_ci/build_paths.tl runs it by the driver's own path, as the resolver of the build directory.
+  local run_paths: mut {string} = { "build/paths.tl" }
+  for _, path in ipairs(runs) do run_paths[#run_paths + 1] = path end
+  for _, path in ipairs(run_paths) do
     if known[path] ~= true then
-      return nil, "build/zig.tl runs " .. path .. " on the pinned release's binary and ci/bootstrap-files.txt does not " ..
-        "list it: add it, so it is type-checked there"
+      return nil, path .. " is run on the pinned release's binary (by build/zig.tl, or as the build directory's resolver " ..
+        "by ci/cosmic_ci/build_paths.tl) and ci/bootstrap-files.txt does not list it: add it, so it is type-checked there"
     end
   end
   return listed, ""
@@ -132,8 +146,11 @@ function Islands.complaint(root: string, path: string, env: {string:string}): st
   local values: mut {string:string} = {}
   for name, value in pairs(env) do values[name] = value end
   values["COSMIC_GRAMMAR"] = "new"
-  local driver = BuildPaths.driver({ "--standalone", path, "--help" }, values)
-  local answer, why = Child.run(driver.argv, { env = driver.env, fds = driver.fds, cwd = root, stdin = "null",
+  local driver = BuildPaths.driver({}, values)
+  local argv: mut {string} = {}
+  for _, word in ipairs(driver.argv) do argv[#argv + 1] = word end
+  for _, word in ipairs({ "--standalone", path, "--help" }) do argv[#argv + 1] = word end
+  local answer, why = Child.run(argv, { env = driver.env, fds = driver.fds, cwd = root, stdin = "null",
     stdout = "null", stderr = "capture", timeout_ns = Clock.seconds(60) })
   if answer == nil then return "could not run the driver: " .. why end
   if answer.timed_out then return "the driver's standalone run did not finish in 60 s" end
@@ -215,7 +232,7 @@ function Islands.verdict(root: string): integer
     local _, _ = Fs.put(Fs.stderr, "check-islands: " .. list .. ": " .. tostring(trouble) .. "\n")
     return 2
   end
-  local listed = BootstrapList.paths(text)
+  local listed = Islands.paths(text)
   if #listed > 0 then
     local _, _ = Fs.put(Fs.stderr, "check-islands: " .. list .. " lists " .. table.concat(listed, ", ") ..
         ", which the pinned release would read as Teal; the list is empty now\n")
