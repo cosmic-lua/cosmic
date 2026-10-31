@@ -780,3 +780,23 @@ local function test_the_places_of_a_database_another_code_staged_are_none()
   assert(other:close())
   source.close(src)
 end
+
+--- A staged module with no `parsed` row (one a stage recorded as broken, which a stage that refuses it does not list) has
+--- no rows, which says nothing of what it declares: it is read as the text is, and not found empty. A module that parsed
+--- and declares nothing is found empty without a parse.
+local function test_the_places_of_a_module_the_stage_has_no_parse_of_are_parsed_here()
+  local root = project()
+  assert(Fs.mkdirs(root .. "/lib"))
+  assert(Fs.write(root .. "/lib/point.tl", POINT))
+  assert(Fs.write(root .. "/lib/none.tl", "return 1\n"))
+  local src = source.new(root, function(_: string) end)
+  source.refresh(src)
+  assert(assert(source.places(src, "lib.none", none_open)).spots["none"] == nil and src.tally.parses == 0)
+  local held = assert(Sqlite.open(assert(src.working), { writable = true }))
+  assert(held:exec("DELETE FROM places"))
+  assert(held:exec("DELETE FROM parsed WHERE source_hash IN (SELECT source_hash FROM inputs WHERE path = 'lib.point')"))
+  assert(held:close())
+  local placed = assert(source.places(src, "lib.point", none_open))
+  assert(assert(placed.spots["point.x"]).line == 2 and src.tally.parses == 1, tostring(src.tally.parses))
+  source.close(src)
+end

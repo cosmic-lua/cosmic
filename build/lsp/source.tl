@@ -317,10 +317,7 @@ local function trusted(src: source.View, staged: boolean)
     if row ~= nil then recorded = row:text(1) end
   end
   if staged and recorded ~= nil then src.analyzer = recorded end
-  local own = recorded ~= nil and recorded == (src.analyzer or analyzer_identity())
-  -- What was read of rows another analyzer derived is none to keep once these are read.
-  if own ~= src.stubs then src.placed = {} end
-  src.stubs = own
+  src.stubs = recorded ~= nil and recorded == (src.analyzer or analyzer_identity())
 end
 
 --- Reads whether other code than this session's staged the database
@@ -683,14 +680,21 @@ local function parsed_spots(src: source.View, file: string, text: string): {stri
   return spots
 end
 
+-- TODO: answer an open document that differs from the staged file from the working database, once the editor's unsaved
+-- buffers are derived into it: until then the buffer is parsed here, once a text.
+
+-- TODO: answer from the rows of a database another analyzer derived, once the session can restage with its own analyzer
+-- without waiting for another run to release the write lock: until then the staged text is parsed here.
+
 -- TODO: answer without reading the module's text, once `places` rows carry whether their line is ASCII-only: the text is read
 -- for every request only to count the line's characters in the protocol's units ([`build.lsp.lines`]).
 
 --- Where the module `name` declares its types and their members ([`build.syntax_places`]), in its text as written
---- (an open document's, else the working database's), nil where that is none. The rows the stage derived of the file (`places`) answer it, unparsed,
---- while the text is the staged file's: not open, or open and the same. Another text, an open document that was edited,
---- is parsed here, once; so is a file whose rows are not the running analyzer's. A module generated from another file
---- (`mapped`) has no rows, and none of its symbols is found.
+--- (an open document's, else the working database's), nil where that is none. The rows the stage derived of the file
+--- (`places`) answer it, unparsed, while the text is the staged file's: not open, or open and the same. Another text, an
+--- open document that was edited, is parsed here, once; so is a file whose rows are not the running analyzer's, and one
+--- the stage could not parse (it has no `parsed` row). A module generated from another file (`mapped`) has rows of none,
+--- and none of its symbols is found.
 function source.places(src: source.View, name: string, open: source.Open): source.Placed?
   local found = src.modules[name]
   if found == nil then return nil end
@@ -709,6 +713,11 @@ function source.places(src: source.View, name: string, open: source.Open): sourc
         "SELECT symbol, line, column, length FROM places WHERE source_hash = ?1 ORDER BY ordinal",
         { { text = hash } })
       if rows == nil then return nil end
+      local derived = #rows > 0
+      if not derived then
+        local parsed, _ = Sqlite.text_rows(db, "SELECT 1 FROM parsed WHERE source_hash = ?1", { { text = hash } })
+        derived = parsed ~= nil and #parsed > 0
+      end
       local held: mut {string:Spot} = {}
       for _, row in ipairs(rows) do
         local symbol = row:text(1)
@@ -718,6 +727,7 @@ function source.places(src: source.View, name: string, open: source.Open): sourc
         end
       end
       spots = held
+      if not derived then spots = parsed_spots(src, found.file, written.text) end
     else
       spots = parsed_spots(src, found.file, written.text)
     end
