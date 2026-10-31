@@ -2309,7 +2309,7 @@ build/zig_fetch_test.tl field_fixed 3
 
 build/zig_lock_test.tl field_fixed 6
 
-build/zig_test.tl field_fixed 16
+build/zig_test.tl field_fixed 13
 
 core/artifact_fd_tool_test.tl field_fixed 1
 

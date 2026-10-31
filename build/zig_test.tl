@@ -17,7 +17,12 @@ local rebuild_lock = require("build.rebuild_lock")
 local stand_in = require("build.stand_in")
 local Zig = require("build.zig")
 local Child = require("cosmic.child")
-local Signal = require("cosmic.signal")
+local test_child = require("build.test_child")
+local this_program = require("build.this_program")
+local Test = require("cosmic.test")
+
+--- The program itself (`tool`), which runs the child below, started past its launcher so that no host program is read.
+Test.policy{ profiles = { "cosmic" }, grants = { { path = "o/bin", letters = "rx" } } }
 
 --- `root`'s build directory ([`build.paths`]), made, with `root` made
 --- first where it is not there yet.
@@ -576,22 +581,25 @@ local function test_with_lock_lets_go_when_the_callback_raises(tmp: string)
   assert(descriptors() == before, "the lock leaked on the normal path")
 end
 
---- An error that leaves the supervision of [`Zig.run`] must close the signal guard, which restores the signals the
---- process held: a guard left open keeps SIGINT and SIGTERM caught for the rest of its life.
-local function test_run_closes_the_signal_guard_when_supervising_raises()
-  local real_start, real_guard = Child.start, Signal.guard
-  local opened: mut {Signal.Guard} = {}
+--- [`Zig.run`] with a start that sends this process SIGTERM, which the run's guard catches, and then raises: the child
+--- of build/zig_signal_tool_test.tl, which shows the guard closed (delivering the signal) and not released.
+test_child.register("raises_after_a_signal", function(_args: {string}): integer
   Child.start = function(_argv: {string}, _options?: Child.Options): Child.Handle?, string
+    assert(sys.kill(sys.getpid(), sys.SIGTERM))
     error("the start raised")
   end
-  Signal.guard = function(): Signal.Guard?, string
-    local guard, trouble = real_guard()
-    if guard ~= nil then opened[#opened + 1] = guard end
-    return guard, trouble
-  end
-  local ok, trouble = pcall(Zig.run, { "/bin/true" })
-  Child.start, Signal.guard = real_start, real_guard
-  assert(not ok and tostring(trouble):find("the start raised", 1, true) ~= nil, tostring(trouble))
-  assert(#opened == 1, "Zig.run opened " .. tostring(#opened) .. " guards")
-  assert(assert(opened[1]).state.closed, "the guard was left open")
+  local _ok, _why = pcall(Zig.run, { "/bin/true" })
+  return 0
+end)
+
+--- A raise that leaves the supervision of [`Zig.run`] must close the signal guard, which delivers the signal it caught,
+--- and not release it, which keeps the signal: the child is sent SIGTERM as the supervised start raises, and dies of it
+--- once the guard closes. A release instead leaves it alive, to answer 0. A guard left open would keep the signal too.
+local function test_run_delivers_the_signal_it_caught_when_supervising_raises(tmp: string)
+  local started = this_program.program(test_child.words(tmp, "build.zig_test", "raises_after_a_signal"),
+    { env = {}, cwd = tmp, stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(30) })
+  local r = assert(Child.run(started.argv, started.options))
+  assert(r.signal == sys.SIGTERM,
+    "the guard did not deliver SIGTERM: code=" .. tostring(r.code) .. " signal=" .. tostring(r.signal) ..
+      " " .. tostring(r.stderr))
 end
