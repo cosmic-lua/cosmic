@@ -491,6 +491,7 @@ const core_sources = [_][]const u8{
     "html.c",
     "http.c",
     "json.c",
+    "xml.c",
     "namespace_calls.c",
     "socket.c",
     "sqlite.c",
@@ -756,6 +757,7 @@ pub fn build(b: *std.Build) void {
     const cares = patched(b, trees, "cares");
     const curl = patched(b, trees, "curl");
     const yyjson = patched(b, trees, "yyjson");
+    const expat = patched(b, trees, "expat");
 
     // The patched copies land in the build directory's vendor/.
     const vendored = b.step("vendor", "write the patched vendor trees");
@@ -766,6 +768,7 @@ pub fn build(b: *std.Build) void {
         .{ "cares", cares },   .{ "curl", curl },
         .{ "yyjson", yyjson }, .{ "sqlite-ext", sqlite_ext },
         .{ "zstd", zstd },
+        .{ "expat", expat },
     }) |pair| {
         const install = b.addInstallDirectory(.{
             .source_dir = pair[1],
@@ -931,7 +934,7 @@ pub fn build(b: *std.Build) void {
             .optimize = .debug,
         }),
     });
-    const sources: Sources = .{ .own = own, .lua = lua, .sqlite = sqlite, .sqlite_ext = sqlite_ext, .miniz = miniz, .mbedtls = mbedtls, .bzip2 = bzip2, .xz = xz, .zstd = zstd, .cares = cares, .curl = curl, .yyjson = yyjson, .config = config };
+    const sources: Sources = .{ .own = own, .lua = lua, .sqlite = sqlite, .sqlite_ext = sqlite_ext, .miniz = miniz, .mbedtls = mbedtls, .bzip2 = bzip2, .xz = xz, .zstd = zstd, .cares = cares, .curl = curl, .yyjson = yyjson, .expat = expat, .config = config };
 
     for (targets) |t| {
         const resolved = b.resolveTargetQuery(t.query);
@@ -1402,6 +1405,7 @@ const ConfigHeaders = struct {
     curl: std.Build.LazyPath,
     mbedtls: std.Build.LazyPath,
     xz: std.Build.LazyPath,
+    expat: std.Build.LazyPath,
     darwin_compat: std.Build.LazyPath,
 };
 
@@ -1411,6 +1415,7 @@ fn configHeaders(b: *std.Build) ConfigHeaders {
         .curl = configFile(b, "core/curl_config.h"),
         .mbedtls = configFile(b, "core/mbedtls_cosmic_config.h"),
         .xz = configFile(b, "core/xz_config/config.h"),
+        .expat = configFile(b, "core/expat_config.h"),
         .darwin_compat = darwinCompat(b).path(b, "darwin-compat"),
     };
 }
@@ -1444,6 +1449,7 @@ const Sources = struct {
     cares: std.Build.LazyPath,
     curl: std.Build.LazyPath,
     yyjson: std.Build.LazyPath,
+    expat: std.Build.LazyPath,
     /// The configuration headers the libraries read from core/, copied
     /// into the zig cache (see the head of `build`).
     config: ConfigHeaders,
@@ -1552,6 +1558,7 @@ fn vendorLibraries(
     const cares = sources.cares;
     const curl = sources.curl;
     const yyjson = sources.yyjson;
+    const expat = sources.expat;
     const crypto = mbedtls.path(b, "tf-psa-crypto");
 
     // The libraries' compiles run beside one another; the longest are
@@ -1661,6 +1668,24 @@ fn vendorLibraries(
             "-DYYJSON_DISABLE_FILE=1",
             "-DYYJSON_DISABLE_UTILS=1",
         },
+    });
+
+    // expat reads XML for cosmic.xml. core/expat_config.h stands in for
+    // the configuration header its own build would generate, on this
+    // library's include path alone.
+    // Its hash salt comes from arc4random_buf on macOS, which cannot
+    // fail, and from getentropy on Linux, whose musl has no arc4random.
+    const expat_lib = expat.path(b, "lib");
+    vendorPart(b, &libraries, configuration, target, "expat", &.{ config.expat, expat_lib }).addCSourceFiles(.{
+        .root = expat_lib,
+        .files = &.{
+            "xmlparse.c",
+            "xmlrole.c",
+            "xmltok.c",
+            "xcs.c",
+            if (target_record.query.os_tag == .macos) "random_arc4random_buf.c" else "random_getentropy.c",
+        },
+        .flags = &.{ "-std=c11", debug_dir },
     });
 
     // LUA_USE_LINUX and LUA_USE_MACOSX both drag in LUA_USE_DLOPEN (and
@@ -1995,12 +2020,13 @@ fn vendorLibraries(
 /// The include directories of the vendored libraries' public headers, which
 /// the core's own C reads to call into them, in the order a name is looked
 /// up. mbedtls's configuration header is not among them ([`core`]).
-fn libraryIncludes(b: *std.Build, sources: Sources) [crypto_public_dirs.len + 10]std.Build.LazyPath {
+fn libraryIncludes(b: *std.Build, sources: Sources) [crypto_public_dirs.len + 11]std.Build.LazyPath {
     return [_]std.Build.LazyPath{
         sources.lua.path(b, "src"),
         sources.sqlite,
         sources.miniz,
         sources.yyjson.path(b, "src"),
+        sources.expat.path(b, "lib"),
         sources.bzip2,
         sources.xz.path(b, "src/liblzma/api"),
         sources.zstd.path(b, "lib"),

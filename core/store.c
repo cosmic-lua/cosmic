@@ -31,6 +31,7 @@
 #include "startup.h"
 #include "surface.h"
 #include "vector.h"
+#include "xml.h"
 
 #define STORE_LIST "cosmic.store.databases"
 #define STORE_ARTIFACT "cosmic.store.artifact"
@@ -101,6 +102,7 @@ static const struct raw_value {
   {"cosmic.internal.http", cosmic_open_http, 1},
   {"cosmic.internal.socket", cosmic_open_socket, 1},
   {"cosmic.internal.json", cosmic_open_json, 1},
+  {"cosmic.internal.xml", cosmic_open_xml, 1},
   {"cosmic.internal.budget", cosmic_open_budget, 0},
   {"cosmic.internal.assertions", cosmic_open_assertions, 0},
 };
