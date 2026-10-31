@@ -38,7 +38,10 @@ local type raw_http = require("cosmic.internal.http")
 local http = require("cosmic.internal.http")
 
 local Stream = require("cosmic.stream")
-local Net = require("cosmic.net")
+-- Only the type here: the networking stack loads where a failure over a
+-- socket needs it, so a program that only fetches over the network does
+-- not load it.
+local type Net = require("cosmic.net")
 
 local record Http
   --- One request. `follow` defaults to true, `max_redirects` to 10;
@@ -936,7 +939,8 @@ local function socket_trouble(via: Net.Address, trouble: string, code: string?):
   if code ~= "couldnt_connect" then
     return trouble
   end
-  local conn, why = Net.connect(via)
+  local Sockets = require("cosmic.net")
+  local conn, why = Sockets.connect(via)
   if conn ~= nil then
     local _, _ = conn:close()
     return trouble
