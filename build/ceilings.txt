@@ -5968,7 +5968,7 @@ build/dataset_test.tl literal_needs_type 2
 
 build/dispatch.tl literal_needs_type 1
 
-build/docs.tl literal_needs_type 2
+build/docs.tl literal_needs_type 1
 
 build/fact_hook_test.tl literal_needs_type 3
 
