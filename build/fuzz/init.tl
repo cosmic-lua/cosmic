@@ -449,8 +449,8 @@ local function run(p: Fuzz.Property): integer
   for i = 1, asked do
     if seconds > 0 and i > MIN_BUDGETED and Clock.monotonic_ns() - began_ns >= Clock.seconds(seconds) then
       iters = i - 1
-      print(("%s%s drew %d of %d inputs in %d s (FUZZ_SECONDS=%d): each cost about %.2f s"):
-          format(STOPPED_PREFIX, p.name, iters, asked, (Clock.monotonic_ns() - began_ns) // Clock.seconds(1),
+      print(("%s%s drew %d of %d %s in %d s (FUZZ_SECONDS=%d): each cost about %.2f s"):
+          format(STOPPED_PREFIX, p.name, iters, asked, plural.noun(asked, "input"), (Clock.monotonic_ns() - began_ns) // Clock.seconds(1),
             seconds, (Clock.monotonic_ns() - began_ns) / 1e9 / iters))
       break
     end
