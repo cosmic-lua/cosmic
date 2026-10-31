@@ -97,8 +97,11 @@ local record Xml
   --- text as a string, each child element as an Element. Comments and
   --- instructions are left out.
   record Element
+    --- The element's name.
     name: string
+    --- Each attribute's value by its name.
     attributes: {string: string}
+    --- The text runs (strings) and child elements, in document order.
     content: mut {string | Element}
   end
 
