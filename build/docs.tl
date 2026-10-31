@@ -1046,12 +1046,18 @@ local function uses_of(db: Sqlite.Handle, public: boolean, query: string): {docs
 end
 
 --- Says once a process, on stderr, that the projection at `path`, which
---- `other` wrote ([`writer.other_code`]), is read none of.
-local function tell_other_code(path: string, other: string)
+--- `other` wrote ([`writer.other_code`]), is read none of. `root` is the
+--- project it belongs to, where that is known: the directory to build in.
+local function tell_other_code(path: string, other: string, root: string?)
   if not work.first_time("projection other_code " .. other, path) then return end
-  log:complain(path .. " was written by " .. other .. "; reading none of it, which this " ..
-      "tool's code may misread, and answering from this tool's own databases: a build of " ..
-      "the project by this tool, as `cosmic test` or `cosmic build` makes, writes it again")
+  local remedy = "`cosmic test` in the project writes it again"
+  local whose = path
+  if root ~= nil then
+    remedy = "`cd " .. root .. " && cosmic test` writes it again"
+    whose = root .. "'s build, " .. path
+  end
+  log:complain(whose .. " was written by " .. other .. "; reading none of it, which this " ..
+      "tool's code may misread, and answering from this tool's own databases: " .. remedy)
 end
 
 --- Says once a process, on stderr, that the projection at `path` is read
@@ -1080,11 +1086,13 @@ function docs.databases(store?: {Sqlite.Handle}, at?: string, known?: docs.Known
   local opened: mut {Sqlite.Handle} = {}
   local directory: string? = nil
   local own_tree = false
+  local project: string? = nil
   if known ~= nil then
     directory, own_tree = known.directory, known.own_tree
   else
     local root, root_trouble = Fs.absolute(at or ".")
     assert(root ~= nil, root_trouble)
+    project = root
     -- A directory with no build directory to have one in has no build of
     -- its own; one whose build directory cannot be named is answered from
     -- the binary's databases too, as a stale build is below.
@@ -1119,7 +1127,7 @@ function docs.databases(store?: {Sqlite.Handle}, at?: string, known?: docs.Known
         if grammar ~= nil then
           other, other_trouble = writer.other_code(own, rebuild.compiled_by(grammar))
         end
-        if other ~= nil then tell_other_code(own_path, other) end
+        if other ~= nil then tell_other_code(own_path, other, project) end
         if other == nil and other_trouble ~= "" then tell_unread_code(own_path, other_trouble) end
         if other ~= nil or other_trouble ~= "" then readable = nil end
       end
@@ -2854,7 +2862,7 @@ local function run(argv: {string}): integer
   end
   local built, build_trouble = require("build.rebuild").here("docs")
   if not built then
-    log:complain("docs: not rebuilt, answering from the last build: " .. build_trouble)
+    log:complain("docs: not rebuilt: " .. build_trouble)
   end
   local started = Clock.monotonic_ns()
   local sources = docs.databases()
@@ -2908,7 +2916,7 @@ local function run_uses(argv: {string}): integer
   end
   local built, build_trouble = require("build.rebuild").here("uses")
   if not built then
-    log:complain("uses: not rebuilt, answering from the last build: " .. build_trouble)
+    log:complain("uses: not rebuilt: " .. build_trouble)
   end
   local started = Clock.monotonic_ns()
   local sources = docs.databases()

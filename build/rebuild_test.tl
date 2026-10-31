@@ -55,6 +55,35 @@ local function test_a_stage_waits_for_no_run_holding_the_database(tmp: string)
   assert(took < Clock.seconds(10), tostring(took) .. " ns")
 end
 
+--- A lookup's build of a project whose working database an older tool made
+--- makes it again, as the newer writer, rather than leave it and say so on
+--- every call; a database of a newer schema it leaves.
+local function test_a_lookups_build_makes_a_database_of_an_older_schema_again(tmp: string)
+  local root = tmp .. "/project"
+  assert(Fs.mkdirs(root))
+  assert(Fs.write(root .. "/a.tl", "--- A.\nlocal record A\nend\n\nreturn A\n"))
+  local path = build_paths.required(root) .. "/build.db"
+  local function schema_of(): string
+    local db = assert(Sqlite.open(path))
+    local rows = assert(Sqlite.text_rows(db, "SELECT value FROM meta WHERE key = 'schema'"))
+    assert(db:close())
+    return assert(rows[1]):text(1)
+  end
+  assert(work.close((assert(work.open(root)))))
+  local current = schema_of()
+  local function stamp(schema: string)
+    local db = assert(Sqlite.open(path, { writable = true }))
+    assert(Sqlite.run(db, "UPDATE meta SET value = ?1 WHERE key = 'schema'", { { text = schema } }))
+    assert(db:close())
+  end
+  stamp("99")
+  assert(rebuild.here("docs", false, root))
+  assert(schema_of() == "99", "a database of a newer schema was made again")
+  stamp("1")
+  assert(rebuild.here("docs", false, root))
+  assert(schema_of() == current, "a database of an older schema was left: " .. schema_of())
+end
+
 --- A stage that finds the working database of another schema, another
 --- tool's, stages nothing in it and leaves it where it is, answering the
 --- schema it found.

@@ -306,10 +306,15 @@ local function test_a_lookup_answers_from_the_last_build_when_the_new_checker_re
   local text = assert(Fs.read(root .. "/shapes.tl"))
   assert(Fs.write(root .. "/shapes.tl", (text:gsub("function Shapes.new%(width: integer%): Shapes.Box\n",
     "function Shapes.new(width: integer): Shapes.Box\n  local unused = 1\n"))))
-  -- the refusal is said with the new checker's fix, and the answer is the last build's, as a build the fork stops leaves it
+  -- the refusal is said in one line naming the project, not with the checker's text, which `cosmic test` shows; the answer is
+  -- the last build's, as a build the fork stops leaves it
   local last, last_err = looked_up(root, tmp, { "docs", "Box" })
-  holds(last_err, "docs: not rebuilt, answering from the last build: shapes.tl: the compiler refused it")
-  holds(last_err, "shapes.tl:23:9: unused variable unused (unused_variable): name it `_` or `_unused`")
+  holds(last_err, "docs: not rebuilt: " .. assert(Fs.absolute(root)) ..
+      " does not build (shapes.tl refused; `cosmic test` shows why); answering from its last build, where there is one\n")
+  assert(last_err:find("unused_variable", 1, true) == nil and last_err:find("compiler refused", 1, true) == nil,
+    last_err)
+  local _, said = last_err:gsub("\n", "")
+  assert(said <= 2, last_err)
   holds(last, "shapes Shapes.Box")
   -- mended, it builds again and says nothing
   assert(Fs.write(root .. "/shapes.tl", text))
