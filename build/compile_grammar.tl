@@ -73,6 +73,9 @@ local record compile_grammar
     globals: {Driver.Source}
     adjust: function(globals: {string: Scopes.Global})
     standard: Driver.Provider
+    --- What a project's program may not say of a checked file ([`build.project_refusals`]), which a standalone run refuses; the
+    --- caller supplies it, since the seed that holds this module does not hold that one.
+    refusals: function(chunk: Ast.Chunk, scoped: Scopes.Scoped): {compile_grammar.Problem}
   end
 
   --- What one file came to.
@@ -346,9 +349,15 @@ function compile_grammar.compile(sources: {compile_grammar.Source}, facts?: bool
       end
     end
     if alone ~= nil then
-      -- A standalone check refuses a warning as it does an error.
+      -- A standalone check refuses a warning as it does an error, and what a project may not say
+      -- ([`build.project_refusals`]), which it holds a standalone file to.
       for _, p in ipairs(result.warnings) do
         errors[#errors + 1] = reported(p)
+      end
+      if not source.declaration then
+        for _, p in ipairs(alone.refusals(result.chunk, result.scoped)) do
+          errors[#errors + 1] = p
+        end
       end
       table.sort(errors, function(a: compile_grammar.Problem, b: compile_grammar.Problem): boolean
         if a.y ~= b.y then return a.y < b.y end

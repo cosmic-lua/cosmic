@@ -268,3 +268,18 @@ local function test_a_clean_standalone_script_lists_no_errors(tmp: string)
   local ran = run({ "--errors", path })
   assert(ran.code == 0 and ran.err == "", ran.err)
 end
+
+--- What `--standalone` refuses of a project's program besides types (`package`, `_G`) is listed as `--standalone --check`
+--- lists it, with the Lua still written.
+local function test_a_file_alone_lists_the_refusals_standalone_makes_of_a_project(tmp: string)
+  local package_at = file(tmp, "pkg.tl", "print(package.path)\n")
+  local ran = run({ "--errors", package_at })
+  assert(ran.code == 0, ran.err)
+  assert(ran.err:find("pkg.tl:1:7:", 1, true) and ran.err:find("`package` holds the loaded modules", 1, true), ran.err)
+  assert(ran.err:find("1 type error", 1, true), ran.err)
+  assert(load(ran.out, "=pkg") ~= nil, "the Lua written does not load")
+  local global_at = file(tmp, "glob.tl", "local x = _G\nprint(x)\n")
+  local second = run({ "--errors", global_at })
+  assert(second.code == 0, second.err)
+  assert(second.err:find("glob.tl:1:11:", 1, true) and second.err:find("`_G` is the table of the globals", 1, true), second.err)
+end

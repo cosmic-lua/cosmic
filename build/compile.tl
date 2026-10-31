@@ -35,6 +35,8 @@ local Fs = require("cosmic.fs")
 local bare = require("build.bare")
 local verb_spec = require("build.verb_spec")
 local type Grammar = require("build.compile_grammar")
+local type Ast = require("lang.ast")
+local type Scopes = require("lang.scopes")
 
 --- The `cosmic compile` verb: `run` is what [`build/dispatch.tl`] calls.
 local record verb
@@ -239,7 +241,17 @@ function verb.run(argv: {string}, streams?: verb.Io): integer
       complain(options_why)
       return bare.refused
     end
-    alone = { globals = options.globals.sources, adjust = options.globals.adjust, standard = Pipeline.carried() }
+    local ProjectRefusals = require("build.project_refusals")
+    alone = {
+      globals = options.globals.sources, adjust = options.globals.adjust, standard = Pipeline.carried(),
+      refusals = function(chunk: Ast.Chunk, scoped: Scopes.Scoped): {Grammar.Problem}
+        local found: mut {Grammar.Problem} = {}
+        for _, at in ipairs(ProjectRefusals.places(chunk, scoped)) do
+          found[#found + 1] = { code = "project_refusal", msg = at.text, fix = "", y = at.y, x = at.x, offset = 0 }
+        end
+        return found
+      end,
+    }
   end
   local made = require("build.compile_grammar").compile(todo, nil, alone)
   local refused = false
