@@ -64,10 +64,6 @@ local record Env
     "FUZZ_CASE"
     --- "1" makes an unheld sandbox a failure.
     "COSMIC_CI_REQUIRE_SANDBOX"
-    --- The commit a perf run compares against.
-    "COSMIC_PERF_BASELINE_COMMIT"
-    --- The commit a perf run measures.
-    "COSMIC_PERF_CANDIDATE_COMMIT"
     --- The user's home directory.
     "HOME"
     --- Where programs are found.
