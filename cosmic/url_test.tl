@@ -326,3 +326,15 @@ local function test_resolve_takes_a_path_for_a_base()
   assert(Url.resolve("/", "xl/workbook.xml") == "/xl/workbook.xml")
   assert(Url.resolve("/a/b", "../../../c") == "/c")
 end
+
+--- The cases the RFC's own examples do not reach: a base with an
+--- authority and no path, a reference of a query, a fragment or an
+--- authority alone against a path, and a base of a scheme alone.
+local function test_resolve_reaches_the_corners_of_5_2()
+  assert(Url.resolve("http://a", "g") == "http://a/g")
+  assert(Url.resolve("http://a", "?y") == "http://a?y")
+  assert(Url.resolve("/xl/workbook.xml", "?y") == "/xl/workbook.xml?y")
+  assert(Url.resolve("/xl/workbook.xml?q", "#s") == "/xl/workbook.xml?q#s")
+  assert(Url.resolve("/xl/workbook.xml", "//h/p") == "//h/p")
+  assert(Url.resolve("mailto:", "x") == "mailto:x")
+end

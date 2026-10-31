@@ -278,3 +278,10 @@ local function test_subtrees_come_whole_at_their_path()
   local any = Xml.subtrees("doc/*/row"):take((assert(Xml.events(text))))
   assert(#any == 3, tostring(#any))
 end
+
+--- Two attributes that share a local name: the later in the document
+--- stands.
+local function test_local_names_keep_the_later_of_two_attributes()
+  local got = read('<a xmlns:x="urn:x" xmlns:y="urn:y" x:id="1" y:id="2"/>', { local_names = true })
+  assert(got == "start a id=2|end a", got)
+end

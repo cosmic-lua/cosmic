@@ -500,8 +500,11 @@ end
 --- and a relative path replaces the base's last segment, its `.` and
 --- `..` segments then taken out. Neither need be an absolute URL: a base
 --- that is a path alone (`/xl/workbook.xml`) resolves paths, as a
---- package format resolves a part's relationships. Nothing is escaped or
---- unescaped, and nothing is refused.
+--- package format resolves a part's relationships. Such a base starts
+--- with `/`: one that does not resolves as the RFC says, so `..` past its
+--- first segment answers a path from the root (`/b.xml`), and a path
+--- whose first segment holds a `:` reads back as a scheme. Nothing is
+--- escaped or unescaped, and nothing is refused.
 ---
 ---     Url.resolve("https://a.example/b/c", "../d?x") -- https://a.example/d?x
 ---     Url.resolve("/xl/workbook.xml", "worksheets/sheet1.xml") -- /xl/worksheets/sheet1.xml

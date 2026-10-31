@@ -3,7 +3,7 @@
 An `.xlsx` file is a zip of XML parts: the workbook names its sheets, a
 relationships part says where each one is, a shared strings part holds
 the text of the cells, and each sheet holds its rows. This guide reads one
-with [`cosmic.zip`], [`cosmic.xml`] and [`cosmic.url`], in under seventy
+with [`cosmic.zip`], [`cosmic.xml`] and [`cosmic.url`], in about eighty
 lines, and shows where a fuller reader would go on from there.
 
 ## a workbook to read
@@ -30,10 +30,11 @@ local parts: {{string}} = {
     '<Relationship Id="rId2" Type="' .. rel .. '/sharedStrings" Target="sharedStrings.xml"/>' ..
     "</Relationships>" },
   { "xl/sharedStrings.xml", "<sst " .. main .. "><si><t>Region</t></si><si><t>Total</t></si>" ..
-    "<si><r><t>North</t></r><r><t> East</t></r></si></sst>" },
+    "<si><r><t>North</t></r><r><t> East</t></r>" ..
+    '<rPh sb="0" eb="5"><t>nosu</t></rPh></si></sst>' },
   { "xl/worksheets/sheet1.xml", "<worksheet " .. main .. "><sheetData>" ..
     '<row r="1"><c r="A1" t="s"><v>0</v></c><c r="B1" t="s"><v>1</v></c></row>' ..
-    '<row r="2"><c r="A2" t="s"><v>2</v></c><c r="B2"><v>1250.5</v></c><c r="D2" t="b"><v>1</v></c></row>' ..
+    '<row r="2"><c r="A2" t="s"><v>2</v></c><c r="B2"><v>1250.5</v></c><c r="D2" t="b"><v>1</v></c><c><v>7</v></c></row>' ..
     "</sheetData></worksheet>" },
 }
 local out = Stream.collect()
@@ -79,14 +80,32 @@ local rels = relationships("/xl/workbook.xml")
 ## shared strings
 
 A cell of text holds the index of its string in the shared strings
-part, counted from 0. A string of several runs of formatting is
-several `t` elements, which [`Xml.text`] joins.
+part, counted from 0. A string is one `t`, or runs of formatting, each
+`r` holding a `t`. A string may also carry a phonetic reading in `rPh`,
+which is not its text, so the `t` elements are joined by hand rather
+than with [`Xml.text`], which would take in the reading and any
+whitespace between runs. A workbook with no text in its cells has no
+shared strings part.
 
 ```teal continue
+local function string_of(si: Xml.Element): string
+  local t = Xml.child(si, "t")
+  if t ~= nil then return Xml.text(t) end
+  local runs: mut {string} = {}
+  for _, run in ipairs(Xml.children(si, "r")) do
+    local text = Xml.text(assert(Xml.child(run, "t")))
+    runs[#runs + 1] = text
+  end
+  return table.concat(runs)
+end
+
 local strings: mut {string} = {}
-for _, si in ipairs(Xml.children(part(assert(rels["sharedStrings"])), "si")) do
-  local text = Xml.text(si)
-  strings[#strings + 1] = text
+local shared = rels["sharedStrings"]
+if shared ~= nil then
+  for _, si in ipairs(Xml.children(part(shared), "si")) do
+    local text = string_of(si)
+    strings[#strings + 1] = text
+  end
 end
 ```
 
@@ -96,7 +115,8 @@ A cell's `r` names its place, `B2`: its letters are the column. Its
 `t` says what its `v` holds: `s` an index into the shared strings, `b`
 a boolean as 0 or 1, `inlineStr` text in an `is` element, and none at
 all a number. A cell left empty is left out of its row, so a row is
-filled to each cell's column.
+filled to each cell's column; a cell without an `r`, which a writer may
+leave out, is in the column after the one before it.
 
 ```teal continue
 local function column(ref: string): integer
@@ -107,7 +127,7 @@ end
 
 local function value(c: Xml.Element): string
   local t = c.attributes["t"]
-  if t == "inlineStr" then return Xml.text(assert(Xml.child(c, "is"))) end
+  if t == "inlineStr" then return string_of(assert(Xml.child(c, "is"))) end
   local v = Xml.child(c, "v")
   if v == nil then return "" end
   local raw = Xml.text(v)
@@ -135,7 +155,8 @@ for _, sheet in ipairs(Xml.children(assert(Xml.child(workbook, "sheets")), "shee
     for _, row in ipairs(rows:take(events)) do
       local cells: mut {string} = {}
       for _, c in ipairs(Xml.children(row, "c")) do
-        local at = column(assert(c.attributes["r"]))
+        local ref = c.attributes["r"]
+        local at = if ref ~= nil then column(ref) else #cells + 1 end
         while #cells < at - 1 do cells[#cells + 1] = "" end
         local text = value(c)
         cells[#cells + 1] = text
@@ -159,7 +180,7 @@ assert(book:close())
 ```output
 Sales
 Region,Total
-North East,1250.5,,TRUE
+North East,1250.5,,TRUE,7
 ```
 
 ## going further
@@ -173,6 +194,18 @@ What this leaves out is the spreadsheet's own business, not the file's:
 - A formula's cell holds an `f` beside the `v` it last computed.
 - A sheet's `mergeCells` and `hyperlinks`, and the workbook's defined
   names, are each a few lines more of the same.
+
+And some of what a reader of any file meets:
+
+- An empty row is left out like an empty cell: a row's `r` is its
+  number, and lines that must match row numbers are filled the same way.
+- The workbook's path is read here as `/xl/workbook.xml`, where most
+  writers put it. The package says where it is: `_rels/.rels` names it,
+  as the relationship whose type ends in `officeDocument`.
+- A part's name matches whatever its case, where an entry's path in a
+  zip does not.
+- A relationship with `TargetMode="External"` names a URL outside the
+  package, such as a hyperlink's, and is never opened as a part.
 
 [`cosmic.url`]: ../../cosmic/url.tl
 [`cosmic.xml`]: ../../cosmic/xml.tl

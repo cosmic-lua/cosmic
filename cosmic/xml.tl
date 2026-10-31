@@ -25,8 +25,9 @@
 --- UTF-8, whatever encoding the document declares (UTF-8, UTF-16,
 --- ISO-8859-1 or US-ASCII). A name is answered as written: `p:x` stays
 --- `p:x` unless the parser was asked for namespaces, when an element's
---- or attribute's name in one is `{uri}local`, Clark's notation, and a
---- prefix with no declaration is refused.
+--- or attribute's name in one is `{uri}local`, Clark's notation, or for
+--- local names, when it is `x`; either way a prefix with no declaration
+--- is refused.
 ---
 --- What is refused, naming `line N, column M` (both from 1; a column
 --- counts characters): text that is not well-formed XML, a run of text
@@ -107,7 +108,9 @@ local record Xml
 
   --- The elements at one path of a document, each read whole as its
   --- `end` comes, from events fed a chunk at a time: what a document too
-  --- large to hold whole is read through, an element at a time.
+  --- large to hold whole is read through, an element at a time. One reads
+  --- one document: it keeps the elements still open between calls, so
+  --- after a parser fails part way, a new document takes a new one.
   interface Subtrees
     --- The elements at the path that `events` closes, in document order,
     --- possibly none. Events must come in document order, every one.
