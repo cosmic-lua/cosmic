@@ -425,7 +425,10 @@ local function tool_project(tmp: string): function(string), function(string): st
     "local Test = require(\"cosmic.test\")\n\nTest.policy { profiles = { \"cosmic\" }, grants = { { path = \"o/bin\", letters = \"rx\" } } }\n\n" ..
       "local function test_tool()\n  assert(true)\nend\n"))
   assert(Fs.write(root .. "/suite/plain_test.tl", "local function test_plain()\n  assert(true)\nend\n"))
-  local tool = build_dir(root) .. "/bin/cosmic"
+  -- Run from outside the project's build directory: a tool in it that records another tree than the project is
+  -- the project's own tool of a tree it was not built from, which no command goes on with ([`build.tree`]).
+  assert(Fs.mkdirs(tmp .. "/runner"))
+  local tool = tmp .. "/runner/cosmic"
   local function rebuild(statements: string)
     rebuilt(tmp, tool, statements)
   end

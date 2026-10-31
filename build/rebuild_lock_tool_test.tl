@@ -250,6 +250,8 @@ local function test_a_waiting_projection_keeps_its_compiled_snapshot(tmp: string
         return (Fs.read(output) or ""):find("waiting for it", 1, true) ~= nil
       end))
       local staged = assert(work.open(root))
+      -- A project: the signature is of the rows the run left, and no stage of this handle's adds to them.
+      staged.standing = { own = false }
       local first: importer.Result = {
         main = nil, tool = "", modules = {}, refused = {}, left_out = {},
         compiled = 0, cached = 0, shared = 0,
