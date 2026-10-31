@@ -1,6 +1,6 @@
 /* Streaming compression codecs: deflate/zlib/gzip over the vendored
- * miniz, and the xz and bzip2 decoders, as userdata "stream" objects a
- * caller feeds chunks into. */
+ * miniz, zstd's encoder and decoder, and the xz and bzip2 decoders, as
+ * userdata "stream" objects a caller feeds chunks into. */
 
 #ifndef COSMIC_COMPRESS_H
 #define COSMIC_COMPRESS_H

@@ -131,6 +131,9 @@ local record Module
   --- ([`cosmic.sqlite.OpenOptions`]). The compiler says it after its
   --- `argument 2: got boolean, expected Sqlite.OpenOptions`.
   arguments: {string:string}
+  --- What to write where a value of a record is indexed (`row[1]`) that has no elements to index, by the record's
+  --- module and name ([`cosmic.sqlite.Row`]). The compiler says it after its `not_indexable` error for the value.
+  indexed: {string:string}
   --- What to write instead of `name` (`os`), or of its field `field` (`getenv`) when one is given: one
   --- line, the text a compile error and a run-time failure both show. For a name with no entry, it
   --- says only that the name is not available, or where to look.
@@ -519,11 +522,6 @@ local module: Module = {
   -- boolean given for a record. Say `Flags.help({ spec = spec, about =
   -- about, usage = <what follows the program's name> }, program)` once
   -- the pipeline's hint also reads a string given for a record.
-  -- TODO: a program that still reads a row as a list (`row[1]`, `row[1].text`)
-  -- gets only `cannot index object of type Row with integer`, with no hint:
-  -- say `row:text(1)`, `row:integer(1)` and [`cosmic.sqlite`]'s other
-  -- accessors once the checker carries a hint for an index error that names
-  -- the indexed record.
   -- TODO: a call that still passes Sqlite.open's old third argument gets
   -- only the arity error (`wrong number of arguments ... at most 2`), with
   -- no hint: the message names no callee. Say `{ immutable = true }` for
@@ -545,6 +543,11 @@ local module: Module = {
     ["cosmic.sqlite.OpenOptions"] = "Sqlite.open(path, opts) takes a table: " ..
       "{ writable = true } for the old `true`, and nothing for `false` (" ..
       sqlite .. ")",
+  },
+  indexed = {
+    ["cosmic.sqlite.Row"] = "a row has no cells to index: read column i with row:text(i), row:integer(i), " ..
+      "row:number(i) or row:blob(i), every column as text with row:texts(), and ask row:is_null(i) first " ..
+      "when it may be NULL (" .. sqlite .. ")",
   },
 }
 

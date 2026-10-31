@@ -17,7 +17,7 @@
 --- builder could say exactly which binding a name reads; the port does not, so that the two read alike.
 ---
 --- **Bindings of C.** [`cosmic.sys`] and the raw process and socket tables are typed from the declarations the build derives
---- from their headers ([`build.gen_syscalls`]; the tree checks declare them, [`build.tree_checks`]'s `bindings_of`), so their
+--- from their headers ([`build.gen_syscalls`], whose `targets` are the tables the contract holds), so their
 --- calls are judged by rules 1 and 6, rule 11 reads them, and a function stored into a field of one is a stand-in for a
 --- binding (rule 5's exception), by the type of the field's owner. A program checked without them (`external` in
 --- [`lang.declarations`]) has their calls untyped, and so unjudged.
@@ -37,7 +37,9 @@
 --
 -- TODO: follow a reason by the binding the scope builder resolves a name to ([`Scopes.Scoped.resolved`]) in place of the
 -- name's text and position, which closes the gaps of rule 6 noted below (a reason stored in a field, in an inner block).
+local AnalysisSchema = require("build.analysis_schema")
 local Ast = require("lang.ast")
+local GenSyscalls = require("build.gen_syscalls")
 local Lexer = require("lang.lexer")
 local Rules = require("build.contract_rules")
 local Node = require("build.syntax_node")
@@ -66,9 +68,6 @@ local record SyntaxContracts
   --- `given` is the exemptions to hold it to in place of the tree's own.
   check: function(subject: Subject, given?: Rules.Exemptions): Result
 
-  --- The kind of module a file of the tree is, as the importer stages it: `test`, `example`, `main`, `decl` or `module`.
-  kind_of: function(file: string): string
-
   --- Whether the discipline holds the file: every module and main of the tree, not its tests, examples or declarations.
   applies: function(file: string): boolean
 
@@ -78,22 +77,8 @@ end
 
 SyntaxContracts.rules = { "calls", "functions", "exports", "wrappers", "readings", "casts", "types", "modes" }
 
-function SyntaxContracts.kind_of(file: string): string
-  if file:match("%.d%.tl$") then
-    return "decl"
-  elseif file:match("_test%.tl$") then
-    return "test"
-  elseif file:match("_example%.tl$") then
-    return "example"
-  elseif file:match("^cmd/[^/]+/main%.tl$") then
-    return "main"
-  end
-  return "module"
-end
-
 function SyntaxContracts.applies(file: string): boolean
-  local kind = SyntaxContracts.kind_of(file)
-  return Rules.applies(kind, false)
+  return Rules.applies(AnalysisSchema.kind_of(file), false)
 end
 
 -- Types ------------------------------------------------------------------------------------------------------------
@@ -702,14 +687,25 @@ local function is_quiet(run: Run, call: Ast.Node): boolean
   return entry ~= nil and entry.methods[name] == true
 end
 
---- The record each table of C bindings is ([`cosmic.sys`], the raw process and socket tables), by declaration, to its module's
---- name: the tables the new checker types from the declarations the build derives from their headers.
+--- The record each table of C bindings is, by declaration, to its module's name: the tables the new checker types from
+--- the declarations the build derives from their headers, which are the modules [`build.gen_syscalls`] generates.
+--
+-- TODO: hold a declaration file that declares itself a binding (`--- @kind binding`) to the discipline too, and let the
+-- `inputs` view say `binding` for it and for what the generator derives. It waits on every place that compares a kind
+-- with `'decl'` (the importer, plans, the writer, link_index, the language server: some sixty) asking one declaration
+-- test, since a `binding` kind would otherwise take those files out of every one of them.
 local function binding_tables(run: Run): {Types.Decl: string}
   local out: mut {Types.Decl: string} = {}
-  for _, module in ipairs(Rules.binding_names()) do
-    local root = Report.root_of(run.subject.program, module)
+  for _, target in ipairs(GenSyscalls.targets) do
+    local root = Report.root_of(run.subject.program, target.path)
     if root ~= nil then
-      out[root] = module
+      out[root] = target.path
+    elseif run.subject.program.modules[target.path] ~= nil then
+      -- A program without the module (it requires none, or `external` leaves it untyped) has no calls to judge; one
+      -- that holds it as something that is no table has lost it from the contract, which must be told.
+      table.insert(run.problems, string.format("%s: %s is a table of C bindings derived from %s, but the program " ..
+          "holds a module of that name that declares no table: its calls are no longer held to the contract",
+        run.subject.file, target.path, target.target.header))
     end
   end
   return out

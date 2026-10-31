@@ -877,7 +877,7 @@ build/zig_tool_test.tl nil_not_allowed 1
 
 
 
-cosmic/archive.tl nil_not_allowed 11
+cosmic/archive.tl nil_not_allowed 8
 
 cosmic/archive_fuzz_test.tl nil_not_allowed 3
 
@@ -4023,7 +4023,7 @@ build/compile_grammar_test.tl is_on_record 3
 
 build/flow.tl is_on_record 7
 
-build/removed_fix.tl is_on_record 6
+build/removed_fix.tl is_on_record 3
 
 build/standalone.tl is_on_record 3
 
@@ -4793,7 +4793,6 @@ build/test_sandbox.tl or_mix 1
 
 
 
-build/workflows_test.tl or_mix 1
 
 
 
@@ -5743,7 +5742,6 @@ core/sqlite_functions_test.tl compare_disjoint 1
 core/surface_test.tl compare_disjoint 4
 
 
-cosmic/archive.tl compare_disjoint 1
 
 cosmic/child.tl compare_disjoint 9
 
