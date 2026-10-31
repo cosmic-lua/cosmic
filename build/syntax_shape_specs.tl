@@ -428,6 +428,63 @@ end
 
 local type Splice = ShapeSpecs.Splice
 
+--- The comment that leaves a use of `record_of` unresolved on purpose, on the line of the use: a test of what an unresolved call
+--- does writes it.
+local UNRESOLVED_ON_PURPOSE <const> = "-- record_of: unresolved on purpose"
+
+--- Whether `e` is `require("cosmic.shape")`.
+local function requires_shape(e: Ast.Exp): boolean
+  return required_name(e) == "cosmic.shape"
+end
+
+--- The first use of cosmic.shape's `record_of` that the build does not complete, as a refusal and its line, or "" and 0:
+--- [`Shape.record_of`] that is not called (`local f = Shape.record_of`), and `record_of` read through another name for
+--- the module (`local Alias = Shape`, `require("cosmic.shape").record_of`) or through an index (`Shape["record_of"]`).
+--- A call that way raises when it runs; the build refuses it where it stands, unless its line holds
+--- [`UNRESOLVED_ON_PURPOSE`]. `shape` is the name the module binds cosmic.shape to at its top level, or nil.
+local function stray_use(chunk: Ast.Chunk, file: string, source: string, shape: string?): string, integer
+  local names: mut {string: boolean} = {}
+  if shape ~= nil then names[shape] = true end
+  local called: mut {integer: boolean} = {}
+  Node.walk(chunk, function(node: Ast.Node)
+    if node.kind == "Call" then
+      called[node.callee.last] = true
+    elseif node.kind == "Local" and #node.bindings == 1 and #node.values == 1 then
+      local value = node.values[1]
+      local binding = node.bindings[1]
+      if (value.kind == "Name" and names[value.text] == true) or requires_shape(value) then
+        names[binding.name] = true
+      end
+    end
+  end)
+  local lines: mut {string} = {}
+  for text in (source .. "\n"):gmatch("([^\n]*)\n") do lines[#lines + 1] = text end
+  local refusal, line = "", 0
+  Node.walk(chunk, function(node: Ast.Node)
+    if refusal ~= "" then return end
+    local object: Ast.Exp? = nil
+    if node.kind == "Field" and node.name == "record_of" then
+      object = node.object
+    elseif node.kind == "Index" and node.key.kind == "String" and node.key.value == "record_of" then
+      object = node.object
+    end
+    if object == nil then return end
+    local direct = object.kind == "Name" and object.text == shape
+    local other = (object.kind == "Name" and object.text ~= shape and names[object.text] == true) or
+      requires_shape(object)
+    if not (direct or other) then return end
+    -- A call of `Shape.record_of(...)` is the build's to complete or leave; any other way of reading it is not.
+    if direct and node.kind == "Field" and called[node.last] == true then return end
+    local at = Node.span(chunk, node).y
+    if (lines[at] or ""):find(UNRESOLVED_ON_PURPOSE, 1, true) ~= nil then return end
+    line = at
+    refusal = ("%s:%d: record_of: read other than as a call written Shape.record_of(\"Name\"), which the build " ..
+      "completes; written so, it has no check and raises when it runs (a test that wants that writes `%s` on the line)"
+    ):format(file, at, UNRESOLVED_ON_PURPOSE)
+  end)
+  return refusal, line
+end
+
 function ShapeSpecs.splices(build: Driver.Build, module: string, file: string, source: string): ShapeSpecs.Found
   local none: {Splice} = {}
   if not source:find("record_of", 1, true) then
@@ -441,6 +498,10 @@ function ShapeSpecs.splices(build: Driver.Build, module: string, file: string, s
   local chunk = outcome.chunk
   local aliases = required(chunk)
   local shape = aliases["cosmic.shape"]
+  -- The code of a guide is checked and never run, so a call there that the build does not complete raises nowhere.
+  local stray, stray_line = "", 0
+  if file:sub(-3) ~= ".md" then stray, stray_line = stray_use(chunk, file, source, shape) end
+  if stray ~= "" then return { splices = none, refusal = stray, line = stray_line } end
   if shape == nil then
     return { splices = none, refusal = "", line = 0 }
   end

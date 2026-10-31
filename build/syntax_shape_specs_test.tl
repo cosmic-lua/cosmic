@@ -438,21 +438,47 @@ local function test_the_splices_are_the_last_first_and_a_refusal_names_its_line(
     unread.refusal)
 end
 
---- A call that already passes a check and a node is left as it is, and so is a mention of `record_of` that is no call: what
---- a program passes there is a function and data the checker types, so it can only answer the type it names.
-local function test_a_call_with_more_than_the_name_and_a_mention_are_left_as_written()
-  local head = table.concat({
+--- A call that already passes a check and a node is left as it is: what a program passes there is a function and data the
+--- checker types, so it can only answer the type it names.
+local function test_a_call_with_more_than_the_name_is_left_as_written()
+  local source = table.concat({
     'local Shape = require("cosmic.shape")',
     "local record A",
     "  a: string",
     "end",
+    'local S = Shape.record_of("A", nil)',
+    "return S",
     "",
   }, "\n")
-  local function unchanged(tail: string)
-    local source = head .. tail
-    local found = ShapeSpecs.splices(build_of({ ["main.tl"] = source }), "main", "main.tl", source)
-    assert(#found.splices == 0 and found.refusal == "", "spliced or refused: " .. tail .. " -> " .. found.refusal)
+  local found = ShapeSpecs.splices(build_of({ ["main.tl"] = source }), "main", "main.tl", source)
+  assert(#found.splices == 0 and found.refusal == "", found.refusal)
+end
+
+--- `record_of` read any way but as a call written `Shape.record_of("Name")` has no check from the build, and raises when it
+--- runs: the build refuses it where it stands, however the module is reached, unless its line says it is on purpose.
+local function test_record_of_read_any_other_way_is_refused_unless_it_says_it_is_on_purpose()
+  local head = 'local Shape = require("cosmic.shape")\nlocal record A\n  a: string\nend\n'
+  local function refusal(text: string): string
+    local found = ShapeSpecs.splices(build_of({ ["main.tl"] = text }), "main", "main.tl", text)
+    if found.refusal ~= "" then assert(#found.splices == 0, "a refused module splices none") end
+    return found.refusal
   end
-  unchanged('local S = Shape.record_of("A", nil)\nreturn S\n')
-  unchanged('local f = Shape.record_of\nreturn f\n')
+  local routes: {string} = {
+    head .. "local f = Shape.record_of\nreturn f\n",
+    head .. "local Alias = Shape\nreturn Alias.record_of(\"A\")\n",
+    head .. 'return Shape["record_of"]("A")\n',
+    head .. 'return require("cosmic.shape").record_of("A")\n',
+    'local record A\n  a: string\nend\nreturn require("cosmic.shape").record_of("A")\n',
+  }
+  for _, text in ipairs(routes) do
+    local said = refusal(text)
+    assert(said:find("main.tl:", 1, true) ~= nil and said:find("record_of: read other than as a call", 1, true) ~= nil,
+      said .. " for " .. text)
+  end
+  -- on purpose, marked on its line
+  local marked = head .. 'return Shape["record_of"]("A") -- record_of: unresolved on purpose\n'
+  assert(refusal(marked) == "")
+  -- a field of another table with the name is no use of it, and a direct call is the build's to complete
+  assert(refusal(head .. "local other = { record_of = print }\nreturn other.record_of(\"A\")\n") == "")
+  assert(refusal(head .. 'return Shape.record_of("A")\n') == "")
 end
