@@ -927,16 +927,13 @@ local function sendable(url: string): string?, string
 end
 
 --- `trouble`, a failure of opening a request sent over `via`, as the
---- socket's own: where curl failed to connect, its message names the
---- URL's `host:port` (the origin, never connected to) and not why, so the
---- path is connected to once more, as [`Net.connect`] does, for its reason.
---- Any other failure, and a path that connects this time, keep `trouble`.
-local function socket_trouble(via: Net.Address, trouble: string): string
-  -- TODO: match on the CURLcode once cosmic.internal.http's open returns it
-  -- beside the text: this reads curl's wording, and a rewording that breaks
-  -- the match fails test_a_connect_failure_names_the_socket_and_the_reason
-  -- in cosmic/http_unix_test.tl.
-  if not trouble:find("^Failed to connect to .- over unix://") then
+--- socket's own: where curl could not connect (`code`, the raw module's
+--- name for the failure), its message names the URL's `host:port` (the
+--- origin, never connected to) and not why, so the path is connected to
+--- once more, as [`Net.connect`] does, for its reason. Any other failure,
+--- and a path that connects this time, keep `trouble`.
+local function socket_trouble(via: Net.Address, trouble: string, code: string?): string
+  if code ~= "couldnt_connect" then
     return trouble
   end
   local conn, why = Net.connect(via)
@@ -961,10 +958,10 @@ local function opened(url: string, opts: Http.Options?, method: string?): Http.R
   if raw == nil and unmade ~= "" then
     return nil, unmade
   end
-  local handle, trouble = http.open(url, raw)
+  local handle, trouble, code = http.open(url, raw)
   if handle == nil then
     if opts ~= nil and opts.via ~= nil then
-      return nil, socket_trouble(opts.via, trouble)
+      return nil, socket_trouble(opts.via, trouble, code)
     end
     return nil, trouble
   end
