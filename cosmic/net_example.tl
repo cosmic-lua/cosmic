@@ -34,8 +34,12 @@ end
 -- in build/ceilings.txt).
 
 --- A request and its answer: `shutdown("write")` tells the server the
---- request is whole while the client still reads what comes back. Each end
---- is closed by hand: the checker refuses `<close>` on a [`Net.Conn`].
+--- request is whole while the client still reads what comes back. This
+--- suits a request that ends at end of file. After a framed request (HTTP,
+--- a length prefix) do not half-close: a server may take the half-close as
+--- the client closing and answer nothing. For HTTP over a unix socket use
+--- [`Http.request`] with `via`. Each end is closed by hand: the checker
+--- refuses `<close>` on a [`Net.Conn`].
 function Example.connect()
   local server = assert(Net.listen(Net.tcp("127.0.0.1", 0), { timeout_ns = Clock.seconds(5) }))
   local client = assert(Net.connect(server.address, { timeout_ns = Clock.seconds(5) }))

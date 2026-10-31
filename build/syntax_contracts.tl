@@ -485,7 +485,7 @@ local record Run
   subject: Subject
   index: Index
   exemptions: Rules.Exemptions
-  --- The modules the sources of the build declare tables of C bindings ([`build.driver`]'s `bindings`), beside the ones
+  --- The modules the sources of the build declare tables of C bindings ([`SyntaxContracts.declared_in`]), beside the ones
   --- the generator derives.
   declared: {string}
   used: Used
@@ -716,7 +716,7 @@ end
 --- The record each table of C bindings is, by declaration, to its module's name: the tables the new checker types from the
 --- declarations of the modules the build derives from their headers ([`build.gen_syscalls`]'s `targets`, which a project's
 --- binary carries) and from those the sources of the build declare a binding (`run.declared`,
---- [`build.driver`]'s `bindings`).
+--- [`SyntaxContracts.declared_in`]).
 local function binding_tables(run: Run): {Types.Decl: string}
   local out: mut {Types.Decl: string} = {}
   local names: mut {string} = {}
