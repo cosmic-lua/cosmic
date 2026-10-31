@@ -20,6 +20,7 @@ local Node = require("build.syntax_node")
 local PolicyRules = require("build.policy_rules")
 local Scopes = require("lang.scopes")
 local String = require("cosmic.string")
+local TodoScan = require("build.todo_scan")
 
 local record Analyzer
   --- One catalog entry: a literal `return nil, ...`/`return false, ...` (or `return refuse(...)`, a module's own
@@ -179,9 +180,26 @@ local function comment_body(c: Lexer.Comment): string
   return c.text:match("^%-%-%-?%s?(.*)$") or c.text
 end
 
+--- The comments of `run` that open a `TODO:` or carry one on, found as [`build.todo_scan`] finds TODOs: a TODO is a
+--- note to the maintainers, never documentation.
+local function todo_comments(run: {Lexer.Comment}): {integer:boolean}
+  local texts: mut {string} = {}
+  for _, c in ipairs(run) do
+    texts[#texts + 1] = c.text
+  end
+  local skipped: mut {integer:boolean} = {}
+  for _, todo in ipairs(TodoScan.scan(table.concat(texts, "\n"))) do
+    for line = todo.line, todo.last do
+      skipped[line] = true
+    end
+  end
+  return skipped
+end
+
 --- The body of each comment in `run` that is documentation: the `---` lines when the run has any, so a `--` note
---- beside them (a `TODO:`) stays out of the doc text, and every line of a run of `--` alone, which documents a script
---- or a module.
+--- beside them stays out of the doc text, and every line of a run of `--` alone, which documents a script or a
+--- module. A `TODO:` comment, with the lines that carry it on, is never documentation, and the blank line it leaves
+--- beside another is dropped with it.
 local function doc_bodies(run: {Lexer.Comment}): {string}
   local any = false
   for _, c in ipairs(run) do
@@ -189,10 +207,19 @@ local function doc_bodies(run: {Lexer.Comment}): {string}
       any = true
     end
   end
+  local skipped = todo_comments(run)
   local parts: mut {string} = {}
-  for _, c in ipairs(run) do
-    if c.text:sub(1, 3) == "---" or not any then
-      parts[#parts + 1] = comment_body(c)
+  local dropped = false
+  for index, c in ipairs(run) do
+    if skipped[index] == true then
+      dropped = true
+    elseif c.text:sub(1, 3) == "---" or not any then
+      local body = comment_body(c)
+      local last = parts[#parts]
+      if not (dropped and body == "" and (last == nil or last == "")) then
+        parts[#parts + 1] = body
+      end
+      dropped = false
     end
   end
   return parts

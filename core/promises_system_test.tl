@@ -8,7 +8,6 @@
 --- applicable); where the kernel still gives no seccomp filter, each skips
 --- itself.
 
-local RawTables = require("build.raw_tables")
 local Test = require("cosmic.test")
 -- Required, so the module whose loader is handed the raw table is of this
 -- test's import closure, and the store has it to hand it from.
@@ -24,7 +23,7 @@ Test.policy{
   requires = { "sandbox", "path:/bin/sh" },
 }
 
-local process = RawTables.process()
+local process = require("cosmic.internal.process")
 
 local SHELL <const> = "/bin/sh"
 

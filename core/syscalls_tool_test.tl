@@ -9,7 +9,6 @@
 --- core/syscalls_tool_unsandboxed_test.tl's. The executable's own path,
 --- which only a `tool` test can read, is core/artifact_fd_tool_test.tl's.
 
-local RawTables = require("build.raw_tables")
 local String = require("cosmic.string")
 local sys = require("cosmic.sys")
 local Test = require("cosmic.test")
@@ -33,7 +32,7 @@ Test.policy{
   requires = { "nest" },
 }
 
-local process = RawTables.process()
+local process = require("cosmic.internal.process")
 
 --- The descriptors [`this_program.program`] hands its child, as
 --- [`process.spawn`] takes them: each a descriptor of this process, as

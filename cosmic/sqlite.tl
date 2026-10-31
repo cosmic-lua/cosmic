@@ -37,21 +37,11 @@
 --- `compress`, ...).
 
 -- The raw module behind this one lives under the reserved
--- `cosmic.internal.` namespace, which never satisfies an ordinary
--- `require` for any caller -- see cosmic/store.tl for why -- and
--- arrives instead as the second argument `require` passes this
--- chunk's own loader, present because this module was itself loaded,
--- trusted, from the binary's own tree. Boot mode falls back to
--- requiring it by name, which only boot's own preload answers.
+-- `cosmic.internal.` namespace, which only cosmic's own tree may require
+-- (see cosmic/store.tl for why it is off the public surface).
 local type raw_sqlite = require("cosmic.internal.sqlite")
 
-local extra: any = select(2, ...)
-local sqlite: raw_sqlite
-if type(extra) == "table" then
-  sqlite = extra as raw_sqlite
-else
-  sqlite = require("cosmic.internal.sqlite")
-end
+local sqlite = require("cosmic.internal.sqlite")
 
 local record Sqlite
   --- An open database, as `open` and `memory` return it: the type to

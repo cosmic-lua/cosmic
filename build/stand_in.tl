@@ -211,7 +211,7 @@ end
 --- `core_requires`, each once: the ones this program's own `imports`
 --- rows record it requiring, and theirs in turn. A raw
 --- `cosmic.internal.*` value is no row of any database, since the core
---- hands each wrapper its own (core/store.c's `raw_modules`), so those
+--- registers it itself (core/store.c's `raw_values`), so those
 --- are left out; a Teal module of `cosmic/internal/` has its row and is
 --- carried like any other.
 local function carried(): {Carried}?, string

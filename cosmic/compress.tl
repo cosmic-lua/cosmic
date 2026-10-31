@@ -3,19 +3,13 @@
 --- three, and streaming decoders (no encoders) for xz and bzip2.
 
 -- The raw module behind the streaming codecs lives under the reserved
--- `cosmic.internal.` namespace -- see cosmic/store.tl for why this
--- indirection exists.
+-- `cosmic.internal.` namespace -- see cosmic/store.tl for why it is off
+-- the public surface.
 local type raw_compress = require("cosmic.internal.compress")
 
 local Stream = require("cosmic.stream")
 
-local extra: any = select(2, ...)
-local raw: raw_compress
-if type(extra) == "table" then
-  raw = extra as raw_compress
-else
-  raw = require("cosmic.internal.compress")
-end
+local raw = require("cosmic.internal.compress")
 
 --- What a failure of this module answers, nil and `why` under the
 --- module's name.

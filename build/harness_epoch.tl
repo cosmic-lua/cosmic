@@ -95,13 +95,13 @@ harness_epoch.acknowledged = {
 
   ["build.caches"] = "18fc193d825a960a4716cb62fae40d37e1c0d35d61c9acb91025dc0b60b570ee",
 
-  ["build.confine"] = "1fdbf723a191d552b99edf862ad9ebc6f2f3a70471dd53c4131c0c15bc1de2f8",
+  ["build.confine"] = "d5851b8aa35ed142a28ab318cb69b9ceba767a4db15c31529e6f43f38fb13548",
 
   ["build.core_image"] = "18daf88c3c58f62a222472eaa52b99218cd1e5b7ccafde6a0beded46c8f3382b",
 
   ["build.declared_key"] = "2339324771d53a11e9d43f09351051ac15a3bab97337d2b7cf9c873e1430d933",
 
-  ["build.digest"] = "63588bce17aabb935b044ae8a4af8cea78d1dca19822a36e72efe62d4a877355",
+  ["build.digest"] = "9437ad0c656ef9ad0c8396b0370e6d3727682b5cb43d9dea4ded4f4f14896170",
 
   ["build.host_names"] = "be77323ab570346a02b67f7b8122cf30503dcb0642adb23f1f1c3d9b6da61547",
 
@@ -137,7 +137,7 @@ harness_epoch.acknowledged = {
 
   ["cmd.cosmic.main"] = "4199a34c391ac393c2cff8404cced9e3e593309f7ec58fb1af37f26e3fead347",
 
-  ["cosmic.child"] = "f138cd38dac9589325b96a1eda0801d7a850efa83a01dd209499c455acc35c22",
+  ["cosmic.child"] = "c8d57dd9a63d28e38a42c52c4a66ecef4884fce13903d7d42279c4fe9daeb2a7",
 
   ["cosmic.codec"] = "5e783e4f60065fa4f114225120aaf286c3d07987b4df98ade9e39e93c5bd24f5",
 
@@ -147,17 +147,17 @@ harness_epoch.acknowledged = {
 
   ["cosmic.fs"] = "8181e65f1fe838a9b20dcf4bd6ace61e7be9c422a7f043345a8957bad62bbd21",
 
-  ["cosmic.hash"] = "965927db84637153d43cb09283970fd875a1164afde8ec862fd48965991f8d79",
+  ["cosmic.hash"] = "32dfb2b98f9d8fb0ab5eaee33c7e3b629de3da535e46bb9b729a4fc81714ed0d",
 
-  ["cosmic.proc"] = "b34e6e997f2785dcb1a7a82c5385e0bcfcf99d51b4c0b220a755f40b51e87d3e",
+  ["cosmic.proc"] = "8f841564877b8a1fe98ff67ea49b9655e22661c2e63c32b05823f12b70e3e218",
 
   ["cosmic.project"] = "7109f1a1bfb3400ba57174beca48225a345b8388ea0766a1eab33929545fb8ec",
 
-  ["cosmic.sandbox"] = "5dd7fdfdc217c237db9692b2fe905b41e6a589ea47577998a280cb05168a2b1c",
+  ["cosmic.sandbox"] = "95644257ea639ea879dbb6a42d10a7eb500d033e1198d055af959fe3b8bf9630",
 
   ["cosmic.sandbox.policy"] = "ce2cbf3101cfe8a57d0d946b3c1fe2b5bdb8626b0fa39f45b9bdcf46b9146c65",
 
-  ["cosmic.sqlite"] = "7130d11b32af30493f1fe5b04d8d25d874d5b3bcb62f6b85a082857caeb20db9",
+  ["cosmic.sqlite"] = "1c571fba7ea7bafbaa1cb7bb91253c8419f74a9c12922b8a66c8c27183a9d97e",
 
   ["cosmic.string"] = "4696ea716c4b8f796923350161765a4fdc0313355d68c327902536123cf603a5",
 

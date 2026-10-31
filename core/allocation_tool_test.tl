@@ -5,8 +5,6 @@
 --- (core/testing.h), and CI runs this suite on it; on any other the
 --- walk returns at once.
 
-local RawTables = require("build.raw_tables")
-local _ = require("cosmic.child") -- in the closure: [`RawTables`] searches for it by hand
 local Proc = require("cosmic.proc")
 local sys = require("cosmic.sys")
 local testing = require("cosmic.internal.testing")
@@ -18,7 +16,7 @@ local Test = require("cosmic.test")
 --- spawn refusal names it, and never starts it).
 Test.policy{ requires = { "checked" }, profiles = { "cosmic" } }
 
-local process = RawTables.process()
+local process = require("cosmic.internal.process")
 
 --- Runs `work` once per allocation it makes, refusing that allocation,
 --- and a last time with none refused; answers how many runs a refusal

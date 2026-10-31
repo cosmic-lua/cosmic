@@ -4,11 +4,10 @@
 --- started so. core/syscalls_test.tl reads the same from Linux's
 --- /proc/self/status, which macOS has none of.
 
-local RawTables = require("build.raw_tables")
 local sys = require("cosmic.sys")
 local stand_in = require("build.stand_in")
 
-local process = RawTables.process()
+local process = require("cosmic.internal.process")
 
 --- How a stand-in program (build/stand_in.tl) ends writing to a pipe no
 --- one reads, handed as its descriptor 3: the signal that ended it, or

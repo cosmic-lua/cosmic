@@ -50,17 +50,10 @@ local Signal = require("cosmic.signal")
 local Leaf = require("cosmic.internal.connector")
 
 --- The raw module behind this one lives under the reserved
---- `cosmic.internal.` namespace and arrives as the second argument
---- `require` passes this chunk's loader, as cosmic/http/init.tl's does.
+--- `cosmic.internal.` namespace, which only cosmic's own tree may require.
 local type raw_socket = require("cosmic.internal.socket")
 
-local extra: any = select(2, ...)
-local raw: raw_socket
-if type(extra) == "table" then
-  raw = extra as raw_socket
-else
-  raw = require("cosmic.internal.socket")
-end
+local raw = require("cosmic.internal.socket")
 
 local record Net
   --- Where a socket is, as [`Net.unix`] and [`Net.tcp`] build one: a
@@ -736,9 +729,10 @@ end
 --- this does not wait; a `timeout_ns` no wait can last raises.
 -- TODO: receive the pair in the process that started the child, and hand
 -- the relay's process the listeners as descriptors of their own, once
--- cosmic.child can reach the raw socket table (core/store.c's `raw_modules`
--- gives each wrapper module one): until then the relay's process receives
--- them itself, so that Child only moves the channel.
+-- Child.start binds the listeners itself (cosmic.child can require
+-- cosmic.internal.socket now that the raw tables are plain modules): until
+-- then the relay's process receives them itself, so that Child only moves
+-- the channel.
 --- @param channel integer The descriptor of the channel's receiving end
 --- @param opts? Net.ListenOptions The listeners' options
 --- @return {Net.Listener}|nil The listeners
