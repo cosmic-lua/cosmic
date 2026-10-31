@@ -438,7 +438,48 @@ the gate (`ci`) needs both. Neither checks that every C function is
 entered, which only a whole run answers (linux-aarch64's and
 macos-aarch64's light runs still do, and every leg of a `full` run).
 A light run saves no verdicts, so neither share's stands for the
-other's. A `full` run's `shard` is empty, and every leg runs whole.
+other's. A `full` run's legs run their native suites whole (`shard` is
+empty).
+
+A `full` run splits alpine-x86_64's portable suite (the queue's longest
+leg: its native suite, regressions and the whole portable suite ran in
+series) in two. The `shard` dimension holds `portable-2/2` as well on a
+`full` run, its `exclude` drops that value for every leg but
+alpine-x86_64, and the one job it leaves, `alpine-x86_64-portable-share`,
+is the leg's on its runner and image with the leg's `name`, so it
+restores and keys every cache as the leg does. `COSMIC_CI_PORTABLE_SHARD`
+gives the leg `1/2` and that job `2/2` (`cosmic test --shard`, as above),
+and the two run beside each other. The job boots, restores the verdicts
+and compiles, probes the sandbox, assembles, runs its half of the suite
+and its boundary, and attests. It skips what the leg proves for the same
+bytes and host: the pinned driver's check and its relay to the queue's
+next run, the native suite and its boundary, the credential proofs, the
+regressions, and the darwin suite. It saves no cache and seeds nothing
+(`COSMIC_CI_SAVES` is false for it; the `cosmic-driver` action's
+bootstrap cache is the one save left, which the action makes on main
+under the leg's key as the leg does), so main keeps no verdict of a test
+in the second half that only a portable run reaches (a test whose key
+holds the launcher); a sealed test stands on the native suite's row,
+which the leg saves.
+
+A share is not a whole run (`cosmic test --shard`), and a whole run alone
+makes three checks: that some test enters each C function, the probe of
+the host for the C functions' prerequisites, and the reset of the
+recorded file digests. The leg's native suite is a whole run on the same
+host and cores (the portable artifact carries the cores the tool does),
+so it answers the first two for the portable run too, and the digests
+are a cache of the run's own working database, which no verdict reads.
+
+The job uploads no `portable-product-*`, which prerelease.yml counts four
+of and `seed` relays. The legs' `attest` writes `expected-platforms` as
+the job count less `COSMIC_CI_PORTABLE_SHARES` (1 on a `full` run). The
+job uploads the bytes it ran, their `executed-cosmic.sha256` and the
+share it ran as `portable-share-alpine-x86_64`; the leg's product holds
+its own share in `portable-share`. The `ci` join downloads the job's
+artifact where the platform job ran, hashes the bytes as it does a
+leg's, holds the digest to the legs', and requires, across the leg and
+the jobs, each share `1/N` to `N/N` exactly once; it fails on a missing,
+extra, duplicated or different one.
 
 A newer push supersedes a branch's run, but every main run finishes (a
 prerelease is published only from a completed run) and main's pushes
@@ -458,22 +499,19 @@ one. Pushes to the merge queue's `gh-readonly-queue/`
 branches are ignored: they run as `merge_group`, and a push run there
 would share its group and cancel it, which the queue reads as a failure.
 
-### the queue's run cancels itself
+### a failed leg cancels its matrix
 
-On the queue's run the job `cancel` watches the run's other jobs
-(`.github/scripts/cancel-on-failure.sh`, every 30 s) and cancels the
-run once one has failed, naming it in an error annotation. The gate
-(`ci`) has `always()`, so it still runs, and fails a minute or two
-later (its runner starts), where it would otherwise wait for every leg
-still running. The queue then drops
-the entry and restarts the entries behind it, which wait on a run that
-cannot merge.
+On the queue's run `platform` and `checked-shard` set `fail-fast`, so a
+failed leg cancels the other jobs of its matrix. The failed one reads
+`failure` and the rest read `cancelled`; the cancelled legs give their
+runners back, and no job holds a runner for the whole run. The jobs
+outside those matrices (`checked`, `checked-narrowing`) run to their
+end, so the gate (`ci`) reports a failed queue run, and the queue drops
+the entry, when they end, not at once.
 
-It is a job of its own, not a step of each leg, for two reasons. Only
-it holds `actions: write`, where the legs run test code with `read`. And
-the failed leg has finished when the cancel comes, so it keeps its
-`failure` instead of reading `cancelled`; the legs cancelled with it do
-read `cancelled`, so a result at the gate may too.
+No job that runs the candidate's code holds `actions: write`, since its
+token could write the Actions cache, which the workflow keeps from every
+job but `prune`. So the run is not cancelled from a leg.
 
 A leg that has failed should also stop sooner itself. On the queue's run
 each suite (`cosmic test --bail`: native, checked, portable and darwin;
@@ -482,23 +520,16 @@ running finish with their own verdicts, so the failure list may name a
 few more than one, and the tests never started keep no verdict, pass or
 fail, so none stands on a later run. The suite's summary says how many
 did not run (`N not run after the first failure`). The leg then fails
-at once, which the `cancel` job turns into a cancelled run without
-waiting on the rest of that suite. The suites run the tree's own tool,
-which parses the flag, not the pinned release the driver runs on. A
-push, the scheduled and a manual run, and `ci/run-local` do not pass
-it: they report every failing test.
+at once, which cancels the rest of its matrix without waiting on the rest
+of that suite. The suites run the tree's own tool, which parses the flag,
+not the pinned release the driver runs on. A push, the scheduled and a
+manual run, and `ci/run-local` do not pass it: they report every failing
+test.
 
-Nothing waits on `cancel`: the gate does not need it, and it names no
-required check. It starts with the legs and stops when a job has failed
-and the run is cancelled, when the gate starts (every leg has
-finished), or after 48 minutes. A call that fails is asked again, and it
-always exits 0. A cancel it fails to make leaves the legs running to the
-end.
-
-Every other run keeps its legs running to the end (`fail-fast: false`):
-no entry waits on a branch's run, a leg that goes on shows every failure
-at once, and main's and the scheduled run save from the legs that
-finish. `cancel` shows as a skipped check there.
+Every other run keeps its legs running to the end (`fail-fast` is
+false): no entry waits on a branch's run, a leg that goes on shows every
+failure at once, and main's and the scheduled run save from the legs that
+finish.
 
 ### the queue's result
 
@@ -643,13 +674,31 @@ verdicts, which would otherwise ride along whole in each save.
   checks no C function is entered by some test, which only a whole run
   answers; it saves and seeds nothing. Its `operations.db` is kept as
   `ci-driver-linux-x86_64-checked-shard-<part>`.
-- `checked` (`linux-x86_64-checked`) gathers them, after all four
-  passed (`needs`; a failed share skips it, and `ci` fails on the
-  share), except in a run that saves (main's push, the nightly): there it
-  runs past a failed share, runs no test, fails, and saves the shares' rows (a
-  failed share keeps its own, without the failed test's), so main's newest entry
-  no longer holds that test's pass. It builds the checked core again (`COSMIC_CI_CHECKED_SUITE=gather`)
-  and merges the four artifacts into a verdict cache that holds
+- `checked` (`linux-x86_64-checked`) gathers them. It starts beside the
+  shares (its `needs` hold none), boots and builds the checked core
+  (`COSMIC_CI_CHECKED_SUITE=gather`) while they run, and then waits for
+  the four (`driver.tl shares-wait`, [`cosmic_ci/shares_wait.tl`]): it asks
+  the API for the run's jobs (the latest execution of each, so a re-run
+  of the failed jobs sees the shares it carried over) every 20 s, and
+  goes on once all four completed with success. A share that completed
+  with anything else, or one running 1620 s after it started (its own
+  timeout is 1500 s), makes the wait `failure`, at once on the first,
+  where the run saves nothing (the queue, a dispatch, a branch). In a run
+  that saves (a push to main, the nightly: `HOLD`) the wait holds until
+  every share has completed, so that the rows it takes are all there,
+  and a share past its 1620 s is waited for there, not reported; a wait
+  that lasts 3000 s with a share not completed or not listed (one that
+  never got a runner, whatever start the API lists for it) ends as
+  `timeout`. Either way the job fails. After `failure` in a run that
+  saves it takes the shares' rows and runs no test, so that it saves the
+  rows (a failed share keeps its own, without the failed test's) and
+  main's newest entry no longer holds that test's pass; on `timeout` it
+  takes and saves nothing. `ci`
+  fails on the share itself (it needs `checked-shard` too). The suite
+  step runs only where the wait answered `success`, so the gather stands
+  on all four shares' verdicts (a passed share has uploaded its
+  artifact: the upload is a step of the share). The job merges the four
+  artifacts into a verdict cache that holds
   nothing of main's (its restore only looks the entry up, which the
   save compares with), then runs the whole suite, on which every test
   stands (`stands` takes it for a run that gathers: not `--all`, not `--no-shared`, even where the
@@ -658,7 +707,8 @@ verdicts, which would otherwise ride along whole in each save.
   test enters, which the rows carry. A test that keeps no verdict runs
   again here. The run's bound is 300 s (`checked_gather_timeout_ns`):
   where a share's artifact is missing the whole suite would run, and the
-  bound fails the job rather than let it take twenty minutes. Then the
+  bound fails the job rather than let it take twenty minutes. The job's
+  timeout, 60 minutes, covers its build and the longest wait. Then the
   bounded performance fixture
   (`platform performance-checked`). Its verdicts it keeps under a name of
   its own, `verdicts-linux-x86_64-checked-<host>-<features>-<digest>`,
@@ -704,7 +754,7 @@ verdicts, which would otherwise ride along whole in each save.
   an entry unread for a week is evicted.
 
 On a branch push (`light`), which runs no checked suite, the shares and
-the narrowing run do not run, and `checked` runs only the pinned CI
+the narrowing run do not run, `checked` makes no wait, and it runs only the pinned CI
 driver's check (`cosmic-driver test cosmic_ci`, 27 to 54 s a leg where
 it ran), which a light run's legs skip, and which it skips too where
 main's linux-x86_64 leg left its marker for the same key (that leg's
@@ -728,17 +778,18 @@ A full run's critical path through them, from the queue's runs of
 2026-10-23: a share's runner starts, restores, boots and builds the checked
 core in 175 to 218 s, runs its quarter of the suite (some 180 s where most
 stood, 274 to 376 s where the harness moved and none did) and keeps its
-verdicts (10 s), 365 to 408 s or 460 to 604 s; `checked` starts 15 s
-after the last share, repeats the 175 to 218 s, merges (5 s), runs the
-gathering suite (some 100 s) and the fixture (40 s), and stages its seed
-(10 s), 345 to 390 s: 710 to 800 s in all where most stood and 805 to 990 s
-where none did, against 1934 to 2326 s of the one job and the legs' 946 to
+verdicts (10 s), 365 to 408 s or 460 to 604 s; `checked` starts with
+the shares and repeats the 175 to 218 s beside them, so it waits for the
+last share only if that ends later; after the last share it downloads and
+merges (5 s), runs the gathering suite (some 100 s) and the fixture
+(40 s), and stages its seed (10 s), some 155 s: an estimate from the
+measured figures above, not a measurement, puts the run's checked path
+at 520 to 563 s after the shares start where most stood and 615 to
+759 s where none did, against 1934 to 2326 s of the one job and the legs' 946 to
 1503 s. A narrowing share takes 150 to 195 s to its boot, some 363 to 431 s
 of tests (half the whole run's 726 to 861 s, a lower estimate: each share
-compiles the tree it tests) and 10 s, 523 to 636 s or a little more. The
-checked suite's longest path, 805 to 990 s where no verdict stood, can end
-after the shortest leg's 946 s; a narrowing share ends before it. The legs
-are the queue's path otherwise.
+compiles the tree it tests) and 10 s, 523 to 636 s or a little more, and
+ends before the shortest leg; the legs are the queue's path.
 
 ### the Linux legs' container
 
@@ -1013,6 +1064,7 @@ alone.
 [`cosmic_ci/build_paths.tl`]: cosmic_ci/build_paths.tl
 [`cosmic_ci/host_id.tl`]: cosmic_ci/host_id.tl
 [`cosmic_ci/orchestration.tl`]: cosmic_ci/orchestration.tl
+[`cosmic_ci/shares_wait.tl`]: cosmic_ci/shares_wait.tl
 [`Islands.complaint`]: cosmic_ci/islands.tl
 [`Islands.help_exits`]: cosmic_ci/islands.tl
 [`Islands.not_run`]: cosmic_ci/islands.tl

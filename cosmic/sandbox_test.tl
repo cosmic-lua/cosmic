@@ -124,11 +124,13 @@ local function test_merge_takes_one_user_and_group_and_refuses_two()
 end
 
 local function test_merge_refuses_root_and_a_group_without_a_user()
-  for _, policy in ipairs({ { user = 0 }, { user = 4294967295 }, { user = 1, group = 0 } } as {Sandbox.Policy}) do
+  local roots: {Sandbox.Policy} = { { user = 0 }, { user = 4294967295 }, { user = 1, group = 0 } }
+  for _, policy in ipairs(roots) do
     local none, why = Sandbox.merge(policy)
     assert(none == nil and why:find("never root", 1, true), why)
   end
-  for _, policy in ipairs({ { user = 65534 }, { user = 1, group = 65535 } } as {Sandbox.Policy}) do
+  local overflows: {Sandbox.Policy} = { { user = 65534 }, { user = 1, group = 65535 } }
+  for _, policy in ipairs(overflows) do
     local none, why = Sandbox.merge(policy)
     assert(none == nil and why:find("overflow id", 1, true), why)
   end
@@ -160,36 +162,40 @@ local function test_merge_refuses_two_values_for_one_variable_without_saying_the
 end
 
 local function test_merge_refuses_values_a_type_does_not_stop()
-  local cases: {{any}} = {
-    { { profiles = { "bogus" } }, "$.profiles[0]" },
-    { { grants = { { path = "a", letters = "z" } } }, "$.grants[0].letters" },
-    { { grants = { { path = "a", letters = "" } } }, "$.grants[0].letters" },
-    { { grants = { { path = "", letters = "r" } } }, "$.grants[0].path" },
-    { { connect = { "nope" } }, "$.connect[0]" },
-    { { connect = { "::1:80" } }, "$.connect[0]" },
-    { { connect = { "2001:db8::1:443" } }, "$.connect[0]" },
-    { { connect = { "[1.2.3.4]:80" } }, "$.connect[0]" },
-    { { connect = { "[::1:80" } }, "$.connect[0]" },
-    { { connect = { "[::g]:80" } }, "$.connect[0]" },
-    { { connect = { "[:]:80" } }, "$.connect[0]" },
-    { { connect = { "[1:2]:80" } }, "$.connect[0]" },
-    { { connect = { "[1:2:3:4:5:6:7:8:9]:80" } }, "$.connect[0]" },
-    { { connect = { "[1::2::3]:80" } }, "$.connect[0]" },
-    { { connect = { "[:1:2:3:4:5:6:7]:80" } }, "$.connect[0]" },
-    { { connect = { "[1:2:3:4:5:6:7:]:80" } }, "$.connect[0]" },
-    { { connect = { "[::1.2.3]:80" } }, "$.connect[0]" },
-    { { connect = { "[]:80" } }, "$.connect[0]" },
-    { { connect = { "[::1.2.3.04]:80" } }, "$.connect[0]" },
-    { { connect = { "[::1.2.3.256]:80" } }, "$.connect[0]" },
-    { { loopback = { "8.8.8.8" } }, "$.loopback[0]" },
-    { { loopback = { "127.0.0.2", "127.0.0.1" }, connect = { "127.0.0.1:80" } }, "$.loopback[1]" },
-    { { loopback = { "127.0.0.1" }, connect = { "[::ffff:127.0.0.1]:*" } }, "$.loopback[0]" },
-    { { env = { "A=1" } }, "$.env[0]" },
-    { { limits = { open_files = 0 } }, "$.limits.open_files" },
+  local record Refused
+    policy: Sandbox.Policy
+    at: string
+  end
+  local cases: {Refused} = {
+    { policy = { profiles = { "bogus" } }, at = "$.profiles[0]" },
+    { policy = { grants = { { path = "a", letters = "z" } } }, at = "$.grants[0].letters" },
+    { policy = { grants = { { path = "a", letters = "" } } }, at = "$.grants[0].letters" },
+    { policy = { grants = { { path = "", letters = "r" } } }, at = "$.grants[0].path" },
+    { policy = { connect = { "nope" } }, at = "$.connect[0]" },
+    { policy = { connect = { "::1:80" } }, at = "$.connect[0]" },
+    { policy = { connect = { "2001:db8::1:443" } }, at = "$.connect[0]" },
+    { policy = { connect = { "[1.2.3.4]:80" } }, at = "$.connect[0]" },
+    { policy = { connect = { "[::1:80" } }, at = "$.connect[0]" },
+    { policy = { connect = { "[::g]:80" } }, at = "$.connect[0]" },
+    { policy = { connect = { "[:]:80" } }, at = "$.connect[0]" },
+    { policy = { connect = { "[1:2]:80" } }, at = "$.connect[0]" },
+    { policy = { connect = { "[1:2:3:4:5:6:7:8:9]:80" } }, at = "$.connect[0]" },
+    { policy = { connect = { "[1::2::3]:80" } }, at = "$.connect[0]" },
+    { policy = { connect = { "[:1:2:3:4:5:6:7]:80" } }, at = "$.connect[0]" },
+    { policy = { connect = { "[1:2:3:4:5:6:7:]:80" } }, at = "$.connect[0]" },
+    { policy = { connect = { "[::1.2.3]:80" } }, at = "$.connect[0]" },
+    { policy = { connect = { "[]:80" } }, at = "$.connect[0]" },
+    { policy = { connect = { "[::1.2.3.04]:80" } }, at = "$.connect[0]" },
+    { policy = { connect = { "[::1.2.3.256]:80" } }, at = "$.connect[0]" },
+    { policy = { loopback = { "8.8.8.8" } }, at = "$.loopback[0]" },
+    { policy = { loopback = { "127.0.0.2", "127.0.0.1" }, connect = { "127.0.0.1:80" } }, at = "$.loopback[1]" },
+    { policy = { loopback = { "127.0.0.1" }, connect = { "[::ffff:127.0.0.1]:*" } }, at = "$.loopback[0]" },
+    { policy = { env = { "A=1" } }, at = "$.env[0]" },
+    { policy = { limits = { open_files = 0 } }, at = "$.limits.open_files" },
   }
   for _, case in ipairs(cases) do
-    local none, why = Sandbox.merge(case[1] as Sandbox.Policy)
-    assert(none == nil and why:find(case[2] as string, 1, true), why)
+    local none, why = Sandbox.merge(case.policy)
+    assert(none == nil and why:find(case.at, 1, true), why)
   end
 end
 

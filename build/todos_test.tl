@@ -516,24 +516,32 @@ local function test_a_path_naming_the_tree_or_a_directory_in_it_is_a_path()
     return table.concat(held, ",") .. "|" .. table.concat(split_up.words, ",")
   end
   local both = "build/a.tl,core/b.tl"
-  local cases: {{string}} = {
+  local record Split
+    held: string
+    argv: {string}
+  end
+  local cases: {Split} = {
     -- The tree itself, however written, holds everything.
-    { both .. "|", "." }, { both .. "|", "./" }, { both .. "|", root },
-    { both .. "|", ".", "build" }, { both .. "|ftruncate", ".", "ftruncate" },
+    { held = both .. "|", argv = { "." } },
+    { held = both .. "|", argv = { "./" } },
+    { held = both .. "|", argv = { root } },
+    { held = both .. "|", argv = { ".", "build" } },
+    { held = both .. "|ftruncate", argv = { ".", "ftruncate" } },
     -- A directory or file in it, however written, holds what is under it.
-    { "build/a.tl|", "build" }, { "build/a.tl|", "./build/" },
-    { "core/b.tl|", "build/../core" }, { "core/b.tl|", root .. "/core" },
-    { "build/a.tl|", "build/a.tl" },
+    { held = "build/a.tl|", argv = { "build" } },
+    { held = "build/a.tl|", argv = { "./build/" } },
+    { held = "core/b.tl|", argv = { "build/../core" } },
+    { held = "core/b.tl|", argv = { root .. "/core" } },
+    { held = "build/a.tl|", argv = { "build/a.tl" } },
     -- A name nothing has is words; so is the empty word.
-    { both .. "|ftruncate,cosmic.sys", "ftruncate", "cosmic.sys" },
-    { both .. "|", "" },
+    { held = both .. "|ftruncate,cosmic.sys", argv = { "ftruncate", "cosmic.sys" } },
+    { held = both .. "|", argv = { "" } },
     -- A place outside the tree is a path all the same, holding nothing.
-    { "|", ".." },
+    { held = "|", argv = { ".." } },
   }
   for _, case in ipairs(cases) do
-    local argv = table.move(case, 2, #case, 1, {})
-    local got = split(argv)
-    assert(got == case[1], table.concat(argv, " ") .. ": " .. got)
+    local got = split(case.argv)
+    assert(got == case.held, table.concat(case.argv, " ") .. ": " .. got)
   end
   assert(#todos.arguments(root, { "" }).words == 1)
   assert(Fs.remove_tree(root))

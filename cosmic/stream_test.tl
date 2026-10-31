@@ -16,6 +16,17 @@ local record Fake is Stream.Transform
   rest?: function(Fake): string
 end
 
+local record Split
+  text: string
+  lines: {string}
+end
+
+local record Rest
+  text: string
+  count: integer
+  want: string
+end
+
 local function drain(reader: Stream.Reader, max_bytes?: integer): string
   local parts: mut {string} = {}
   while true do
@@ -864,20 +875,20 @@ local function trickle(s: string): Stream.Reader
 end
 
 local function test_lines_split_on_newlines_whatever_the_chunks()
-  local cases: {{string}} = {
-    { "a\nb\n", "a", "b" },
-    { "a\nb", "a", "b" },
-    { "" },
-    { "\n\n", "", "" },
-    { "a\r\nb", "a\r", "b" },
-    { "one\n\nthree", "one", "", "three" },
+  local cases: {Split} = {
+    { text = "a\nb\n", lines = { "a", "b" } },
+    { text = "a\nb", lines = { "a", "b" } },
+    { text = "", lines = {} },
+    { text = "\n\n", lines = { "", "" } },
+    { text = "a\r\nb", lines = { "a\r", "b" } },
+    { text = "one\n\nthree", lines = { "one", "", "three" } },
   }
   for _, case in ipairs(cases) do
-    local want = table.concat(case, "|", 2)
-    for _, reader in ipairs({ Stream.from_string(case[1]), trickle(case[1]) }) do
+    local want = table.concat(case.lines, "|")
+    for _, reader in ipairs({ Stream.from_string(case.text), trickle(case.text) }) do
       local got, trouble = all_lines(reader)
       assert(trouble == "", trouble)
-      assert(table.concat(got, "|") == want, string.format("%q: %s", case[1],
+      assert(table.concat(got, "|") == want, string.format("%q: %s", case.text,
         table.concat(got, "|")))
     end
   end
@@ -967,17 +978,17 @@ end
 --- them, a partial last line and none at all among them.
 local function test_rest_gives_the_bytes_after_the_last_line()
   local long = string.rep("x", 200000)
-  local cases: {{any}} = {
-    { "a\nb\nbody", 1, "b\nbody" },
-    { "a\nb\nbody", 2, "body" },
-    { "a\nb\n", 2, "" },
-    { "a\nb", 1, "b" },
-    { "a\n", 0, "a\n" },
-    { "", 0, "" },
-    { "head\r\n\r\n" .. long, 2, long },
+  local cases: {Rest} = {
+    { text = "a\nb\nbody", count = 1, want = "b\nbody" },
+    { text = "a\nb\nbody", count = 2, want = "body" },
+    { text = "a\nb\n", count = 2, want = "" },
+    { text = "a\nb", count = 1, want = "b" },
+    { text = "a\n", count = 0, want = "a\n" },
+    { text = "", count = 0, want = "" },
+    { text = "head\r\n\r\n" .. long, count = 2, want = long },
   }
   for _, case in ipairs(cases) do
-    local text, count, want = case[1] as string, case[2] as integer, case[3] as string
+    local text, count, want = case.text, case.count, case.want
     for _, reader in ipairs({ Stream.from_string(text), trickle(text) }) do
       local lines = Stream.lines(reader)
       for _ = 1, count do assert(lines:read() ~= nil) end

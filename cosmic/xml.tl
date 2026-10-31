@@ -284,20 +284,96 @@ local function escape_attribute(s: string): string
     ["\t"] = "&#9;", ["\n"] = "&#10;", ["\r"] = "&#13;" }))
 end
 
+--- The namespace the `xml` prefix is bound to, which no document declares.
+local XML_NAMESPACE <const> = "http://www.w3.org/XML/1998/namespace"
+
+--- The namespace of the `xmlns` attributes themselves, which no name may be in.
+local XMLNS_NAMESPACE <const> = "http://www.w3.org/2000/xmlns/"
+
+--- The prefixes a writer has bound: one map from namespace to prefix for each open
+--- element, outermost first, and the prefixes the events declare for themselves.
+local record Scopes
+  bound: mut {mut {string: string}}
+  declared: mut {string: boolean}
+  mut next: integer
+end
+
+--- The prefix `uri` is bound to where `scopes` stand, binding a new one in the
+--- innermost scope when none is, which `declare` is told of; nil and why when
+--- `uri` may not be one.
+local function prefix_for(scopes: Scopes, uri: string, declare: function(prefix: string, uri: string)):
+    string?, string
+  if uri == XML_NAMESPACE then return "xml", "" end
+  if uri == "" or uri == XMLNS_NAMESPACE or not carried(uri) then
+    return nil, "no namespace a name may be in: " .. string.format("%q", uri)
+  end
+  for i = #scopes.bound, 1, -1 do
+    local found = assert(scopes.bound[i])[uri]
+    if found ~= nil then return found, "" end
+  end
+  local prefix: string
+  repeat
+    scopes.next = scopes.next + 1
+    prefix = "ns" .. tostring(scopes.next)
+  until scopes.declared[prefix] == nil
+  assert(scopes.bound[#scopes.bound])[uri] = prefix
+  declare(prefix, uri)
+  return prefix, ""
+end
+
+--- `name` as it is written where `scopes` stand: as it is, or, in Clark's
+--- notation, its local part under the prefix of its namespace. Nil and why when it
+--- is no name.
+local function written_name(scopes: Scopes, name: string, declare: function(prefix: string, uri: string)):
+    string?, string
+  local uri, local_part = name:match("^{([^}]*)}(.*)$")
+  if uri == nil or local_part == nil then
+    if not is_name(name) then return nil, "not an XML name: " .. string.format("%q", name) end
+    return name, ""
+  end
+  if not is_name(local_part) or local_part:find(":", 1, true) ~= nil then
+    return nil, "not an XML name: " .. string.format("%q", name)
+  end
+  local prefix, why = prefix_for(scopes, uri, declare)
+  if prefix == nil then return nil, why end
+  return prefix .. ":" .. local_part, ""
+end
+
 --- `events`, such as a parser answers, written as an XML document in
 --- UTF-8, which a parser reads back to the same events: an element with
---- nothing in it as `<name/>`, its attributes sorted by name. nil and
---- why, naming the event, when they are no document: an element that is
---- not closed, or closed by another name; no root element, or a second;
---- text outside the root; a name that is no XML name, or one in Clark's
---- notation (write a prefix and its `xmlns` attribute); a comment holding
---- `--` or ending in `-`; an instruction whose target is `xml` in any
---- case or whose text holds `?>`; or a string that is not UTF-8 or holds
---- a character XML cannot carry, even as a reference.
+--- nothing in it as `<name/>`, its attributes sorted by name. A name in
+--- Clark's notation, `{uri}local`, as a parser asked for namespaces
+--- answers it, is written under a prefix bound to its namespace: the
+--- `xml` prefix for XML's own, and otherwise `ns1`, `ns2` and on, each
+--- declared with an `xmlns:` attribute on the first element that needs it
+--- and used by the elements inside it. A prefix the events declare or
+--- name for themselves is never chosen. nil and why, naming the event, when they
+--- are no document: an element that is not closed, or closed by another
+--- name; no root element, or a second; text outside the root; a name that
+--- is no XML name, or one in a namespace no name may be in (none, or
+--- `xmlns`'s own); two attributes written with one name; a comment
+--- holding `--` or ending in `-`; an instruction whose target is `xml` in
+--- any case or whose text holds `?>`; or a string that is not UTF-8 or
+--- holds a character XML cannot carry, even as a reference.
 function Xml.write(events: {Xml.Event}): string?, string
   local out: mut {string} = {}
+  --- The open elements' names as the events give them, and as they are written.
   local open: mut {string} = {}
+  local written: mut {string} = {}
   local roots = 0
+  local scopes: Scopes = { bound = {}, declared = {}, next = 0 }
+  -- A prefix the events name themselves, declared or in a plain name, is never
+  -- bound, so no name of theirs changes namespace.
+  local function reserve(name: string)
+    local prefix = name:match("^([^{:][^:]*):")
+    if prefix ~= nil then scopes.declared[prefix] = true end
+    local declared = name:match("^xmlns:(.+)$")
+    if declared ~= nil then scopes.declared[declared] = true end
+  end
+  for _, e in ipairs(events) do
+    if e.kind == "start" then reserve(e.name or "") end
+    for attribute in pairs(e.attributes or {}) do reserve(attribute) end
+  end
   for index, e in ipairs(events) do
     local function refuse(why: string): nil, string
       return nil, "xml: event " .. tostring(index) .. ": " .. why
@@ -305,25 +381,39 @@ function Xml.write(events: {Xml.Event}): string?, string
     local name = e.name or ""
     local text = e.text or ""
     if e.kind == "start" then
-      if not is_name(name) then return refuse("not an XML name: " .. string.format("%q", name)) end
       if #open == 0 then
         roots = roots + 1
         if roots > 1 then return refuse("a second root element") end
       end
-      local piece: mut {string} = { "<", name }
+      scopes.bound[#scopes.bound + 1] = {}
+      local values: mut {string: string} = {}
+      local function declare(prefix: string, uri: string)
+        values["xmlns:" .. prefix] = uri
+      end
+      local element, why = written_name(scopes, name, declare)
+      if element == nil then return refuse(why) end
       local attributes = e.attributes or {}
       local names: mut {string} = {}
       for attribute in pairs(attributes) do names[#names + 1] = attribute end
       table.sort(names)
       for _, attribute in ipairs(names) do
         local value = assert(attributes[attribute])
-        if not is_name(attribute) then
-          return refuse("not an XML name: " .. string.format("%q", attribute))
-        end
+        local as_written, awhy = written_name(scopes, attribute, declare)
+        if as_written == nil then return refuse(awhy) end
         if not carried(value) then
           return refuse("the value of " .. attribute .. " holds what XML cannot")
         end
-        piece[#piece + 1] = " " .. attribute .. '="' .. escape_attribute(value) .. '"'
+        if values[as_written] ~= nil then
+          return refuse("two attributes written as " .. as_written)
+        end
+        values[as_written] = value
+      end
+      local piece: mut {string} = { "<", element }
+      local order: mut {string} = {}
+      for attribute in pairs(values) do order[#order + 1] = attribute end
+      table.sort(order)
+      for _, attribute in ipairs(order) do
+        piece[#piece + 1] = " " .. attribute .. '="' .. escape_attribute(assert(values[attribute])) .. '"'
       end
       local following = events[index + 1]
       if following ~= nil and following.kind == "end" and following.name == name then
@@ -333,16 +423,20 @@ function Xml.write(events: {Xml.Event}): string?, string
       end
       out[#out + 1] = table.concat(piece)
       open[#open + 1] = name
+      written[#written + 1] = element
     elseif e.kind == "end" then
       local innermost = open[#open]
       if innermost == nil then return refuse("an end with no element open") end
       if innermost ~= name then
         return refuse("</" .. name .. "> closes <" .. innermost .. ">")
       end
+      local element = assert(written[#written])
       open[#open] = nil
+      written[#written] = nil
+      scopes.bound[#scopes.bound] = nil
       local before = events[index - 1]
       if before == nil or before.kind ~= "start" or before.name ~= name then
-        out[#out + 1] = "</" .. name .. ">"
+        out[#out + 1] = "</" .. element .. ">"
       end
     elseif e.kind == "text" then
       if #open == 0 then return refuse("text outside the root element") end

@@ -530,22 +530,26 @@ end
 --- and the hex form needs no case for where the character stands. A hex
 --- escape's space also keeps a following literal space a combinator.
 local function test_escape_css_attr_reads_as_the_spec_css_escape()
-  local spec: {{string}} = {
-    { "0a", "\\30 a" },
-    { "-", "\\-" },
-    { "-0", "-\\30 " },
-    { "--", "--" },
-    { "a b", "a\\ b" },
-    { "a.b", "a\\.b" },
-    { "x, body", "x\\,\\ body" },
-    { "\1", "\\1 " },
-    { "\127", "\\7f " },
-    { "a\0b", "a\xef\xbf\xbdb" },
-    { "caf\xc3\xa9", "caf\xc3\xa9" },
-    { "a_b-c", "a_b-c" },
+  local record Escaped
+    input: string
+    expected: string
+  end
+  local spec: {Escaped} = {
+    { input = "0a", expected = "\\30 a" },
+    { input = "-", expected = "\\-" },
+    { input = "-0", expected = "-\\30 " },
+    { input = "--", expected = "--" },
+    { input = "a b", expected = "a\\ b" },
+    { input = "a.b", expected = "a\\.b" },
+    { input = "x, body", expected = "x\\,\\ body" },
+    { input = "\1", expected = "\\1 " },
+    { input = "\127", expected = "\\7f " },
+    { input = "a\0b", expected = "a\xef\xbf\xbdb" },
+    { input = "caf\xc3\xa9", expected = "caf\xc3\xa9" },
+    { input = "a_b-c", expected = "a_b-c" },
   }
   for _, case in ipairs(spec) do
-    local input, expected = case[1], case[2]
+    local input, expected = case.input, case.expected
     assert(css_unescape(css_attr_of(input)) == css_unescape(expected), ("%q"):format(input))
     assert(css_unescape(expected) == css_unescape(css_escape(input)), ("%q"):format(input))
   end
@@ -628,21 +632,36 @@ local url: Html.SafeUrl = Html.local_href("/a")
 return Html.raw_url_part(part) .. Html.raw_json(as_json) .. Html.raw_url(url)
 ]])
   assert(ok, trouble)
-  local forged_cases: {{string}} = {
-    { "part-string", 'local f: Html.SafeUrlPart = "a"\nreturn Html.raw_url_part(f)', "SafeUrlPart" },
-    { "part-table", 'local f: Html.SafeUrlPart = {}\nreturn Html.raw_url_part(f)', "`html.SafeUrlPart`" },
-    { "json-string", 'local f: Html.SafeJson = "{}"\nreturn Html.raw_json(f)', "SafeJson" },
-    { "json-table", 'local f: Html.SafeJson = {}\nreturn Html.raw_json(f)', "`html.SafeJson`" },
-    { "url-for-part", 'return Html.raw_url_part(Html.href("/a"))', "`html.SafeUrl`" },
-    { "part-for-url", 'return Html.raw_url(Html.url_part("a"))', "`html.SafeUrlPart`" },
-    { "json-for-attr", 'local j = assert(Html.json({}))\nreturn Html.raw_attr(j)', "`html.SafeJson`" },
-    { "json-for-html", 'return Html.raw(Html.escape("a")) .. Html.raw_json(Html.escape("a"))', "`html.SafeHtml`" },
-    { "part-concat", 'return Html.url_part("a") .. "b"', "`..` takes strings" },
+  local record Forged
+    name: string
+    source: string
+    says: string
+  end
+  local forged_cases: {Forged} = {
+    { name = "part-string",
+      source = 'local f: Html.SafeUrlPart = "a"\nreturn Html.raw_url_part(f)',
+      says = "SafeUrlPart" },
+    { name = "part-table",
+      source = 'local f: Html.SafeUrlPart = {}\nreturn Html.raw_url_part(f)',
+      says = "`html.SafeUrlPart`" },
+    { name = "json-string", source = 'local f: Html.SafeJson = "{}"\nreturn Html.raw_json(f)', says = "SafeJson" },
+    { name = "json-table",
+      source = 'local f: Html.SafeJson = {}\nreturn Html.raw_json(f)',
+      says = "`html.SafeJson`" },
+    { name = "url-for-part", source = 'return Html.raw_url_part(Html.href("/a"))', says = "`html.SafeUrl`" },
+    { name = "part-for-url", source = 'return Html.raw_url(Html.url_part("a"))', says = "`html.SafeUrlPart`" },
+    { name = "json-for-attr",
+      source = 'local j = assert(Html.json({}))\nreturn Html.raw_attr(j)',
+      says = "`html.SafeJson`" },
+    { name = "json-for-html",
+      source = 'return Html.raw(Html.escape("a")) .. Html.raw_json(Html.escape("a"))',
+      says = "`html.SafeHtml`" },
+    { name = "part-concat", source = 'return Html.url_part("a") .. "b"', says = "`..` takes strings" },
   }
   for _, case in ipairs(forged_cases) do
-    ok, trouble = compiles('local Html = require("cosmic.html")\n' .. case[2] .. "\n")
-    assert(not ok, case[1] .. " type-checked")
-    assert(trouble:find(case[3], 1, true), case[1] .. ": " .. trouble)
+    ok, trouble = compiles('local Html = require("cosmic.html")\n' .. case.source .. "\n")
+    assert(not ok, case.name .. " type-checked")
+    assert(trouble:find(case.says, 1, true), case.name .. ": " .. trouble)
   end
 end
 
