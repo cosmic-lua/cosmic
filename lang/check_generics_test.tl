@@ -441,10 +441,8 @@ local function test_an_invalid_argument_silences_only_the_type_parameters_it_was
   refused(head .. "local co = coroutine.status(bad)\nprint(co)\n", "map_field")
 end
 
--- A generic function passed to an overloaded callee, taken from the values the callee passes it, says which bound a type
--- fails to meet, where it used to be `overload_none`.
 -- An `invalid` that is only a part of what is found for a variable marks it too: the type the call is expected to have
--- (`{R.Item}`, a field that is no type), an element.
+-- (`{R.Item}`, a field that is no type), an element, a member of a union.
 local function test_an_invalid_part_of_what_is_found_marks_the_variable()
   local declared = Programs.run(HEAD .. "local record R\n  Item: string\nend\nlocal function make<T>(): {T}\n  return {}\nend\n" ..
       "local xs: {R.Item} = make()\nprint(xs)\n")
@@ -453,12 +451,30 @@ local function test_an_invalid_part_of_what_is_found_marks_the_variable()
   assert(Programs.codes(declared) == "", Programs.codes(declared))
   local head = "local m: {string: integer} = { k = 1 }\nlocal bad = m.k.nothing\n"
   refused(head .. "for _, v in ipairs({ bad }) do\n  print(v)\nend\n", "map_field")
+  -- a union with an invalid member stands for the mistake in it: only the declaration is reported, and a variable
+  -- the union did not touch is still reported where nothing fixes it
+  local union = "local record R\n  Item: string\nend\nlocal function both<T, U>(a: T, b: {T} | {U}): T\n  return a\nend\n"
+  local marked = Programs.run(HEAD .. union .. "local u: {integer} | R.Item\nlocal r = both(1, u)\nprint(r)\n")
+  assert(#marked.before == 1 and marked.before[1]:find("member_missing", 1, true) ~= nil, table.concat(marked.before, " "))
+  assert(Programs.codes(marked) == "", Programs.codes(marked))
+  local plain = Programs.run(HEAD .. union .. "local u: {integer} = { 1 }\nlocal r = both(1, u)\nprint(r)\n")
+  assert(Programs.codes(plain) == "cannot_infer", Programs.codes(plain))
 end
 
+-- A generic function passed to an overloaded callee, taken from the values the callee passes it, says which bound a type
+-- fails to meet, where it used to be `overload_none`.
+-- It is the answer only where it is why the call fails: a function of another arity is rejected as it is, with or without it.
 local function test_a_bound_a_passed_generic_function_does_not_meet_is_bound_unmet()
   local head = "local interface Named\n  name: string\nend\nlocal record Plain\n  name: string\nend\n" ..
     "local function label<T is Named>(x: T): string\n  return x.name\nend\nlocal p: Plain = { name = \"ann\" }\n"
   refused(head .. "local ok, r = pcall(label, p)\nprint(ok, r)\n", "bound_unmet")
+  -- a bound that is not the only failure is not the answer: declaring `Plain is Named` would still leave this call refused
+  refused(head .. "local ok, r = pcall(label, p, 5)\nprint(ok, r)\n", "overload_none")
+  -- a type the program cannot give the interface to is told only to pass one that has it
+  local built_in = Programs.run(HEAD .. head .. "local ok, r = pcall(label, 5)\nprint(ok, r)\n")
+  local said = built_in.errors[1]
+  assert(Programs.codes(built_in) == "bound_unmet" and said ~= nil and said.fix:find("declare `is", 1, true) == nil and
+      said.fix:find("pass a type that declares `is Named`", 1, true) ~= nil, Programs.codes(built_in))
   refused(head .. "local function h(e: any): any\n  return e\nend\nlocal ok, r = xpcall(label, h, p)\nprint(ok, r)\n",
     "bound_unmet")
   stands("local interface Named\n  name: string\nend\nlocal class Person is Named\n  name: string\nend\n" ..

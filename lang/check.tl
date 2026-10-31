@@ -4413,17 +4413,8 @@ local record Unmet
   fix: string
   held: string
   bound: string
-  --- The argument the generic function is.
-  arg: integer
 end
 
---- A candidate of an overloaded callee that took the number of arguments and failed, and whether it failed on a bound.
-local record Tried
-  text: string
-  unmet: Unmet?
-end
-
---- What instantiating a generic function for a call gave: the instance, or nil and why not.
 local record Instance
   fn: Fn?
   why: string
@@ -4760,16 +4751,27 @@ function Calls.solve(ctx: Ctx, node: Ast.Node, callee: string, c: Fn, args: {Ast
         end
         -- The instance is taken only if every type parameter is solved, none conflicts, and each meets its bound.
         local meets = #solved == #given_fn.tparams and #sub.conflicts == 0
+        local failed: Unmet? = nil
         for k, tp in ipairs(given_fn.tparams) do
           local bound, held = tp.bound, solved[k]
           if meets and bound ~= nil and held ~= nil and not below(ctx, held, bound) then
             meets = false
-            unmet = unmet or { message = tq(ctx, held) .. " is the type parameter " .. quoted(Types.letter(k - 1)) ..
+            local fix = "pass a type that declares `is " .. show(ctx, bound) .. "`"
+            -- Only a type the program declares can be given the interface.
+            if held.tag == "named" and (held.decl.kind == "record" or held.decl.kind == "class") then
+              fix = "declare `is " .. show(ctx, bound) .. "` on " .. tq(ctx, held) .. ", or " .. fix
+            end
+            failed = failed or { message = tq(ctx, held) .. " is the type parameter " .. quoted(Types.letter(k - 1)) ..
                 " of the function passed as argument " .. tostring(i) .. " of " .. quoted(callee) .. ", which is bounded by " ..
-                tq(ctx, bound) .. ", and " .. tq(ctx, held) .. " does not list it",
-              fix = "list the interface in the declaration of " .. tq(ctx, held) .. " (`is " .. show(ctx, bound) ..
-                "`), or pass a type that does", held = show(ctx, held), bound = show(ctx, bound), arg = i }
+                tq(ctx, bound) .. ", and " .. tq(ctx, held) .. " does not declare `is " .. show(ctx, bound) .. "`",
+              fix = fix, held = show(ctx, held), bound = show(ctx, bound) }
           end
+        end
+        -- The bound is the failure only if the function would otherwise be taken as the parameter: a function of another
+        -- arity or shape fails on that, and the bound would not mend it.
+        if failed ~= nil and #solved == #given_fn.tparams and #sub.conflicts == 0 then
+          local instance = Relation.specialize(store, given_fn, solved)
+          if instance ~= nil and below(ctx, instance, seen) then unmet = unmet or failed end
         end
         if meets then
           local instance = Relation.specialize(store, given_fn, solved)
@@ -5009,10 +5011,8 @@ local function apply_overloads(ctx: Ctx, node: Ast.Node, callee: string, cands: 
   local known, pending, tail, count = prep.known, prep.pending, prep.tail, prep.count
   local reasons: mut {string} = {}
   local unmet: Unmet? = nil
-  -- The candidates that took the number of arguments and failed, for what the bound explains of them.
-  local tried: mut {Tried} = {}
   for _, declared in ipairs(cands) do
-    local own: Unmet? = nil
+
     if (declared.tag == "fn") then
       local c: Fn = declared
       local failure = ""
@@ -5021,8 +5021,7 @@ local function apply_overloads(ctx: Ctx, node: Ast.Node, callee: string, cands: 
       if wrong_count == nil and #declared.tparams > 0 then
         local solved = Calls.solve(ctx, node, callee, declared, args, prep, off, recv, expected, false)
         local made = solved.fn
-        own = solved.unmet
-        unmet = unmet or own
+        unmet = unmet or solved.unmet
         if made == nil then
           failure = solved.why
         elseif solved.holes ~= nil and #solved.holes > 0 then
@@ -5098,7 +5097,6 @@ local function apply_overloads(ctx: Ctx, node: Ast.Node, callee: string, cands: 
         return c.rets
       end
       reasons[#reasons + 1] = overload_line(ctx, declared, failure)
-      if wrong_count == nil then tried[#tried + 1] = { text = failure, unmet = own } end
     end
   end
   for i, a in ipairs(args) do
@@ -5149,16 +5147,8 @@ local function apply_overloads(ctx: Ctx, node: Ast.Node, callee: string, cands: 
     end
   end
   local first = reasons[1]
-  -- The bound is the answer when it explains every candidate that took the arguments: each failed on it, or on the
-  -- generic function argument it is a bound of.
-  local explained = unmet ~= nil
+  -- `unmet` is set only for a candidate that the bound alone kept from being taken: meeting it would accept the call.
   if unmet ~= nil then
-    local prefix = "argument " .. tostring(unmet.arg) .. " is "
-    for _, t in ipairs(tried) do
-      if t.unmet == nil and t.text:sub(1, #prefix) ~= prefix then explained = false end
-    end
-  end
-  if unmet ~= nil and explained then
     report(ctx, "bound_unmet", node, unmet.message, unmet.fix, { unmet.held, unmet.bound })
     return unknown_lists(ctx)
   end
