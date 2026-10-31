@@ -4408,12 +4408,22 @@ local record Prepared
 end
 
 --- What instantiating a generic function for a call gave: the instance, or nil and why not.
+--- A bound a type does not meet, as `bound_unmet` words it.
+local record Unmet
+  message: string
+  held: string
+  bound: string
+end
+
 local record Instance
   fn: Fn?
   why: string
   --- The type parameters that a shape the arguments lack left with no type, and nothing else reported (the instance
   --- holds `invalid` for them).
   holes: {integer}?
+  --- Set when a generic function passed as an argument could not be taken because a type it was found for does not meet
+  --- its bound: what `bound_unmet` says of it.
+  unmet: Unmet?
 end
 
 --- The steps of a generic call.
@@ -4715,6 +4725,7 @@ function Calls.solve(ctx: Ctx, node: Ast.Node, callee: string, c: Fn, args: {Ast
   -- A generic function passed where the callee takes a function is instantiated from the parameters the callee passes it,
   -- as far as the other arguments have solved them, and what the instance answers solves the callee's own parameters:
   -- `pcall(id, v)` answers the type of `v`, where a parameter nothing fixes would be `invalid`, which every type accepts.
+  local unmet: Unmet? = nil
   for i = 1, prep.count do
     local given_fn, wanted_fn = prep.known[i], parameter_at(c, off, i)
     if given_fn ~= nil and wanted_fn ~= nil and given_fn.tag == "fn" and #given_fn.tparams > 0 and
@@ -4744,6 +4755,10 @@ function Calls.solve(ctx: Ctx, node: Ast.Node, callee: string, c: Fn, args: {Ast
           local bound, held = tp.bound, solved[k]
           if meets and bound ~= nil and held ~= nil and not below(ctx, held, bound) then
             meets = false
+            unmet = unmet or { message = tq(ctx, held) .. " is the type parameter " .. quoted(Types.letter(k - 1)) ..
+                " of the function passed as argument " .. tostring(i) .. " of " .. quoted(callee) .. ", which is bounded by " ..
+                tq(ctx, bound) .. ", and " .. tq(ctx, held) .. " does not list it", held = show(ctx, held),
+              bound = show(ctx, bound) }
           end
         end
         if meets then
@@ -4788,13 +4803,10 @@ function Calls.solve(ctx: Ctx, node: Ast.Node, callee: string, c: Fn, args: {Ast
       given[#given + 1] = held
     else
       given[#given + 1] = ctx.invalid
-      -- TODO: report a parameter nothing solved even when an argument is `invalid` (`solver.invalid`), once a call whose
-      -- argument is `invalid` after an error already reported gives no secondary hole: removing the test now makes
-      -- `pairs`, `ipairs`, `coroutine.close` and `coroutine.status` of an `invalid` value fail in cosmic/poll.tl,
-      -- cosmic/sqlite.tl and build/fuzz/init.tl, each after the error that made the value `invalid`.
-      if solver.tainted[i] ~= true and not solver.invalid then
+      -- A parameter an `invalid` type was found for is not reported: the mistake that made it is, where it was made.
+      if solver.tainted[i] ~= true and solver.invalid_at[i] ~= true then
         unbound[#unbound + 1] = i
-      elseif solver.tainted[i] == true and not solver.invalid then
+      elseif solver.tainted[i] == true and solver.invalid_at[i] ~= true then
         holes[#holes + 1] = i
       end
     end
@@ -4874,7 +4886,7 @@ function Calls.solve(ctx: Ctx, node: Ast.Node, callee: string, c: Fn, args: {Ast
     end
     return { why = "its instance nests too deep" }
   end
-  return { fn = made, why = "", holes = holes }
+  return { fn = made, why = "", holes = holes, unmet = unmet }
 end
 
 --- An array or map type that `t` holds whose elements or values may be nil, or nil: what an instance makes of a type
@@ -4986,6 +4998,7 @@ local function apply_overloads(ctx: Ctx, node: Ast.Node, callee: string, cands: 
   local prep = Calls.prepare(ctx, args, nil)
   local known, pending, tail, count = prep.known, prep.pending, prep.tail, prep.count
   local reasons: mut {string} = {}
+  local unmet: Unmet? = nil
   for _, declared in ipairs(cands) do
     if (declared.tag == "fn") then
       local c: Fn = declared
@@ -4999,6 +5012,7 @@ local function apply_overloads(ctx: Ctx, node: Ast.Node, callee: string, cands: 
           failure = solved.why
         elseif solved.holes ~= nil and #solved.holes > 0 then
           failure = "a type parameter gets no type from the arguments"
+          unmet = unmet or solved.unmet
         else
           c = made
         end
@@ -5120,6 +5134,12 @@ local function apply_overloads(ctx: Ctx, node: Ast.Node, callee: string, cands: 
     end
   end
   local first = reasons[1]
+  if unmet ~= nil then
+    report(ctx, "bound_unmet", node, unmet.message,
+      "list the interface in the declaration of the type, or pass a function that takes one that does",
+      { unmet.held, unmet.bound })
+    return unknown_lists(ctx)
+  end
   report(ctx, "overload_none", node, "no overload of " .. quoted(callee) .. " takes the arguments (" ..
       table.concat(shown, ", ") .. ")",
     (Calls.fixes[callee] or "pass arguments one overload accepts, in its order") .. ": " .. table.concat(reasons, "; "),

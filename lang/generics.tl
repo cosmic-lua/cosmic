@@ -70,8 +70,10 @@ local record Generics
     --- The variables of a pattern whose shape the type found lacked.
     tainted: mut {integer: boolean}
     mut conflicts: mut {Conflict}
-    --- Set when a type found was `invalid`: the mistake is reported already, so nothing it leaves unsolved is.
-    mut invalid: boolean
+    --- The variables a type found for was `invalid`: the mistake is reported already (an `invalid` type is made only where
+    --- one is, in this module or in one it imports), so nothing they leave unsolved is. A variable the invalid type
+    --- did not touch is reported if nothing solves it.
+    invalid_at: mut {integer: boolean}
     --- What the type expected tells, kept apart: it fills a variable nothing else fixed, and a variable only
     --- arguments below it gave takes the type it requires exactly (`hint`).
     fallback: mut {integer: Type}
@@ -173,7 +175,7 @@ end
 function Generics.new(store: Store, fn: Fn, hooks: Generics.Hooks): Generics.Solver
   return {
     store = store, fn = fn, hooks = hooks, lower = {}, upper = {}, exact = {}, lower_at = {}, upper_at = {}, exact_at = {},
-    tainted = {}, conflicts = {}, invalid = false, fallback = {}, hint = {},
+    tainted = {}, conflicts = {}, invalid_at = {}, fallback = {}, hint = {},
   }
 end
 
@@ -218,7 +220,7 @@ end
 local function bind(s: Generics.Solver, index: integer, actual: Type, dir: Generics.Direction, at: integer)
   local tag = actual.tag
   if tag == "invalid" then
-    s.invalid = true
+    s.invalid_at[index] = true
     return
   end
   if dir == "into" then
@@ -269,6 +271,13 @@ local function flip(dir: Generics.Direction): Generics.Direction
 end
 
 --- The variables of `pattern` are not solved from a shape the type found lacks.
+--- The variables of `pattern`, whose type found was `invalid`.
+local function mark_invalid(s: Generics.Solver, pattern: Type)
+  walk(pattern, 0, function(index: integer)
+    s.invalid_at[index] = true
+  end)
+end
+
 local function taint(s: Generics.Solver, pattern: Type)
   walk(pattern, 0, function(index: integer)
     s.tainted[index] = true
@@ -348,7 +357,7 @@ visit = function(s: Generics.Solver, pattern: Type, actual: Type, dir: Generics.
     return
   end
   if actual.tag == "invalid" then
-    s.invalid = true
+    mark_invalid(s, pattern)
     taint(s, pattern)
     return
   end
@@ -472,7 +481,7 @@ function Generics.expect(s: Generics.Solver, pattern: Type, expected: Type)
     return
   elseif expected.tag == "invalid" then
     -- The place was reported when it was made, and a variable only it could fix is not reported again.
-    s.invalid = true
+    mark_invalid(s, pattern)
     taint(s, pattern)
     return
   elseif expected.tag == "any" then
