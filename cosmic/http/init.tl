@@ -28,21 +28,11 @@ local Hash = require("cosmic.hash")
 local Store = require("cosmic.store")
 
 -- The raw module behind this one lives under the reserved
--- `cosmic.internal.` namespace, which an ordinary `require` never
--- satisfies (see cosmic/store.tl for why). It arrives instead as the
--- second argument the loader passes this chunk, present because this
--- module was itself loaded, trusted, from the binary's own tree. Boot
--- mode falls back to requiring it by name, which only boot's own
--- preload answers.
+-- `cosmic.internal.` namespace, which only cosmic's own tree may require
+-- (see cosmic/store.tl for why).
 local type raw_http = require("cosmic.internal.http")
 
-local extra: any = select(2, ...)
-local http: raw_http
-if type(extra) == "table" then
-  http = extra as raw_http
-else
-  http = require("cosmic.internal.http")
-end
+local http = require("cosmic.internal.http")
 
 local Stream = require("cosmic.stream")
 -- Only the type: cosmic.net is the networking stack a program that

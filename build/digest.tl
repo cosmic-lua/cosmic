@@ -1,7 +1,6 @@
 --- SHA-256 as the build keys and lays out with it: raw, as lowercase
 --- hexadecimal, and a chunk at a time, straight over the core's raw hash
---- table, which this module is handed as it loads (core/store.c's
---- `raw_modules`).
+--- table, which this module takes as it loads.
 ---
 --- It stands in for cosmic.hash and cosmic.codec in the modules that
 --- compute a verdict key and in what a test worker loads (build.test_key's
@@ -13,17 +12,10 @@
 
 local key_parts = require("build.key_parts")
 
---- The raw module the store hands this one. Boot mode falls back to
---- requiring it by name, which only boot's own preload answers.
+--- The raw hash module, taken as this loads.
 local type raw_hash = require("cosmic.internal.hash")
 
-local extra: any = select(2, ...)
-local raw: raw_hash
-if type(extra) == "table" then
-  raw = extra as raw_hash
-else
-  raw = require("cosmic.internal.hash")
-end
+local raw = require("cosmic.internal.hash")
 
 local digest_of, hasher_of, hex = raw.digest, raw.hasher, key_parts.hex
 

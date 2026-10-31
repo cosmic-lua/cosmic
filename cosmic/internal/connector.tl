@@ -21,22 +21,13 @@ local sys = require("cosmic.sys")
 
 local Connection = require("cosmic.internal.connection")
 
---- The raw process and socket tables, handed together to this chunk's
---- loader as the second argument `require` passes it: the process table
---- starts and reaps the connector, the socket table speaks to it.
+--- The raw process and socket tables: the process table starts and reaps the
+--- connector, the socket table speaks to it.
 local type raw_process = require("cosmic.internal.process")
 local type raw_socket = require("cosmic.internal.socket")
 
-local extra: any = select(2, ...)
-local raw: raw_socket
-local process_raw: raw_process
-if type(extra) == "table" then
-  raw = extra as raw_socket
-  process_raw = extra as raw_process
-else
-  raw = require("cosmic.internal.socket")
-  process_raw = require("cosmic.internal.process")
-end
+local raw = require("cosmic.internal.socket")
+local process_raw = require("cosmic.internal.process")
 
 local CONNECTOR_GRACE_NS <const> = Clock.seconds(1)
 --- The flights a connector with a table and public lists keeps for each
